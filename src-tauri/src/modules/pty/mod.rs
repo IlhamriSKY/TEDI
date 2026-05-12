@@ -127,7 +127,7 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
         // sometimes manifests as the closed pane refusing to disappear from
         // the React tree because subsequent IPC stalls behind it.
         thread::Builder::new()
-            .name(format!("terax-pty-drop-{id}"))
+            .name(format!("cmdan-pty-drop-{id}"))
             .spawn(move || {
                 let t0 = std::time::Instant::now();
                 drop(s);

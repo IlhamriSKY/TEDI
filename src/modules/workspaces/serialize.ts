@@ -24,12 +24,11 @@ function nodeToSaved(node: PaneNode): SavedPaneNode {
   };
 }
 
-export function tabToSaved(tab: Tab): SavedTab | null {
+function tabToSaved(tab: Tab): SavedTab | null {
   if (tab.kind === "preview") {
     return { kind: "preview", url: tab.url, title: tab.title };
   }
   if (tab.kind === "ai-diff") return null; // session-only
-  // pane
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {
@@ -40,10 +39,16 @@ export function tabToSaved(tab: Tab): SavedTab | null {
   };
 }
 
+export function serializeTabs(tabs: Tab[]): SavedTab[] {
+  const out: SavedTab[] = [];
+  for (const t of tabs) {
+    const s = tabToSaved(t);
+    if (s !== null) out.push(s);
+  }
+  return out;
+}
+
 // -------- saved → live --------
-//
-// `allocId` is the parent's id allocator so leaf/split/tab ids never collide
-// across workspaces.
 
 function savedToNode(
   node: SavedPaneNode,
@@ -73,10 +78,7 @@ function savedToNode(
   };
 }
 
-export function savedToTab(
-  saved: SavedTab,
-  allocId: () => number,
-): Tab {
+export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   if (saved.kind === "preview") {
     const id = allocId();
     return {

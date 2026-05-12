@@ -8,8 +8,6 @@ export {
   isTerminalLikeTab,
   type Tab,
   type PaneTab,
-  type TerminalTab,
-  type EditorTab,
   type PreviewTab,
   type AiDiffTab,
   type AiDiffStatus,

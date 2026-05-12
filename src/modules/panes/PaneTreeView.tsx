@@ -10,8 +10,8 @@ import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
 import type {
-  TeraxOpenInput,
-  TeraxSpawnTabInput,
+  CmdanOpenInput,
+  CmdanSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
 
 export type LeafBundle = {
@@ -21,8 +21,8 @@ export type LeafBundle = {
   onCwd: (cwd: string) => void;
   onDetectedLocalUrl: (url: string) => void;
   onExit: (code: number) => void;
-  onTeraxOpen: (input: TeraxOpenInput) => void;
-  onTeraxSpawnTab: (input: TeraxSpawnTabInput) => void;
+  onCmdanOpen: (input: CmdanOpenInput) => void;
+  onCmdanSpawnTab: (input: CmdanSpawnTabInput) => void;
   // editor-only
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -35,6 +35,8 @@ type Props = {
   activeLeafId: number;
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
+  /** Set of editor-leaf ids currently rendered in markdown-preview mode. */
+  mdPreviewLeafIds: ReadonlySet<number>;
 };
 
 export function PaneTreeView({
@@ -43,10 +45,15 @@ export function PaneTreeView({
   activeLeafId,
   onFocusLeaf,
   getBundle,
+  mdPreviewLeafIds,
 }: Props) {
   if (node.kind === "leaf") {
     const focused = node.id === activeLeafId;
     const b = getBundle(node.id);
+    const leafClass = cn(
+      "relative h-full w-full overflow-hidden rounded-md border bg-background shadow-sm transition-colors",
+      focused ? "border-primary/60 ring-1 ring-primary/30" : "border-border",
+    );
     if (node.leafKind === "terminal") {
       return (
         <div
@@ -57,21 +64,23 @@ export function PaneTreeView({
             if (!focused) onFocusLeaf(node.id);
           }}
           data-pane-leaf={node.id}
-          className="relative h-full w-full"
+          className={leafClass}
         >
-          <TerminalPane
-            leafId={node.id}
-            visible={tabVisible}
-            focused={focused}
-            initialCwd={node.cwd}
-            ref={b.setTerminalRef}
-            onSearchReady={(_id, addon) => b.onSearchReady(addon)}
-            onCwd={(_id, cwd) => b.onCwd(cwd)}
-            onDetectedLocalUrl={(_id, url) => b.onDetectedLocalUrl(url)}
-            onExit={(_id, code) => b.onExit(code)}
-            onTeraxOpen={(_id, input) => b.onTeraxOpen(input)}
-            onTeraxSpawnTab={(_id, input) => b.onTeraxSpawnTab(input)}
-          />
+          <div className="h-full w-full p-1.5">
+            <TerminalPane
+              leafId={node.id}
+              visible={tabVisible}
+              focused={focused}
+              initialCwd={node.cwd}
+              ref={b.setTerminalRef}
+              onSearchReady={(_id, addon) => b.onSearchReady(addon)}
+              onCwd={(_id, cwd) => b.onCwd(cwd)}
+              onDetectedLocalUrl={(_id, url) => b.onDetectedLocalUrl(url)}
+              onExit={(_id, code) => b.onExit(code)}
+              onCmdanOpen={(_id, input) => b.onCmdanOpen(input)}
+              onCmdanSpawnTab={(_id, input) => b.onCmdanSpawnTab(input)}
+            />
+          </div>
         </div>
       );
     }
@@ -85,16 +94,14 @@ export function PaneTreeView({
           if (!focused) onFocusLeaf(node.id);
         }}
         data-pane-leaf={node.id}
-        className={cn(
-          "relative h-full w-full overflow-hidden rounded-md border bg-background",
-          focused ? "border-primary/40" : "border-border/60",
-        )}
+        className={leafClass}
       >
         <EditorPane
           ref={b.setEditorRef}
           path={node.path}
           onDirtyChange={b.onDirtyChange}
           onClose={b.onCloseLeaf}
+          mdPreview={mdPreviewLeafIds.has(node.id)}
         />
       </div>
     );
@@ -103,10 +110,16 @@ export function PaneTreeView({
   return (
     <ResizablePanelGroup
       orientation={node.dir === "row" ? "horizontal" : "vertical"}
+      className="gap-1.5"
     >
       {node.children.map((child, i) => (
         <Fragment key={child.id}>
-          {i > 0 && <ResizableHandle />}
+          {i > 0 && (
+            <ResizableHandle
+              withHandle
+              className="bg-border/50 hover:bg-primary/50 transition-colors"
+            />
+          )}
           <ResizablePanel id={`pane-${child.id}`} minSize="10%">
             <PaneTreeView
               node={child}
@@ -114,6 +127,7 @@ export function PaneTreeView({
               activeLeafId={activeLeafId}
               onFocusLeaf={onFocusLeaf}
               getBundle={getBundle}
+              mdPreviewLeafIds={mdPreviewLeafIds}
             />
           </ResizablePanel>
         </Fragment>

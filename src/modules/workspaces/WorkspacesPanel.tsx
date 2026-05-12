@@ -21,13 +21,18 @@ type Props = {
   onSwitch: (workspaceId: string) => void;
   /** Called when the user clicks "+". The caller seeds a new tab strip. */
   onCreate: () => void;
+  /**
+   * Called when the user closes a workspace. The caller is responsible for
+   * discarding the closed workspace's live tabs and rehydrating the neighbor
+   * that the store hands focus to.
+   */
+  onClose: (workspaceId: string) => void;
 };
 
-export function WorkspacesPanel({ onSwitch, onCreate }: Props) {
+export function WorkspacesPanel({ onSwitch, onCreate, onClose }: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
-  const remove = useWorkspacesStore((s) => s.removeWorkspace);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -126,7 +131,7 @@ export function WorkspacesPanel({ onSwitch, onCreate }: Props) {
                   {workspaces.length > 1 && (
                     <IconTooltip label="Close workspace">
                       <Button
-                        onClick={() => remove(w.id)}
+                        onClick={() => onClose(w.id)}
                         aria-label="Close workspace"
                         variant="ghost"
                         size="icon-sm"

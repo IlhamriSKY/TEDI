@@ -79,7 +79,7 @@ export function SettingsApp() {
       }
     };
     const unlistenPromise = getCurrentWebviewWindow().listen<string>(
-      "terax:settings-tab",
+      "cmdan:settings-tab",
       (e) => apply(e.payload),
     );
     return () => {

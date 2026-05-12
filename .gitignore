@@ -7,23 +7,35 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies / builds
 node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
 
-# Editor directories and files
+# Rust / Tauri build artifacts
+src-tauri/target
+src-tauri/gen
+.tauri
+
+# Editor / OS
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-*.tsbuildinfo
+# Local config / secrets
+.env
+.env.*
+!.env.example
+.claude
 
-.vscode
-.github
+# Project-local working files
+/icon.png

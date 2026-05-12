@@ -85,14 +85,16 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "w" }],
   },
   {
+    // Triggers a horizontal split (new tab beside the focused one).
     id: "pane.splitRight",
-    label: "Split pane right",
+    label: "Split pane horizontally",
     group: "Panes",
     defaultBindings: [{ [MOD_PROP]: true, key: "d" }],
   },
   {
+    // Triggers a vertical split (new tab stacked below the focused one).
     id: "pane.splitDown",
-    label: "Split pane down",
+    label: "Split pane vertically",
     group: "Panes",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "d" }],
   },

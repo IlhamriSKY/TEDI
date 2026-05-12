@@ -1,7 +1,7 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 
-const STORE_PATH = "terax-ai-workspaces.json";
+const STORE_PATH = "cmdan-workspaces.json";
 const KEY_LIST = "workspaces";
 const KEY_ACTIVE = "activeId";
 
@@ -151,6 +151,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
 
     removeWorkspace(id) {
       const before = get();
+      const removedIdx = before.workspaces.findIndex((w) => w.id === id);
       const next = before.workspaces.filter((w) => w.id !== id);
       // Always keep at least one workspace around — collapse-to-default if
       // the user deletes the last one.
@@ -163,8 +164,12 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
         };
         set({ workspaces: [ws], activeId: ws.id });
       } else {
+        // When closing the active workspace, hand focus to the neighbor —
+        // prefer the one below (same index after filter), fall back to above.
+        const neighborIdx =
+          removedIdx >= next.length ? next.length - 1 : removedIdx;
         const newActive =
-          before.activeId === id ? next[0].id : before.activeId;
+          before.activeId === id ? next[neighborIdx].id : before.activeId;
         set({ workspaces: next, activeId: newActive });
       }
       void persist();

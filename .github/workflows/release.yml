@@ -78,9 +78,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -89,8 +86,8 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Terax ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install. Auto-update is built in."
+          releaseName: "CMDAN ${{ github.ref_name }}"
+          releaseBody: "Download the artifact for your platform from the assets below. Auto-update is disabled in CMDAN — install manually."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

@@ -1,101 +1,98 @@
 <div align="center">
-  <img src="public/logo.png" width="144" height="144" alt="Terax" />
-  <h1>Terax</h1>
+  <img src="public/icon.png" width="120" height="120" alt="CMDAN" />
+  <h1>CMDAN</h1>
 
-  <p><strong>Open-source lightweight cross-platform AI-native terminal (ADE)</strong></p>
+  <p><strong>AI-native terminal emulator — fork of <a href="https://github.com/crynta/terax-ai">crynta/terax-ai</a></strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-0.5.9-blue" alt="version" />
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
     <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="platform" />
-
+    <img src="https://img.shields.io/badge/fork%20of-crynta%2Fterax--ai-blue" alt="fork" />
   </p>
 </div>
 
 ---
 
-Terax is a fast, lightweight AI terminal (ADE) built on Tauri 2 + Rust and React 19. It pairs a native PTY backend with a modern UI — multi-tab terminals, an integrated code editor, a file explorer, and a first-class AI side-panel that works with your own API keys (or fully local models via LM Studio). Under 10 MB on disk, no telemetry, keys stored in the OS keychain.
+CMDAN is an opinionated fork of [Terax](https://github.com/crynta/terax-ai). Same Tauri 2 + Rust core, same xterm.js + CodeMirror frontend, same BYOK AI — with a heavier focus on multi-project workflows, in-terminal navigation, and visual previews. See [Differences vs. Terax](#differences-vs-terax) below for what changed.
 
-## Screenshots
+> **Heads-up**: auto-update is disabled in this fork. Grab new builds manually from the [Releases](https://github.com/IlhamriSKY/CMDAN/releases) page.
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/terminal.png" alt="Terminal" /><br/><sub>Multi-tab terminal with WebGL rendering</sub></td>
-    <td align="center"><img src="docs/web-preview.png" alt="Web preview" /><br/><sub>Web preview of local dev servers</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><img src="docs/ai-workflow.png" alt="AI window" /><br/><sub>AI agentic workflow with edit diffs in the code editor</sub></td>
-  </tr>
-</table>
+## Install
+
+Pre-built binaries: **[Releases → latest](https://github.com/IlhamriSKY/CMDAN/releases/latest)**
+
+Windows · macOS · Linux (`.deb`, `.rpm`, `.AppImage`). Pick the artifact for your OS, download, install. No auto-updater — re-download from Releases when a new version drops.
 
 ## Features
 
 **Terminal**
-- xterm.js + WebGL renderer, multi-tab with background streaming
-- Native PTY backend via `portable-pty` (zsh, bash, pwsh, …)
-- Shell integration (cwd reporting, prompt markers) via injected init scripts
+- xterm.js + WebGL, multi-tab, background-streaming inactive tabs
+- Native PTY via `portable-pty` (zsh, bash, fish, pwsh, …)
+- Shell integration: cwd + prompt markers via OSC 7 / 133
+- **Spawn new tabs *from inside* a shell** — no more `start cmd` or `gnome-terminal` popping outside the app (OSC 8889 + `cmdan_open`)
+- **Split panes**: horizontal and vertical, mix terminals and editors freely
 - Inline search, link detection, true-color
 
 **Editor**
-- CodeMirror 6 with language support for TS/JS, Rust, Python, HTML/CSS, JSON, Markdown
-- Inline AI autocomplete and AI edit diffs
-- Vim mode
-- Prebuilt themes: Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode
+- CodeMirror 6 with TS/JS, Rust, Python, PHP, HTML/CSS, JSON, Markdown, C/C++, Java, C#
+- Inline AI autocomplete + diff-based edit approvals
+- Vim mode + themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode)
+- Images render inline; Markdown has a side-by-side preview
 
-**File Explorer**
-- Catppuccin icon theme (Material Icon Theme resolver)
-- Fuzzy search, keyboard navigation, inline rename, context actions
-
-**Web Preview**
-- Auto-detects local dev servers and opens them in a preview tab
+**Workspaces & Tabs**
+- **Workspaces**: keep distinct project sessions (tab layout + cwd) and switch between them without re-opening folders
+- **Open new folder**: pick a workspace root from the header; auto-spawns a terminal there
+- **Tab grouping & reordering**: drag tabs to reorder them
+- Sortable, pinnable tabs across terminal / editor / preview / AI-diff kinds
 
 **AI (BYOK)**
-- Providers: OpenAI, Anthropic, Google, Groq, xAI, Cerebras, OpenAI-compatible
-- Local / offline models via LM Studio
-- Voice input, edit diffs, multi-agent and sub-agents
-- Snippets / skills, customizable system prompt
-- `TERAX.md` for project memory and configuration
-- Tasks, plans, search, file read/write tools with approval flow
+- OpenAI · Anthropic · Google · Groq · xAI · Cerebras · OpenAI-compatible (LM Studio for offline)
+- Voice input, multi-agent / sub-agents, snippets, custom system prompt
+- Tools: read / write / grep / glob / shell with explicit approval
+- Project memory via `CMDAN.md` at workspace root
+- Improved tool-call flow and fewer dead-end failures vs upstream
+
+**File Explorer**
+- Catppuccin / Material icon theme, fuzzy search, inline rename
+- "Reveal in terminal" opens a new tab rooted at the picked folder
 
 **Quality**
-- Lightweight and fast (~7 MB bundle)
-- API keys stored in the OS keychain 
-- No telemetry, no account required
+- Apache-2.0, no telemetry, API keys in OS keychain (`keyring`)
+- Small bundle (~7–10 MB depending on platform)
 
-## Windows notes
+## Differences vs. Terax
 
-- **SmartScreen warning**: Windows will show "Windows protected your PC" on first launch because we (temporarily) don't have a code-signing certificate yet. Click **More info** → **Run anyway**. This is normal for unsigned open-source apps.
+| Area | Upstream Terax | CMDAN |
+|---|---|---|
+| Workspaces | Single session | Named workspaces with persisted tab layouts |
+| Tabs | Standard | Sortable, draggable, group-able across kinds |
+| Splits | Single pane | Terminal + editor split panes per tab |
+| Spawn new terminal | External `cmd.exe` / shell window | Spawn inside CMDAN via OSC 8889 / `cmdan_open` |
+| Images | — | Inline preview tab |
+| Markdown | Edit only | Edit + side-by-side rendered preview |
+| AI | Stock pipeline | Improved tool routing, sub-agents, snippets, plan mode |
+| Code editor | Vanilla CM6 | Tweaked theming, gutter, vim integration polish |
+| Updater | Auto via GitHub releases | **Disabled** — download manually |
+| Bundle ID | `app.crynta.terax` | `id.ilhamrisky.cmdan` |
+| Keychain service | `terax-ai` | `cmdan` |
 
-The default shell is detected in this order: `pwsh.exe` (PowerShell 7+) → `powershell.exe` (Windows PowerShell 5.1) → `cmd.exe`.
-
-## Linux notes
-
-- **Blank window / `EGL_BAD_PARAMETER`**: WebKitGTK's hardware (DMA-BUF) renderer fails on some Wayland setups (wlroots compositors, NVIDIA's proprietary driver, minimal sessions). Terax disables it automatically when it detects one of these; if you still get a blank window or an EGL error, escalate in order:
-  1. `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Terax_*.AppImage` (`=0` forces the hardware path back on)
-  2. `WEBKIT_DISABLE_COMPOSITING_MODE=1 ./Terax_*.AppImage`
-  3. `LIBGL_ALWAYS_SOFTWARE=1 ./Terax_*.AppImage` (software rendering — slow, last resort)
-  4. Install the **`.deb` / `.rpm`** instead — they use your system's GTK/GPU libraries directly and sidestep AppImage bundling conflicts entirely.
-- **AppImage**: needs FUSE. On systems without it, run `./Terax_*.AppImage --appimage-extract-and-run`.
-- **NixOS**: prebuilt binaries can't see the system GPU stack, so the AppImage may fail with an EGL error regardless of the above. Run it through `nix run nixpkgs#appimage-run -- ./Terax_*.AppImage`, use `nixGL`, or build from source.
+The Terax upstream remains the source of truth for the core PTY/Rust backend; CMDAN periodically rebases UX changes on top of it.
 
 ## Configure AI
 
-1. Open **Settings → AI**.
-2. Pick a provider and paste your API key. For local inference, point Terax at your LM Studio endpoint.
-3. Keys are written to the OS keychain via `keyring` — they never touch disk or `localStorage`.
+Settings → AI → pick a provider, paste your API key. For local inference, point CMDAN at your LM Studio endpoint. Keys are written to the OS keychain via `keyring` — never to disk or `localStorage`.
 
 ## Build from source
 
-**Prerequisites**
-- Rust (stable) — https://rustup.rs
+**Prereqs**
+- Rust stable — https://rustup.rs
 - Node 20+ and [pnpm](https://pnpm.io)
-- Platform-specific Tauri prerequisites — https://tauri.app/start/prerequisites/
+- Tauri platform prereqs — https://tauri.app/start/prerequisites/
 
-**Run**
 ```bash
 pnpm install
-pnpm tauri dev          # development
-pnpm tauri build        # production bundle
+pnpm tauri dev     # dev
+pnpm tauri build   # production bundle
 ```
 
 **Checks**
@@ -104,14 +101,12 @@ pnpm exec tsc --noEmit          # frontend type-check
 cd src-tauri && cargo clippy    # Rust lint
 ```
 
-## Tech stack
+## Notes per platform
 
-Tauri 2 · Rust · `portable-pty` · React 19 · TypeScript · xterm.js · CodeMirror 6 · Vercel AI SDK v6 · Tailwind v4 · shadcn/ui · Zustand
-
-## Contributing
-
-Issues and PRs are welcome! Feel free to open issues, suggest features, or submit pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+- **Windows**: SmartScreen will warn on first launch (unsigned). Click *More info → Run anyway*. Shell priority: `pwsh.exe` → `powershell.exe` → `cmd.exe`.
+- **Linux**: if you hit `EGL_BAD_PARAMETER` / blank window, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. AppImage needs FUSE — otherwise run `--appimage-extract-and-run` or install the `.deb`/`.rpm`.
+- **macOS**: minimum macOS 10.15.
 
 ## License
 
-Terax is licensed under the Apache-2.0 License. For more information on our dependencies, see [Apache License 2.0](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). CMDAN is a derivative work of [crynta/terax-ai](https://github.com/crynta/terax-ai); upstream copyright notices are preserved.

@@ -67,15 +67,14 @@ import {
   leaves,
   respawnSession,
   type TerminalPaneHandle,
-  type TeraxOpenInput,
-  type TeraxSpawnTabInput,
+  type CmdanOpenInput,
+  type CmdanSpawnTabInput,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
-import { UpdaterDialog } from "@/modules/updater";
 import {
   defaultTabForEmptyWorkspace,
   savedToTab,
-  tabToSaved,
+  serializeTabs,
   useWorkspacesStore,
   WorkspacesPanel,
 } from "@/modules/workspaces";
@@ -114,11 +113,12 @@ export default function App() {
     setEditorLeafPath,
     focusPane,
     focusNextPaneInTab,
+    closePaneByLeaf,
     splitActivePane,
     closeActivePane,
-    closePaneByLeaf,
     replaceAllTabs,
     allocId,
+    reorderTabs,
   } = useTabs();
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
@@ -133,8 +133,6 @@ export default function App() {
   const activePaneTab = activeTab?.kind === "pane" ? activeTab : null;
   const isTerminalLike = activeTab ? isTerminalLikeTab(activeTab) : false;
   const isEditorLike = activeTab ? isEditorLikeTab(activeTab) : false;
-  const isPreviewTab = activeTab?.kind === "preview";
-  const isAiDiffTab = activeTab?.kind === "ai-diff";
 
   // Active leaf is the single source of truth for "what's focused inside the
   // current tab" — controls Search/AI selection/CWD wiring etc.
@@ -155,6 +153,23 @@ export default function App() {
   );
   const [activeEditorHandle, setActiveEditorHandle] =
     useState<EditorPaneHandle | null>(null);
+  /**
+   * Editor leaf ids currently rendered as a markdown-preview view instead of
+   * the source editor. Keyed by leaf id so split panes can be toggled
+   * independently. Cleaned up by `PaneStack`'s leaf-pruning effect — the IDs
+   * here for closed leaves are harmless (just a stale `Set` entry).
+   */
+  const [mdPreviewLeafIds, setMdPreviewLeafIds] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
+  const toggleMdPreviewForLeaf = useCallback((leafId: number) => {
+    setMdPreviewLeafIds((curr) => {
+      const next = new Set(curr);
+      if (next.has(leafId)) next.delete(leafId);
+      else next.add(leafId);
+      return next;
+    });
+  }, []);
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
@@ -167,7 +182,7 @@ export default function App() {
   const [home, setHome] = useState<string | null>(null);
   const [pickedRoot, setPickedRoot] = useState<string | null>(() => {
     try {
-      return localStorage.getItem("terax.workspaceRoot");
+      return localStorage.getItem("cmdan.workspaceRoot");
     } catch {
       return null;
     }
@@ -200,11 +215,14 @@ export default function App() {
     const normalized = selected.replace(/\\/g, "/");
     setPickedRoot(normalized);
     try {
-      localStorage.setItem("terax.workspaceRoot", normalized);
+      localStorage.setItem("cmdan.workspaceRoot", normalized);
     } catch {
       // Storage may be unavailable (private mode etc.) — skip persistence.
     }
-  }, [pickedRoot, activePaneTab, tabs, home]);
+    // Auto-open a terminal tab rooted at the picked folder so the user lands
+    // straight in a shell at the new workspace.
+    newTab(normalized);
+  }, [pickedRoot, activePaneTab, tabs, home, newTab]);
 
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
   useEffect(() => {
@@ -271,7 +289,14 @@ export default function App() {
   const wsActiveId = useWorkspacesStore((s) => s.activeId);
   const wsSetActive = useWorkspacesStore((s) => s.setActiveId);
   const wsCreate = useWorkspacesStore((s) => s.createWorkspace);
+  const wsRemove = useWorkspacesStore((s) => s.removeWorkspace);
   const wsSaveTabs = useWorkspacesStore((s) => s.saveWorkspaceTabs);
+
+  // When the active workspace is closed, the store reassigns activeId to a
+  // neighbor. We must skip the auto-snapshot effect for that transition so it
+  // doesn't overwrite the neighbor's saved tabs with the closing workspace's
+  // live tabs (which are still in `useTabs` until we rehydrate below).
+  const skipNextSnapshotRef = useRef(false);
 
   useEffect(() => {
     void wsHydrate();
@@ -298,70 +323,67 @@ export default function App() {
     hydratedWorkspaceRef.current = true;
   }, [wsHydrated, wsList, wsActiveId, replaceAllTabs, allocId]);
 
-  // Auto-snapshot the current workspace's tabs whenever they change. Lightly
-  // debounced via the autoSave window inside the workspaces LazyStore.
+  // Auto-snapshot tabs whenever they change. Lightly debounced via the
+  // autoSave window inside the workspaces LazyStore.
   useEffect(() => {
     if (!wsHydrated || !wsActiveId || !hydratedWorkspaceRef.current) return;
-    const saved = tabs
-      .map(tabToSaved)
-      .filter((s): s is NonNullable<ReturnType<typeof tabToSaved>> => s !== null);
-    const liveIdx = tabs.findIndex((t) => t.id === activeId);
-    // The saved index counts only persistable tabs; map by stepping through
-    // the live list in parallel.
-    let savedIdx = -1;
+    if (skipNextSnapshotRef.current) {
+      skipNextSnapshotRef.current = false;
+      return;
+    }
+    const saved = serializeTabs(tabs);
+    let savedIdx = 0;
     let i = -1;
     for (const t of tabs) {
-      const s = tabToSaved(t);
-      if (s !== null) i++;
+      if (t.kind !== "ai-diff") i++;
       if (t.id === activeId) {
-        savedIdx = s !== null ? i : -1;
+        savedIdx = i;
         break;
       }
     }
-    wsSaveTabs(
-      wsActiveId,
-      saved,
-      Math.max(0, savedIdx === -1 ? liveIdx : savedIdx),
-    );
+    wsSaveTabs(wsActiveId, saved, Math.max(0, savedIdx));
   }, [tabs, activeId, wsHydrated, wsActiveId, wsSaveTabs]);
 
   const switchToWorkspace = useCallback(
     (workspaceId: string) => {
       // Snapshot current first so we don't lose state.
       if (wsActiveId) {
-        const saved = tabs
-          .map(tabToSaved)
-          .filter((s): s is NonNullable<ReturnType<typeof tabToSaved>> => s !== null);
-        let savedIdx = -1;
+        const saved = serializeTabs(tabs);
+        let savedIdx = 0;
         let i = -1;
         for (const t of tabs) {
-          const s = tabToSaved(t);
-          if (s !== null) i++;
+          if (t.kind !== "ai-diff") i++;
           if (t.id === activeId) {
-            savedIdx = s !== null ? i : -1;
+            savedIdx = i;
             break;
           }
         }
         wsSaveTabs(wsActiveId, saved, Math.max(0, savedIdx));
       }
-      // Activate and hydrate the new workspace.
       wsSetActive(workspaceId);
       const next = useWorkspacesStore
         .getState()
         .workspaces.find((w) => w.id === workspaceId);
       if (!next) return;
-      let liveTabs: Tab[];
-      if (next.tabs.length === 0) {
-        liveTabs = [defaultTabForEmptyWorkspace(allocId, home ?? undefined)];
-      } else {
-        liveTabs = next.tabs.map((s) => savedToTab(s, allocId));
-      }
+      const liveTabs: Tab[] =
+        next.tabs.length === 0
+          ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
+          : next.tabs.map((s) => savedToTab(s, allocId));
       const target =
         liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ??
         liveTabs[0];
       replaceAllTabs(liveTabs, target?.id ?? null);
     },
-    [wsActiveId, tabs, activeId, wsSaveTabs, wsSetActive, allocId, home, replaceAllTabs],
+    [
+      wsActiveId,
+      tabs,
+      activeId,
+      wsSaveTabs,
+      wsSetActive,
+      allocId,
+      home,
+      replaceAllTabs,
+    ],
   );
 
   const createNewWorkspace = useCallback(() => {
@@ -369,6 +391,32 @@ export default function App() {
     const ws = wsCreate(`Workspace ${n}`);
     switchToWorkspace(ws.id);
   }, [wsList.length, wsCreate, switchToWorkspace]);
+
+  const closeWorkspace = useCallback(
+    (workspaceId: string) => {
+      const wasActive = workspaceId === wsActiveId;
+      // Closing the active workspace: skip the upcoming auto-snapshot so we
+      // don't clobber the neighbor's saved tabs with the closing workspace's
+      // still-live tabs.
+      if (wasActive) skipNextSnapshotRef.current = true;
+      wsRemove(workspaceId);
+      if (!wasActive) return;
+      const nextActiveId = useWorkspacesStore.getState().activeId;
+      const next = useWorkspacesStore
+        .getState()
+        .workspaces.find((w) => w.id === nextActiveId);
+      if (!next) return;
+      const liveTabs: Tab[] =
+        next.tabs.length === 0
+          ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
+          : next.tabs.map((s) => savedToTab(s, allocId));
+      const target =
+        liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ??
+        liveTabs[0];
+      replaceAllTabs(liveTabs, target?.id ?? null);
+    },
+    [wsActiveId, wsRemove, allocId, home, replaceAllTabs],
+  );
 
   // -------- AI-diff reload bridge (per-leaf) --------
   const appliedDiffsRef = useRef<Set<string>>(new Set());
@@ -545,7 +593,7 @@ export default function App() {
         return;
       }
       window.dispatchEvent(
-        new CustomEvent<string>("terax:ai-attach-file", { detail: path }),
+        new CustomEvent<string>("cmdan:ai-attach-file", { detail: path }),
       );
       openPanel();
       focusInput(null);
@@ -717,6 +765,15 @@ export default function App() {
     [newPreviewTab],
   );
 
+  /**
+   * Ctrl+D / Ctrl+Shift+D: split the active pane within the active tab.
+   * Adds a new terminal leaf next to the focused pane in the requested
+   * direction:
+   * - "row"  → new pane on the right of the focused one (horizontal split).
+   * - "col"  → new pane below the focused one (vertical split).
+   *
+   * The new leaf becomes the active pane. Bounded by `MAX_PANES_PER_TAB`.
+   */
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
@@ -728,6 +785,8 @@ export default function App() {
 
   const handleCloseTabOrPane = useCallback(() => {
     const t = tabsRef.current.find((x) => x.id === activeId);
+    // Multi-pane tab → close just the focused pane. Single-pane tab → close
+    // the whole tab.
     if (t?.kind === "pane" && leafIds(t.paneTree).length > 1) {
       closeActivePane(activeId);
       return;
@@ -744,6 +803,8 @@ export default function App() {
       "tab.next": () => cycleTab(1),
       "tab.prev": () => cycleTab(-1),
       "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
+      // Ctrl+D → split horizontal (new tab beside the focused one).
+      // Ctrl+Shift+D → split vertical (new tab stacks below the focused one).
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
       "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
@@ -842,8 +903,8 @@ export default function App() {
     [closePaneByLeaf],
   );
 
-  const handleTeraxOpen = useCallback(
-    (_leafId: number, input: TeraxOpenInput) => {
+  const handleCmdanOpen = useCallback(
+    (_leafId: number, input: CmdanOpenInput) => {
       openFileTab(input.file);
     },
     [openFileTab],
@@ -853,8 +914,8 @@ export default function App() {
   // new terminal tab rooted at `cwd` and auto-run `cmd`. Used by tools like
   // Laravel's `php artisan dev:serve` to keep all dev processes inside TERAX
   // instead of spawning external cmd.exe windows.
-  const handleTeraxSpawnTab = useCallback(
-    (_leafId: number, input: TeraxSpawnTabInput) => {
+  const handleCmdanSpawnTab = useCallback(
+    (_leafId: number, input: CmdanSpawnTabInput) => {
       const cwd = input.cwd;
       const cmd = input.cmd;
       const tabId = newTab(cwd);
@@ -918,6 +979,28 @@ export default function App() {
     activeLeafIdInTab,
     activeSearchAddon,
     activeEditorHandle,
+  ]);
+
+  /** Markdown-preview toggle exposed to the Header. Non-null only when the
+   *  active leaf is an editor pointed at a `.md`/`.markdown`/`.mdx` file. */
+  const mdPreviewToggle = useMemo(() => {
+    if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
+      return null;
+    }
+    const leaf = activeLeaf(activePaneTab);
+    if (!leaf || leaf.leafKind !== "editor") return null;
+    if (!/\.(md|markdown|mdx)$/i.test(leaf.path)) return null;
+    const leafId = activeLeafIdInTab;
+    return {
+      active: mdPreviewLeafIds.has(leafId),
+      toggle: () => toggleMdPreviewForLeaf(leafId),
+    };
+  }, [
+    isEditorLike,
+    activeLeafIdInTab,
+    activePaneTab,
+    mdPreviewLeafIds,
+    toggleMdPreviewForLeaf,
   ]);
 
   const activeCwd = useMemo(() => {
@@ -984,12 +1067,25 @@ export default function App() {
           <Header
             tabs={tabs}
             activeId={activeId}
-            onSelect={setActiveId}
-            onNew={openNewTab}
+            onSelectEntry={(tabId, leafId) => {
+              setActiveId(tabId);
+              if (leafId !== null) focusPane(tabId, leafId);
+            }}
+            onCloseEntry={(tabId, leafId) => {
+              if (leafId !== null) {
+                closePaneByLeaf(leafId);
+              } else {
+                handleClose(tabId);
+              }
+            }}
+            onNewTerminal={openNewTab}
             onNewPreview={() => openPreviewTab("")}
             onNewEditor={() => setNewEditorOpen(true)}
-            onClose={handleClose}
-            onPin={pinTab}
+            onPinLeaf={(tabId, leafId) => {
+              focusPane(tabId, leafId);
+              pinTab(tabId);
+            }}
+            onReorderTabs={reorderTabs}
             onToggleSidebar={toggleSidebar}
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
@@ -1001,6 +1097,7 @@ export default function App() {
             onOpenSettings={() => void openSettingsWindow()}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
+            mdPreviewToggle={mdPreviewToggle}
           />
 
           <main className="flex min-h-0 flex-1 flex-col">
@@ -1045,6 +1142,7 @@ export default function App() {
                       <WorkspacesPanel
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
+                        onClose={closeWorkspace}
                       />
                     </ResizablePanel>
                   </ResizablePanelGroup>
@@ -1069,20 +1167,24 @@ export default function App() {
                         onCwd={handleTerminalCwd}
                         onDetectedLocalUrl={handleDetectedLocalUrl}
                         onExit={handleLeafExit}
-                        onTeraxOpen={handleTeraxOpen}
-                        onTeraxSpawnTab={handleTeraxSpawnTab}
+                        onCmdanOpen={handleCmdanOpen}
+                        onCmdanSpawnTab={handleCmdanSpawnTab}
                         registerEditorHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
                         onCloseLeaf={handleEditorCloseLeaf}
+                        mdPreviewLeafIds={mdPreviewLeafIds}
                         onFocusLeaf={handleFocusLeaf}
                       />
                     </div>
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        !isPreviewTab && "invisible pointer-events-none",
+                        activeTab?.kind !== "preview" &&
+                          "invisible pointer-events-none",
                       )}
-                      aria-hidden={isPreviewTab ? "false" : "true"}
+                      aria-hidden={
+                        activeTab?.kind === "preview" ? "false" : "true"
+                      }
                     >
                       <PreviewStack
                         tabs={tabs}
@@ -1094,9 +1196,12 @@ export default function App() {
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        !isAiDiffTab && "invisible pointer-events-none",
+                        activeTab?.kind !== "ai-diff" &&
+                          "invisible pointer-events-none",
                       )}
-                      aria-hidden={isAiDiffTab ? "false" : "true"}
+                      aria-hidden={
+                        activeTab?.kind === "ai-diff" ? "false" : "true"
+                      }
                     >
                       <AiDiffStack
                         tabs={tabs}
@@ -1106,7 +1211,6 @@ export default function App() {
                       />
                     </div>
                   </div>
-
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -1173,8 +1277,6 @@ export default function App() {
             rootPath={explorerRoot ?? home}
             onCreated={(path) => openFileTab(path)}
           />
-
-          <UpdaterDialog />
 
           <AlertDialog
             open={pendingCloseTab !== null}

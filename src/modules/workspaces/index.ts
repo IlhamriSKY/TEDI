@@ -1,15 +1,7 @@
 export { WorkspacesPanel } from "./WorkspacesPanel";
+export { useWorkspacesStore } from "./store";
 export {
-  useWorkspacesStore,
-  newWorkspaceId,
-  type Workspace,
-  type SavedTab,
-  type SavedPaneTab,
-  type SavedPreviewTab,
-  type SavedPaneNode,
-} from "./store";
-export {
-  tabToSaved,
   savedToTab,
+  serializeTabs,
   defaultTabForEmptyWorkspace,
 } from "./serialize";

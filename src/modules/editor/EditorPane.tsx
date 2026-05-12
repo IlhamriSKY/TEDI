@@ -7,6 +7,7 @@ import {
 import { keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import { Streamdown } from "streamdown";
 import { EDITOR_THEME_EXT } from "./lib/themes";
 import {
   forwardRef,
@@ -48,6 +49,9 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
   onClose?: () => void;
+  /** When true and the file is markdown, render a rendered MD view instead
+   *  of the CodeMirror editor. Ignored for non-markdown files. */
+  mdPreview?: boolean;
 };
 
 function formatBytes(n: number): string {
@@ -57,8 +61,14 @@ function formatBytes(n: number): string {
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, Props>(
-  function EditorPane({ path, onDirtyChange, onSaved, onClose }, ref) {
-    const { doc, onChange, save, reload } = useDocument({ path, onDirtyChange });
+  function EditorPane(
+    { path, onDirtyChange, onSaved, onClose, mdPreview },
+    ref,
+  ) {
+    const { doc, liveContent, onChange, save, reload } = useDocument({
+      path,
+      onDirtyChange,
+    });
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
@@ -243,6 +253,20 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         </div>
       );
     }
+    if (doc.status === "image") {
+      return (
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 overflow-auto bg-muted/20 p-4">
+          <img
+            src={doc.dataUrl}
+            alt={path}
+            className="max-h-full max-w-full object-contain"
+          />
+          <div className="text-xs text-muted-foreground">
+            {doc.mime} · {formatBytes(doc.size)}
+          </div>
+        </div>
+      );
+    }
     if (doc.status === "binary") {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
@@ -264,28 +288,50 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
       );
     }
 
+    const isMd = /\.(md|markdown|mdx)$/i.test(path);
+    const showMdPreview = !!mdPreview && isMd;
+
+    // Keep CodeMirror mounted even while previewing markdown — unmounting
+    // discards the language compartment, so flipping back to source would
+    // lose syntax highlighting until the path changed.
     return (
-      <div className="flex h-full min-h-0 flex-col">
-        <CodeMirror
-          ref={cmRef}
-          value={doc.content}
-          onChange={onChange}
-          theme={themeExt}
-          extensions={extensions}
-          height="100%"
-          className="flex-1 min-h-0 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: false,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            searchKeymap: true,
-          }}
-        />
+      <div className="relative flex h-full min-h-0 flex-col">
+        <div
+          className={
+            showMdPreview
+              ? "invisible pointer-events-none flex flex-1 min-h-0 flex-col"
+              : "flex flex-1 min-h-0 flex-col"
+          }
+          aria-hidden={showMdPreview ? "true" : "false"}
+        >
+          <CodeMirror
+            ref={cmRef}
+            value={doc.content}
+            onChange={onChange}
+            theme={themeExt}
+            extensions={extensions}
+            height="100%"
+            className="flex-1 min-h-0 overflow-hidden"
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLineGutter: true,
+              foldGutter: false,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: true,
+              highlightActiveLine: true,
+              highlightSelectionMatches: true,
+              searchKeymap: true,
+            }}
+          />
+        </div>
+        {showMdPreview && (
+          <div className="absolute inset-0 overflow-auto bg-background p-6">
+            <Streamdown className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+              {liveContent}
+            </Streamdown>
+          </div>
+        )}
       </div>
     );
   },

@@ -36,34 +36,34 @@ export function registerPromptTracker(term: Terminal): PromptTracker {
   };
 }
 
-export type TeraxOpenInput = {
+export type CmdanOpenInput = {
   file: string;
 };
 
-export function registerTeraxOpenHandler(
+export function registerCmdanOpenHandler(
   term: Terminal,
-  onTeraxOpen: (input: TeraxOpenInput) => void,
+  onCmdanOpen: (input: CmdanOpenInput) => void,
 ): () => void {
   const d = term.parser.registerOscHandler(8888, (data) => {
-    const input = parseTeraxOpen(data);
-    if (input) onTeraxOpen(input);
+    const input = parseCmdanOpen(data);
+    if (input) onCmdanOpen(input);
     return true;
   });
   return () => d.dispose();
 }
 
-export type TeraxSpawnTabInput = {
+export type CmdanSpawnTabInput = {
   cwd?: string;
   cmd?: string;
   title?: string;
 };
 
-export function registerTeraxSpawnTabHandler(
+export function registerCmdanSpawnTabHandler(
   term: Terminal,
-  onSpawnTab: (input: TeraxSpawnTabInput) => void,
+  onSpawnTab: (input: CmdanSpawnTabInput) => void,
 ): () => void {
   const d = term.parser.registerOscHandler(8889, (data) => {
-    const input = parseTeraxSpawnTab(data);
+    const input = parseCmdanSpawnTab(data);
     if (input) onSpawnTab(input);
     return true;
   });
@@ -82,7 +82,7 @@ function parseOsc7(data: string): string | null {
   return path;
 }
 
-function parseTeraxOpen(data: string): TeraxOpenInput | null {
+function parseCmdanOpen(data: string): CmdanOpenInput | null {
   // Parse format: "file=/path/to/file"
   const fileMatch = data.match(/file=([^;]+)/);
 
@@ -95,7 +95,7 @@ function parseTeraxOpen(data: string): TeraxOpenInput | null {
   }
 }
 
-function parseTeraxSpawnTab(data: string): TeraxSpawnTabInput | null {
+function parseCmdanSpawnTab(data: string): CmdanSpawnTabInput | null {
   // Format: "cwd=/path;cmd=php artisan serve;title=Vite" — all fields optional
   // but at least one must be present. Values are URL-encoded.
   const decode = (s: string): string => {
@@ -105,7 +105,7 @@ function parseTeraxSpawnTab(data: string): TeraxSpawnTabInput | null {
       return s;
     }
   };
-  const out: TeraxSpawnTabInput = {};
+  const out: CmdanSpawnTabInput = {};
   for (const part of data.split(";")) {
     const eq = part.indexOf("=");
     if (eq < 0) continue;

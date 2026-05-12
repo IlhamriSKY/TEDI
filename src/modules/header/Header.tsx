@@ -19,9 +19,9 @@ import {
   SHORTCUTS,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
-import type { Tab } from "@/modules/tabs";
-import { TabBar } from "@/modules/tabs";
 import {
+  BookOpenIcon,
+  DocumentCodeIcon,
   FolderOpenIcon,
   GridViewIcon,
   KeyboardIcon,
@@ -37,26 +37,35 @@ import {
   type SearchInlineHandle,
   type SearchTarget,
 } from "./SearchInline";
+import type { Tab } from "@/modules/tabs";
+import { TabBar } from "@/modules/tabs";
 
 type Props = {
   tabs: Tab[];
   activeId: number;
-  onSelect: (id: number) => void;
-  onNew: () => void;
+  /** Activate a pane entry (or standalone tab when leafId is null). */
+  onSelectEntry: (tabId: number, leafId: number | null) => void;
+  /** Close a pane entry or standalone tab. */
+  onCloseEntry: (tabId: number, leafId: number | null) => void;
+  onNewTerminal: () => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
-  onClose: (id: number) => void;
-  /** Promote a preview (transient) tab to persistent. */
-  onPin: (id: number) => void;
+  /** Promote a preview-editor leaf to persistent on double-click. */
+  onPinLeaf: (tabId: number, leafId: number) => void;
+  /** Reorder a tab in the tab strip (drag-and-drop). */
+  onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
   onToggleSidebar: () => void;
   onOpenFolder: () => void;
   onSplit: (dir: "row" | "col") => void;
-  /** Active tab is a pane tab and below the per-tab pane cap. */
+  /** Layout currently below per-tab pane cap (still has room for a split). */
   canSplit: boolean;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
+  /** Markdown-preview toggle for the active editor leaf. `null` hides the
+   *  button (active tab/leaf isn't a markdown editor). */
+  mdPreviewToggle: { active: boolean; toggle: () => void } | null;
 };
 
 const COMPACT_WIDTH = 720;
@@ -64,12 +73,13 @@ const COMPACT_WIDTH = 720;
 export function Header({
   tabs,
   activeId,
-  onSelect,
-  onNew,
+  onSelectEntry,
+  onCloseEntry,
+  onNewTerminal,
   onNewPreview,
   onNewEditor,
-  onClose,
-  onPin,
+  onPinLeaf,
+  onReorderTabs,
   onToggleSidebar,
   onOpenFolder,
   onSplit,
@@ -78,6 +88,7 @@ export function Header({
   onOpenSettings,
   searchTarget,
   searchRef,
+  mdPreviewToggle,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -230,23 +241,52 @@ export function Header({
 
       {IS_MAC && <span className="mr-1 h-full w-px shrink-0 bg-border" />}
 
-      <div
-        className="flex min-w-0 flex-1 items-center gap-2"
-        data-tauri-drag-region
-      >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <TabBar
           tabs={tabs}
           activeId={activeId}
-          onSelect={onSelect}
-          onNew={onNew}
+          onSelectEntry={onSelectEntry}
+          onCloseEntry={onCloseEntry}
+          onNewTerminal={onNewTerminal}
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
-          onClose={onClose}
-          onPin={onPin}
+          onPinLeaf={onPinLeaf}
+          onReorderTabs={onReorderTabs}
           compact={compact}
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
+
+      {mdPreviewToggle && (
+        <IconTooltip
+          label={
+            mdPreviewToggle.active
+              ? "Show source"
+              : "Preview markdown"
+          }
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={mdPreviewToggle.toggle}
+            aria-label={
+              mdPreviewToggle.active ? "Show source" : "Preview markdown"
+            }
+            aria-pressed={mdPreviewToggle.active}
+            className={`size-7 shrink-0 rounded-md hover:bg-accent hover:text-foreground ${
+              mdPreviewToggle.active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground"
+            }`}
+          >
+            <HugeiconsIcon
+              icon={mdPreviewToggle.active ? DocumentCodeIcon : BookOpenIcon}
+              size={15}
+              strokeWidth={1.75}
+            />
+          </Button>
+        </IconTooltip>
+      )}
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
 

@@ -3,8 +3,8 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import {
   useTerminalSession,
-  type TeraxOpenInput,
-  type TeraxSpawnTabInput,
+  type CmdanOpenInput,
+  type CmdanSpawnTabInput,
 } from "./lib/useTerminalSession";
 
 export type TerminalPaneHandle = {
@@ -26,8 +26,8 @@ type Props = {
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
   onDetectedLocalUrl?: (leafId: number, url: string) => void;
-  onTeraxOpen?: (leafId: number, input: TeraxOpenInput) => void;
-  onTeraxSpawnTab?: (leafId: number, input: TeraxSpawnTabInput) => void;
+  onCmdanOpen?: (leafId: number, input: CmdanOpenInput) => void;
+  onCmdanSpawnTab?: (leafId: number, input: CmdanSpawnTabInput) => void;
 };
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
@@ -41,8 +41,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       onExit,
       onCwd,
       onDetectedLocalUrl,
-      onTeraxOpen,
-      onTeraxSpawnTab,
+      onCmdanOpen,
+      onCmdanSpawnTab,
     },
     ref,
   ) {
@@ -59,8 +59,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       onExit: (c) => onExit?.(leafId, c),
       onCwd: (c) => onCwd?.(leafId, c),
       onDetectedLocalUrl: (u) => onDetectedLocalUrl?.(leafId, u),
-      onTeraxOpen: (input) => onTeraxOpen?.(leafId, input),
-      onTeraxSpawnTab: (input) => onTeraxSpawnTab?.(leafId, input),
+      onCmdanOpen: (input) => onCmdanOpen?.(leafId, input),
+      onCmdanSpawnTab: (input) => onCmdanSpawnTab?.(leafId, input),
     });
 
     useEffect(() => {

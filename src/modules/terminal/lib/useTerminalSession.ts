@@ -11,14 +11,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   registerCwdHandler,
   registerPromptTracker,
-  registerTeraxOpenHandler,
-  registerTeraxSpawnTabHandler,
-  type TeraxOpenInput,
-  type TeraxSpawnTabInput,
+  registerCmdanOpenHandler,
+  registerCmdanSpawnTabHandler,
+  type CmdanOpenInput,
+  type CmdanSpawnTabInput,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 
-export type { TeraxOpenInput, TeraxSpawnTabInput };
+export type { CmdanOpenInput, CmdanSpawnTabInput };
 
 const BACKWARD_KILL_WORD = "\x17";
 
@@ -30,8 +30,8 @@ type Callbacks = {
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
-  onTeraxOpen?: (input: TeraxOpenInput) => void;
-  onTeraxSpawnTab?: (input: TeraxSpawnTabInput) => void;
+  onCmdanOpen?: (input: CmdanOpenInput) => void;
+  onCmdanSpawnTab?: (input: CmdanSpawnTabInput) => void;
 };
 
 // Lives outside React so split/unsplit re-parent the DOM without tearing
@@ -147,11 +147,11 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
         session.lastCwd = cwd;
         session.callbacks.onCwd?.(cwd);
       }),
-      registerTeraxOpenHandler(term, (input) => {
-        session.callbacks.onTeraxOpen?.(input);
+      registerCmdanOpenHandler(term, (input) => {
+        session.callbacks.onCmdanOpen?.(input);
       }),
-      registerTeraxSpawnTabHandler(term, (input) => {
-        session.callbacks.onTeraxSpawnTab?.(input);
+      registerCmdanSpawnTabHandler(term, (input) => {
+        session.callbacks.onCmdanSpawnTab?.(input);
       }),
     );
   })();
@@ -399,8 +399,8 @@ type Options = {
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
-  onTeraxOpen?: (input: TeraxOpenInput) => void;
-  onTeraxSpawnTab?: (input: TeraxSpawnTabInput) => void;
+  onCmdanOpen?: (input: CmdanOpenInput) => void;
+  onCmdanSpawnTab?: (input: CmdanSpawnTabInput) => void;
 };
 
 export function useTerminalSession({
@@ -413,24 +413,24 @@ export function useTerminalSession({
   onExit,
   onCwd,
   onDetectedLocalUrl,
-  onTeraxOpen,
-  onTeraxSpawnTab,
+  onCmdanOpen,
+  onCmdanSpawnTab,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
     onExit,
     onCwd,
     onDetectedLocalUrl,
-    onTeraxOpen,
-    onTeraxSpawnTab,
+    onCmdanOpen,
+    onCmdanSpawnTab,
   });
   cbRef.current = {
     onSearchReady,
     onExit,
     onCwd,
     onDetectedLocalUrl,
-    onTeraxOpen,
-    onTeraxSpawnTab,
+    onCmdanOpen,
+    onCmdanSpawnTab,
   };
 
   useEffect(() => {
@@ -443,8 +443,8 @@ export function useTerminalSession({
         onExit: (c) => cbRef.current.onExit?.(c),
         onCwd: (c) => cbRef.current.onCwd?.(c),
         onDetectedLocalUrl: (u) => cbRef.current.onDetectedLocalUrl?.(u),
-        onTeraxOpen: (input) => cbRef.current.onTeraxOpen?.(input),
-        onTeraxSpawnTab: (input) => cbRef.current.onTeraxSpawnTab?.(input),
+        onCmdanOpen: (input) => cbRef.current.onCmdanOpen?.(input),
+        onCmdanSpawnTab: (input) => cbRef.current.onCmdanSpawnTab?.(input),
       });
       if (visible && focused) s.term.focus();
     });

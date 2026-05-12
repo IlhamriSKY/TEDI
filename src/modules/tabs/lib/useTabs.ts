@@ -19,14 +19,15 @@ import {
 } from "@/modules/terminal/lib/panes";
 
 // Browsers cap WebGL contexts at ~16; one xterm renderer per terminal leaf.
-export const MAX_PANES_PER_TAB = 8;
+// 6 panes per tab is the product cap; raise carefully to stay below ~16
+// across multiple tabs.
+export const MAX_PANES_PER_TAB = 6;
 
 /**
- * Unified tab — holds a pane tree of mixed leaves (terminal or editor).
- *
- * Single-leaf pane tabs reproduce the old "terminal tab" or "editor tab"
- * behavior; multi-leaf pane tabs render side-by-side via the pane tree and
- * may mix terminal+editor leaves freely.
+ * A pane tab holds a tmux-style pane tree of mixed leaves (terminal or
+ * editor). Splitting (Ctrl+D / Ctrl+Shift+D) adds a new leaf adjacent to
+ * the focused one in the requested direction; layout can mix horizontal
+ * and vertical orientations within the same tree.
  *
  * `title` / `cwd` / `path` / `dirty` / `preview` are derived from the active
  * leaf and resynced whenever the tree or active leaf changes — call sites
@@ -44,14 +45,6 @@ export type PaneTab = {
   dirty?: boolean;
   preview?: boolean;
 };
-
-// Back-compat type aliases — many existing call sites still narrow on
-// `t.kind === "terminal"` / `t.kind === "editor"`. The runtime tab kind is
-// always `"pane"` now; use `activeLeafKind(t)` to discriminate.
-//
-// New code should not use these — read the active leaf instead.
-export type TerminalTab = PaneTab;
-export type EditorTab = PaneTab;
 
 export type PreviewTab = {
   id: number;
@@ -729,6 +722,24 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   /** Allocate a fresh id from the same counter that drives tabs/leaves. */
   const allocId = useCallback(() => nextIdRef.current++, []);
 
+  /** Drag-and-drop reorder: `fromTabId` is moved before `beforeTabId` (null = append). */
+  const reorderTabs = useCallback(
+    (fromTabId: number, beforeTabId: number | null) => {
+      setTabs((curr) => {
+        const from = curr.find((t) => t.id === fromTabId);
+        if (!from) return curr;
+        const others = curr.filter((t) => t.id !== fromTabId);
+        if (beforeTabId === null) return [...others, from];
+        const idx = others.findIndex((t) => t.id === beforeTabId);
+        if (idx < 0) return [...others, from];
+        const result = [...others];
+        result.splice(idx, 0, from);
+        return result;
+      });
+    },
+    [],
+  );
+
   return {
     tabs,
     activeId,
@@ -752,5 +763,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     closePaneByLeaf,
     replaceAllTabs,
     allocId,
+    reorderTabs,
   };
 }

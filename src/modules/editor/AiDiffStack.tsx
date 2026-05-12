@@ -23,7 +23,7 @@ export function AiDiffStack({ tabs, activeId, onAccept, onReject }: Props) {
               "absolute inset-0",
               !visible && "invisible pointer-events-none",
             )}
-            aria-hidden={!visible}
+            aria-hidden={visible ? "false" : "true"}
           >
             <AiDiffPane
               path={t.path}

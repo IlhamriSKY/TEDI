@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type ReadResult =
   | { kind: "text"; content: string; size: number }
+  | { kind: "image"; dataUrl: string; mime: string; size: number }
   | { kind: "binary"; size: number }
   | { kind: "toolarge"; size: number; limit: number };
 
 export type DocumentState =
   | { status: "loading" }
   | { status: "ready"; content: string; size: number }
+  | { status: "image"; dataUrl: string; mime: string; size: number }
   | { status: "binary"; size: number }
   | { status: "toolarge"; size: number; limit: number }
   | { status: "error"; message: string };
@@ -22,6 +24,9 @@ export function useDocument({ path, onDirtyChange }: Options) {
   const [doc, setDoc] = useState<DocumentState>({ status: "loading" });
   const [dirty, setDirty] = useState(false);
   const [reloadCounter, setReloadCounter] = useState(0);
+  /** Live (unsaved) buffer mirrored from `onChange`. Drives surfaces that
+   *  need to see in-progress edits, e.g. the markdown preview overlay. */
+  const [liveContent, setLiveContent] = useState<string>("");
 
   // Track the saved buffer so we can detect changes cheaply.
   const savedRef = useRef<string>("");
@@ -52,9 +57,17 @@ export function useDocument({ path, onDirtyChange }: Options) {
         if (res.kind === "text") {
           savedRef.current = res.content;
           bufferRef.current = res.content;
+          setLiveContent(res.content);
           setDoc({
             status: "ready",
             content: res.content,
+            size: res.size,
+          });
+        } else if (res.kind === "image") {
+          setDoc({
+            status: "image",
+            dataUrl: res.dataUrl,
+            mime: res.mime,
             size: res.size,
           });
         } else if (res.kind === "binary") {
@@ -87,6 +100,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
   const onChange = useCallback((next: string) => {
     bufferRef.current = next;
     setDirty(next !== savedRef.current);
+    setLiveContent(next);
   }, []);
 
   const save = useCallback(async () => {
@@ -97,5 +111,5 @@ export function useDocument({ path, onDirtyChange }: Options) {
     setDirty(false);
   }, [path, dirty]);
 
-  return { doc, dirty, onChange, save, reload };
+  return { doc, dirty, liveContent, onChange, save, reload };
 }

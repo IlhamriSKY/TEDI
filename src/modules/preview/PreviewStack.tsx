@@ -71,7 +71,7 @@ export function PreviewStack({
               "absolute inset-0",
               !visible && "invisible pointer-events-none",
             )}
-            aria-hidden={!visible}
+            aria-hidden={visible ? "false" : "true"}
           >
             <PreviewPane
               ref={getRefCallback(t.id)}

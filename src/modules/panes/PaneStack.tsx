@@ -3,8 +3,8 @@ import type { PaneTab, Tab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type {
-  TeraxOpenInput,
-  TeraxSpawnTabInput,
+  CmdanOpenInput,
+  CmdanSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useRef } from "react";
@@ -22,8 +22,8 @@ type Props = {
   onCwd: (leafId: number, cwd: string) => void;
   onDetectedLocalUrl: (leafId: number, url: string) => void;
   onExit: (leafId: number, code: number) => void;
-  onTeraxOpen?: (leafId: number, input: TeraxOpenInput) => void;
-  onTeraxSpawnTab?: (leafId: number, input: TeraxSpawnTabInput) => void;
+  onCmdanOpen?: (leafId: number, input: CmdanOpenInput) => void;
+  onCmdanSpawnTab?: (leafId: number, input: CmdanSpawnTabInput) => void;
   // Editor leaf callbacks
   registerEditorHandle: (
     leafId: number,
@@ -31,6 +31,8 @@ type Props = {
   ) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
+  /** Editor-leaf ids that should render as rendered markdown instead of source. */
+  mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
   onFocusLeaf: (tabId: number, leafId: number) => void;
 };
@@ -43,11 +45,12 @@ export function PaneStack({
   onCwd,
   onDetectedLocalUrl,
   onExit,
-  onTeraxOpen,
-  onTeraxSpawnTab,
+  onCmdanOpen,
+  onCmdanSpawnTab,
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
+  mdPreviewLeafIds,
   onFocusLeaf,
 }: Props) {
   const paneTabs = tabs.filter((t): t is PaneTab => t.kind === "pane");
@@ -59,8 +62,8 @@ export function PaneStack({
   const cwdRef = useRef(onCwd);
   const detectedUrlRef = useRef(onDetectedLocalUrl);
   const exitRef = useRef(onExit);
-  const teraxOpenRef = useRef(onTeraxOpen);
-  const teraxSpawnTabRef = useRef(onTeraxSpawnTab);
+  const cmdanOpenRef = useRef(onCmdanOpen);
+  const cmdanSpawnTabRef = useRef(onCmdanSpawnTab);
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
@@ -80,11 +83,11 @@ export function PaneStack({
     exitRef.current = onExit;
   }, [onExit]);
   useEffect(() => {
-    teraxOpenRef.current = onTeraxOpen;
-  }, [onTeraxOpen]);
+    cmdanOpenRef.current = onCmdanOpen;
+  }, [onCmdanOpen]);
   useEffect(() => {
-    teraxSpawnTabRef.current = onTeraxSpawnTab;
-  }, [onTeraxSpawnTab]);
+    cmdanSpawnTabRef.current = onCmdanSpawnTab;
+  }, [onCmdanSpawnTab]);
   useEffect(() => {
     registerEditorRef.current = registerEditorHandle;
   }, [registerEditorHandle]);
@@ -105,8 +108,8 @@ export function PaneStack({
         onCwd: (cwd) => cwdRef.current(leafId, cwd),
         onDetectedLocalUrl: (url) => detectedUrlRef.current(leafId, url),
         onExit: (code) => exitRef.current(leafId, code),
-        onTeraxOpen: (input) => teraxOpenRef.current?.(leafId, input),
-        onTeraxSpawnTab: (input) => teraxSpawnTabRef.current?.(leafId, input),
+        onCmdanOpen: (input) => cmdanOpenRef.current?.(leafId, input),
+        onCmdanSpawnTab: (input) => cmdanSpawnTabRef.current?.(leafId, input),
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),
@@ -129,13 +132,27 @@ export function PaneStack({
       {paneTabs.map((t) => {
         const tabVisible = t.id === activeId;
         return (
-          <div key={t.id} className="absolute inset-0">
+          <div
+            key={t.id}
+            // Hide inactive tabs at the wrapper level. The terminal/editor
+            // panes themselves stay mounted (so PTYs and editor state
+            // survive tab switches), but their DOM is hidden and ignores
+            // pointer events — otherwise resize handles from inactive tabs
+            // would leak into the visible workspace area.
+            className={
+              tabVisible
+                ? "absolute inset-0"
+                : "absolute inset-0 invisible pointer-events-none"
+            }
+            aria-hidden={tabVisible ? "false" : "true"}
+          >
             <PaneTreeView
               node={t.paneTree}
               tabVisible={tabVisible}
               activeLeafId={t.activeLeafId}
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
+              mdPreviewLeafIds={mdPreviewLeafIds}
             />
           </div>
         );

@@ -18,7 +18,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
             // emit() serializes via JSON — no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
-            let _ = window.emit("terax:settings-tab", t);
+            let _ = window.emit("cmdan:settings-tab", t);
         }
         return Ok(());
     }
@@ -83,13 +83,13 @@ fn configure_linux_rendering() {
     match wayland_dmabuf_fallback_reason() {
         Some(reason) => {
             eprintln!(
-                "terax: Wayland session, {reason}; disabling WebKitGTK DMA-BUF renderer \
+                "cmdan: Wayland session, {reason}; disabling WebKitGTK DMA-BUF renderer \
                  (override: WEBKIT_DISABLE_DMABUF_RENDERER=0)"
             );
             unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
         }
         None => eprintln!(
-            "terax: Wayland session on a known-good compositor; keeping WebKitGTK DMA-BUF renderer \
+            "cmdan: Wayland session on a known-good compositor; keeping WebKitGTK DMA-BUF renderer \
              (set WEBKIT_DISABLE_DMABUF_RENDERER=1 if the window stays blank)"
         ),
     }
@@ -135,7 +135,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         // Skip restoring VISIBLE — frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
@@ -192,9 +191,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Mirror main window visibility onto the settings child so an
             // always_on_top Settings dialog doesn't stay pinned to the desktop
-            // after the user switches apps or minimizes Terax. Listen on both
-            // windows: focus moving between main↔settings keeps Terax in the
-            // foreground (show), focus leaving Terax entirely hides settings.
+            // after the user switches apps or minimizes CMDAN. Listen on both
+            // windows: focus moving between main↔settings keeps CMDAN in the
+            // foreground (show), focus leaving CMDAN entirely hides settings.
             let label = window.label();
             if label != "main" && label != "settings" {
                 return;
