@@ -12,11 +12,13 @@ import {
   registerCwdHandler,
   registerPromptTracker,
   registerTeraxOpenHandler,
+  registerTeraxSpawnTabHandler,
   type TeraxOpenInput,
+  type TeraxSpawnTabInput,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 
-export type { TeraxOpenInput };
+export type { TeraxOpenInput, TeraxSpawnTabInput };
 
 const BACKWARD_KILL_WORD = "\x17";
 
@@ -29,6 +31,7 @@ type Callbacks = {
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
   onTeraxOpen?: (input: TeraxOpenInput) => void;
+  onTeraxSpawnTab?: (input: TeraxSpawnTabInput) => void;
 };
 
 // Lives outside React so split/unsplit re-parent the DOM without tearing
@@ -146,6 +149,9 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
       }),
       registerTeraxOpenHandler(term, (input) => {
         session.callbacks.onTeraxOpen?.(input);
+      }),
+      registerTeraxSpawnTabHandler(term, (input) => {
+        session.callbacks.onTeraxSpawnTab?.(input);
       }),
     );
   })();
@@ -394,6 +400,7 @@ type Options = {
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
   onTeraxOpen?: (input: TeraxOpenInput) => void;
+  onTeraxSpawnTab?: (input: TeraxSpawnTabInput) => void;
 };
 
 export function useTerminalSession({
@@ -407,6 +414,7 @@ export function useTerminalSession({
   onCwd,
   onDetectedLocalUrl,
   onTeraxOpen,
+  onTeraxSpawnTab,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
@@ -414,6 +422,7 @@ export function useTerminalSession({
     onCwd,
     onDetectedLocalUrl,
     onTeraxOpen,
+    onTeraxSpawnTab,
   });
   cbRef.current = {
     onSearchReady,
@@ -421,6 +430,7 @@ export function useTerminalSession({
     onCwd,
     onDetectedLocalUrl,
     onTeraxOpen,
+    onTeraxSpawnTab,
   };
 
   useEffect(() => {
@@ -434,6 +444,7 @@ export function useTerminalSession({
         onCwd: (c) => cbRef.current.onCwd?.(c),
         onDetectedLocalUrl: (u) => cbRef.current.onDetectedLocalUrl?.(u),
         onTeraxOpen: (input) => cbRef.current.onTeraxOpen?.(input),
+        onTeraxSpawnTab: (input) => cbRef.current.onTeraxSpawnTab?.(input),
       });
       if (visible && focused) s.term.focus();
     });

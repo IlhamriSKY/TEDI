@@ -51,7 +51,7 @@ type Props = {
   onToggleSidebar: () => void;
   onOpenFolder: () => void;
   onSplit: (dir: "row" | "col") => void;
-  /** Active tab is a terminal and below the per-tab pane cap. */
+  /** Active tab is a pane tab and below the per-tab pane cap. */
   canSplit: boolean;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;

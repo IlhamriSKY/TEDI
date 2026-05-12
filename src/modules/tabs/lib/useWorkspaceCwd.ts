@@ -1,10 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { Tab } from "./useTabs";
+import { activeLeaf, isTerminalLikeTab, type Tab } from "./useTabs";
+import { leaves } from "@/modules/terminal/lib/panes";
 
 type Result = {
   explorerRoot: string | null;
   inheritedCwdForNewTab: () => string | undefined;
 };
+
+function activeTerminalCwd(tab: Tab | undefined): string | undefined {
+  if (!tab || !isTerminalLikeTab(tab)) return undefined;
+  const leaf = activeLeaf(tab);
+  return leaf && leaf.leafKind === "terminal" ? leaf.cwd : undefined;
+}
+
+function anyTerminalCwd(tabs: Tab[]): string | undefined {
+  for (const t of tabs) {
+    if (t.kind !== "pane") continue;
+    for (const l of leaves(t.paneTree)) {
+      if (l.leafKind === "terminal" && l.cwd) return l.cwd;
+    }
+  }
+  return undefined;
+}
 
 export function useWorkspaceCwd(
   activeTab: Tab | undefined,
@@ -15,27 +32,29 @@ export function useWorkspaceCwd(
   const lastTerminalCwd = useRef<string | null>(null);
 
   useEffect(() => {
-    if (activeTab?.kind === "terminal" && activeTab.cwd) {
-      lastTerminalCwd.current = activeTab.cwd;
-    }
+    const cwd = activeTerminalCwd(activeTab);
+    if (cwd) lastTerminalCwd.current = cwd;
   }, [activeTab]);
 
   const explorerRoot = useMemo<string | null>(() => {
     if (pickedRoot) return pickedRoot;
-    if (activeTab?.kind === "terminal" && activeTab.cwd) return activeTab.cwd;
+    const cwd = activeTerminalCwd(activeTab);
+    if (cwd) return cwd;
     if (lastTerminalCwd.current) return lastTerminalCwd.current;
-    const anyTerm = tabs.find((t) => t.kind === "terminal" && t.cwd);
-    if (anyTerm?.kind === "terminal" && anyTerm.cwd) return anyTerm.cwd;
+    const any = anyTerminalCwd(tabs);
+    if (any) return any;
     return home;
   }, [pickedRoot, activeTab, tabs, home]);
 
   const inheritedCwdForNewTab = useCallback((): string | undefined => {
-    if (pickedRoot) return pickedRoot;
-    if (activeTab?.kind === "terminal" && activeTab.cwd) return activeTab.cwd;
-    // Editor tabs inherit the last terminal's cwd (or workspace home), not
-    // the file's folder — opening a new terminal from a file shouldn't
-    // hijack the user's working directory context.
-    return lastTerminalCwd.current ?? home ?? undefined;
+    // Active terminal's live cwd wins over pickedRoot: if the user has cd'd
+    // into a subproject and is running a long-lived command there, opening
+    // a new tab should land in that subproject — not bounce them back to
+    // the workspace root they picked weeks ago.
+    const cwd = activeTerminalCwd(activeTab);
+    if (cwd) return cwd;
+    if (lastTerminalCwd.current) return lastTerminalCwd.current;
+    return pickedRoot ?? home ?? undefined;
   }, [pickedRoot, activeTab, home]);
 
   return { explorerRoot, inheritedCwdForNewTab };

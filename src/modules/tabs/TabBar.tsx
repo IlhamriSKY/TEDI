@@ -24,7 +24,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef } from "react";
-import type { EditorTab, Tab } from "./lib/useTabs";
+import { activeLeafKind, type Tab } from "./lib/useTabs";
 
 type Props = {
   tabs: Tab[];
@@ -87,7 +87,10 @@ export function TabBar({
         >
           <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
             {tabs.map((t) => {
-              const isPreview = t.kind === "editor" && (t as EditorTab).preview;
+              const isPreview =
+                t.kind === "pane" &&
+                activeLeafKind(t) === "editor" &&
+                !!t.preview;
               return (
                 <TabsTrigger
                   key={t.id}
@@ -115,7 +118,7 @@ export function TabBar({
                     <span className={cn("truncate", isPreview && "italic")}>
                       {labelFor(t)}
                     </span>
-                    {t.kind === "editor" && t.dirty ? (
+                    {t.kind === "pane" && t.dirty ? (
                       <span
                         aria-label="Unsaved changes"
                         className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400"
@@ -192,9 +195,20 @@ export function TabBar({
 }
 
 function TabIcon({ tab }: { tab: Tab }) {
-  if (tab.kind === "editor") {
-    const url = fileIconUrl(tab.title);
-    return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
+  if (tab.kind === "pane") {
+    const kind = activeLeafKind(tab);
+    if (kind === "editor") {
+      const url = fileIconUrl(tab.title);
+      return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
+    }
+    return (
+      <HugeiconsIcon
+        icon={ComputerTerminal02Icon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
   }
   if (tab.kind === "preview") {
     return (
@@ -206,31 +220,16 @@ function TabIcon({ tab }: { tab: Tab }) {
       />
     );
   }
-  if (tab.kind === "ai-diff") {
-    return (
-      <HugeiconsIcon
-        icon={GitCompareIcon}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0 text-yellow-600 dark:text-yellow-400"
-      />
-    );
-  }
   return (
     <HugeiconsIcon
-      icon={ComputerTerminal02Icon}
+      icon={GitCompareIcon}
       size={14}
       strokeWidth={2}
-      className="shrink-0"
+      className="shrink-0 text-yellow-600 dark:text-yellow-400"
     />
   );
 }
 
 function labelFor(t: Tab): string {
-  if (t.kind === "editor") return t.title;
-  if (t.kind === "preview") return t.title;
-  if (t.kind === "ai-diff") return t.title;
-  if (!t.cwd) return t.title;
-  const parts = t.cwd.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : "/";
+  return t.title;
 }

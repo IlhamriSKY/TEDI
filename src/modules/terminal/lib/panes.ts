@@ -1,9 +1,33 @@
+// Unified pane tree. A leaf can be either a terminal or an editor — the
+// host renders the appropriate component per leaf. `kind: "leaf"` is kept
+// for back-compat with all the existing terminal-only call sites; the new
+// discriminator is `leafKind`.
+
 export type PaneId = number;
 
 export type SplitDir = "row" | "col";
 
+export type TerminalLeafState = {
+  leafKind: "terminal";
+  cwd?: string;
+};
+
+export type EditorLeafState = {
+  leafKind: "editor";
+  /** Absolute (forward-slash) path of the file open in this leaf. */
+  path: string;
+  /** Mirrors the unsaved-edits state of the underlying CodeMirror buffer. */
+  dirty: boolean;
+  /** VSCode-style preview tab indicator (italic title). */
+  preview: boolean;
+};
+
+export type LeafState = TerminalLeafState | EditorLeafState;
+
+export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
+
 export type PaneNode =
-  | { kind: "leaf"; id: PaneId; cwd?: string }
+  | PaneLeaf
   | {
       kind: "split";
       id: PaneId;
@@ -11,9 +35,7 @@ export type PaneNode =
       children: PaneNode[];
     };
 
-export function isLeaf(
-  n: PaneNode,
-): n is Extract<PaneNode, { kind: "leaf" }> {
+export function isLeaf(n: PaneNode): n is PaneLeaf {
   return n.kind === "leaf";
 }
 
@@ -22,30 +44,61 @@ export function leafIds(n: PaneNode): PaneId[] {
   return n.children.flatMap(leafIds);
 }
 
-export function findLeafCwd(n: PaneNode, id: PaneId): string | undefined {
-  if (isLeaf(n)) return n.id === id ? n.cwd : undefined;
-  for (const c of n.children) {
-    const found = findLeafCwd(c, id);
-    if (found !== undefined) return found;
-  }
-  return undefined;
+export function leaves(n: PaneNode): PaneLeaf[] {
+  if (isLeaf(n)) return [n];
+  return n.children.flatMap(leaves);
 }
 
+export function findLeaf(n: PaneNode, id: PaneId): PaneLeaf | null {
+  if (isLeaf(n)) return n.id === id ? n : null;
+  for (const c of n.children) {
+    const r = findLeaf(c, id);
+    if (r) return r;
+  }
+  return null;
+}
+
+export function findLeafCwd(n: PaneNode, id: PaneId): string | undefined {
+  const leaf = findLeaf(n, id);
+  return leaf && leaf.leafKind === "terminal" ? leaf.cwd : undefined;
+}
+
+export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
+  return findLeaf(tree, id) !== null;
+}
+
+/** Update a terminal leaf's cwd. No-op for editor leaves or non-matching ids. */
 export function setLeafCwd(
   n: PaneNode,
   id: PaneId,
   cwd: string,
 ): PaneNode {
-  if (isLeaf(n)) return n.id === id ? { ...n, cwd } : n;
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "terminal") return n;
+    return { ...n, cwd };
+  }
   return { ...n, children: n.children.map((c) => setLeafCwd(c, id, cwd)) };
 }
 
+/** Patch an editor leaf's mutable state. */
+export function updateEditorLeaf(
+  n: PaneNode,
+  id: PaneId,
+  patch: Partial<Pick<EditorLeafState, "path" | "dirty" | "preview">>,
+): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "editor") return n;
+    return { ...n, ...patch };
+  }
+  return {
+    ...n,
+    children: n.children.map((c) => updateEditorLeaf(c, id, patch)),
+  };
+}
+
 /**
- * Insert a new leaf next to `targetId` in direction `dir`.
- *
- * If the target's enclosing split already runs in `dir`, the new leaf is
- * appended as a sibling there (avoids nested same-direction splits — keeps
- * the tree shallow and the resize handles aligned).
+ * Insert a new leaf next to `targetId` in direction `dir`. If the target's
+ * enclosing split already runs in `dir`, the new leaf joins as a sibling.
  */
 export function splitLeaf(
   tree: PaneNode,
@@ -53,14 +106,18 @@ export function splitLeaf(
   newSplitId: PaneId,
   newLeafId: PaneId,
   dir: SplitDir,
-  newCwd?: string,
+  newLeafState: LeafState,
 ): PaneNode {
   if (tree.kind === "split" && tree.dir === dir) {
     const idx = tree.children.findIndex(
       (c) => c.kind === "leaf" && c.id === targetId,
     );
     if (idx >= 0) {
-      const newLeaf: PaneNode = { kind: "leaf", id: newLeafId, cwd: newCwd };
+      const newLeaf: PaneLeaf = {
+        kind: "leaf",
+        id: newLeafId,
+        ...newLeafState,
+      };
       return {
         ...tree,
         children: [
@@ -73,7 +130,11 @@ export function splitLeaf(
   }
   if (isLeaf(tree)) {
     if (tree.id !== targetId) return tree;
-    const newLeaf: PaneNode = { kind: "leaf", id: newLeafId, cwd: newCwd };
+    const newLeaf: PaneLeaf = {
+      kind: "leaf",
+      id: newLeafId,
+      ...newLeafState,
+    };
     return {
       kind: "split",
       id: newSplitId,
@@ -84,15 +145,11 @@ export function splitLeaf(
   return {
     ...tree,
     children: tree.children.map((c) =>
-      splitLeaf(c, targetId, newSplitId, newLeafId, dir, newCwd),
+      splitLeaf(c, targetId, newSplitId, newLeafId, dir, newLeafState),
     ),
   };
 }
 
-/**
- * Remove a leaf and collapse single-child splits left in its wake. Returns
- * `null` when the entire subtree is gone.
- */
 export function removeLeaf(
   tree: PaneNode,
   targetId: PaneId,
@@ -120,10 +177,6 @@ export function nextLeafId(
   return ids[(idx + delta + ids.length) % ids.length];
 }
 
-// Closest neighbor of `leafId` within its enclosing split — prefer the
-// next sibling, fall back to the previous. Used to pick the new focus
-// when a pane closes (so focus stays in the same neighborhood instead of
-// snapping to the first pane in the tree).
 export function siblingLeafOf(
   tree: PaneNode,
   leafId: PaneId,
@@ -146,6 +199,13 @@ export function siblingLeafOf(
   return null;
 }
 
-export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
-  return leafIds(tree).includes(id);
+/** First leaf of a given kind (used to find a default editor target etc.). */
+export function firstLeafOfKind(
+  tree: PaneNode,
+  kind: LeafState["leafKind"],
+): PaneLeaf | null {
+  for (const l of leaves(tree)) {
+    if (l.leafKind === kind) return l;
+  }
+  return null;
 }

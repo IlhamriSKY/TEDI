@@ -52,6 +52,24 @@ export function registerTeraxOpenHandler(
   return () => d.dispose();
 }
 
+export type TeraxSpawnTabInput = {
+  cwd?: string;
+  cmd?: string;
+  title?: string;
+};
+
+export function registerTeraxSpawnTabHandler(
+  term: Terminal,
+  onSpawnTab: (input: TeraxSpawnTabInput) => void,
+): () => void {
+  const d = term.parser.registerOscHandler(8889, (data) => {
+    const input = parseTeraxSpawnTab(data);
+    if (input) onSpawnTab(input);
+    return true;
+  });
+  return () => d.dispose();
+}
+
 function parseOsc7(data: string): string | null {
   const m = data.match(/^file:\/\/[^/]*(\/.*)$/);
   if (!m) return null;
@@ -75,4 +93,28 @@ function parseTeraxOpen(data: string): TeraxOpenInput | null {
   } catch {
     return { file: fileMatch[1] };
   }
+}
+
+function parseTeraxSpawnTab(data: string): TeraxSpawnTabInput | null {
+  // Format: "cwd=/path;cmd=php artisan serve;title=Vite" — all fields optional
+  // but at least one must be present. Values are URL-encoded.
+  const decode = (s: string): string => {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  };
+  const out: TeraxSpawnTabInput = {};
+  for (const part of data.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq);
+    const val = decode(part.slice(eq + 1));
+    if (key === "cwd") out.cwd = val;
+    else if (key === "cmd") out.cmd = val;
+    else if (key === "title") out.title = val;
+  }
+  if (!out.cwd && !out.cmd && !out.title) return null;
+  return out;
 }
