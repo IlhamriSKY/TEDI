@@ -4,9 +4,9 @@ All notable changes to **CMDAN**. Format follows [Keep a Changelog](https://keep
 
 > CMDAN is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [0.6.1] — Initial CMDAN release
+## [0.0.2] — Initial CMDAN release
 
-First release under the CMDAN name.
+First release under the CMDAN name. Versioning restarts from `0.0.2` because CMDAN tracks its own roadmap independently of upstream Terax.
 
 ### Added
 - Workspaces with persisted tab layouts and switcher in the sidebar

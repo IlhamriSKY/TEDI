@@ -1,6 +1,6 @@
 [package]
 name = "cmdan"
-version = "0.6.1"
+version = "0.0.2"
 description = "CMDAN is an open-source AI-native terminal emulator"
 authors = ["IlhamriSKY"]
 edition = "2021"
