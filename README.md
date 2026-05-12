@@ -2,11 +2,12 @@
   <img src="public/icon.png" width="120" height="120" alt="CMDAN" />
   <h1>CMDAN</h1>
 
-  <p><strong>AI-native terminal emulator for macOS, Linux, Windows</strong></p>
+  <p><strong>AI-native terminal emulator. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
     <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="platform" />
+    <img src="https://img.shields.io/badge/fork-crynta%2Fterax--ai-blue" alt="fork" />
   </p>
 </div>
 
