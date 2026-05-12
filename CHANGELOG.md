@@ -2,31 +2,21 @@
 
 All notable changes to CMDAN. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/) (pre-`1.0`, minor bumps may include breaking changes).
 
-## [Unreleased] — CMDAN fork
+## [Unreleased]
 
 ### Added
-- Workspaces (named project sessions with persisted tab layouts)
-- Tab grouping, drag-to-reorder
-- Terminal / editor split panes
-- Spawn new terminal tab from inside an existing shell (OSC 8889, `cmdan_open`)
+- Workspaces with persisted tab layouts
+- Tab grouping and drag-to-reorder
+- Terminal and editor split panes
+- Spawn a new terminal tab from inside an existing shell (OSC 8889, `cmdan_open`)
 - Inline image preview
 - Side-by-side Markdown preview
-- AI pipeline tweaks (tool routing, sub-agents, snippets, plan-mode polish)
-- "Open new folder" workspace picker in the header
+- AI tool-routing, sub-agents, snippets, plan-mode polish
+- "Open folder" workspace picker in the header
 - Code-editor visual refresh
 
-### Changed
-- Rebranded from Terax to CMDAN (product name, bundle ID, icons, keychain service, storage paths)
-- README/CMDAN.md/SECURITY.md updated for the fork
-
 ### Removed
-- Auto-updater (`tauri-plugin-updater`) — new releases must be downloaded manually from GitHub Releases
-- Terax minisign public key + updater endpoint
-- `public/logo.png` and `terax-icon.png` replaced by `public/icon.png`
-
----
-
-The history below is from the upstream [crynta/terax-ai](https://github.com/crynta/terax-ai) project and is preserved unchanged for attribution.
+- Auto-updater. New releases must be downloaded manually from GitHub Releases.
 
 ## [0.5.9] — 2026
 

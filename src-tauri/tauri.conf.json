@@ -65,7 +65,7 @@
     },
     "category": "DeveloperTool",
     "shortDescription": "AI-native terminal emulator",
-    "longDescription": "CMDAN — a fork of crynta/terax-ai with workspaces, tab grouping, split terminals/editors, image & markdown preview, improved AI tooling, and an enhanced code editor."
+    "longDescription": "CMDAN is an AI-native terminal emulator with workspaces, tab grouping, split terminals and editors, image and Markdown preview, BYOK AI tools, and an enhanced code editor."
   },
   "plugins": {}
 }

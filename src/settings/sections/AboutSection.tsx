@@ -9,7 +9,6 @@ import { SectionHeader } from "../components/SectionHeader";
 
 const REPO_URL = "https://github.com/IlhamriSKY/CMDAN";
 const RELEASES_URL = `${REPO_URL}/releases/latest`;
-const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
 
 const PLATFORM_LABEL: Record<string, string> = {
   macos: "macOS",
@@ -80,23 +79,11 @@ export function AboutSection() {
             IlhamriSKY/CMDAN
           </button>
         </dd>
-        <dt className="text-muted-foreground">Forked from</dt>
-        <dd>
-          <button
-            type="button"
-            onClick={() => void openUrl(UPSTREAM_URL)}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
-          >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            crynta/terax-ai
-          </button>
-        </dd>
       </dl>
 
       <div className="flex flex-col gap-1.5">
         <p className="text-[11px] text-muted-foreground">
-          Auto-update is disabled in this fork. Download new releases manually
-          from GitHub.
+          Auto-update is disabled. Download new releases manually from GitHub.
         </p>
         <div className="flex gap-2">
           <Button

@@ -1,26 +1,11 @@
 CMDAN
 Copyright 2026 IlhamriSKY
 
-This product is a derivative work of:
+This product includes software originally developed as Terax
+(https://github.com/crynta/terax-ai), Copyright 2026 Crynta, licensed
+under the Apache License, Version 2.0. A copy of the License is included
+in the LICENSE file at the root of this distribution.
 
-    Terax (https://github.com/crynta/terax-ai)
-    Copyright 2026 Crynta
-    Licensed under the Apache License, Version 2.0.
-
-The original Terax source, including its Rust PTY backend (`src-tauri/`),
-React + xterm.js frontend (`src/`), and shell-integration scripts
-(`src-tauri/src/modules/pty/scripts/`), is incorporated and modified under
-the terms of the Apache License, Version 2.0. A copy of the License is
-included in the LICENSE file at the root of this distribution.
-
-Modifications by IlhamriSKY include — but are not limited to — workspaces,
-tab grouping & reordering, terminal / editor split panes, in-terminal tab
-spawning (OSC 8889), image preview, Markdown preview, AI-pipeline
-improvements, code-editor visual changes, rebranding (product name, bundle
-identifier, icons, keychain service, storage paths), and removal of the
-auto-updater pipeline.
-
-The names "Terax" and "Crynta" are not granted to this fork by the Apache
-License — they remain trademarks of their respective owners and are used
-here only to identify the upstream project, as permitted by Section 6 of
-the License.
+The names "Terax" and "Crynta" remain trademarks of their respective
+owners and are used here only to identify the origin of the licensed
+work, as permitted by Section 6 of the License.
