@@ -6,6 +6,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
@@ -113,7 +118,7 @@ export function TabBar({
                     {t.kind === "editor" && t.dirty ? (
                       <span
                         aria-label="Unsaved changes"
-                        className="size-1.5 shrink-0 rounded-full bg-foreground/70"
+                        className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400"
                       />
                     ) : null}
                   </span>
@@ -140,16 +145,21 @@ export function TabBar({
           </TabsList>
         </Tabs>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title="New tab"
-            >
-              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
-            </Button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label="New tab"
+                >
+                  <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">New tab</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="start" className="min-w-44">
             <DropdownMenuItem onSelect={() => onNew()}>
               <HugeiconsIcon

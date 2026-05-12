@@ -6,6 +6,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   FileAddIcon,
@@ -13,6 +14,7 @@ import {
   FolderAddIcon,
   Refresh01Icon,
   Search01Icon,
+  UnfoldLessIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -200,44 +202,63 @@ export function FileExplorer({
           {basename(rootPath)}
         </span>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 text-muted-foreground hover:text-foreground"
-          onClick={() => setIsSearchOpen((v) => !v)}
-          title="Search files"
-          aria-label="Search files"
-        >
-          <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
-        </Button>
+        <IconTooltip label="Search files" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            onClick={() => setIsSearchOpen((v) => !v)}
+            aria-label="Search files"
+          >
+            <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 text-muted-foreground hover:text-foreground"
-          onClick={() => tree.beginCreate(rootPath, "file")}
-          title="New file"
-        >
-          <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 text-muted-foreground hover:text-foreground"
-          onClick={() => tree.beginCreate(rootPath, "dir")}
-          title="New folder"
-        >
-          <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 text-muted-foreground hover:text-foreground"
-          onClick={() => tree.refresh(rootPath)}
-          title="Refresh"
-        >
-          <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
-        </Button>
+        <IconTooltip label="New file" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            onClick={() => tree.beginCreate(rootPath, "file")}
+            aria-label="New file"
+          >
+            <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+        <IconTooltip label="New folder" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            onClick={() => tree.beginCreate(rootPath, "dir")}
+            aria-label="New folder"
+          >
+            <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+        <IconTooltip label="Refresh" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            onClick={() => tree.refresh(rootPath)}
+            aria-label="Refresh"
+          >
+            <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+        <IconTooltip label="Collapse folders" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={tree.expanded.size === 0}
+            className="size-6 text-muted-foreground hover:text-foreground disabled:opacity-40"
+            onClick={() => tree.collapseAll()}
+            aria-label="Collapse folders"
+          >
+            <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
       </div>
 
       <ExplorerSearch

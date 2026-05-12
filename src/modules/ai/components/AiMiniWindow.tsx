@@ -14,7 +14,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import {
@@ -180,7 +186,7 @@ function PlanModeStrip() {
       <button
         type="button"
         onClick={() => disable()}
-        className="rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="cursor-pointer rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         Exit
       </button>
@@ -241,17 +247,18 @@ function Header({
           </span>
         ) : null}
         <SessionPicker />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          onClick={onClose}
-          className="size-5"
-          aria-label="Close"
-          title="Close (Esc)"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
-        </Button>
+        <IconTooltip label="Close (Esc)" side="top">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={onClose}
+            className="size-5"
+            aria-label="Close (Esc)"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
+          </Button>
+        </IconTooltip>
       </div>
     </div>
   );
@@ -340,25 +347,30 @@ function SessionPicker() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex min-w-0 max-w-48 items-center gap-1 rounded-md px-1.5 py-1",
-            "text-[11px] text-muted-foreground transition-colors",
-            "hover:bg-accent hover:text-foreground",
-          )}
-          title="Switch session"
-        >
-          <span className="truncate">{active.title || "New chat"}</span>
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={10}
-            strokeWidth={2}
-            className="opacity-70"
-          />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex min-w-0 max-w-48 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1",
+                "text-[11px] text-muted-foreground transition-colors",
+                "hover:bg-accent hover:text-foreground",
+              )}
+              aria-label="Switch session"
+            >
+              <span className="truncate">{active.title || "New chat"}</span>
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                size={10}
+                strokeWidth={2}
+                className="opacity-70"
+              />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">Switch session</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="start" className="min-w-56">
         <DropdownMenuItem
           onSelect={() => newSession()}
@@ -412,18 +424,20 @@ function SessionRow({
       <span className="min-w-0 flex-1 truncate">
         {session.title || "New chat"}
       </span>
-      <button
-        type="button"
-        data-session-delete
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        title="Delete session"
-        className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-      >
-        <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
-      </button>
+      <IconTooltip label="Delete session" side="right">
+        <button
+          type="button"
+          data-session-delete
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label="Delete session"
+          className="cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+        >
+          <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
+        </button>
+      </IconTooltip>
     </DropdownMenuItem>
   );
 }
@@ -447,7 +461,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
             type="button"
             onClick={() => onPick(s.text)}
             className={cn(
-              "group flex items-center gap-2.5 bg-card/70 rounded-lg px-2.5 py-2 border border-border text-left",
+              "group flex cursor-pointer items-center gap-2.5 bg-card/70 rounded-lg px-2.5 py-2 border border-border text-left",
               "transition-colors hover:bg-muted/50 hover:text-foreground",
             )}
           >

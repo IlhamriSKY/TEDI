@@ -232,7 +232,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
                   type="button"
                   onClick={() => onProviderChange(id)}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors",
+                    "flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors",
                     active
                       ? "border-foreground/40 bg-accent/60"
                       : "border-border/60 bg-transparent hover:bg-accent/30",

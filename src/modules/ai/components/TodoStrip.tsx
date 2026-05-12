@@ -91,7 +91,7 @@ function TodoRow({ todo }: { todo: Todo }) {
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>{row}</TooltipTrigger>
-        <TooltipContent side="left" className="max-w-xs text-[11px]">
+        <TooltipContent side="left">
           {todo.description}
         </TooltipContent>
       </Tooltip>

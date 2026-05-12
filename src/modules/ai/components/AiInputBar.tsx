@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
+import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
@@ -278,7 +280,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveCommand(cmd.name)}
-              className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
               aria-label="Remove command"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -306,7 +308,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveSnippet(s.id)}
-              className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
               aria-label="Remove snippet"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -348,7 +350,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveFile(f.id)}
-              className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
               aria-label="Remove"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -381,6 +383,7 @@ function autoresize(el: HTMLTextAreaElement | null) {
 export type AiInputBarProps = { tabId: number };
 
 export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
+  const closePanel = useChatStore((s) => s.closePanel);
   return (
     <div className="shrink-0 border-t border-border/60 bg-card/40 px-3 py-2">
       <div className="flex h-10 items-center justify-between gap-3 rounded-lg px-3 text-xs">
@@ -388,10 +391,22 @@ export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
           Connect any AI provider (or use local models) - your key stays in your
           OS keychain.
         </span>
-        <Button size="xs" onClick={onAdd}>
-          <HugeiconsIcon icon={Key01Icon} />
-          Add API key
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="xs" onClick={onAdd}>
+            <HugeiconsIcon icon={Key01Icon} />
+            Add API key
+          </Button>
+          <IconTooltip label="Dismiss" side="top">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={closePanel}
+              aria-label="Dismiss"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        </div>
       </div>
     </div>
   );

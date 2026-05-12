@@ -115,6 +115,10 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     [fetchChildren],
   );
 
+  const collapseAll = useCallback(() => {
+    setExpanded((curr) => (curr.size === 0 ? curr : new Set()));
+  }, []);
+
   // --- mutations ---
 
   const beginCreate = useCallback(
@@ -215,6 +219,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     toggle,
     expand,
     refresh,
+    collapseAll,
     beginCreate,
     cancelCreate,
     commitCreate,

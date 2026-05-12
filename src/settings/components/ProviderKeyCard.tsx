@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -99,7 +100,7 @@ export function ProviderKeyCard({
         <button
           type="button"
           onClick={() => void openUrl(provider.consoleUrl)}
-          className="ml-auto text-[10.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="ml-auto cursor-pointer text-[10.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
         >
           Get key
         </button>
@@ -133,7 +134,7 @@ export function ProviderKeyCard({
               type="button"
               onClick={() => setReveal((v) => !v)}
               tabIndex={-1}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
               aria-label={reveal ? "Hide key" : "Show key"}
             >
               <HugeiconsIcon
@@ -174,24 +175,28 @@ export function ProviderKeyCard({
           <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
             {maskKey(currentKey ?? "")}
           </code>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setEditing(true)}
-            title="Replace"
-            className="size-7"
-          >
-            <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => void onClear()}
-            title="Remove"
-            className="size-7 text-muted-foreground hover:text-destructive"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
-          </Button>
+          <IconTooltip label="Replace" side="top">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setEditing(true)}
+              aria-label="Replace"
+              className="size-7"
+            >
+              <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+          <IconTooltip label="Remove" side="top">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => void onClear()}
+              aria-label="Remove"
+              className="size-7 text-muted-foreground hover:text-destructive"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
         </div>
       )}
     </div>

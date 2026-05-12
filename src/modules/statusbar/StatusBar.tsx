@@ -1,3 +1,4 @@
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import {
   AiOpenButton,
@@ -41,23 +42,28 @@ export function StatusBar({
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {detectedPreviewUrl && onOpenPreview ? (
-          <button
-            type="button"
-            onClick={onOpenPreview}
-            title={`Open ${detectedPreviewUrl} as a preview tab`}
-            className="flex h-6 max-w-64 items-center gap-1.5 rounded-md border border-border/70 bg-accent/40 px-2 text-[11px] text-foreground/90 transition-colors hover:bg-accent hover:text-foreground"
+          <IconTooltip
+            label={`Open ${detectedPreviewUrl} as a preview tab`}
+            side="top"
           >
-            <HugeiconsIcon
-              icon={Globe02Icon}
-              size={11}
-              strokeWidth={1.75}
-              className="shrink-0 text-muted-foreground"
-            />
-            <span className="truncate">Open preview</span>
-            <span className="truncate text-muted-foreground">
-              {hostFromUrl(detectedPreviewUrl)}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={onOpenPreview}
+              aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
+              className="flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border border-border/70 bg-accent/40 px-2 text-[11px] text-foreground/90 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={Globe02Icon}
+                size={11}
+                strokeWidth={1.75}
+                className="shrink-0 text-muted-foreground"
+              />
+              <span className="truncate">Open preview</span>
+              <span className="truncate text-muted-foreground">
+                {hostFromUrl(detectedPreviewUrl)}
+              </span>
+            </button>
+          </IconTooltip>
         ) : null}
         <AgentStatusPill onClick={onOpenMini} />
         {panelOpen && hasComposer ? (

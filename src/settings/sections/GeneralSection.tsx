@@ -114,7 +114,7 @@ export function GeneralSection() {
               type="button"
               onClick={() => setTheme(o.id)}
               className={cn(
-                "group flex h-20 flex-col items-center justify-center gap-1.5 rounded-lg border bg-card transition-all",
+                "group flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border bg-card transition-all",
                 theme === o.id
                   ? "border-foreground/60 ring-1 ring-foreground/20"
                   : "border-border/60 hover:border-border",
@@ -186,7 +186,7 @@ export function GeneralSection() {
                       ⓘ
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[260px] text-[11px]">
+                  <TooltipContent side="top" className="max-w-65">
                     xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups (especially with Nerd Fonts), the atlas corrupts and terminal text becomes unreadable. Turn this off as a fallback — performance dips slightly, but text renders correctly via the DOM renderer.
                   </TooltipContent>
                 </Tooltip>
@@ -208,7 +208,7 @@ export function GeneralSection() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="h-8 justify-between gap-2 rounded-none px-2.5 text-[12px]"
+                className="h-9 justify-between gap-2 px-2.5 text-[12px]"
               >
                 <span>{terminalFontSize} px</span>
                 <HugeiconsIcon
@@ -219,16 +219,13 @@ export function GeneralSection() {
                 />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="min-w-[80px] rounded-none border border-border bg-popover p-0 shadow-none ring-0"
-            >
+            <DropdownMenuContent align="end" className="min-w-25">
               {TERMINAL_FONT_SIZES.map((size) => (
                 <DropdownMenuItem
                   key={size}
                   onSelect={() => onPickTerminalFontSize(size)}
                   className={cn(
-                    "rounded-none px-3 py-1.5 text-[12px]",
+                    "text-[12px]",
                     size === terminalFontSize && "bg-accent/50",
                   )}
                 >

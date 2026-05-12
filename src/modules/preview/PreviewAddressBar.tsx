@@ -5,7 +5,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   ArrowReloadHorizontalIcon,
   Globe02Icon,
@@ -112,37 +118,44 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
     return (
       <div className="shrink-0 border-b border-border/60">
       <div className="flex h-9 items-center gap-1 bg-card/40 px-1.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onReload}
-          title="Reload"
-          className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={ArrowReloadHorizontalIcon}
-            size={14}
-            strokeWidth={1.75}
-          />
-        </Button>
+        <IconTooltip label="Reload" side="bottom">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onReload}
+            aria-label="Reload"
+            className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={ArrowReloadHorizontalIcon}
+              size={14}
+              strokeWidth={1.75}
+            />
+          </Button>
+        </IconTooltip>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              title="Common dev-server ports"
-              className="h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <HugeiconsIcon
-                icon={Globe02Icon}
-                size={13}
-                strokeWidth={1.75}
-              />
-              <span className="hidden sm:inline">Ports</span>
-            </Button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Common dev-server ports"
+                  className="h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <HugeiconsIcon
+                    icon={Globe02Icon}
+                    size={13}
+                    strokeWidth={1.75}
+                  />
+                  <span className="hidden sm:inline">Ports</span>
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Common dev-server ports</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent
             align="start"
             className="max-h-80 min-w-56 overflow-y-auto"
@@ -184,23 +197,25 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
             }}
           />
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            if (url) void openUrl(url).catch(console.error);
-          }}
-          title="Open in system browser"
-          className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          disabled={!url}
-        >
-          <HugeiconsIcon
-            icon={LinkSquare02Icon}
-            size={14}
-            strokeWidth={1.75}
-          />
-        </Button>
+        <IconTooltip label="Open in system browser" side="bottom">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              if (url) void openUrl(url).catch(console.error);
+            }}
+            aria-label="Open in system browser"
+            className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            disabled={!url}
+          >
+            <HugeiconsIcon
+              icon={LinkSquare02Icon}
+              size={14}
+              strokeWidth={1.75}
+            />
+          </Button>
+        </IconTooltip>
       </div>
       {notice ? (
         <div className="flex items-center gap-1.5 bg-amber-500/8 px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400">
@@ -208,7 +223,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
           <button
             type="button"
             onClick={() => setNotice(null)}
-            className="ml-auto rounded px-1 text-[10px] opacity-80 hover:bg-accent hover:opacity-100"
+            className="ml-auto cursor-pointer rounded px-1 text-[10px] opacity-80 hover:bg-accent hover:opacity-100"
           >
             Dismiss
           </button>

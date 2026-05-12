@@ -277,7 +277,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,
-            foldGutter: true,
+            foldGutter: false,
             bracketMatching: true,
             closeBrackets: true,
             autocompletion: true,

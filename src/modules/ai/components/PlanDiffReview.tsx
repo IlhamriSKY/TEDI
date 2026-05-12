@@ -125,9 +125,9 @@ function PlanRow({
           onClick={() => !isDir && setOpen((v) => !v)}
           disabled={isDir}
           className={cn(
-            "mt-0.5 shrink-0 text-muted-foreground transition-transform",
+            "mt-0.5 shrink-0 cursor-pointer text-muted-foreground transition-transform",
             open && "rotate-180",
-            isDir && "invisible",
+            isDir && "invisible disabled:cursor-default",
           )}
           aria-label="Toggle diff"
         >

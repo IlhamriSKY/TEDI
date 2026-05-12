@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -220,25 +221,29 @@ function ShortcutRow({
 
             <div className="flex items-center gap-1">
               {isModified && (
+                <IconTooltip label="Reset to default" side="left">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground hover:text-foreground"
+                    onClick={onReset}
+                    aria-label="Reset to default"
+                  >
+                    <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} />
+                  </Button>
+                </IconTooltip>
+              )}
+              <IconTooltip label="Clear shortcut" side="left">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-7 text-muted-foreground hover:text-foreground"
-                  onClick={onReset}
-                  title="Reset to default"
+                  className="size-7 text-muted-foreground hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={onClear}
+                  aria-label="Clear shortcut"
                 >
-                  <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} />
+                  <HugeiconsIcon icon={Delete02Icon} size={12} />
                 </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={onClear}
-                title="Clear shortcut"
-              >
-                <HugeiconsIcon icon={Delete02Icon} size={12} />
-              </Button>
+              </IconTooltip>
             </div>
           </>
         )}

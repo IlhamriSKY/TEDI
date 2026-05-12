@@ -1,3 +1,4 @@
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import {
@@ -21,23 +22,25 @@ export function AgentStatusPill({ onClick }: Props) {
 
   return (
     <AnimatePresence mode="wait">
-      <motion.button
-        key={`${meta.status}:${label}`}
-        type="button"
-        onClick={onClick}
-        initial={{ opacity: 0, y: 2 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -2 }}
-        transition={{ duration: 0.12, ease: "easeOut" }}
-        className={cn(
-          "flex h-6 items-center gap-1.5 rounded-md border px-1.5 text-[11px] transition-colors",
-          tone,
-        )}
-        title="Open AI log"
-      >
-        {icon}
-        <span className="max-w-[180px] truncate">{label}</span>
-      </motion.button>
+      <IconTooltip label="Open AI log" side="top">
+        <motion.button
+          key={`${meta.status}:${label}`}
+          type="button"
+          onClick={onClick}
+          initial={{ opacity: 0, y: 2 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -2 }}
+          transition={{ duration: 0.12, ease: "easeOut" }}
+          aria-label="Open AI log"
+          className={cn(
+            "flex h-6 items-center gap-1.5 rounded-md border px-1.5 text-[11px] transition-colors",
+            tone,
+          )}
+        >
+          {icon}
+          <span className="max-w-[180px] truncate">{label}</span>
+        </motion.button>
+      </IconTooltip>
     </AnimatePresence>
   );
 }

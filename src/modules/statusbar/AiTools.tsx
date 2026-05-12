@@ -5,6 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import {
@@ -85,15 +86,17 @@ function ToolButton({
   children: React.ReactNode;
 }) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      title={title}
-      className="size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-    >
-      {children}
-    </Button>
+    <IconTooltip label={title} side="top">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={title}
+        className="size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        {children}
+      </Button>
+    </IconTooltip>
   );
 }
 

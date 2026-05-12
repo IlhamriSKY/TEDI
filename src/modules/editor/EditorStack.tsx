@@ -1,14 +1,28 @@
 import { cn } from "@/lib/utils";
 import type { EditorTab, Tab } from "@/modules/tabs";
 import { useEffect, useRef } from "react";
-import { EditorPane, type EditorPaneHandle } from "./EditorPane";
+import type { EditorPaneHandle } from "./EditorPane";
+import { EditorPaneTreeView } from "./EditorPaneTreeView";
+import { leafIds } from "./lib/panes";
 
 type Props = {
   tabs: Tab[];
   activeId: number;
-  onDirtyChange: (id: number, dirty: boolean) => void;
-  registerHandle: (id: number, handle: EditorPaneHandle | null) => void;
-  onCloseTab: (id: number) => void;
+  /**
+   * Called per **leaf** (not per tab). With splits, a single editor tab
+   * has multiple panes — each registers under its own leaf id.
+   */
+  onDirtyChange: (leafId: number, dirty: boolean) => void;
+  registerHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
+  /** User triggered "close pane" from the editor (e.g. vim :q). */
+  onCloseLeaf: (leafId: number) => void;
+  onFocusLeaf: (tabId: number, leafId: number) => void;
+};
+
+type Bundle = {
+  setRef: (h: EditorPaneHandle | null) => void;
+  onDirty: (dirty: boolean) => void;
+  onClose: () => void;
 };
 
 export function EditorStack({
@@ -16,17 +30,17 @@ export function EditorStack({
   activeId,
   onDirtyChange,
   registerHandle,
-  onCloseTab,
+  onCloseLeaf,
+  onFocusLeaf,
 }: Props) {
   const editors = tabs.filter((t): t is EditorTab => t.kind === "editor");
 
-  // Stable per-tab callbacks. Inline arrows in `ref` and `onDirtyChange`
-  // change identity every render, which makes React detach+reattach the ref
-  // callback and re-invoke `onDirtyChange`, triggering setState loops in
-  // the parent. Memoizing per id keeps each callback's identity stable.
+  // Stable callback refs — recreating arrow callbacks per render makes React
+  // detach/reattach the ref callback and re-invoke onDirtyChange, which can
+  // cause setState loops in the parent.
   const registerRef = useRef(registerHandle);
   const dirtyRef = useRef(onDirtyChange);
-  const closeRef = useRef(onCloseTab);
+  const closeRef = useRef(onCloseLeaf);
   useEffect(() => {
     registerRef.current = registerHandle;
   }, [registerHandle]);
@@ -34,51 +48,28 @@ export function EditorStack({
     dirtyRef.current = onDirtyChange;
   }, [onDirtyChange]);
   useEffect(() => {
-    closeRef.current = onCloseTab;
-  }, [onCloseTab]);
+    closeRef.current = onCloseLeaf;
+  }, [onCloseLeaf]);
 
-  const refCallbacks = useRef(
-    new Map<number, (h: EditorPaneHandle | null) => void>(),
-  );
-  const dirtyCallbacks = useRef(new Map<number, (dirty: boolean) => void>());
-  const closeCallbacks = useRef(new Map<number, () => void>());
-
-  const getRefCallback = (id: number) => {
-    let cb = refCallbacks.current.get(id);
-    if (!cb) {
-      cb = (h: EditorPaneHandle | null) => registerRef.current(id, h);
-      refCallbacks.current.set(id, cb);
+  const bundles = useRef(new Map<number, Bundle>());
+  const getBundle = (leafId: number): Bundle => {
+    let b = bundles.current.get(leafId);
+    if (!b) {
+      b = {
+        setRef: (h) => registerRef.current(leafId, h),
+        onDirty: (d) => dirtyRef.current(leafId, d),
+        onClose: () => closeRef.current(leafId),
+      };
+      bundles.current.set(leafId, b);
     }
-    return cb;
-  };
-  const getDirtyCallback = (id: number) => {
-    let cb = dirtyCallbacks.current.get(id);
-    if (!cb) {
-      cb = (dirty: boolean) => dirtyRef.current(id, dirty);
-      dirtyCallbacks.current.set(id, cb);
-    }
-    return cb;
-  };
-  const getCloseCallback = (id: number) => {
-    let cb = closeCallbacks.current.get(id);
-    if (!cb) {
-      cb = () => closeRef.current(id);
-      closeCallbacks.current.set(id, cb);
-    }
-    return cb;
+    return b;
   };
 
-  // Drop callback entries for closed tabs to avoid unbounded growth.
   useEffect(() => {
-    const live = new Set(editors.map((t) => t.id));
-    for (const id of refCallbacks.current.keys()) {
-      if (!live.has(id)) refCallbacks.current.delete(id);
-    }
-    for (const id of dirtyCallbacks.current.keys()) {
-      if (!live.has(id)) dirtyCallbacks.current.delete(id);
-    }
-    for (const id of closeCallbacks.current.keys()) {
-      if (!live.has(id)) closeCallbacks.current.delete(id);
+    const live = new Set<number>();
+    for (const t of editors) for (const id of leafIds(t.paneTree)) live.add(id);
+    for (const id of bundles.current.keys()) {
+      if (!live.has(id)) bundles.current.delete(id);
     }
   }, [editors]);
 
@@ -94,16 +85,14 @@ export function EditorStack({
               "absolute inset-0",
               !visible && "invisible pointer-events-none",
             )}
-            aria-hidden={!visible}
+            aria-hidden={!visible ? "true" : "false"}
           >
-            <div className="h-full overflow-hidden rounded-md border border-border/60 bg-background">
-              <EditorPane
-                ref={getRefCallback(t.id)}
-                path={t.path}
-                onDirtyChange={getDirtyCallback(t.id)}
-                onClose={getCloseCallback(t.id)}
-              />
-            </div>
+            <EditorPaneTreeView
+              node={t.paneTree}
+              activeLeafId={t.activeLeafId}
+              onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
+              getBundle={getBundle}
+            />
           </div>
         );
       })}

@@ -10,6 +10,7 @@ export function useWorkspaceCwd(
   activeTab: Tab | undefined,
   tabs: Tab[],
   home: string | null,
+  pickedRoot: string | null,
 ): Result {
   const lastTerminalCwd = useRef<string | null>(null);
 
@@ -20,20 +21,22 @@ export function useWorkspaceCwd(
   }, [activeTab]);
 
   const explorerRoot = useMemo<string | null>(() => {
+    if (pickedRoot) return pickedRoot;
     if (activeTab?.kind === "terminal" && activeTab.cwd) return activeTab.cwd;
     if (lastTerminalCwd.current) return lastTerminalCwd.current;
     const anyTerm = tabs.find((t) => t.kind === "terminal" && t.cwd);
     if (anyTerm?.kind === "terminal" && anyTerm.cwd) return anyTerm.cwd;
     return home;
-  }, [activeTab, tabs, home]);
+  }, [pickedRoot, activeTab, tabs, home]);
 
   const inheritedCwdForNewTab = useCallback((): string | undefined => {
+    if (pickedRoot) return pickedRoot;
     if (activeTab?.kind === "terminal" && activeTab.cwd) return activeTab.cwd;
     // Editor tabs inherit the last terminal's cwd (or workspace home), not
     // the file's folder — opening a new terminal from a file shouldn't
     // hijack the user's working directory context.
     return lastTerminalCwd.current ?? home ?? undefined;
-  }, [activeTab, home]);
+  }, [pickedRoot, activeTab, home]);
 
   return { explorerRoot, inheritedCwdForNewTab };
 }

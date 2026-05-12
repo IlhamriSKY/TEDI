@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -170,32 +171,36 @@ export function AgentsSection() {
                     </span>
                   ) : null}
                 </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  onClick={() => setEditingSnippet(s)}
-                  title="Edit"
-                >
-                  <HugeiconsIcon
-                    icon={Edit02Icon}
-                    size={12}
-                    strokeWidth={1.75}
-                  />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeSnippet(s.id)}
-                  title="Delete"
-                >
-                  <HugeiconsIcon
-                    icon={Delete02Icon}
-                    size={12}
-                    strokeWidth={1.75}
-                  />
-                </Button>
+                <IconTooltip label="Edit" side="left">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    onClick={() => setEditingSnippet(s)}
+                    aria-label="Edit"
+                  >
+                    <HugeiconsIcon
+                      icon={Edit02Icon}
+                      size={12}
+                      strokeWidth={1.75}
+                    />
+                  </Button>
+                </IconTooltip>
+                <IconTooltip label="Delete" side="left">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeSnippet(s.id)}
+                    aria-label="Delete"
+                  >
+                    <HugeiconsIcon
+                      icon={Delete02Icon}
+                      size={12}
+                      strokeWidth={1.75}
+                    />
+                  </Button>
+                </IconTooltip>
               </li>
             ))}
           </ul>
@@ -287,26 +292,30 @@ function AgentCard({
         </Button>
         <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           {onEdit ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-6"
-              onClick={onEdit}
-              title="Edit"
-            >
-              <HugeiconsIcon icon={Edit02Icon} size={11} strokeWidth={1.75} />
-            </Button>
+            <IconTooltip label="Edit" side="top">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6"
+                onClick={onEdit}
+                aria-label="Edit"
+              >
+                <HugeiconsIcon icon={Edit02Icon} size={11} strokeWidth={1.75} />
+              </Button>
+            </IconTooltip>
           ) : null}
           {onDelete ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-6 text-muted-foreground hover:text-destructive"
-              onClick={onDelete}
-              title="Delete"
-            >
-              <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
-            </Button>
+            <IconTooltip label="Delete" side="top">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6 text-muted-foreground hover:text-destructive"
+                onClick={onDelete}
+                aria-label="Delete"
+              >
+                <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
+              </Button>
+            </IconTooltip>
           ) : null}
         </div>
       </div>
@@ -355,7 +364,7 @@ function AgentEditorDialog({
                       type="button"
                       onClick={() => setDraft({ ...draft, icon: id })}
                       className={cn(
-                        "flex size-7 items-center justify-center rounded-md border transition-colors",
+                        "flex size-7 cursor-pointer items-center justify-center rounded-md border transition-colors",
                         active
                           ? "border-foreground/40 bg-accent"
                           : "border-border/60 hover:bg-accent/40",

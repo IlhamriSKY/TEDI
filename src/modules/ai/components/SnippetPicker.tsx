@@ -57,7 +57,7 @@ export function SnippetPickerContent({
                         onMouseEnter={() => onHover(i)}
                         onClick={() => onPick(it)}
                         className={cn(
-                          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]",
+                          "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left text-[12px]",
                           i === activeIndex
                             ? "bg-accent"
                             : "hover:bg-accent/60",
@@ -100,7 +100,7 @@ export function SnippetPickerContent({
                         onMouseEnter={() => onHover(i)}
                         onClick={() => onPick(it)}
                         className={cn(
-                          "flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
+                          "flex w-full cursor-pointer flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
                           i === activeIndex
                             ? "bg-accent"
                             : "hover:bg-accent/60",

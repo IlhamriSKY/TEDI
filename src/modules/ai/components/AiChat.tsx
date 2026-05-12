@@ -123,7 +123,7 @@ export function AiChatView({
             <button
               type="button"
               onClick={clearError}
-              className="mt-1 underline opacity-80 hover:opacity-100"
+              className="mt-1 cursor-pointer underline opacity-80 hover:opacity-100"
             >
               Dismiss
             </button>

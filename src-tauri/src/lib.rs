@@ -12,6 +12,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     };
 
     if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.unminimize();
+        let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
             // emit() serializes via JSON — no string-escape footgun, unlike
@@ -151,6 +153,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
@@ -186,6 +189,59 @@ pub fn run() {
             secrets::secrets_get_all,
             net::http_ping,
         ])
+        .on_window_event(|window, event| {
+            // Mirror main window visibility onto the settings child so an
+            // always_on_top Settings dialog doesn't stay pinned to the desktop
+            // after the user switches apps or minimizes Terax. Listen on both
+            // windows: focus moving between main↔settings keeps Terax in the
+            // foreground (show), focus leaving Terax entirely hides settings.
+            let label = window.label();
+            if label != "main" && label != "settings" {
+                return;
+            }
+            let app = window.app_handle().clone();
+            match event {
+                tauri::WindowEvent::Focused(focused) => {
+                    let Some(settings) = app.get_webview_window("settings") else {
+                        return;
+                    };
+                    if *focused {
+                        // Either window regained focus — bring settings back.
+                        if !settings.is_visible().unwrap_or(true) {
+                            let _ = settings.show();
+                        }
+                    } else {
+                        // Defer the check: when focus moves between our own
+                        // windows, Focused(false) on one fires before
+                        // Focused(true) on the other. Sample focus after the
+                        // event queue settles.
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(120));
+                            let main_focused = app
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_focused().ok())
+                                .unwrap_or(false);
+                            let settings_focused = app
+                                .get_webview_window("settings")
+                                .and_then(|w| w.is_focused().ok())
+                                .unwrap_or(false);
+                            if !main_focused && !settings_focused {
+                                if let Some(settings) = app.get_webview_window("settings") {
+                                    let _ = settings.hide();
+                                }
+                            }
+                        });
+                    }
+                }
+                tauri::WindowEvent::CloseRequested { .. } if label == "main" => {
+                    if let Some(settings) = app.get_webview_window("settings") {
+                        let _ = settings.close();
+                    }
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

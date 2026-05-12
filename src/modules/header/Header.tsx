@@ -5,6 +5,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -16,6 +22,7 @@ import {
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import {
+  FolderOpenIcon,
   GridViewIcon,
   KeyboardIcon,
   LayoutTwoColumnIcon,
@@ -42,6 +49,7 @@ type Props = {
   /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
   onToggleSidebar: () => void;
+  onOpenFolder: () => void;
   onSplit: (dir: "row" | "col") => void;
   /** Active tab is a terminal and below the per-tab pane cap. */
   canSplit: boolean;
@@ -63,6 +71,7 @@ export function Header({
   onClose,
   onPin,
   onToggleSidebar,
+  onOpenFolder,
   onSplit,
   canSplit,
   onOpenShortcuts,
@@ -103,27 +112,31 @@ export function Header({
   }, []);
 
   const shortcutsButton = (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-      onClick={onOpenShortcuts}
-      title={shortcutLabel}
-    >
-      <HugeiconsIcon icon={KeyboardIcon} size={16} strokeWidth={1.75} />
-    </Button>
+    <IconTooltip label={shortcutLabel}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        onClick={onOpenShortcuts}
+        aria-label={shortcutLabel}
+      >
+        <HugeiconsIcon icon={KeyboardIcon} size={16} strokeWidth={1.75} />
+      </Button>
+    </IconTooltip>
   );
 
   const settingsButton = (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-      onClick={onOpenSettings}
-      title="Settings"
-    >
-      <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
-    </Button>
+    <IconTooltip label="Settings">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        onClick={onOpenSettings}
+        aria-label="Settings"
+      >
+        <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
+      </Button>
+    </IconTooltip>
   );
 
   return (
@@ -135,38 +148,61 @@ export function Header({
       }`}
     >
       <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          onClick={onToggleSidebar}
-          title="Toggle sidebar"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
-        </Button>
+        <IconTooltip label="Toggle sidebar">
+          <Button
+            onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
+          </Button>
+        </IconTooltip>
+
+        <IconTooltip label="Open folder…">
+          <Button
+            onClick={onOpenFolder}
+            aria-label="Open folder"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
+          </Button>
+        </IconTooltip>
 
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-              title="Split terminal"
-              disabled={!canSplit}
-            >
-              <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-44">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  aria-label="Split pane"
+                  disabled={!canSplit}
+                >
+                  <HugeiconsIcon
+                    icon={GridViewIcon}
+                    size={16}
+                    strokeWidth={1.75}
+                  />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Split pane</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" className="w-auto min-w-56">
             <DropdownMenuItem onSelect={() => onSplit("row")}>
               <HugeiconsIcon
                 icon={LayoutTwoColumnIcon}
                 size={14}
                 strokeWidth={1.75}
               />
-              <span className="flex-1">Split right</span>
+              <span className="flex-1 whitespace-nowrap">Split right</span>
               {splitRightTokens && (
-                <span className="text-xs text-muted-foreground">
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
                   {splitRightTokens}
                 </span>
               )}
@@ -177,9 +213,9 @@ export function Header({
                 size={14}
                 strokeWidth={1.75}
               />
-              <span className="flex-1">Split down</span>
+              <span className="flex-1 whitespace-nowrap">Split down</span>
               {splitDownTokens && (
-                <span className="text-xs text-muted-foreground">
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
                   {splitDownTokens}
                 </span>
               )}

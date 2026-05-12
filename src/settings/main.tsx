@@ -1,5 +1,3 @@
-import "@fontsource/jetbrains-mono/400.css";
-import "@fontsource/jetbrains-mono/700.css";
 import "../styles/globals.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -20,10 +18,25 @@ ReactDOM.createRoot(
   </ThemeProvider>,
 );
 
+// Reveal after one painted frame — avoids the transparent window-shadow flash
+// on Windows/Linux without the old 500ms wall-clock delay. Two RAFs guarantees
+// at least one commit has reached the compositor.
+let shown = false;
 const showWindow = () => {
+  if (shown) return;
+  shown = true;
   getCurrentWindow()
     .show()
     .catch((e) => console.error("settings show failed:", e));
 };
-setTimeout(showWindow, 50);
-setTimeout(showWindow, 500);
+requestAnimationFrame(() => requestAnimationFrame(showWindow));
+// Safety net if the tab is backgrounded before the second RAF fires.
+setTimeout(showWindow, 250);
+
+// Mono font is only used by a handful of inputs/labels — load it after the
+// first paint so it doesn't block the initial render of the settings shell.
+// Browser falls back to the CSS chain (SFMono/Menlo/monospace) until ready.
+setTimeout(() => {
+  void import("@fontsource/jetbrains-mono/400.css");
+  void import("@fontsource/jetbrains-mono/700.css");
+}, 0);

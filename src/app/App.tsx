@@ -32,9 +32,13 @@ import {
   AiDiffStack,
   EditorStack,
   NewEditorDialog,
+  editorLeafIds,
+  editorLeaves,
+  hasEditorLeaf,
   type EditorPaneHandle,
 } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Header,
   type SearchInlineHandle,
@@ -45,7 +49,6 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
 import {
-  ShortcutsDialog,
   useGlobalShortcuts,
   type ShortcutHandlers,
 } from "@/modules/shortcuts";
@@ -93,6 +96,8 @@ export default function App() {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setEditorLeafDirty,
+    setEditorLeafPath,
     focusPane,
     focusNextPaneInTab,
     splitActivePane,
@@ -109,13 +114,19 @@ export default function App() {
     const t = tabs.find((x) => x.id === activeId);
     return t && t.kind === "terminal" ? t : null;
   }, [tabs, activeId]);
+  const activeEditorTab = useMemo(() => {
+    const t = tabs.find((x) => x.id === activeId);
+    return t && t.kind === "editor" ? t : null;
+  }, [tabs, activeId]);
   const activeLeafId = activeTerminalTab?.activeLeafId ?? null;
+  const activeEditorLeafId = activeEditorTab?.activeLeafId ?? null;
 
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
   const [activeSearchAddon, setActiveSearchAddon] =
     useState<SearchAddon | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
+  // Editor handles are keyed by leaf id (each pane = one CodeMirror instance).
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
   const previewRefs = useRef<Map<number, PreviewPaneHandle>>(new Map());
   const detectedUrls = useRef<Map<number, string>>(new Map());
@@ -133,6 +144,43 @@ export default function App() {
   }, []);
 
   const [home, setHome] = useState<string | null>(null);
+  const [pickedRoot, setPickedRoot] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("terax.workspaceRoot");
+    } catch {
+      return null;
+    }
+  });
+
+  const openWorkspaceFolder = useCallback(async () => {
+    const fallbackTerminalCwd = (() => {
+      for (const t of tabs) {
+        if (t.kind === "terminal" && t.cwd) return t.cwd;
+      }
+      return undefined;
+    })();
+    const defaultPath =
+      pickedRoot ??
+      activeTerminalTab?.cwd ??
+      fallbackTerminalCwd ??
+      home ??
+      undefined;
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath,
+      title: "Open Folder",
+    });
+    if (typeof selected !== "string") return;
+    const normalized = selected.replace(/\\/g, "/");
+    setPickedRoot(normalized);
+    try {
+      localStorage.setItem("terax.workspaceRoot", normalized);
+    } catch {
+      // Storage may be unavailable (private mode etc.) — skip persistence.
+    }
+  }, [pickedRoot, activeTerminalTab, tabs, home]);
+
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
   useEffect(() => {
     // Forward-slash form so explorerRoot stays equal across home → OSC 7.
@@ -141,7 +189,6 @@ export default function App() {
       .catch(() => setHome(null));
   }, []);
 
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
@@ -212,8 +259,10 @@ export default function App() {
       appliedDiffsRef.current.add(t.approvalId);
       for (const e of tabs) {
         if (e.kind !== "editor") continue;
-        if (e.path !== t.path) continue;
-        editorRefs.current.get(e.id)?.reload();
+        for (const leaf of editorLeaves(e.paneTree)) {
+          if (leaf.path !== t.path) continue;
+          editorRefs.current.get(leaf.id)?.reload();
+        }
       }
     }
   }, [tabs]);
@@ -222,17 +271,22 @@ export default function App() {
     activeTab,
     tabs,
     home,
+    pickedRoot,
   );
 
   useEffect(() => {
     setActiveSearchAddon(
       activeLeafId !== null ? (searchAddons.current.get(activeLeafId) ?? null) : null,
     );
-    setActiveEditorHandle(editorRefs.current.get(activeId) ?? null);
+    setActiveEditorHandle(
+      activeEditorLeafId !== null
+        ? (editorRefs.current.get(activeEditorLeafId) ?? null)
+        : null,
+    );
     setActiveDetectedUrl(
       activeLeafId !== null ? (detectedUrls.current.get(activeLeafId) ?? null) : null,
     );
-  }, [activeId, activeLeafId]);
+  }, [activeId, activeLeafId, activeEditorLeafId]);
 
   const handleDetectedLocalUrl = useCallback(
     (leafId: number, url: string) => {
@@ -262,10 +316,9 @@ export default function App() {
 
   const disposeTab = useCallback(
     (id: number) => {
-      // Terminal-leaf-keyed maps (terminalRefs/searchAddons/detectedUrls)
+      // Pane-keyed maps (terminalRefs/editorRefs/searchAddons/detectedUrls)
       // are pruned by the effect below as the pane tree changes; only the
-      // tab-id-keyed handles need explicit cleanup here.
-      editorRefs.current.delete(id);
+      // tab-id-keyed handles (preview) need explicit cleanup here.
       previewRefs.current.delete(id);
       closeTab(id);
     },
@@ -276,22 +329,27 @@ export default function App() {
   // split/unsplit re-mount components but the leaf is still live.
   const liveLeavesRef = useRef<Set<number>>(new Set());
   useEffect(() => {
-    const live = new Set<number>();
+    const liveTermLeaves = new Set<number>();
+    const liveEditorLeaves = new Set<number>();
     for (const t of tabs) {
       if (t.kind === "terminal") {
-        for (const id of leafIds(t.paneTree)) live.add(id);
+        for (const id of leafIds(t.paneTree)) liveTermLeaves.add(id);
+      } else if (t.kind === "editor") {
+        for (const id of editorLeafIds(t.paneTree)) liveEditorLeaves.add(id);
       }
     }
     for (const id of liveLeavesRef.current) {
-      if (!live.has(id)) disposeSession(id);
+      if (!liveTermLeaves.has(id)) disposeSession(id);
     }
-    liveLeavesRef.current = live;
+    liveLeavesRef.current = liveTermLeaves;
     for (const k of [...terminalRefs.current.keys()])
-      if (!live.has(k)) terminalRefs.current.delete(k);
+      if (!liveTermLeaves.has(k)) terminalRefs.current.delete(k);
     for (const k of [...searchAddons.current.keys()])
-      if (!live.has(k)) searchAddons.current.delete(k);
+      if (!liveTermLeaves.has(k)) searchAddons.current.delete(k);
     for (const k of [...detectedUrls.current.keys()])
-      if (!live.has(k)) detectedUrls.current.delete(k);
+      if (!liveTermLeaves.has(k)) detectedUrls.current.delete(k);
+    for (const k of [...editorRefs.current.keys()])
+      if (!liveEditorLeaves.has(k)) editorRefs.current.delete(k);
   }, [tabs]);
 
   const handleClose = useCallback(
@@ -335,7 +393,7 @@ export default function App() {
       return terminalRefs.current.get(lid)?.getSelection() ?? null;
     }
     if (t.kind === "editor") {
-      return editorRefs.current.get(activeId)?.getSelection() ?? null;
+      return editorRefs.current.get(t.activeLeafId)?.getSelection() ?? null;
     }
     return null;
   }, [tabs, activeId]);
@@ -487,30 +545,29 @@ export default function App() {
     (from: string, to: string) => {
       for (const t of tabs) {
         if (t.kind !== "editor") continue;
-        if (t.path === from) {
-          const i = to.lastIndexOf("/");
-          updateTab(t.id, { path: to, title: i === -1 ? to : to.slice(i + 1) });
-        } else if (t.path.startsWith(`${from}/`)) {
-          const suffix = t.path.slice(from.length);
-          const newPath = `${to}${suffix}`;
-          const i = newPath.lastIndexOf("/");
-          updateTab(t.id, {
-            path: newPath,
-            title: i === -1 ? newPath : newPath.slice(i + 1),
-          });
+        for (const leaf of editorLeaves(t.paneTree)) {
+          if (leaf.path === from) {
+            setEditorLeafPath(leaf.id, to);
+          } else if (leaf.path.startsWith(`${from}/`)) {
+            const suffix = leaf.path.slice(from.length);
+            setEditorLeafPath(leaf.id, `${to}${suffix}`);
+          }
         }
       }
     },
-    [tabs, updateTab],
+    [tabs, setEditorLeafPath],
   );
 
   const handlePathDeleted = useCallback(
     (path: string) => {
       for (const t of tabs) {
         if (t.kind !== "editor") continue;
-        if (t.path === path || t.path.startsWith(`${path}/`)) {
-          disposeTab(t.id);
-        }
+        // If *any* leaf in this tab references the deleted path, drop the
+        // whole tab — simpler and matches the prior single-leaf behavior.
+        const affected = editorLeaves(t.paneTree).some(
+          (l) => l.path === path || l.path.startsWith(`${path}/`),
+        );
+        if (affected) disposeTab(t.id);
       }
     },
     [tabs, disposeTab],
@@ -533,7 +590,8 @@ export default function App() {
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
-      if (!t || t.kind !== "terminal") return;
+      if (!t) return;
+      if (t.kind !== "terminal" && t.kind !== "editor") return;
       splitActivePane(activeId, dir);
     },
     [activeId, splitActivePane],
@@ -542,6 +600,10 @@ export default function App() {
   const handleCloseTabOrPane = useCallback(() => {
     const t = tabsRef.current.find((x) => x.id === activeId);
     if (t?.kind === "terminal" && leafIds(t.paneTree).length > 1) {
+      closeActivePane(activeId);
+      return;
+    }
+    if (t?.kind === "editor" && editorLeafIds(t.paneTree).length > 1) {
       closeActivePane(activeId);
       return;
     }
@@ -564,7 +626,7 @@ export default function App() {
       "search.focus": () => searchInlineRef.current?.focus(),
       "ai.toggle": togglePanelAndFocus,
       "ai.askSelection": askFromSelection,
-      "shortcuts.open": () => setShortcutsOpen((v) => !v),
+      "shortcuts.open": () => void openSettingsWindow("shortcuts"),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
     }),
@@ -594,12 +656,13 @@ export default function App() {
   );
 
   const registerEditorHandle = useCallback(
-    (id: number, h: EditorPaneHandle | null) => {
-      if (h) editorRefs.current.set(id, h);
-      else editorRefs.current.delete(id);
-      if (id === activeId) setActiveEditorHandle(h);
+    (leafId: number, h: EditorPaneHandle | null) => {
+      if (h) editorRefs.current.set(leafId, h);
+      else editorRefs.current.delete(leafId);
+      // Mirror the handle whenever the editor in question is the active leaf.
+      if (leafId === activeEditorLeafId) setActiveEditorHandle(h);
     },
-    [activeId],
+    [activeEditorLeafId],
   );
 
   const registerPreviewHandle = useCallback(
@@ -653,8 +716,24 @@ export default function App() {
   );
 
   const handleEditorDirty = useCallback(
-    (id: number, dirty: boolean) => updateTab(id, { dirty }),
-    [updateTab],
+    (leafId: number, dirty: boolean) => setEditorLeafDirty(leafId, dirty),
+    [setEditorLeafDirty],
+  );
+
+  const handleEditorCloseLeaf = useCallback(
+    (leafId: number) => {
+      // vim :q in a split pane should drop that pane, not the whole tab.
+      const tab = tabsRef.current.find(
+        (t) => t.kind === "editor" && hasEditorLeaf(t.paneTree, leafId),
+      );
+      if (!tab || tab.kind !== "editor") return;
+      if (editorLeafIds(tab.paneTree).length > 1) {
+        closePaneByLeaf(leafId);
+      } else {
+        handleClose(tab.id);
+      }
+    },
+    [closePaneByLeaf, handleClose],
   );
 
   const searchTarget = useMemo<SearchTarget>(() => {
@@ -729,12 +808,17 @@ export default function App() {
             onClose={handleClose}
             onPin={pinTab}
             onToggleSidebar={toggleSidebar}
+            onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
             canSplit={
-              activeTerminalTab !== null &&
-              leafIds(activeTerminalTab.paneTree).length < MAX_PANES_PER_TAB
+              (activeTerminalTab !== null &&
+                leafIds(activeTerminalTab.paneTree).length <
+                  MAX_PANES_PER_TAB) ||
+              (activeEditorTab !== null &&
+                editorLeafIds(activeEditorTab.paneTree).length <
+                  MAX_PANES_PER_TAB)
             }
-            onOpenShortcuts={() => setShortcutsOpen(true)}
+            onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenSettings={() => void openSettingsWindow()}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
@@ -800,7 +884,8 @@ export default function App() {
                         activeId={activeId}
                         registerHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
-                        onCloseTab={disposeTab}
+                        onCloseLeaf={handleEditorCloseLeaf}
+                        onFocusLeaf={handleFocusLeaf}
                       />
                     </div>
                     <div
@@ -833,31 +918,32 @@ export default function App() {
                     </div>
                   </div>
 
-                  {keysLoaded ? (
-                    <motion.div
-                      data-ai-input-bar
-                      initial={false}
-                      animate={{
-                        height: panelOpen ? "auto" : 0,
-                        opacity: panelOpen ? 1 : 0,
-                      }}
-                      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                      className="overflow-hidden"
-                      aria-hidden={!panelOpen}
-                    >
-                      {hasComposer ? (
-                        <AiInputBar />
-                      ) : (
-                        <AiInputBarConnect
-                          onAdd={() => void openSettingsWindow("models")}
-                        />
-                      )}
-                    </motion.div>
-                  ) : null}
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>
+
+          {keysLoaded ? (
+            <motion.div
+              data-ai-input-bar
+              initial={false}
+              animate={{
+                height: panelOpen ? "auto" : 0,
+                opacity: panelOpen ? 1 : 0,
+              }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="shrink-0 overflow-hidden"
+              aria-hidden={!panelOpen}
+            >
+              {hasComposer ? (
+                <AiInputBar />
+              ) : (
+                <AiInputBarConnect
+                  onAdd={() => void openSettingsWindow("models")}
+                />
+              )}
+            </motion.div>
+          ) : null}
 
           <StatusBar
             cwd={activeCwd}
@@ -891,11 +977,6 @@ export default function App() {
               />
             ) : null}
           </AnimatePresence>
-
-          <ShortcutsDialog
-            open={shortcutsOpen}
-            onOpenChange={setShortcutsOpen}
-          />
 
           <NewEditorDialog
             open={newEditorOpen}

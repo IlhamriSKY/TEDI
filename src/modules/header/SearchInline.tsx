@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { KEY_SEP } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
@@ -185,7 +186,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                     clearTarget();
                     inputRef.current?.focus();
                   }}
-                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                   aria-label="Clear search"
                 >
                   <HugeiconsIcon
@@ -205,19 +206,21 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
               transition={{ duration: 0.12 }}
               className="absolute inset-0 flex items-center justify-end"
             >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                onClick={focus}
-                title={tooltipTitle}
-              >
-                <HugeiconsIcon
-                  icon={Search01Icon}
-                  size={15}
-                  strokeWidth={1.75}
-                />
-              </Button>
+              <IconTooltip label={tooltipTitle} side="bottom">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={focus}
+                  aria-label={tooltipTitle}
+                >
+                  <HugeiconsIcon
+                    icon={Search01Icon}
+                    size={15}
+                    strokeWidth={1.75}
+                  />
+                </Button>
+              </IconTooltip>
             </motion.div>
           )}
         </AnimatePresence>

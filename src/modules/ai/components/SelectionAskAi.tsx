@@ -41,7 +41,7 @@ export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
           e.stopPropagation();
           onAsk();
         }}
-        className="flex h-7 w-full items-center justify-between gap-1.5 rounded-md border border-border/60 bg-card/95 px-2 text-xs shadow-lg backdrop-blur-md hover:border-border hover:bg-accent"
+        className="flex h-7 w-full cursor-pointer items-center justify-between gap-1.5 rounded-md border border-border/60 bg-card/95 px-2 text-xs shadow-lg backdrop-blur-md hover:border-border hover:bg-accent"
       >
         <span>Ask Terax</span>
         <KbdGroup>

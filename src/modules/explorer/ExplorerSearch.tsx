@@ -151,7 +151,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute top-1/2 right-3.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label="Clear search"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
@@ -181,7 +181,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                     onClick={() => {
                       if (!hit.is_dir) onOpenFile(hit.path);
                     }}
-                    className={`flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs ${
+                    className={`flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs ${
                       index === 0 ? "bg-accent" : "hover:bg-accent"
                     }`}
                     title={hit.path}

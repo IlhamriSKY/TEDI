@@ -1,3 +1,4 @@
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import {
@@ -41,24 +42,30 @@ export function WindowControls({ closeOnly = false }: Props) {
     <div className="flex h-full shrink-0 items-center gap-0.5 pr-1">
       {!closeOnly && (
         <>
-          <CtlButton ariaLabel="Minimize" onClick={() => void w.minimize()}>
-            <HugeiconsIcon icon={MinusSignIcon} size={12} strokeWidth={2} />
-          </CtlButton>
-          <CtlButton
-            ariaLabel={maximized ? "Restore" : "Maximize"}
-            onClick={() => void w.toggleMaximize()}
-          >
-            <HugeiconsIcon
-              icon={maximized ? Copy01Icon : SquareIcon}
-              size={12}
-              strokeWidth={2}
-            />
-          </CtlButton>
+          <IconTooltip label="Minimize" side="bottom">
+            <CtlButton ariaLabel="Minimize" onClick={() => void w.minimize()}>
+              <HugeiconsIcon icon={MinusSignIcon} size={12} strokeWidth={2} />
+            </CtlButton>
+          </IconTooltip>
+          <IconTooltip label={maximized ? "Restore" : "Maximize"} side="bottom">
+            <CtlButton
+              ariaLabel={maximized ? "Restore" : "Maximize"}
+              onClick={() => void w.toggleMaximize()}
+            >
+              <HugeiconsIcon
+                icon={maximized ? Copy01Icon : SquareIcon}
+                size={12}
+                strokeWidth={2}
+              />
+            </CtlButton>
+          </IconTooltip>
         </>
       )}
-      <CtlButton ariaLabel="Close" onClick={() => void w.close()} danger>
-        <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
-      </CtlButton>
+      <IconTooltip label="Close" side="bottom">
+        <CtlButton ariaLabel="Close" onClick={() => void w.close()} danger>
+          <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+        </CtlButton>
+      </IconTooltip>
     </div>
   );
 }
@@ -78,10 +85,9 @@ function CtlButton({
     <button
       type="button"
       aria-label={ariaLabel}
-      title={ariaLabel}
       onClick={onClick}
       className={cn(
-        "grid size-7 place-items-center rounded-md text-muted-foreground transition-colors",
+        "grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors",
         danger
           ? "hover:bg-destructive/15 hover:text-destructive"
           : "hover:bg-accent hover:text-foreground",

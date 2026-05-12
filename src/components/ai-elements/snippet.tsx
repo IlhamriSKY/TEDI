@@ -1,5 +1,6 @@
 "use client";
 
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   InputGroup,
   InputGroupAddon,
@@ -132,15 +133,16 @@ export const SnippetCopyButton = ({
   const Icon = isCopied ? CheckmarkCircle01Icon : CopyIcon;
 
   return (
-    <InputGroupButton
-      aria-label="Copy"
-      className={className}
-      onClick={copyToClipboard}
-      size="icon-sm"
-      title="Copy"
-      {...props}
-    >
-      {children ?? <HugeiconsIcon icon={Icon} size={14} className="size-3.5" />}
-    </InputGroupButton>
+    <IconTooltip label="Copy" side="top">
+      <InputGroupButton
+        aria-label="Copy"
+        className={className}
+        onClick={copyToClipboard}
+        size="icon-sm"
+        {...props}
+      >
+        {children ?? <HugeiconsIcon icon={Icon} size={14} className="size-3.5" />}
+      </InputGroupButton>
+    </IconTooltip>
   );
 };

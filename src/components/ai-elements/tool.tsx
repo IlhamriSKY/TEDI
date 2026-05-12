@@ -607,11 +607,11 @@ function BashRunOutput({ data }: { data: Record<string, unknown> }) {
             type="button"
             onClick={() => setTab(t.key)}
             className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+              "cursor-pointer rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors",
               tab === t.key
                 ? "bg-foreground/10 text-foreground"
                 : "text-muted-foreground hover:text-foreground",
-              t.count === 0 && "opacity-40",
+              t.count === 0 && "cursor-default opacity-40",
             )}
             disabled={t.count === 0}
           >

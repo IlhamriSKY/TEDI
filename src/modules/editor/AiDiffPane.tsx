@@ -200,7 +200,7 @@ export function AiDiffPane({
           className="h-full"
           basicSetup={{
             lineNumbers: true,
-            foldGutter: true,
+            foldGutter: false,
             highlightActiveLine: false,
             highlightActiveLineGutter: false,
             searchKeymap: true,
