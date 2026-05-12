@@ -14,10 +14,8 @@
 ---
 
 > [!IMPORTANT]
-> **Built on top of [Terax `v0.5.9`](https://github.com/crynta/terax-ai/releases/tag/v0.5.9) by [Crynta](https://github.com/crynta).**
+> **Built on top of [Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9) by [Crynta](https://github.com/crynta).**
 > Full credit to the upstream authors for the Rust PTY backend, the React + xterm.js client, and the AI agent core. CMDAN keeps the same Apache-2.0 license and tracks its own roadmap onward. Please star the upstream repo if you find CMDAN useful.
-
-An AI terminal with a built-in code editor, file explorer, and BYOK AI side-panel.
 
 > Auto-update is disabled. Grab new builds from the [Releases](https://github.com/IlhamriSKY/CMDAN/releases) page.
 
