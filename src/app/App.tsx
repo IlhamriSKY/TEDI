@@ -910,9 +910,9 @@ export default function App() {
     [openFileTab],
   );
 
-  // OSC 8889: shell (or a Laravel artisan command etc.) asks TERAX to open a
+  // OSC 8889: shell (or a Laravel artisan command etc.) asks CMDAN to open a
   // new terminal tab rooted at `cwd` and auto-run `cmd`. Used by tools like
-  // Laravel's `php artisan dev:serve` to keep all dev processes inside TERAX
+  // Laravel's `php artisan dev:serve` to keep all dev processes inside CMDAN
   // instead of spawning external cmd.exe windows.
   const handleCmdanSpawnTab = useCallback(
     (_leafId: number, input: CmdanSpawnTabInput) => {

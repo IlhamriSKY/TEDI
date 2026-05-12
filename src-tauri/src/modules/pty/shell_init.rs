@@ -36,7 +36,7 @@ fn ensure_utf8_locale(cmd: &mut CommandBuilder) {
 fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERAX_TERMINAL", "1");
+    cmd.env("CMDAN_TERMINAL", "1");
     ensure_utf8_locale(cmd);
 
     let resolved_cwd = cwd
