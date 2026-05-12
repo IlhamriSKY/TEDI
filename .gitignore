@@ -30,12 +30,11 @@ Thumbs.db
 *.sln
 *.sw?
 
-# Local config / secrets / CI
+# Local config / secrets
 .env
 .env.*
 !.env.example
 .claude
-.github
 
 # Project-local working files
 /icon.png
