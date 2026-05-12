@@ -9,6 +9,7 @@ import { SectionHeader } from "../components/SectionHeader";
 
 const REPO_URL = "https://github.com/IlhamriSKY/CMDAN";
 const RELEASES_URL = `${REPO_URL}/releases/latest`;
+const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
 
 const PLATFORM_LABEL: Record<string, string> = {
   macos: "macOS",
@@ -77,6 +78,18 @@ export function AboutSection() {
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
             IlhamriSKY/CMDAN
+          </button>
+        </dd>
+
+        <dt className="text-muted-foreground">Built on</dt>
+        <dd>
+          <button
+            type="button"
+            onClick={() => void openUrl(UPSTREAM_URL)}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
+          >
+            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+            crynta/terax-ai
           </button>
         </dd>
       </dl>

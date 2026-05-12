@@ -20,8 +20,7 @@ src-tauri/gen
 .tauri
 
 # Editor / OS
-.vscode/*
-!.vscode/extensions.json
+.vscode
 .idea
 .DS_Store
 Thumbs.db
@@ -31,11 +30,12 @@ Thumbs.db
 *.sln
 *.sw?
 
-# Local config / secrets
+# Local config / secrets / CI
 .env
 .env.*
 !.env.example
 .claude
+.github
 
 # Project-local working files
 /icon.png

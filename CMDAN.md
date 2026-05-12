@@ -4,7 +4,7 @@ CMDAN loads `CMDAN.md` from the workspace root as agent memory (similar to AGENT
 
 ## Project
 
-**CMDAN** is an AI-native terminal emulator. Tauri 2 + Rust (`portable-pty`) backend, React 19 + TypeScript + xterm.js (webgl) client, BYOK AI via Vercel AI SDK v6.
+**CMDAN** is an AI-native terminal emulator built on top of [Terax](https://github.com/crynta/terax-ai) by [Crynta](https://github.com/crynta). Tauri 2 + Rust (`portable-pty`) backend, React 19 + TypeScript + xterm.js (webgl) client, BYOK AI via Vercel AI SDK v6.
 
 - Bundle id: `id.ilhamrisky.cmdan`
 - Keychain service: `cmdan`
