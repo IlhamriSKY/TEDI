@@ -17,7 +17,8 @@ import {
 import { Tool } from "@/components/ai-elements/tool";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SLASH_COMMANDS, TEDI_CMD_RE } from "../lib/slashCommands";
-import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
+import { motion } from "motion/react";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -103,17 +104,12 @@ export function AiChatView({
   }
 
   return (
-    <Conversation>
+    <Conversation className="chat-scroll">
       <ConversationContent className="gap-5 p-3">
         {messages.map((m) => (
           <RenderedMessage key={m.id} message={m} onApproval={onApproval} />
         ))}
-        {showSpinner && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Spinner />
-            Thinking…
-          </div>
-        )}
+        {showSpinner && <ThinkingIndicator />}
         {error && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <div className="font-medium">Something went wrong.</div>
@@ -254,3 +250,45 @@ const RenderedTool = memo(function RenderedTool({
     />
   );
 });
+
+function ThinkingIndicator() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 4 }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      className={cn(
+        "flex w-fit items-center gap-2 rounded-2xl border border-border/50",
+        "bg-muted/40 px-3 py-2 text-[11.5px] text-muted-foreground",
+      )}
+      role="status"
+      aria-label="Thinking"
+    >
+      <span className="flex items-center gap-1">
+        <ThinkingDot delay={0} />
+        <ThinkingDot delay={0.18} />
+        <ThinkingDot delay={0.36} />
+      </span>
+      <span className="leading-none">Thinking…</span>
+    </motion.div>
+  );
+}
+
+function ThinkingDot({ delay }: { delay: number }) {
+  return (
+    <motion.span
+      className="block size-1.5 rounded-full bg-muted-foreground/70"
+      animate={{
+        opacity: [0.25, 1, 0.25],
+        y: [0, -2, 0],
+      }}
+      transition={{
+        duration: 1.1,
+        repeat: Infinity,
+        ease: "easeInOut",
+        delay,
+      }}
+    />
+  );
+}

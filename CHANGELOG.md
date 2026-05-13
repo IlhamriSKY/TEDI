@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.1]
+
+First update over the auto-update channel — used to verify signed-update flow works end to end on real installs.
+
+### Changed
+- Polish across AI surfaces, settings, explorer, and status bar based on follow-up edits after the 0.1.0 cut.
+
 ## [0.1.0] — Initial TEDI release
 
 First release under the **TEDI** (Terminal Environment & Development Infrastructure) name. Versioning restarts from `0.1.0` because TEDI tracks its own roadmap independently of upstream Terax.

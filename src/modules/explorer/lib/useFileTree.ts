@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type DirEntry = {
   name: string;
@@ -35,6 +35,8 @@ export function dirname(path: string): string {
 type Options = {
   onPathRenamed?: (from: string, to: string) => void;
   onPathDeleted?: (path: string) => void;
+  /** When true, dot-prefixed entries are returned from the backend. */
+  includeHidden?: boolean;
 };
 
 export function useFileTree(rootPath: string | null, options?: Options) {
@@ -44,22 +46,40 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     null,
   );
   const [renaming, setRenaming] = useState<string | null>(null);
+  const includeHidden = options?.includeHidden ?? false;
 
-  const fetchChildren = useCallback(async (path: string) => {
-    setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
-    try {
-      const entries = await invoke<DirEntry[]>("fs_read_dir", { path });
-      setNodes((s) => ({ ...s, [path]: { status: "loaded", entries } }));
-    } catch (e) {
-      setNodes((s) => ({
-        ...s,
-        [path]: { status: "error", message: String(e) },
-      }));
-    }
-  }, []);
+  // Per-path fetch generation. When a directory has multiple in-flight
+  // fetches (e.g. user rapidly toggles `showHiddenFiles`), only the
+  // latest-issued one is allowed to commit its result. Prevents stale
+  // listings from overwriting fresh ones.
+  const fetchGen = useRef<Map<string, number>>(new Map());
+
+  const fetchChildren = useCallback(
+    async (path: string) => {
+      const gen = (fetchGen.current.get(path) ?? 0) + 1;
+      fetchGen.current.set(path, gen);
+      setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+      try {
+        const entries = await invoke<DirEntry[]>("fs_read_dir", {
+          path,
+          includeHidden,
+        });
+        if (fetchGen.current.get(path) !== gen) return;
+        setNodes((s) => ({ ...s, [path]: { status: "loaded", entries } }));
+      } catch (e) {
+        if (fetchGen.current.get(path) !== gen) return;
+        setNodes((s) => ({
+          ...s,
+          [path]: { status: "error", message: String(e) },
+        }));
+      }
+    },
+    [includeHidden],
+  );
 
   // Root change → reset state.
   useEffect(() => {
+    fetchGen.current = new Map();
     if (!rootPath) {
       setNodes({});
       setExpanded(new Set());
@@ -72,7 +92,24 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     setExpanded(new Set());
     setNodes({});
     void fetchChildren(rootPath);
-  }, [rootPath, fetchChildren]);
+    // Intentionally exclude `fetchChildren` here: it captures `includeHidden`
+    // and toggling that flag is handled by the dedicated effect below so we
+    // don't blow away the user's expanded state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootPath]);
+
+  // includeHidden flip → re-fetch every already-loaded directory in place
+  // so the tree stays expanded but updated.
+  useEffect(() => {
+    if (!rootPath) return;
+    const loaded = Object.keys(nodes);
+    for (const p of loaded) {
+      void fetchChildren(p);
+    }
+    // We only want this to fire on the flag change, not on every node
+    // mutation — including `nodes` would create a refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeHidden, rootPath]);
 
   const toggle = useCallback(
     (path: string) => {

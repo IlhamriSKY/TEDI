@@ -22,6 +22,7 @@ import {
   setAutostart,
   setEditorTheme,
   setRestoreWindowState,
+  setShowHiddenFiles,
   setTerminalFontSize,
   setTerminalWebglEnabled,
   setVimMode,
@@ -60,6 +61,7 @@ export function GeneralSection() {
     (s) => s.terminalWebglEnabled,
   );
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
+  const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
 
   // Reconcile autostart pref with the actual OS state on mount — the user may
   // have toggled it from System Settings.
@@ -234,6 +236,19 @@ export function GeneralSection() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Explorer</Label>
+        <SettingRow
+          title="Show hidden files & folders"
+          description="Reveal dot-prefixed entries (.git, .env, .vscode, …) in the file tree and search."
+        >
+          <Switch
+            checked={showHiddenFiles}
+            onCheckedChange={(v) => void setShowHiddenFiles(v)}
+          />
         </SettingRow>
       </div>
 

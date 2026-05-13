@@ -33,15 +33,14 @@ import {
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 import { useEffect, useMemo } from "react";
 import { getModel, getModelContextLimit } from "../config";
 import type { SessionMeta } from "../lib/sessions";
 import { useAgentsStore } from "../store/agentsStore";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
-import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
+import { AiInputBar } from "./AiInputBar";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
 
@@ -66,14 +65,9 @@ const SUGGESTIONS = [
   },
 ];
 
-export function AiMiniWindow() {
-  const closeMini = useChatStore((s) => s.closeMini);
+export function AiSidebarPanel() {
+  const closePanel = useChatStore((s) => s.closePanel);
   const sessionId = useChatStore((s) => s.activeSessionId);
-  const openPanel = useChatStore((s) => s.openPanel);
-  const expandToPanel = () => {
-    closeMini();
-    openPanel();
-  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -81,52 +75,44 @@ export function AiMiniWindow() {
         const target = e.target as HTMLElement | null;
         const tag = target?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
-        closeMini();
+        closePanel();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeMini]);
+  }, [closePanel]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 12, scale: 0.98 }}
-      transition={{ type: "spring", stiffness: 320, damping: 32 }}
-      data-ai-mini-window
+    <div
+      data-ai-sidebar
       className={cn(
-        "no-scrollbar-deep fixed right-4 bottom-24 z-40 flex h-[42rem] w-[34rem] flex-col overflow-hidden",
-        "rounded-2xl border border-border/40 bg-card/90 shadow-2xl ring-1 ring-black/5 backdrop-blur-2xl dark:ring-white/5",
+        "relative flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60 bg-card/60",
         "text-[12px]",
       )}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-foreground/[0.03] to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-foreground/[0.03] to-transparent"
       />
       {sessionId ? (
-        <Body
-          sessionId={sessionId}
-          onClose={closeMini}
-          onExpand={expandToPanel}
-        />
+        <Body sessionId={sessionId} onClose={closePanel} />
       ) : (
-        <EmptyShell onClose={closeMini} onExpand={expandToPanel} />
+        <EmptyShell onClose={closePanel} />
       )}
       <PlanDiffReview />
-    </motion.div>
+    </div>
   );
 }
+
+// Back-compat alias — older imports still reference `AiMiniWindow`.
+export { AiSidebarPanel as AiMiniWindow };
 
 function Body({
   sessionId,
   onClose,
-  onExpand,
 }: {
   sessionId: string;
   onClose: () => void;
-  onExpand: () => void;
 }) {
   const focusInput = useChatStore((s) => s.focusInput);
   const step = useChatStore((s) => s.agentMeta.step);
@@ -138,13 +124,7 @@ function Body({
 
   return (
     <>
-      <Header
-        step={step}
-        isBusy={isBusy}
-        onClose={onClose}
-        onExpand={onExpand}
-        messages={helpers.messages}
-      />
+      <Header step={step} isBusy={isBusy} onClose={onClose} />
 
       <PlanModeStrip />
 
@@ -166,6 +146,8 @@ function Body({
       </div>
 
       <TodoStrip sessionId={sessionId} />
+
+      <AiInputBar messages={helpers.messages} />
     </>
   );
 }
@@ -194,21 +176,10 @@ function PlanModeStrip() {
   );
 }
 
-function EmptyShell({
-  onClose,
-  onExpand,
-}: {
-  onClose: () => void;
-  onExpand: () => void;
-}) {
+function EmptyShell({ onClose }: { onClose: () => void }) {
   return (
     <>
-      <Header
-        step={null}
-        isBusy={false}
-        onClose={onClose}
-        onExpand={onExpand}
-      />
+      <Header step={null} isBusy={false} onClose={onClose} />
       <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
         Loading sessions…
       </div>
@@ -220,13 +191,10 @@ function Header({
   step,
   isBusy,
   onClose,
-  messages,
 }: {
   step: string | null;
   isBusy: boolean;
   onClose: () => void;
-  onExpand: () => void;
-  messages?: UIMessage[];
 }) {
   const customAgents = useAgentsStore((s) => s.customAgents);
   void customAgents;
@@ -234,10 +202,7 @@ function Header({
   return (
     <div className="relative flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
       <div className="flex min-w-0 items-center gap-1.5">
-        <AgentSwitcher isMiniWindow />
-        {messages !== undefined ? (
-          <ContextIndicator messages={messages} />
-        ) : null}
+        <SessionPicker />
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {isBusy ? (
@@ -246,7 +211,6 @@ function Header({
             <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
           </span>
         ) : null}
-        <SessionPicker />
         <IconTooltip label="Close (Esc)" side="top">
           <Button
             type="button"
@@ -288,7 +252,7 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-function ContextIndicator({ messages }: { messages: UIMessage[] }) {
+export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const modelId = useChatStore((s) => s.selectedModelId);
   const used = useMemo(() => estimateTokens(messages), [messages]);
   const max = getModelContextLimit(modelId);
@@ -371,7 +335,13 @@ function SessionPicker() {
         </TooltipTrigger>
         <TooltipContent side="top">Switch session</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="start" className="min-w-56">
+      <DropdownMenuContent
+        align="start"
+        sideOffset={6}
+        alignOffset={0}
+        collisionPadding={8}
+        className="max-w-[calc(var(--radix-popper-available-width)-8px)] min-w-56"
+      >
         <DropdownMenuItem
           onSelect={() => newSession()}
           className="gap-2 text-xs"

@@ -1,9 +1,6 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
-import {
-  AiOpenButton,
-  AiStatusBarControls,
-} from "@/modules/ai/components/AiStatusBarControls";
+import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
 import { UpdaterPill } from "@/modules/updater";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
@@ -68,11 +65,9 @@ export function StatusBar({
           </IconTooltip>
         ) : null}
         <AgentStatusPill onClick={onOpenMini} />
-        {panelOpen && hasComposer ? (
-          <AiStatusBarControls />
-        ) : (
+        {!panelOpen || !hasComposer ? (
           <AiOpenButton onOpen={openPanel} />
-        )}
+        ) : null}
       </div>
     </footer>
   );

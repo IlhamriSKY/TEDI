@@ -1,5 +1,10 @@
 import { Experimental_Agent as Agent, stepCountIs } from "ai";
-import { DEFAULT_MODEL_ID, getModel, type ModelId } from "../config";
+import {
+  DEFAULT_MODEL_ID,
+  getModel,
+  type DynamicModelId,
+  type ModelId,
+} from "../config";
 import { buildLanguageModel } from "../lib/agent";
 import type { ProviderKeys } from "../lib/keyring";
 import type { ToolContext } from "../tools/context";
@@ -13,7 +18,7 @@ type Args = {
   type: SubagentType;
   prompt: string;
   keys: ProviderKeys;
-  modelId: ModelId;
+  modelId: DynamicModelId;
   toolContext: ToolContext;
   lmstudioBaseURL?: string;
 };

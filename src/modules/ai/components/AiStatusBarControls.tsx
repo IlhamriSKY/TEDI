@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -22,28 +23,29 @@ import {
   ArrowUpIcon,
   ChatGptIcon,
   ClaudeIcon,
+  CloudServerIcon,
   ComputerIcon,
   CpuIcon,
   DeepseekIcon,
   FlashIcon,
   GoogleGeminiIcon,
   Grok02Icon,
-  Message01Icon,
   Mic01Icon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
-import { useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   getModel,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
-  type ModelId,
+  type DynamicModelId,
   type ProviderId,
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
+import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 
 const PROVIDER_ICON = {
@@ -54,6 +56,7 @@ const PROVIDER_ICON = {
   cerebras: CpuIcon,
   groq: FlashIcon,
   deepseek: DeepseekIcon,
+  sumopod: CloudServerIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 
@@ -81,8 +84,6 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
 export function AiStatusBarControls() {
   const c = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const openMini = useChatStore((s) => s.openMini);
-  const miniOpen = useChatStore((s) => s.mini.open);
   const closePanel = useChatStore((s) => s.closePanel);
 
   return (
@@ -152,7 +153,7 @@ export function AiStatusBarControls() {
 
       <ModelDropdown />
 
-      <span className="mx-1 h-8 w-px bg-border" aria-hidden />
+      <span className="mx-1 h-5 w-px bg-border" aria-hidden />
       <IconTooltip label="Close AI panel" side="top">
         <Button
           onClick={closePanel}
@@ -164,16 +165,8 @@ export function AiStatusBarControls() {
           <Kbd className="h-4 gap-px px-2 font-mono text-[11px]">
             {fmtShortcut(MOD_KEY, "I")}
           </Kbd>
-          {/* <HugeiconsIcon icon={Close} size={15} strokeWidth={1.75} /> */}
         </Button>
       </IconTooltip>
-      <IconBtn
-        title={miniOpen ? "Mini-window open" : "Open conversation"}
-        onClick={openMini}
-        disabled={miniOpen}
-      >
-        <HugeiconsIcon icon={Message01Icon} size={13} strokeWidth={1.75} />
-      </IconBtn>
 
       {c.isBusy ? (
         <IconTooltip label="Stop" side="top">
@@ -206,14 +199,42 @@ export function AiStatusBarControls() {
   );
 }
 
+function matchesQuery(
+  m: { id: string; label: string; hint: string },
+  q: string,
+): boolean {
+  if (!q) return true;
+  const t = q.toLowerCase();
+  return (
+    m.id.toLowerCase().includes(t) ||
+    m.label.toLowerCase().includes(t) ||
+    m.hint.toLowerCase().includes(t)
+  );
+}
+
 function ModelDropdown() {
   const selected = useChatStore((s) => s.selectedModelId);
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
-  const current = getModel(selected);
+  const sumopodModels = useSumopodModels();
+  const [query, setQuery] = useState("");
+  // Static `getModel` would throw for runtime-detected SumoPod ids that
+  // aren't in the MODELS const. Fall back to a synthetic ModelInfo using
+  // the raw id so the dropdown can render labels for detected models.
+  let current;
+  try {
+    current = getModel(selected);
+  } catch {
+    current = {
+      id: selected,
+      provider: "sumopod" as const,
+      label: selected,
+      hint: "SumoPod",
+    };
+  }
   const currentProviderHasKey = !!apiKeys[current.provider];
 
-  const onPick = (id: ModelId, providerId: ProviderId) => {
+  const onPick = (id: DynamicModelId, providerId: ProviderId) => {
     if (!apiKeys[providerId]) {
       void openSettingsWindow("models");
       return;
@@ -225,8 +246,27 @@ function ModelDropdown() {
     ? `Model: ${current.label}`
     : `${current.label} — no key configured`;
 
+  const sections = useMemo(
+    () =>
+      PROVIDERS.map((p) => {
+        const all =
+          p.id === "sumopod"
+            ? sumopodModels.models
+            : MODELS.filter((m) => m.provider === p.id);
+        const filtered = all.filter((m) => matchesQuery(m, query));
+        return { provider: p, all, filtered };
+      }),
+    [query, sumopodModels.models],
+  );
+
+  const totalMatches = sections.reduce((n, s) => n + s.filtered.length, 0);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -242,11 +282,6 @@ function ModelDropdown() {
                   : "text-amber-600 dark:text-amber-400",
               )}
             >
-              {/* <HugeiconsIcon
-                icon={PROVIDER_ICON[current.provider]}
-                size={12}
-                strokeWidth={1.25}
-              /> */}
               {current.label}
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -259,52 +294,99 @@ function ModelDropdown() {
         </TooltipTrigger>
         <TooltipContent side="top">{modelTooltip}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-[240px]">
-        {PROVIDERS.map((p) => {
-          const models = MODELS.filter((m) => m.provider === p.id);
-          const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
-          return (
-            <div key={p.id} className="px-1 pt-1.5 first:pt-1">
-              <div className="mb-0.5 flex items-center gap-1.5 px-2 text-[9.5px] font-medium tracking-wide text-muted-foreground uppercase">
-                <HugeiconsIcon
-                  icon={PROVIDER_ICON[p.id]}
-                  size={15}
-                  strokeWidth={1.25}
-                />
-                <span>{p.label}</span>
-                {!hasKey ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void openSettingsWindow("models");
-                    }}
-                    className="ml-auto cursor-pointer rounded-sm px-1 text-[9px] normal-case tracking-normal text-amber-600 underline-offset-2 hover:underline dark:text-amber-400"
-                  >
-                    Set key…
-                  </button>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-105 w-72 overflow-hidden p-0"
+      >
+        <div className="sticky top-0 z-10 border-b border-border/60 bg-popover px-1.5 py-1.5">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Radix's DropdownMenu treats letter keys as type-ahead nav.
+              // Stop them at the input so typing doesn't jump focus to items.
+              if (
+                e.key !== "Escape" &&
+                e.key !== "ArrowDown" &&
+                e.key !== "ArrowUp" &&
+                e.key !== "Enter"
+              ) {
+                e.stopPropagation();
+              }
+            }}
+            placeholder="Search models…"
+            spellCheck={false}
+            autoFocus
+            className="h-7 text-[11.5px]"
+          />
+        </div>
+        <div className="max-h-92 overflow-y-auto">
+          {sections.map(({ provider: p, filtered }) => {
+            if (filtered.length === 0 && query) return null;
+            const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
+            const sumopodNote =
+              p.id === "sumopod" && hasKey
+                ? sumopodModels.status === "loading"
+                  ? "Detecting models…"
+                  : sumopodModels.status === "error"
+                    ? "Detection failed"
+                    : filtered.length === 0
+                      ? "No models detected"
+                      : null
+                : null;
+            return (
+              <div key={p.id} className="px-1 pt-1.5 first:pt-1">
+                <div className="mb-0.5 flex items-center gap-1.5 px-2 text-[9.5px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <HugeiconsIcon
+                    icon={PROVIDER_ICON[p.id]}
+                    size={15}
+                    strokeWidth={1.25}
+                  />
+                  <span>{p.label}</span>
+                  {!hasKey ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void openSettingsWindow("models");
+                      }}
+                      className="ml-auto cursor-pointer rounded-sm px-1 text-[9px] normal-case tracking-normal text-amber-600 underline-offset-2 hover:underline dark:text-amber-400"
+                    >
+                      Set key…
+                    </button>
+                  ) : null}
+                </div>
+                {sumopodNote ? (
+                  <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+                    {sumopodNote}
+                  </div>
                 ) : null}
+                {filtered.map((m) => (
+                  <DropdownMenuItem
+                    key={m.id}
+                    disabled={!hasKey}
+                    onSelect={() => onPick(m.id, p.id)}
+                    className={cn(
+                      "flex flex-col items-start gap-0 text-xs",
+                      m.id === selected && "bg-accent/40",
+                    )}
+                  >
+                    <span className="font-medium">{m.label}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {m.hint}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
               </div>
-              {models.map((m) => (
-                <DropdownMenuItem
-                  key={m.id}
-                  disabled={!hasKey}
-                  onSelect={() => onPick(m.id as ModelId, p.id)}
-                  className={cn(
-                    "flex flex-col items-start gap-0 text-xs",
-                    m.id === selected && "bg-accent/40",
-                  )}
-                >
-                  <span className="font-medium">{m.label}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {m.hint}
-                  </span>
-                </DropdownMenuItem>
-              ))}
+            );
+          })}
+          {query && totalMatches === 0 ? (
+            <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+              No models match “{query}”.
             </div>
-          );
-        })}
+          ) : null}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

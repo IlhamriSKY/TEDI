@@ -8,6 +8,7 @@ export type ProviderId =
   | "cerebras"
   | "groq"
   | "deepseek"
+  | "sumopod"
   | "lmstudio";
 
 export type ProviderInfo = {
@@ -67,6 +68,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "deepseek-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://platform.deepseek.com/api_keys",
+  },
+  {
+    id: "sumopod",
+    label: "SumoPod",
+    keyringAccount: "sumopod-api-key",
+    keyPrefix: "sk-",
+    consoleUrl: "https://sumopod.com",
   },
   {
     id: "lmstudio",
@@ -205,10 +213,37 @@ export const MODELS = [
 
 export type ModelId = (typeof MODELS)[number]["id"];
 
-export function getModel(id: ModelId): ModelInfo {
-  const m = MODELS.find((x) => x.id === id);
+/** Runtime model id — accepts both static `ModelId`s and SumoPod-detected
+ *  model strings discovered via `/v1/models`. */
+export type DynamicModelId = ModelId | (string & {});
+
+/** Module-scoped registry for runtime-detected models (currently SumoPod).
+ *  Mutated by `setDetectedModels()`; read by `getModel()` and UI surfaces. */
+const dynamicModels = new Map<string, ModelInfo>();
+
+export function setDetectedModels(provider: ProviderId, models: ModelInfo[]): void {
+  for (const [id, info] of dynamicModels) {
+    if (info.provider === provider) dynamicModels.delete(id);
+  }
+  for (const m of models) dynamicModels.set(m.id, m);
+}
+
+export function getDetectedModels(provider: ProviderId): ModelInfo[] {
+  const out: ModelInfo[] = [];
+  for (const m of dynamicModels.values()) {
+    if (m.provider === provider) out.push(m);
+  }
+  return out;
+}
+
+export function getModel(id: DynamicModelId): ModelInfo {
+  const m = MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
   if (!m) throw new Error(`Unknown model: ${id}`);
   return m;
+}
+
+export function tryGetModel(id: DynamicModelId): ModelInfo | undefined {
+  return MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
 }
 
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
@@ -267,6 +302,7 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<
 };
 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
+export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 export const MAX_AGENT_STEPS = 24;
 export const TERMINAL_BUFFER_LINES = 300;
 

@@ -52,14 +52,16 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
 
+// Small rounded status indicator shown to the left of the tool icon.
+// Becomes a filled green box on success, red on error, orange on deny.
 const STATUS_DOT: Record<ToolPart["state"], string> = {
-  "approval-requested": "bg-amber-500",
-  "approval-responded": "bg-sky-500",
-  "input-streaming": "bg-muted-foreground/40",
-  "input-available": "bg-amber-500",
-  "output-available": "bg-transparent border border-muted-foreground/40",
-  "output-denied": "bg-orange-500",
-  "output-error": "bg-destructive",
+  "approval-requested": "bg-amber-500/80 border border-amber-500",
+  "approval-responded": "bg-sky-500/80 border border-sky-500",
+  "input-streaming": "bg-muted-foreground/30 border border-muted-foreground/40",
+  "input-available": "bg-amber-500/80 border border-amber-500",
+  "output-available": "bg-emerald-500/80 border border-emerald-500",
+  "output-denied": "bg-orange-500/80 border border-orange-500",
+  "output-error": "bg-destructive/80 border border-destructive",
 };
 
 const STATUS_LABEL: Record<ToolPart["state"], string> = {
@@ -169,12 +171,16 @@ const ToolImpl = ({
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
           "text-[12px] transition-colors",
-          "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
+          "cursor-pointer hover:bg-muted/60",
+          "disabled:cursor-default disabled:hover:bg-transparent",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         )}
       >
         <span
-          className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[state])}
+          className={cn(
+            "size-2 shrink-0 rounded-xs transition-colors",
+            STATUS_DOT[state],
+          )}
           aria-label={STATUS_LABEL[state]}
         />
         <HugeiconsIcon

@@ -6,11 +6,18 @@ import {
 import { create } from "zustand";
 import {
   DEFAULT_MODEL_ID,
-  getModel,
   providerNeedsKey,
-  type ModelId,
+  tryGetModel,
+  type DynamicModelId,
   type ProviderId,
 } from "../config";
+
+/** Treat unknown model ids as SumoPod — they only appear when the user
+ *  picked a runtime-detected SumoPod model and the registry hasn't yet
+ *  been re-hydrated (e.g. cold reload before /v1/models resolves). */
+function resolveProvider(modelId: DynamicModelId): ProviderId {
+  return tryGetModel(modelId)?.provider ?? "sumopod";
+}
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
 import { useAgentsStore } from "./agentsStore";
@@ -93,8 +100,8 @@ type StoreState = {
   setApiKeys: (keys: ProviderKeys) => void;
   setApiKey: (provider: ProviderId, key: string | null) => void;
 
-  selectedModelId: ModelId;
-  setSelectedModelId: (id: ModelId) => void;
+  selectedModelId: DynamicModelId;
+  setSelectedModelId: (id: DynamicModelId) => void;
 
   mini: MiniState;
   openMini: () => void;
@@ -255,15 +262,21 @@ export const useChatStore = create<StoreState>((set, get) => ({
   selectedModelId: DEFAULT_MODEL_ID,
   setSelectedModelId: (id) => set({ selectedModelId: id }),
 
+  // `mini` was the floating mini-window state. The right sidebar replaces
+  // it, so these now alias the sidebar's open/close — kept under the old
+  // names because callers (AgentRunBridge auto-open on approval, AgentStatusPill
+  // click) still use them.
   mini: { open: false },
-  openMini: () => set({ mini: { open: true } }),
-  closeMini: () => set({ mini: { open: false } }),
-  toggleMini: () => set((s) => ({ mini: { open: !s.mini.open } })),
+  openMini: () => set({ panelOpen: true, mini: { open: true } }),
+  closeMini: () => set({ panelOpen: false, mini: { open: false } }),
+  toggleMini: () =>
+    set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
 
   panelOpen: false,
-  openPanel: () => set({ panelOpen: true }),
-  closePanel: () => set({ panelOpen: false }),
-  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  openPanel: () => set({ panelOpen: true, mini: { open: true } }),
+  closePanel: () => set({ panelOpen: false, mini: { open: false } }),
+  togglePanel: () =>
+    set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
 
   focusSignal: 0,
   pendingPrefill: null,
@@ -450,12 +463,12 @@ export function getAgentMeta(): AgentMeta {
 
 export function getActiveProviderKey(): string | null {
   const { selectedModelId, apiKeys } = useChatStore.getState();
-  return apiKeys[getModel(selectedModelId).provider] ?? null;
+  return apiKeys[resolveProvider(selectedModelId)] ?? null;
 }
 
-export function hasKeyForModel(modelId: ModelId): boolean {
+export function hasKeyForModel(modelId: DynamicModelId): boolean {
   const { apiKeys } = useChatStore.getState();
-  const provider = getModel(modelId).provider;
+  const provider = resolveProvider(modelId);
   return providerNeedsKey(provider) ? !!apiKeys[provider] : true;
 }
 
@@ -477,7 +490,7 @@ export async function sendMessage(text: string): Promise<boolean> {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
-  if (providerNeedsKey(getModel(state.selectedModelId).provider) && !getActiveProviderKey()) return false;
+  if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey()) return false;
   const c = getOrCreateChat(sessionId);
   await c.sendMessage({ text });
   return true;

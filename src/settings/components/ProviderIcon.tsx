@@ -2,6 +2,7 @@ import type { ProviderId } from "@/modules/ai/config";
 import {
   ChatGptIcon,
   ClaudeIcon,
+  CloudServerIcon,
   ComputerIcon,
   FlashIcon,
   GoogleGeminiIcon,
@@ -19,6 +20,7 @@ const ICON_BY_PROVIDER = {
   cerebras: CpuIcon,
   groq: FlashIcon,
   deepseek: DeepseekIcon,
+  sumopod: CloudServerIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 

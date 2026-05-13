@@ -109,8 +109,9 @@ function FileTreeNodeImpl({
               onClick={handleClick}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(
-                "group flex w-full items-center gap-2 rounded-sm px-1.5 py-0.5 text-left text-[13px] text-foreground/85 transition-colors hover:bg-accent/70 cursor-pointer",
-                isSelected && "bg-accent text-foreground",
+                "group relative flex w-full items-center gap-2 px-1.5 py-0.5 text-left text-[13px] text-foreground/85 transition-colors hover:bg-accent/60 cursor-pointer",
+                isSelected &&
+                  "bg-accent text-foreground shadow-[inset_2px_0_0_0_var(--ring)]",
               )}
               style={{ paddingLeft: 6 + depth * 12 }}
             >

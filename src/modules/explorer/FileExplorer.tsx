@@ -18,6 +18,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
 import { FileTreeNode } from "./FileTreeNode";
 import { InlineInput } from "./InlineInput";
@@ -26,6 +27,9 @@ import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useFileTree } from "./lib/useFileTree";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setShowHiddenFiles } from "@/modules/settings/store";
+import { ViewIcon, ViewOffSlashIcon } from "@hugeicons/core-free-icons";
 
 type Props = {
   rootPath: string | null;
@@ -49,7 +53,12 @@ export function FileExplorer({
   onRevealInTerminal,
   onAttachToAgent,
 }: Props) {
-  const tree = useFileTree(rootPath, { onPathRenamed, onPathDeleted });
+  const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
+  const tree = useFileTree(rootPath, {
+    onPathRenamed,
+    onPathDeleted,
+    includeHidden: showHiddenFiles,
+  });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -211,6 +220,29 @@ export function FileExplorer({
             aria-label="Search files"
           >
             <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+
+        <IconTooltip
+          label={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
+          side="bottom"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 hover:text-foreground",
+              showHiddenFiles ? "text-foreground" : "text-muted-foreground",
+            )}
+            onClick={() => void setShowHiddenFiles(!showHiddenFiles)}
+            aria-label="Toggle hidden files"
+            aria-pressed={showHiddenFiles}
+          >
+            <HugeiconsIcon
+              icon={showHiddenFiles ? ViewIcon : ViewOffSlashIcon}
+              size={13}
+              strokeWidth={2}
+            />
           </Button>
         </IconTooltip>
 

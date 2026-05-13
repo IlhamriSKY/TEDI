@@ -13,14 +13,18 @@ import {
   DEFAULT_AUTOCOMPLETE_MODEL,
   MODELS,
   PROVIDERS,
-  getModel,
   getProvider,
   providerNeedsKey,
+  tryGetModel,
   type AutocompleteProviderId,
-  type ModelId,
   type ProviderId,
 } from "@/modules/ai/config";
 import { clearKey, getAllKeys, setKey } from "@/modules/ai/lib/keyring";
+import {
+  clearSumopodModels,
+  refreshSumopodModels,
+  useSumopodModels,
+} from "@/modules/ai/lib/sumopod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   emitKeysChanged,
@@ -40,31 +44,56 @@ import { SectionHeader } from "../components/SectionHeader";
 
 type KeysMap = Record<ProviderId, string | null>;
 
+function matchesQuery(
+  m: { id: string; label: string; hint: string },
+  q: string,
+): boolean {
+  if (!q) return true;
+  const t = q.toLowerCase();
+  return (
+    m.id.toLowerCase().includes(t) ||
+    m.label.toLowerCase().includes(t) ||
+    m.hint.toLowerCase().includes(t)
+  );
+}
+
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const sumopodModels = useSumopodModels();
+  const [modelQuery, setModelQuery] = useState("");
 
   useEffect(() => {
-    void getAllKeys().then(setKeys);
+    void getAllKeys().then((k) => {
+      setKeys(k);
+      if (k.sumopod) void refreshSumopodModels(k.sumopod);
+    });
   }, []);
 
   const onSave = async (provider: ProviderId, value: string) => {
     await setKey(provider, value);
     setKeys((prev) => (prev ? { ...prev, [provider]: value } : prev));
     await emitKeysChanged();
+    if (provider === "sumopod") void refreshSumopodModels(value);
   };
 
   const onClear = async (provider: ProviderId) => {
     await clearKey(provider);
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
+    if (provider === "sumopod") clearSumopodModels();
   };
 
   if (!keys) {
     return <div className="text-[12px] text-muted-foreground">Loading…</div>;
   }
 
-  const defaultModelInfo = getModel(defaultModel);
+  const defaultModelInfo = tryGetModel(defaultModel) ?? {
+    id: defaultModel,
+    provider: "sumopod" as ProviderId,
+    label: defaultModel,
+    hint: "SumoPod",
+  };
   const configuredCount = PROVIDERS.filter(
     (p) => providerNeedsKey(p.id) && !!keys[p.id],
   ).length;
@@ -78,7 +107,11 @@ export function ModelsSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Default model</Label>
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) setModelQuery("");
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
@@ -99,44 +132,112 @@ export function ModelsSection() {
               />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[260px]">
-            {PROVIDERS.filter((p) => providerNeedsKey(p.id)).map((p) => {
-              const models = MODELS.filter((m) => m.provider === p.id);
-              const hasKey = !!keys[p.id];
-              return (
-                <div key={p.id} className="px-1 pt-1.5">
-                  <div className="mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                    <ProviderIcon provider={p.id} size={11} />
-                    <span>{p.label}</span>
-                    {!hasKey && (
-                      <span className="ml-auto text-[9.5px] normal-case tracking-normal text-muted-foreground/70">
-                        no key
-                      </span>
-                    )}
-                  </div>
-                  {models.map((m) => (
-                    <DropdownMenuItem
-                      key={m.id}
-                      disabled={!hasKey}
-                      onSelect={() =>
-                        hasKey && void setDefaultModel(m.id as ModelId)
-                      }
-                      className={cn(
-                        "flex items-center justify-between gap-2 text-[12px]",
-                        m.id === defaultModel && "bg-accent/50",
-                      )}
-                    >
-                      <span className="flex flex-col">
-                        <span>{m.label}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {m.hint}
-                        </span>
-                      </span>
-                    </DropdownMenuItem>
-                  ))}
-                </div>
-              );
-            })}
+          <DropdownMenuContent
+            align="start"
+            className="max-h-105 w-(--radix-dropdown-menu-trigger-width) min-w-72 overflow-hidden p-0"
+          >
+            <div className="sticky top-0 z-10 border-b border-border/60 bg-popover px-1.5 py-1.5">
+              <Input
+                value={modelQuery}
+                onChange={(e) => setModelQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (
+                    e.key !== "Escape" &&
+                    e.key !== "ArrowDown" &&
+                    e.key !== "ArrowUp" &&
+                    e.key !== "Enter"
+                  ) {
+                    e.stopPropagation();
+                  }
+                }}
+                placeholder="Search models…"
+                spellCheck={false}
+                autoFocus
+                className="h-7 text-[11.5px]"
+              />
+            </div>
+            <div className="max-h-92 overflow-y-auto">
+              {(() => {
+                let totalMatches = 0;
+                const blocks = PROVIDERS.filter((p) =>
+                  providerNeedsKey(p.id),
+                ).map((p) => {
+                  const all =
+                    p.id === "sumopod"
+                      ? sumopodModels.models
+                      : MODELS.filter((m) => m.provider === p.id);
+                  const filtered = all.filter((m) =>
+                    matchesQuery(m, modelQuery),
+                  );
+                  totalMatches += filtered.length;
+                  if (filtered.length === 0 && modelQuery) return null;
+                  const hasKey = !!keys[p.id];
+                  const isSumopodEmpty =
+                    p.id === "sumopod" && hasKey && filtered.length === 0;
+                  const sumopodNote =
+                    p.id === "sumopod" && hasKey
+                      ? sumopodModels.status === "loading"
+                        ? "Detecting models…"
+                        : sumopodModels.status === "error"
+                          ? "Detection failed — check key"
+                          : null
+                      : null;
+                  return (
+                    <div key={p.id} className="px-1 pt-1.5">
+                      <div className="mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                        <ProviderIcon provider={p.id} size={11} />
+                        <span>{p.label}</span>
+                        {!hasKey && (
+                          <span className="ml-auto text-[9.5px] normal-case tracking-normal text-muted-foreground/70">
+                            no key
+                          </span>
+                        )}
+                      </div>
+                      {sumopodNote ? (
+                        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+                          {sumopodNote}
+                        </div>
+                      ) : null}
+                      {isSumopodEmpty && !sumopodNote ? (
+                        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+                          No models detected.
+                        </div>
+                      ) : null}
+                      {filtered.map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          disabled={!hasKey}
+                          onSelect={() =>
+                            hasKey && void setDefaultModel(m.id)
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-2 text-[12px]",
+                            m.id === defaultModel && "bg-accent/50",
+                          )}
+                        >
+                          <span className="flex flex-col">
+                            <span>{m.label}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {m.hint}
+                            </span>
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
+                  );
+                });
+                return (
+                  <>
+                    {blocks}
+                    {modelQuery && totalMatches === 0 ? (
+                      <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+                        No models match “{modelQuery}”.
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </div>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -59,12 +59,12 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .min_inner_size(720.0, 520.0)
         .max_inner_size(720.0, 520.0)
         .resizable(false)
-        .visible(false)
-        // Keep settings above the main app window so it doesn't get hidden
-        // when the user clicks back into the editor or terminal (#33).
-        .always_on_top(true);
+        .visible(false);
 
-    // Tie lifecycle to the main window so settings minimizes/closes with it.
+    // Owner-window relationship: keeps settings z-ordered above main without
+    // pinning it above other apps (#33), and on Windows the OS hides owned
+    // windows automatically when the owner minimizes — so settings follows
+    // main into the taskbar instead of floating on the desktop.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
@@ -235,17 +235,37 @@ pub fn run() {
             net::http_ping,
         ])
         .on_window_event(|window, event| {
-            // Mirror main window visibility onto the settings child so an
-            // always_on_top Settings dialog doesn't stay pinned to the desktop
-            // after the user switches apps or minimizes TEDI. Listen on both
-            // windows: focus moving between main↔settings keeps TEDI in the
-            // foreground (show), focus leaving TEDI entirely hides settings.
+            // Mirror main-window visibility onto the settings child so it
+            // tracks main's minimize/restore and doesn't linger on the
+            // desktop when the user switches apps. Owner-window semantics
+            // (set via `.parent(&main)`) handle most of this for us on
+            // Windows, but the explicit mirroring below covers Linux/macOS
+            // and the decorationless-transparent-window edge cases where
+            // the OS auto-mirror doesn't fire reliably.
             let label = window.label();
             if label != "main" && label != "settings" {
                 return;
             }
             let app = window.app_handle().clone();
             match event {
+                // On Windows, minimize is reported as a Resized event (no
+                // dedicated Minimized variant in Tauri 2). Sample the state
+                // and mirror it onto settings.
+                tauri::WindowEvent::Resized(_) if label == "main" => {
+                    let Some(main) = app.get_webview_window("main") else {
+                        return;
+                    };
+                    let Some(settings) = app.get_webview_window("settings") else {
+                        return;
+                    };
+                    let minimized = main.is_minimized().unwrap_or(false);
+                    if minimized {
+                        let _ = settings.minimize();
+                    } else if settings.is_minimized().unwrap_or(false) {
+                        let _ = settings.unminimize();
+                        let _ = settings.show();
+                    }
+                }
                 tauri::WindowEvent::Focused(focused) => {
                     let Some(settings) = app.get_webview_window("settings") else {
                         return;
@@ -271,7 +291,14 @@ pub fn run() {
                                 .get_webview_window("settings")
                                 .and_then(|w| w.is_focused().ok())
                                 .unwrap_or(false);
-                            if !main_focused && !settings_focused {
+                            // Only hide if main is still active in the
+                            // background (not minimized) — otherwise leave
+                            // the OS-driven minimize chain alone.
+                            let main_minimized = app
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_minimized().ok())
+                                .unwrap_or(false);
+                            if !main_focused && !settings_focused && !main_minimized {
                                 if let Some(settings) = app.get_webview_window("settings") {
                                     let _ = settings.hide();
                                 }

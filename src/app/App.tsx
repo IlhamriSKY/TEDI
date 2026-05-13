@@ -17,8 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   AgentRunBridge,
-  AiInputBar,
-  AiMiniWindow,
+  AiSidebarPanel,
   getAllKeys,
   hasAnyKey,
   SelectionAskAi,
@@ -26,6 +25,10 @@ import {
 } from "@/modules/ai";
 import { AiInputBarConnect } from "@/modules/ai/components/AiInputBar";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
+import {
+  clearSumopodModels,
+  refreshSumopodModels,
+} from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import {
@@ -80,7 +83,7 @@ import {
 } from "@/modules/workspaces";
 import { homeDir } from "@tauri-apps/api/path";
 import type { SearchAddon } from "@xterm/addon-search";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
@@ -234,7 +237,6 @@ export default function App() {
 
   // -------- AI composer / chat store wiring --------
   const [newEditorOpen, setNewEditorOpen] = useState(false);
-  const miniOpen = useChatStore((s) => s.mini.open);
   const openMini = useChatStore((s) => s.openMini);
   const focusInput = useChatStore((s) => s.focusInput);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -254,6 +256,12 @@ export default function App() {
         if (!alive) return;
         setApiKeys(keys);
         setKeysLoaded(true);
+        // Auto-detect SumoPod models whenever the key arrives or changes.
+        if (keys.sumopod) {
+          void refreshSumopodModels(keys.sumopod);
+        } else {
+          clearSumopodModels();
+        }
       });
     };
     reload();
@@ -1149,7 +1157,7 @@ export default function App() {
                 </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
-              <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
+              <ResizablePanel id="workspace" defaultSize="58%" minSize="25%">
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="relative min-h-0 flex-1">
                     <div
@@ -1213,30 +1221,29 @@ export default function App() {
                   </div>
                 </div>
               </ResizablePanel>
+              {keysLoaded && panelOpen ? (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel
+                    id="ai-sidebar"
+                    defaultSize="22%"
+                    minSize="18%"
+                    maxSize="50%"
+                  >
+                    {hasComposer ? (
+                      <AiSidebarPanel />
+                    ) : (
+                      <div className="flex h-full flex-col border-l border-border/60 bg-card/60">
+                        <AiInputBarConnect
+                          onAdd={() => void openSettingsWindow("models")}
+                        />
+                      </div>
+                    )}
+                  </ResizablePanel>
+                </>
+              ) : null}
             </ResizablePanelGroup>
           </main>
-
-          {keysLoaded ? (
-            <motion.div
-              data-ai-input-bar
-              initial={false}
-              animate={{
-                height: panelOpen ? "auto" : 0,
-                opacity: panelOpen ? 1 : 0,
-              }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="shrink-0 overflow-hidden"
-              aria-hidden={panelOpen ? "false" : "true"}
-            >
-              {hasComposer ? (
-                <AiInputBar />
-              ) : (
-                <AiInputBarConnect
-                  onAdd={() => void openSettingsWindow("models")}
-                />
-              )}
-            </motion.div>
-          ) : null}
 
           <StatusBar
             cwd={activeCwd}
@@ -1259,7 +1266,6 @@ export default function App() {
           ) : null}
 
           <AnimatePresence>
-            {miniOpen && hasComposer ? <AiMiniWindow key="ai-mini" /> : null}
             {askPopup ? (
               <SelectionAskAi
                 key="ask-ai-popup"

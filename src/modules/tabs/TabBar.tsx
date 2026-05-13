@@ -33,6 +33,7 @@ import {
   useSensors,
   type DragEndEvent,
   type DropAnimation,
+  type Modifier,
 } from "@dnd-kit/core";
 import {
   horizontalListSortingStrategy,
@@ -172,6 +173,30 @@ const DROP_ANIMATION: DropAnimation = {
   }),
 };
 
+/**
+ * Pin the DragOverlay so the pointer stays at the horizontal centre of the
+ * dragged tab and the chip never leaves the tab strip's y-line. Header has
+ * a top border and the tab strip sits inside an h-10 row — without locking
+ * y, the overlay drifts up/down toward whichever border is closer to the
+ * cursor and visually "snaps to a line" instead of sitting centred.
+ */
+const snapCenterAndLockY: Modifier = ({
+  activatorEvent,
+  draggingNodeRect,
+  transform,
+}) => {
+  if (!draggingNodeRect || !activatorEvent) return transform;
+  const ev = activatorEvent as PointerEvent;
+  const offsetX = ev.clientX - draggingNodeRect.left;
+  return {
+    ...transform,
+    x: transform.x + offsetX - draggingNodeRect.width / 2,
+    // y: 0 keeps the overlay glued to the dragged node's original row
+    // (the tab strip line). Cursor can drift vertically; the chip won't.
+    y: 0,
+  };
+};
+
 export function TabBar({
   tabs,
   activeId,
@@ -273,7 +298,13 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
-      className="min-w-0 shrink overflow-x-auto overflow-y-hidden pb-1 [scrollbar-color:var(--muted-foreground)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:block [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/70 [&::-webkit-scrollbar-track]:bg-transparent"
+      // Thin overlay scrollbar pinned to the bottom edge — visible on hover
+      // when there are more tabs than fit. Using `overlay` (and the WebKit
+      // height of 4px) means the scrollbar paints OVER the row instead of
+      // reserving layout space, so the 28px tab strip stays vertically
+      // centered against the 40px header buttons. Wheel-scroll still works
+      // via the listener above.
+      className="group/tabscroll flex h-full min-w-0 shrink items-center overflow-x-auto overflow-y-hidden [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:var(--muted-foreground)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/80"
     >
       <div className="flex w-max items-center gap-0.5">
         <Tabs
@@ -315,7 +346,10 @@ export function TabBar({
                 ))}
               </SortableContext>
             </TabsList>
-            <DragOverlay dropAnimation={DROP_ANIMATION}>
+            <DragOverlay
+              dropAnimation={DROP_ANIMATION}
+              modifiers={[snapCenterAndLockY]}
+            >
               {draggedEntry && (
                 <div
                   className={cn(
@@ -487,7 +521,13 @@ function SortableTabGroup({
           {...(idx === 0 ? attributes : {})}
           {...(idx === 0 ? listeners : {})}
           className={cn(
-            "group relative h-full shrink-0 gap-1.5 text-xs text-muted-foreground transition-[background-color,color] duration-150 data-[state=active]:bg-accent data-[state=active]:text-foreground hover:bg-muted/40 hover:text-foreground/80 justify-between",
+            // VSCode-style active state: tab adopts the editor background
+            // (--background) and gets a 2px primary-colored top border so the
+            // focused tab visually "lifts" out of the strip. Inactive tabs sit
+            // on the slightly darker --muted surface for clear contrast.
+            "group relative h-full shrink-0 gap-1.5 bg-muted/60 text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-foreground/80 justify-between",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-medium",
+            "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
             // Inside a split cluster, entries are flat (no rounded corners,
             // no own bg); outside, they keep the original pill look.
             isSplit ? "rounded-none" : "rounded-md",

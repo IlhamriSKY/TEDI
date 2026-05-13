@@ -1,5 +1,4 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import {
   AlertCircleIcon,
@@ -16,7 +15,12 @@ type Props = {
 export function AgentStatusPill({ onClick }: Props) {
   const meta = useChatStore((s) => s.agentMeta);
 
-  if (meta.status === "idle" && !meta.error) return null;
+  // Only surface critical states in the status bar: pending approval +
+  // hard errors. Routine "thinking/streaming" is already visible inside
+  // the chat panel itself, so duplicating it here adds noise.
+  const isCritical =
+    meta.status === "awaiting-approval" || meta.status === "error";
+  if (!isCritical) return null;
 
   const { tone, icon, label } = describe(meta);
 
@@ -63,21 +67,13 @@ function describe(meta: AgentMeta): {
           : "Approval needed",
     };
   }
-  if (meta.status === "error") {
-    return {
-      tone:
-        "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
-      icon: (
-        <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />
-      ),
-      label: meta.error ?? "Error",
-    };
-  }
-  // thinking | streaming
+  // Only "error" reaches here (caller filters out thinking/streaming/idle).
   return {
     tone:
-      "border-border/60 bg-card text-muted-foreground hover:text-foreground",
-    icon: <Spinner className="size-3" />,
-    label: meta.step ?? "Thinking…",
+      "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
+    icon: (
+      <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />
+    ),
+    label: meta.error ?? "Error",
   };
 }

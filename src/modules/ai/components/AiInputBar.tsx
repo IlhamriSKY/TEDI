@@ -12,6 +12,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
+import type { UIMessage } from "@ai-sdk/react";
 import { useEffect, useMemo, useState } from "react";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
@@ -19,6 +20,8 @@ import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
+import { ContextIndicator } from "./AiMiniWindow";
+import { AiStatusBarControls } from "./AiStatusBarControls";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
 
 type SnippetTrigger = {
@@ -46,7 +49,7 @@ function detectSnippetTrigger(
   return null;
 }
 
-export function AiInputBar() {
+export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
   const snippets = useSnippetsStore((s) => s.snippets);
 
@@ -132,11 +135,11 @@ export function AiInputBar() {
       : null;
 
   return (
-    <div className="shrink-0 border-t border-border/60 bg-card/40 px-3 py-2">
+    <div className="shrink-0 border-t border-border/60 bg-background/40 px-2 py-2">
       <div
         className={cn(
-          "flex flex-col gap-1.5 rounded-lg px-1 py-1",
-          "transition-colors focus-within:border-border",
+          "flex flex-col gap-1.5 rounded-xl border border-border bg-muted/50 px-2 py-1.5 shadow-sm",
+          "transition-colors focus-within:border-foreground/25 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-foreground/10",
         )}
       >
         <ChipsRow
@@ -200,11 +203,10 @@ export function AiInputBar() {
                 rows={1}
                 disabled={c.isBusy}
                 className={cn(
-                  "max-h-40 flex-1 resize-none bg-transparent text-[13px] leading-relaxed outline-none",
+                  "max-h-40 flex-1 resize-none bg-transparent px-1 text-[13px] leading-relaxed outline-none",
                   "placeholder:text-muted-foreground/60",
                 )}
               />
-              <AgentSwitcher />
             </div>
           </PopoverAnchor>
           <SnippetPickerContent
@@ -234,6 +236,16 @@ export function AiInputBar() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <div className="flex items-center justify-between gap-1 border-t border-border/40 pt-1.5 [&>div]:flex-wrap">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <AgentSwitcher />
+            {messages !== undefined ? (
+              <ContextIndicator messages={messages} />
+            ) : null}
+          </div>
+          <AiStatusBarControls />
+        </div>
       </div>
     </div>
   );

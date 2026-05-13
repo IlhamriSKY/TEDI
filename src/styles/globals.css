@@ -85,38 +85,42 @@
     --sidebar-ring: oklch(0.723 0.014 214.4);
 }
 
+/* VSCode Dark+ (Default Dark Modern) palette
+ * Editor bg #1E1E1E, sidebar/activity-bar #181818, panel border #2B2B2B,
+ * focus border #0078D4, fg #CCCCCC. Hex kept as-is (sRGB) so the result
+ * matches VSCode pixel-for-pixel rather than drifting through OKLCH. */
 .dark {
-    --background: oklch(0.148 0.004 228.8);
-    --foreground: oklch(0.987 0.002 197.1);
-    --card: oklch(0.218 0.008 223.9);
-    --card-foreground: oklch(0.987 0.002 197.1);
-    --popover: oklch(0.218 0.008 223.9);
-    --popover-foreground: oklch(0.987 0.002 197.1);
-    --primary: oklch(0.925 0.005 214.3);
-    --primary-foreground: oklch(0.218 0.008 223.9);
-    --secondary: oklch(0.275 0.011 216.9);
-    --secondary-foreground: oklch(0.987 0.002 197.1);
-    --muted: oklch(0.275 0.011 216.9);
-    --muted-foreground: oklch(0.723 0.014 214.4);
-    --accent: oklch(0.275 0.011 216.9);
-    --accent-foreground: oklch(0.987 0.002 197.1);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.56 0.021 213.5);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
-    --sidebar: oklch(0.218 0.008 223.9);
-    --sidebar-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.275 0.011 216.9);
-    --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.56 0.021 213.5);
+    --background: #1E1E1E;
+    --foreground: #CCCCCC;
+    --card: #1F1F1F;
+    --card-foreground: #CCCCCC;
+    --popover: #1F1F1F;
+    --popover-foreground: #CCCCCC;
+    --primary: #0078D4;
+    --primary-foreground: #FFFFFF;
+    --secondary: #2A2D2E;
+    --secondary-foreground: #CCCCCC;
+    --muted: #252526;
+    --muted-foreground: #9D9D9D;
+    --accent: #04395E;
+    --accent-foreground: #FFFFFF;
+    --destructive: #F14C4C;
+    --border: #2B2B2B;
+    --input: #313131;
+    --ring: #0078D4;
+    --chart-1: #4FC1FF;
+    --chart-2: #C586C0;
+    --chart-3: #DCDCAA;
+    --chart-4: #9CDCFE;
+    --chart-5: #CE9178;
+    --sidebar: #181818;
+    --sidebar-foreground: #CCCCCC;
+    --sidebar-primary: #0078D4;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #2A2D2E;
+    --sidebar-accent-foreground: #FFFFFF;
+    --sidebar-border: #2B2B2B;
+    --sidebar-ring: #0078D4;
 }
 
 @layer base {
@@ -247,4 +251,35 @@ html[data-chrome="borderless"] *::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
+}
+
+/* Re-enable a slim themed scrollbar inside the AI chat conversation so the
+ * user has a visible navigation affordance. The global rule above hides
+ * scrollbars across the app; this opts the chat back in with our own style. */
+.chat-scroll,
+.chat-scroll * {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-scroll *::-webkit-scrollbar,
+.chat-scroll::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block !important;
+}
+.chat-scroll *::-webkit-scrollbar-track,
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll *::-webkit-scrollbar-thumb,
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-scroll *::-webkit-scrollbar-thumb:hover,
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+  background-clip: padding-box;
 }

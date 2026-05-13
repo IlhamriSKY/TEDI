@@ -1,3 +1,4 @@
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -7,7 +8,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { CheckmarkSquare02Icon, SquareIcon } from "@hugeicons/core-free-icons";
+import {
+  Cancel01Icon,
+  CheckmarkSquare02Icon,
+  SquareIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect } from "react";
 import type { Todo } from "../lib/todos";
@@ -22,12 +27,16 @@ export function TodoStrip({ sessionId }: Props) {
   const todos =
     useTodosStore((s) => (sessionId ? s.bySession[sessionId] : undefined)) ??
     EMPTY_TODOS;
+  const hidden = useTodosStore((s) =>
+    sessionId ? s.hidden.has(sessionId) : false,
+  );
+  const hideStrip = useTodosStore((s) => s.hideStrip);
 
   useEffect(() => {
     if (sessionId) void hydrate(sessionId);
   }, [sessionId, hydrate]);
 
-  if (!sessionId || todos.length === 0) return null;
+  if (!sessionId || todos.length === 0 || hidden) return null;
 
   const completed = todos.filter((t) => t.status === "completed").length;
   const pct = Math.round((completed / todos.length) * 100);
@@ -40,6 +49,19 @@ export function TodoStrip({ sessionId }: Props) {
         <span className="text-[11px] tabular-nums font-mono text-muted-foreground">
           {completed}/{todos.length}
         </span>
+        <IconTooltip label="Hide todos" side="top">
+          <button
+            type="button"
+            onClick={() => hideStrip(sessionId)}
+            aria-label="Hide todos"
+            className={cn(
+              "flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground",
+              "transition-colors hover:bg-destructive/10 hover:text-destructive",
+            )}
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+          </button>
+        </IconTooltip>
       </div>
       <ul className="flex flex-col gap-0.5">
         {todos.map((t) => (

@@ -5,7 +5,7 @@ import {
   DEFAULT_MODEL_ID,
   LMSTUDIO_DEFAULT_BASE_URL,
   type AutocompleteProviderId,
-  type ModelId,
+  type DynamicModelId,
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 
@@ -39,7 +39,7 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
 
 export type Preferences = {
   theme: ThemePref;
-  defaultModelId: ModelId;
+  defaultModelId: DynamicModelId;
   editorTheme: EditorThemeId;
   customInstructions: string;
   autostart: boolean;
@@ -51,6 +51,7 @@ export type Preferences = {
   vimMode: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
+  showHiddenFiles: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
 };
 
@@ -68,6 +69,7 @@ const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
 const KEY_VIM_MODE = "vimMode";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
+const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHORTCUTS = "shortcuts";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
@@ -92,6 +94,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   vimMode: false,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
+  showHiddenFiles: false,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
 };
 
@@ -118,7 +121,7 @@ export async function loadPreferences(): Promise<Preferences> {
   return {
     theme: get<ThemePref>(KEY_THEME) ?? DEFAULT_PREFERENCES.theme,
     defaultModelId:
-      get<ModelId>(KEY_DEFAULT_MODEL) ?? DEFAULT_PREFERENCES.defaultModelId,
+      get<DynamicModelId>(KEY_DEFAULT_MODEL) ?? DEFAULT_PREFERENCES.defaultModelId,
     editorTheme:
       get<EditorThemeId>(KEY_EDITOR_THEME) ?? DEFAULT_PREFERENCES.editorTheme,
     customInstructions:
@@ -146,6 +149,9 @@ export async function loadPreferences(): Promise<Preferences> {
     terminalFontSize:
       get<number>(KEY_TERMINAL_FONT_SIZE) ??
       DEFAULT_PREFERENCES.terminalFontSize,
+    showHiddenFiles:
+      get<boolean>(KEY_SHOW_HIDDEN_FILES) ??
+      DEFAULT_PREFERENCES.showHiddenFiles,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
@@ -156,7 +162,7 @@ export async function setTheme(value: ThemePref): Promise<void> {
   await writePref(KEY_THEME, value);
 }
 
-export async function setDefaultModel(value: ModelId): Promise<void> {
+export async function setDefaultModel(value: DynamicModelId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
 }
 
@@ -202,6 +208,10 @@ export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
 
+export async function setShowHiddenFiles(value: boolean): Promise<void> {
+  await writePref(KEY_SHOW_HIDDEN_FILES, value);
+}
+
 export async function setTerminalFontSize(value: number): Promise<void> {
   const clamped = Number.isFinite(value)
     ? Math.min(
@@ -215,13 +225,11 @@ export async function setTerminalFontSize(value: number): Promise<void> {
 export async function setShortcuts(
   value: Record<ShortcutId, KeyBinding[]> | {}
 ): Promise<void> {
-  await store.set(KEY_SHORTCUTS, value);
-  await store.save();
+  await writePref(KEY_SHORTCUTS, value);
 }
 
 export async function resetShortcuts(): Promise<void> {
-  await store.set(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
-  await store.save();
+  await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
 }
 
 export type PrefKey = keyof Preferences;
@@ -244,6 +252,7 @@ export async function onPreferencesChange(
     [KEY_VIM_MODE]: "vimMode",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
+    [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
     [KEY_SHORTCUTS]: "shortcuts",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
