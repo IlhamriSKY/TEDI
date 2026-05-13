@@ -29,6 +29,17 @@ Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/TEDI/releases/lat
 
 Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact for your OS and install. Re-download from Releases when a new version drops or check at settings.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/tedi1.png" width="49%" alt="TEDI screenshot 1" />
+  <img src="docs/tedi2.png" width="49%" alt="TEDI screenshot 2" />
+</p>
+<p align="center">
+  <img src="docs/tedi3.png" width="49%" alt="TEDI screenshot 3" />
+  <img src="docs/tedi4.png" width="49%" alt="TEDI screenshot 4" />
+</p>
+
 ## Features
 
 **Terminal**
