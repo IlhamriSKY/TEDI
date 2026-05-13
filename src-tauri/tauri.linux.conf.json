@@ -8,5 +8,8 @@
         "transparent": true
       }
     ]
+  },
+  "bundle": {
+    "targets": ["deb", "rpm", "appimage"]
   }
 }

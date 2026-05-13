@@ -1,5 +1,7 @@
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
+import { AiMagicIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 
@@ -10,8 +12,9 @@ type Props = {
   onDismiss: () => void;
 };
 
-const W = 156;
-const OFFSET = 32;
+const W = 168;
+const H = 34;
+const GAP = 10;
 
 export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
   useEffect(() => {
@@ -22,30 +25,41 @@ export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onDismiss]);
 
-  const top = Math.max(8, y - OFFSET);
+  const top = Math.max(8, y - H - GAP);
   const left = Math.max(8, Math.min(x - W / 2, window.innerWidth - W - 8));
 
   return (
     <motion.div
       data-selection-ask-ai
-      initial={{ opacity: 0, y: 4, scale: 0.95 }}
+      initial={{ opacity: 0, y: 6, scale: 0.94 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 4, scale: 0.95 }}
-      transition={{ duration: 0.12, ease: "easeOut" }}
-      style={{ top, left, width: W }}
+      exit={{ opacity: 0, y: 6, scale: 0.94 }}
+      transition={{ duration: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
+      style={{ top, left, width: W, height: H }}
       className="fixed z-50"
     >
       <button
         type="button"
+        onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => {
           e.stopPropagation();
           onAsk();
         }}
-        className="flex h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground shadow-xl ring-1 ring-black/10 backdrop-blur-md transition-[transform,background-color,box-shadow] hover:-translate-y-px hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+        className="relative flex h-full w-full cursor-pointer items-center justify-between gap-2 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground shadow-md ring-1 ring-black/10 transition-colors duration-100 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
       >
-        <span className="truncate whitespace-nowrap">Ask TEDI</span>
+        <span className="flex items-center gap-1.5">
+          <HugeiconsIcon
+            icon={AiMagicIcon}
+            size={14}
+            strokeWidth={2}
+            className="shrink-0"
+          />
+          <span className="truncate whitespace-nowrap font-semibold tracking-tight">
+            Ask TEDI
+          </span>
+        </span>
         <KbdGroup>
-          <Kbd className="h-5 min-w-fit rounded-md bg-primary-foreground/14 px-1.5 text-[10px] font-semibold text-primary-foreground">
+          <Kbd className="h-5 min-w-fit rounded-md bg-primary-foreground/15 px-1.5 text-[10px] font-semibold text-primary-foreground">
             {fmtShortcut(MOD_KEY, "L")}
           </Kbd>
         </KbdGroup>

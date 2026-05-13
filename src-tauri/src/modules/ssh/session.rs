@@ -196,7 +196,7 @@ pub async fn connect(
                         data: B64.encode(data),
                     });
                 }
-                ChannelMsg::ExtendedData { ref data, ext } if ext == 1 => {
+                ChannelMsg::ExtendedData { ref data, ext: 1 } => {
                     let _ = on_event_pump.send(SshEvent::Stderr {
                         data: B64.encode(data),
                     });

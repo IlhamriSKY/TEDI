@@ -694,16 +694,62 @@ export default function App() {
       );
     };
 
+    const paneLeafFor = (t: EventTarget | null): HTMLElement | null => {
+      const el = t as HTMLElement | null;
+      return el?.closest<HTMLElement>("[data-pane-leaf]") ?? null;
+    };
+
+    // Anchor the popup to the actual selection rect when possible, so it
+    // hovers right above the highlighted text instead of where the mouse
+    // happened to land. Falls back to the mouseup point for terminals where
+    // the DOM selection API doesn't surface xterm's internal selection.
+    const anchorFromSelection = (
+      pane: HTMLElement,
+      fallbackX: number,
+      fallbackY: number,
+    ): { x: number; y: number } => {
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+          const rect = sel.getRangeAt(0).getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            return { x: rect.left + rect.width / 2, y: rect.top };
+          }
+        }
+        const xtermSel = pane.querySelector<HTMLElement>(
+          ".xterm-selection > div, .xterm-selection-layer canvas",
+        );
+        if (xtermSel) {
+          const rect = xtermSel.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            return { x: rect.left + rect.width / 2, y: rect.top };
+          }
+        }
+      } catch {
+        // ignore — fall through to mouse coords
+      }
+      return { x: fallbackX, y: fallbackY };
+    };
+
     const onDown = (e: MouseEvent) => {
       if (isInsideAi(e.target)) return;
       setAskPopup(null);
     };
     const onUp = (e: MouseEvent) => {
       if (isInsideAi(e.target)) return;
+      // Only consider mouseups that land inside a terminal/editor pane —
+      // otherwise a stale xterm selection could pop the button anywhere
+      // (status bar, sidebar, tab strip, etc.).
+      const pane = paneLeafFor(e.target);
+      if (!pane) {
+        setAskPopup(null);
+        return;
+      }
       setTimeout(() => {
         const text = captureActiveSelection();
         if (text && text.trim().length > 0) {
-          setAskPopup({ x: e.clientX, y: e.clientY });
+          const { x, y } = anchorFromSelection(pane, e.clientX, e.clientY);
+          setAskPopup({ x, y });
         } else {
           setAskPopup(null);
         }

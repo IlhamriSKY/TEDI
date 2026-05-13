@@ -4,6 +4,19 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.4] - 2026-05-13
+
+### Fixed
+- **Ask TEDI** popup now anchors to the actual selection rectangle (top-center) instead of where the mouseup landed, so it consistently appears just above the highlighted text. Falls back to the mouse coordinate when the DOM/xterm selection rect can't be measured.
+- The popup only triggers when the mouseup lands inside a terminal/editor pane (`[data-pane-leaf]`), preventing it from popping in the status bar, tab strip, or sidebar after a stale xterm selection.
+
+### Changed
+- **Ask TEDI** button restyled: pill (`rounded-full`), AI-magic icon prefix, semibold label tracking, smaller shadow and faster transition. Width 156 to 168, height locked at 34, gap above selection 10px.
+- Per-platform bundle scope: Windows now only emits NSIS (`.exe`) - MSI dropped - using LZMA compression to slim the installer. Linux builds remain `deb`/`rpm`/`appimage`. `bundle.targets` in the shared `tauri.conf.json` removed in favor of per-platform overrides in `tauri.linux.conf.json` / `tauri.windows.conf.json`.
+- Release profile: `strip = "symbols"` (was `true`) - explicit about what's stripped.
+- SSH event pump: pattern-match `ChannelMsg::ExtendedData { ext: 1, .. }` directly instead of an `if ext == 1` guard (clippy-clean).
+- `public/icon.png`: re-exported smaller (852 KB to 22 KB) for faster initial paint of the About panel.
+
 ## [0.1.3] - 2026-05-13
 
 ### Fixed

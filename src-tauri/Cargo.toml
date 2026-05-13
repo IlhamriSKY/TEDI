@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.1.3"
+version = "0.1.4"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -74,4 +74,4 @@ codegen-units = 1
 lto = "fat"
 opt-level = "s"
 panic = "abort"
-strip = true
+strip = "symbols"
