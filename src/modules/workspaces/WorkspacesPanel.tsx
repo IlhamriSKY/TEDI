@@ -135,7 +135,7 @@ export function WorkspacesPanel({ onSwitch, onCreate, onClose }: Props) {
                         aria-label="Close workspace"
                         variant="ghost"
                         size="icon-sm"
-                        className="size-5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className="size-5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       >
                         <HugeiconsIcon
                           icon={Cancel01Icon}

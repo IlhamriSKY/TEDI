@@ -190,7 +190,7 @@ export function AgentsSection() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="size-7 text-muted-foreground hover:text-destructive"
+                    className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => removeSnippet(s.id)}
                     aria-label="Delete"
                   >
@@ -309,7 +309,7 @@ function AgentCard({
               <Button
                 size="icon"
                 variant="ghost"
-                className="size-6 text-muted-foreground hover:text-destructive"
+                className="size-6 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={onDelete}
                 aria-label="Delete"
               >
@@ -404,7 +404,7 @@ function AgentEditorDialog({
               onChange={(e) =>
                 setDraft({ ...draft, instructions: e.target.value })
               }
-              placeholder="Persona & rules. Appended to CMDAN's core system prompt."
+              placeholder="Persona & rules. Appended to TEDI's core system prompt."
               className="min-h-40 resize-y text-[12px] leading-relaxed"
             />
           </div>

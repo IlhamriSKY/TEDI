@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="public/icon.png" width="120" height="120" alt="CMDAN" />
-  <h1>CMDAN</h1>
+  <img src="public/icon.png" width="120" height="120" alt="TEDI" />
+  <h1>TEDI</h1>
 
-  <p><strong>AI-native terminal emulator. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
+  <p><strong>Terminal Environment & Development Infrastructure. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
@@ -15,13 +15,17 @@
 
 > [!IMPORTANT]
 > **Built on top of [Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9) by [Crynta](https://github.com/crynta).**
-> Full credit to the upstream authors for the Rust PTY backend, the React + xterm.js client, and the AI agent core. CMDAN keeps the same Apache-2.0 license and tracks its own roadmap onward. Please star the upstream repo if you find CMDAN useful.
+> Full credit to the upstream authors for the Rust PTY backend, the React + xterm.js client, and the AI agent core. TEDI keeps the same Apache-2.0 license and tracks its own roadmap onward. Please star the upstream repo if you find TEDI useful.
 
-> Auto-update is disabled. Grab new builds from the [Releases](https://github.com/IlhamriSKY/CMDAN/releases) page.
+> Auto-update is **enabled**: TEDI checks [GitHub Releases](https://github.com/IlhamriSKY/TEDI/releases) every 6 hours and offers signed in-app updates. First install is still manual — grab a build from Releases.
+
+## What is TEDI?
+
+**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) is a lightweight, low-footprint terminal that boosts developer productivity. Split-screen terminals, tab grouping, and workspaces — designed for developer workflows.
 
 ## Install
 
-Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/CMDAN/releases/latest)**.
+Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/TEDI/releases/latest)**.
 
 Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact for your OS and install. Re-download from Releases when a new version drops.
 
@@ -31,7 +35,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - xterm.js + WebGL, multi-tab, background-streaming inactive tabs
 - Native PTY via `portable-pty` (zsh, bash, fish, pwsh)
 - Shell integration: cwd + prompt markers via OSC 7 / 133
-- Spawn new tabs *from inside* a shell instead of popping an external `cmd.exe` / `gnome-terminal` (OSC 8889 + `cmdan_open`)
+- Spawn new tabs *from inside* a shell instead of popping an external `cmd.exe` / `gnome-terminal` (OSC 8889 + `tedi_open`)
 - Split panes: horizontal and vertical, mix terminals and editors freely
 - Inline search, link detection, true-color
 
@@ -51,7 +55,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - OpenAI, Anthropic, Google, Groq, xAI, Cerebras, OpenAI-compatible (LM Studio for offline)
 - Voice input, multi-agent / sub-agents, snippets, custom system prompt
 - Tools: read / write / grep / glob / shell with explicit approval
-- Project memory via `CMDAN.md` at workspace root
+- Project memory via `TEDI.md` at workspace root
 - Tool-routing and approval-flow polish
 
 **File Explorer**
@@ -64,7 +68,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 
 ## Configure AI
 
-Settings > AI > pick a provider, paste your API key. For local inference, point CMDAN at your LM Studio endpoint. Keys are written to the OS keychain via `keyring`. They never touch disk or `localStorage`.
+Settings > AI > pick a provider, paste your API key. For local inference, point TEDI at your LM Studio endpoint. Keys are written to the OS keychain via `keyring`. They never touch disk or `localStorage`.
 
 ## Build from source
 
@@ -93,7 +97,7 @@ cd src-tauri && cargo clippy    # Rust lint
 
 ## Credits
 
-CMDAN is derived from [crynta/terax-ai @ v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9). The original Tauri + Rust backend, the xterm.js terminal stack, the CodeMirror editor stack, and the AI agent pipeline are the work of [Crynta](https://github.com/crynta) and the Terax contributors. Please go give the upstream project a star if you use CMDAN.
+TEDI is derived from [crynta/terax-ai @ v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9). The original Tauri + Rust backend, the xterm.js terminal stack, the CodeMirror editor stack, and the AI agent pipeline are the work of [Crynta](https://github.com/crynta) and the Terax contributors. Please go give the upstream project a star if you use TEDI.
 
 ## License
 

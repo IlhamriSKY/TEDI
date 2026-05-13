@@ -7,12 +7,12 @@ body:
       value: |
         Thanks for taking the time to report a bug. Please fill in the fields below — it makes triage much faster.
 
-        For **security issues**, do NOT open an issue. See [SECURITY.md](https://github.com/IlhamriSKY/CMDAN/blob/main/SECURITY.md).
+        For **security issues**, do NOT open an issue. See [SECURITY.md](https://github.com/IlhamriSKY/TEDI/blob/main/SECURITY.md).
 
   - type: input
     id: version
     attributes:
-      label: CMDAN version
+      label: TEDI version
       description: From Settings → About, or the title bar.
       placeholder: "0.5.9"
     validations:
@@ -59,7 +59,7 @@ body:
       label: Steps to reproduce
       description: Numbered list of exact steps. The more specific, the faster we can help.
       placeholder: |
-        1. Open CMDAN
+        1. Open TEDI
         2. Click ...
         3. ...
     validations:

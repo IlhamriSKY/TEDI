@@ -10,8 +10,8 @@ import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
 import type {
-  CmdanOpenInput,
-  CmdanSpawnTabInput,
+  TediOpenInput,
+  TediSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
 
 export type LeafBundle = {
@@ -21,8 +21,8 @@ export type LeafBundle = {
   onCwd: (cwd: string) => void;
   onDetectedLocalUrl: (url: string) => void;
   onExit: (code: number) => void;
-  onCmdanOpen: (input: CmdanOpenInput) => void;
-  onCmdanSpawnTab: (input: CmdanSpawnTabInput) => void;
+  onTediOpen: (input: TediOpenInput) => void;
+  onTediSpawnTab: (input: TediSpawnTabInput) => void;
   // editor-only
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -77,8 +77,8 @@ export function PaneTreeView({
               onCwd={(_id, cwd) => b.onCwd(cwd)}
               onDetectedLocalUrl={(_id, url) => b.onDetectedLocalUrl(url)}
               onExit={(_id, code) => b.onExit(code)}
-              onCmdanOpen={(_id, input) => b.onCmdanOpen(input)}
-              onCmdanSpawnTab={(_id, input) => b.onCmdanSpawnTab(input)}
+              onTediOpen={(_id, input) => b.onTediOpen(input)}
+              onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
             />
           </div>
         </div>

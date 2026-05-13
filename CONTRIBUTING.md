@@ -60,7 +60,7 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 ## What we don't want
 
 - Telemetry, analytics, or anything that phones home.
-- Hardcoded API keys or accounts. CMDAN stays BYOK.
+- Hardcoded API keys or accounts. TEDI stays BYOK.
 - Large dependencies for small wins. The bundle is ~7 MB and we want it to stay light.
 - Sweeping refactors with no functional change.
 

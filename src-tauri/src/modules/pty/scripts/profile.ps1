@@ -1,8 +1,8 @@
-# cmdan-shell-integration (PowerShell)
+# tedi-shell-integration (PowerShell)
 # Emits OSC 7 (cwd) + OSC 133 A/B/D so the host tracks cwd and prompt boundaries.
 
-if ($global:__CMDAN_HOOKS_LOADED) { return }
-$global:__CMDAN_HOOKS_LOADED = $true
+if ($global:__TEDI_HOOKS_LOADED) { return }
+$global:__TEDI_HOOKS_LOADED = $true
 
 try {
     [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
@@ -11,10 +11,10 @@ try {
 } catch {}
 
 if (Test-Path Function:prompt) {
-    Copy-Item Function:prompt Function:__cmdan_user_prompt -Force -ErrorAction SilentlyContinue
+    Copy-Item Function:prompt Function:__tedi_user_prompt -Force -ErrorAction SilentlyContinue
 }
 
-function global:__cmdan_urlencode {
+function global:__tedi_urlencode {
     param([string]$s)
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($s)
     $sb = [System.Text.StringBuilder]::new($bytes.Length)
@@ -46,13 +46,13 @@ function global:prompt {
     if ($loc.Provider.Name -eq 'FileSystem') {
         $cwd = $loc.ProviderPath -replace '\\','/'
         if ($cwd -match '^[A-Za-z]:') { $cwd = "/$cwd" }
-        $cwdEnc = __cmdan_urlencode $cwd
+        $cwdEnc = __tedi_urlencode $cwd
         $hostName = [System.Environment]::MachineName
         $osc7 = "$esc]7;file://$hostName$cwdEnc$esc\"
     }
 
-    $original = if (Test-Path Function:__cmdan_user_prompt) {
-        try { & __cmdan_user_prompt } catch { "PS $((Get-Location).Path)> " }
+    $original = if (Test-Path Function:__tedi_user_prompt) {
+        try { & __tedi_user_prompt } catch { "PS $((Get-Location).Path)> " }
     } else {
         "PS $((Get-Location).Path)> "
     }

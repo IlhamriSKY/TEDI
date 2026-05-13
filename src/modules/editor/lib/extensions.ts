@@ -110,7 +110,7 @@ export function buildSharedExtensions(): Extension[] {
           "color-mix(in srgb, var(--foreground) 10%, transparent)",
         color: "var(--muted-foreground)",
         border: "1px solid var(--border)",
-        borderRadius: "3px",
+        borderRadius: "0",
         padding: "0 4px",
         margin: "0 2px",
         fontSize: "11px",

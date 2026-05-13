@@ -5,6 +5,7 @@ import {
   AiStatusBarControls,
 } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
+import { UpdaterPill } from "@/modules/updater";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
@@ -41,6 +42,7 @@ export function StatusBar({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (
           <IconTooltip
             label={`Open ${detectedPreviewUrl} as a preview tab`}

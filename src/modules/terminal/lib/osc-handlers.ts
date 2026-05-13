@@ -36,34 +36,34 @@ export function registerPromptTracker(term: Terminal): PromptTracker {
   };
 }
 
-export type CmdanOpenInput = {
+export type TediOpenInput = {
   file: string;
 };
 
-export function registerCmdanOpenHandler(
+export function registerTediOpenHandler(
   term: Terminal,
-  onCmdanOpen: (input: CmdanOpenInput) => void,
+  onTediOpen: (input: TediOpenInput) => void,
 ): () => void {
   const d = term.parser.registerOscHandler(8888, (data) => {
-    const input = parseCmdanOpen(data);
-    if (input) onCmdanOpen(input);
+    const input = parseTediOpen(data);
+    if (input) onTediOpen(input);
     return true;
   });
   return () => d.dispose();
 }
 
-export type CmdanSpawnTabInput = {
+export type TediSpawnTabInput = {
   cwd?: string;
   cmd?: string;
   title?: string;
 };
 
-export function registerCmdanSpawnTabHandler(
+export function registerTediSpawnTabHandler(
   term: Terminal,
-  onSpawnTab: (input: CmdanSpawnTabInput) => void,
+  onSpawnTab: (input: TediSpawnTabInput) => void,
 ): () => void {
   const d = term.parser.registerOscHandler(8889, (data) => {
-    const input = parseCmdanSpawnTab(data);
+    const input = parseTediSpawnTab(data);
     if (input) onSpawnTab(input);
     return true;
   });
@@ -82,7 +82,7 @@ function parseOsc7(data: string): string | null {
   return path;
 }
 
-function parseCmdanOpen(data: string): CmdanOpenInput | null {
+function parseTediOpen(data: string): TediOpenInput | null {
   // Parse format: "file=/path/to/file"
   const fileMatch = data.match(/file=([^;]+)/);
 
@@ -95,7 +95,7 @@ function parseCmdanOpen(data: string): CmdanOpenInput | null {
   }
 }
 
-function parseCmdanSpawnTab(data: string): CmdanSpawnTabInput | null {
+function parseTediSpawnTab(data: string): TediSpawnTabInput | null {
   // Format: "cwd=/path;cmd=php artisan serve;title=Vite" — all fields optional
   // but at least one must be present. Values are URL-encoded.
   const decode = (s: string): string => {
@@ -105,7 +105,7 @@ function parseCmdanSpawnTab(data: string): CmdanSpawnTabInput | null {
       return s;
     }
   };
-  const out: CmdanSpawnTabInput = {};
+  const out: TediSpawnTabInput = {};
   for (const part of data.split(";")) {
     const eq = part.indexOf("=");
     if (eq < 0) continue;

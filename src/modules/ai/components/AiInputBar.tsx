@@ -196,7 +196,7 @@ export function AiInputBar() {
                     c.submit();
                   }
                 }}
-                placeholder="Ask CMDAN anything   -   # for snippets and commands"
+                placeholder="Ask TEDI anything   -   # for snippets and commands"
                 rows={1}
                 disabled={c.isBusy}
                 className={cn(
@@ -280,7 +280,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveCommand(cmd.name)}
-              className="ml-0.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
               aria-label="Remove command"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -308,7 +308,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveSnippet(s.id)}
-              className="ml-0.5 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
               aria-label="Remove snippet"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -350,7 +350,7 @@ function ChipsRow({
             <button
               type="button"
               onClick={() => onRemoveFile(f.id)}
-              className="ml-0.5 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
               aria-label="Remove"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -402,6 +402,7 @@ export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
               size="icon-xs"
               onClick={closePanel}
               aria-label="Dismiss"
+              className="hover:bg-destructive/10 hover:text-destructive"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
             </Button>

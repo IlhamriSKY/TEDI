@@ -3,8 +3,8 @@ import type { PaneTab, Tab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type {
-  CmdanOpenInput,
-  CmdanSpawnTabInput,
+  TediOpenInput,
+  TediSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useRef } from "react";
@@ -22,8 +22,8 @@ type Props = {
   onCwd: (leafId: number, cwd: string) => void;
   onDetectedLocalUrl: (leafId: number, url: string) => void;
   onExit: (leafId: number, code: number) => void;
-  onCmdanOpen?: (leafId: number, input: CmdanOpenInput) => void;
-  onCmdanSpawnTab?: (leafId: number, input: CmdanSpawnTabInput) => void;
+  onTediOpen?: (leafId: number, input: TediOpenInput) => void;
+  onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   // Editor leaf callbacks
   registerEditorHandle: (
     leafId: number,
@@ -45,8 +45,8 @@ export function PaneStack({
   onCwd,
   onDetectedLocalUrl,
   onExit,
-  onCmdanOpen,
-  onCmdanSpawnTab,
+  onTediOpen,
+  onTediSpawnTab,
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
@@ -62,8 +62,8 @@ export function PaneStack({
   const cwdRef = useRef(onCwd);
   const detectedUrlRef = useRef(onDetectedLocalUrl);
   const exitRef = useRef(onExit);
-  const cmdanOpenRef = useRef(onCmdanOpen);
-  const cmdanSpawnTabRef = useRef(onCmdanSpawnTab);
+  const tediOpenRef = useRef(onTediOpen);
+  const tediSpawnTabRef = useRef(onTediSpawnTab);
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
@@ -83,11 +83,11 @@ export function PaneStack({
     exitRef.current = onExit;
   }, [onExit]);
   useEffect(() => {
-    cmdanOpenRef.current = onCmdanOpen;
-  }, [onCmdanOpen]);
+    tediOpenRef.current = onTediOpen;
+  }, [onTediOpen]);
   useEffect(() => {
-    cmdanSpawnTabRef.current = onCmdanSpawnTab;
-  }, [onCmdanSpawnTab]);
+    tediSpawnTabRef.current = onTediSpawnTab;
+  }, [onTediSpawnTab]);
   useEffect(() => {
     registerEditorRef.current = registerEditorHandle;
   }, [registerEditorHandle]);
@@ -108,8 +108,8 @@ export function PaneStack({
         onCwd: (cwd) => cwdRef.current(leafId, cwd),
         onDetectedLocalUrl: (url) => detectedUrlRef.current(leafId, url),
         onExit: (code) => exitRef.current(leafId, code),
-        onCmdanOpen: (input) => cmdanOpenRef.current?.(leafId, input),
-        onCmdanSpawnTab: (input) => cmdanSpawnTabRef.current?.(leafId, input),
+        onTediOpen: (input) => tediOpenRef.current?.(leafId, input),
+        onTediSpawnTab: (input) => tediSpawnTabRef.current?.(leafId, input),
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),

@@ -67,8 +67,8 @@ import {
   leaves,
   respawnSession,
   type TerminalPaneHandle,
-  type CmdanOpenInput,
-  type CmdanSpawnTabInput,
+  type TediOpenInput,
+  type TediSpawnTabInput,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
 import {
@@ -182,7 +182,7 @@ export default function App() {
   const [home, setHome] = useState<string | null>(null);
   const [pickedRoot, setPickedRoot] = useState<string | null>(() => {
     try {
-      return localStorage.getItem("cmdan.workspaceRoot");
+      return localStorage.getItem("tedi.workspaceRoot");
     } catch {
       return null;
     }
@@ -215,7 +215,7 @@ export default function App() {
     const normalized = selected.replace(/\\/g, "/");
     setPickedRoot(normalized);
     try {
-      localStorage.setItem("cmdan.workspaceRoot", normalized);
+      localStorage.setItem("tedi.workspaceRoot", normalized);
     } catch {
       // Storage may be unavailable (private mode etc.) — skip persistence.
     }
@@ -593,7 +593,7 @@ export default function App() {
         return;
       }
       window.dispatchEvent(
-        new CustomEvent<string>("cmdan:ai-attach-file", { detail: path }),
+        new CustomEvent<string>("tedi:ai-attach-file", { detail: path }),
       );
       openPanel();
       focusInput(null);
@@ -903,19 +903,19 @@ export default function App() {
     [closePaneByLeaf],
   );
 
-  const handleCmdanOpen = useCallback(
-    (_leafId: number, input: CmdanOpenInput) => {
+  const handleTediOpen = useCallback(
+    (_leafId: number, input: TediOpenInput) => {
       openFileTab(input.file);
     },
     [openFileTab],
   );
 
-  // OSC 8889: shell (or a Laravel artisan command etc.) asks CMDAN to open a
+  // OSC 8889: shell (or a Laravel artisan command etc.) asks TEDI to open a
   // new terminal tab rooted at `cwd` and auto-run `cmd`. Used by tools like
-  // Laravel's `php artisan dev:serve` to keep all dev processes inside CMDAN
+  // Laravel's `php artisan dev:serve` to keep all dev processes inside TEDI
   // instead of spawning external cmd.exe windows.
-  const handleCmdanSpawnTab = useCallback(
-    (_leafId: number, input: CmdanSpawnTabInput) => {
+  const handleTediSpawnTab = useCallback(
+    (_leafId: number, input: TediSpawnTabInput) => {
       const cwd = input.cwd;
       const cmd = input.cmd;
       const tabId = newTab(cwd);
@@ -1167,8 +1167,8 @@ export default function App() {
                         onCwd={handleTerminalCwd}
                         onDetectedLocalUrl={handleDetectedLocalUrl}
                         onExit={handleLeafExit}
-                        onCmdanOpen={handleCmdanOpen}
-                        onCmdanSpawnTab={handleCmdanSpawnTab}
+                        onTediOpen={handleTediOpen}
+                        onTediSpawnTab={handleTediSpawnTab}
                         registerEditorHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
                         onCloseLeaf={handleEditorCloseLeaf}

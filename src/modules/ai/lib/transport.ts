@@ -1,18 +1,18 @@
 import type { UIMessage } from "@ai-sdk/react";
 import { DirectChatTransport } from "ai";
 import { TERMINAL_BUFFER_LINES, type ModelId } from "../config";
-import { createCmdanAgent } from "./agent";
+import { createTediAgent } from "./agent";
 import type { ProviderKeys } from "./keyring";
 import { native } from "./native";
 import type { ToolContext } from "../tools/tools";
 
-const CMDAN_MD_MAX_BYTES = 32 * 1024;
+const TEDI_MD_MAX_BYTES = 32 * 1024;
 type MemoryCacheEntry = { content: string | null; mtime: number };
 const projectMemoryCache = new Map<string, MemoryCacheEntry>();
 
-async function readCmdanMd(workspaceRoot: string | null): Promise<string | null> {
+async function readTediMd(workspaceRoot: string | null): Promise<string | null> {
   if (!workspaceRoot) return null;
-  const path = `${workspaceRoot.replace(/\/$/, "")}/CMDAN.md`;
+  const path = `${workspaceRoot.replace(/\/$/, "")}/TEDI.md`;
   const cached = projectMemoryCache.get(workspaceRoot);
   // Cache for 30s — cheap re-read after that to pick up edits.
   if (cached && Date.now() - cached.mtime < 30_000) return cached.content;
@@ -23,8 +23,8 @@ async function readCmdanMd(workspaceRoot: string | null): Promise<string | null>
       return null;
     }
     const content =
-      r.content.length > CMDAN_MD_MAX_BYTES
-        ? r.content.slice(0, CMDAN_MD_MAX_BYTES)
+      r.content.length > TEDI_MD_MAX_BYTES
+        ? r.content.slice(0, TEDI_MD_MAX_BYTES)
         : r.content;
     projectMemoryCache.set(workspaceRoot, { content, mtime: Date.now() });
     return content;
@@ -62,8 +62,8 @@ export function createContextAwareTransport(deps: Deps) {
       [k: string]: unknown;
     }) {
       const live = deps.getLive();
-      const projectMemory = await readCmdanMd(live.workspaceRoot);
-      const agent = await createCmdanAgent({
+      const projectMemory = await readTediMd(live.workspaceRoot);
+      const agent = await createTediAgent({
         keys: deps.getKeys(),
         modelId: deps.getModelId(),
         customInstructions: deps.getCustomInstructions(),
@@ -83,8 +83,8 @@ export function createContextAwareTransport(deps: Deps) {
     },
     async reconnectToStream(options: unknown) {
       const live = deps.getLive();
-      const projectMemory = await readCmdanMd(live.workspaceRoot);
-      const agent = await createCmdanAgent({
+      const projectMemory = await readTediMd(live.workspaceRoot);
+      const agent = await createTediAgent({
         keys: deps.getKeys(),
         modelId: deps.getModelId(),
         customInstructions: deps.getCustomInstructions(),

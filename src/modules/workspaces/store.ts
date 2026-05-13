@@ -1,7 +1,7 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 
-const STORE_PATH = "cmdan-workspaces.json";
+const STORE_PATH = "tedi-workspaces.json";
 const KEY_LIST = "workspaces";
 const KEY_ACTIVE = "activeId";
 

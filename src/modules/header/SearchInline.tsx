@@ -186,7 +186,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                     clearTarget();
                     inputRef.current?.focus();
                   }}
-                  className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   aria-label="Clear search"
                 >
                   <HugeiconsIcon

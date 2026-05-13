@@ -1,4 +1,4 @@
-# cmdan-shell-integration (zlogin)
+# tedi-shell-integration (zlogin)
 #
 # This is the LAST init file zsh runs before entering the prompt loop, so its
 # exit status becomes `$?` for the very first prompt. Without the trailing `:`,
@@ -6,8 +6,8 @@
 # first render — themes that condition prompt color on `%?` (robbyrussell etc.)
 # show a red error indicator on a clean shell start.
 {
-  _cmdan_user_zdotdir="${CMDAN_USER_ZDOTDIR:-$HOME}"
-  [ -f "$_cmdan_user_zdotdir/.zlogin" ] && source "$_cmdan_user_zdotdir/.zlogin"
-  unset _cmdan_user_zdotdir
+  _tedi_user_zdotdir="${TEDI_USER_ZDOTDIR:-$HOME}"
+  [ -f "$_tedi_user_zdotdir/.zlogin" ] && source "$_tedi_user_zdotdir/.zlogin"
+  unset _tedi_user_zdotdir
 }
 :

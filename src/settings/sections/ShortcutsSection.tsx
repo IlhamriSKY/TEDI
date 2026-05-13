@@ -237,7 +237,7 @@ function ShortcutRow({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-7 text-muted-foreground hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                  className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
                   onClick={onClear}
                   aria-label="Clear shortcut"
                 >

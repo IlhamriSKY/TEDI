@@ -63,7 +63,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
           size="sm"
           variant="ghost"
           onClick={() => onRespond(false)}
-          className="h-7 gap-1.5 text-[11px]"
+          className="h-7 gap-1.5 text-[11px] hover:bg-destructive/10 hover:text-destructive"
         >
           <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
           Deny

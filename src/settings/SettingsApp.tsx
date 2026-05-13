@@ -79,7 +79,7 @@ export function SettingsApp() {
       }
     };
     const unlistenPromise = getCurrentWebviewWindow().listen<string>(
-      "cmdan:settings-tab",
+      "tedi:settings-tab",
       (e) => apply(e.payload),
     );
     return () => {
@@ -120,7 +120,7 @@ export function SettingsApp() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="bg-secondary"
+                className="bg-secondary hover:bg-destructive/10 hover:text-destructive"
                 aria-label="Close"
                 onClick={() => void getCurrentWebviewWindow().close()}
               >

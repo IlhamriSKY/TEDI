@@ -11,14 +11,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   registerCwdHandler,
   registerPromptTracker,
-  registerCmdanOpenHandler,
-  registerCmdanSpawnTabHandler,
-  type CmdanOpenInput,
-  type CmdanSpawnTabInput,
+  registerTediOpenHandler,
+  registerTediSpawnTabHandler,
+  type TediOpenInput,
+  type TediSpawnTabInput,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 
-export type { CmdanOpenInput, CmdanSpawnTabInput };
+export type { TediOpenInput, TediSpawnTabInput };
 
 const BACKWARD_KILL_WORD = "\x17";
 
@@ -30,8 +30,8 @@ type Callbacks = {
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
-  onCmdanOpen?: (input: CmdanOpenInput) => void;
-  onCmdanSpawnTab?: (input: CmdanSpawnTabInput) => void;
+  onTediOpen?: (input: TediOpenInput) => void;
+  onTediSpawnTab?: (input: TediSpawnTabInput) => void;
 };
 
 // Lives outside React so split/unsplit re-parent the DOM without tearing
@@ -147,11 +147,11 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
         session.lastCwd = cwd;
         session.callbacks.onCwd?.(cwd);
       }),
-      registerCmdanOpenHandler(term, (input) => {
-        session.callbacks.onCmdanOpen?.(input);
+      registerTediOpenHandler(term, (input) => {
+        session.callbacks.onTediOpen?.(input);
       }),
-      registerCmdanSpawnTabHandler(term, (input) => {
-        session.callbacks.onCmdanSpawnTab?.(input);
+      registerTediSpawnTabHandler(term, (input) => {
+        session.callbacks.onTediSpawnTab?.(input);
       }),
     );
   })();
@@ -399,8 +399,8 @@ type Options = {
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
   onDetectedLocalUrl?: (url: string) => void;
-  onCmdanOpen?: (input: CmdanOpenInput) => void;
-  onCmdanSpawnTab?: (input: CmdanSpawnTabInput) => void;
+  onTediOpen?: (input: TediOpenInput) => void;
+  onTediSpawnTab?: (input: TediSpawnTabInput) => void;
 };
 
 export function useTerminalSession({
@@ -413,24 +413,24 @@ export function useTerminalSession({
   onExit,
   onCwd,
   onDetectedLocalUrl,
-  onCmdanOpen,
-  onCmdanSpawnTab,
+  onTediOpen,
+  onTediSpawnTab,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
     onExit,
     onCwd,
     onDetectedLocalUrl,
-    onCmdanOpen,
-    onCmdanSpawnTab,
+    onTediOpen,
+    onTediSpawnTab,
   });
   cbRef.current = {
     onSearchReady,
     onExit,
     onCwd,
     onDetectedLocalUrl,
-    onCmdanOpen,
-    onCmdanSpawnTab,
+    onTediOpen,
+    onTediSpawnTab,
   };
 
   useEffect(() => {
@@ -443,8 +443,8 @@ export function useTerminalSession({
         onExit: (c) => cbRef.current.onExit?.(c),
         onCwd: (c) => cbRef.current.onCwd?.(c),
         onDetectedLocalUrl: (u) => cbRef.current.onDetectedLocalUrl?.(u),
-        onCmdanOpen: (input) => cbRef.current.onCmdanOpen?.(input),
-        onCmdanSpawnTab: (input) => cbRef.current.onCmdanSpawnTab?.(input),
+        onTediOpen: (input) => cbRef.current.onTediOpen?.(input),
+        onTediSpawnTab: (input) => cbRef.current.onTediSpawnTab?.(input),
       });
       if (visible && focused) s.term.focus();
     });

@@ -67,13 +67,14 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "CMDAN ${{ github.ref_name }}"
+          releaseName: "TEDI ${{ github.ref_name }}"
           releaseBody: |
-            Download the artifact for your platform from the assets below.
-
-            Auto-update is disabled in CMDAN. Re-download from Releases when a new version drops.
+            Installed TEDI checks GitHub Releases every 6 hours and offers in-app updates.
+            First-time install: download the artifact for your platform from the assets below.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

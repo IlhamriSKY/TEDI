@@ -192,7 +192,7 @@ export function ProviderKeyCard({
               variant="ghost"
               onClick={() => void onClear()}
               aria-label="Remove"
-              className="size-7 text-muted-foreground hover:text-destructive"
+              className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
             </Button>

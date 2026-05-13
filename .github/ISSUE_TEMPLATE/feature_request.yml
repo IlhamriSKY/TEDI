@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the idea! A short conversation here saves everyone time before any code is written.
 
-        CMDAN is intentionally focused — not every idea will make it in. A "no" is not a judgment of the idea.
+        TEDI is intentionally focused — not every idea will make it in. A "no" is not a judgment of the idea.
 
   - type: textarea
     id: problem

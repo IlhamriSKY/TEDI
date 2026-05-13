@@ -8,7 +8,7 @@ export type SessionMeta = {
   updatedAt: number;
 };
 
-const STORE_PATH = "cmdan-sessions.json";
+const STORE_PATH = "tedi-sessions.json";
 const KEY_SESSIONS = "sessions";
 const KEY_ACTIVE = "activeId";
 const messagesKey = (id: string) => `messages:${id}`;

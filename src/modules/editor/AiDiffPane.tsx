@@ -146,7 +146,7 @@ export function AiDiffPane({
             {STATUS_LABEL[status]}
           </Badge>
           {isNewFile ? (
-            <span className="shrink-0 rounded-full border border-border/60 bg-accent/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="shrink-0 border border-border/60 bg-accent/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               New file
             </span>
           ) : null}
@@ -180,7 +180,7 @@ export function AiDiffPane({
               size="sm"
               variant="ghost"
               onClick={onReject}
-              className="h-7 gap-1.5"
+              className="h-7 gap-1.5 hover:bg-destructive/10 hover:text-destructive"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
               Reject

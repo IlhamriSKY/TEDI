@@ -1,1 +1,1 @@
-CMDAN.md
+TEDI.md

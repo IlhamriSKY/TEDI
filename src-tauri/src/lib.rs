@@ -4,6 +4,36 @@ use modules::{fs, net, pty, secrets, shell};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
+/// Windows 11 paints an 8 px DWM corner radius on every top-level window by
+/// default — even with `decorations: false` and `transparent: true`. The webview
+/// content underneath is square, so the OS-level rounding shows up as a tiny
+/// transparent halo at each corner. Force DWMWCP_DONOTROUND so the OS leaves
+/// the corners sharp and our CSS border is the sole frame the user sees.
+#[cfg(target_os = "windows")]
+fn disable_windows_corner_rounding(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = hwnd.0 as HWND;
+    let pref: u32 = DWMWCP_DONOTROUND as u32;
+    // SAFETY: hwnd is a valid window handle owned by Tauri for the lifetime of
+    // this call; pref is a stack value passed by pointer with its correct size.
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &pref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn disable_windows_corner_rounding(_window: &tauri::WebviewWindow) {}
+
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
@@ -18,7 +48,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
             // emit() serializes via JSON — no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
-            let _ = window.emit("cmdan:settings-tab", t);
+            let _ = window.emit("tedi:settings-tab", t);
         }
         return Ok(());
     }
@@ -57,6 +87,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     {
         let _ = window.set_decorations(false);
     }
+    disable_windows_corner_rounding(&window);
     let _ = window;
     Ok(())
 }
@@ -83,13 +114,13 @@ fn configure_linux_rendering() {
     match wayland_dmabuf_fallback_reason() {
         Some(reason) => {
             eprintln!(
-                "cmdan: Wayland session, {reason}; disabling WebKitGTK DMA-BUF renderer \
+                "tedi: Wayland session, {reason}; disabling WebKitGTK DMA-BUF renderer \
                  (override: WEBKIT_DISABLE_DMABUF_RENDERER=0)"
             );
             unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
         }
         None => eprintln!(
-            "cmdan: Wayland session on a known-good compositor; keeping WebKitGTK DMA-BUF renderer \
+            "tedi: Wayland session on a known-good compositor; keeping WebKitGTK DMA-BUF renderer \
              (set WEBKIT_DISABLE_DMABUF_RENDERER=1 if the window stays blank)"
         ),
     }
@@ -133,8 +164,23 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     configure_linux_rendering();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_process::init())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_process::init());
+
+    // Updater is desktop-only (no mobile target wired in this fork either, but
+    // the plugin itself refuses to compile on android/ios).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
+        .setup(|app| {
+            // Strip Windows 11's DWM rounded corners from the main window so
+            // the app reads as fully square (matches the CSS).
+            if let Some(window) = app.get_webview_window("main") {
+                disable_windows_corner_rounding(&window);
+            }
+            Ok(())
+        })
         // Skip restoring VISIBLE — frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
@@ -191,9 +237,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Mirror main window visibility onto the settings child so an
             // always_on_top Settings dialog doesn't stay pinned to the desktop
-            // after the user switches apps or minimizes CMDAN. Listen on both
-            // windows: focus moving between main↔settings keeps CMDAN in the
-            // foreground (show), focus leaving CMDAN entirely hides settings.
+            // after the user switches apps or minimizes TEDI. Listen on both
+            // windows: focus moving between main↔settings keeps TEDI in the
+            // foreground (show), focus leaving TEDI entirely hides settings.
             let label = window.label();
             if label != "main" && label != "settings" {
                 return;

@@ -2,8 +2,8 @@ export { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 export {
   disposeSession,
   respawnSession,
-  type CmdanOpenInput,
-  type CmdanSpawnTabInput,
+  type TediOpenInput,
+  type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 export {
   hasLeaf,

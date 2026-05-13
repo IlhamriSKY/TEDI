@@ -3,8 +3,8 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import {
   useTerminalSession,
-  type CmdanOpenInput,
-  type CmdanSpawnTabInput,
+  type TediOpenInput,
+  type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 
 export type TerminalPaneHandle = {
@@ -26,8 +26,8 @@ type Props = {
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
   onDetectedLocalUrl?: (leafId: number, url: string) => void;
-  onCmdanOpen?: (leafId: number, input: CmdanOpenInput) => void;
-  onCmdanSpawnTab?: (leafId: number, input: CmdanSpawnTabInput) => void;
+  onTediOpen?: (leafId: number, input: TediOpenInput) => void;
+  onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
 };
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
@@ -41,8 +41,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       onExit,
       onCwd,
       onDetectedLocalUrl,
-      onCmdanOpen,
-      onCmdanSpawnTab,
+      onTediOpen,
+      onTediSpawnTab,
     },
     ref,
   ) {
@@ -59,8 +59,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       onExit: (c) => onExit?.(leafId, c),
       onCwd: (c) => onCwd?.(leafId, c),
       onDetectedLocalUrl: (u) => onDetectedLocalUrl?.(leafId, u),
-      onCmdanOpen: (input) => onCmdanOpen?.(leafId, input),
-      onCmdanSpawnTab: (input) => onCmdanSpawnTab?.(leafId, input),
+      onTediOpen: (input) => onTediOpen?.(leafId, input),
+      onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
     });
 
     useEffect(() => {

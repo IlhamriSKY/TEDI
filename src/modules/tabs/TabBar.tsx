@@ -530,7 +530,7 @@ function SortableTabGroup({
                   e.kind === "pane-leaf" ? e.leafId : null,
                 );
               }}
-              className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
+              className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
             </span>

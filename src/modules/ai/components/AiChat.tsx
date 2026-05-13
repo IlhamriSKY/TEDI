@@ -16,7 +16,7 @@ import {
 } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { SLASH_COMMANDS, CMDAN_CMD_RE } from "../lib/slashCommands";
+import { SLASH_COMMANDS, TEDI_CMD_RE } from "../lib/slashCommands";
 import { Spinner } from "@/components/ui/spinner";
 import type {
   ChatStatus,
@@ -94,7 +94,7 @@ export function AiChatView({
       <Conversation>
         <ConversationContent>
           <ConversationEmptyState
-            title="Ask CMDAN anything"
+            title="Ask TEDI anything"
             description="Explain command output, fix errors, generate snippets, or run a task."
           />
         </ConversationContent>
@@ -148,7 +148,7 @@ const RenderedMessage = memo(function RenderedMessage({
       .map((p) => p.text)
       .join("\n");
 
-    const cmdMatch = rawText.match(CMDAN_CMD_RE);
+    const cmdMatch = rawText.match(TEDI_CMD_RE);
     const commandName = cmdMatch?.[1] ?? null;
     const text = cmdMatch ? rawText.slice(cmdMatch[0].length) : rawText;
 

@@ -253,7 +253,7 @@ function Header({
             size="icon"
             variant="ghost"
             onClick={onClose}
-            className="size-5"
+            className="size-5 hover:bg-destructive/10 hover:text-destructive"
             aria-label="Close (Esc)"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
@@ -445,13 +445,13 @@ function SessionRow({
 function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-10 text-center">
-      <img src="/icon.png" alt="CMDAN" className="size-14 opacity-90" />
+      <img src="/icon.png" alt="TEDI" className="size-14 opacity-90" />
       <div className="space-y-1.5">
         <p className="text-[14px] font-semibold tracking-tight">
-          Ask CMDAN anything
+          Ask TEDI anything
         </p>
         <p className="max-w-[18rem] text-[11.5px] leading-relaxed text-muted-foreground">
-          CMDAN sees the active terminal — cwd, recent commands, and output.
+          TEDI sees the active terminal — cwd, recent commands, and output.
         </p>
       </div>
       <div className="flex w-full flex-col gap-2.5">

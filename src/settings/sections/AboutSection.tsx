@@ -1,14 +1,15 @@
 import { Button } from "@/components/ui/button";
-import { GithubIcon, Download04Icon } from "@hugeicons/core-free-icons";
+import { Spinner } from "@/components/ui/spinner";
+import { GithubIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getName, getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { arch, platform } from "@tauri-apps/plugin-os";
+import { check } from "@tauri-apps/plugin-updater";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 
-const REPO_URL = "https://github.com/IlhamriSKY/CMDAN";
-const RELEASES_URL = `${REPO_URL}/releases/latest`;
+const REPO_URL = "https://github.com/IlhamriSKY/TEDI";
 const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -20,10 +21,18 @@ const PLATFORM_LABEL: Record<string, string> = {
   freebsd: "FreeBSD",
 };
 
+type CheckState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "uptodate"; checkedAt: number }
+  | { kind: "available"; version: string }
+  | { kind: "error"; message: string };
+
 export function AboutSection() {
   const [version, setVersion] = useState("");
-  const [name, setName] = useState("CMDAN");
+  const [name, setName] = useState("TEDI");
   const [build, setBuild] = useState("");
+  const [checkState, setCheckState] = useState<CheckState>({ kind: "idle" });
 
   useEffect(() => {
     void getVersion().then(setVersion);
@@ -49,7 +58,7 @@ export function AboutSection() {
             {name}
           </span>
           <span className="text-[11px] text-muted-foreground">
-            Open-source AI-native terminal emulator
+            Terminal Environment & Development Infrastructure
           </span>
           <span className="mt-1 font-mono text-[11px] text-muted-foreground">
             v{version || "—"}
@@ -64,7 +73,7 @@ export function AboutSection() {
         </dd>
 
         <dt className="text-muted-foreground">Bundle ID</dt>
-        <dd className="font-mono text-[11.5px]">id.ilhamrisky.cmdan</dd>
+        <dd className="font-mono text-[11.5px]">id.ilhamrisky.tedi</dd>
 
         <dt className="text-muted-foreground">License</dt>
         <dd>Apache 2.0</dd>
@@ -77,7 +86,7 @@ export function AboutSection() {
             className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            IlhamriSKY/CMDAN
+            IlhamriSKY/TEDI
           </button>
         </dd>
 
@@ -96,16 +105,25 @@ export function AboutSection() {
 
       <div className="flex flex-col gap-1.5">
         <p className="text-[11px] text-muted-foreground">
-          Auto-update is disabled. Download new releases manually from GitHub.
+          {updaterMessage(checkState)}
         </p>
         <div className="flex gap-2">
           <Button
             size="sm"
-            onClick={() => void openUrl(RELEASES_URL)}
+            onClick={() => void runCheck(setCheckState)}
+            disabled={checkState.kind === "checking"}
             className="gap-1.5"
           >
-            <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
-            Download latest release
+            {checkState.kind === "checking" ? (
+              <Spinner className="size-3" />
+            ) : (
+              <HugeiconsIcon
+                icon={RefreshIcon}
+                size={12}
+                strokeWidth={1.75}
+              />
+            )}
+            Check for updates
           </Button>
           <Button
             variant="outline"
@@ -127,4 +145,33 @@ export function AboutSection() {
       </div>
     </div>
   );
+}
+
+async function runCheck(set: (s: CheckState) => void) {
+  set({ kind: "checking" });
+  try {
+    const update = await check();
+    if (update) {
+      set({ kind: "available", version: update.version });
+    } else {
+      set({ kind: "uptodate", checkedAt: Date.now() });
+    }
+  } catch (e) {
+    set({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function updaterMessage(state: CheckState): string {
+  switch (state.kind) {
+    case "checking":
+      return "Checking for updates…";
+    case "available":
+      return `v${state.version} is available — see the status bar to install.`;
+    case "uptodate":
+      return "You're on the latest version. Auto-update checks every 6 hours.";
+    case "error":
+      return `Couldn't check: ${state.message}`;
+    default:
+      return "Auto-update checks GitHub Releases every 6 hours.";
+  }
 }

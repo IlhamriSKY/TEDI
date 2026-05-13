@@ -9,7 +9,7 @@ export type Snippet = {
   content: string;
 };
 
-const STORE_PATH = "cmdan-snippets.json";
+const STORE_PATH = "tedi-snippets.json";
 const KEY_LIST = "snippets";
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
