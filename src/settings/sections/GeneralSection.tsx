@@ -63,7 +63,7 @@ export function GeneralSection() {
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
 
-  // Reconcile autostart pref with the actual OS state on mount — the user may
+  // Reconcile autostart pref with the actual OS state on mount - the user may
   // have toggled it from System Settings.
   useEffect(() => {
     let alive = true;
@@ -189,7 +189,7 @@ export function GeneralSection() {
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-65">
-                    xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups (especially with Nerd Fonts), the atlas corrupts and terminal text becomes unreadable. Turn this off as a fallback — performance dips slightly, but text renders correctly via the DOM renderer.
+                    xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups (especially with Nerd Fonts), the atlas corrupts and terminal text becomes unreadable. Turn this off as a fallback - performance dips slightly, but text renders correctly via the DOM renderer.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

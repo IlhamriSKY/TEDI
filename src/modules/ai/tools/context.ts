@@ -6,7 +6,7 @@ export type ToolContext = {
   /** Last N lines of the active terminal buffer (or null if not a terminal tab). */
   getTerminalContext: () => string | null;
   /**
-   * Type a string into the active terminal at the prompt — without executing.
+   * Type a string into the active terminal at the prompt - without executing.
    * Returns false if there is no active terminal tab to inject into.
    */
   injectIntoActivePty: (text: string) => boolean;
@@ -18,7 +18,7 @@ export type ToolContext = {
    * Mutated as a side effect of successful read_file calls.
    */
   readCache: Set<string>;
-  /** Active chat session id — used by tools that persist per-session state (todos). */
+  /** Active chat session id - used by tools that persist per-session state (todos). */
   getSessionId: () => string | null;
 };
 

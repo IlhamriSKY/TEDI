@@ -461,7 +461,31 @@ export function useTerminalSession({
     if (!s) return;
     if (s.term.options.fontSize === fontSize) return;
     s.term.options.fontSize = fontSize;
+    // WebGL renderer caches glyphs in a GPU texture atlas keyed by the old
+    // font metrics. Dispose and re-create so the new size renders correctly.
+    if (s.webglAddon && s.term.element) {
+      s.webglAddon.dispose();
+      s.webglAddon = null;
+      if (s.webglEnabled) {
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl.dispose();
+            if (s.webglAddon === webgl) s.webglAddon = null;
+          });
+          s.term.loadAddon(webgl);
+          s.webglAddon = webgl;
+        } catch (e) {
+          console.warn("WebGL renderer unavailable:", e);
+        }
+      }
+    }
     s.fitAddon.fit();
+    if (s.pty && (s.term.cols !== s.lastSentCols || s.term.rows !== s.lastSentRows)) {
+      s.lastSentCols = s.term.cols;
+      s.lastSentRows = s.term.rows;
+      s.pty.resize(s.term.cols, s.term.rows);
+    }
   }, [leafId, fontSize]);
 
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);

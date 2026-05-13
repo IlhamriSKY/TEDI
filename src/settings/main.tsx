@@ -18,7 +18,7 @@ ReactDOM.createRoot(
   </ThemeProvider>,
 );
 
-// Reveal after one painted frame — avoids the transparent window-shadow flash
+// Reveal after one painted frame - avoids the transparent window-shadow flash
 // on Windows/Linux without the old 500ms wall-clock delay. Two RAFs guarantees
 // at least one commit has reached the compositor.
 let shown = false;
@@ -33,7 +33,7 @@ requestAnimationFrame(() => requestAnimationFrame(showWindow));
 // Safety net if the tab is backgrounded before the second RAF fires.
 setTimeout(showWindow, 250);
 
-// Mono font is only used by a handful of inputs/labels — load it after the
+// Mono font is only used by a handful of inputs/labels - load it after the
 // first paint so it doesn't block the initial render of the settings shell.
 // Browser falls back to the CSS chain (SFMono/Menlo/monospace) until ready.
 setTimeout(() => {

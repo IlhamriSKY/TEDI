@@ -104,7 +104,7 @@ export function AiSidebarPanel() {
   );
 }
 
-// Back-compat alias — older imports still reference `AiMiniWindow`.
+// Back-compat alias - older imports still reference `AiMiniWindow`.
 export { AiSidebarPanel as AiMiniWindow };
 
 function Body({
@@ -378,7 +378,7 @@ function SessionRow({
   return (
     <DropdownMenuItem
       onSelect={(e) => {
-        // Don't dismiss if user clicked the trash icon — handle below.
+        // Don't dismiss if user clicked the trash icon - handle below.
         const target = e.target as HTMLElement | null;
         if (target?.closest("[data-session-delete]")) {
           e.preventDefault();
@@ -421,7 +421,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           Ask TEDI anything
         </p>
         <p className="max-w-[18rem] text-[11.5px] leading-relaxed text-muted-foreground">
-          TEDI sees the active terminal — cwd, recent commands, and output.
+          TEDI sees the active terminal - cwd, recent commands, and output.
         </p>
       </div>
       <div className="flex w-full flex-col gap-2.5">

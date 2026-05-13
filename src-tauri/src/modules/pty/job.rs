@@ -1,5 +1,5 @@
 //! Windows Job Object with KILL_ON_JOB_CLOSE for ConPTY children.
-//! Dropping the handle kills the whole tree — only reliable orphan guard
+//! Dropping the handle kills the whole tree - only reliable orphan guard
 //! on Windows.
 
 #![cfg(windows)]

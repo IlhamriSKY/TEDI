@@ -45,7 +45,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tab } from "./lib/useTabs";
 
 /**
- * The tab strip lists entries — one per **pane** for pane tabs (so each
+ * The tab strip lists entries - one per **pane** for pane tabs (so each
  * terminal/editor leaf shows up as its own clickable entry), and one per
  * tab for preview / ai-diff. Clicking a pane entry focuses that pane in
  * its owning tab; clicking a preview/ai-diff entry activates that tab.
@@ -70,7 +70,7 @@ type PaneEntry = EntryBase & {
 };
 
 type StandaloneEntry = EntryBase & {
-  kind: "preview" | "ai-diff";
+  kind: "preview" | "ai-diff" | "git-diff";
 };
 
 type Entry = PaneEntry | StandaloneEntry;
@@ -123,9 +123,18 @@ function buildEntries(tabs: Tab[]): Entry[] {
       });
       continue;
     }
-    // ai-diff
+    if (t.kind === "ai-diff") {
+      out.push({
+        kind: "ai-diff",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    // git-diff
     out.push({
-      kind: "ai-diff",
+      kind: "git-diff",
       key: `tab-${t.id}`,
       tabId: t.id,
       label: t.title,
@@ -139,7 +148,7 @@ type Props = {
   activeId: number;
   /**
    * Activate a pane entry. `leafId` is null for standalone (preview / ai-diff)
-   * entries — caller should just activate the tab.
+   * entries - caller should just activate the tab.
    */
   onSelectEntry: (tabId: number, leafId: number | null) => void;
   /**
@@ -153,7 +162,7 @@ type Props = {
   onPinLeaf: (tabId: number, leafId: number) => void;
   /**
    * Drag-and-drop reorder among *tabs*. We don't support reordering
-   * individual pane leaves yet — only top-level tabs swap positions.
+   * individual pane leaves yet - only top-level tabs swap positions.
    * `beforeTabId` of null means drop at end.
    */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
@@ -176,7 +185,7 @@ const DROP_ANIMATION: DropAnimation = {
 /**
  * Pin the DragOverlay so the pointer stays at the horizontal centre of the
  * dragged tab and the chip never leaves the tab strip's y-line. Header has
- * a top border and the tab strip sits inside an h-10 row — without locking
+ * a top border and the tab strip sits inside an h-10 row - without locking
  * y, the overlay drifts up/down toward whichever border is closer to the
  * cursor and visually "snaps to a line" instead of sitting centred.
  */
@@ -276,7 +285,7 @@ export function TabBar({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
-  // Sortable list is keyed by top-level tab id — we reorder tabs, not leaves.
+  // Sortable list is keyed by top-level tab id - we reorder tabs, not leaves.
   const sortableIds = useMemo(() => tabs.map((t) => t.id), [tabs]);
 
   const handleDragEnd = (ev: DragEndEvent) => {
@@ -288,7 +297,7 @@ export function TabBar({
     const fromIdx = tabs.findIndex((t) => t.id === fromId);
     const overIdx = tabs.findIndex((t) => t.id === overId);
     if (fromIdx < 0 || overIdx < 0) return;
-    // Drop AFTER when dragging forward, BEFORE when dragging backward —
+    // Drop AFTER when dragging forward, BEFORE when dragging backward -
     // matches what the user sees as siblings shift around the dragged tab.
     const beforeTabId =
       fromIdx < overIdx ? tabs[overIdx + 1]?.id ?? null : overId;
@@ -298,7 +307,7 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
-      // Thin overlay scrollbar pinned to the bottom edge — visible on hover
+      // Thin overlay scrollbar pinned to the bottom edge - visible on hover
       // when there are more tabs than fit. Using `overlay` (and the WebKit
       // height of 4px) means the scrollbar paints OVER the row instead of
       // reserving layout space, so the 28px tab strip stays vertically
@@ -429,7 +438,7 @@ type SortableTabGroupProps = {
    * bordered cluster so it's visible which entries belong to one split.
    */
   entries: Entry[];
-  /** Total entries across all groups — drives "can close" gating. */
+  /** Total entries across all groups - drives "can close" gating. */
   totalEntries: number;
   compact?: boolean;
   sortable: boolean;
@@ -483,7 +492,7 @@ function SortableTabGroup({
   return (
     <div
       ref={setNodeRef}
-      // dnd-kit drives transform/transition per-frame — must stay inline.
+      // dnd-kit drives transform/transition per-frame - must stay inline.
       // eslint-disable-next-line react/forbid-dom-props
       style={style}
       data-tab-id={tabId}
@@ -491,7 +500,7 @@ function SortableTabGroup({
       className={cn(
         "flex h-7 shrink-0 items-center transition-[border-color,background-color,opacity] duration-150",
         // Split tabs get a bordered cluster so the entries inside are
-        // visibly one group. Single-pane tabs stay "naked" — no border.
+        // visibly one group. Single-pane tabs stay "naked" - no border.
         isSplit
           ? "rounded-md border border-border/70 bg-muted/20 gap-0 p-0 overflow-hidden"
           : "",

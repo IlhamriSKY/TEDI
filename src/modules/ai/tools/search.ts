@@ -29,7 +29,7 @@ export function buildSearchTools(ctx: ToolContext) {
   return {
     grep: tool({
       description:
-        "Search file contents in the workspace using a regular expression. Honors .gitignore. Returns up to `max_results` (default 200) `{path, line, text}` hits, with a `truncated` flag when more existed. Use this for code navigation — do NOT brute-force read_file across the tree.",
+        "Search file contents in the workspace using a regular expression. Honors .gitignore. Returns up to `max_results` (default 200) `{path, line, text}` hits, with a `truncated` flag when more existed. Use this for code navigation - do NOT brute-force read_file across the tree.",
       inputSchema: z.object({
         pattern: z
           .string()

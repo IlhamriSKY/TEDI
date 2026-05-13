@@ -17,11 +17,11 @@
 > **Built on top of [Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9) by [Crynta](https://github.com/crynta).**
 > Full credit to the upstream authors for the Rust PTY backend, the React + xterm.js client, and the AI agent core. TEDI keeps the same Apache-2.0 license and tracks its own roadmap onward. Please star the upstream repo if you find TEDI useful.
 
-> Auto-update is **enabled**: TEDI checks [GitHub Releases](https://github.com/IlhamriSKY/TEDI/releases) every 6 hours and offers signed in-app updates. First install is still manual — grab a build from Releases.
+> Auto-update is **enabled**: TEDI checks [GitHub Releases](https://github.com/IlhamriSKY/TEDI/releases) every 6 hours and offers signed in-app updates. First install is still manual - grab a build from Releases.
 
 ## What is TEDI?
 
-**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) is a lightweight, low-footprint terminal that boosts developer productivity. Split-screen terminals, tab grouping, and workspaces — designed for developer workflows.
+**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) is a lightweight, low-footprint terminal that boosts developer productivity. Split-screen terminals, tab grouping, and workspaces - designed for developer workflows.
 
 ## Install
 
@@ -104,7 +104,11 @@ cd src-tauri && cargo clippy    # Rust lint
 
 - **Windows**: SmartScreen will warn on first launch (unsigned). Click *More info > Run anyway*. Shell priority: `pwsh.exe`, `powershell.exe`, `cmd.exe`.
 - **Linux**: if you hit `EGL_BAD_PARAMETER` or a blank window, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. AppImage needs FUSE; otherwise run `--appimage-extract-and-run` or install the `.deb`/`.rpm`.
-- **macOS**: minimum macOS 10.15.
+- **macOS**: minimum macOS 10.15. Builds are ad-hoc signed but **not notarized** with Apple, so Gatekeeper may say *"TEDI is damaged and can't be opened"* on first launch. Drag the app to `/Applications`, then in Terminal run once:
+  ```
+  xattr -cr /Applications/TEDI.app
+  ```
+  Then open from Launchpad/Finder (right-click → *Open* the first time if still prompted).
 
 ## Credits
 

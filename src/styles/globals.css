@@ -139,7 +139,7 @@
     @apply font-sans;
     }
 
-  /* Squarify everything globally — Tailwind's `rounded` (no suffix) and
+  /* Squarify everything globally - Tailwind's `rounded` (no suffix) and
    * `rounded-full` use literal values not derived from --radius-*, so the
    * @theme overrides above don't reach them. Force-zero every border-radius
    * to guarantee a fully boxed UI. */
@@ -165,7 +165,7 @@ html[data-chrome="borderless"] #settings-root {
 }
 
 /*
- * xterm.js overrides — kept outside @layer so they win against the addon's
+ * xterm.js overrides - kept outside @layer so they win against the addon's
  * own stylesheet (which is not in any layer and would otherwise override).
  *
  * Newer xterm renders scrollbars as real <div class="scrollbar vertical|horizontal">
@@ -235,7 +235,7 @@ html[data-chrome="borderless"] #settings-root {
 }
 
 /* Linux/Windows ship a chunky native Chromium scrollbar that breaks the
- * frosted-glass aesthetic. Hide it globally — visible scroll affordances are
+ * frosted-glass aesthetic. Hide it globally - visible scroll affordances are
  * provided per-region via shadcn <ScrollArea>. macOS native overlay scrollbar
  * stays untouched. */
 html[data-chrome="borderless"] {

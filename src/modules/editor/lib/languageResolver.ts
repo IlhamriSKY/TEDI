@@ -299,7 +299,7 @@ const loaders: Record<string, LanguageLoader> = {
 
   // Misc niche
   d: () => import("@codemirror/legacy-modes/mode/d").then((m) => m.d),
-  // .zig and .nim have no upstream legacy parser — leave to plaintext.
+  // .zig and .nim have no upstream legacy parser - leave to plaintext.
 };
 
 const filenameOverrides: Record<string, LanguageLoader> = {

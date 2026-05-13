@@ -6,7 +6,7 @@ import type { ITheme } from "@xterm/xterm";
  *
  * Chrome colors (background, foreground, cursor, selection) come from shadcn's
  * globals.css tokens so the terminal visually fuses with the app. ANSI 16
- * stays curated — globals.css is grayscale, it has no semantic color palette.
+ * stays curated - globals.css is grayscale, it has no semantic color palette.
  */
 
 /** Curated ANSI 16 palette, tuned for shadcn's dark surface. */

@@ -1,11 +1,11 @@
 mod modules;
 
-use modules::{fs, net, pty, secrets, shell};
+use modules::{fs, git, net, pty, secrets, shell};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
 /// Windows 11 paints an 8 px DWM corner radius on every top-level window by
-/// default — even with `decorations: false` and `transparent: true`. The webview
+/// default - even with `decorations: false` and `transparent: true`. The webview
 /// content underneath is square, so the OS-level rounding shows up as a tiny
 /// transparent halo at each corner. Force DWMWCP_DONOTROUND so the OS leaves
 /// the corners sharp and our CSS border is the sole frame the user sees.
@@ -46,7 +46,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
-            // emit() serializes via JSON — no string-escape footgun, unlike
+            // emit() serializes via JSON - no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
             let _ = window.emit("tedi:settings-tab", t);
         }
@@ -63,7 +63,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 
     // Owner-window relationship: keeps settings z-ordered above main without
     // pinning it above other apps (#33), and on Windows the OS hides owned
-    // windows automatically when the owner minimizes — so settings follows
+    // windows automatically when the owner minimizes - so settings follows
     // main into the taskbar instead of floating on the desktop.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
@@ -82,7 +82,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     let window = builder.build().map_err(|e| e.to_string())?;
 
     // Some Linux compositors (GNOME/Mutter with CSD-by-default) ignore the
-    // builder-time decorations flag — re-assert it after realize.
+    // builder-time decorations flag - re-assert it after realize.
     #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
@@ -181,7 +181,7 @@ pub fn run() {
             }
             Ok(())
         })
-        // Skip restoring VISIBLE — frontend calls window.show() after first
+        // Skip restoring VISIBLE - frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
         .plugin(
@@ -219,6 +219,10 @@ pub fn run() {
             fs::search::fs_search,
             fs::grep::fs_grep,
             fs::grep::fs_glob,
+            git::commands::git_status,
+            git::commands::git_file_head,
+            git::commands::git_discard_file,
+            git::commands::git_discard_all,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
@@ -271,7 +275,7 @@ pub fn run() {
                         return;
                     };
                     if *focused {
-                        // Either window regained focus — bring settings back.
+                        // Either window regained focus - bring settings back.
                         if !settings.is_visible().unwrap_or(true) {
                             let _ = settings.show();
                         }
@@ -292,7 +296,7 @@ pub fn run() {
                                 .and_then(|w| w.is_focused().ok())
                                 .unwrap_or(false);
                             // Only hide if main is still active in the
-                            // background (not minimized) — otherwise leave
+                            // background (not minimized) - otherwise leave
                             // the OS-driven minimize chain alone.
                             let main_minimized = app
                                 .get_webview_window("main")

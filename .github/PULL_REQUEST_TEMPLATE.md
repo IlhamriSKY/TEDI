@@ -1,5 +1,5 @@
 <!--
-PR title should follow Conventional Commits — it becomes the squash commit message.
+PR title should follow Conventional Commits - it becomes the squash commit message.
 Examples: feat(terminal): add split panes / fix(explorer): close button alignment
 -->
 
@@ -13,7 +13,7 @@ Examples: feat(terminal): add split panes / fix(explorer): close button alignmen
 <!-- Brief notes on the approach, only if non-obvious. -->
 
 ## Testing
-<!-- How did you verify this works? "Ran tsc clean" is not enough on its own —
+<!-- How did you verify this works? "Ran tsc clean" is not enough on its own -
      describe the actual flows you exercised. -->
 
 - [ ] `pnpm exec tsc --noEmit` clean

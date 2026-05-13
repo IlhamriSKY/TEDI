@@ -99,7 +99,7 @@ function parseTediOpen(data: string): TediOpenInput | null {
 }
 
 function parseTediSpawnTab(data: string): TediSpawnTabInput | null {
-  // Format: "cwd=/path;cmd=php artisan serve;title=Vite" — all fields optional
+  // Format: "cwd=/path;cmd=php artisan serve;title=Vite" - all fields optional
   // but at least one must be present. Values are URL-encoded.
   const decode = (s: string): string => {
     try {

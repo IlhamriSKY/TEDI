@@ -49,7 +49,7 @@ export function useWorkspaceCwd(
   const inheritedCwdForNewTab = useCallback((): string | undefined => {
     // Active terminal's live cwd wins over pickedRoot: if the user has cd'd
     // into a subproject and is running a long-lived command there, opening
-    // a new tab should land in that subproject — not bounce them back to
+    // a new tab should land in that subproject - not bounce them back to
     // the workspace root they picked weeks ago.
     const cwd = activeTerminalCwd(activeTab);
     if (cwd) return cwd;

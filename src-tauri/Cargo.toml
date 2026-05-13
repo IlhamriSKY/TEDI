@@ -1,7 +1,7 @@
 [package]
 name = "tedi"
 version = "0.1.3"
-description = "TEDI — Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
+description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
 

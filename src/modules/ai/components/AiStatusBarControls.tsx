@@ -244,7 +244,7 @@ function ModelDropdown() {
 
   const modelTooltip = currentProviderHasKey
     ? `Model: ${current.label}`
-    : `${current.label} — no key configured`;
+    : `${current.label} - no key configured`;
 
   const sections = useMemo(
     () =>

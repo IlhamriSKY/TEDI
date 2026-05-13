@@ -15,13 +15,13 @@ export function buildSubagentTools(ctx: ToolContext) {
 Types:
 ${TYPE_KEYS.map((k) => `- ${k}: ${SUBAGENTS[k].description}`).join("\n")}
 
-Auto-executes (no approval) — subagents are read-only by design.`,
+Auto-executes (no approval) - subagents are read-only by design.`,
       inputSchema: z.object({
         type: z.enum(TYPE_KEYS),
         prompt: z
           .string()
           .describe(
-            "Self-contained instruction. The subagent has no memory of prior conversation — include all relevant context.",
+            "Self-contained instruction. The subagent has no memory of prior conversation - include all relevant context.",
           ),
         description: z
           .string()

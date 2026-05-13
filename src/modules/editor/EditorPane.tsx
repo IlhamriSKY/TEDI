@@ -107,7 +107,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
 
     // Stabilize save + onSaved via refs so the extensions array never changes
-    // identity — a new identity makes @uiw/react-codemirror reconfigure the
+    // identity - a new identity makes @uiw/react-codemirror reconfigure the
     // whole state, wiping the language compartment.
     const saveRef = useRef(save);
     saveRef.current = save;
@@ -291,7 +291,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     const isMd = /\.(md|markdown|mdx)$/i.test(path);
     const showMdPreview = !!mdPreview && isMd;
 
-    // Keep CodeMirror mounted even while previewing markdown — unmounting
+    // Keep CodeMirror mounted even while previewing markdown - unmounting
     // discards the language compartment, so flipping back to source would
     // lose syntax highlighting until the path changed.
     return (

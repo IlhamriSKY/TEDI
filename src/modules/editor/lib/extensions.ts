@@ -128,7 +128,7 @@ export function buildSharedExtensions(): Extension[] {
       ".cm-cursor, .cm-dropCursor": {
         borderLeftColor: "var(--foreground)",
       },
-      // Vim normal-mode block cursor — translucent foreground, no rose hue.
+      // Vim normal-mode block cursor - translucent foreground, no rose hue.
       ".cm-fat-cursor": {
         background:
           "color-mix(in srgb, var(--foreground) 35%, transparent) !important",

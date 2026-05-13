@@ -61,7 +61,7 @@ export function AboutSection() {
             Terminal Environment & Development Infrastructure
           </span>
           <span className="mt-1 font-mono text-[11px] text-muted-foreground">
-            v{version || "—"}
+            v{version || "-"}
           </span>
         </div>
       </div>
@@ -166,7 +166,7 @@ function updaterMessage(state: CheckState): string {
     case "checking":
       return "Checking for updates…";
     case "available":
-      return `v${state.version} is available — see the status bar to install.`;
+      return `v${state.version} is available - see the status bar to install.`;
     case "uptodate":
       return "You're on the latest version. Auto-update checks every 6 hours.";
     case "error":

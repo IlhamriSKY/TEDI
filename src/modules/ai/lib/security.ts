@@ -9,7 +9,7 @@
  *    explicitly target).
  *
  * This is a *defense layer*, not a sandbox. The model may still be coaxed
- * into doing something silly within allowed paths — the user-confirmation
+ * into doing something silly within allowed paths - the user-confirmation
  * UI for write/exec is the real safety net. These checks just ensure that
  * read tools (which auto-approve) can never silently exfiltrate obvious
  * secrets, and that a single bad approval can't blow up the system.
@@ -42,7 +42,7 @@ const SECRET_PATH_SEGMENTS = [
   "/.docker/",
   "/.config/gh/",
   "/.config/git/",
-  "/.git/", // git internals — refusing avoids tools mutating refs/objects
+  "/.git/", // git internals - refusing avoids tools mutating refs/objects
 ];
 
 const FORBIDDEN_PREFIXES = [

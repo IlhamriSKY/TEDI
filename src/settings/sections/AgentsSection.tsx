@@ -344,13 +344,13 @@ function AgentEditorDialog({
 
   return (
     <Dialog open={!!agent} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg gap-4">
         <DialogHeader>
           <DialogTitle className="text-[14px]">
             {isNew ? "New agent" : "Edit agent"}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
+        <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6">
           <div className="flex gap-2">
             <div className="flex flex-col gap-1">
               <Label>Icon</Label>
@@ -393,7 +393,7 @@ function AgentEditorDialog({
               onChange={(e) =>
                 setDraft({ ...draft, description: e.target.value })
               }
-              placeholder="One line — shown in the agent picker"
+              placeholder="One line - shown in the agent picker"
               className="h-8 text-[12px]"
             />
           </div>
@@ -455,7 +455,7 @@ function SnippetEditorDialog({
 
   return (
     <Dialog open={!!snippet} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg gap-4">
         <DialogHeader>
           <DialogTitle className="text-[14px]">
             {existing.some((s) => s.id === draft.id)
@@ -463,7 +463,7 @@ function SnippetEditorDialog({
               : "New snippet"}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
+        <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6">
           <div className="flex gap-2">
             <div className="flex w-32 flex-col gap-1">
               <Label>Handle</Label>
@@ -506,7 +506,7 @@ function SnippetEditorDialog({
               onChange={(e) =>
                 setDraft({ ...draft, description: e.target.value })
               }
-              placeholder="One line — shown in the # picker"
+              placeholder="One line - shown in the # picker"
               className="h-8 text-[12px]"
             />
           </div>

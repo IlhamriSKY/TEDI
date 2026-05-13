@@ -8,4 +8,4 @@ contact_links:
     about: Do NOT open a public issue for security problems. Please follow the disclosure process in SECURITY.md.
   - name: Upstream (Terax) issues
     url: https://github.com/crynta/terax-ai/issues
-    about: For bugs that also reproduce on upstream Terax, consider reporting there too — they benefit both projects.
+    about: For bugs that also reproduce on upstream Terax, consider reporting there too - they benefit both projects.

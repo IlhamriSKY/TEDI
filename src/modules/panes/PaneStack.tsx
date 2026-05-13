@@ -55,7 +55,7 @@ export function PaneStack({
 }: Props) {
   const paneTabs = tabs.filter((t): t is PaneTab => t.kind === "pane");
 
-  // Stable refs for all per-leaf callbacks — avoid re-creating bundles each
+  // Stable refs for all per-leaf callbacks - avoid re-creating bundles each
   // render which would tear down PTY/editor state.
   const registerTerminalRef = useRef(registerTerminalHandle);
   const searchReadyRef = useRef(onSearchReady);
@@ -137,7 +137,7 @@ export function PaneStack({
             // Hide inactive tabs at the wrapper level. The terminal/editor
             // panes themselves stay mounted (so PTYs and editor state
             // survive tab switches), but their DOM is hidden and ignores
-            // pointer events — otherwise resize handles from inactive tabs
+            // pointer events - otherwise resize handles from inactive tabs
             // would leak into the visible workspace area.
             className={
               tabVisible

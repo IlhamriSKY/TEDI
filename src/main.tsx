@@ -17,7 +17,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 
 // Window starts hidden (per tauri.conf.json) so users never see a transparent
-// shadow-only frame before React paints. Use setTimeout — rAF is throttled
+// shadow-only frame before React paints. Use setTimeout - rAF is throttled
 // while the window is hidden and would never fire.
 const showWindow = () => {
   getCurrentWindow()

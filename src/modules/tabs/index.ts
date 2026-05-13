@@ -11,6 +11,8 @@ export {
   type PreviewTab,
   type AiDiffTab,
   type AiDiffStatus,
+  type GitDiffTab,
+  type GitChangeStatusTab,
   type TabPatch,
 } from "./lib/useTabs";
 export { useWorkspaceCwd } from "./lib/useWorkspaceCwd";

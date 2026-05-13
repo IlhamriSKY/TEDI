@@ -1,4 +1,4 @@
-// Unified pane tree. A leaf can be either a terminal or an editor — the
+// Unified pane tree. A leaf can be either a terminal or an editor - the
 // host renders the appropriate component per leaf. `kind: "leaf"` is kept
 // for back-compat with all the existing terminal-only call sites; the new
 // discriminator is `leafKind`.

@@ -14,7 +14,7 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
   if (!workspaceRoot) return null;
   const path = `${workspaceRoot.replace(/\/$/, "")}/TEDI.md`;
   const cached = projectMemoryCache.get(workspaceRoot);
-  // Cache for 30s — cheap re-read after that to pick up edits.
+  // Cache for 30s - cheap re-read after that to pick up edits.
   if (cached && Date.now() - cached.mtime < 30_000) return cached.content;
   try {
     const r = await native.readFile(path);

@@ -9,7 +9,7 @@ type ModelsResponse = {
   data?: Array<{ id?: string; owned_by?: string }>;
 };
 
-/** Curated defaults shown immediately on SumoPod key entry — before the
+/** Curated defaults shown immediately on SumoPod key entry - before the
  *  `/v1/models` fetch resolves and before any external network call. */
 const SUMOPOD_DEFAULT_MODELS: ReadonlyArray<{
   id: string;
@@ -68,7 +68,7 @@ const INITIAL: FetchState = {
 };
 
 // Publish the curated defaults into the dynamic registry on module load so
-// they're resolvable by `tryGetModel()` immediately — even before a key is
+// they're resolvable by `tryGetModel()` immediately - even before a key is
 // entered. Cleared in `clearSumopodModels()` when the user removes the key.
 setDetectedModels("sumopod", INITIAL.models);
 
@@ -115,7 +115,7 @@ function hintFor(raw: { owned_by?: string }): string {
 }
 
 /** Fetch the SumoPod model catalogue with the given key, then publish into
- *  the dynamic model registry. Safe to call repeatedly — concurrent fetches
+ *  the dynamic model registry. Safe to call repeatedly - concurrent fetches
  *  are coalesced. Pass `signal` to cancel in flight. */
 export async function refreshSumopodModels(
   apiKey: string,
@@ -196,7 +196,7 @@ export function clearSumopodModels(): void {
   emit();
 }
 
-/** React hook — subscribes to the SumoPod fetch state. */
+/** React hook - subscribes to the SumoPod fetch state. */
 export function useSumopodModels(): FetchState {
   const [snapshot, setSnapshot] = useState<FetchState>(state);
   useEffect(() => subscribeSumopodModels(setSnapshot), []);

@@ -179,7 +179,7 @@ export function ModelsSection() {
                       ? sumopodModels.status === "loading"
                         ? "Detecting models…"
                         : sumopodModels.status === "error"
-                          ? "Detection failed — check key"
+                          ? "Detection failed - check key"
                           : null
                       : null;
                   return (
@@ -393,7 +393,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
             </div>
             {testStatus === "ok" ? (
               <span className="text-[10.5px] text-emerald-500">
-                Connected — server responded.
+                Connected - server responded.
               </span>
             ) : testStatus === "fail" ? (
               <span className="text-[10.5px] text-destructive">

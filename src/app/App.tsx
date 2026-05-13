@@ -37,6 +37,8 @@ import {
   type EditorPaneHandle,
 } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
+import { SourceControlPanel } from "@/modules/scm/SourceControlPanel";
+import { GitDiffStack } from "@/modules/scm/GitDiffStack";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Header,
@@ -108,6 +110,7 @@ export default function App() {
     newPreviewTab,
     openAiDiffTab,
     setAiDiffStatus,
+    openGitDiffTab,
     closeTab,
     updateTab,
     selectByIndex,
@@ -138,7 +141,7 @@ export default function App() {
   const isEditorLike = activeTab ? isEditorLikeTab(activeTab) : false;
 
   // Active leaf is the single source of truth for "what's focused inside the
-  // current tab" — controls Search/AI selection/CWD wiring etc.
+  // current tab" - controls Search/AI selection/CWD wiring etc.
   const activeLeafIdInTab = activePaneTab?.activeLeafId ?? null;
   const activeLeafKindCurrent = activeTab ? activeLeafKind(activeTab) : null;
 
@@ -159,7 +162,7 @@ export default function App() {
   /**
    * Editor leaf ids currently rendered as a markdown-preview view instead of
    * the source editor. Keyed by leaf id so split panes can be toggled
-   * independently. Cleaned up by `PaneStack`'s leaf-pruning effect — the IDs
+   * independently. Cleaned up by `PaneStack`'s leaf-pruning effect - the IDs
    * here for closed leaves are harmless (just a stale `Set` entry).
    */
   const [mdPreviewLeafIds, setMdPreviewLeafIds] = useState<ReadonlySet<number>>(
@@ -220,7 +223,7 @@ export default function App() {
     try {
       localStorage.setItem("tedi.workspaceRoot", normalized);
     } catch {
-      // Storage may be unavailable (private mode etc.) — skip persistence.
+      // Storage may be unavailable (private mode etc.) - skip persistence.
     }
     // Auto-open a terminal tab rooted at the picked folder so the user lands
     // straight in a shell at the new workspace.
@@ -307,7 +310,7 @@ export default function App() {
   const skipNextSnapshotRef = useRef(false);
 
   // In-memory cache of each workspace's live Tab[] (including leaf ids) so
-  // that switching back restores the *same* terminal leaf ids — keeps the
+  // that switching back restores the *same* terminal leaf ids - keeps the
   // existing PTY/xterm sessions alive across workspace switches. The disk
   // snapshot via `serializeTabs` is still done for crash/restart recovery,
   // but live state takes precedence on switch.
@@ -321,7 +324,7 @@ export default function App() {
 
   // After the workspace store hydrates, load the active workspace's saved
   // tabs into the live tabs state. Skip if there are no saved tabs (first run
-  // — the default `useTabs` initial state already covers it).
+  // - the default `useTabs` initial state already covers it).
   const hydratedWorkspaceRef = useRef(false);
   useEffect(() => {
     if (!wsHydrated || hydratedWorkspaceRef.current) return;
@@ -386,7 +389,7 @@ export default function App() {
         });
       }
       wsSetActive(workspaceId);
-      // Prefer the live cache — restores the exact leaf ids that the running
+      // Prefer the live cache - restores the exact leaf ids that the running
       // terminal sessions are keyed by, so the dispose effect doesn't kill
       // them.
       const cached = liveTabsByWorkspace.current.get(workspaceId);
@@ -433,7 +436,7 @@ export default function App() {
       // still-live tabs.
       if (wasActive) skipNextSnapshotRef.current = true;
       // Drop the cached live tabs for the closed workspace so its leaves are
-      // no longer "live" — the next tabs-effect pass will dispose their PTYs.
+      // no longer "live" - the next tabs-effect pass will dispose their PTYs.
       liveTabsByWorkspace.current.delete(workspaceId);
       wsRemove(workspaceId);
       if (!wasActive) return;
@@ -542,14 +545,14 @@ export default function App() {
     [closeTab],
   );
 
-  // Drives session disposal off the pane tree, not React lifecycles — split/
+  // Drives session disposal off the pane tree, not React lifecycles - split/
   // unsplit re-mount components but the leaf is still live.
   //
   // Workspace switches also flow through here: when the active workspace
   // changes, `tabs` becomes the new workspace's tabs and the prior
   // workspace's leaves would naively look "dead." To keep terminal sessions
   // alive across switches we treat the cached workspaces' leaves as still
-  // live — only when a workspace is closed (its cache entry cleared) do its
+  // live - only when a workspace is closed (its cache entry cleared) do its
   // sessions actually get disposed.
   const liveLeavesRef = useRef<Set<number>>(new Set());
   useEffect(() => {
@@ -788,7 +791,7 @@ export default function App() {
       for (const t of tabs) {
         if (t.kind !== "pane") continue;
         // If *any* editor leaf in this tab references the deleted path, drop
-        // the whole tab — simpler than surgically removing one leaf and
+        // the whole tab - simpler than surgically removing one leaf and
         // matches the prior single-leaf behavior.
         const affected = leaves(t.paneTree).some(
           (l) =>
@@ -969,7 +972,7 @@ export default function App() {
   // instead of spawning external cmd.exe windows.
   //
   // When `split` is set, split the most-recently-spawned pane in the same tab
-  // instead of opening a new tab — lets `dev:serve` cluster Vite/Reverb/Queue
+  // instead of opening a new tab - lets `dev:serve` cluster Vite/Reverb/Queue
   // into one grouped tab with horizontal splits.
   const lastSpawnedTabIdRef = useRef<number | null>(null);
   const handleTediSpawnTab = useCallback(
@@ -999,7 +1002,7 @@ export default function App() {
             writeIntoLeaf(newLeafId);
             return;
           }
-          // Split refused (e.g. MAX_PANES_PER_TAB hit) — fall through to new tab.
+          // Split refused (e.g. MAX_PANES_PER_TAB hit) - fall through to new tab.
         }
       }
 
@@ -1207,8 +1210,8 @@ export default function App() {
                   >
                     <ResizablePanel
                       id="sidebar-files"
-                      defaultSize="65%"
-                      minSize="20%"
+                      defaultSize="50%"
+                      minSize="15%"
                     >
                       <FileExplorer
                         rootPath={explorerRoot}
@@ -1221,9 +1224,21 @@ export default function App() {
                     </ResizablePanel>
                     <ResizableHandle withHandle />
                     <ResizablePanel
+                      id="sidebar-scm"
+                      defaultSize="25%"
+                      minSize="10%"
+                    >
+                      <SourceControlPanel
+                        rootPath={explorerRoot}
+                        onPathDeleted={handlePathDeleted}
+                        onOpenDiff={openGitDiffTab}
+                      />
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel
                       id="sidebar-workspaces"
-                      defaultSize="35%"
-                      minSize="15%"
+                      defaultSize="25%"
+                      minSize="10%"
                     >
                       <WorkspacesPanel
                         onSwitch={switchToWorkspace}
@@ -1295,6 +1310,18 @@ export default function App() {
                         onAccept={(id) => respondToApproval(id, true)}
                         onReject={(id) => respondToApproval(id, false)}
                       />
+                    </div>
+                    <div
+                      className={cn(
+                        "absolute inset-0 px-3 pt-2 pb-2",
+                        activeTab?.kind !== "git-diff" &&
+                          "invisible pointer-events-none",
+                      )}
+                      aria-hidden={
+                        activeTab?.kind === "git-diff" ? "false" : "true"
+                      }
+                    >
+                      <GitDiffStack tabs={tabs} activeId={activeId} />
                     </div>
                   </div>
                 </div>

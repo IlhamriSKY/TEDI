@@ -83,7 +83,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
 }
 
 export const AiToolApproval = memo(AiToolApprovalImpl, (a, b) => {
-  // The approval card never changes content for a given approvalId — once
+  // The approval card never changes content for a given approvalId - once
   // the model has emitted the approval-requested part with its input, we
   // don't want to re-render on every downstream token.
   return (
@@ -119,7 +119,7 @@ function PreviewBlock({
       </div>
     );
   }
-  // For file mutations we deliberately do NOT preview content here —
+  // For file mutations we deliberately do NOT preview content here -
   // streamed write/edit content thrashes the UI and the AI diff tab is the
   // authoritative place to review the change. Show just the path + a
   // one-line size hint so the user knows what's being touched.

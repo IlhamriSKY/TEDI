@@ -12,7 +12,7 @@ import {
   type ProviderId,
 } from "../config";
 
-/** Treat unknown model ids as SumoPod — they only appear when the user
+/** Treat unknown model ids as SumoPod - they only appear when the user
  *  picked a runtime-detected SumoPod model and the registry hasn't yet
  *  been re-hydrated (e.g. cold reload before /v1/models resolves). */
 function resolveProvider(modelId: DynamicModelId): ProviderId {
@@ -263,7 +263,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setSelectedModelId: (id) => set({ selectedModelId: id }),
 
   // `mini` was the floating mini-window state. The right sidebar replaces
-  // it, so these now alias the sidebar's open/close — kept under the old
+  // it, so these now alias the sidebar's open/close - kept under the old
   // names because callers (AgentRunBridge auto-open on approval, AgentStatusPill
   // click) still use them.
   mini: { open: false },
@@ -323,7 +323,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const { sessions } = await loadAll();
 
     // Reuse the most recent untitled "New chat" session if one exists from
-    // the previous run — no point stacking empty placeholder sessions every
+    // the previous run - no point stacking empty placeholder sessions every
     // launch. Otherwise prepend a fresh one.
     const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
     let nextSessions: SessionMeta[];
@@ -440,7 +440,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     pendingPersist.set(id, { latest: messages, timer });
 
     // Update zustand session list only when the derived title actually
-    // changes — otherwise we'd rewrite the sessions array (and trigger
+    // changes - otherwise we'd rewrite the sessions array (and trigger
     // re-renders + a store write) on every token.
     const sessions = get().sessions;
     const meta = sessions.find((s) => s.id === id);

@@ -18,7 +18,7 @@ import {
  *
  * Side effects:
  *  - Patches `agentMeta` on every status / approvals change.
- *  - Auto-opens the mini-window when an approval is pending — the user has
+ *  - Auto-opens the mini-window when an approval is pending - the user has
  *    to act on it; hiding it would be hostile.
  *  - For pending `write_file` calls, opens an AI diff tab in the editor area
  *    so the user can review the proposed change before approving.
@@ -192,7 +192,7 @@ function Bridge({
           }
         } else if (state === "approval-responded") {
           // Response may carry an `approved` bit; if not present, leave the
-          // tab in pending — the next state transition (output-* below) will
+          // tab in pending - the next state transition (output-* below) will
           // settle it.
           const approved = (part as { approval?: { approved?: boolean } })
             .approval?.approved;
@@ -367,7 +367,7 @@ async function readOriginal(
   try {
     const r = await native.readFile(abs);
     if (r.kind === "text") return { content: r.content, isNewFile: false };
-    // Binary or oversized — we can't render the original sensibly. Show the
+    // Binary or oversized - we can't render the original sensibly. Show the
     // proposed content as a "new" view; the user can still cancel.
     return { content: "", isNewFile: false };
   } catch (e) {

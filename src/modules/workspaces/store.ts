@@ -8,7 +8,7 @@ const KEY_ACTIVE = "activeId";
 // ---- Saved (on-disk) shape ----
 //
 // We only persist what's needed to reconstruct tabs on next launch. Live
-// runtime state (dirty buffers, PTY ids, focus state) is not saved — terminal
+// runtime state (dirty buffers, PTY ids, focus state) is not saved - terminal
 // panes are respawned at their saved cwd; editor panes reopen the file path.
 
 export type SavedTerminalLeaf = {
@@ -47,7 +47,7 @@ export type SavedPreviewTab = {
 };
 
 export type SavedTab = SavedPaneTab | SavedPreviewTab;
-// ai-diff tabs are session-only — never persisted.
+// ai-diff tabs are session-only - never persisted.
 
 export type Workspace = {
   id: string;
@@ -99,7 +99,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     async hydrate() {
       const list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
       const active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
-      // Seed a default workspace if none — keeps first-run sane.
+      // Seed a default workspace if none - keeps first-run sane.
       if (list.length === 0) {
         const ws: Workspace = {
           id: newWorkspaceId(),
@@ -153,7 +153,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       const before = get();
       const removedIdx = before.workspaces.findIndex((w) => w.id === id);
       const next = before.workspaces.filter((w) => w.id !== id);
-      // Always keep at least one workspace around — collapse-to-default if
+      // Always keep at least one workspace around - collapse-to-default if
       // the user deletes the last one.
       if (next.length === 0) {
         const ws: Workspace = {
@@ -164,7 +164,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
         };
         set({ workspaces: [ws], activeId: ws.id });
       } else {
-        // When closing the active workspace, hand focus to the neighbor —
+        // When closing the active workspace, hand focus to the neighbor -
         // prefer the one below (same index after filter), fall back to above.
         const neighborIdx =
           removedIdx >= next.length ? next.length - 1 : removedIdx;

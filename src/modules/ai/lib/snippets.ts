@@ -57,7 +57,7 @@ export function expandSnippetTokens(
 ): { body: string; blocks: string[] } {
   const byHandle = new Map(snippets.map((s) => [s.handle, s]));
   const matched = new Map<string, Snippet>();
-  // (^|\s)#handle  — handle is [a-z0-9][a-z0-9-]*
+  // (^|\s)#handle  - handle is [a-z0-9][a-z0-9-]*
   const re = /(^|\s)#([a-z0-9][a-z0-9-]*)\b/gi;
   const body = text.replace(re, (full, lead: string, raw: string) => {
     const h = raw.toLowerCase();

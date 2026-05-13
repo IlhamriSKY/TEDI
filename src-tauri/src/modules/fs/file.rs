@@ -15,7 +15,7 @@ pub enum ReadResult {
         content: String,
         size: u64,
     },
-    /// Decoded image — body is a `data:` URL ready for `<img src>`.
+    /// Decoded image - body is a `data:` URL ready for `<img src>`.
     Image {
         #[serde(rename = "dataUrl")]
         data_url: String,
@@ -35,7 +35,7 @@ pub enum ReadResult {
 /// Sniff an image mime from path extension + magic bytes. Returns `None` if
 /// the file isn't a recognized image format.
 fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
-    // Magic-byte check first — authoritative when present.
+    // Magic-byte check first - authoritative when present.
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         return Some("image/png");
     }
@@ -56,7 +56,7 @@ fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
         return Some("image/x-icon");
     }
-    // SVG / other text-based formats — defer to extension.
+    // SVG / other text-based formats - defer to extension.
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -104,10 +104,10 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
         e.to_string()
     })?;
 
-    // Image sniff before the null-byte check — PNG/JPEG/etc. contain nulls
+    // Image sniff before the null-byte check - PNG/JPEG/etc. contain nulls
     // and would otherwise be reported as plain binary.
     if let Some(mime) = sniff_image_mime(&p, &bytes) {
-        // SVG is text — encode as UTF-8 in the data URL so it renders even
+        // SVG is text - encode as UTF-8 in the data URL so it renders even
         // if the file has odd whitespace.
         let data_url = if mime == "image/svg+xml" {
             match std::str::from_utf8(&bytes) {
@@ -141,7 +141,7 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
 }
 
 /// Minimal percent-encoding for SVG embedded in a `data:` URL. We only escape
-/// characters that break the URL grammar — leaving the SVG mostly readable.
+/// characters that break the URL grammar - leaving the SVG mostly readable.
 fn urlencode_svg(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {

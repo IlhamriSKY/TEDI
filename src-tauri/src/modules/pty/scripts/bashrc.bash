@@ -4,7 +4,7 @@
 # - We emulate login-shell init manually (/etc/profile, profile files) because
 #   bash ignores --rcfile when started with -l.
 # - Pre-exec marker uses PS0 (bash 4.4+). On older bash (macOS default 3.2) we
-#   skip it — a fragile DEBUG-trap alternative would clobber the user's own
+#   skip it - a fragile DEBUG-trap alternative would clobber the user's own
 #   traps and interact badly with debuggers.
 
 if [ -z "$__TEDI_HOOKS_LOADED" ]; then
@@ -52,7 +52,7 @@ if [ -z "$__TEDI_HOOKS_LOADED" ]; then
   esac
 
   # Pre-exec marker via PS0 (bash 4.4+). PS0 is expanded just before a command
-  # runs — cleaner than a DEBUG trap, which would clobber user traps and fire
+  # runs - cleaner than a DEBUG trap, which would clobber user traps and fire
   # on every command including inside PROMPT_COMMAND.
   if [ "${BASH_VERSINFO[0]:-0}" -gt 4 ] \
      || { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -ge 4 ]; }; then

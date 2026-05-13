@@ -25,7 +25,7 @@ import {
 import type { BundledLanguage, ThemedToken } from "shiki";
 import type { HighlighterCore } from "shiki/core";
 
-// Explicit grammar map. Adding a language here is a deliberate decision —
+// Explicit grammar map. Adding a language here is a deliberate decision -
 // every entry ships in the bundle, so resist the urge to add long-tail langs.
 // Aliases (e.g. "ts" → typescript, "py" → python) are auto-registered by
 // each grammar; a loader is keyed by canonical name only.
@@ -443,7 +443,7 @@ export const CodeBlockContent = ({
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
 
-  // Synchronous cache lookup — avoids setState in effect for cached results
+  // Synchronous cache lookup - avoids setState in effect for cached results
   const syncTokens = useMemo(
     () => highlightCode(code, language) ?? rawTokens,
     [code, language, rawTokens]

@@ -113,7 +113,7 @@ async function writePref<T>(key: string, value: T): Promise<void> {
 }
 
 export async function loadPreferences(): Promise<Preferences> {
-  // Single IPC roundtrip — fetching keys individually fans out to one
+  // Single IPC roundtrip - fetching keys individually fans out to one
   // `plugin:store|get` per setting and is the dominant boot cost.
   const entries = await store.entries();
   const map = new Map<string, unknown>(entries);

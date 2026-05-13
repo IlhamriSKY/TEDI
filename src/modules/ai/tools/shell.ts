@@ -26,7 +26,7 @@ export function buildShellTools(ctx: ToolContext) {
   return {
     bash_run: tool({
       description:
-        "Run a foreground shell command in this session's persistent agent shell. cwd persists across calls (so `cd foo` then `bash_run pwd` works). Use for short-lived commands (lint, test, search, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`. NEVER invoke interactive tools (vim, less, top) — they will hang. Asks for user approval.",
+        "Run a foreground shell command in this session's persistent agent shell. cwd persists across calls (so `cd foo` then `bash_run pwd` works). Use for short-lived commands (lint, test, search, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`. NEVER invoke interactive tools (vim, less, top) - they will hang. Asks for user approval.",
       inputSchema: z.object({
         command: z.string(),
         timeout_secs: z.number().int().min(1).max(300).optional(),
@@ -101,7 +101,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_list: tool({
       description:
-        "List all background processes spawned by `bash_background` in this app — running and exited. **Always call this BEFORE spawning a new long-running process** (especially dev servers like `pnpm dev`, `next dev`, `vite`) to avoid duplicates. If a matching process is already running, reuse it (call `open_preview` again instead of respawning). Auto-executes.",
+        "List all background processes spawned by `bash_background` in this app - running and exited. **Always call this BEFORE spawning a new long-running process** (especially dev servers like `pnpm dev`, `next dev`, `vite`) to avoid duplicates. If a matching process is already running, reuse it (call `open_preview` again instead of respawning). Auto-executes.",
       inputSchema: z.object({}),
       execute: async () => {
         try {
@@ -115,7 +115,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_kill: tool({
       description:
-        "Terminate a `bash_background` process by handle. Idempotent — kills nothing if the handle is unknown or already exited.",
+        "Terminate a `bash_background` process by handle. Idempotent - kills nothing if the handle is unknown or already exited.",
       inputSchema: z.object({ handle: z.number().int() }),
       execute: async ({ handle }) => {
         try {

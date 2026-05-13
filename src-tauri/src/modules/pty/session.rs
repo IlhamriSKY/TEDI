@@ -32,15 +32,15 @@ pub enum PtyEvent {
 
 pub struct Session {
     // Field drop order is intentional. Rust drops fields top-to-bottom:
-    //   1. `_job` — on Windows, closing the Job HANDLE fires
+    //   1. `_job` - on Windows, closing the Job HANDLE fires
     //      KILL_ON_JOB_CLOSE, terminating the pwsh tree before the master
     //      pipe drops. Without this, ClosePseudoConsole in `master`'s Drop
     //      can block waiting for conhost to drain pending output, freezing
     //      the Tauri worker thread that triggered the close.
-    //   2. `killer` — best-effort kill (redundant on Windows once Job
+    //   2. `killer` - best-effort kill (redundant on Windows once Job
     //      closed, but harmless and required on Unix where there is no Job).
-    //   3. `writer` — closes the input side of the master pipe.
-    //   4. `master` — last; ClosePseudoConsole on Windows. By now the child
+    //   3. `writer` - closes the input side of the master pipe.
+    //   4. `master` - last; ClosePseudoConsole on Windows. By now the child
     //      is dead and conhost has nothing left to drain.
     #[cfg(windows)]
     _job: Option<super::job::PtyJob>,
@@ -173,7 +173,7 @@ pub fn spawn(
             // `Vec<u8>` would become a JSON int array (~3× worse than base64).
             // A raw-bytes path via `InvokeResponseBody::Raw` exists but the
             // data+exit multiplex through one channel is awkward. Base64's 33%
-            // overhead is trivial on local IPC — revisit if profiling says
+            // overhead is trivial on local IPC - revisit if profiling says
             // otherwise.
             let event = PtyEvent::Data {
                 data: B64.encode(&chunk),

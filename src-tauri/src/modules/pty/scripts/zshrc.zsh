@@ -12,7 +12,7 @@
 }
 
 # Re-source guard within a single shell (e.g. user runs `source ~/.zshrc`).
-# This is NOT exported, so each nested zsh installs its own hooks — desired,
+# This is NOT exported, so each nested zsh installs its own hooks - desired,
 # since every interactive shell needs its own prompt integration.
 if [[ -z "$__TEDI_HOOKS_LOADED" ]]; then
   __TEDI_HOOKS_LOADED=1

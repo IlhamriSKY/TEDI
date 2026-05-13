@@ -24,7 +24,7 @@ pub struct SearchHit {
 /// Walks `root` honoring `.gitignore` / `.ignore` rules. With `include_hidden`
 /// set, dot-prefixed names are still considered. Matches are ranked using a
 /// fuzzy subsequence score (filename hits + contiguity + word-boundary bonus
-/// + shorter path tiebreak). An empty query returns nothing — callers
+/// + shorter path tiebreak). An empty query returns nothing - callers
 /// short-circuit before invoking.
 #[tauri::command]
 pub fn fs_search(

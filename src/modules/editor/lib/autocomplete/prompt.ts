@@ -30,7 +30,7 @@ Hard rules:
 1. NEVER repeat any text already present in PREFIX or SUFFIX.
 2. NEVER write code that belongs after SUFFIX.
 3. Match surrounding indentation, quoting, and naming conventions exactly.
-4. Output empty string when no confident completion exists — never guess.
+4. Output empty string when no confident completion exists - never guess.
 5. Output format: raw insertion text only. No markdown fences. No commentary. No "Here is".
 
 Examples:

@@ -12,7 +12,7 @@ use super::run_blocking_inner;
 /// A persistent agent shell session. Each `run` call executes through the
 /// user's login shell with the session's tracked cwd. Cwd persists across
 /// calls; environment overrides via `export` do not (this is an agent shell,
-/// not an interactive REPL — interactive tools must NOT be invoked here, use
+/// not an interactive REPL - interactive tools must NOT be invoked here, use
 /// the background process API for long-running work).
 pub struct ShellSession {
     pub cwd: Mutex<PathBuf>,
@@ -33,7 +33,7 @@ pub struct SessionRunOutput {
 }
 
 /// Sentinel emitted on stdout immediately before the command exits, so we can
-/// recover the post-command cwd. Picks an unlikely literal — collisions with
+/// recover the post-command cwd. Picks an unlikely literal - collisions with
 /// real command output would corrupt cwd tracking.
 const CWD_SENTINEL: &str = "__TEDI_CWD__";
 

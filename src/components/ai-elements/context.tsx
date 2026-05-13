@@ -238,7 +238,7 @@ const TokensWithCost = ({
 }) => (
   <span>
     {tokens === undefined
-      ? "—"
+      ? "-"
       : new Intl.NumberFormat("en-US", {
           notation: "compact",
         }).format(tokens)}

@@ -61,7 +61,7 @@ pub fn pty_write(state: tauri::State<PtyState>, id: u32, data: String) -> Result
             log::warn!("pty_write: unknown id={id}");
             "no session".to_string()
         })?;
-    // Bind to a local so the MutexGuard temporary drops before `session` —
+    // Bind to a local so the MutexGuard temporary drops before `session` -
     // see rustc note on tail-expression temporary drop order.
     let result = session
         .writer
@@ -123,7 +123,7 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
         // Drop the Arc on a detached thread. On Windows `MasterPty`'s Drop
         // calls `ClosePseudoConsole`, which can block until conhost finishes
         // draining its output buffer. Doing it here would freeze the Tauri
-        // worker thread that handled this command — and on Windows that
+        // worker thread that handled this command - and on Windows that
         // sometimes manifests as the closed pane refusing to disappear from
         // the React tree because subsequent IPC stalls behind it.
         thread::Builder::new()

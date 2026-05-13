@@ -153,7 +153,7 @@ const ToolImpl = ({
   const isError = state === "output-error";
   const open = defaultOpen ?? isError;
   const isHeavy = HEAVY_CONTENT_TOOLS.has(toolName);
-  // For heavy tools, only show details on error — never the streamed input
+  // For heavy tools, only show details on error - never the streamed input
   // body, which is huge and re-renders per token.
   const showInputBody = !isHeavy && Boolean(input);
   const showOutputBody = !isHeavy && output !== undefined;
@@ -231,7 +231,7 @@ const ToolImpl = ({
 };
 
 // For heavy tools, the only thing that should trigger a re-render is a
-// state transition or the path summary changing — NOT every input-content
+// state transition or the path summary changing - NOT every input-content
 // token. We compare the cheap derived summary instead of the input ref.
 export const Tool = memo(ToolImpl, (a, b) => {
   if (a.toolName !== b.toolName || a.state !== b.state) return false;
@@ -700,7 +700,7 @@ function CodeBlockMini({ code, language }: { code: string; language: string }) {
   );
 }
 
-// Compatibility re-exports — the previous API exposed these subcomponents,
+// Compatibility re-exports - the previous API exposed these subcomponents,
 // but the new compact <Tool /> takes everything via props. Kept as no-ops
 // to avoid breaking accidental imports.
 export const ToolHeader = () => null;

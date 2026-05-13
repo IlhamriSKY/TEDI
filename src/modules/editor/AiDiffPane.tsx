@@ -24,7 +24,7 @@ type Props = {
 };
 
 // Override default merge styles: replace the default 2px linear-gradient
-// underline with proper block backgrounds. Reads cleaner — especially for
+// underline with proper block backgrounds. Reads cleaner - especially for
 // pure insertions, where the underline-style marker looked decorative.
 const DIFF_THEME = EditorView.theme({
   // ".cm-changedLine": {
@@ -229,7 +229,7 @@ function countLines(doc: string, from: number, to: number): number {
   if (from === to) return 0;
   const slice = doc.slice(from, to);
   // A change spanning N newlines touches N+1 lines, but a trailing newline
-  // means the final segment is empty — don't count that as a touched line.
+  // means the final segment is empty - don't count that as a touched line.
   let n = 1;
   for (let i = 0; i < slice.length; i++) {
     if (slice.charCodeAt(i) === 10) n++;

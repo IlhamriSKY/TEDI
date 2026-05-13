@@ -41,7 +41,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
 
   setTodos(sessionId, todos) {
     // If the agent added a brand-new todo to a hidden session, surface the
-    // strip again — the user dismissed yesterday's list, not tomorrow's.
+    // strip again - the user dismissed yesterday's list, not tomorrow's.
     const prev = get().bySession[sessionId] ?? [];
     const prevIds = new Set(prev.map((t) => t.id));
     const hasNew = todos.some((t) => !prevIds.has(t.id));

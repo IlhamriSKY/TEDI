@@ -55,7 +55,7 @@ export default defineConfig(async ({ mode }) => ({
           if (id.includes("/streamdown/") || id.includes("@streamdown/"))
             return "streamdown";
           // Only the shiki core/engine in one chunk. Grammars and themes
-          // stay split (one chunk per file) — they load lazily on first use.
+          // stay split (one chunk per file) - they load lazily on first use.
           if (
             id.includes("/shiki/dist/core") ||
             id.includes("/shiki/dist/engine") ||

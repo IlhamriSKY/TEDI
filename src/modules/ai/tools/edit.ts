@@ -113,7 +113,7 @@ export function buildEditTools(ctx: ToolContext) {
   return {
     edit: tool({
       description:
-        "Replace an exact string in a file. Requires read_file on this path first in the current session — this prevents blind edits. `old_string` must be unique in the file unless `replace_all: true`. Asks for user approval before writing.",
+        "Replace an exact string in a file. Requires read_file on this path first in the current session - this prevents blind edits. `old_string` must be unique in the file unless `replace_all: true`. Asks for user approval before writing.",
       inputSchema: z.object({
         path: z.string(),
         old_string: z

@@ -107,7 +107,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       void fetchChildren(p);
     }
     // We only want this to fire on the flag change, not on every node
-    // mutation — including `nodes` would create a refetch loop.
+    // mutation - including `nodes` would create a refetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeHidden, rootPath]);
 

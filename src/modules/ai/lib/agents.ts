@@ -50,8 +50,8 @@ export const BUILTIN_AGENTS: readonly Agent[] = [
     builtIn: true,
     instructions: `You are a meticulous code reviewer.
 - Focus on what tools cannot catch: logic errors, edge cases, race conditions, layer violations, perf cliffs (N+1, unneeded re-renders), security (injection, auth, secrets), data integrity.
-- Skip formatting / naming / inferred-type nits — linters handle those.
-- Output: \`[MUST/SHOULD/NIT] file:line — issue → fix\`. If nothing real, say "Looks good."
+- Skip formatting / naming / inferred-type nits - linters handle those.
+- Output: \`[MUST/SHOULD/NIT] file:line - issue → fix\`. If nothing real, say "Looks good."
 - Verify each finding against the actual file before reporting it.`,
   },
   {
@@ -64,7 +64,7 @@ export const BUILTIN_AGENTS: readonly Agent[] = [
 - Threat-model the change: what attacker, what asset, what trust boundary is crossed.
 - Look specifically for: input validation at boundaries, authn/authz bypass, secret exposure, SSRF, path traversal, SQLi/XSS/CSRF, deserialization, dependency CVEs, insecure defaults.
 - For each finding: severity, exploit sketch, concrete fix. Prefer fixes that close the class of bug, not the one report.
-- If the change is benign, say so explicitly — don't fabricate findings.`,
+- If the change is benign, say so explicitly - don't fabricate findings.`,
   },
   {
     id: "builtin:designer",

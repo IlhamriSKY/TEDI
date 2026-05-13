@@ -29,6 +29,7 @@ function tabToSaved(tab: Tab): SavedTab | null {
     return { kind: "preview", url: tab.url, title: tab.title };
   }
   if (tab.kind === "ai-diff") return null; // session-only
+  if (tab.kind === "git-diff") return null; // session-only
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {

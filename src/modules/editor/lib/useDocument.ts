@@ -89,7 +89,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
     };
   }, [path, reloadCounter]);
 
-  /** Re-read the file from disk. No-op (silent) if the buffer is dirty —
+  /** Re-read the file from disk. No-op (silent) if the buffer is dirty -
    *  callers shouldn't clobber unsaved user edits. Returns whether reload ran. */
   const reload = useCallback((): boolean => {
     if (dirtyRef.current) return false;

@@ -30,7 +30,7 @@ export const MAX_PANES_PER_TAB = 6;
  * and vertical orientations within the same tree.
  *
  * `title` / `cwd` / `path` / `dirty` / `preview` are derived from the active
- * leaf and resynced whenever the tree or active leaf changes — call sites
+ * leaf and resynced whenever the tree or active leaf changes - call sites
  * that read these top-level fields keep working as before.
  */
 export type PaneTab = {
@@ -39,7 +39,7 @@ export type PaneTab = {
   title: string;
   paneTree: PaneNode;
   activeLeafId: number;
-  // Mirrors of the active leaf — populated by `syncPaneMirror`.
+  // Mirrors of the active leaf - populated by `syncPaneMirror`.
   cwd?: string;
   path?: string;
   dirty?: boolean;
@@ -67,7 +67,32 @@ export type AiDiffTab = {
   isNewFile: boolean;
 };
 
-export type Tab = PaneTab | PreviewTab | AiDiffTab;
+export type GitChangeStatusTab =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "conflicted"
+  | "ignored";
+
+export type GitDiffTab = {
+  id: number;
+  kind: "git-diff";
+  title: string;
+  /** Absolute working-tree path. */
+  path: string;
+  /** Repo-relative forward-slash path. */
+  relative: string;
+  /** Absolute repo root. */
+  repoPath: string;
+  changeStatus: GitChangeStatusTab;
+  /** Bumps on every "Refresh" so the pane re-reads HEAD + working tree. */
+  reloadKey: number;
+};
+
+export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab;
 
 export type TabPatch = Partial<{
   title: string;
@@ -222,10 +247,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   /**
    * Opens a file in an editor leaf.
    *
-   * - `pin = true` — persistent open. Re-uses an existing editor leaf for
+   * - `pin = true` - persistent open. Re-uses an existing editor leaf for
    *   the path (promoting it out of preview if needed), or creates a new
    *   editor tab.
-   * - `pin = false` — VSCode-style preview slot.
+   * - `pin = false` - VSCode-style preview slot.
    */
   const openFileTab = useCallback((path: string, pin = true) => {
     let targetTabId: number | null = null;
@@ -399,6 +424,58 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [],
   );
 
+  const openGitDiffTab = useCallback(
+    (input: {
+      path: string;
+      relative: string;
+      repoPath: string;
+      changeStatus: GitChangeStatusTab;
+    }) => {
+      let targetId: number | null = null;
+      setTabs((curr) => {
+        const existing = curr.find(
+          (t) =>
+            t.kind === "git-diff" &&
+            t.relative === input.relative &&
+            t.repoPath === input.repoPath,
+        );
+        if (existing) {
+          // Bump reloadKey so the pane re-reads HEAD + working tree content
+          // (useful when user changed the file between two diff views).
+          targetId = existing.id;
+          return curr.map((t) =>
+            t.id === existing.id && t.kind === "git-diff"
+              ? {
+                  ...t,
+                  reloadKey: t.reloadKey + 1,
+                  changeStatus: input.changeStatus,
+                }
+              : t,
+          );
+        }
+        const id = nextIdRef.current++;
+        targetId = id;
+        const title = `${basename(input.path)} (diff)`;
+        return [
+          ...curr,
+          {
+            id,
+            kind: "git-diff",
+            title,
+            path: input.path,
+            relative: input.relative,
+            repoPath: input.repoPath,
+            changeStatus: input.changeStatus,
+            reloadKey: 0,
+          },
+        ];
+      });
+      if (targetId !== null) setActiveId(targetId);
+      return targetId as number | null;
+    },
+    [],
+  );
+
   const newPreviewTab = useCallback((url: string) => {
     const id = nextIdRef.current++;
     setTabs((t) => [
@@ -442,7 +519,14 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             ...(patch.path !== undefined && { path: patch.path }),
           };
         }
-        // pane tab — patches apply to the active leaf where relevant.
+        if (x.kind === "git-diff") {
+          return {
+            ...x,
+            ...(patch.title !== undefined && { title: patch.title }),
+            ...(patch.path !== undefined && { path: patch.path }),
+          };
+        }
+        // pane tab - patches apply to the active leaf where relevant.
         const leaf = findLeaf(x.paneTree, x.activeLeafId);
         if (!leaf) return x;
         let tree = x.paneTree;
@@ -549,7 +633,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * Rules:
    * - terminal ↔ terminal: allowed.
    * - terminal ↔ editor (and vice versa): allowed.
-   * - editor ↔ editor: **forbidden** — a tab can hold at most one editor leaf.
+   * - editor ↔ editor: **forbidden** - a tab can hold at most one editor leaf.
    *
    * Default new-leaf kind:
    * - active leaf is terminal → new pane is terminal (mirrors prior behavior).
@@ -596,7 +680,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             const ts: TerminalLeafState = { leafKind: "terminal", cwd };
             state = ts;
           } else {
-            // Adding an editor leaf to a terminal tab — need a file path to
+            // Adding an editor leaf to a terminal tab - need a file path to
             // open. There's no obvious source path here (active is terminal,
             // and we just verified no other editor leaf exists), so skip.
             const sourcePath = leaves(t.paneTree).find(
@@ -698,7 +782,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Workspaces switch — replace the full tab list + active id atomically.
+   * Workspaces switch - replace the full tab list + active id atomically.
    * Also rebases `nextIdRef` so new ids never collide with the incoming set.
    */
   const replaceAllTabs = useCallback(
@@ -750,6 +834,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     newPreviewTab,
     openAiDiffTab,
     setAiDiffStatus,
+    openGitDiffTab,
     closeTab,
     updateTab,
     selectByIndex,

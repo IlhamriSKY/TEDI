@@ -41,21 +41,21 @@ Branch off `main`. Use these prefixes (kebab-case):
 
 Examples: `feat/split-panes`, `fix/explorer-focus`, `chore/windows-bundle-config`.
 
-Don't open PRs from your fork's `main` branch — it makes future syncs painful for you. Always work on a feature branch.
+Don't open PRs from your fork's `main` branch - it makes future syncs painful for you. Always work on a feature branch.
 
 ## Issues first for non-trivial work
 
-For anything beyond a typo, a small bug fix, or a clear `good-first-issue` — **open an issue first** and wait for a maintainer to ack the approach. A 10-minute conversation saves a 500-line PR that doesn't fit the roadmap.
+For anything beyond a typo, a small bug fix, or a clear `good-first-issue` - **open an issue first** and wait for a maintainer to ack the approach. A 10-minute conversation saves a 500-line PR that doesn't fit the roadmap.
 
 If an issue already exists for what you want to do, comment "I'll take this" before starting so we don't duplicate work.
 
 ## What we want
 
-- **Bug fixes** — always.
-- **Features** — open an issue first if it's non-trivial. We'd rather discuss the approach than reject a finished PR.
-- **Docs / typos / small UX fixes** — just send the PR.
-- **New AI providers** — see `src/modules/ai/providers/`. Keep BYOK; no hardcoded keys.
-- **Themes / icon packs** — yes, but keep the bundle size in check.
+- **Bug fixes** - always.
+- **Features** - open an issue first if it's non-trivial. We'd rather discuss the approach than reject a finished PR.
+- **Docs / typos / small UX fixes** - just send the PR.
+- **New AI providers** - see `src/modules/ai/providers/`. Keep BYOK; no hardcoded keys.
+- **Themes / icon packs** - yes, but keep the bundle size in check.
 
 ## What we don't want
 
@@ -74,7 +74,7 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 
 ## Commits & PRs
 
-We squash-merge every PR — the **PR title becomes the squash commit**, so it should follow [Conventional Commits](https://www.conventionalcommits.org/):
+We squash-merge every PR - the **PR title becomes the squash commit**, so it should follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 feat(terminal): add split panes
@@ -86,11 +86,11 @@ docs(readme): clarify Linux install on Arch
 Types: `feat`, `fix`, `chore`, `docs`, `perf`, `refactor`, `test`, `build`, `ci`.
 Common scopes: `terminal`, `editor`, `explorer`, `pty`, `ai`, `settings`, `tabs`, `shortcuts`, `agents`, `ui`.
 
-Within a PR, individual commit messages can be whatever — they get squashed.
+Within a PR, individual commit messages can be whatever - they get squashed.
 
 **One logical change per PR.** A PR that adds a feature, fixes an unrelated bug, and reformats `.gitignore` is three PRs. Split them.
 
-**Open a draft PR early** if you want feedback mid-flight; mark "Ready for review" when done. Fill out the PR template — what changed, why, how you tested. Include screenshots / GIFs for any UI change.
+**Open a draft PR early** if you want feedback mid-flight; mark "Ready for review" when done. Fill out the PR template - what changed, why, how you tested. Include screenshots / GIFs for any UI change.
 
 ### What gets merged faster
 
@@ -112,7 +112,7 @@ Within a PR, individual commit messages can be whatever — they get squashed.
 ## Project layout
 
 ```
-src-tauri/        Rust backend — PTY, FS, shell, plugins
+src-tauri/        Rust backend - PTY, FS, shell, plugins
 src/
   modules/
     terminal/     xterm.js sessions + OSC handlers
@@ -128,7 +128,7 @@ src/
 
 ## Security issues
 
-Don't file them as issues — see [SECURITY.md](SECURITY.md).
+Don't file them as issues - see [SECURITY.md](SECURITY.md).
 
 ## License
 
