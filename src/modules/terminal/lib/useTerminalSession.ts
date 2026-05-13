@@ -17,6 +17,12 @@ import {
   type TediSpawnTabInput,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
+import {
+  getConnectionSecrets,
+  listConnections,
+  type SshConnection,
+} from "@/modules/ssh/connections";
+import { openSsh } from "@/modules/ssh/bridge";
 
 export type { TediOpenInput, TediSpawnTabInput };
 
@@ -58,12 +64,18 @@ type Session = {
   ready: Promise<void>;
   disposed: boolean;
   initialCwd: string | undefined;
+  /** If set, this leaf is bound to a saved SSH connection. */
+  sshConnectionId: string | undefined;
   ptyOpening: boolean;
 };
 
 const sessions = new Map<number, Session>();
 
-function ensureSession(leafId: number, initialCwd?: string): Session {
+function ensureSession(
+  leafId: number,
+  initialCwd?: string,
+  sshConnectionId?: string,
+): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
 
@@ -116,6 +128,7 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
     ready: Promise.resolve(),
     disposed: false,
     initialCwd,
+    sshConnectionId,
     ptyOpening: false,
   };
   sessions.set(leafId, session);
@@ -166,32 +179,87 @@ function openPtyForSession(
   // Fresh decoder per pty so a partial UTF-8 codepoint from a prior shell
   // doesn't leak into the new one.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
-  return openPty(
-    s.term.cols,
-    s.term.rows,
-    {
-      onData: (bytes) => {
-        s.term.write(bytes);
-        if (containsSchemeSeparator(bytes)) {
-          const text = urlDecoder.decode(bytes, { stream: true });
-          const matches = text.match(LOCAL_URL_RE);
-          if (matches && matches.length > 0) {
-            const url = stripTrailingPunct(matches[matches.length - 1]);
-            if (url && url !== s.lastDetectedUrl) {
-              s.lastDetectedUrl = url;
-              s.callbacks.onDetectedLocalUrl?.(url);
-            }
-          }
+
+  const onData = (bytes: Uint8Array) => {
+    s.term.write(bytes);
+    if (containsSchemeSeparator(bytes)) {
+      const text = urlDecoder.decode(bytes, { stream: true });
+      const matches = text.match(LOCAL_URL_RE);
+      if (matches && matches.length > 0) {
+        const url = stripTrailingPunct(matches[matches.length - 1]);
+        if (url && url !== s.lastDetectedUrl) {
+          s.lastDetectedUrl = url;
+          s.callbacks.onDetectedLocalUrl?.(url);
         }
-      },
-      onExit: (code) => {
-        s.term.options.disableStdin = true;
-        if (s.callbacks.onExit) s.callbacks.onExit(code);
-        else s.pendingExit = code;
-      },
-    },
-    cwd,
+      }
+    }
+  };
+  const onExit = (code: number) => {
+    s.term.options.disableStdin = true;
+    if (s.callbacks.onExit) s.callbacks.onExit(code);
+    else s.pendingExit = code;
+  };
+
+  if (s.sshConnectionId) {
+    return openSshForSession(s, s.sshConnectionId, onData, onExit);
+  }
+
+  return openPty(s.term.cols, s.term.rows, { onData, onExit }, cwd);
+}
+
+async function openSshForSession(
+  s: Session,
+  sshConnectionId: string,
+  onData: (bytes: Uint8Array) => void,
+  onExit: (code: number) => void,
+): Promise<PtySession> {
+  // Look up the saved connection metadata + secrets at open time so a
+  // password change in settings is picked up on the next reconnect
+  // without restarting the app.
+  const list = await listConnections();
+  const conn: SshConnection | undefined = list.find(
+    (c) => c.id === sshConnectionId,
   );
+  if (!conn) {
+    throw new Error(`ssh: connection "${sshConnectionId}" not found`);
+  }
+  const secrets = await getConnectionSecrets(sshConnectionId);
+
+  const writeBanner = (text: string) => {
+    const enc = new TextEncoder();
+    onData(enc.encode(text));
+  };
+
+  writeBanner(`\x1b[2m[tedi] connecting to ${conn.user}@${conn.host}:${conn.port}…\x1b[0m\r\n`);
+
+  const sshSession = await openSsh(
+    {
+      host: conn.host,
+      port: conn.port,
+      user: conn.user,
+      password: conn.authMode === "password" ? secrets.password ?? "" : undefined,
+      privateKey: conn.authMode === "key" ? secrets.privateKey ?? "" : undefined,
+      privateKeyPassphrase:
+        conn.authMode === "key" ? secrets.keyPassphrase ?? undefined : undefined,
+      cols: s.term.cols,
+      rows: s.term.rows,
+    },
+    {
+      onConnected: (fp) =>
+        writeBanner(`\x1b[2m[tedi] server key ${fp}\x1b[0m\r\n`),
+      onData,
+      onExit,
+      onError: (msg) => writeBanner(`\r\n\x1b[31m[tedi] ssh error: ${msg}\x1b[0m\r\n`),
+    },
+  );
+
+  // Adapter so the rest of useTerminalSession treats SSH like a PtySession.
+  return {
+    id: sshSession.id,
+    write: (data) => sshSession.write(data),
+    resize: (cols, rows) => sshSession.resize(cols, rows),
+    close: () => sshSession.close(),
+  };
 }
 
 export async function respawnSession(
@@ -395,6 +463,8 @@ type Options = {
   visible: boolean;
   focused?: boolean;
   initialCwd?: string;
+  /** If set, the leaf will open an SSH session instead of a local PTY. */
+  sshConnectionId?: string;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -409,6 +479,7 @@ export function useTerminalSession({
   visible,
   focused = true,
   initialCwd,
+  sshConnectionId,
   onSearchReady,
   onExit,
   onCwd,
@@ -435,7 +506,7 @@ export function useTerminalSession({
 
   useEffect(() => {
     let cancelled = false;
-    const s = ensureSession(leafId, initialCwd);
+    const s = ensureSession(leafId, initialCwd, sshConnectionId);
     s.ready.then(() => {
       if (cancelled || !container.current) return;
       attachSession(leafId, container.current, {

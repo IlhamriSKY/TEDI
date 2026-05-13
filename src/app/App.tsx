@@ -105,6 +105,7 @@ export default function App() {
     activeId,
     setActiveId,
     newTab,
+    newSshTab,
     openFileTab,
     pinTab,
     newPreviewTab,
@@ -1184,6 +1185,7 @@ export default function App() {
             }
             onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenSettings={() => void openSettingsWindow()}
+            onConnectSsh={(conn) => newSshTab(conn.id, conn.name)}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}

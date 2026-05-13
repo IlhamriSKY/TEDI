@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{fs, git, net, pty, secrets, shell};
+use modules::{fs, git, net, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -202,6 +202,7 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
+        .manage(ssh::SshState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_write,
@@ -237,6 +238,10 @@ pub fn run() {
             secrets::secrets_delete,
             secrets::secrets_get_all,
             net::http_ping,
+            ssh::ssh_open,
+            ssh::ssh_write,
+            ssh::ssh_resize,
+            ssh::ssh_close,
         ])
         .on_window_event(|window, event| {
             // Mirror main-window visibility onto the settings child so it

@@ -39,6 +39,8 @@ import {
 } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
+import { SshMenu } from "@/modules/ssh/SshMenu";
+import type { SshConnection } from "@/modules/ssh/connections";
 
 type Props = {
   tabs: Tab[];
@@ -61,6 +63,8 @@ type Props = {
   canSplit: boolean;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
+  /** Open a saved SSH host as a new terminal tab. */
+  onConnectSsh: (conn: SshConnection) => void;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
   /** Markdown-preview toggle for the active editor leaf. `null` hides the
@@ -86,6 +90,7 @@ export function Header({
   canSplit,
   onOpenShortcuts,
   onOpenSettings,
+  onConnectSsh,
   searchTarget,
   searchRef,
   mdPreviewToggle,
@@ -293,11 +298,17 @@ export function Header({
       {IS_MAC && (
         <>
           {shortcutsButton}
+          <SshMenu onConnect={onConnectSsh} />
           {settingsButton}
         </>
       )}
 
-      {!IS_MAC && settingsButton}
+      {!IS_MAC && (
+        <>
+          <SshMenu onConnect={onConnectSsh} />
+          {settingsButton}
+        </>
+      )}
 
       {USE_CUSTOM_WINDOW_CONTROLS && (
         <>

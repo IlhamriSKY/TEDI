@@ -10,6 +10,13 @@ export type SplitDir = "row" | "col";
 export type TerminalLeafState = {
   leafKind: "terminal";
   cwd?: string;
+  /**
+   * If set, this terminal leaf connects to a saved SSH host instead of
+   * spawning a local PTY. The string is the connection id from the SSH
+   * connections store; `cwd` is ignored when this is set (the remote
+   * shell decides the working dir).
+   */
+  sshConnectionId?: string;
 };
 
 export type EditorLeafState = {

@@ -53,7 +53,8 @@ function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";
   const url = new URL(window.location.href);
   const t = url.searchParams.get("tab");
-  // Back-compat: legacy "ai" / "connections" → "models".
+  // Back-compat: legacy "ai" / "connections" → "models". The SSH manager
+  // now lives in the main toolbar; the settings tab is gone.
   if (t === "ai" || t === "connections") return "models";
   if (t && (VALID_TABS as string[]).includes(t)) return t as SettingsTab;
   return "general";

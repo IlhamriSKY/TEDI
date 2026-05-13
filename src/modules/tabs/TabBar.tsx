@@ -16,7 +16,13 @@ import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
 import {
+  listConnections,
+  onConnectionsChanged,
+  type SshConnection,
+} from "@/modules/ssh/connections";
+import {
   Cancel01Icon,
+  CloudServerIcon,
   ComputerTerminal02Icon,
   GitCompareIcon,
   Globe02Icon,
@@ -67,6 +73,8 @@ type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
   leafKind: "terminal" | "editor";
+  /** Set on terminal leaves bound to a saved SSH host. */
+  sshConnectionId?: string;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -80,8 +88,20 @@ function basename(path: string): string {
   return parts.length ? parts[parts.length - 1] : path;
 }
 
-function entryLabel(leaf: PaneLeaf, fallbackCwd: string | undefined): string {
+function entryLabel(
+  leaf: PaneLeaf,
+  fallbackCwd: string | undefined,
+  sshHosts: Map<string, SshConnection>,
+): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
+  // SSH leaves: show "ssh:<host>" so the destination is visible at a
+  // glance, especially after a split where the tab title falls back to
+  // a generic label. Falls back to bare "ssh" if the connection was
+  // deleted from the keychain while the leaf is still open.
+  if (leaf.sshConnectionId) {
+    const host = sshHosts.get(leaf.sshConnectionId);
+    return host ? `ssh:${host.host}` : "ssh";
+  }
   if (leaf.cwd) {
     const b = basename(leaf.cwd);
     if (b) return b;
@@ -93,12 +113,17 @@ function entryLabel(leaf: PaneLeaf, fallbackCwd: string | undefined): string {
   return "shell";
 }
 
-function buildEntries(tabs: Tab[]): Entry[] {
+function buildEntries(
+  tabs: Tab[],
+  sshHosts: Map<string, SshConnection>,
+): Entry[] {
   const out: Entry[] = [];
   for (const t of tabs) {
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
-        const label = entryLabel(leaf, t.cwd);
+        const label = entryLabel(leaf, t.cwd, sshHosts);
+        const sshConnectionId =
+          leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         out.push({
           kind: "pane-leaf",
           key: `leaf-${leaf.id}`,
@@ -110,6 +135,7 @@ function buildEntries(tabs: Tab[]): Entry[] {
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { preview?: boolean }).preview === true,
           dirty:
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
+          sshConnectionId,
         });
       }
       continue;
@@ -220,8 +246,24 @@ export function TabBar({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeDragId, setActiveDragId] = useState<number | null>(null);
+  // Load saved SSH hosts once + on change, so we can resolve a leaf's
+  // `sshConnectionId` to its `user@host:port` for the tab tooltip.
+  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(
+    () => new Map(),
+  );
+  useEffect(() => {
+    const load = () =>
+      void listConnections().then((list) =>
+        setSshHosts(new Map(list.map((c) => [c.id, c]))),
+      );
+    load();
+    const unsub = onConnectionsChanged(load);
+    return () => {
+      void unsub.then((fn) => fn());
+    };
+  }, []);
 
-  const entries = useMemo(() => buildEntries(tabs), [tabs]);
+  const entries = useMemo(() => buildEntries(tabs, sshHosts), [tabs, sshHosts]);
 
   // Group entries by their owning top-level tab. A tab with split panes
   // contributes multiple consecutive entries (one per leaf); a single-pane
@@ -351,6 +393,7 @@ export function TabBar({
                     isDragging={activeDragId === group.tabId}
                     onPinLeaf={onPinLeaf}
                     onCloseEntry={onCloseEntry}
+                    sshHosts={sshHosts}
                   />
                 ))}
               </SortableContext>
@@ -448,6 +491,8 @@ type SortableTabGroupProps = {
   isDragging: boolean;
   onPinLeaf: (tabId: number, leafId: number) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
+  /** Resolves a leaf's SSH connection id to its host metadata for tooltip. */
+  sshHosts: Map<string, SshConnection>;
 };
 
 /**
@@ -465,6 +510,7 @@ function SortableTabGroup({
   isDragging: isThisDragging,
   onPinLeaf,
   onCloseEntry,
+  sshHosts,
 }: SortableTabGroupProps) {
   const {
     attributes,
@@ -511,81 +557,97 @@ function SortableTabGroup({
           "opacity-30",
       )}
     >
-      {entries.map((e, idx) => (
-        <TabsTrigger
-          key={e.key}
-          value={e.key}
-          data-entry-key={e.key}
-          data-tab-id={e.tabId}
-          data-tauri-drag-region="false"
-          onDoubleClick={() => {
-            if (e.kind === "pane-leaf" && e.italic) {
-              onPinLeaf(e.tabId, e.leafId);
-            }
-          }}
-          // Drag listeners go on the group node only when this is the
-          // **first** entry. Putting them on every leaf would still work
-          // (they bubble), but binding once keeps event flow predictable
-          // and prevents listeners from intercepting clicks on inner leaves.
-          {...(idx === 0 ? attributes : {})}
-          {...(idx === 0 ? listeners : {})}
-          className={cn(
-            // VSCode-style active state: tab adopts the editor background
-            // (--background) and gets a 2px primary-colored top border so the
-            // focused tab visually "lifts" out of the strip. Inactive tabs sit
-            // on the slightly darker --muted surface for clear contrast.
-            "group relative h-full shrink-0 gap-1.5 bg-muted/60 text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-foreground/80 justify-between",
-            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-medium",
-            "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
-            // Inside a split cluster, entries are flat (no rounded corners,
-            // no own bg); outside, they keep the original pill look.
-            isSplit ? "rounded-none" : "rounded-md",
-            compact
-              ? "px-2!"
-              : totalEntries === 1
-                ? "px-2.5!"
-                : "ps-2.5! pe-1.5!",
-            // Intra-group divider on every entry except the first.
-            isSplit && idx > 0 &&
-              "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-border/70 before:content-[''] data-[state=active]:before:opacity-0",
-          )}
-        >
-          <span
+      {entries.map((e, idx) => {
+        const sshHost =
+          e.kind === "pane-leaf" && e.sshConnectionId
+            ? sshHosts.get(e.sshConnectionId)
+            : undefined;
+        const trigger = (
+          <TabsTrigger
+            key={e.key}
+            value={e.key}
+            data-entry-key={e.key}
+            data-tab-id={e.tabId}
+            data-tauri-drag-region="false"
+            onDoubleClick={() => {
+              if (e.kind === "pane-leaf" && e.italic) {
+                onPinLeaf(e.tabId, e.leafId);
+              }
+            }}
+            // Drag listeners go on the group node only when this is the
+            // **first** entry. Putting them on every leaf would still work
+            // (they bubble), but binding once keeps event flow predictable
+            // and prevents listeners from intercepting clicks on inner leaves.
+            {...(idx === 0 ? attributes : {})}
+            {...(idx === 0 ? listeners : {})}
             className={cn(
-              "flex items-center gap-1.5 truncate",
-              compact ? "max-w-48" : "max-w-80",
+              // VSCode-style active state: tab adopts the editor background
+              // (--background) and gets a 2px primary-colored top border so the
+              // focused tab visually "lifts" out of the strip. Inactive tabs sit
+              // on the slightly darker --muted surface for clear contrast.
+              "group relative h-full shrink-0 gap-1.5 bg-muted/60 text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-foreground/80 justify-between",
+              "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-medium",
+              "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
+              // Inside a split cluster, entries are flat (no rounded corners,
+              // no own bg); outside, they keep the original pill look.
+              isSplit ? "rounded-none" : "rounded-md",
+              compact
+                ? "px-2!"
+                : totalEntries === 1
+                  ? "px-2.5!"
+                  : "ps-2.5! pe-1.5!",
+              // Intra-group divider on every entry except the first.
+              isSplit && idx > 0 &&
+                "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-border/70 before:content-[''] data-[state=active]:before:opacity-0",
             )}
           >
-            <EntryIcon entry={e} />
-            <span className={cn("truncate", e.italic && "italic")}>
-              {e.label}
-            </span>
-            {e.dirty ? (
-              <span
-                aria-label="Unsaved changes"
-                className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400"
-              />
-            ) : null}
-          </span>
-          {canClose && (
             <span
-              role="button"
-              aria-label="Close"
-              onPointerDown={(ev) => ev.stopPropagation()}
-              onClick={(ev) => {
-                ev.stopPropagation();
-                onCloseEntry(
-                  e.tabId,
-                  e.kind === "pane-leaf" ? e.leafId : null,
-                );
-              }}
-              className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
+              className={cn(
+                "flex items-center gap-1.5 truncate",
+                compact ? "max-w-48" : "max-w-80",
+              )}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              <EntryIcon entry={e} />
+              <span className={cn("truncate", e.italic && "italic")}>
+                {e.label}
+              </span>
+              {e.dirty ? (
+                <span
+                  aria-label="Unsaved changes"
+                  className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400"
+                />
+              ) : null}
             </span>
-          )}
-        </TabsTrigger>
-      ))}
+            {canClose && (
+              <span
+                role="button"
+                aria-label="Close"
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onCloseEntry(
+                    e.tabId,
+                    e.kind === "pane-leaf" ? e.leafId : null,
+                  );
+                }}
+                className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              </span>
+            )}
+          </TabsTrigger>
+        );
+
+        if (!sshHost) return trigger;
+        return (
+          <Tooltip key={e.key}>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent side="bottom" className="font-mono text-[10.5px]">
+              SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }
@@ -595,6 +657,16 @@ function EntryIcon({ entry }: { entry: Entry }) {
     if (entry.leafKind === "editor") {
       const url = fileIconUrl(entry.label);
       return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
+    }
+    if (entry.sshConnectionId) {
+      return (
+        <HugeiconsIcon
+          icon={CloudServerIcon}
+          size={14}
+          strokeWidth={2}
+          className="shrink-0 text-sky-600 dark:text-sky-400"
+        />
+      );
     }
     return (
       <HugeiconsIcon

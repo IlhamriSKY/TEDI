@@ -119,6 +119,9 @@ function titleFromUrl(url: string): string {
 /** Derive a tab title from its active leaf. */
 function titleFromLeaf(leaf: PaneLeaf): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
+  // SSH leaves: caller sets a human-readable title via updateTab right
+  // after newSshTab; this fallback shows until that lands.
+  if (leaf.sshConnectionId) return "ssh";
   // Terminal: prefer the cwd basename, fall back to "shell".
   if (leaf.cwd) {
     const b = basename(leaf.cwd);
@@ -218,6 +221,37 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     setActiveId(tabId);
     return tabId;
   }, []);
+
+  /**
+   * Open a new tab whose initial terminal leaf is bound to a saved SSH
+   * connection. `useTerminalSession` reads `leaf.sshConnectionId` and
+   * routes through `ssh_open` instead of `pty_open`.
+   */
+  const newSshTab = useCallback(
+    (sshConnectionId: string, title: string) => {
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      const leaf: PaneLeaf = {
+        kind: "leaf",
+        id: leafId,
+        leafKind: "terminal",
+        sshConnectionId,
+      };
+      setTabs((t) => [
+        ...t,
+        syncPaneMirror({
+          id: tabId,
+          kind: "pane",
+          title,
+          paneTree: leaf,
+          activeLeafId: leafId,
+        }),
+      ]);
+      setActiveId(tabId);
+      return tabId;
+    },
+    [],
+  );
 
   /**
    * Find a pane tab that has any editor leaf matching `predicate`. Used by
@@ -829,6 +863,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     activeId,
     setActiveId,
     newTab,
+    newSshTab,
     openFileTab,
     pinTab,
     newPreviewTab,
