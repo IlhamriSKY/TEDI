@@ -922,11 +922,44 @@ export default function App() {
   // new terminal tab rooted at `cwd` and auto-run `cmd`. Used by tools like
   // Laravel's `php artisan dev:serve` to keep all dev processes inside TEDI
   // instead of spawning external cmd.exe windows.
+  //
+  // When `split` is set, split the most-recently-spawned pane in the same tab
+  // instead of opening a new tab — lets `dev:serve` cluster Vite/Reverb/Queue
+  // into one grouped tab with horizontal splits.
+  const lastSpawnedTabIdRef = useRef<number | null>(null);
   const handleTediSpawnTab = useCallback(
     (_leafId: number, input: TediSpawnTabInput) => {
       const cwd = input.cwd;
       const cmd = input.cmd;
+
+      const writeIntoLeaf = (leafId: number) => {
+        if (!cmd) return;
+        setTimeout(() => {
+          const t = terminalRefs.current.get(leafId);
+          if (!t) return;
+          t.write(`${cmd}\r`);
+          t.focus();
+        }, 120);
+      };
+
+      // Split path: only valid if we have a previous spawned tab still alive.
+      if (input.split) {
+        const lastTabId = lastSpawnedTabIdRef.current;
+        const lastTab = lastTabId !== null
+          ? tabsRef.current.find((x) => x.id === lastTabId)
+          : null;
+        if (lastTab && lastTab.kind === "pane") {
+          const newLeafId = splitActivePane(lastTabId!, input.split);
+          if (newLeafId !== null) {
+            writeIntoLeaf(newLeafId);
+            return;
+          }
+          // Split refused (e.g. MAX_PANES_PER_TAB hit) — fall through to new tab.
+        }
+      }
+
       const tabId = newTab(cwd);
+      lastSpawnedTabIdRef.current = tabId;
       if (!cmd) return;
       // Wait for the new pane's PTY to be ready, then inject the command.
       setTimeout(() => {
@@ -940,7 +973,7 @@ export default function App() {
         t.focus();
       }, 120);
     },
-    [newTab],
+    [newTab, splitActivePane],
   );
 
   const handleEditorDirty = useCallback(

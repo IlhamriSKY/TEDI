@@ -56,6 +56,9 @@ export type TediSpawnTabInput = {
   cwd?: string;
   cmd?: string;
   title?: string;
+  // When set, split the previously-spawned pane instead of opening a new tab.
+  // "row" = horizontal split (new pane right), "col" = vertical (new pane below).
+  split?: "row" | "col";
 };
 
 export function registerTediSpawnTabHandler(
@@ -114,7 +117,9 @@ function parseTediSpawnTab(data: string): TediSpawnTabInput | null {
     if (key === "cwd") out.cwd = val;
     else if (key === "cmd") out.cmd = val;
     else if (key === "title") out.title = val;
+    else if (key === "split" && (val === "row" || val === "col"))
+      out.split = val;
   }
-  if (!out.cwd && !out.cmd && !out.title) return null;
+  if (!out.cwd && !out.cmd && !out.title && !out.split) return null;
   return out;
 }

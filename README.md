@@ -27,7 +27,7 @@
 
 Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/TEDI/releases/latest)**.
 
-Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact for your OS and install. Re-download from Releases when a new version drops.
+Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact for your OS and install. Re-download from Releases when a new version drops or check at settings.
 
 ## Features
 

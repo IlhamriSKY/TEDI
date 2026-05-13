@@ -35,7 +35,7 @@ export function UpdaterPill() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label={label}
-          className="flex h-6 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 text-[11px] text-primary transition-colors hover:bg-primary/15"
+          className="flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 text-[11px] text-primary transition-colors hover:bg-primary/15"
         >
           <HugeiconsIcon
             icon={Icon}

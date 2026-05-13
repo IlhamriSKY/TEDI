@@ -4,30 +4,36 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [0.1.1]
-
-First update over the auto-update channel — used to verify signed-update flow works end to end on real installs.
+## [0.1.2] — 2026-05-13
 
 ### Changed
-- Polish across AI surfaces, settings, explorer, and status bar based on follow-up edits after the 0.1.0 cut.
+- Status-bar update pill: removed `max-w-32` clamp so the "Update available" label is not truncated on wide status bars.
+- OSC 8889 (`tedi_open`) spawn-tab parser now accepts a `split=row|col` field so shells can request a split-pane spawn instead of a new tab.
 
-## [0.1.0] — Initial TEDI release
+## [0.1.1] — 2026-05-13
 
-First release under the **TEDI** (Terminal Environment & Development Infrastructure) name. Versioning restarts from `0.1.0` because TEDI tracks its own roadmap independently of upstream Terax.
+First update delivered over the signed auto-update channel — used to verify the end-to-end signed-update flow on real installs.
+
+### Changed
+- Polish across AI surfaces (chat, mini window, status-bar controls, agents, transport, todos), settings (general, models, store), explorer (file tree, search, constants), tabs, editor language resolver, status bar, App.tsx, contributing notes, `.gitignore`, and `globals.css`.
+
+## [0.1.0] — 2026-05-13
+
+Initial release under the **TEDI** (Terminal Environment & Development Infrastructure) name. Versioning restarts from `0.1.0` because TEDI tracks its own roadmap independently of upstream Terax.
 
 ### Added
-- Workspaces with persisted tab layouts and switcher in the sidebar
-- Tab grouping and drag-to-reorder
-- Terminal and editor split panes (mix and match per tab)
-- Spawn a new terminal tab from inside an existing shell instead of an external window (OSC 8889, `tedi_open`)
-- Inline image preview
-- Side-by-side Markdown preview
-- "Open folder" workspace picker in the header
-- Code-editor visual refresh
+- Workspaces with persisted tab layouts and switcher in the sidebar.
+- Tab grouping and drag-to-reorder.
+- Terminal and editor split panes (mix and match per tab).
+- Spawn a new terminal tab from inside an existing shell instead of an external window (OSC 8889, `tedi_open`).
+- Inline image preview.
+- Side-by-side Markdown preview.
+- "Open folder" workspace picker in the header.
+- Code-editor visual refresh.
+- Signed auto-updater (`tauri-plugin-updater`): checks GitHub Releases every 6 hours, offers in-app install + relaunch. First install is still manual.
+- Settings → About: "Check for updates" button for manual polling.
 
 ### Changed
-- AI tool-routing, sub-agents, snippets, and plan-mode flow polished
-- Project memory file renamed to `TEDI.md`
-
-### Auto-update
-- Signed auto-updater re-enabled via `tauri-plugin-updater`. App checks GitHub Releases every 6 hours and offers in-app install + relaunch. First install is still manual.
+- AI tool-routing, sub-agents, snippets, and plan-mode flow polished.
+- Project memory file renamed to `TEDI.md`.
+- Identity rebranded from CMDAN to TEDI (bundle id `id.ilhamrisky.tedi`, crate `tedi`, keychain service `tedi`, store files `tedi-*.json`).
