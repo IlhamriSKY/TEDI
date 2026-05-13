@@ -10,7 +10,7 @@ type Props = {
   onDismiss: () => void;
 };
 
-const W = 110;
+const W = 156;
 const OFFSET = 32;
 
 export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
@@ -41,11 +41,13 @@ export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
           e.stopPropagation();
           onAsk();
         }}
-        className="flex h-7 w-full cursor-pointer items-center justify-between gap-1.5 rounded-md border border-border/60 bg-card/95 px-2 text-xs shadow-lg backdrop-blur-md hover:border-border hover:bg-accent"
+        className="flex h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground shadow-xl ring-1 ring-black/10 backdrop-blur-md transition-[transform,background-color,box-shadow] hover:-translate-y-px hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
       >
-        <span>Ask TEDI</span>
+        <span className="truncate whitespace-nowrap">Ask TEDI</span>
         <KbdGroup>
-          <Kbd className="h-4 min-w-4 px-1 text-[10px]">{fmtShortcut(MOD_KEY, "L")}</Kbd>
+          <Kbd className="h-5 min-w-fit rounded-md bg-primary-foreground/14 px-1.5 text-[10px] font-semibold text-primary-foreground">
+            {fmtShortcut(MOD_KEY, "L")}
+          </Kbd>
         </KbdGroup>
       </button>
     </motion.div>

@@ -35,13 +35,13 @@ export function UpdaterPill() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label={label}
-          className="flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 text-[11px] text-primary transition-colors hover:bg-primary/15"
+          className="inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
         >
           <HugeiconsIcon
             icon={Icon}
             size={11}
             strokeWidth={1.75}
-            className="shrink-0"
+            className="shrink-0 text-primary-foreground"
           />
           <span className="truncate">
             {updater.state.kind === "ready" ? "Restart" : "Update"}

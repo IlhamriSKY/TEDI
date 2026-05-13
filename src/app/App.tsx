@@ -306,6 +306,15 @@ export default function App() {
   // live tabs (which are still in `useTabs` until we rehydrate below).
   const skipNextSnapshotRef = useRef(false);
 
+  // In-memory cache of each workspace's live Tab[] (including leaf ids) so
+  // that switching back restores the *same* terminal leaf ids — keeps the
+  // existing PTY/xterm sessions alive across workspace switches. The disk
+  // snapshot via `serializeTabs` is still done for crash/restart recovery,
+  // but live state takes precedence on switch.
+  const liveTabsByWorkspace = useRef<Map<string, { tabs: Tab[]; activeId: number | null }>>(
+    new Map(),
+  );
+
   useEffect(() => {
     void wsHydrate();
   }, [wsHydrate]);
@@ -354,8 +363,10 @@ export default function App() {
 
   const switchToWorkspace = useCallback(
     (workspaceId: string) => {
+      if (workspaceId === wsActiveId) return;
       // Snapshot current first so we don't lose state.
       if (wsActiveId) {
+        // Disk snapshot (for restart): drops live ids, keeps cwd/path.
         const saved = serializeTabs(tabs);
         let savedIdx = 0;
         let i = -1;
@@ -367,8 +378,22 @@ export default function App() {
           }
         }
         wsSaveTabs(wsActiveId, saved, Math.max(0, savedIdx));
+        // Live snapshot (for in-session switches): keeps leaf ids so the
+        // existing PTY/xterm sessions stay attached when the user comes back.
+        liveTabsByWorkspace.current.set(wsActiveId, {
+          tabs,
+          activeId,
+        });
       }
       wsSetActive(workspaceId);
+      // Prefer the live cache — restores the exact leaf ids that the running
+      // terminal sessions are keyed by, so the dispose effect doesn't kill
+      // them.
+      const cached = liveTabsByWorkspace.current.get(workspaceId);
+      if (cached && cached.tabs.length > 0) {
+        replaceAllTabs(cached.tabs, cached.activeId);
+        return;
+      }
       const next = useWorkspacesStore
         .getState()
         .workspaces.find((w) => w.id === workspaceId);
@@ -407,6 +432,9 @@ export default function App() {
       // don't clobber the neighbor's saved tabs with the closing workspace's
       // still-live tabs.
       if (wasActive) skipNextSnapshotRef.current = true;
+      // Drop the cached live tabs for the closed workspace so its leaves are
+      // no longer "live" — the next tabs-effect pass will dispose their PTYs.
+      liveTabsByWorkspace.current.delete(workspaceId);
       wsRemove(workspaceId);
       if (!wasActive) return;
       const nextActiveId = useWorkspacesStore.getState().activeId;
@@ -414,6 +442,14 @@ export default function App() {
         .getState()
         .workspaces.find((w) => w.id === nextActiveId);
       if (!next) return;
+      const cached =
+        nextActiveId !== null
+          ? liveTabsByWorkspace.current.get(nextActiveId)
+          : null;
+      if (cached && cached.tabs.length > 0) {
+        replaceAllTabs(cached.tabs, cached.activeId);
+        return;
+      }
       const liveTabs: Tab[] =
         next.tabs.length === 0
           ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
@@ -508,18 +544,27 @@ export default function App() {
 
   // Drives session disposal off the pane tree, not React lifecycles — split/
   // unsplit re-mount components but the leaf is still live.
+  //
+  // Workspace switches also flow through here: when the active workspace
+  // changes, `tabs` becomes the new workspace's tabs and the prior
+  // workspace's leaves would naively look "dead." To keep terminal sessions
+  // alive across switches we treat the cached workspaces' leaves as still
+  // live — only when a workspace is closed (its cache entry cleared) do its
+  // sessions actually get disposed.
   const liveLeavesRef = useRef<Set<number>>(new Set());
   useEffect(() => {
-    const liveAll = new Set<number>();
     const liveTerm = new Set<number>();
     const liveEditor = new Set<number>();
-    for (const t of tabs) {
-      if (t.kind !== "pane") continue;
+    const collect = (t: Tab) => {
+      if (t.kind !== "pane") return;
       for (const l of leaves(t.paneTree)) {
-        liveAll.add(l.id);
         if (l.leafKind === "terminal") liveTerm.add(l.id);
         else liveEditor.add(l.id);
       }
+    };
+    for (const t of tabs) collect(t);
+    for (const cached of liveTabsByWorkspace.current.values()) {
+      for (const t of cached.tabs) collect(t);
     }
     for (const id of liveLeavesRef.current) {
       if (!liveTerm.has(id)) disposeSession(id);
