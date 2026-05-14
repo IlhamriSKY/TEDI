@@ -30,6 +30,7 @@ import {
   LayoutTwoRowIcon,
   Settings01Icon,
   SidebarLeftIcon,
+  TextWrapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -79,6 +80,9 @@ type Props = {
   /** Markdown-preview toggle for the active editor leaf. `null` hides the
    *  button (active tab/leaf isn't a markdown editor). */
   mdPreviewToggle: { active: boolean; toggle: () => void } | null;
+  /** Word-wrap toggle for the active editor leaf. `null` hides the button
+   *  (active tab/leaf isn't an editor, or markdown preview is showing). */
+  lineWrapToggle: { active: boolean; toggle: () => void } | null;
 };
 
 const COMPACT_WIDTH = 720;
@@ -130,6 +134,7 @@ export function Header({
   searchTarget,
   searchRef,
   mdPreviewToggle,
+  lineWrapToggle,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -151,6 +156,7 @@ export function Header({
 
   const splitRightTokens = tokensFor("pane.splitRight");
   const splitDownTokens = tokensFor("pane.splitDown");
+  const wordWrapTokens = tokensFor("editor.toggleWordWrap");
 
   useEffect(() => {
     const el = rootRef.current;
@@ -328,6 +334,31 @@ export function Header({
               size={15}
               strokeWidth={1.75}
             />
+          </Button>
+        </IconTooltip>
+      )}
+
+      {lineWrapToggle && (
+        <IconTooltip
+          label={`${lineWrapToggle.active ? "Disable" : "Enable"} word wrap${
+            wordWrapTokens ? ` (${wordWrapTokens})` : ""
+          }`}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={lineWrapToggle.toggle}
+            aria-label={
+              lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"
+            }
+            aria-pressed={lineWrapToggle.active}
+            className={`size-7 shrink-0 rounded-md hover:bg-accent hover:text-foreground ${
+              lineWrapToggle.active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground"
+            }`}
+          >
+            <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
       )}

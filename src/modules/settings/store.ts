@@ -51,6 +51,7 @@ export type Preferences = {
   lmstudioBaseURL: string;
   openaiCompatibleBaseURL: string;
   vimMode: boolean;
+  lineWrap: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   showHiddenFiles: boolean;
@@ -73,6 +74,7 @@ const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
 const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
 const KEY_OPENAI_COMPATIBLE_BASE_URL = "openaiCompatibleBaseURL";
 const KEY_VIM_MODE = "vimMode";
+const KEY_LINE_WRAP = "lineWrap";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
@@ -100,6 +102,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lmstudioBaseURL: LMSTUDIO_DEFAULT_BASE_URL,
   openaiCompatibleBaseURL: OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   vimMode: false,
+  lineWrap: false,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   showHiddenFiles: false,
@@ -155,6 +158,7 @@ export async function loadPreferences(): Promise<Preferences> {
       get<string>(KEY_OPENAI_COMPATIBLE_BASE_URL) ??
       DEFAULT_PREFERENCES.openaiCompatibleBaseURL,
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
+    lineWrap: get<boolean>(KEY_LINE_WRAP) ?? DEFAULT_PREFERENCES.lineWrap,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
       DEFAULT_PREFERENCES.terminalWebglEnabled,
@@ -224,6 +228,10 @@ export async function setVimMode(value: boolean): Promise<void> {
   await writePref(KEY_VIM_MODE, value);
 }
 
+export async function setLineWrap(value: boolean): Promise<void> {
+  await writePref(KEY_LINE_WRAP, value);
+}
+
 export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
@@ -275,6 +283,7 @@ export async function onPreferencesChange(
     [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
     [KEY_OPENAI_COMPATIBLE_BASE_URL]: "openaiCompatibleBaseURL",
     [KEY_VIM_MODE]: "vimMode",
+    [KEY_LINE_WRAP]: "lineWrap",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",

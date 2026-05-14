@@ -50,7 +50,7 @@ import { PaneStack } from "@/modules/panes";
 import { PreviewStack, type PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { onKeysChanged } from "@/modules/settings/store";
+import { onKeysChanged, setLineWrap } from "@/modules/settings/store";
 import {
   useGlobalShortcuts,
   type ShortcutHandlers,
@@ -973,6 +973,9 @@ export default function App() {
       "shortcuts.open": () => void openSettingsWindow("shortcuts"),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
+      "editor.toggleWordWrap": () => {
+        void setLineWrap(!usePreferencesStore.getState().lineWrap);
+      },
     }),
     [
       activeId,
@@ -1194,6 +1197,28 @@ export default function App() {
     toggleMdPreviewForLeaf,
   ]);
 
+  /** Word-wrap toggle exposed to the Header. Non-null when the active leaf is
+   *  an editor (markdown preview hides the source, so suppress it then too). */
+  const lineWrap = usePreferencesStore((s) => s.lineWrap);
+  const lineWrapToggle = useMemo(() => {
+    if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
+      return null;
+    }
+    const leaf = activeLeaf(activePaneTab);
+    if (!leaf || leaf.leafKind !== "editor") return null;
+    if (mdPreviewLeafIds.has(activeLeafIdInTab)) return null;
+    return {
+      active: lineWrap,
+      toggle: () => void setLineWrap(!lineWrap),
+    };
+  }, [
+    isEditorLike,
+    activeLeafIdInTab,
+    activePaneTab,
+    mdPreviewLeafIds,
+    lineWrap,
+  ]);
+
   const activeCwd = useMemo(() => {
     if (!activePaneTab) return null;
     const leaf = activeLeaf(activePaneTab);
@@ -1312,6 +1337,7 @@ export default function App() {
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}
+            lineWrapToggle={lineWrapToggle}
           />
 
           <main className="flex min-h-0 flex-1 flex-col">

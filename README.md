@@ -1,7 +1,5 @@
 <div align="center">
   <img src="public/icon.png" width="120" height="120" alt="TEDI" />
-  <h1>TEDI</h1>
-
   <p><strong>Terminal Environment & Development Infrastructure. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
 
   <p>
@@ -16,8 +14,6 @@
 > [!IMPORTANT]
 > **Built on top of [Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9) by [Crynta](https://github.com/crynta).**
 > Full credit to the upstream authors for the Rust PTY backend, the React + xterm.js client, and the AI agent core. TEDI keeps the same Apache-2.0 license and tracks its own roadmap onward. Please star the upstream repo if you find TEDI useful.
-
-> Auto-update is **enabled**: TEDI checks [GitHub Releases](https://github.com/IlhamriSKY/TEDI/releases) every 6 hours and offers signed in-app updates. First install is still manual - grab a build from Releases.
 
 ## What is TEDI?
 
@@ -46,13 +42,12 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - xterm.js + WebGL, multi-tab, background-streaming inactive tabs
 - Native PTY via `portable-pty` (zsh, bash, fish, pwsh)
 - Shell integration: cwd + prompt markers via OSC 7 / 133
-- Spawn new tabs *from inside* a shell instead of popping an external `cmd.exe` / `gnome-terminal` (OSC 8889 + `tedi_open`)
 - Split panes: horizontal and vertical, mix terminals and editors freely
-- Inline search, link detection, true-color
+- Inline search, link detection
 
 **Editor**
-- CodeMirror 6 with TS/JS, Rust, Python, PHP, HTML/CSS, JSON, Markdown, C/C++, Java, C#
-- Inline AI autocomplete and diff-based edit approvals
+- CodeMirror 6 with TS/JS, Rust, Python, PHP, HTML/CSS, JSON, Markdown, C/C++, Java, C# and More
+- Inline AI autocomplete and diff-based
 - Vim mode and themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode)
 - Inline image preview tab
 - Side-by-side Markdown preview

@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.6] - 2026-05-14
+
+### Added
+- **Word wrap toggle** for the active editor leaf: header button (next to the search field, only shown when an editor leaf is active and Markdown preview is hidden) and **Alt+Z** shortcut. Persisted as the `lineWrap` preference; reconfigures the open editor live via a CodeMirror compartment.
+
+### Fixed
+- **Settings window opens on the wrong monitor.** Tauri's default placement centers on the primary monitor even when the main window is on a secondary display. The settings window now re-centers over the main window on both first open and subsequent re-opens, so it follows wherever you're working.
+- **Settings panel had no visible scrollbar.** The settings content area now opts back into the slim themed scrollbar (`themed-scroll`) instead of inheriting the global hide-scrollbar rule.
+
+### Changed
+- README polished: dropped the redundant H1, the auto-update banner, the OSC 8889 sub-bullet, and tightened the editor feature list.
+
 ## [0.1.5] - 2026-05-14
 
 ### Added

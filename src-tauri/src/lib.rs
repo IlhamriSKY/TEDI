@@ -42,6 +42,21 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     };
 
     if let Some(window) = app.get_webview_window("settings") {
+        // Re-center over the main window's monitor so re-opening after the user
+        // moved the main window to another display follows it across.
+        if let Some(main) = app.get_webview_window("main") {
+            if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
+                main.outer_position(),
+                main.outer_size(),
+                window.outer_size(),
+            ) {
+                let x = main_pos.x
+                    + (main_size.width as i32 - settings_size.width as i32) / 2;
+                let y = main_pos.y
+                    + (main_size.height as i32 - settings_size.height as i32) / 2;
+                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+        }
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -88,6 +103,24 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.set_decorations(false);
     }
     disable_windows_corner_rounding(&window);
+
+    // Tauri's default placement lands at the primary monitor's center even when
+    // the main window is on a secondary display, which makes the settings window
+    // appear to "jump screens". Re-center it over the main window so it follows
+    // wherever the user is actually working.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
+            main.outer_position(),
+            main.outer_size(),
+            window.outer_size(),
+        ) {
+            let x = main_pos.x
+                + (main_size.width as i32 - settings_size.width as i32) / 2;
+            let y = main_pos.y
+                + (main_size.height as i32 - settings_size.height as i32) / 2;
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
     let _ = window;
     Ok(())
 }

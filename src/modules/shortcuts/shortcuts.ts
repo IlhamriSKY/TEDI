@@ -22,7 +22,8 @@ export type ShortcutId =
   | "ai.askSelection"
   | "shortcuts.open"
   | "settings.open"
-  | "sidebar.toggle";
+  | "sidebar.toggle"
+  | "editor.toggleWordWrap";
 
 export type ShortcutGroup =
   | "General"
@@ -30,7 +31,8 @@ export type ShortcutGroup =
   | "Panes"
   | "Search"
   | "AI"
-  | "View";
+  | "View"
+  | "Editor";
 
 export type KeyBinding = {
   key: string;
@@ -158,6 +160,12 @@ export const SHORTCUTS: Shortcut[] = [
     group: "View",
     defaultBindings: [{ [MOD_PROP]: true, key: "b" }],
   },
+  {
+    id: "editor.toggleWordWrap",
+    label: "Toggle word wrap",
+    group: "Editor",
+    defaultBindings: [{ alt: true, key: "z" }],
+  },
 ];
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -165,6 +173,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   "Tabs",
   "Panes",
   "View",
+  "Editor",
   "Search",
   "AI",
 ];
