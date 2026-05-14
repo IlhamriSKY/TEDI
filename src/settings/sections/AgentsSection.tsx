@@ -33,10 +33,11 @@ import {
   CheckmarkCircle02Icon,
   Delete02Icon,
   Edit02Icon,
+  ArrowReloadHorizontalIcon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 
 const ICON_OPTIONS: AgentIconId[] = [
@@ -51,11 +52,26 @@ const ICON_OPTIONS: AgentIconId[] = [
 export function AgentsSection() {
   const customInstructions = usePreferencesStore((s) => s.customInstructions);
   const customAgents = useAgentsStore((s) => s.customAgents);
+  const builtinOverrides = useAgentsStore((s) => s.builtinOverrides);
   const activeAgentId = useAgentsStore((s) => s.activeId);
   const setActiveAgentId = useAgentsStore((s) => s.setActiveId);
   const upsertAgent = useAgentsStore((s) => s.upsert);
   const removeAgent = useAgentsStore((s) => s.remove);
+  const resetBuiltin = useAgentsStore((s) => s.resetBuiltin);
   const hydrateAgents = useAgentsStore((s) => s.hydrate);
+  // Derive the merged list from the subscribed slices so re-renders fire when
+  // either built-in overrides or custom agents change.
+  const allAgents = useMemo(
+    () => [
+      ...BUILTIN_AGENTS.map((a) =>
+        builtinOverrides[a.id]
+          ? { ...builtinOverrides[a.id], builtIn: true }
+          : a,
+      ),
+      ...customAgents,
+    ],
+    [builtinOverrides, customAgents],
+  );
 
   const snippets = useSnippetsStore((s) => s.snippets);
   const upsertSnippet = useSnippetsStore((s) => s.upsert);
@@ -101,17 +117,22 @@ export function AgentsSection() {
             New agent
           </Button>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {[...BUILTIN_AGENTS, ...customAgents].map((a) => (
-            <AgentCard
-              key={a.id}
-              agent={a}
-              active={a.id === activeAgentId}
-              onActivate={() => setActiveAgentId(a.id)}
-              onEdit={a.builtIn ? null : () => setEditingAgent(a)}
-              onDelete={a.builtIn ? null : () => removeAgent(a.id)}
-            />
-          ))}
+        <div className="grid grid-cols-2 gap-2">
+          {allAgents.map((a) => {
+            const overridden = a.builtIn && !!builtinOverrides[a.id];
+            return (
+              <AgentCard
+                key={a.id}
+                agent={a}
+                active={a.id === activeAgentId}
+                overridden={overridden}
+                onActivate={() => setActiveAgentId(a.id)}
+                onEdit={() => setEditingAgent(a)}
+                onDelete={a.builtIn ? null : () => removeAgent(a.id)}
+                onReset={a.builtIn && overridden ? () => resetBuiltin(a.id) : null}
+              />
+            );
+          })}
         </div>
       </section>
 
@@ -232,15 +253,19 @@ export function AgentsSection() {
 function AgentCard({
   agent,
   active,
+  overridden,
   onActivate,
   onEdit,
   onDelete,
+  onReset,
 }: {
   agent: Agent;
   active: boolean;
+  overridden: boolean;
   onActivate: () => void;
   onEdit: (() => void) | null;
   onDelete: (() => void) | null;
+  onReset: (() => void) | null;
 }) {
   const Icon = AGENT_ICONS[agent.icon] ?? SparklesIcon;
   return (
@@ -262,6 +287,11 @@ function AgentCard({
             {agent.builtIn ? (
               <span className="rounded bg-muted/50 px-1 py-0.5 text-[9px] tracking-wide text-muted-foreground uppercase">
                 Built-in
+              </span>
+            ) : null}
+            {overridden ? (
+              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] tracking-wide text-amber-600 uppercase dark:text-amber-300">
+                Edited
               </span>
             ) : null}
           </span>
@@ -304,6 +334,23 @@ function AgentCard({
               </Button>
             </IconTooltip>
           ) : null}
+          {onReset ? (
+            <IconTooltip label="Reset to default" side="top">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6 text-muted-foreground hover:text-foreground"
+                onClick={onReset}
+                aria-label="Reset"
+              >
+                <HugeiconsIcon
+                  icon={ArrowReloadHorizontalIcon}
+                  size={11}
+                  strokeWidth={1.75}
+                />
+              </Button>
+            </IconTooltip>
+          ) : null}
           {onDelete ? (
             <IconTooltip label="Delete" side="top">
               <Button
@@ -338,17 +385,21 @@ function AgentEditorDialog({
   useEffect(() => setDraft(agent), [agent]);
   if (!draft) return null;
 
-  const isNew = !existing.some((a) => a.id === draft.id);
+  const isExisting = draft.builtIn || existing.some((a) => a.id === draft.id);
+  const isNew = !isExisting;
   const canSave =
     draft.name.trim().length > 0 && draft.instructions.trim().length > 0;
+  const dialogTitle = isNew
+    ? "New agent"
+    : draft.builtIn
+      ? "Edit built-in agent"
+      : "Edit agent";
 
   return (
     <Dialog open={!!agent} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg gap-4">
         <DialogHeader>
-          <DialogTitle className="text-[14px]">
-            {isNew ? "New agent" : "Edit agent"}
-          </DialogTitle>
+          <DialogTitle className="text-[14px]">{dialogTitle}</DialogTitle>
         </DialogHeader>
         <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6">
           <div className="flex gap-2">
@@ -416,7 +467,7 @@ function AgentEditorDialog({
           <Button
             size="sm"
             disabled={!canSave}
-            onClick={() => onSave({ ...draft, builtIn: false })}
+            onClick={() => onSave(draft)}
           >
             Save
           </Button>

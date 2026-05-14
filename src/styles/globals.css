@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+@import "./code-highlight.css";
 
 @source "../../node_modules/streamdown/dist/index.js";
 
@@ -165,32 +166,46 @@ html[data-chrome="borderless"] #settings-root {
 }
 
 /*
- * xterm.js overrides - kept outside @layer so they win against the addon's
- * own stylesheet (which is not in any layer and would otherwise override).
+ * xterm.js + CodeMirror scrollbar styling - kept outside @layer so they win
+ * against the addons' own stylesheets (which are not in any layer and would
+ * otherwise override).
+ *
+ * Both surfaces opt-in to a slim themed scrollbar so the user has a clear
+ * vertical/horizontal navigation affordance. `!important` is required because
+ * the global `html[data-chrome="borderless"] *::-webkit-scrollbar` rule
+ * further down has higher specificity and would otherwise hide these.
  *
  * Newer xterm renders scrollbars as real <div class="scrollbar vertical|horizontal">
- * children rather than relying on native overflow scrollbars. Both code paths exist
- * across versions, so we hide both.
+ * children rather than relying on native overflow scrollbars; we leave those
+ * untouched so xterm can paint them when the WebGL renderer is active.
  */
-.xterm .scrollbar,
-.xterm .scrollbar.vertical,
-.xterm .scrollbar.horizontal {
-  display: none !important;
-  visibility: hidden !important;
-  width: 0 !important;
-  height: 0 !important;
-  pointer-events: none !important;
-}
 .xterm .xterm-viewport,
 .xterm-viewport {
-  scrollbar-width: none !important;
-  -ms-overflow-style: none !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--border) transparent !important;
+  -ms-overflow-style: auto !important;
 }
 .xterm .xterm-viewport::-webkit-scrollbar,
 .xterm-viewport::-webkit-scrollbar {
-  width: 0 !important;
-  height: 0 !important;
-  display: none !important;
+  width: 10px !important;
+  height: 10px !important;
+  display: block !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-track,
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb,
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border) !important;
+  border-radius: 5px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground) !important;
+  background-clip: padding-box !important;
 }
 .xterm,
 .xterm-screen,
@@ -201,16 +216,46 @@ html[data-chrome="borderless"] #settings-root {
 
 .cm-editor,
 .cm-scroller {
-  scrollbar-width: none !important;
-  -ms-overflow-style: none !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--border) transparent !important;
+  -ms-overflow-style: auto !important;
 }
 .cm-editor::-webkit-scrollbar,
 .cm-scroller::-webkit-scrollbar {
-  width: 0 !important;
-  height: 0 !important;
-  display: none !important;
+  width: 10px !important;
+  height: 10px !important;
+  display: block !important;
+}
+.cm-editor::-webkit-scrollbar-track,
+.cm-scroller::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.cm-editor::-webkit-scrollbar-thumb,
+.cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--border) !important;
+  border-radius: 5px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+.cm-editor::-webkit-scrollbar-thumb:hover,
+.cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground) !important;
+  background-clip: padding-box !important;
+}
+.cm-editor::-webkit-scrollbar-corner,
+.cm-scroller::-webkit-scrollbar-corner {
+  background: transparent !important;
 }
 
+/* @codemirror/merge's base theme forces every .cm-editor inside .cm-mergeView
+ * to `height: auto !important`, by design — vertical scrolling is meant to
+ * happen at the outer .cm-mergeView (which gets `overflow-y: auto` from the
+ * package). But the package never sets a height on .cm-mergeView itself, so
+ * without this rule the merge view grows past its host and nothing scrolls.
+ * Per-pane horizontal scroll lives on .cm-scroller and continues to work. */
+.cm-mergeView {
+  height: 100% !important;
+}
 
 .no-scrollbar {
   scrollbar-width: none !important;

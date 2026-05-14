@@ -11,6 +11,7 @@ export function UpdaterPill() {
 
   const visible =
     updater.state.kind === "available" ||
+    updater.state.kind === "manual-available" ||
     updater.state.kind === "downloading" ||
     updater.state.kind === "ready";
 
@@ -23,7 +24,9 @@ export function UpdaterPill() {
         ? `Downloading update ${formatProgress(updater.state.received, updater.state.total)}`
         : updater.state.kind === "available"
           ? `Update available · v${updater.state.version}`
-          : "Update";
+          : updater.state.kind === "manual-available"
+            ? `Update available · v${updater.state.version}`
+            : "Update";
 
   const Icon =
     updater.state.kind === "ready" ? RefreshIcon : Download04Icon;

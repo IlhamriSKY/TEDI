@@ -27,6 +27,7 @@ import { openSsh } from "@/modules/ssh/bridge";
 export type { TediOpenInput, TediSpawnTabInput };
 
 const BACKWARD_KILL_WORD = "\x17";
+const SHIFT_ENTER = "\x1b\r";
 
 const LOCAL_URL_RE =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{1,5})?(?:\/[^\s\x1b]*)?/g;
@@ -134,13 +135,21 @@ function ensureSession(
   sessions.set(leafId, session);
 
   term.attachCustomKeyEventHandler((event) => {
-    if (!isCtrlBackspace(event)) return true;
     const pty = session.pty;
     if (!pty) return true;
-    event.preventDefault();
-    event.stopPropagation();
-    pty.write(BACKWARD_KILL_WORD);
-    return false;
+    if (isCtrlBackspace(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      pty.write(BACKWARD_KILL_WORD);
+      return false;
+    }
+    if (isShiftEnter(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      pty.write(SHIFT_ENTER);
+      return false;
+    }
+    return true;
   });
 
   // Routes through session.pty so respawn doesn't need to rebind.
@@ -260,6 +269,37 @@ async function openSshForSession(
     resize: (cols, rows) => sshSession.resize(cols, rows),
     close: () => sshSession.close(),
   };
+}
+
+/**
+ * Write raw bytes to a specific leaf's PTY without going through React state.
+ * Used by the OS file-drop handler to paste paths into the terminal under
+ * the cursor. Returns false if the leaf has no live PTY.
+ */
+export function writeToLeaf(leafId: number, data: string): boolean {
+  const s = sessions.get(leafId);
+  if (!s || !s.pty) return false;
+  s.pty.write(data);
+  s.term.focus();
+  return true;
+}
+
+/**
+ * Hit-test the DOM at a CSS-pixel point and return the enclosing terminal
+ * leaf id, if any. Walks up from `elementFromPoint` looking for the
+ * `data-terminal-leaf-id` attribute set by `TerminalPane`.
+ */
+export function findLeafIdFromPoint(x: number, y: number): number | null {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const host = (el as Element).closest<HTMLElement>(
+    "[data-terminal-leaf-id]",
+  );
+  if (!host) return null;
+  const raw = host.dataset.terminalLeafId;
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function respawnSession(
@@ -636,6 +676,17 @@ function isCtrlBackspace(event: KeyboardEvent): boolean {
     event.type === "keydown" &&
     event.key === "Backspace" &&
     event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey
+  );
+}
+
+function isShiftEnter(event: KeyboardEvent): boolean {
+  return (
+    event.type === "keydown" &&
+    event.key === "Enter" &&
+    event.shiftKey &&
+    !event.ctrlKey &&
     !event.altKey &&
     !event.metaKey
   );

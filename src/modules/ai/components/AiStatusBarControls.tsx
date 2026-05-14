@@ -28,21 +28,27 @@ import {
   CpuIcon,
   DeepseekIcon,
   FlashIcon,
+  GlobalIcon,
   GoogleGeminiIcon,
   Grok02Icon,
   Mic01Icon,
+  PinIcon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setPinnedModelIds } from "@/modules/settings/store";
 import {
   getModel,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
   type DynamicModelId,
+  type ModelInfo,
   type ProviderId,
+  type ProviderInfo,
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useSumopodModels } from "../lib/sumopod";
@@ -57,6 +63,7 @@ const PROVIDER_ICON = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   sumopod: CloudServerIcon,
+  "openai-compatible": GlobalIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 
@@ -217,17 +224,23 @@ function ModelDropdown() {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const sumopodModels = useSumopodModels();
+  const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
+  // Provider sections (and the synthetic "pinned" section) start expanded
+  // and the user can collapse any of them. State is component-local so it
+  // resets every time the dropdown reopens - lighter than persisting it
+  // and keeps the default "everything visible" experience.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // Static `getModel` would throw for runtime-detected SumoPod ids that
   // aren't in the MODELS const. Fall back to a synthetic ModelInfo using
   // the raw id so the dropdown can render labels for detected models.
-  let current;
+  let current: ModelInfo;
   try {
     current = getModel(selected);
   } catch {
     current = {
       id: selected,
-      provider: "sumopod" as const,
+      provider: "sumopod",
       label: selected,
       hint: "SumoPod",
     };
@@ -241,6 +254,26 @@ function ModelDropdown() {
     }
     setSelected(id);
   };
+
+  const togglePin = useCallback(
+    (modelId: string) => {
+      const pinned = usePreferencesStore.getState().pinnedModelIds;
+      const next = pinned.includes(modelId)
+        ? pinned.filter((id) => id !== modelId)
+        : [modelId, ...pinned];
+      void setPinnedModelIds(next);
+    },
+    [],
+  );
+
+  const toggleSection = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const modelTooltip = currentProviderHasKey
     ? `Model: ${current.label}`
@@ -259,7 +292,30 @@ function ModelDropdown() {
     [query, sumopodModels.models],
   );
 
-  const totalMatches = sections.reduce((n, s) => n + s.filtered.length, 0);
+  // Resolve pinned ids to actual ModelInfo entries (with their provider) by
+  // looking them up across every section. Drop ids that no longer correspond
+  // to any known model so stale entries don't ghost-render.
+  const pinnedEntries = useMemo(() => {
+    const lookup = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
+    for (const { provider, all } of sections) {
+      for (const m of all) lookup.set(m.id, { model: m, provider });
+    }
+    const out: { model: ModelInfo; provider: ProviderInfo }[] = [];
+    for (const id of pinnedModelIds) {
+      const hit = lookup.get(id);
+      if (hit) out.push(hit);
+    }
+    return out;
+  }, [sections, pinnedModelIds]);
+
+  const pinnedFiltered = useMemo(
+    () => pinnedEntries.filter(({ model }) => matchesQuery(model, query)),
+    [pinnedEntries, query],
+  );
+
+  const totalMatches =
+    pinnedFiltered.length +
+    sections.reduce((n, s) => n + s.filtered.length, 0);
 
   return (
     <DropdownMenu
@@ -321,6 +377,26 @@ function ModelDropdown() {
           />
         </div>
         <div className="max-h-92 overflow-y-auto">
+          {pinnedEntries.length > 0 ? (
+            <ModelSection
+              sectionKey="__pinned"
+              title="Pinned"
+              models={pinnedFiltered.map(({ model, provider }) => ({
+                model,
+                provider,
+                hasKey: providerNeedsKey(provider.id)
+                  ? !!apiKeys[provider.id]
+                  : true,
+              }))}
+              collapsed={collapsed.has("__pinned")}
+              onToggle={() => toggleSection("__pinned")}
+              query={query}
+              selectedId={selected}
+              pinnedIds={pinnedModelIds}
+              onPick={onPick}
+              onTogglePin={togglePin}
+            />
+          ) : null}
           {sections.map(({ provider: p, filtered }) => {
             if (filtered.length === 0 && query) return null;
             const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
@@ -335,50 +411,27 @@ function ModelDropdown() {
                       : null
                 : null;
             return (
-              <div key={p.id} className="px-1 pt-1.5 first:pt-1">
-                <div className="mb-0.5 flex items-center gap-1.5 px-2 text-[9.5px] font-medium tracking-wide text-muted-foreground uppercase">
-                  <HugeiconsIcon
-                    icon={PROVIDER_ICON[p.id]}
-                    size={15}
-                    strokeWidth={1.25}
-                  />
-                  <span>{p.label}</span>
-                  {!hasKey ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void openSettingsWindow("models");
-                      }}
-                      className="ml-auto cursor-pointer rounded-sm px-1 text-[9px] normal-case tracking-normal text-amber-600 underline-offset-2 hover:underline dark:text-amber-400"
-                    >
-                      Set key…
-                    </button>
-                  ) : null}
-                </div>
-                {sumopodNote ? (
-                  <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
-                    {sumopodNote}
-                  </div>
-                ) : null}
-                {filtered.map((m) => (
-                  <DropdownMenuItem
-                    key={m.id}
-                    disabled={!hasKey}
-                    onSelect={() => onPick(m.id, p.id)}
-                    className={cn(
-                      "flex flex-col items-start gap-0 text-xs",
-                      m.id === selected && "bg-accent/40",
-                    )}
-                  >
-                    <span className="font-medium">{m.label}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {m.hint}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </div>
+              <ModelSection
+                key={p.id}
+                sectionKey={p.id}
+                title={p.label}
+                providerIcon={PROVIDER_ICON[p.id]}
+                missingKey={!hasKey}
+                onSetKey={() => void openSettingsWindow("models")}
+                note={sumopodNote}
+                models={filtered.map((m) => ({
+                  model: m,
+                  provider: p,
+                  hasKey,
+                }))}
+                collapsed={collapsed.has(p.id)}
+                onToggle={() => toggleSection(p.id)}
+                query={query}
+                selectedId={selected}
+                pinnedIds={pinnedModelIds}
+                onPick={onPick}
+                onTogglePin={togglePin}
+              />
             );
           })}
           {query && totalMatches === 0 ? (
@@ -389,6 +442,165 @@ function ModelDropdown() {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+type ModelSectionRow = {
+  model: ModelInfo;
+  provider: ProviderInfo;
+  hasKey: boolean;
+};
+
+function ModelSection({
+  sectionKey,
+  title,
+  providerIcon,
+  missingKey,
+  onSetKey,
+  note,
+  models,
+  collapsed,
+  onToggle,
+  query,
+  selectedId,
+  pinnedIds,
+  onPick,
+  onTogglePin,
+}: {
+  sectionKey: string;
+  title: string;
+  providerIcon?: typeof ChatGptIcon;
+  missingKey?: boolean;
+  onSetKey?: () => void;
+  note?: string | null;
+  models: ModelSectionRow[];
+  collapsed: boolean;
+  onToggle: () => void;
+  query: string;
+  selectedId: string;
+  pinnedIds: string[];
+  onPick: (id: DynamicModelId, providerId: ProviderId) => void;
+  onTogglePin: (modelId: string) => void;
+}) {
+  // Active queries force-expand the section so search hits aren't hidden
+  // behind a collapsed header.
+  const showItems = !!query || !collapsed;
+  return (
+    <div className="px-1 pt-1.5 first:pt-1">
+      <div className="mb-0.5 flex items-center gap-1.5 px-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggle();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-expanded={showItems}
+          aria-controls={`section-${sectionKey}`}
+          className={cn(
+            "group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5",
+            "text-[9.5px] font-medium tracking-wide text-muted-foreground uppercase",
+            "hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            size={11}
+            strokeWidth={2}
+            className={cn(
+              "shrink-0 transition-transform duration-150",
+              showItems ? "rotate-0" : "-rotate-90",
+            )}
+          />
+          {providerIcon ? (
+            <HugeiconsIcon
+              icon={providerIcon}
+              size={14}
+              strokeWidth={1.25}
+              className="shrink-0"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={PinIcon}
+              size={12}
+              strokeWidth={1.75}
+              className="shrink-0 fill-foreground/70"
+            />
+          )}
+          <span className="truncate">{title}</span>
+          <span className="ml-auto text-[9px] tabular-nums text-muted-foreground/70 normal-case tracking-normal">
+            {models.length}
+          </span>
+        </button>
+        {missingKey && onSetKey ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSetKey();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="cursor-pointer rounded-sm px-1 text-[9px] normal-case tracking-normal text-amber-600 underline-offset-2 hover:underline dark:text-amber-400"
+          >
+            Set key…
+          </button>
+        ) : null}
+      </div>
+      {showItems && note ? (
+        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+          {note}
+        </div>
+      ) : null}
+      {showItems
+        ? models.map(({ model: m, provider: p, hasKey }) => {
+            const pinned = pinnedIds.includes(m.id);
+            return (
+              <DropdownMenuItem
+                key={`${sectionKey}-${m.id}`}
+                disabled={!hasKey}
+                onSelect={() => onPick(m.id, p.id)}
+                className={cn(
+                  "group flex items-center gap-2 text-xs",
+                  m.id === selectedId && "bg-accent/40",
+                )}
+              >
+                <div className="flex min-w-0 flex-1 flex-col items-start gap-0">
+                  <span className="truncate font-medium">{m.label}</span>
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    {m.hint}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onTogglePin(m.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  aria-label={pinned ? `Unpin ${m.label}` : `Pin ${m.label}`}
+                  title={pinned ? "Unpin from top" : "Pin to top"}
+                  className={cn(
+                    "shrink-0 cursor-pointer rounded p-1 transition-colors",
+                    pinned
+                      ? "text-foreground hover:bg-accent"
+                      : "text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus:opacity-100",
+                  )}
+                >
+                  <HugeiconsIcon
+                    icon={PinIcon}
+                    size={11}
+                    strokeWidth={pinned ? 2 : 1.5}
+                    className={cn(pinned && "fill-foreground")}
+                  />
+                </button>
+              </DropdownMenuItem>
+            );
+          })
+        : null}
+    </div>
   );
 }
 

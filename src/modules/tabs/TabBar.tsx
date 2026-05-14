@@ -14,7 +14,8 @@ import {
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
+import { leafIds, leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
+import { MAX_PANES_PER_TAB } from "./lib/useTabs";
 import {
   listConnections,
   onConnectionsChanged,
@@ -26,8 +27,10 @@ import {
   ComputerTerminal02Icon,
   GitCompareIcon,
   Globe02Icon,
+  Layers01Icon,
   PencilEdit02Icon,
   PlusSignIcon,
+  Rotate01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -192,6 +195,21 @@ type Props = {
    * `beforeTabId` of null means drop at end.
    */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
+  /**
+   * Move a leaf out of its current tab and graft it as a split into
+   * `targetTabId`. Drives the per-entry "Move to group" button (left of the
+   * close X). Caller enforces `MAX_PANES_PER_TAB` and surfaces a toast on
+   * full / editor-conflict / invalid.
+   */
+  onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
+  /**
+   * Flip the orientation (row ↔ col) of the split node that **directly**
+   * contains `leafId`. The icon only renders on entries that belong to a
+   * split group (single-pane tabs have nothing to rotate); clicks affect
+   * only that leaf's surrounding split, leaving any sibling splits in the
+   * tab untouched.
+   */
+  onRotateLeafSplit?: (leafId: number) => void;
   compact?: boolean;
 };
 
@@ -242,6 +260,8 @@ export function TabBar({
   onNewEditor,
   onPinLeaf,
   onReorderTabs,
+  onMoveLeafToGroup,
+  onRotateLeafSplit,
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -264,6 +284,33 @@ export function TabBar({
   }, []);
 
   const entries = useMemo(() => buildEntries(tabs, sshHosts), [tabs, sshHosts]);
+
+  /**
+   * Snapshot of every pane tab keyed by id, used by the per-entry "Move to
+   * group" button to enumerate possible targets and tell the user which ones
+   * are at the per-tab pane cap. Includes the full ones (rendered disabled)
+   * so the menu's contents stay stable - the user can still see what's
+   * there, just can't pick it.
+   */
+  const paneGroupsForMove = useMemo(
+    () =>
+      tabs.flatMap((t) =>
+        t.kind === "pane"
+          ? [
+              {
+                id: t.id,
+                title: t.title,
+                count: leafIds(t.paneTree).length,
+                full: leafIds(t.paneTree).length >= MAX_PANES_PER_TAB,
+                hasEditor: leaves(t.paneTree).some(
+                  (l) => l.leafKind === "editor",
+                ),
+              },
+            ]
+          : [],
+      ),
+    [tabs],
+  );
 
   // Group entries by their owning top-level tab. A tab with split panes
   // contributes multiple consecutive entries (one per leaf); a single-pane
@@ -349,6 +396,7 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
+      data-tauri-drag-region
       // Thin overlay scrollbar pinned to the bottom edge - visible on hover
       // when there are more tabs than fit. Using `overlay` (and the WebKit
       // height of 4px) means the scrollbar paints OVER the row instead of
@@ -357,7 +405,7 @@ export function TabBar({
       // via the listener above.
       className="group/tabscroll flex h-full min-w-0 shrink items-center overflow-x-auto overflow-y-hidden [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:var(--muted-foreground)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/80"
     >
-      <div className="flex w-max items-center gap-0.5">
+      <div data-tauri-drag-region className="flex w-max items-center gap-0.5">
         <Tabs
           value={activeKey ?? ""}
           onValueChange={(k) => {
@@ -394,6 +442,9 @@ export function TabBar({
                     onPinLeaf={onPinLeaf}
                     onCloseEntry={onCloseEntry}
                     sshHosts={sshHosts}
+                    onMoveLeafToGroup={onMoveLeafToGroup}
+                    onRotateLeafSplit={onRotateLeafSplit}
+                    paneGroupsForMove={paneGroupsForMove}
                   />
                 ))}
               </SortableContext>
@@ -473,6 +524,14 @@ export function TabBar({
   );
 }
 
+type PaneGroupForMove = {
+  id: number;
+  title: string;
+  count: number;
+  full: boolean;
+  hasEditor: boolean;
+};
+
 type SortableTabGroupProps = {
   tabId: number;
   /**
@@ -493,6 +552,17 @@ type SortableTabGroupProps = {
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   /** Resolves a leaf's SSH connection id to its host metadata for tooltip. */
   sshHosts: Map<string, SshConnection>;
+  /**
+   * Move-to-group support. When `onMoveLeafToGroup` is provided AND there's
+   * another pane tab to move into, each pane-leaf entry renders a small
+   * layers icon next to its close X. `paneGroupsForMove` lists every pane
+   * tab (including this one - the renderer filters out self).
+   */
+  onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
+  /** Flip the orientation of the split that directly contains the entry's
+   *  leaf (row ↔ col). Shown only on entries inside a split group. */
+  onRotateLeafSplit?: (leafId: number) => void;
+  paneGroupsForMove: PaneGroupForMove[];
 };
 
 /**
@@ -511,6 +581,9 @@ function SortableTabGroup({
   onPinLeaf,
   onCloseEntry,
   sshHosts,
+  onMoveLeafToGroup,
+  onRotateLeafSplit,
+  paneGroupsForMove,
 }: SortableTabGroupProps) {
   const {
     attributes,
@@ -582,12 +655,13 @@ function SortableTabGroup({
             {...(idx === 0 ? listeners : {})}
             className={cn(
               // VSCode-style active state: tab adopts the editor background
-              // (--background) and gets a 2px primary-colored top border so the
-              // focused tab visually "lifts" out of the strip. Inactive tabs sit
-              // on the slightly darker --muted surface for clear contrast.
-              "group relative h-full shrink-0 gap-1.5 bg-muted/60 text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-foreground/80 justify-between",
-              "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-medium",
-              "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
+              // (--background), turns semibold, and gets a 2.5px primary-colored
+              // top border so the focused tab visually "lifts" out of the strip.
+              // Inactive tabs sit on a dimmer --muted/30 surface (was /60) so
+              // the active/inactive contrast is unmistakable at a glance.
+              "group relative h-full shrink-0 gap-1.5 bg-muted/30 text-xs text-muted-foreground/80 transition-[background-color,color] duration-150 hover:bg-muted/60 hover:text-foreground/80 justify-between",
+              "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold",
+              "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-[2.5px] data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
               // Inside a split cluster, entries are flat (no rounded corners,
               // no own bg); outside, they keep the original pill look.
               isSplit ? "rounded-none" : "rounded-md",
@@ -618,23 +692,77 @@ function SortableTabGroup({
                 />
               ) : null}
             </span>
-            {canClose && (
-              <span
-                role="button"
-                aria-label="Close"
-                onPointerDown={(ev) => ev.stopPropagation()}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  onCloseEntry(
-                    e.tabId,
-                    e.kind === "pane-leaf" ? e.leafId : null,
-                  );
-                }}
-                className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
-              </span>
-            )}
+            {/* Trailing icons cluster: move-to-group, rotate-split, close.
+                `ms-1.5` adds the little breathing room between the tab title
+                and these controls so they don't visually crowd the label. */}
+            <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
+              {e.kind === "pane-leaf" &&
+                onMoveLeafToGroup &&
+                paneGroupsForMove.some((g) => g.id !== e.tabId) && (
+                  <MoveLeafToGroupButton
+                    leafId={e.leafId}
+                    isEditorLeaf={e.leafKind === "editor"}
+                    ownerTabId={e.tabId}
+                    groups={paneGroupsForMove}
+                    onMove={onMoveLeafToGroup}
+                  />
+                )}
+              {/* Rotate orientation is exposed on EVERY entry inside a
+                  split group, but each click only flips the split that
+                  THIS leaf directly sits in - sibling splits stay as they
+                  were. Single-pane tabs hide the icon. */}
+              {isSplit && onRotateLeafSplit && e.kind === "pane-leaf" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      role="button"
+                      aria-label="Toggle Split Orientation"
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onRotateLeafSplit(e.leafId);
+                      }}
+                      className="cursor-pointer rounded p-0.5 text-current opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
+                    >
+                      <HugeiconsIcon
+                        icon={Rotate01Icon}
+                        size={11}
+                        strokeWidth={2}
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Toggle Split Orientation
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {canClose && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      role="button"
+                      aria-label="Close"
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onCloseEntry(
+                          e.tabId,
+                          e.kind === "pane-leaf" ? e.leafId : null,
+                        );
+                      }}
+                      className="cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
+                    >
+                      <HugeiconsIcon
+                        icon={Cancel01Icon}
+                        size={11}
+                        strokeWidth={2}
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Close</TooltipContent>
+                </Tooltip>
+              )}
+            </span>
           </TabsTrigger>
         );
 
@@ -649,6 +777,80 @@ function SortableTabGroup({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Small layers-icon button on each pane-leaf entry, sitting just to the
+ * left of the close X. Clicking opens a dropdown of every other pane tab,
+ * picking one moves THIS leaf into the chosen tab as a horizontal split.
+ *
+ * Tabs that are at the per-tab pane cap, or that already hold an editor
+ * leaf when this leaf is an editor too, render disabled so the user sees
+ * why they're unpickable (and the toast still fires through the parent's
+ * `onMove` callback if a stale "ok" target turns into "full" between
+ * render and click).
+ */
+function MoveLeafToGroupButton({
+  leafId,
+  isEditorLeaf,
+  ownerTabId,
+  groups,
+  onMove,
+}: {
+  leafId: number;
+  isEditorLeaf: boolean;
+  ownerTabId: number;
+  groups: PaneGroupForMove[];
+  onMove: (leafId: number, targetTabId: number) => void;
+}) {
+  const others = groups.filter((g) => g.id !== ownerTabId);
+  if (others.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            aria-label="Move To Group"
+            // Stop propagation so the TabsTrigger and dnd-kit don't treat the
+            // click as a tab activation / drag start, respectively. Mirrors
+            // the close-X button's pattern just below.
+            onPointerDown={(ev) => ev.stopPropagation()}
+            onClick={(ev) => ev.stopPropagation()}
+            className="cursor-pointer rounded p-0.5 text-current opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60 data-[state=open]:bg-accent data-[state=open]:opacity-100"
+          >
+            <HugeiconsIcon icon={Layers01Icon} size={11} strokeWidth={2} />
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Move To Group</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="min-w-48">
+        {others.map((g) => {
+          const blocked = g.full || (isEditorLeaf && g.hasEditor);
+          return (
+            <DropdownMenuItem
+              key={g.id}
+              disabled={blocked}
+              onSelect={() => onMove(leafId, g.id)}
+            >
+              <HugeiconsIcon
+                icon={Layers01Icon}
+                size={13}
+                strokeWidth={1.75}
+              />
+              <span className="flex-1 truncate">{g.title}</span>
+              <span className="text-xs text-muted-foreground">
+                {g.full
+                  ? "Full"
+                  : isEditorLeaf && g.hasEditor
+                    ? "Editor"
+                    : `${g.count}/${MAX_PANES_PER_TAB}`}
+              </span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -5,6 +5,7 @@ import {
   CloudServerIcon,
   ComputerIcon,
   FlashIcon,
+  GlobalIcon,
   GoogleGeminiIcon,
   Grok02Icon,
   CpuIcon,
@@ -21,6 +22,7 @@ const ICON_BY_PROVIDER = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   sumopod: CloudServerIcon,
+  "openai-compatible": GlobalIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 

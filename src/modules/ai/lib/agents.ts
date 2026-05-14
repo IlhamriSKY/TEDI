@@ -82,12 +82,16 @@ export const BUILTIN_AGENTS: readonly Agent[] = [
 const STORE_PATH = "tedi-agents.json";
 const KEY_CUSTOM = "customAgents";
 const KEY_ACTIVE = "activeAgentId";
+const KEY_BUILTIN_OVERRIDES = "builtinAgentOverrides";
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+
+export type BuiltinOverrides = Record<string, Agent>;
 
 export type LoadedAgents = {
   custom: Agent[];
   activeId: string;
+  builtinOverrides: BuiltinOverrides;
 };
 
 export async function loadAgents(): Promise<LoadedAgents> {
@@ -95,11 +99,18 @@ export async function loadAgents(): Promise<LoadedAgents> {
   const entries = await store.entries();
   let custom: Agent[] | undefined;
   let activeId: string | undefined;
+  let builtinOverrides: BuiltinOverrides | undefined;
   for (const [k, v] of entries) {
     if (k === KEY_CUSTOM) custom = v as Agent[];
     else if (k === KEY_ACTIVE) activeId = v as string;
+    else if (k === KEY_BUILTIN_OVERRIDES)
+      builtinOverrides = v as BuiltinOverrides;
   }
-  return { custom: custom ?? [], activeId: activeId ?? BUILTIN_AGENTS[0].id };
+  return {
+    custom: custom ?? [],
+    activeId: activeId ?? BUILTIN_AGENTS[0].id,
+    builtinOverrides: builtinOverrides ?? {},
+  };
 }
 
 export async function saveCustomAgents(custom: Agent[]): Promise<void> {
@@ -112,8 +123,22 @@ export async function saveActiveAgentId(id: string): Promise<void> {
   await store.save();
 }
 
+export async function saveBuiltinOverrides(
+  overrides: BuiltinOverrides,
+): Promise<void> {
+  await store.set(KEY_BUILTIN_OVERRIDES, overrides);
+  await store.save();
+}
+
 export function newAgentId(): string {
   return `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Built-in agents with any user overrides applied. */
+export function effectiveBuiltins(overrides: BuiltinOverrides): Agent[] {
+  return BUILTIN_AGENTS.map((a) =>
+    overrides[a.id] ? { ...overrides[a.id], builtIn: true } : a,
+  );
 }
 
 export function findAgent(

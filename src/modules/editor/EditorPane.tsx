@@ -8,14 +8,16 @@ import { keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
-import { EDITOR_THEME_EXT } from "./lib/themes";
+import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
+import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
 import {
@@ -104,7 +106,27 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         unsubPrefs();
       };
     }, []);
-    const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
+    // Themes are dynamically imported (~10–25 KB each). Show the cached
+     // extension immediately if loaded; otherwise unstyled until ready.
+    const [themeExt, setThemeExt] = useState<Extension | null>(() =>
+      tryEditorTheme(editorThemeId),
+    );
+    useEffect(() => {
+      let cancelled = false;
+      const cached = tryEditorTheme(editorThemeId);
+      if (cached) {
+        setThemeExt(cached);
+        return () => {
+          cancelled = true;
+        };
+      }
+      void loadEditorTheme(editorThemeId).then((ext) => {
+        if (!cancelled) setThemeExt(ext);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [editorThemeId]);
 
     // Stabilize save + onSaved via refs so the extensions array never changes
     // identity - a new identity makes @uiw/react-codemirror reconfigure the
@@ -308,7 +330,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
             ref={cmRef}
             value={doc.content}
             onChange={onChange}
-            theme={themeExt}
+            theme={themeExt ?? undefined}
             extensions={extensions}
             height="100%"
             className="flex-1 min-h-0 overflow-hidden"

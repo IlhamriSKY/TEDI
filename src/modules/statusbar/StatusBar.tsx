@@ -5,6 +5,7 @@ import { useChatStore } from "@/modules/ai";
 import { UpdaterPill } from "@/modules/updater";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 
 type Props = {
@@ -35,7 +36,8 @@ export function StatusBar({
 
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
-      <div className="min-w-0 flex-1 truncate">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+        <OsBadge />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
@@ -70,6 +72,22 @@ export function StatusBar({
         ) : null}
       </div>
     </footer>
+  );
+}
+
+function OsBadge() {
+  const label = IS_WINDOWS
+    ? "Windows"
+    : IS_MAC
+      ? "macOS"
+      : IS_LINUX
+        ? "Linux"
+        : null;
+  if (!label) return null;
+  return (
+    <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border bg-muted/40 px-2 text-[11px] font-medium text-muted-foreground">
+      {label}
+    </span>
   );
 }
 

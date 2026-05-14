@@ -4,6 +4,56 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.5] - 2026-05-14
+
+### Added
+- **OpenAI-Compatible provider** for any third-party endpoint that speaks the OpenAI API (custom base URL + API key, `/models` auto-detect, "Test endpoint" ping in Settings -> Models). The new provider shows up in the chat dropdown and autocomplete alongside the built-ins.
+- **Built-in agent overrides:** the four built-in agents are now editable. Edits are saved as overrides (badged "Edited") and a Reset button restores the default - no fork required.
+- **Pinned models** in the chat dropdown: pin any model to a top "Pinned" section across providers; persisted as `pinnedModelIds`.
+- **Collapsible provider groups** in the model dropdown with model counts; collapsed sections auto-expand while a search query is active.
+- **Open-file suggestion chips** above the AI input bar: every editor leaf shows up as a one-click "attach" chip (dashed border) and disappears once attached.
+- **Shell-style history navigation** in the AI input: ArrowUp/ArrowDown cycle through previously sent user messages with full chip recall (files, selections, snippet handles); Esc restores the draft.
+- **"Move to group" tab action:** per-leaf dropdown grafts a tab into another tab as a split, preserving the live PTY/editor session. Toasts when the target is full or already has an editor.
+- **"Toggle Split Orientation" tab action:** rotates only the split that directly contains the clicked leaf (row <-> col), leaving sibling splits alone; a `normalizePaneTree` helper canonicalises the tree so successive toggles round-trip cleanly.
+- **User-message attachment chips in chat history:** sent files, terminal/editor selections (with line counts), and snippet handles re-render as chips with proper file icons.
+- **Linux manual updater flow:** the Updater Pill and About section list the latest GitHub release with copy-ready install commands for Arch (`yay -S terax-bin`), Debian/Ubuntu (`apt install ./TEDI_*.deb`), and Fedora/RHEL (`dnf install ./TEDI-*.rpm`), plus a "Download package" button.
+- **Subfolder breadcrumb dropdowns:** clicking the chevron next to any breadcrumb segment lists its immediate subdirectories via the Tauri `list_subdirs` invoke; picking one cds in-place.
+- **OS badge** in the status bar (Windows / macOS / Linux) anchoring the breadcrumb row.
+- **Toast system** (`Toaster` + `toast()`) with default / warning / error variants, anchored top-right above panes and dialogs.
+- **Shift-Enter in terminal** now sends the meta `ESC + \r` sequence so shells that support multi-line entry (Claude Code, Codex, fish) get a real newline instead of a submit.
+- **Git status auto-refresh:** Source Control polls every 2.5s while the window is visible/focused, pausing on blur, with in-flight de-duping.
+- **TEDI.md project memory:** the transport reads `TEDI.md` at the workspace root (capped at 32 KB, 30s cache) and appends it verbatim to the system prompt.
+
+### Changed
+- **Chat code-block renderer rewritten** from Shiki (~600-line `code-block.tsx`) to a Lezer + CodeMirror-stream-modes pipeline (`chat-code.tsx` + `chat-code-lezer.ts` + `code-highlight.css`). Lezer parsers cover JS/TS/JSX/TSX/Rust/Go/Python/JSON/HTML/CSS/Markdown/PHP; legacy stream modes handle C/C++/Java/C#/Kotlin/Scala/ObjC/Dart/YAML/TOML/Ruby/Swift/Lua/Haskell/Perl/R/Dockerfile/nginx/diff. Each grammar is lazy-imported; tokens are themed via `tok-*` CSS variables with full light/dark splits.
+- **Shell code blocks** now render as a "command card" with a `$`/`PS>`/`>` prompt prefix and a "Run in active terminal" button that injects the command into the active PTY via `injectIntoActivePty`.
+- **Streaming code blocks** show a "Generating ${lang}..." shimmer placeholder instead of partial syntax - quiet UI while the model is mid-fence.
+- **AI agent pipeline rewritten** around `streamText` + `convertToModelMessages`, replacing the `Experimental_Agent` + `DirectChatTransport` wrapper. The system prompt is now byte-stable across turns (no dynamic context inside it), unlocking prompt caching on every provider; Anthropic gets an explicit `cacheControl: ephemeral` breakpoint on the system message.
+- **Two-stage context compaction** (`compactModelMessagesDetailed`): at 55% of the model context limit, superseded `read_file` results are elided; at 70%, older `tool-result` blocks are elided oldest-first (keeping the last 24 messages intact) until usage drops back below 60%.
+- **Auto-injected terminal scrollback is gone.** The per-turn context block shrunk from `<terminal-context>` (workspace + cwd + 300 lines of scrollback) to a compact `<env>` block (workspace + cwd + active file). Legacy `<terminal-context>` is still stripped from rendered history.
+- **System prompt rewritten** in a "do, don't narrate" tone with explicit sections for tool budget, editing, path resolution, shell, dev-server reuse, approval, and style; ~40 lines shorter and noticeably more directive.
+- **CodeMirror themes lazy-loaded** per `editor-theme-*` package (~100 KB shaved from the eager editor bundle) with a memo cache shared across `EditorPane`, `AiDiffPane`, and `GitDiffPane`.
+- **Vite chunking:** CodeMirror language grammars, legacy stream modes, and `@uiw/codemirror-theme-*` packages are auto-split for lazy loading instead of being lumped into the eager `codemirror` chunk.
+- **Status-bar breadcrumb click** changes the workspace root (persisted in `localStorage` as `tedi.workspaceRoot`), optimistically updates the leaf cwd, and only cds the active terminal as a secondary effect - explorer, AI context, and new tabs all follow.
+- **Tab strip restyled:** inactive tabs sit on a dimmer `--muted/30` surface, active tabs are semibold with a 2.5px primary top accent, and trailing icons (move-to-group, rotate-split, close) cluster with tooltips.
+- **Header window-drag:** explicit `startDragging()` mousedown fallback works around WebView2 flakiness with the auto-detection in regions nested inside Radix + dnd-kit. Double-click toggles maximise.
+- **AI input file chips** swap the file-extension pill for `fileIconUrl` icons (matches the explorer/message history); editor selections show line counts.
+- **Agents grid + provider grid** in Settings are always 2 columns now (no breakpoint), reflowing more predictably in the settings window.
+- **`openai-compatible`** keyring slot and `openaiCompatibleBaseURL` preference key added; default base URL is `https://api.openai.com/v1`.
+- **Inline `code` block deduped:** the markdown-component override delegates fenced blocks to `ChatCodeBlock` and keeps inline code as the existing pill.
+
+### Removed
+- `src/components/ai-elements/code-block.tsx` (622 lines) - replaced by `chat-code.tsx` + `chat-code-lezer.ts`.
+- `shiki` and the `pnpm.overrides.shiki` pin from `package.json`; `@streamdown/math` was dropped (math rendering removed from chat output).
+- `streamdownPlugins` (math plugin) registration in `MessageResponse`.
+- Auto-injected `recent_terminal_output` block on every turn (the agent now asks the user to paste output when it needs it).
+
+### Fixed
+- `tool.tsx` no longer feeds tool input/output through the heavy code-block path - JSON is rendered as plain monospace, sidestepping a stale Shiki dependency and shaving a parser hop per tool call.
+- `usePreferences` subscriptions for AgentsSection now react to either `builtinOverrides` or `customAgents` changing (was deriving from a single snapshot, missed cross-tab updates).
+- `BlockChrome`/`CommandCard` `Run` button only fires when an active PTY is present; resets to "Run" after 1.5s instead of staying stuck on "Sent".
+- Header drag region no longer eats clicks on buttons/tabs/menu items thanks to the explicit `INTERACTIVE_SELECTOR` guard.
+
 ## [0.1.4] - 2026-05-13
 
 ### Fixed

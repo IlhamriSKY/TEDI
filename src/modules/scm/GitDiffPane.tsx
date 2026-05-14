@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MergeView } from "@codemirror/merge";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
-import { EDITOR_THEME_EXT } from "@/modules/editor/lib/themes";
+import {
+  loadEditorTheme,
+  tryEditorTheme,
+} from "@/modules/editor/lib/themes";
 import type { GitChangeStatusTab } from "@/modules/tabs";
 import { gitFileHead } from "./api";
+
 
 type Props = {
   path: string;
@@ -36,22 +40,9 @@ async function readFileText(path: string): Promise<string> {
   }
 }
 
-// Side-by-side merge view needs to scroll inside its host; the default
-// MergeView root has no height. Force it to fill its parent.
-const MERGE_HOST = EditorView.theme({
-  "&.cm-mergeView, & .cm-mergeView": {
-    height: "100%",
-  },
-  ".cm-mergeViewEditors": {
-    height: "100%",
-  },
-  ".cm-editor": {
-    height: "100%",
-  },
-  ".cm-scroller": {
-    overflow: "auto",
-  },
-});
+// MergeView height/scroll wiring lives in `globals.css` (.cm-mergeView rule):
+// EditorView.theme selectors are scoped to .cm-editor and can't reach the
+// outer .cm-mergeView wrapper, so it has to be a plain stylesheet rule.
 
 export function GitDiffPane({
   path,
@@ -66,7 +57,25 @@ export function GitDiffPane({
   const langB = useRef(new Compartment()).current;
 
   const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
+  const [themeExt, setThemeExt] = useState<Extension | null>(() =>
+    tryEditorTheme(editorThemeId),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const cached = tryEditorTheme(editorThemeId);
+    if (cached) {
+      setThemeExt(cached);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void loadEditorTheme(editorThemeId).then((ext) => {
+      if (!cancelled) setThemeExt(ext);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editorThemeId]);
 
   const [content, setContent] = useState<{
     orig: string;
@@ -123,8 +132,7 @@ export function GitDiffPane({
         extensions: [
           ...shared,
           lineNumbers(),
-          themeExt,
-          MERGE_HOST,
+          themeExt ?? [],
           langA.of([]),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
@@ -135,8 +143,7 @@ export function GitDiffPane({
         extensions: [
           ...shared,
           lineNumbers(),
-          themeExt,
-          MERGE_HOST,
+          themeExt ?? [],
           langB.of([]),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),

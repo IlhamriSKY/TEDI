@@ -8,10 +8,11 @@ import { EditorView } from "@codemirror/view";
 import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Extension } from "@codemirror/state";
 import { buildSharedExtensions, languageCompartment } from "./lib/extensions";
 import { resolveLanguage } from "./lib/languageResolver";
-import { EDITOR_THEME_EXT } from "./lib/themes";
+import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
 
 type Props = {
   path: string;
@@ -90,7 +91,25 @@ export function AiDiffPane({
 }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
+  const [themeExt, setThemeExt] = useState<Extension | null>(() =>
+    tryEditorTheme(editorThemeId),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const cached = tryEditorTheme(editorThemeId);
+    if (cached) {
+      setThemeExt(cached);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void loadEditorTheme(editorThemeId).then((ext) => {
+      if (!cancelled) setThemeExt(ext);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editorThemeId]);
 
   // The merge extension diffs the current document against `original`.
   // We bake originalContent into the extension once on mount; if the AI
@@ -193,7 +212,7 @@ export function AiDiffPane({
         <CodeMirror
           ref={cmRef}
           value={proposedContent}
-          theme={themeExt}
+          theme={themeExt ?? undefined}
           extensions={extensions}
           editable={false}
           height="100%"

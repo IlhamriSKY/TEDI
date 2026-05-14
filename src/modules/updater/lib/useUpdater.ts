@@ -1,6 +1,18 @@
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { IS_LINUX } from "@/lib/platform";
+import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+export const GITHUB_REPO = "IlhamriSKY/TEDI";
+export const GITHUB_LATEST_RELEASE = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+
+export interface ManualUpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  releaseUrl: string;
+}
 
 export type UpdaterState =
   | { kind: "idle" }
@@ -13,6 +25,13 @@ export type UpdaterState =
       date: string | null;
     }
   | {
+      kind: "manual-available";
+      version: string;
+      currentVersion: string;
+      notes: string | null;
+      releaseUrl: string;
+    }
+  | {
       kind: "downloading";
       version: string;
       received: number;
@@ -22,6 +41,54 @@ export type UpdaterState =
   | { kind: "error"; message: string };
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+function parseVersion(v: string): number[] {
+  return v
+    .replace(/^v/, "")
+    .split("-")[0]
+    .split(".")
+    .map((p) => Number.parseInt(p, 10) || 0);
+}
+
+export function isNewerVersion(remote: string, current: string): boolean {
+  const a = parseVersion(remote);
+  const b = parseVersion(current);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+/** Linux uses a manual update flow: bundler can't apply deb/rpm in-place, so
+ *  we surface the latest GitHub release and let the user install via their
+ *  package manager. Returns null when already on the latest version. */
+export async function fetchLinuxRelease(): Promise<ManualUpdateInfo | null> {
+  const [current, res] = await Promise.all([
+    getVersion(),
+    fetch(GITHUB_LATEST_RELEASE, {
+      headers: { Accept: "application/vnd.github+json" },
+    }),
+  ]);
+  if (!res.ok) {
+    throw new Error(`GitHub API ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    tag_name: string;
+    body?: string;
+    html_url: string;
+  };
+  const remote = data.tag_name.replace(/^v/, "");
+  if (!isNewerVersion(remote, current)) return null;
+  return {
+    version: remote,
+    currentVersion: current,
+    notes: data.body ?? null,
+    releaseUrl: data.html_url,
+  };
+}
 
 export function useUpdater() {
   const [state, setState] = useState<UpdaterState>({ kind: "idle" });
@@ -35,6 +102,22 @@ export function useUpdater() {
   const checkForUpdate = useCallback(async (): Promise<boolean> => {
     setState({ kind: "checking" });
     try {
+      if (IS_LINUX) {
+        const info = await fetchLinuxRelease();
+        if (!info) {
+          setState({ kind: "idle" });
+          return false;
+        }
+        updateRef.current = null;
+        setState({
+          kind: "manual-available",
+          version: info.version,
+          currentVersion: info.currentVersion,
+          notes: info.notes,
+          releaseUrl: info.releaseUrl,
+        });
+        return true;
+      }
       const update = await check();
       if (!update) {
         setState({ kind: "idle" });

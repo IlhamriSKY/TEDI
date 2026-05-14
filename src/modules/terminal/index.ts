@@ -5,6 +5,7 @@ export {
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
+export { useTerminalFileDrop } from "./lib/useTerminalFileDrop";
 export {
   hasLeaf,
   leafIds,

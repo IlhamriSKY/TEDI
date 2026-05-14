@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { IS_LINUX } from "@/lib/platform";
+import { fetchLinuxRelease } from "@/modules/updater/lib/useUpdater";
 import { GithubIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getName, getVersion } from "@tauri-apps/api/app";
@@ -26,6 +28,7 @@ type CheckState =
   | { kind: "checking" }
   | { kind: "uptodate"; checkedAt: number }
   | { kind: "available"; version: string }
+  | { kind: "manual-available"; version: string; releaseUrl: string }
   | { kind: "error"; message: string };
 
 export function AboutSection() {
@@ -150,6 +153,19 @@ export function AboutSection() {
 async function runCheck(set: (s: CheckState) => void) {
   set({ kind: "checking" });
   try {
+    if (IS_LINUX) {
+      const info = await fetchLinuxRelease();
+      if (info) {
+        set({
+          kind: "manual-available",
+          version: info.version,
+          releaseUrl: info.releaseUrl,
+        });
+      } else {
+        set({ kind: "uptodate", checkedAt: Date.now() });
+      }
+      return;
+    }
     const update = await check();
     if (update) {
       set({ kind: "available", version: update.version });
@@ -167,6 +183,8 @@ function updaterMessage(state: CheckState): string {
       return "Checking for updates…";
     case "available":
       return `v${state.version} is available - see the status bar to install.`;
+    case "manual-available":
+      return `v${state.version} is available - install manually via your package manager (see the status bar).`;
     case "uptodate":
       return "You're on the latest version. Auto-update checks every 6 hours.";
     case "error":

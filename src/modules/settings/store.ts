@@ -4,6 +4,7 @@ import {
   DEFAULT_AUTOCOMPLETE_MODEL,
   DEFAULT_MODEL_ID,
   LMSTUDIO_DEFAULT_BASE_URL,
+  OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   type AutocompleteProviderId,
   type DynamicModelId,
 } from "@/modules/ai/config";
@@ -48,11 +49,15 @@ export type Preferences = {
   autocompleteProvider: AutocompleteProviderId;
   autocompleteModelId: string;
   lmstudioBaseURL: string;
+  openaiCompatibleBaseURL: string;
   vimMode: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   showHiddenFiles: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
+  /** Model ids pinned by the user; surfaced as a "Pinned" group at the top
+   *  of the AI model dropdown. Ordered by pin time (newest first). */
+  pinnedModelIds: string[];
 };
 
 const STORE_PATH = "tedi-settings.json";
@@ -66,11 +71,13 @@ const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
 const KEY_AUTOCOMPLETE_PROVIDER = "autocompleteProvider";
 const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
 const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
+const KEY_OPENAI_COMPATIBLE_BASE_URL = "openaiCompatibleBaseURL";
 const KEY_VIM_MODE = "vimMode";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHORTCUTS = "shortcuts";
+const KEY_PINNED_MODELS = "pinnedModelIds";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -91,11 +98,13 @@ export const DEFAULT_PREFERENCES: Preferences = {
   autocompleteProvider: "cerebras",
   autocompleteModelId: DEFAULT_AUTOCOMPLETE_MODEL.cerebras,
   lmstudioBaseURL: LMSTUDIO_DEFAULT_BASE_URL,
+  openaiCompatibleBaseURL: OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   vimMode: false,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   showHiddenFiles: false,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
+  pinnedModelIds: [],
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -142,6 +151,9 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.autocompleteModelId,
     lmstudioBaseURL:
       get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
+    openaiCompatibleBaseURL:
+      get<string>(KEY_OPENAI_COMPATIBLE_BASE_URL) ??
+      DEFAULT_PREFERENCES.openaiCompatibleBaseURL,
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
@@ -155,6 +167,8 @@ export async function loadPreferences(): Promise<Preferences> {
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
+    pinnedModelIds:
+      get<string[]>(KEY_PINNED_MODELS) ?? DEFAULT_PREFERENCES.pinnedModelIds,
   };
 }
 
@@ -200,6 +214,12 @@ export async function setLmstudioBaseURL(value: string): Promise<void> {
   await writePref(KEY_LMSTUDIO_BASE_URL, value);
 }
 
+export async function setOpenAICompatibleBaseURL(
+  value: string,
+): Promise<void> {
+  await writePref(KEY_OPENAI_COMPATIBLE_BASE_URL, value);
+}
+
 export async function setVimMode(value: boolean): Promise<void> {
   await writePref(KEY_VIM_MODE, value);
 }
@@ -232,6 +252,10 @@ export async function resetShortcuts(): Promise<void> {
   await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
 }
 
+export async function setPinnedModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_PINNED_MODELS, value);
+}
+
 export type PrefKey = keyof Preferences;
 
 /** Subscribe to changes from any window (settings → main). */
@@ -249,11 +273,13 @@ export async function onPreferencesChange(
     [KEY_AUTOCOMPLETE_PROVIDER]: "autocompleteProvider",
     [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
     [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
+    [KEY_OPENAI_COMPATIBLE_BASE_URL]: "openaiCompatibleBaseURL",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
     [KEY_SHORTCUTS]: "shortcuts",
+    [KEY_PINNED_MODELS]: "pinnedModelIds",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

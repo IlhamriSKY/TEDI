@@ -8,16 +8,19 @@ import {
   CodeIcon,
   HashtagIcon,
   Key01Icon,
+  PlusSignIcon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UIMessage } from "@ai-sdk/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { useComposer, type FileAttachment } from "../lib/composer";
+import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
-import { useChatStore } from "../store/chatStore";
+import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { ContextIndicator } from "./AiMiniWindow";
@@ -52,9 +55,59 @@ function detectSnippetTrigger(
 export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
   const snippets = useSnippetsStore((s) => s.snippets);
+  const openEditorFiles = useChatStore((s) => s.openEditorFiles);
+
+  const attachedPaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of c.files) {
+      if (f.id.startsWith("path-")) set.add(f.id.slice("path-".length));
+    }
+    return set;
+  }, [c.files]);
+
+  const unattachedOpenFiles = useMemo(
+    () => openEditorFiles.filter((f) => !attachedPaths.has(f.path)),
+    [openEditorFiles, attachedPaths],
+  );
 
   const [trigger, setTrigger] = useState<SnippetTrigger | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  // Shell-style ArrowUp/Down navigation through previously sent user messages.
+  // `histIndex` is the position in `history` (0 = most recent, increasing =
+  // older). `null` means we're not navigating - typing or sending exits the
+  // mode and the user's draft is restored when stepping past the newest entry.
+  const history = useMemo<RecalledMessage[]>(() => {
+    if (!messages) return [];
+    const out: RecalledMessage[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "user") continue;
+      const rec = recallUserMessage(m);
+      if (
+        !rec.body &&
+        rec.files.length === 0 &&
+        rec.selections.length === 0 &&
+        rec.snippetHandles.length === 0
+      )
+        continue;
+      out.push(rec);
+    }
+    return out;
+  }, [messages]);
+  const allSnippets = useSnippetsStore((s) => s.snippets);
+  const [histIndex, setHistIndex] = useState<number | null>(null);
+  const draftRef = useRef<{
+    value: string;
+    files: FileAttachment[];
+    snippets: Snippet[];
+  }>({ value: "", files: [], snippets: [] });
+  const messageCount = messages?.length ?? 0;
+  useEffect(() => {
+    // A new message just landed (or the conversation was reset): forget the
+    // current nav cursor so the next ArrowUp starts fresh from the newest.
+    setHistIndex(null);
+  }, [messageCount]);
 
   useEffect(() => {
     autoresize(c.textareaRef.current);
@@ -123,6 +176,100 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     });
   };
 
+  const caretOnFirstLine = (): boolean => {
+    const el = c.textareaRef.current;
+    if (!el) return true;
+    const before = c.value.slice(0, el.selectionStart ?? 0);
+    return !before.includes("\n");
+  };
+  const caretOnLastLine = (): boolean => {
+    const el = c.textareaRef.current;
+    if (!el) return true;
+    const after = c.value.slice(el.selectionEnd ?? 0);
+    return !after.includes("\n");
+  };
+
+  /** Apply a history entry to the composer (textarea + chips), or restore
+   *  the draft snapshot when `entry === null`. Attachments are rebuilt from
+   *  the recalled `<file>`/`<selection>` content so chips reappear; snippet
+   *  handles are looked up in the snippets store. */
+  const applyEntry = (entry: RecalledMessage | null) => {
+    if (entry === null) {
+      const d = draftRef.current;
+      c.setValue(d.value);
+      c.setAttachments(d.files);
+      c.setPickedSnippets(d.snippets);
+    } else {
+      c.setValue(entry.body);
+      const fileAtts: FileAttachment[] = entry.files.map((f, i) => ({
+        id: `recall-file-${i}-${f.name}`,
+        name: f.name,
+        kind: "text",
+        mediaType: f.mediaType,
+        text: f.content,
+        size: f.content.length,
+      }));
+      const selAtts: FileAttachment[] = entry.selections.map((s, i) => ({
+        id: `recall-sel-${i}`,
+        name:
+          s.source === "editor" ? "Editor selection" : "Terminal selection",
+        kind: "selection",
+        mediaType: "text/plain",
+        text: s.text,
+        size: s.text.length,
+        source: s.source,
+      }));
+      c.setAttachments([...fileAtts, ...selAtts]);
+      const byHandle = new Map(allSnippets.map((s) => [s.handle, s]));
+      const recalledSnips: Snippet[] = [];
+      for (const h of entry.snippetHandles) {
+        const s = byHandle.get(h);
+        if (s) recalledSnips.push(s);
+      }
+      c.setPickedSnippets(recalledSnips);
+    }
+    requestAnimationFrame(() => {
+      const el = c.textareaRef.current;
+      if (!el) return;
+      const end = el.value.length;
+      el.focus();
+      el.setSelectionRange(end, end);
+    });
+  };
+
+  /** Returns true if the key was consumed. */
+  const navHistory = (dir: "older" | "newer"): boolean => {
+    if (history.length === 0) return false;
+    if (histIndex === null) {
+      if (dir !== "older") return false;
+      draftRef.current = {
+        value: c.value,
+        files: c.files,
+        snippets: c.pickedSnippets,
+      };
+      setHistIndex(0);
+      applyEntry(history[0]);
+      return true;
+    }
+    if (dir === "older") {
+      const next = Math.min(histIndex + 1, history.length - 1);
+      if (next === histIndex) return true; // already at oldest, swallow key
+      setHistIndex(next);
+      applyEntry(history[next]);
+      return true;
+    }
+    // newer
+    if (histIndex === 0) {
+      setHistIndex(null);
+      applyEntry(null);
+      return true;
+    }
+    const next = histIndex - 1;
+    setHistIndex(next);
+    applyEntry(history[next]);
+    return true;
+  };
+
   const pickActive = () => {
     const it = filteredItems[activeIndex];
     if (it) onPickItem(it);
@@ -142,6 +289,11 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           "transition-colors focus-within:border-foreground/25 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-foreground/10",
         )}
       >
+        <OpenFilesRow
+          files={unattachedOpenFiles}
+          onAttach={(path) => void c.attachFileByPath(path)}
+        />
+
         <ChipsRow
           files={c.files}
           onRemoveFile={c.removeFile}
@@ -163,7 +315,18 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
               <textarea
                 ref={c.textareaRef}
                 value={c.value}
-                onChange={(e) => c.setValue(e.target.value)}
+                onChange={(e) => {
+                  // Any edit that doesn't match the historical text exits
+                  // history-nav mode so subsequent ArrowUp starts fresh from
+                  // the newest entry next time the textarea is empty/aligned.
+                  if (
+                    histIndex !== null &&
+                    e.target.value !== history[histIndex].body
+                  ) {
+                    setHistIndex(null);
+                  }
+                  c.setValue(e.target.value);
+                }}
                 onKeyUp={updateTrigger}
                 onClick={updateTrigger}
                 onSelect={updateTrigger}
@@ -194,8 +357,46 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                       return;
                     }
                   }
+                  // Shell-style history nav. Only fires when the picker is
+                  // closed and the caret is on the matching edge (top line
+                  // for ArrowUp, bottom line for ArrowDown) so multi-line
+                  // editing still works as expected.
+                  if (
+                    e.key === "ArrowUp" &&
+                    !e.shiftKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.altKey &&
+                    caretOnFirstLine()
+                  ) {
+                    if (navHistory("older")) {
+                      e.preventDefault();
+                      return;
+                    }
+                  }
+                  if (
+                    e.key === "ArrowDown" &&
+                    !e.shiftKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.altKey &&
+                    histIndex !== null &&
+                    caretOnLastLine()
+                  ) {
+                    if (navHistory("newer")) {
+                      e.preventDefault();
+                      return;
+                    }
+                  }
+                  if (e.key === "Escape" && histIndex !== null) {
+                    e.preventDefault();
+                    setHistIndex(null);
+                    applyEntry(null);
+                    return;
+                  }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
+                    setHistIndex(null);
                     c.submit();
                   }
                 }}
@@ -247,6 +448,48 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           <AiStatusBarControls />
         </div>
       </div>
+    </div>
+  );
+}
+
+function OpenFilesRow({
+  files,
+  onAttach,
+}: {
+  files: OpenEditorFile[];
+  onAttach: (path: string) => void;
+}) {
+  if (files.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <AnimatePresence initial={false}>
+        {files.map((f) => (
+          <motion.button
+            type="button"
+            key={`open-${f.path}`}
+            layout
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.12 }}
+            onClick={() => onAttach(f.path)}
+            title={`Click to attach ${f.path}`}
+            aria-label={`Attach ${f.name}`}
+            className={cn(
+              "group flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-border/60 bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground",
+              "transition-colors hover:border-foreground/40 hover:bg-card hover:text-foreground",
+            )}
+          >
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              size={10}
+              strokeWidth={2}
+              className="opacity-70 transition-opacity group-hover:opacity-100"
+            />
+            <span className="max-w-35 truncate">{f.name}</span>
+          </motion.button>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -347,9 +590,12 @@ function ChipsRow({
                 className="text-muted-foreground"
               />
             ) : (
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {extOf(f.name)}
-              </span>
+              <img
+                src={fileIconUrl(f.name)}
+                alt=""
+                aria-hidden
+                className="size-3.5 shrink-0"
+              />
             )}
             <span className="max-w-35 truncate">
               {f.name}
@@ -379,11 +625,6 @@ function selLineCount(text: string): number {
   const trimmed = text.replace(/\n+$/, "");
   if (!trimmed) return 0;
   return trimmed.split("\n").length;
-}
-
-function extOf(name: string): string {
-  const i = name.lastIndexOf(".");
-  return i === -1 ? "FILE" : name.slice(i + 1).toUpperCase();
 }
 
 function autoresize(el: HTMLTextAreaElement | null) {

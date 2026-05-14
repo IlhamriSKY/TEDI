@@ -50,11 +50,16 @@ export function buildSharedExtensions(): Extension[] {
         paddingLeft: "0",
         marginLeft: "0",
       },
+      // Solid background + sticky/elevated z so horizontally scrolled code
+      // never bleeds through the line-number column. CodeMirror already
+      // pins .cm-gutters with `position: sticky; left: 0; z-index: 200`,
+      // so the opaque bg is what was actually missing.
       ".cm-gutters": {
-        backgroundColor: "transparent !important",
+        backgroundColor: "var(--background) !important",
         color: "var(--muted-foreground)",
         borderRight: "1px solid var(--border) !important",
         marginRight: "0 !important",
+        zIndex: "3",
       },
       ".cm-line": {
         paddingLeft: "4px",

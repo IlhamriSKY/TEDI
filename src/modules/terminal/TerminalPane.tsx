@@ -88,6 +88,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       <div
         ref={containerRef}
         className="h-full w-full"
+        data-terminal-leaf-id={leafId}
         style={{
           visibility: visible ? "visible" : "hidden",
           pointerEvents: visible ? "auto" : "none",

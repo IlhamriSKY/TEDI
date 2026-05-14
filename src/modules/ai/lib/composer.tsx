@@ -43,9 +43,14 @@ type ComposerCtx = {
   /** Attach a file by absolute path - used by the file explorer's "Attach to Agent". */
   attachFileByPath: (path: string) => Promise<void>;
   removeFile: (id: string) => void;
+  /** Replace the full attachment list. Used by ArrowUp/Down history recall
+   *  to swap in the attachments that were sent with a previous message. */
+  setAttachments: (files: FileAttachment[]) => void;
   pickedSnippets: Snippet[];
   addSnippet: (s: Snippet) => void;
   removeSnippet: (id: string) => void;
+  /** Replace the full picked-snippet list (history recall). */
+  setPickedSnippets: (snippets: Snippet[]) => void;
   pickedCommands: SlashCommandMeta[];
   addCommand: (c: SlashCommandMeta) => void;
   removeCommand: (name: string) => void;
@@ -321,9 +326,11 @@ export function AiComposerProvider({ children }: ProviderProps) {
     addFiles,
     attachFileByPath,
     removeFile,
+    setAttachments: setFiles,
     pickedSnippets,
     addSnippet,
     removeSnippet,
+    setPickedSnippets,
     pickedCommands,
     addCommand,
     removeCommand,

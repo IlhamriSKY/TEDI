@@ -3,6 +3,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { Toaster, toast } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   AlertDialog,
@@ -71,6 +72,7 @@ import {
   leafIds,
   leaves,
   respawnSession,
+  useTerminalFileDrop,
   type TerminalPaneHandle,
   type TediOpenInput,
   type TediSpawnTabInput,
@@ -123,10 +125,17 @@ export default function App() {
     closePaneByLeaf,
     splitActivePane,
     closeActivePane,
+    moveLeafToTab,
+    rotateLeafSplit,
     replaceAllTabs,
     allocId,
     reorderTabs,
   } = useTabs();
+
+  // Drag a file from the OS file manager onto a terminal pane → paste its
+  // shell-quoted path. Tauri captures OS drops globally, so the listener
+  // lives once at the app root and dispatches by hit-testing the cursor.
+  useTerminalFileDrop();
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
   // (e.g. cdInNewTab) read the latest pane state instead of a stale closure.
@@ -249,6 +258,7 @@ export default function App() {
   const setApiKeys = useChatStore((s) => s.setApiKeys);
   const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
   const setLive = useChatStore((s) => s.setLive);
+  const setOpenEditorFiles = useChatStore((s) => s.setOpenEditorFiles);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const hasComposer = hasAnyKey(apiKeys);
 
@@ -775,17 +785,34 @@ export default function App() {
 
   const sendCd = useCallback(
     (path: string) => {
-      if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal")
-        return;
-      const term = terminalRefs.current.get(activeLeafIdInTab);
-      if (!term) return;
-      const quoted = path.includes(" ")
-        ? `'${path.replace(/'/g, `'\\''`)}'`
-        : path;
-      term.write(`cd ${quoted}\r`);
-      term.focus();
+      // Treat a breadcrumb click as "open this folder": change the workspace
+      // root so the explorer, AI workspace context, and inherited cwd for
+      // new tabs all follow. Persist so it survives reloads.
+      const normalized = path.replace(/\\/g, "/");
+      setPickedRoot(normalized);
+      try {
+        localStorage.setItem("tedi.workspaceRoot", normalized);
+      } catch {
+        // Storage may be unavailable - skip persistence.
+      }
+      // Additionally, if the active leaf is a terminal at a shell prompt,
+      // cd it so the running shell tracks the new workspace. Double-quote
+      // wrapping works across pwsh / bash / zsh / cmd for paths without
+      // shell metacharacters (which segmentsFromCwd outputs never contain).
+      // We optimistically update the leaf cwd in React state so the
+      // breadcrumb reflects the click immediately - shells that emit OSC 7
+      // reconcile after, shells without shell integration still show the
+      // intended target instead of being stuck at the prior cwd.
+      if (activeLeafIdInTab !== null && activeLeafKindCurrent === "terminal") {
+        setLeafCwd(activeLeafIdInTab, normalized);
+        const term = terminalRefs.current.get(activeLeafIdInTab);
+        if (term) {
+          term.write(`cd "${normalized}"\r`);
+          term.focus();
+        }
+      }
     },
-    [activeLeafIdInTab, activeLeafKindCurrent],
+    [activeLeafIdInTab, activeLeafKindCurrent, setLeafCwd],
   );
 
   const cdInNewTab = useCallback(
@@ -884,6 +911,34 @@ export default function App() {
       splitActivePane(activeId, dir);
     },
     [activeId, splitActivePane],
+  );
+
+  /**
+   * Move a leaf from its current tab into `targetTabId` as a horizontal
+   * split. Backed by `useTabs.moveLeafToTab` which preserves the leaf's id
+   * so its underlying PTY / editor session survives the relocation. We
+   * resolve the target's display title *before* the move so the toast can
+   * name it even when the source tab is the one getting dropped.
+   */
+  const moveLeafToGroup = useCallback(
+    (leafId: number, targetTabId: number) => {
+      const target = tabsRef.current.find((x) => x.id === targetTabId);
+      if (!target || target.kind !== "pane") return;
+      const targetTitle = target.title;
+      const result = moveLeafToTab(leafId, targetTabId);
+      if (result === "full") {
+        toast(
+          `Group "${targetTitle}" is full (${MAX_PANES_PER_TAB} panes max).`,
+          { variant: "warning" },
+        );
+      } else if (result === "editor-conflict") {
+        toast(
+          `Group "${targetTitle}" already has an editor pane.`,
+          { variant: "warning" },
+        );
+      }
+    },
+    [moveLeafToTab],
   );
 
   const handleCloseTabOrPane = useCallback(() => {
@@ -1194,7 +1249,27 @@ export default function App() {
         return true;
       },
     });
-  }, [setLive, activeId, tabs, explorerRoot, home, openPreviewTab]);
+
+    // Surface every open editor leaf to the AI input as a click-to-attach
+    // suggestion chip. De-dup by path so the same file shared across split
+    // panes only shows once.
+    const openFiles: { path: string; name: string }[] = [];
+    const seenPaths = new Set<string>();
+    for (const t of tabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind !== "editor") continue;
+        if (seenPaths.has(l.path)) continue;
+        seenPaths.add(l.path);
+        const parts = l.path.split(/[\\/]/).filter(Boolean);
+        openFiles.push({
+          path: l.path,
+          name: parts.length ? parts[parts.length - 1] : l.path,
+        });
+      }
+    }
+    setOpenEditorFiles(openFiles);
+  }, [setLive, setOpenEditorFiles, activeId, tabs, explorerRoot, home, openPreviewTab]);
 
   const shell = (
     <ThemeProvider>
@@ -1232,6 +1307,8 @@ export default function App() {
             onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenSettings={() => void openSettingsWindow()}
             onConnectSsh={(conn) => newSshTab(conn.id, conn.name)}
+            onMoveLeafToGroup={moveLeafToGroup}
+            onRotateLeafSplit={rotateLeafSplit}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}
@@ -1399,7 +1476,7 @@ export default function App() {
           </main>
 
           <StatusBar
-            cwd={activeCwd}
+            cwd={activeCwd ?? explorerRoot}
             filePath={activeFilePath}
             home={home}
             onCd={sendCd}
@@ -1436,6 +1513,8 @@ export default function App() {
             rootPath={explorerRoot ?? home}
             onCreated={(path) => openFileTab(path)}
           />
+
+          <Toaster />
 
           <AlertDialog
             open={pendingCloseTab !== null}

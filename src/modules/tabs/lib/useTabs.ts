@@ -5,7 +5,9 @@ import {
   leafIds,
   leaves,
   nextLeafId,
+  normalizePaneTree,
   removeLeaf,
+  rotateLeafWithNeighbor,
   setLeafCwd as setLeafCwdInTree,
   siblingLeafOf,
   splitLeaf,
@@ -840,6 +842,156 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   /** Allocate a fresh id from the same counter that drives tabs/leaves. */
   const allocId = useCallback(() => nextIdRef.current++, []);
 
+  /**
+   * Move a single leaf out of its current pane tab and graft it into
+   * `targetTabId` as a horizontal split, preserving the leaf's id (so its
+   * live PTY / xterm session stays attached - no respawn). If the source
+   * tab is emptied by the move, the tab itself is dropped.
+   *
+   * Returns:
+   * - `"ok"` - moved.
+   * - `"full"` - target tab is already at `MAX_PANES_PER_TAB`.
+   * - `"editor-conflict"` - target tab already has an editor leaf and the
+   *   moving leaf is an editor (only one editor per tab is allowed).
+   * - `"invalid"` - leaf not found, source = target, or target isn't a pane
+   *   tab. Caller treats this as a no-op.
+   */
+  const moveLeafToTab = useCallback(
+    (
+      leafId: number,
+      targetTabId: number,
+    ): "ok" | "full" | "editor-conflict" | "invalid" => {
+      type MoveResult = "ok" | "full" | "editor-conflict" | "invalid";
+      // Explicit cast so TS doesn't narrow `result` to the literal `"invalid"`
+      // and then flag every later comparison as unreachable. The callback
+      // passed to `setTabs` mutates this through the closure - CFA can't
+      // see those branches at the type level.
+      let result = "invalid" as MoveResult;
+      setTabs((curr) => {
+        const source = curr.find(
+          (t): t is PaneTab =>
+            t.kind === "pane" && hasLeaf(t.paneTree, leafId),
+        );
+        if (!source) return curr;
+        if (source.id === targetTabId) return curr;
+        const target = curr.find(
+          (t): t is PaneTab => t.kind === "pane" && t.id === targetTabId,
+        );
+        if (!target) return curr;
+        if (leafIds(target.paneTree).length >= MAX_PANES_PER_TAB) {
+          result = "full";
+          return curr;
+        }
+        const leaf = findLeaf(source.paneTree, leafId);
+        if (!leaf) return curr;
+        if (leaf.leafKind === "editor") {
+          const targetHasEditor = leaves(target.paneTree).some(
+            (l) => l.leafKind === "editor",
+          );
+          if (targetHasEditor) {
+            result = "editor-conflict";
+            return curr;
+          }
+        }
+        // Reuse the moving leaf's state verbatim so cwd / sshConnectionId /
+        // dirty / preview travel with it. The leaf id stays the same so the
+        // underlying session keeps its mapping in App.tsx's per-leaf refs.
+        const state: LeafState =
+          leaf.leafKind === "terminal"
+            ? {
+                leafKind: "terminal",
+                cwd: leaf.cwd,
+                sshConnectionId: leaf.sshConnectionId,
+              }
+            : {
+                leafKind: "editor",
+                path: leaf.path,
+                dirty: leaf.dirty,
+                preview: leaf.preview,
+              };
+        const newSourceTree = removeLeaf(source.paneTree, leafId);
+        const splitId = nextIdRef.current++;
+        const newTargetTree = splitLeaf(
+          target.paneTree,
+          target.activeLeafId,
+          splitId,
+          leafId,
+          "row",
+          state,
+        );
+        result = "ok";
+        const next: Tab[] = [];
+        for (const t of curr) {
+          if (t.kind !== "pane") {
+            next.push(t);
+            continue;
+          }
+          if (t.id === source.id) {
+            // Source emptied: drop the tab. activeId is patched below.
+            if (newSourceTree === null) continue;
+            const remaining = leafIds(newSourceTree);
+            let newActive = t.activeLeafId;
+            if (t.activeLeafId === leafId) {
+              const sib = siblingLeafOf(t.paneTree, leafId);
+              newActive = sib && remaining.includes(sib) ? sib : remaining[0];
+            }
+            next.push(
+              syncPaneMirror({
+                ...t,
+                paneTree: newSourceTree,
+                activeLeafId: newActive,
+              }),
+            );
+            continue;
+          }
+          if (t.id === targetTabId) {
+            next.push(
+              syncPaneMirror({
+                ...t,
+                paneTree: newTargetTree,
+                activeLeafId: leafId,
+              }),
+            );
+            continue;
+          }
+          next.push(t);
+        }
+        return next;
+      });
+      // Focus the destination so the user sees their just-moved leaf land
+      // exactly where they pointed it.
+      if (result === "ok") setActiveId(targetTabId);
+      return result;
+    },
+    [],
+  );
+
+  /**
+   * Rotate `leafId` by pairing it with its immediate sibling in a sub-
+   * split of the opposite direction. Other siblings in the parent split
+   * are not touched - this is what makes "click rotate on leaf B in a
+   * 3-pane [A, B, C]" affect only B (and its neighbor C), not A.
+   *
+   * The tree is normalised after the operation so a second click on the
+   * same leaf undoes the change cleanly (no stale `split(row, split(row,
+   * ...))` nesting builds up).
+   */
+  const rotateLeafSplit = useCallback((leafId: number) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const splitId = nextIdRef.current++;
+        const rotated = rotateLeafWithNeighbor(t.paneTree, leafId, splitId);
+        if (rotated === null) return t;
+        return syncPaneMirror({
+          ...t,
+          paneTree: normalizePaneTree(rotated),
+        });
+      }),
+    );
+  }, []);
+
   /** Drag-and-drop reorder: `fromTabId` is moved before `beforeTabId` (null = append). */
   const reorderTabs = useCallback(
     (fromTabId: number, beforeTabId: number | null) => {
@@ -881,6 +1033,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
+    moveLeafToTab,
+    rotateLeafSplit,
     replaceAllTabs,
     allocId,
     reorderTabs,

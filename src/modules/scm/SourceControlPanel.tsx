@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -71,6 +71,8 @@ const STATUS_ORDER: Record<GitChangeStatus, number> = {
   ignored: 7,
 };
 
+const AUTO_REFRESH_MS = 2500;
+
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : p;
@@ -92,6 +94,12 @@ export function SourceControlPanel({
   const [confirmAll, setConfirmAll] = useState(false);
   const [confirmOne, setConfirmOne] = useState<GitChange | null>(null);
 
+  const inFlightRef = useRef(false);
+  const rootRef = useRef(rootPath);
+  useEffect(() => {
+    rootRef.current = rootPath;
+  }, [rootPath]);
+
   const openDiff = useCallback(
     (c: GitChange) => {
       if (!status?.root) return;
@@ -105,27 +113,78 @@ export function SourceControlPanel({
     [status, onOpenDiff],
   );
 
-  const refresh = useCallback(async () => {
-    if (!rootPath) {
+  const fetchStatus = useCallback(async (silent = false) => {
+    const cur = rootRef.current;
+    if (!cur) {
       setStatus(null);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (silent && inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!silent) setLoading(true);
     try {
-      const s = await gitStatus(rootPath);
-      setStatus(s);
+      const s = await gitStatus(cur);
+      if (rootRef.current === cur) {
+        setStatus(s);
+        setError(null);
+      }
     } catch (e) {
-      setError(String(e));
-      setStatus(null);
+      if (rootRef.current === cur) {
+        setError(String(e));
+        setStatus(null);
+      }
     } finally {
-      setLoading(false);
+      inFlightRef.current = false;
+      if (!silent) setLoading(false);
     }
-  }, [rootPath]);
+  }, []);
+
+  const refresh = useCallback(() => fetchStatus(false), [fetchStatus]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void fetchStatus(false);
+  }, [fetchStatus, rootPath]);
+
+  useEffect(() => {
+    if (!rootPath) return;
+    let intervalId: number | null = null;
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") void fetchStatus(true);
+      }, AUTO_REFRESH_MS);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void fetchStatus(true);
+        start();
+      } else {
+        stop();
+      }
+    };
+    const onFocus = () => {
+      void fetchStatus(true);
+      start();
+    };
+    const onBlur = () => stop();
+
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [rootPath, fetchStatus]);
 
   const sorted = useMemo(() => {
     if (!status) return [] as GitChange[];

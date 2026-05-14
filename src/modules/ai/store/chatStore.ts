@@ -1,8 +1,5 @@
 import { Chat, type UIMessage } from "@ai-sdk/react";
-import {
-  type ChatTransport,
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-} from "ai";
+import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { create } from "zustand";
 import {
   DEFAULT_MODEL_ID,
@@ -78,6 +75,13 @@ export type PendingSelection = {
   source: "terminal" | "editor";
 };
 
+export type OpenEditorFile = {
+  /** Absolute path - used as the unique key and passed to attachFileByPath. */
+  path: string;
+  /** Display name (basename of the path). */
+  name: string;
+};
+
 export type ApprovalResponder = (
   approvalId: string,
   approved: boolean,
@@ -121,6 +125,12 @@ type StoreState = {
   pendingSelections: PendingSelection[];
   attachSelection: (text: string, source: "terminal" | "editor") => void;
   consumeSelections: () => PendingSelection[];
+
+  /** Files currently open in editor leaves. Mirrors `useTabs` state; updated
+   *  by App.tsx alongside `setLive`. Surfaced as suggestion chips above the
+   *  AI input - clicking one promotes it to an actual attachment. */
+  openEditorFiles: OpenEditorFile[];
+  setOpenEditorFiles: (files: OpenEditorFile[]) => void;
 
   agentMeta: AgentMeta;
   patchAgentMeta: (patch: Partial<AgentMeta>) => void;
@@ -204,10 +214,13 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getModelId: () => useChatStore.getState().selectedModelId,
     getCustomInstructions: () =>
       usePreferencesStore.getState().customInstructions,
+    getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
+    getOpenaiCompatibleBaseURL: () =>
+      usePreferencesStore.getState().openaiCompatibleBaseURL,
     getAgentPersona: () => {
-      const { activeId, customAgents } = useAgentsStore.getState();
-      const all = [...BUILTIN_AGENTS, ...customAgents];
-      const a = all.find((x) => x.id === activeId) ?? BUILTIN_AGENTS[0];
+      const s = useAgentsStore.getState();
+      const all = s.all();
+      const a = all.find((x) => x.id === s.activeId) ?? BUILTIN_AGENTS[0];
       return { name: a.name, instructions: a.instructions };
     },
     getLive: () => {
@@ -223,7 +236,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     onStep: (step) => {
       useChatStore.getState().patchAgentMeta({ step });
     },
-  }) as unknown as ChatTransport<UIMessage>;
+  });
 
   const initialMessages = seedMessages.get(sessionId);
   seedMessages.delete(sessionId);
@@ -307,6 +320,25 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const v = get().pendingSelections;
     if (v.length > 0) set({ pendingSelections: [] });
     return v;
+  },
+
+  openEditorFiles: [],
+  setOpenEditorFiles: (files) => {
+    // Only write when the (path, name) tuple actually changed - prevents
+    // re-renders on every tab keystroke since App.tsx runs the sync effect
+    // whenever the `tabs` array reference changes.
+    const prev = get().openEditorFiles;
+    if (prev.length === files.length) {
+      let same = true;
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i].path !== files[i].path || prev[i].name !== files[i].name) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return;
+    }
+    set({ openEditorFiles: files });
   },
 
   agentMeta: IDLE_META,

@@ -46,6 +46,17 @@ export default defineConfig(async ({ mode }) => ({
           if (id.includes("@ai-sdk/")) return "ai-sdk-shared";
 
           if (id.includes("/xterm/") || id.includes("@xterm/")) return "xterm";
+          // Per-language grammars and the legacy stream parsers are dynamically
+          // imported by the chat code renderer (chat-code-lezer.ts). Let
+          // Rollup auto-split them so they load lazily — otherwise the
+          // broad codemirror rule below would suck them into the eager chunk.
+          if (
+            id.includes("@codemirror/lang-") ||
+            id.includes("@codemirror/legacy-modes")
+          )
+            return;
+          // Themes are also lazy-loaded by EditorPane / AiDiffPane / GitDiffPane.
+          if (id.includes("@uiw/codemirror-theme-")) return;
           if (
             id.includes("@codemirror/") ||
             id.includes("@uiw/codemirror") ||
@@ -54,14 +65,6 @@ export default defineConfig(async ({ mode }) => ({
             return "codemirror";
           if (id.includes("/streamdown/") || id.includes("@streamdown/"))
             return "streamdown";
-          // Only the shiki core/engine in one chunk. Grammars and themes
-          // stay split (one chunk per file) - they load lazily on first use.
-          if (
-            id.includes("/shiki/dist/core") ||
-            id.includes("/shiki/dist/engine") ||
-            id.includes("/shiki/dist/index")
-          )
-            return "shiki";
           if (id.includes("/motion/") || id.includes("framer-motion"))
             return "motion";
           if (

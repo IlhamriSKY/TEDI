@@ -21,6 +21,11 @@ import {
 } from "@/modules/ai/config";
 import { clearKey, getAllKeys, setKey } from "@/modules/ai/lib/keyring";
 import {
+  clearOpenAICompatibleModels,
+  refreshOpenAICompatibleModels,
+  useOpenAICompatibleModels,
+} from "@/modules/ai/lib/openaiCompatible";
+import {
   clearSumopodModels,
   refreshSumopodModels,
   useSumopodModels,
@@ -33,6 +38,7 @@ import {
   setAutocompleteProvider,
   setDefaultModel,
   setLmstudioBaseURL,
+  setOpenAICompatibleBaseURL,
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -60,14 +66,25 @@ function matchesQuery(
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const openaiCompatibleBaseURL = usePreferencesStore(
+    (s) => s.openaiCompatibleBaseURL,
+  );
   const sumopodModels = useSumopodModels();
+  const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
 
   useEffect(() => {
     void getAllKeys().then((k) => {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
+      if (k["openai-compatible"] && openaiCompatibleBaseURL) {
+        void refreshOpenAICompatibleModels(
+          k["openai-compatible"],
+          openaiCompatibleBaseURL,
+        );
+      }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onSave = async (provider: ProviderId, value: string) => {
@@ -75,6 +92,9 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: value } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") void refreshSumopodModels(value);
+    if (provider === "openai-compatible" && openaiCompatibleBaseURL) {
+      void refreshOpenAICompatibleModels(value, openaiCompatibleBaseURL);
+    }
   };
 
   const onClear = async (provider: ProviderId) => {
@@ -82,6 +102,7 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") clearSumopodModels();
+    if (provider === "openai-compatible") clearOpenAICompatibleModels();
   };
 
   if (!keys) {
@@ -94,9 +115,10 @@ export function ModelsSection() {
     label: defaultModel,
     hint: "SumoPod",
   };
-  const configuredCount = PROVIDERS.filter(
-    (p) => providerNeedsKey(p.id) && !!keys[p.id],
-  ).length;
+  const gridProviders = PROVIDERS.filter(
+    (p) => providerNeedsKey(p.id) && p.id !== "openai-compatible",
+  );
+  const configuredCount = gridProviders.filter((p) => !!keys[p.id]).length;
 
   return (
     <div className="flex flex-col gap-7">
@@ -165,21 +187,29 @@ export function ModelsSection() {
                   const all =
                     p.id === "sumopod"
                       ? sumopodModels.models
-                      : MODELS.filter((m) => m.provider === p.id);
+                      : p.id === "openai-compatible"
+                        ? oaiCompatModels.models
+                        : MODELS.filter((m) => m.provider === p.id);
                   const filtered = all.filter((m) =>
                     matchesQuery(m, modelQuery),
                   );
                   totalMatches += filtered.length;
                   if (filtered.length === 0 && modelQuery) return null;
                   const hasKey = !!keys[p.id];
-                  const isSumopodEmpty =
-                    p.id === "sumopod" && hasKey && filtered.length === 0;
-                  const sumopodNote =
-                    p.id === "sumopod" && hasKey
-                      ? sumopodModels.status === "loading"
+                  const dynamicState =
+                    p.id === "sumopod"
+                      ? sumopodModels
+                      : p.id === "openai-compatible"
+                        ? oaiCompatModels
+                        : null;
+                  const isDynamicEmpty =
+                    !!dynamicState && hasKey && filtered.length === 0;
+                  const dynamicNote =
+                    dynamicState && hasKey
+                      ? dynamicState.status === "loading"
                         ? "Detecting models…"
-                        : sumopodModels.status === "error"
-                          ? "Detection failed - check key"
+                        : dynamicState.status === "error"
+                          ? "Detection failed - check key / URL"
                           : null
                       : null;
                   return (
@@ -193,12 +223,12 @@ export function ModelsSection() {
                           </span>
                         )}
                       </div>
-                      {sumopodNote ? (
+                      {dynamicNote ? (
                         <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
-                          {sumopodNote}
+                          {dynamicNote}
                         </div>
                       ) : null}
-                      {isSumopodEmpty && !sumopodNote ? (
+                      {isDynamicEmpty && !dynamicNote ? (
                         <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
                           No models detected.
                         </div>
@@ -246,11 +276,11 @@ export function ModelsSection() {
         <div className="flex items-baseline justify-between">
           <Label>API keys</Label>
           <span className="text-[10.5px] text-muted-foreground">
-            {configuredCount} of {PROVIDERS.filter((p) => providerNeedsKey(p.id)).length} configured
+            {configuredCount} of {gridProviders.length} configured
           </span>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {PROVIDERS.filter((p) => providerNeedsKey(p.id)).map((p) => (
+        <div className="grid grid-cols-2 gap-2">
+          {gridProviders.map((p) => (
             <ProviderKeyCard
               key={p.id}
               provider={p}
@@ -261,6 +291,16 @@ export function ModelsSection() {
           ))}
         </div>
       </div>
+
+      <OpenAICompatibleBlock
+        apiKey={keys["openai-compatible"]}
+        baseURL={openaiCompatibleBaseURL}
+        status={oaiCompatModels.status}
+        error={oaiCompatModels.error}
+        modelsCount={oaiCompatModels.models.length}
+        onSaveKey={(v) => onSave("openai-compatible", v)}
+        onClearKey={() => onClear("openai-compatible")}
+      />
 
       <AutocompleteBlock keys={keys} />
     </div>
@@ -406,6 +446,231 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
             ) : null}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function OpenAICompatibleBlock({
+  apiKey,
+  baseURL,
+  status,
+  error,
+  modelsCount,
+  onSaveKey,
+  onClearKey,
+}: {
+  apiKey: string | null;
+  baseURL: string;
+  status: "idle" | "loading" | "ok" | "error";
+  error: string | null;
+  modelsCount: number;
+  onSaveKey: (key: string) => Promise<void>;
+  onClearKey: () => Promise<void>;
+}) {
+  const [urlDraft, setUrlDraft] = useState(baseURL);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [revealKey, setRevealKey] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<
+    "idle" | "testing" | "ok" | "fail"
+  >("idle");
+  const [testError, setTestError] = useState<string | null>(null);
+
+  useEffect(() => setUrlDraft(baseURL), [baseURL]);
+  useEffect(() => {
+    setKeyDraft("");
+    setRevealKey(false);
+    setKeyError(null);
+  }, [apiKey]);
+
+  const commitURL = () => {
+    const v = urlDraft.trim();
+    if (v && v !== baseURL) {
+      void setOpenAICompatibleBaseURL(v);
+      if (apiKey) void refreshOpenAICompatibleModels(apiKey, v);
+    }
+  };
+
+  const saveKey = async () => {
+    const trimmed = keyDraft.trim();
+    if (!trimmed) {
+      setKeyError("Enter your API key.");
+      return;
+    }
+    setSavingKey(true);
+    setKeyError(null);
+    try {
+      await onSaveKey(trimmed);
+    } catch (e) {
+      setKeyError(`Failed to save: ${String(e)}`);
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  const testEndpoint = async () => {
+    setTestStatus("testing");
+    setTestError(null);
+    try {
+      const url = urlDraft.trim().replace(/\/$/, "") + "/models";
+      const code = await invoke<number>("http_ping", { url });
+      setTestStatus(code >= 200 && code < 400 ? "ok" : "fail");
+      if (!(code >= 200 && code < 400)) setTestError(`HTTP ${code}`);
+    } catch (e) {
+      setTestStatus("fail");
+      setTestError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const refresh = () => {
+    if (!apiKey) return;
+    void refreshOpenAICompatibleModels(apiKey, urlDraft.trim() || baseURL);
+  };
+
+  const maskedKey =
+    apiKey && apiKey.length > 8
+      ? `${apiKey.slice(0, 4)}${"•".repeat(8)}${apiKey.slice(-4)}`
+      : apiKey
+        ? "•".repeat(apiKey.length)
+        : "";
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>OpenAI Compatible endpoint</Label>
+      <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <ProviderIcon provider="openai-compatible" size={14} />
+          <span className="text-[12px] font-medium">OpenAI Compatible</span>
+          {apiKey ? (
+            <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
+              Configured
+            </span>
+          ) : (
+            <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[9.5px] tracking-wide text-muted-foreground uppercase">
+              Not set
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground">Base URL</span>
+            <Input
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onBlur={commitURL}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitURL();
+                }
+              }}
+              placeholder="https://api.openai.com/v1"
+              spellCheck={false}
+              className="h-7 font-mono text-[11px]"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground">API key</span>
+            {apiKey ? (
+              <div className="flex items-center gap-1">
+                <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[10.5px] text-muted-foreground">
+                  {maskedKey}
+                </code>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => void onClearKey()}
+                  aria-label="Remove key"
+                  title="Remove key"
+                >
+                  ×
+                </Button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Input
+                  type={revealKey ? "text" : "password"}
+                  value={keyDraft}
+                  disabled={savingKey}
+                  onChange={(e) => {
+                    setKeyDraft(e.target.value);
+                    if (keyError) setKeyError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveKey();
+                    }
+                  }}
+                  placeholder="Paste API key, press Enter"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="h-7 pr-7 font-mono text-[11px]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setRevealKey((v) => !v)}
+                  tabIndex={-1}
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px] text-muted-foreground hover:text-foreground"
+                  aria-label={revealKey ? "Hide key" : "Show key"}
+                >
+                  {revealKey ? "Hide" : "Show"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {keyError ? (
+          <span className="text-[10px] text-destructive">{keyError}</span>
+        ) : null}
+
+        <div className="flex items-center gap-1.5">
+          <span className="flex-1 truncate text-[10px] text-muted-foreground">
+            {testStatus === "ok" ? (
+              <span className="text-emerald-500">Endpoint reachable.</span>
+            ) : testStatus === "fail" ? (
+              <span className="text-destructive">
+                Unreachable{testError ? ` (${testError})` : ""}.
+              </span>
+            ) : testStatus === "testing" ? (
+              "Testing…"
+            ) : !apiKey ? (
+              "Add key & URL to detect models."
+            ) : status === "loading" ? (
+              "Detecting models…"
+            ) : status === "error" ? (
+              <span className="text-destructive">
+                Detection failed{error ? ` — ${error}` : ""}.
+              </span>
+            ) : status === "ok" ? (
+              `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected — pick one in the dropdown above.`
+            ) : (
+              "Click Detect to fetch the catalogue."
+            )}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void testEndpoint()}
+            className="h-7 px-2 text-[10.5px]"
+          >
+            Test
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={refresh}
+            disabled={!apiKey}
+            className="h-7 px-2 text-[10.5px]"
+          >
+            Detect
+          </Button>
+        </div>
       </div>
     </div>
   );

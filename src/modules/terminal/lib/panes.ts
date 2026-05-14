@@ -206,6 +206,88 @@ export function siblingLeafOf(
   return null;
 }
 
+/**
+ * Pair `leafId` with its **immediate sibling** in the parent split and
+ * wrap the pair in a new sub-split with the opposite direction. The pair
+ * is the leaf to the right when possible, falling back to the left when
+ * the leaf is the last child. Other siblings of the parent split are
+ * **not** touched.
+ *
+ * For a flat 2-leaf split this collapses to "flip the parent's dir" - the
+ * single resulting sub-split is unwrapped because it would otherwise be
+ * an only-child wrapper. For 3+ leaves it produces a nested layout where
+ * just the clicked pair rotates and the others keep their position.
+ *
+ * Returns `null` if nothing changed (leaf not found, leaf is a sole child
+ * of its parent split, or tree is a bare leaf). Caller supplies
+ * `newSplitId` for the wrapping sub-split.
+ */
+export function rotateLeafWithNeighbor(
+  tree: PaneNode,
+  leafId: PaneId,
+  newSplitId: PaneId,
+): PaneNode | null {
+  if (isLeaf(tree)) return null;
+  const idx = tree.children.findIndex(
+    (c) => isLeaf(c) && c.id === leafId,
+  );
+  if (idx >= 0) {
+    // Prefer right neighbor; fall back to left when at the tail.
+    const neighborIdx =
+      idx + 1 < tree.children.length ? idx + 1 : idx - 1;
+    if (neighborIdx < 0) return null;
+    const lo = Math.min(idx, neighborIdx);
+    const hi = Math.max(idx, neighborIdx);
+    const pair: PaneNode = {
+      kind: "split",
+      id: newSplitId,
+      dir: tree.dir === "row" ? "col" : "row",
+      children: [tree.children[lo], tree.children[hi]],
+    };
+    const newChildren = [...tree.children];
+    newChildren.splice(lo, 2, pair);
+    // Outer wrapper became a one-child split (only happens when the
+    // parent had exactly 2 leaves originally) - unwrap it so the tree
+    // stays canonical.
+    if (newChildren.length === 1) return newChildren[0];
+    return { ...tree, children: newChildren };
+  }
+  // Leaf lives deeper - recurse and rebuild on the path that found it.
+  let changed = false;
+  const newChildren = tree.children.map((c) => {
+    const r = rotateLeafWithNeighbor(c, leafId, newSplitId);
+    if (r !== null) {
+      changed = true;
+      return r;
+    }
+    return c;
+  });
+  if (!changed) return null;
+  return { ...tree, children: newChildren };
+}
+
+/**
+ * Canonicalise a pane tree: flatten any nested split whose direction
+ * matches its parent's, and unwrap any split that ends up with a single
+ * child. Used after rotations so successive toggles on the same leaf
+ * round-trip the tree back to its original shape instead of accumulating
+ * redundant nesting like `split(row, [A, split(row, [B, C])])`.
+ */
+export function normalizePaneTree(node: PaneNode): PaneNode {
+  if (isLeaf(node)) return node;
+  const flattened: PaneNode[] = [];
+  for (const raw of node.children) {
+    const c = normalizePaneTree(raw);
+    if (c.kind === "split" && c.dir === node.dir) {
+      flattened.push(...c.children);
+    } else {
+      flattened.push(c);
+    }
+  }
+  if (flattened.length === 1) return flattened[0];
+  return { ...node, children: flattened };
+}
+
 /** First leaf of a given kind (used to find a default editor target etc.). */
 export function firstLeafOfKind(
   tree: PaneNode,
