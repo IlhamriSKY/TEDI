@@ -51,8 +51,41 @@ import {
   type ProviderInfo,
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
+import { useOpenAICompatibleModels } from "../lib/openaiCompatible";
 import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
+
+/**
+ * Pinned models are stored as `provider::modelId` strings so two models with
+ * the same id (e.g. `mimo-v2.5-pro` proxied by both SumoPod and an
+ * openai-compatible gateway) can coexist as independent pins. Unqualified
+ * entries from before this fix are honoured for backwards compat but get
+ * upgraded to the qualified form on the next toggle.
+ */
+const PIN_SEP = "::";
+
+function pinKey(providerId: ProviderId, modelId: string): string {
+  return `${providerId}${PIN_SEP}${modelId}`;
+}
+
+function isPinnedFor(
+  pinnedIds: readonly string[],
+  providerId: ProviderId,
+  modelId: string,
+): boolean {
+  if (pinnedIds.includes(pinKey(providerId, modelId))) return true;
+  // Legacy unqualified entry — matches any provider, but only when no
+  // qualified pin exists for this same modelId (otherwise the legacy entry
+  // would double-mark every provider).
+  if (pinnedIds.includes(modelId)) {
+    const hasQualifiedSameId = pinnedIds.some((p) => {
+      const idx = p.indexOf(PIN_SEP);
+      return idx !== -1 && p.slice(idx + PIN_SEP.length) === modelId;
+    });
+    return !hasQualifiedSameId;
+  }
+  return false;
+}
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
@@ -91,23 +124,24 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
 export function AiStatusBarControls() {
   const c = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const closePanel = useChatStore((s) => s.closePanel);
+  const enqueuePrompt = useChatStore((s) => s.enqueuePrompt);
+
+  const interruptAndSend = () => {
+    const text = c.value.trim();
+    if (!text) return;
+    enqueuePrompt(text);
+    c.setValue("");
+    c.stop();
+  };
+  const addToQueue = () => {
+    const text = c.value.trim();
+    if (!text) return;
+    enqueuePrompt(text);
+    c.setValue("");
+  };
 
   return (
     <div className="flex items-center gap-0.5">
-      {/* <Button
-        onClick={closePanel}
-        title="Close AI panel"
-        size="xs"
-        variant="outline"
-        aria-label="Close AI panel"
-        className="text-[11px] text-foreground/85 pl-1.5"
-      > */}
-      {/* <Kbd className="h-4 gap-px text-[11px]">
-          ⌘<span className="font-mono">I</span>
-        </Kbd> */}
-      {/* Close */}
-      {/* </Button> */}
       <input
         ref={fileInputRef}
         type="file"
@@ -161,33 +195,64 @@ export function AiStatusBarControls() {
       <ModelDropdown />
 
       <span className="mx-1 h-5 w-px bg-border" aria-hidden />
-      <IconTooltip label="Close AI panel" side="top">
-        <Button
-          onClick={closePanel}
-          size="xs"
-          variant="ghost"
-          aria-label="Close AI panel"
-          className="text-[11px] text-foreground/85 px-1"
-        >
-          <Kbd className="h-4 gap-px px-2 font-mono text-[11px]">
-            {fmtShortcut(MOD_KEY, "I")}
-          </Kbd>
-        </Button>
-      </IconTooltip>
 
       {c.isBusy ? (
-        <IconTooltip label="Stop" side="top">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={c.stop}
-            className="size-6"
-            aria-label="Stop"
-          >
+        <>
+          <IconBtn title="Stop" onClick={c.stop}>
             <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
+          </IconBtn>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    disabled={!c.value.trim()}
+                    className="size-6 rounded-md"
+                    aria-label="Send options"
+                  >
+                    <HugeiconsIcon
+                      icon={ArrowUpIcon}
+                      size={13}
+                      strokeWidth={2}
+                    />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">Send</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem
+                onClick={interruptAndSend}
+                disabled={!c.value.trim()}
+                className="flex flex-col items-start gap-0.5 py-1.5"
+              >
+                <span className="text-[11.5px] font-medium">
+                  Send now (interrupt)
+                </span>
+                <span className="text-[10.5px] text-muted-foreground">
+                  Stop the current run, then send this
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={addToQueue}
+                disabled={!c.value.trim()}
+                className="flex flex-col items-start gap-0.5 py-1.5"
+              >
+                <span className="flex items-center gap-1.5 text-[11.5px] font-medium">
+                  Add to queue
+                  <Kbd className="h-3.5 gap-px px-1 font-mono text-[9.5px]">
+                    {fmtShortcut(MOD_KEY, "Enter")}
+                  </Kbd>
+                </span>
+                <span className="text-[10.5px] text-muted-foreground">
+                  Run after the current finishes
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       ) : (
         <IconTooltip label="Send (Enter)" side="top">
           <Button
@@ -195,10 +260,10 @@ export function AiStatusBarControls() {
             size="icon"
             onClick={c.submit}
             disabled={!c.canSend}
-            className="h-5.5 w-7.5 ml-1"
+            className="size-6 rounded-md"
             aria-label="Send (Enter)"
           >
-            <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={1.75} />
+            <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       )}
@@ -221,9 +286,11 @@ function matchesQuery(
 
 function ModelDropdown() {
   const selected = useChatStore((s) => s.selectedModelId);
+  const selectedProvider = useChatStore((s) => s.selectedProvider);
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const sumopodModels = useSumopodModels();
+  const oaiCompatModels = useOpenAICompatibleModels();
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
   // Provider sections (and the synthetic "pinned" section) start expanded
@@ -231,18 +298,22 @@ function ModelDropdown() {
   // resets every time the dropdown reopens - lighter than persisting it
   // and keeps the default "everything visible" experience.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  // Static `getModel` would throw for runtime-detected SumoPod ids that
-  // aren't in the MODELS const. Fall back to a synthetic ModelInfo using
-  // the raw id so the dropdown can render labels for detected models.
+  // Static `getModel` would throw for runtime-detected ids that aren't in
+  // the MODELS const. Fall back to a synthetic ModelInfo using the user's
+  // selected provider so the trigger never mislabels a model whose dynamic
+  // registry entry hasn't been refreshed yet.
   let current: ModelInfo;
   try {
     current = getModel(selected);
   } catch {
+    const providerLabel =
+      PROVIDERS.find((p) => p.id === selectedProvider)?.label ??
+      selectedProvider;
     current = {
       id: selected,
-      provider: "sumopod",
+      provider: selectedProvider,
       label: selected,
-      hint: "SumoPod",
+      hint: providerLabel,
     };
   }
   const currentProviderHasKey = !!apiKeys[current.provider];
@@ -252,16 +323,21 @@ function ModelDropdown() {
       void openSettingsWindow("models");
       return;
     }
-    setSelected(id);
+    setSelected(id, providerId);
   };
 
   const togglePin = useCallback(
-    (modelId: string) => {
+    (providerId: ProviderId, modelId: string) => {
       const pinned = usePreferencesStore.getState().pinnedModelIds;
-      const next = pinned.includes(modelId)
-        ? pinned.filter((id) => id !== modelId)
-        : [modelId, ...pinned];
-      void setPinnedModelIds(next);
+      const k = pinKey(providerId, modelId);
+      if (pinned.includes(k)) {
+        void setPinnedModelIds(pinned.filter((id) => id !== k));
+        return;
+      }
+      // If a legacy unqualified entry exists for this modelId, swap it for
+      // the qualified form so future toggles distinguish providers.
+      const withoutLegacy = pinned.filter((id) => id !== modelId);
+      void setPinnedModelIds([k, ...withoutLegacy]);
     },
     [],
   );
@@ -285,24 +361,33 @@ function ModelDropdown() {
         const all =
           p.id === "sumopod"
             ? sumopodModels.models
-            : MODELS.filter((m) => m.provider === p.id);
+            : p.id === "openai-compatible"
+              ? oaiCompatModels.models
+              : MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
         return { provider: p, all, filtered };
       }),
-    [query, sumopodModels.models],
+    [query, sumopodModels.models, oaiCompatModels.models],
   );
 
-  // Resolve pinned ids to actual ModelInfo entries (with their provider) by
-  // looking them up across every section. Drop ids that no longer correspond
-  // to any known model so stale entries don't ghost-render.
+  // Resolve pinned ids to actual ModelInfo entries (with their provider).
+  // We build two lookups: qualified (provider::modelId) for new-style pins,
+  // and legacy (modelId only) for backward compat. The legacy lookup picks
+  // the FIRST encountered provider for a given modelId — the order is the
+  // PROVIDERS array, so this is deterministic. Stale ids that no longer
+  // resolve are dropped so ghost rows don't render.
   const pinnedEntries = useMemo(() => {
-    const lookup = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
+    const qualified = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
+    const legacy = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
     for (const { provider, all } of sections) {
-      for (const m of all) lookup.set(m.id, { model: m, provider });
+      for (const m of all) {
+        qualified.set(pinKey(provider.id, m.id), { model: m, provider });
+        if (!legacy.has(m.id)) legacy.set(m.id, { model: m, provider });
+      }
     }
     const out: { model: ModelInfo; provider: ProviderInfo }[] = [];
-    for (const id of pinnedModelIds) {
-      const hit = lookup.get(id);
+    for (const pinId of pinnedModelIds) {
+      const hit = qualified.get(pinId) ?? legacy.get(pinId);
       if (hit) out.push(hit);
     }
     return out;
@@ -392,6 +477,7 @@ function ModelDropdown() {
               onToggle={() => toggleSection("__pinned")}
               query={query}
               selectedId={selected}
+              selectedProviderId={selectedProvider}
               pinnedIds={pinnedModelIds}
               onPick={onPick}
               onTogglePin={togglePin}
@@ -409,7 +495,15 @@ function ModelDropdown() {
                     : filtered.length === 0
                       ? "No models detected"
                       : null
-                : null;
+                : p.id === "openai-compatible" && hasKey
+                  ? oaiCompatModels.status === "loading"
+                    ? "Detecting models…"
+                    : oaiCompatModels.status === "error"
+                      ? "Detection failed"
+                      : filtered.length === 0
+                        ? "No models detected · open Settings → Models"
+                        : null
+                  : null;
             return (
               <ModelSection
                 key={p.id}
@@ -428,6 +522,7 @@ function ModelDropdown() {
                 onToggle={() => toggleSection(p.id)}
                 query={query}
                 selectedId={selected}
+                selectedProviderId={selectedProvider}
                 pinnedIds={pinnedModelIds}
                 onPick={onPick}
                 onTogglePin={togglePin}
@@ -463,6 +558,7 @@ function ModelSection({
   onToggle,
   query,
   selectedId,
+  selectedProviderId,
   pinnedIds,
   onPick,
   onTogglePin,
@@ -478,9 +574,10 @@ function ModelSection({
   onToggle: () => void;
   query: string;
   selectedId: string;
+  selectedProviderId: ProviderId;
   pinnedIds: string[];
   onPick: (id: DynamicModelId, providerId: ProviderId) => void;
-  onTogglePin: (modelId: string) => void;
+  onTogglePin: (providerId: ProviderId, modelId: string) => void;
 }) {
   // Active queries force-expand the section so search hits aren't hidden
   // behind a collapsed header.
@@ -555,15 +652,17 @@ function ModelSection({
       ) : null}
       {showItems
         ? models.map(({ model: m, provider: p, hasKey }) => {
-            const pinned = pinnedIds.includes(m.id);
+            const pinned = isPinnedFor(pinnedIds, p.id, m.id);
+            const isSelected =
+              m.id === selectedId && p.id === selectedProviderId;
             return (
               <DropdownMenuItem
-                key={`${sectionKey}-${m.id}`}
+                key={`${sectionKey}-${p.id}-${m.id}`}
                 disabled={!hasKey}
                 onSelect={() => onPick(m.id, p.id)}
                 className={cn(
                   "group flex items-center gap-2 text-xs",
-                  m.id === selectedId && "bg-accent/40",
+                  isSelected && "bg-accent/40",
                 )}
               >
                 <div className="flex min-w-0 flex-1 flex-col items-start gap-0">
@@ -577,7 +676,7 @@ function ModelSection({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onTogglePin(m.id);
+                    onTogglePin(p.id, m.id);
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   aria-label={pinned ? `Unpin ${m.label}` : `Pin ${m.label}`}

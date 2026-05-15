@@ -101,6 +101,7 @@ export async function refreshOpenAICompatibleModels(
         provider: "openai-compatible" as const,
         label: labelFor(raw.id),
         hint: hintFor(raw),
+        ownedBy: raw.owned_by,
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
 

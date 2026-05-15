@@ -12,6 +12,8 @@ import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 
 export type ThemePref = "system" | "light" | "dark";
 
+export type ApprovalMode = "ask" | "semi" | "yolo";
+
 export const EDITOR_THEMES = [
   "atomone",
   "aura",
@@ -52,6 +54,8 @@ export type Preferences = {
   openaiCompatibleBaseURL: string;
   vimMode: boolean;
   lineWrap: boolean;
+  /** Show the minimap in the code editor. Default true. */
+  showMinimap: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   showHiddenFiles: boolean;
@@ -59,6 +63,18 @@ export type Preferences = {
   /** Model ids pinned by the user; surfaced as a "Pinned" group at the top
    *  of the AI model dropdown. Ordered by pin time (newest first). */
   pinnedModelIds: string[];
+  /** Approval mode for AI tool calls.
+   *  - "ask": every mutating tool needs user approval (default).
+   *  - "semi": file edits need approval; shell commands auto-approve.
+   *  - "yolo": all tools auto-approve ("full auto"). */
+  approvalMode: ApprovalMode;
+  /** The model id the user last selected via the chat picker. Restored on
+   *  boot so the active model survives an app relaunch. Null until the
+   *  user makes their first pick — boot falls back to `defaultModelId`. */
+  lastModelId: DynamicModelId | null;
+  /** Provider that owned `lastModelId` at pick time. Persisted alongside it
+   *  so restore is immune to a stale/empty model registry on cold boot. */
+  lastProviderId: string | null;
 };
 
 const STORE_PATH = "tedi-settings.json";
@@ -75,11 +91,15 @@ const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
 const KEY_OPENAI_COMPATIBLE_BASE_URL = "openaiCompatibleBaseURL";
 const KEY_VIM_MODE = "vimMode";
 const KEY_LINE_WRAP = "lineWrap";
+const KEY_SHOW_MINIMAP = "showMinimap";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
+const KEY_APPROVAL_MODE = "approvalMode";
+const KEY_LAST_MODEL = "lastModelId";
+const KEY_LAST_PROVIDER = "lastProviderId";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -103,11 +123,15 @@ export const DEFAULT_PREFERENCES: Preferences = {
   openaiCompatibleBaseURL: OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   vimMode: false,
   lineWrap: false,
+  showMinimap: true,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   showHiddenFiles: false,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   pinnedModelIds: [],
+  approvalMode: "ask",
+  lastModelId: null,
+  lastProviderId: null,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -159,6 +183,8 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.openaiCompatibleBaseURL,
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     lineWrap: get<boolean>(KEY_LINE_WRAP) ?? DEFAULT_PREFERENCES.lineWrap,
+    showMinimap:
+      get<boolean>(KEY_SHOW_MINIMAP) ?? DEFAULT_PREFERENCES.showMinimap,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
       DEFAULT_PREFERENCES.terminalWebglEnabled,
@@ -173,6 +199,14 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.shortcuts,
     pinnedModelIds:
       get<string[]>(KEY_PINNED_MODELS) ?? DEFAULT_PREFERENCES.pinnedModelIds,
+    approvalMode:
+      get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
+    lastModelId:
+      get<DynamicModelId | null>(KEY_LAST_MODEL) ??
+      DEFAULT_PREFERENCES.lastModelId,
+    lastProviderId:
+      get<string | null>(KEY_LAST_PROVIDER) ??
+      DEFAULT_PREFERENCES.lastProviderId,
   };
 }
 
@@ -232,6 +266,10 @@ export async function setLineWrap(value: boolean): Promise<void> {
   await writePref(KEY_LINE_WRAP, value);
 }
 
+export async function setShowMinimap(value: boolean): Promise<void> {
+  await writePref(KEY_SHOW_MINIMAP, value);
+}
+
 export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
@@ -264,6 +302,37 @@ export async function setPinnedModelIds(value: string[]): Promise<void> {
   await writePref(KEY_PINNED_MODELS, value);
 }
 
+export async function setApprovalMode(value: ApprovalMode): Promise<void> {
+  await writePref(KEY_APPROVAL_MODE, value);
+}
+
+export async function setLastModelId(
+  value: DynamicModelId | null,
+): Promise<void> {
+  await writePref(KEY_LAST_MODEL, value);
+}
+
+export async function setLastProviderId(
+  value: string | null,
+): Promise<void> {
+  await writePref(KEY_LAST_PROVIDER, value);
+}
+
+export const APPROVAL_MODE_META: Record<ApprovalMode, { label: string; description: string }> = {
+  ask: {
+    label: "Ask",
+    description: "Every mutating tool needs your approval",
+  },
+  semi: {
+    label: "Semi",
+    description: "File edits need approval; shell auto-approves",
+  },
+  yolo: {
+    label: "Full Auto",
+    description: "All tools auto-approve · no interruptions",
+  },
+};
+
 export type PrefKey = keyof Preferences;
 
 /** Subscribe to changes from any window (settings → main). */
@@ -284,11 +353,15 @@ export async function onPreferencesChange(
     [KEY_OPENAI_COMPATIBLE_BASE_URL]: "openaiCompatibleBaseURL",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_LINE_WRAP]: "lineWrap",
+    [KEY_SHOW_MINIMAP]: "showMinimap",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_PINNED_MODELS]: "pinnedModelIds",
+    [KEY_APPROVAL_MODE]: "approvalMode",
+    [KEY_LAST_MODEL]: "lastModelId",
+    [KEY_LAST_PROVIDER]: "lastProviderId",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

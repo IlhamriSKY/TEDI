@@ -13,6 +13,12 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import {
+  APPROVAL_MODE_META,
+  setApprovalMode,
+  type ApprovalMode,
+} from "@/modules/settings/store";
 import {
   AbsoluteIcon,
   ArrowDown01Icon,
@@ -28,6 +34,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentIconId } from "../lib/agents";
 import { useAgentsStore } from "../store/agentsStore";
 
+const APPROVAL_MODE_ORDER: ApprovalMode[] = ["ask", "semi", "yolo"];
+const APPROVAL_MODE_DOT: Record<ApprovalMode, string> = {
+  ask: "bg-amber-500",
+  semi: "bg-sky-500",
+  yolo: "bg-emerald-500",
+};
+
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
   architect: AbsoluteIcon,
@@ -42,6 +55,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
   const customAgents = useAgentsStore((s) => s.customAgents);
   const activeId = useAgentsStore((s) => s.activeId);
   const setActiveId = useAgentsStore((s) => s.setActiveId);
+  const approvalMode = usePreferencesStore((s) => s.approvalMode);
 
   const list = useAgentsStore.getState().all();
   void customAgents; // keeps the store subscription alive
@@ -51,7 +65,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
   const custom = list.filter((a) => !a.builtIn);
   const ActiveIcon = ICONS[active.icon] ?? SparklesIcon;
 
-  const agentTooltip = `Agent: ${active.name}`;
+  const agentTooltip = `Agent: ${active.name} · Approval: ${APPROVAL_MODE_META[approvalMode].label}`;
 
   return (
     <DropdownMenu>
@@ -168,6 +182,44 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
             })}
           </>
         ) : null}
+        <DropdownMenuSeparator />
+        <div className="px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          Approval mode
+        </div>
+        {APPROVAL_MODE_ORDER.map((m) => {
+          const meta = APPROVAL_MODE_META[m];
+          return (
+            <DropdownMenuItem
+              key={`approval-${m}`}
+              onSelect={() => void setApprovalMode(m)}
+              className={cn(
+                "flex items-start gap-2 text-[12px]",
+                m === approvalMode && "bg-accent/40",
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-1.5 size-1.5 shrink-0 rounded-full",
+                  APPROVAL_MODE_DOT[m],
+                )}
+              />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span>{meta.label}</span>
+                <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                  {meta.description}
+                </span>
+              </span>
+              {m === approvalMode ? (
+                <HugeiconsIcon
+                  icon={Tick02Icon}
+                  size={12}
+                  strokeWidth={2}
+                  className="mt-0.5 shrink-0 text-foreground"
+                />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => void openSettingsWindow("agents")}

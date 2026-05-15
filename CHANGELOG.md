@@ -4,6 +4,44 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.8] - 2026-05-15
+
+### Added
+- **Prompt queue.** While the agent is busy, Ctrl/Cmd+Enter queues the current draft instead of dropping it. Queued prompts render as numbered amber chips above the input bar and fire one-by-one when the agent settles. The status-bar Send button gets a dropdown with **Send now (interrupt)** and **Add to queue** while busy. A `firingRef` latch prevents the queue from draining in a single render pass.
+- **Approval modes** for AI tool calls. New `approvalMode` preference (Ask / Semi / Full Auto), picked from the AgentSwitcher dropdown with a colored dot + description for each mode. `AgentRunBridge` auto-approves matching tool calls (dedup'd by `approvalId`):
+  - **Ask** (default): every mutating tool still pauses for the user.
+  - **Semi**: shell commands matching a conservative read-only prefix list (`ls`, `pwd`, `cat`, `grep`, `git status`, `node --version`, …) auto-approve; file mutations still ask.
+  - **Full Auto** (yolo): every tool auto-approves without interruption.
+- **Active model + provider persist across launches.** New `lastModelId` and `lastProviderId` preferences captured by a `useChatStore.subscribe` listener; boot restore picks the saved pair (falling back to the workspace default if the key is missing or the model is gone). The boot path is gated by a ref so a delayed `openai-compatible` `/v1/models` refresh can't demote the user's pick.
+- **Per-message model chip** in the chat: every user message displays the model + maker that was active at send time (`UserMessageModelChip`). Powered by a new `TediUserMetadata` bag (`tediModel`, `tediModelLabel`, `tediProvider`, `tediOwnedBy`, `sentAt`) stamped onto outgoing messages. `openai-compatible` passes through the gateway's `owned_by` so a model like `mimo` is credited to **Xiaomi**, not the proxy.
+- **ExplorerGrep panel** — a "Search in files" surface in the file explorer, opened by the file-search icon in the explorer header or by `Ctrl+Shift+F`. The existing "Go to file by name" picker moves to `Ctrl+Shift+P` (renamed in the placeholder too).
+- **Minimap toggle** in Settings → General. Stored as `showMinimap` (default true) and applied live via a CodeMirror compartment so the open editor reconfigures on the fly without a full state rebuild.
+- **HTTP ping accepts Bearer auth** (`http_ping(url, auth)`). The OpenAI-Compatible and Autocomplete "Test endpoint" probes now send the API key as a bearer token so endpoints that require auth can be validated; the dialog auto-saves a key that was just typed but not yet stored.
+- **Workspaces panel tab count.** Each workspace row shows the number of open tabs (live count for the active workspace, persisted `tabs.length` for the others). The chip fades out on hover so the rename/delete actions slot in cleanly.
+- **OpenAI-Compatible models refresh on startup.** App boot kicks a `/v1/models` fetch when both the API key and base URL are present, so a fresh launch lands on the saved model without waiting for the user to open Settings → Models.
+- **Pinned models qualified by provider** (`provider::modelId` key). Two models with the same id (e.g. `mimo-v2.5-pro` proxied by both SumoPod and an OpenAI-Compatible gateway) can be pinned independently. Legacy unqualified pins are honoured for backwards compat and upgraded to the qualified form on the next toggle.
+- **Floating prompt pin tracks every user message.** Scrolling deep into chat history pins the *most recent* user prompt that's above the viewport — not just the global "last user message" — so the matching question stays visible while you read its reply.
+- **AI shortcut documentation rows** in Settings → Shortcuts: read-only entries for "Send prompt" (Enter), "Queue prompt while AI is busy" (Ctrl/Cmd+Enter), and "New line in prompt" (Shift+Enter). They're hardcoded in the textarea handler — listing them makes the bindings discoverable without an editable recorder.
+
+### Changed
+- **`reqwest` gains `rustls-tls` + `http2` features.** The Tauri backend can now talk to HTTPS endpoints out of the box (no system OpenSSL dependency) and negotiate HTTP/2 — required for "Test endpoint" against cloud gateways and the OpenAI-Compatible `/v1/models` fetch.
+- **Scroll-to-bottom button** redesigned: pill-shaped "Scroll to bottom" with an arrow icon, animated in/out via `motion`'s spring `AnimatePresence`. Replaces the round icon-only button.
+- **Conversation scroller** switched to `scrollbar-gutter: auto`. `use-stick-to-bottom` hardcoded `stable both-edges` inline, which reserved 16px on both sides even when no scrollbar was showing; the trailing-`!` Tailwind utility now beats the inline style so short chats render flush.
+- **Reasoning trigger** picks up `cursor-pointer select-none` so the disclosure feels clickable.
+- **AiMiniWindow header** padding/spacing tightened (session picker grows; busy spinner gets right-padding instead of bigger gaps).
+- **Status-bar AI controls** redesigned: drops the "close panel" `Cmd+I` chip; Send button repaints as a 24px rounded square; while busy, the Send button becomes a split-button dropdown with "Send now (interrupt)" and "Add to queue" options.
+- **SumoPod model hint** is now always `via SumoPod`. The upstream API returns `owned_by: "openai"` for every model regardless of the real maker, so the gateway label is more honest. The chat chip continues to credit SumoPod as the gateway as well (no `ownedBy` stamped on SumoPod-detected models).
+- **OpenAI-Compatible key block** restyled: side-by-side **Save** button next to the input, `pr-12` clearance for the Show/Hide pill, and tightened "detected"/"failed" messages.
+- **Model dropdown trigger** picks the user's saved provider when synthesising a `ModelInfo` for a runtime-detected id, so the trigger pill no longer mis-labels openai-compatible models as `SumoPod` (or vice versa).
+- **Ctrl+Shift+P / Ctrl+Shift+F bindings** swapped: file-name picker → `Ctrl+Shift+P` (was Ctrl+Shift+F); content search → `Ctrl+Shift+F`. Matches VS Code muscle memory.
+
+### Fixed
+- **Radix `<ScrollArea>` horizontal overflow.** Radix wraps the viewport's children in an inner `display:table` div, which shrinks-to-fit its widest descendant — long unbreakable paths in grep results / file explorer / SSH connection list pushed it past the viewport and triggered an unwanted horizontal scrollbar (and killed `truncate`/`break-all` on inner rows). Coerced to `display:block; width:100%; min-width:0` globally.
+- **Model picker race on cold boot.** When two providers race to register the same model id, the dropdown trigger could mis-label the active model (or fall back to "SumoPod" for an openai-compatible pick). `selectedProvider` is now stored alongside `selectedModelId` and used as the source of truth.
+
+### Dependencies
+- Backend: `reqwest = { default-features = false, features = ["rustls-tls", "http2"] }` — adds `hyper-rustls`, `webpki-roots`, `h2`, `quinn`/`quinn-proto` (HTTP/3 fallback path via reqwest), `rand 0.9`, `web-time`, plus internal `bs58`, `lru-slab`, etc., into the Cargo lockfile.
+
 ## [0.1.7] - 2026-05-15
 
 ### Added

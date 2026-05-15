@@ -27,9 +27,19 @@ type Props = {
    * that the store hands focus to.
    */
   onClose: (workspaceId: string) => void;
+  /**
+   * Live open-tab count for the *active* workspace. Inactive workspaces use
+   * their persisted `tabs.length` since their live state isn't mounted.
+   */
+  liveTabsCount?: number;
 };
 
-export function WorkspacesPanel({ onSwitch, onCreate, onClose }: Props) {
+export function WorkspacesPanel({
+  onSwitch,
+  onCreate,
+  onClose,
+  liveTabsCount,
+}: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
@@ -72,11 +82,15 @@ export function WorkspacesPanel({ onSwitch, onCreate, onClose }: Props) {
           {workspaces.map((w) => {
             const isActive = w.id === activeId;
             const isEditing = editingId === w.id;
+            const tabCount =
+              isActive && liveTabsCount !== undefined
+                ? liveTabsCount
+                : w.tabs.length;
             return (
               <li
                 key={w.id}
                 className={cn(
-                  "group flex h-7 items-center gap-1.5 rounded px-1.5 text-xs",
+                  "group relative flex h-7 items-center gap-1.5 rounded px-1.5 text-xs",
                   isActive
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -112,7 +126,18 @@ export function WorkspacesPanel({ onSwitch, onCreate, onClose }: Props) {
                     {w.name}
                   </button>
                 )}
-                <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <span
+                  className={cn(
+                    "shrink-0 rounded bg-muted/50 px-1 text-[10px] tabular-nums transition-opacity",
+                    isActive ? "text-foreground/80" : "text-muted-foreground",
+                    "group-hover:opacity-0",
+                  )}
+                  title={`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
+                  aria-label={`${tabCount} tabs open`}
+                >
+                  {tabCount}
+                </span>
+                <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
                   <IconTooltip label="Rename">
                     <Button
                       onClick={() => startEdit(w.id, w.name)}

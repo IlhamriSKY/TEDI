@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDown01Icon, Download01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { AnimatePresence, motion } from "motion/react";
 import type { ComponentProps } from "react";
 import { useCallback } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -29,7 +30,16 @@ export const ConversationContent = ({
   className,
   ...props
 }: ConversationContentProps) => (
+  // `use-stick-to-bottom` hardcodes `scrollbar-gutter: stable both-edges`
+  // on the scroller via inline style, which reserves 16px on BOTH sides
+  // (so the layout stays symmetric whether or not a scrollbar is shown)
+  // and leaves a visible gap around full-bleed children like the sticky
+  // last-message pin. Trailing `!` flag raises our class to `!important`
+  // so it beats the inline style — `auto` only allocates a gutter when a
+  // scrollbar actually appears, so empty / short chats render fully flush
+  // and longer ones still get a clean right-side scrollbar lane.
   <StickToBottom.Content
+    scrollClassName="[scrollbar-gutter:auto]!"
     className={cn("flex flex-col gap-5 p-4", className)}
     {...props}
   />
@@ -83,21 +93,40 @@ export const ConversationScrollButton = ({
   }, [scrollToBottom]);
 
   return (
-    !isAtBottom && (
-      <Button
-        className={cn(
-          "absolute bottom-3 left-1/2 size-7 -translate-x-1/2 border-border/50 bg-background/90 shadow-md backdrop-blur dark:bg-background/80 dark:hover:bg-muted",
-          className
-        )}
-        onClick={handleScrollToBottom}
-        size="icon"
-        type="button"
-        variant="outline"
-        {...props}
-      >
-        <HugeiconsIcon icon={ArrowDown01Icon} size={13} strokeWidth={2} />
-      </Button>
-    )
+    <AnimatePresence>
+      {!isAtBottom && (
+        <motion.div
+          key="scroll-to-bottom"
+          initial={{ opacity: 0, y: 10, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 8, scale: 0.9 }}
+          transition={{
+            type: "spring",
+            stiffness: 380,
+            damping: 28,
+            mass: 0.55,
+          }}
+          className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2"
+        >
+          <Button
+            className={cn(
+              // Same outline-pill style; just enough shadow to lift it off
+              // the chat, no halo ring. Text + arrow keeps the affordance
+              // obvious without needing a giant glow.
+              "pointer-events-auto h-7 gap-1.5 rounded-full border border-border/60 bg-background px-3 text-[11px] font-medium text-muted-foreground shadow-md backdrop-blur transition-colors hover:border-foreground/30 hover:bg-accent hover:text-foreground active:scale-95 dark:bg-background dark:hover:bg-muted",
+              className,
+            )}
+            onClick={handleScrollToBottom}
+            type="button"
+            variant="outline"
+            {...props}
+          >
+            <HugeiconsIcon icon={ArrowDown01Icon} size={13} strokeWidth={2.25} />
+            <span>Scroll to bottom</span>
+          </Button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 

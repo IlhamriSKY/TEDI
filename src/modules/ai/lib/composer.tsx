@@ -6,7 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
+import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
@@ -78,12 +80,42 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const status = useChatStore((s) => s.agentMeta.status);
   const isBusy = status === "thinking" || status === "streaming";
+  const queueLen = useChatStore((s) => s.promptQueue.length);
+  const consumeNextQueuedPrompt = useChatStore(
+    (s) => s.consumeNextQueuedPrompt,
+  );
 
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [pickedSnippets, setPickedSnippets] = useState<Snippet[]>([]);
   const [pickedCommands, setPickedCommands] = useState<SlashCommandMeta[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-fire next queued prompt when the agent settles. Awaiting-approval
+  // counts as "busy" - we never bypass a pending approval just to drain the
+  // queue. Sending a queued message sets the chat busy again, which puts the
+  // effect back to sleep until the next idle window.
+  //
+  // `firingRef` is a latch: chat status updates lag a few ticks behind a
+  // `sendMessage` call, so without it the effect could re-fire on the
+  // queueLen change before isBusy flips to true and drain the whole queue
+  // in one render pass.
+  const firingRef = useRef(false);
+  useEffect(() => {
+    if (isBusy) {
+      firingRef.current = false;
+      return;
+    }
+    if (status === "awaiting-approval") return;
+    if (firingRef.current) return;
+    if (queueLen === 0) return;
+    if (!sessionId) return;
+    const next = consumeNextQueuedPrompt();
+    if (!next) return;
+    firingRef.current = true;
+    const chat = getOrCreateChat(sessionId);
+    void chat.sendMessage({ text: next.text });
+  }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt]);
 
   const focusSignal = useChatStore((s) => s.focusSignal);
   const pendingPrefill = useChatStore((s) => s.pendingPrefill);
@@ -297,7 +329,23 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
     if (!sessionId) return;
     const chat = getOrCreateChat(sessionId);
-    void chat.sendMessage({ role: "user", parts } as Parameters<
+    const { selectedModelId: modelId, selectedProvider: provider } =
+      useChatStore.getState();
+    const modelInfo = tryGetModel(modelId);
+    // `selectedProvider` is the source of truth for the gateway tag — it's
+    // set by the dropdown pick, so collisions in the model registry (e.g.
+    // SumoPod and OpenAI-Compatible both detecting the same id) can't mis-
+    // label the chip. tryGetModel is consulted for the display label and
+    // the raw `owned_by` (so a mimo proxied via xiaomimimo is credited
+    // to Xiaomi, not the generic "OpenAI Compatible" gateway).
+    const metadata: TediUserMetadata = {
+      tediModel: modelId,
+      tediModelLabel: modelInfo?.label ?? modelId,
+      tediProvider: provider,
+      tediOwnedBy: modelInfo?.ownedBy,
+      sentAt: Date.now(),
+    };
+    void chat.sendMessage({ role: "user", parts, metadata } as Parameters<
       typeof chat.sendMessage
     >[0]);
     setValue("");

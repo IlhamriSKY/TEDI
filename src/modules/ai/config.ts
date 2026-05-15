@@ -104,6 +104,10 @@ export type ModelInfo = {
   provider: ProviderId;
   label: string;
   hint: string;
+  /** Raw `owned_by` from `/v1/models` if the gateway returned it. Surfaces
+   *  the actual model maker (e.g. "xiaomi" for mimo via xiaomimimo) so the
+   *  chat chip can credit the right brand instead of the gateway. */
+  ownedBy?: string;
 };
 
 export const MODELS = [

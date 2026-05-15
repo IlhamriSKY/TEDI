@@ -21,11 +21,17 @@ import {
   AiSidebarPanel,
   getAllKeys,
   hasAnyKey,
+  hasKeyForModel,
   SelectionAskAi,
   useChatStore,
 } from "@/modules/ai";
 import { AiInputBarConnect } from "@/modules/ai/components/AiInputBar";
+import { providerNeedsKey, type ProviderId } from "@/modules/ai/config";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
+import {
+  clearOpenAICompatibleModels,
+  refreshOpenAICompatibleModels,
+} from "@/modules/ai/lib/openaiCompatible";
 import {
   clearSumopodModels,
   refreshSumopodModels,
@@ -50,7 +56,12 @@ import { PaneStack } from "@/modules/panes";
 import { PreviewStack, type PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { onKeysChanged, setLineWrap } from "@/modules/settings/store";
+import {
+  onKeysChanged,
+  setLastModelId,
+  setLastProviderId,
+  setLineWrap,
+} from "@/modules/settings/store";
 import {
   useGlobalShortcuts,
   type ShortcutHandlers,
@@ -322,14 +333,78 @@ export default function App() {
 
   const initPrefs = usePreferencesStore((s) => s.init);
   const prefDefaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const prefLastModelId = usePreferencesStore((s) => s.lastModelId);
+  const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
+  const openaiCompatibleBaseURL = usePreferencesStore(
+    (s) => s.openaiCompatibleBaseURL,
+  );
+  useEffect(() => {
+    const key = apiKeys["openai-compatible"];
+    if (!key) {
+      clearOpenAICompatibleModels();
+      return;
+    }
+    if (!openaiCompatibleBaseURL) return;
+    void refreshOpenAICompatibleModels(key, openaiCompatibleBaseURL);
+  }, [apiKeys, openaiCompatibleBaseURL]);
   useEffect(() => {
     void initPrefs();
   }, [initPrefs]);
+  // One-shot boot restore: pick the last model the user actually used, fall
+  // back to the workspace default if it's gone (key removed, model deleted).
+  // Guarded by a ref so picking a different model in the dropdown later
+  // doesn't get overwritten by a delayed prefs/keys hydration.
+  const bootModelRestoredRef = useRef(false);
   useEffect(() => {
-    if (!prefsHydrated) return;
-    setSelectedModelId(prefDefaultModel);
-  }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
+    if (bootModelRestoredRef.current) return;
+    if (!prefsHydrated || !keysLoaded) return;
+    // Prefer the saved provider over re-deriving via tryGetModel — the model
+    // registry may still be hydrating on cold boot (openai-compatible /v1/models
+    // fetch hasn't returned yet) and we don't want that race to demote the
+    // user's last pick to the workspace default.
+    const savedProvider = prefLastProviderId as ProviderId | null;
+    const savedHasKey =
+      savedProvider != null &&
+      (providerNeedsKey(savedProvider) ? !!apiKeys[savedProvider] : true);
+    if (prefLastModelId && savedProvider && savedHasKey) {
+      setSelectedModelId(prefLastModelId, savedProvider);
+    } else if (prefLastModelId && hasKeyForModel(prefLastModelId)) {
+      // No saved provider (pre-fix data) — fall back to registry lookup.
+      setSelectedModelId(prefLastModelId);
+    } else {
+      setSelectedModelId(prefDefaultModel);
+    }
+    bootModelRestoredRef.current = true;
+  }, [
+    prefsHydrated,
+    keysLoaded,
+    prefLastModelId,
+    prefLastProviderId,
+    prefDefaultModel,
+    setSelectedModelId,
+  ]);
+  // Persist the active model + provider whenever they change (after the boot
+  // restore has settled). This is what makes the next launch land on the same
+  // model, with the same provider tag — avoiding the "registry race" that
+  // would otherwise mis-label the chip when a stale duplicate id existed.
+  useEffect(() => {
+    const unsub = useChatStore.subscribe((s, prev) => {
+      if (!bootModelRestoredRef.current) return;
+      if (
+        s.selectedModelId === prev.selectedModelId &&
+        s.selectedProvider === prev.selectedProvider
+      )
+        return;
+      if (s.selectedModelId !== prev.selectedModelId) {
+        void setLastModelId(s.selectedModelId);
+      }
+      if (s.selectedProvider !== prev.selectedProvider) {
+        void setLastProviderId(s.selectedProvider);
+      }
+    });
+    return unsub;
+  }, []);
 
   const hydrateSessions = useChatStore((s) => s.hydrateSessions);
   useEffect(() => {
@@ -1482,6 +1557,11 @@ export default function App() {
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
                         onClose={closeWorkspace}
+                        liveTabsCount={
+                          tabs.filter(
+                            (t) => t.kind === "pane" || t.kind === "preview",
+                          ).length
+                        }
                       />
                     </ResizablePanel>
                   </ResizablePanelGroup>

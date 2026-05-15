@@ -18,8 +18,12 @@ export type ShortcutId =
   | "pane.focusPrev"
   | "search.focus"
   | "explorer.search"
+  | "explorer.grep"
   | "ai.toggle"
   | "ai.askSelection"
+  | "ai.send"
+  | "ai.queueWhileBusy"
+  | "ai.newline"
   | "shortcuts.open"
   | "settings.open"
   | "sidebar.toggle"
@@ -47,6 +51,10 @@ export type Shortcut = {
   label: string;
   group: ShortcutGroup;
   defaultBindings: KeyBinding[];
+  /** Show in the settings list but disable the recorder + clear/reset
+   *  buttons. Used for keys that are hardcoded in a component handler
+   *  (e.g. textarea Enter) and only listed here as documentation. */
+  readOnly?: boolean;
 };
 
 export const SHORTCUTS: Shortcut[] = [
@@ -131,10 +139,16 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "1" }],
   },
   {
+    id: "explorer.grep",
+    label: "Search in files",
+    group: "Search",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "f" }],
+  },
+  {
     id: "explorer.search",
     label: "Search files",
     group: "Search",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "f" }],
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "p" }],
   },
   {
     id: "search.focus",
@@ -153,6 +167,27 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Ask AI about selection",
     group: "AI",
     defaultBindings: [{ [MOD_PROP]: true, key: "l" }],
+  },
+  {
+    id: "ai.send",
+    label: "Send prompt",
+    group: "AI",
+    defaultBindings: [{ key: "Enter" }],
+    readOnly: true,
+  },
+  {
+    id: "ai.queueWhileBusy",
+    label: "Queue prompt while AI is busy",
+    group: "AI",
+    defaultBindings: [{ [MOD_PROP]: true, key: "Enter" }],
+    readOnly: true,
+  },
+  {
+    id: "ai.newline",
+    label: "New line in prompt",
+    group: "AI",
+    defaultBindings: [{ shift: true, key: "Enter" }],
+    readOnly: true,
   },
   {
     id: "sidebar.toggle",

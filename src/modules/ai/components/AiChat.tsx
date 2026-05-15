@@ -25,10 +25,12 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
   extractUserMessage,
+  getTediUserMetadata,
   getUserMessageBody,
   type ExtractedFile,
   type ExtractedSelection,
 } from "../lib/messageBody";
+import { PROVIDERS } from "../config";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
@@ -135,6 +137,51 @@ function UserAttachmentChips({
   );
 }
 
+function UserMessageModelChip({
+  meta,
+}: {
+  meta: {
+    tediModel: string;
+    tediModelLabel: string;
+    tediProvider: string;
+    tediOwnedBy?: string;
+  };
+}) {
+  // Prefer the model maker (e.g. "Xiaomi" for mimo) over the gateway label
+  // ("OpenAI Compatible") so the chip credits the actual brand. Exception:
+  // SumoPod proxies many makers and the user thinks of it as "via SumoPod"
+  // — so we always render the SumoPod gateway label regardless of any
+  // upstream owned_by that older messages might have stamped.
+  const gatewayLabel =
+    PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ??
+    meta.tediProvider;
+  const showOwner =
+    meta.tediProvider !== "sumopod" && !!meta.tediOwnedBy;
+  const ownerLabel = showOwner
+    ? capitalize(meta.tediOwnedBy as string)
+    : gatewayLabel;
+  const tooltip =
+    showOwner &&
+    (meta.tediOwnedBy as string).toLowerCase() !== gatewayLabel.toLowerCase()
+      ? `Sent via ${meta.tediModelLabel} (${ownerLabel} · ${gatewayLabel})`
+      : `Sent via ${meta.tediModelLabel} (${ownerLabel})`;
+  return (
+    <span
+      className="flex items-center gap-1 text-[10px] text-muted-foreground/80"
+      title={tooltip}
+    >
+      <span className="font-mono">{meta.tediModelLabel}</span>
+      <span aria-hidden>·</span>
+      <span>{ownerLabel}</span>
+    </span>
+  );
+}
+
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 type AnyToolPart = ToolUIPart | DynamicToolUIPart;
 type AnyPart = UIMessagePart<Record<string, never>, Record<string, never>>;
 
@@ -222,54 +269,102 @@ export function AiChatView({
 
 function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   const { scrollRef } = useStickToBottomContext();
-  const lastUserMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") return messages[i];
-    }
-    return null;
-  }, [messages]);
+  const userMessages = useMemo(
+    () => messages.filter((m) => m.role === "user"),
+    [messages],
+  );
 
-  const [hidden, setHidden] = useState(true);
+  // id → true when the message is currently scrolled above the viewport.
+  // We track every user message and surface the *most recent* one that's
+  // off-screen above, so scrolling deep into the history surfaces the
+  // matching prompt — not just the global "last user message".
+  const [aboveViewport, setAboveViewport] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map());
 
   useEffect(() => {
-    setHidden(true);
-    if (!lastUserMessage) return;
     const scroller = scrollRef.current;
-    if (!scroller) return;
-    let io: IntersectionObserver | null = null;
+    if (!scroller || userMessages.length === 0) {
+      setAboveViewport(new Map());
+      return;
+    }
 
-    const tryObserve = (): boolean => {
+    const state = new Map<string, boolean>();
+    let raf = 0;
+    const flush = () => {
+      raf = 0;
+      setAboveViewport(new Map(state));
+    };
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(flush);
+    };
+
+    const observers: IntersectionObserver[] = [];
+    const wireOne = (id: string): boolean => {
       const target = scroller.querySelector(
-        `[data-message-id="${CSS.escape(lastUserMessage.id)}"]`,
+        `[data-message-id="${CSS.escape(id)}"]`,
       ) as HTMLElement | null;
       if (!target) return false;
-      io = new IntersectionObserver(
-        ([entry]) => setHidden(entry.isIntersecting),
-        { root: scroller, threshold: 0.1 },
+      const io = new IntersectionObserver(
+        ([entry]) => {
+          // "Above viewport" = not intersecting AND bounding box ends before
+          // the root's top edge. (boundingClientRect uses viewport coords
+          // and rootBounds is the scroller's viewport, so this is a direct
+          // y-comparison.)
+          const rootTop = entry.rootBounds?.top ?? 0;
+          const isAbove =
+            !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
+          state.set(id, isAbove);
+          schedule();
+        },
+        { root: scroller, threshold: 0 },
       );
       io.observe(target);
+      observers.push(io);
       return true;
     };
 
-    if (tryObserve()) return () => io?.disconnect();
-    // ConversationContent may not have rendered the message yet on the
-    // first pass; retry on the next frame to catch the initial mount.
-    const raf = requestAnimationFrame(() => tryObserve());
+    // Some messages haven't rendered yet on the first pass; retry on the
+    // next frame to catch them.
+    const pending: string[] = [];
+    for (const m of userMessages) {
+      if (!wireOne(m.id)) pending.push(m.id);
+    }
+    let retryRaf = 0;
+    if (pending.length > 0) {
+      retryRaf = requestAnimationFrame(() => {
+        for (const id of pending) wireOne(id);
+      });
+    }
+
     return () => {
-      cancelAnimationFrame(raf);
-      io?.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+      if (retryRaf) cancelAnimationFrame(retryRaf);
+      for (const io of observers) io.disconnect();
     };
-  }, [lastUserMessage, scrollRef]);
+  }, [userMessages, scrollRef]);
 
-  if (!lastUserMessage || hidden) return null;
+  // Pick the latest user message that's currently above the viewport.
+  // If none are scrolled off (chat fits / user is at the top), the pin
+  // stays hidden — it should only appear when there's actually something
+  // to jump back to.
+  const pinTarget = useMemo(() => {
+    for (let i = userMessages.length - 1; i >= 0; i--) {
+      if (aboveViewport.get(userMessages[i].id)) return userMessages[i];
+    }
+    return null;
+  }, [userMessages, aboveViewport]);
 
-  const body = getUserMessageBody(lastUserMessage) || "(attachments only)";
+  if (!pinTarget) return null;
+
+  const body = getUserMessageBody(pinTarget) || "(attachments only)";
   const oneLine = body.replace(/\s+/g, " ").trim();
   const scrollToMessage = () => {
     const scroller = scrollRef.current;
     if (!scroller) return;
     const target = scroller.querySelector(
-      `[data-message-id="${CSS.escape(lastUserMessage.id)}"]`,
+      `[data-message-id="${CSS.escape(pinTarget.id)}"]`,
     ) as HTMLElement | null;
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -278,16 +373,17 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
     <motion.button
       type="button"
       onClick={scrollToMessage}
-      title="Jump to your last message"
+      title="Jump to this message"
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
         // Sticky inside the scroll container so wheel events on the chat
-        // still bubble to the scrollable ancestor. `top-0 -mx-3` cancels
-        // ConversationContent's `p-3` so the pin reaches the chat edges.
-        "sticky top-0 z-10 -mx-3 flex cursor-pointer items-center gap-2",
+        // still bubble to the scrollable ancestor. `-mx-4` cancels
+        // ConversationContent's `px-4` so the pin is flush with the chat's
+        // left + right edges — no floating-chip gutter.
+        "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
         "border-b border-border/60 bg-background/95 px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
         "text-foreground/85 transition-colors hover:bg-accent hover:text-foreground",
       )}
@@ -330,6 +426,7 @@ const RenderedMessage = memo(function RenderedMessage({
     const { commandName, files, selections, snippets, body } =
       extractUserMessage(rawText);
 
+    const meta = getTediUserMetadata(message);
     return (
       <Message from="user" data-message-id={message.id}>
         <MessageContent>
@@ -345,6 +442,7 @@ const RenderedMessage = memo(function RenderedMessage({
             <p className="whitespace-pre-wrap wrap-break-word">{body}</p>
           ) : null}
         </MessageContent>
+        {meta ? <UserMessageModelChip meta={meta} /> : null}
       </Message>
     );
   }

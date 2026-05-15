@@ -25,6 +25,7 @@ import {
   setShowHiddenFiles,
   setTerminalFontSize,
   setTerminalWebglEnabled,
+  setShowMinimap,
   setVimMode,
   type EditorThemeId,
 } from "@/modules/settings/store";
@@ -57,6 +58,7 @@ export function GeneralSection() {
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const vimMode = usePreferencesStore((s) => s.vimMode);
+  const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
   );
@@ -168,6 +170,15 @@ export function GeneralSection() {
           <Switch
             checked={vimMode}
             onCheckedChange={(v) => void setVimMode(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Show minimap"
+          description="Display the code minimap on the right side of the editor."
+        >
+          <Switch
+            checked={showMinimap}
+            onCheckedChange={(v) => void setShowMinimap(v)}
           />
         </SettingRow>
       </div>

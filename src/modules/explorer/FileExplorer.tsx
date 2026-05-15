@@ -10,6 +10,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   FileAddIcon,
+  FileSearchIcon,
   Folder01Icon,
   FolderAddIcon,
   Refresh01Icon,
@@ -18,6 +19,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ExplorerGrep, type ExplorerGrepHandle } from "./ExplorerGrep";
 import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
 import { FileTreeNode } from "./FileTreeNode";
 import { InlineInput } from "./InlineInput";
@@ -59,8 +61,11 @@ export function FileExplorer({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [isGrepOpen, setIsGrepOpen] = useState(false);
+  const [isGrepActive, setIsGrepActive] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<ExplorerSearchHandle>(null);
+  const grepRef = useRef<ExplorerGrepHandle>(null);
 
   type FlatItem = { path: string; isDir: boolean };
   const flat = useMemo<FlatItem[]>(() => {
@@ -92,8 +97,18 @@ export function FileExplorer({
         setIsSearchOpen(false);
         return;
       }
+      setIsGrepOpen(false);
       setIsSearchOpen(true);
       searchRef.current?.focus();
+    },
+    "explorer.grep": () => {
+      if (grepRef.current?.isFocused()) {
+        setIsGrepOpen(false);
+        return;
+      }
+      setIsSearchOpen(false);
+      setIsGrepOpen(true);
+      grepRef.current?.focus();
     },
   });
 
@@ -118,7 +133,8 @@ export function FileExplorer({
     tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (tree.renaming || tree.pendingCreate || isSearchOpen) return;
+    if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen)
+      return;
     const target = e.target as HTMLElement;
     if (
       target.tagName === "INPUT" ||
@@ -213,10 +229,28 @@ export function FileExplorer({
             variant="ghost"
             size="icon"
             className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={() => setIsSearchOpen((v) => !v)}
+            onClick={() => {
+              setIsGrepOpen(false);
+              setIsSearchOpen((v) => !v);
+            }}
             aria-label="Search files"
           >
             <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+
+        <IconTooltip label="Search in files" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setIsSearchOpen(false);
+              setIsGrepOpen((v) => !v);
+            }}
+            aria-label="Search in files"
+          >
+            <HugeiconsIcon icon={FileSearchIcon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
 
@@ -276,7 +310,16 @@ export function FileExplorer({
         onActiveChange={setIsSearchActive}
       />
 
-      {!isSearchActive ? (
+      <ExplorerGrep
+        ref={grepRef}
+        rootPath={rootPath}
+        onOpenFile={onOpenFile}
+        open={isGrepOpen}
+        onRequestClose={() => setIsGrepOpen(false)}
+        onActiveChange={setIsGrepActive}
+      />
+
+      {!isSearchActive && !isGrepActive ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <ScrollArea className="min-h-0 flex-1">

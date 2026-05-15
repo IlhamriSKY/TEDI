@@ -12,6 +12,11 @@ export const languageCompartment = new Compartment();
 export const readOnlyCompartment = new Compartment();
 export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
+export const minimapCompartment = new Compartment();
+
+export function buildMinimapExtension(): Extension {
+  return minimapExtension();
+}
 
 // VSCode-style fold gutter: chevrons stay hidden until the gutter is hovered;
 // folded regions keep their marker visible so collapsed sections are obvious.
@@ -47,7 +52,11 @@ function minimapExtension(): Extension {
   });
 }
 
-export function buildSharedExtensions(): Extension[] {
+export function buildSharedExtensions(opts?: {
+  /** When false, the minimap compartment starts empty. Default true. */
+  showMinimap?: boolean;
+}): Extension[] {
+  const minimapOn = opts?.showMinimap !== false;
   return [
     indentUnit.of("  "),
     EditorState.tabSize.of(2),
@@ -57,7 +66,7 @@ export function buildSharedExtensions(): Extension[] {
       markerDOM: makeFoldMarker,
     }),
     colorDecorations(),
-    minimapExtension(),
+    minimapCompartment.of(minimapOn ? minimapExtension() : []),
     EditorView.theme({
       "&, &.cm-editor, &.cm-editor.cm-focused": {
         backgroundColor: "transparent !important",

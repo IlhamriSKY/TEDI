@@ -216,6 +216,20 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   display: none !important;
 }
 
+/* Radix wraps Viewport children in an inner `<div style="display:table;
+ * min-width:100%">`. With `display:table`, the wrapper shrinks-to-fit
+ * its widest descendant, so long unbreakable content (paths, hit lines)
+ * pushes it wider than the viewport and triggers horizontal scroll —
+ * which breaks `truncate` and `break-all` on inner rows. Every
+ * ScrollArea in this app is a vertical-only list, so coerce the wrapper
+ * to a block that respects the viewport's width and lets children
+ * truncate/wrap normally. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
 /* xterm renders its own canvas-based scrollbar via add-ons; we only need to
  * clean up the focus outline on the host element. */
 .xterm,

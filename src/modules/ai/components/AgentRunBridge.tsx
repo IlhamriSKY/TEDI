@@ -2,6 +2,7 @@ import { useChat, type UIMessage } from "@ai-sdk/react";
 import type { ToolUIPart, UIMessagePart } from "ai";
 import { useEffect, useMemo, useRef } from "react";
 import type { AiDiffStatus } from "@/modules/tabs";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
 import { resolvePath } from "../tools/tools";
@@ -75,6 +76,38 @@ function Bridge({
     );
     return () => setApprovalResponder(null);
   }, [setApprovalResponder, addToolApprovalResponse]);
+
+  // Auto-approve based on approvalMode preference.
+  //   - "ask"  : every mutating tool needs the user (default, original)
+  //   - "semi" : shell auto-approves (when the command is plainly read-only);
+  //              file mutations still ask
+  //   - "yolo" : everything auto-approves
+  // We dedup by approvalId so re-renders don't fire the response twice.
+  const approvalMode = usePreferencesStore((s) => s.approvalMode);
+  const autoRespondedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (approvalMode === "ask") return;
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      for (const part of m.parts as AnyPart[]) {
+        const state = (part as { state?: string }).state;
+        if (state !== "approval-requested") continue;
+        const type = (part as { type?: string }).type ?? "";
+        if (!type.startsWith("tool-")) continue;
+        const toolName = type.slice("tool-".length);
+        const approvalId = (part as { approval?: { id?: string } }).approval
+          ?.id;
+        if (!approvalId || autoRespondedRef.current.has(approvalId)) continue;
+        const input = (part as ToolPartLike).input as
+          | Record<string, unknown>
+          | undefined;
+        if (shouldAutoApprove(approvalMode, toolName, input)) {
+          autoRespondedRef.current.add(approvalId);
+          addToolApprovalResponse({ id: approvalId, approved: true });
+        }
+      }
+    }
+  }, [messages, approvalMode, addToolApprovalResponse]);
 
   useEffect(() => {
     persistMessages(sessionId, messages);
@@ -355,6 +388,74 @@ function applyEditsLocally(
     }
   }
   return { ok: true, content };
+}
+
+/** Common, plainly read-only shell prefixes. Auto-approved in "semi" mode.
+ *  Conservative on purpose - anything that pipes / chains / redirects is
+ *  considered side-effectful and falls back to asking. */
+const READ_ONLY_BASH_PREFIXES = [
+  "ls",
+  "pwd",
+  "cat",
+  "head",
+  "tail",
+  "wc",
+  "whoami",
+  "which",
+  "where",
+  "echo",
+  "find",
+  "du",
+  "df",
+  "stat",
+  "file",
+  "tree",
+  "git status",
+  "git log",
+  "git diff",
+  "git show",
+  "git branch",
+  "git remote",
+  "git config --get",
+  "npm test",
+  "npm run test",
+  "pnpm test",
+  "yarn test",
+  "cargo test",
+  "cargo check",
+  "npm ls",
+  "pnpm ls",
+  "node -v",
+  "node --version",
+  "rustc --version",
+  "python --version",
+];
+
+function isReadOnlyBashCommand(cmd: string): boolean {
+  const trimmed = cmd.trim();
+  if (!trimmed) return false;
+  // Disallow any shell chaining / redirection / substitution. These can hide
+  // side-effecting commands behind a safe-looking prefix.
+  if (/[;&|><`$()]/.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  return READ_ONLY_BASH_PREFIXES.some(
+    (p) => lower === p || lower.startsWith(`${p} `),
+  );
+}
+
+function shouldAutoApprove(
+  mode: "semi" | "yolo",
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+): boolean {
+  if (mode === "yolo") return true;
+  // mode === "semi"
+  if (toolName === "bash_run") {
+    const cmd = typeof input?.command === "string" ? input.command : "";
+    return isReadOnlyBashCommand(cmd);
+  }
+  // File mutations + bash_background still need explicit approval in semi.
+  return false;
 }
 
 async function readOriginal(

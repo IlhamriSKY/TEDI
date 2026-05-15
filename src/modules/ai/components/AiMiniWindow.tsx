@@ -200,13 +200,13 @@ function Header({
   void customAgents;
 
   return (
-    <div className="relative flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
-      <div className="flex min-w-0 items-center gap-1.5">
+    <div className="relative flex h-11 shrink-0 items-center justify-between gap-1 border-b border-border/60 px-0">
+      <div className="flex min-w-0 flex-1 items-center">
         <SessionPicker />
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {isBusy ? (
-          <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-1 pr-1 text-[10px] text-muted-foreground">
             <Spinner className="size-2.5" />
             <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
           </span>
@@ -217,7 +217,7 @@ function Header({
             size="icon"
             variant="ghost"
             onClick={onClose}
-            className="size-5 hover:bg-destructive/10 hover:text-destructive"
+            className="size-7 rounded-none hover:bg-destructive/10 hover:text-destructive"
             aria-label="Close (Esc)"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />

@@ -269,7 +269,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                 if (target && !target.is_dir) openHit(target);
               }
             }}
-            placeholder="Search files…"
+            placeholder="Go to file by name…"
             className="h-7 pr-7 pl-6.5 text-xs"
           />
           {query ? (

@@ -185,28 +185,42 @@ function ShortcutRow({
     userBindings !== undefined ? userBindings : shortcut.defaultBindings;
   const isModified = userBindings !== undefined;
   const hasBindings = bindings && bindings.length > 0;
+  const isReadOnly = !!shortcut.readOnly;
 
   return (
     <div className="group flex items-center justify-between px-3 py-2.5 transition-colors hover:bg-muted/30">
       <div className="flex flex-col gap-0.5">
         <span className="text-[12.5px] font-medium">{shortcut.label}</span>
+        {isReadOnly ? (
+          <span className="text-[10.5px] text-muted-foreground">
+            Built-in. Not rebindable.
+          </span>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2">
-        {isRecording ? (
+        {isRecording && !isReadOnly ? (
           <Recorder onRecord={onRecord} onCancel={onStopRecording} />
         ) : (
           <>
             <div
-              onClick={onStartRecording}
-              className="flex min-w-[100px] cursor-pointer items-center justify-end gap-1"
+              onClick={isReadOnly ? undefined : onStartRecording}
+              className={
+                isReadOnly
+                  ? "flex min-w-[100px] items-center justify-end gap-1"
+                  : "flex min-w-[100px] cursor-pointer items-center justify-end gap-1"
+              }
             >
               {hasBindings ? (
                 <KbdGroup>
                   {getBindingTokens(bindings[0]).map((t, i) => (
                     <Kbd
                       key={i}
-                      className="group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
+                      className={
+                        isReadOnly
+                          ? "opacity-80"
+                          : "group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
+                      }
                     >
                       {t}
                     </Kbd>
@@ -219,32 +233,34 @@ function ShortcutRow({
               )}
             </div>
 
-            <div className="flex items-center gap-1">
-              {isModified && (
-                <IconTooltip label="Reset to default" side="left">
+            {isReadOnly ? null : (
+              <div className="flex items-center gap-1">
+                {isModified && (
+                  <IconTooltip label="Reset to default" side="left">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-foreground"
+                      onClick={onReset}
+                      aria-label="Reset to default"
+                    >
+                      <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} />
+                    </Button>
+                  </IconTooltip>
+                )}
+                <IconTooltip label="Clear shortcut" side="left">
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-7 text-muted-foreground hover:text-foreground"
-                    onClick={onReset}
-                    aria-label="Reset to default"
+                    className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={onClear}
+                    aria-label="Clear shortcut"
                   >
-                    <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} />
+                    <HugeiconsIcon icon={Delete02Icon} size={12} />
                   </Button>
                 </IconTooltip>
-              )}
-              <IconTooltip label="Clear shortcut" side="left">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
-                  onClick={onClear}
-                  aria-label="Clear shortcut"
-                >
-                  <HugeiconsIcon icon={Delete02Icon} size={12} />
-                </Button>
-              </IconTooltip>
-            </div>
+              </div>
+            )}
           </>
         )}
       </div>

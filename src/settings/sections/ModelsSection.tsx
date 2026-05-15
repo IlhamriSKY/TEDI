@@ -337,7 +337,8 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
     setTestStatus("testing");
     try {
       const url = urlDraft.replace(/\/$/, "") + "/models";
-      const status = await invoke<number>("http_ping", { url });
+      const auth = keys[provider] ?? null;
+      const status = await invoke<number>("http_ping", { url, auth });
       setTestStatus(status >= 200 && status < 400 ? "ok" : "fail");
     } catch {
       setTestStatus("fail");
@@ -515,7 +516,8 @@ function OpenAICompatibleBlock({
     setTestError(null);
     try {
       const url = urlDraft.trim().replace(/\/$/, "") + "/models";
-      const code = await invoke<number>("http_ping", { url });
+      const auth = keyDraft.trim() || apiKey;
+      const code = await invoke<number>("http_ping", { url, auth });
       setTestStatus(code >= 200 && code < 400 ? "ok" : "fail");
       if (!(code >= 200 && code < 400)) setTestError(`HTTP ${code}`);
     } catch (e) {
@@ -591,35 +593,46 @@ function OpenAICompatibleBlock({
                 </Button>
               </div>
             ) : (
-              <div className="relative">
-                <Input
-                  type={revealKey ? "text" : "password"}
-                  value={keyDraft}
-                  disabled={savingKey}
-                  onChange={(e) => {
-                    setKeyDraft(e.target.value);
-                    if (keyError) setKeyError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void saveKey();
-                    }
-                  }}
-                  placeholder="Paste API key, press Enter"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="h-7 pr-7 font-mono text-[11px]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setRevealKey((v) => !v)}
-                  tabIndex={-1}
-                  className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px] text-muted-foreground hover:text-foreground"
-                  aria-label={revealKey ? "Hide key" : "Show key"}
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1">
+                  <Input
+                    type={revealKey ? "text" : "password"}
+                    value={keyDraft}
+                    disabled={savingKey}
+                    onChange={(e) => {
+                      setKeyDraft(e.target.value);
+                      if (keyError) setKeyError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void saveKey();
+                      }
+                    }}
+                    placeholder="Paste API key"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="h-7 pr-12 font-mono text-[11px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRevealKey((v) => !v)}
+                    tabIndex={-1}
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={revealKey ? "Hide key" : "Show key"}
+                  >
+                    {revealKey ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void saveKey()}
+                  disabled={!keyDraft.trim() || savingKey}
+                  className="h-7 px-2.5 text-[10.5px]"
                 >
-                  {revealKey ? "Hide" : "Show"}
-                </button>
+                  {savingKey ? "Saving…" : "Save"}
+                </Button>
               </div>
             )}
           </div>
@@ -645,10 +658,10 @@ function OpenAICompatibleBlock({
               "Detecting models…"
             ) : status === "error" ? (
               <span className="text-destructive">
-                Detection failed{error ? ` — ${error}` : ""}.
+                Detection failed{error ? ` · ${error}` : ""}.
               </span>
             ) : status === "ok" ? (
-              `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected — pick one in the dropdown above.`
+              `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected · pick one in the dropdown above.`
             ) : (
               "Click Detect to fetch the catalogue."
             )}

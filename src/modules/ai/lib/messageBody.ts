@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { ProviderId } from "../config";
 import { TEDI_CMD_RE } from "./slashCommands";
 
 export type ExtractedFile = { name: string };
@@ -6,6 +7,40 @@ export type ExtractedSelection = {
   source: "terminal" | "editor";
   lines: number;
 };
+
+/** Metadata the composer stamps onto outgoing user messages so the chat
+ *  view can render the model + provider that was active at send-time.
+ *  Not consumed by the LLM — UIMessage.metadata is a client-side bag. */
+export type TediUserMetadata = {
+  tediModel: string;
+  tediModelLabel: string;
+  /** The provider gateway id (e.g. "openai-compatible"). */
+  tediProvider: ProviderId;
+  /** Raw `owned_by` from `/v1/models` if known (e.g. "xiaomi" for mimo).
+   *  Preferred over the gateway label in the chat chip so the model is
+   *  credited to its actual maker, not the proxy. */
+  tediOwnedBy?: string;
+  sentAt: number;
+};
+
+/** Type guard: returns the metadata bag if it looks like ours. */
+export function getTediUserMetadata(
+  message: UIMessage,
+): TediUserMetadata | null {
+  const m = message.metadata as { [k: string]: unknown } | undefined;
+  if (!m) return null;
+  if (typeof m.tediModel !== "string") return null;
+  if (typeof m.tediModelLabel !== "string") return null;
+  if (typeof m.tediProvider !== "string") return null;
+  return {
+    tediModel: m.tediModel,
+    tediModelLabel: m.tediModelLabel,
+    tediProvider: m.tediProvider as ProviderId,
+    tediOwnedBy:
+      typeof m.tediOwnedBy === "string" ? m.tediOwnedBy : undefined,
+    sentAt: typeof m.sentAt === "number" ? m.sentAt : 0,
+  };
+}
 
 export type ExtractedMessage = {
   files: ExtractedFile[];

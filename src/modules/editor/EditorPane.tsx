@@ -21,7 +21,9 @@ import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
 import {
+  buildMinimapExtension,
   buildSharedExtensions,
+  minimapCompartment,
   languageCompartment,
   vimCompartment,
   wrapCompartment,
@@ -149,6 +151,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     const editorThemeId = usePreferencesStore((s) => s.editorTheme);
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const lineWrap = usePreferencesStore((s) => s.lineWrap);
+    const showMinimap = usePreferencesStore((s) => s.showMinimap);
     const languageRef = useRef<string | null>(null);
     const apiKeyRef = useRef<string | null>(null);
 
@@ -230,7 +233,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
           },
           close: () => onCloseRef.current?.(),
         })),
-        ...buildSharedExtensions(),
+        ...buildSharedExtensions({
+          showMinimap: usePreferencesStore.getState().showMinimap,
+        }),
         wrapCompartment.of(
           usePreferencesStore.getState().lineWrap ? EditorView.lineWrapping : [],
         ),
@@ -299,6 +304,16 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         ),
       });
     }, [lineWrap]);
+
+    useEffect(() => {
+      const view = cmRef.current?.view;
+      if (!view) return;
+      view.dispatch({
+        effects: minimapCompartment.reconfigure(
+          showMinimap ? buildMinimapExtension() : [],
+        ),
+      });
+    }, [showMinimap]);
 
     useEffect(() => {
       let cancelled = false;

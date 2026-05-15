@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
+  Clock01Icon,
   CodeIcon,
   HashtagIcon,
   Key01Icon,
@@ -56,6 +57,9 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
   const snippets = useSnippetsStore((s) => s.snippets);
   const openEditorFiles = useChatStore((s) => s.openEditorFiles);
+  const promptQueue = useChatStore((s) => s.promptQueue);
+  const enqueuePrompt = useChatStore((s) => s.enqueuePrompt);
+  const removeQueuedPrompt = useChatStore((s) => s.removeQueuedPrompt);
 
   const attachedPaths = useMemo(() => {
     const set = new Set<string>();
@@ -294,6 +298,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           onAttach={(path) => void c.attachFileByPath(path)}
         />
 
+        <QueueRow queue={promptQueue} onRemove={removeQueuedPrompt} />
+
         <ChipsRow
           files={c.files}
           onRemoveFile={c.removeFile}
@@ -395,14 +401,32 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                     return;
                   }
                   if (e.key === "Enter" && !e.shiftKey) {
+                    const isModEnter = e.ctrlKey || e.metaKey;
                     e.preventDefault();
                     setHistIndex(null);
+                    if (c.isBusy) {
+                      // Busy: only Ctrl/Cmd+Enter queues. Plain Enter is a
+                      // no-op so accidental key-mashing during streaming
+                      // doesn't silently drop the user's draft.
+                      if (isModEnter) {
+                        const text = c.value.trim();
+                        if (text) {
+                          enqueuePrompt(text);
+                          c.setValue("");
+                        }
+                      }
+                      return;
+                    }
+                    // Idle: Enter and Ctrl/Cmd+Enter both send.
                     c.submit();
                   }
                 }}
-                placeholder="Ask TEDI anything   -   # for snippets and commands"
+                placeholder={
+                  c.isBusy
+                    ? "AI is responding · Ctrl+Enter to queue"
+                    : "Ask TEDI anything   -   # for snippets and commands"
+                }
                 rows={1}
-                disabled={c.isBusy}
                 className={cn(
                   "max-h-40 flex-1 resize-none bg-transparent px-1 text-[13px] leading-relaxed outline-none",
                   "placeholder:text-muted-foreground/60",
@@ -610,6 +634,51 @@ function ChipsRow({
               onClick={() => onRemoveFile(f.id)}
               className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
               aria-label="Remove"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+            </button>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function QueueRow({
+  queue,
+  onRemove,
+}: {
+  queue: { id: string; text: string }[];
+  onRemove: (id: string) => void;
+}) {
+  if (queue.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <HugeiconsIcon icon={Clock01Icon} size={10} strokeWidth={2} />
+        Queued
+      </span>
+      <AnimatePresence initial={false}>
+        {queue.map((q, i) => (
+          <motion.div
+            key={q.id}
+            layout
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.12 }}
+            className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
+            title={q.text}
+          >
+            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300">
+              {i + 1}
+            </span>
+            <span className="truncate text-foreground/90">{q.text}</span>
+            <button
+              type="button"
+              onClick={() => onRemove(q.id)}
+              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+              aria-label="Remove from queue"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
             </button>

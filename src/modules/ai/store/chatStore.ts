@@ -82,6 +82,12 @@ export type OpenEditorFile = {
   name: string;
 };
 
+export type QueuedPrompt = {
+  id: string;
+  text: string;
+  enqueuedAt: number;
+};
+
 export type ApprovalResponder = (
   approvalId: string,
   approved: boolean,
@@ -105,7 +111,11 @@ type StoreState = {
   setApiKey: (provider: ProviderId, key: string | null) => void;
 
   selectedModelId: DynamicModelId;
-  setSelectedModelId: (id: DynamicModelId) => void;
+  /** Provider the user picked alongside selectedModelId. Resolves the
+   *  "two providers detected the same model id" race - whichever the user
+   *  actually selected in the dropdown wins, regardless of refresh order. */
+  selectedProvider: ProviderId;
+  setSelectedModelId: (id: DynamicModelId, provider?: ProviderId) => void;
 
   mini: MiniState;
   openMini: () => void;
@@ -131,6 +141,15 @@ type StoreState = {
    *  AI input - clicking one promotes it to an actual attachment. */
   openEditorFiles: OpenEditorFile[];
   setOpenEditorFiles: (files: OpenEditorFile[]) => void;
+
+  /** Prompts queued via Ctrl/Cmd+Enter while the agent is busy. They fire
+   *  one-by-one as the agent returns to idle. Text-only - attachments and
+   *  snippets are bound to the active composer state at send time. */
+  promptQueue: QueuedPrompt[];
+  enqueuePrompt: (text: string) => void;
+  removeQueuedPrompt: (id: string) => void;
+  consumeNextQueuedPrompt: () => QueuedPrompt | null;
+  clearPromptQueue: () => void;
 
   agentMeta: AgentMeta;
   patchAgentMeta: (patch: Partial<AgentMeta>) => void;
@@ -273,7 +292,16 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   selectedModelId: DEFAULT_MODEL_ID,
-  setSelectedModelId: (id) => set({ selectedModelId: id }),
+  selectedProvider:
+    tryGetModel(DEFAULT_MODEL_ID)?.provider ?? "openai",
+  setSelectedModelId: (id, provider) => {
+    const resolved =
+      provider ??
+      tryGetModel(id)?.provider ??
+      // Last resort: keep the current provider rather than guessing wrong.
+      get().selectedProvider;
+    set({ selectedModelId: id, selectedProvider: resolved });
+  },
 
   // `mini` was the floating mini-window state. The right sidebar replaces
   // it, so these now alias the sidebar's open/close - kept under the old
@@ -321,6 +349,28 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (v.length > 0) set({ pendingSelections: [] });
     return v;
   },
+
+  promptQueue: [],
+  enqueuePrompt: (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const item: QueuedPrompt = {
+      id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text: trimmed,
+      enqueuedAt: Date.now(),
+    };
+    set((s) => ({ promptQueue: [...s.promptQueue, item] }));
+  },
+  removeQueuedPrompt: (id) =>
+    set((s) => ({ promptQueue: s.promptQueue.filter((p) => p.id !== id) })),
+  consumeNextQueuedPrompt: () => {
+    const queue = get().promptQueue;
+    if (queue.length === 0) return null;
+    const [next, ...rest] = queue;
+    set({ promptQueue: rest });
+    return next;
+  },
+  clearPromptQueue: () => set({ promptQueue: [] }),
 
   openEditorFiles: [],
   setOpenEditorFiles: (files) => {
