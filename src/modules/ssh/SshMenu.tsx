@@ -21,6 +21,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Add01Icon,
   CloudServerIcon,
+  Copy01Icon,
   Delete02Icon,
   PencilEdit01Icon,
 } from "@hugeicons/core-free-icons";
@@ -30,10 +31,14 @@ import { useEffect, useState } from "react";
 import { SshConnectionDialog } from "./SshConnectionDialog";
 import {
   deleteConnection,
+  getConnectionSecrets,
   listConnections,
+  newConnectionId,
   onConnectionsChanged,
+  upsertConnection,
   type SshConnection,
 } from "./connections";
+import { formatRelative } from "./components/SshStatusPill";
 
 type Props = {
   /** Open a saved host as a new terminal tab in the main window. */
@@ -74,6 +79,26 @@ export function SshMenu({ onConnect }: Props) {
   const askDelete = (c: SshConnection) => {
     setConfirmDelete(c);
     setMenuOpen(false);
+  };
+
+  const duplicate = async (c: SshConnection) => {
+    setMenuOpen(false);
+    const secrets = await getConnectionSecrets(c.id);
+    const copy: SshConnection = {
+      ...c,
+      id: newConnectionId(),
+      name: `${c.name} copy`,
+      hasPassword: false,
+      hasPrivateKey: false,
+      hasKeyPassphrase: false,
+      lastConnectedAt: undefined,
+      lastFingerprint: undefined,
+    };
+    await upsertConnection(copy, {
+      password: secrets.password ?? undefined,
+      privateKey: secrets.privateKey ?? undefined,
+      keyPassphrase: secrets.keyPassphrase ?? undefined,
+    });
   };
 
   const onPick = (c: SshConnection) => {
@@ -129,6 +154,9 @@ export function SshMenu({ onConnect }: Props) {
                   <span className="truncate">{c.name}</span>
                   <span className="truncate font-mono text-[10px] text-muted-foreground">
                     {c.user}@{c.host}:{c.port}
+                    {c.lastConnectedAt
+                      ? ` · last ${formatRelative(c.lastConnectedAt)}`
+                      : ""}
                   </span>
                 </span>
                 {/* Action buttons. preventDefault on click stops Radix'
@@ -137,6 +165,11 @@ export function SshMenu({ onConnect }: Props) {
                     pointerDown keeps the menu's focus heuristics from
                     treating the click as a row select. */}
                 <span className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <RowIconButton
+                    label={`Duplicate ${c.name}`}
+                    onClick={() => void duplicate(c)}
+                    icon={Copy01Icon}
+                  />
                   <RowIconButton
                     label={`Edit ${c.name}`}
                     onClick={() => openEdit(c)}

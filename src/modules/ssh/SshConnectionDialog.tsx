@@ -17,6 +17,9 @@ import {
   type SshAuthMode,
   type SshConnection,
 } from "@/modules/ssh/connections";
+import { openSsh } from "@/modules/ssh/bridge";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 
 type Props = {
@@ -49,6 +52,17 @@ const EMPTY_DRAFT: Draft = {
   keyPassphrase: "",
 };
 
+type TestState =
+  | { kind: "idle" }
+  | { kind: "running" }
+  | { kind: "ok"; fingerprint: string; durationMs: number }
+  | { kind: "fail"; message: string };
+
+type ImportState =
+  | { kind: "idle" }
+  | { kind: "loaded"; path: string }
+  | { kind: "error"; message: string };
+
 export function SshConnectionDialog({
   open,
   onOpenChange,
@@ -58,6 +72,8 @@ export function SshConnectionDialog({
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [test, setTest] = useState<TestState>({ kind: "idle" });
+  const [imported, setImported] = useState<ImportState>({ kind: "idle" });
 
   // Reset/populate when the dialog opens. Secrets are fetched async; the
   // form stays responsive in the meantime.
@@ -65,6 +81,8 @@ export function SshConnectionDialog({
     if (!open) return;
     setError(null);
     setSaving(false);
+    setTest({ kind: "idle" });
+    setImported({ kind: "idle" });
     if (!editing) {
       setDraft(EMPTY_DRAFT);
       return;
@@ -89,18 +107,149 @@ export function SshConnectionDialog({
     });
   }, [open, editing]);
 
+  const validateDraft = (): string | null => {
+    const port = Number.parseInt(draft.port, 10);
+    if (!draft.name.trim()) return "Name is required";
+    if (!draft.host.trim()) return "Host is required";
+    if (!draft.user.trim()) return "User is required";
+    if (!Number.isInteger(port) || port <= 0 || port > 65535)
+      return "Port must be 1–65535";
+    if (draft.authMode === "password" && !draft.password)
+      return "Password is required for password auth";
+    if (draft.authMode === "key" && !draft.privateKey.trim())
+      return "Private key body is required for key auth";
+    return null;
+  };
+
+  const runTest = async () => {
+    const v = validateDraft();
+    if (v) {
+      setError(v);
+      return;
+    }
+    setError(null);
+    setTest({ kind: "running" });
+    const port = Number.parseInt(draft.port, 10);
+    const started = performance.now();
+    try {
+      // Open a probe session, wait for the Connected event, then close it
+      // immediately. We never write to the keychain — the test runs against
+      // whatever is in the form right now.
+      let resolved = false;
+      const result = await new Promise<{ fingerprint: string }>(
+        (resolve, reject) => {
+          const timer = setTimeout(() => {
+            if (resolved) return;
+            resolved = true;
+            reject(new Error("test timed out after 20s"));
+          }, 20_000);
+          openSsh(
+            {
+              host: draft.host.trim(),
+              port,
+              user: draft.user.trim(),
+              password:
+                draft.authMode === "password" ? draft.password : undefined,
+              privateKey:
+                draft.authMode === "key" ? draft.privateKey : undefined,
+              privateKeyPassphrase:
+                draft.authMode === "key"
+                  ? draft.keyPassphrase || undefined
+                  : undefined,
+              cols: 80,
+              rows: 24,
+            },
+            {
+              onData: () => {},
+              onConnected: (fingerprint) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timer);
+                resolve({ fingerprint });
+              },
+              onError: (msg) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timer);
+                reject(new Error(msg));
+              },
+              onExit: () => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timer);
+                reject(new Error("session ended before authenticating"));
+              },
+            },
+          )
+            .then(async (sess) => {
+              // Close right away — we only care that the handshake worked.
+              try {
+                await sess.close();
+              } catch {
+                // ignore; the runtime will reap the dead session.
+              }
+            })
+            .catch((err) => {
+              if (resolved) return;
+              resolved = true;
+              clearTimeout(timer);
+              reject(err);
+            });
+        },
+      );
+      setTest({
+        kind: "ok",
+        fingerprint: result.fingerprint,
+        durationMs: Math.round(performance.now() - started),
+      });
+    } catch (e) {
+      setTest({
+        kind: "fail",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  const pickKeyFile = async () => {
+    setImported({ kind: "idle" });
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        title: "Pick SSH private key",
+      });
+      if (typeof picked !== "string") return;
+      const result = await invoke<
+        | { kind: "text"; content: string; size: number }
+        | { kind: "binary"; size: number }
+        | { kind: "image"; dataUrl: string; mime: string; size: number }
+        | { kind: "toolarge"; size: number; limit: number }
+      >("fs_read_file", { path: picked });
+      if (result.kind !== "text") {
+        setImported({
+          kind: "error",
+          message:
+            result.kind === "toolarge"
+              ? "File too large to import"
+              : "Picked file is not a text key",
+        });
+        return;
+      }
+      setDraft((d) => ({ ...d, privateKey: result.content }));
+      setImported({ kind: "loaded", path: picked });
+    } catch (e) {
+      setImported({
+        kind: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
   const save = async () => {
     setError(null);
+    const v = validateDraft();
+    if (v) return setError(v);
     const port = Number.parseInt(draft.port, 10);
-    if (!draft.name.trim()) return setError("Name is required");
-    if (!draft.host.trim()) return setError("Host is required");
-    if (!draft.user.trim()) return setError("User is required");
-    if (!Number.isInteger(port) || port <= 0 || port > 65535)
-      return setError("Port must be 1–65535");
-    if (draft.authMode === "password" && !draft.password)
-      return setError("Password is required for password auth");
-    if (draft.authMode === "key" && !draft.privateKey.trim())
-      return setError("Private key body is required for key auth");
 
     setSaving(true);
     try {
@@ -220,15 +369,41 @@ export function SshConnectionDialog({
           ) : (
             <>
               <Field label="Private key (PEM / OpenSSH)">
-                <Textarea
-                  value={draft.privateKey}
-                  onChange={(e) =>
-                    setDraft({ ...draft, privateKey: e.target.value })
-                  }
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                  spellCheck={false}
-                  className="h-32 font-mono text-[11px]"
-                />
+                <div className="flex flex-col gap-1">
+                  <Textarea
+                    value={draft.privateKey}
+                    onChange={(e) =>
+                      setDraft({ ...draft, privateKey: e.target.value })
+                    }
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    spellCheck={false}
+                    className="h-32 font-mono text-[11px]"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => void pickKeyFile()}
+                    >
+                      Import from file…
+                    </Button>
+                    {imported.kind === "loaded" ? (
+                      <span className="truncate text-[10.5px] text-muted-foreground">
+                        Loaded {imported.path}
+                      </span>
+                    ) : imported.kind === "error" ? (
+                      <span className="truncate text-[10.5px] text-destructive">
+                        {imported.message}
+                      </span>
+                    ) : (
+                      <span className="text-[10.5px] text-muted-foreground">
+                        Paste or import a private key
+                      </span>
+                    )}
+                  </div>
+                </div>
               </Field>
               <Field label="Key passphrase (optional)">
                 <Input
@@ -246,19 +421,44 @@ export function SshConnectionDialog({
           {error ? (
             <p className="text-[11px] text-destructive">{error}</p>
           ) : null}
+
+          {test.kind === "running" ? (
+            <p className="text-[11px] text-muted-foreground">
+              Testing connection…
+            </p>
+          ) : test.kind === "ok" ? (
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+              Connected · server key {test.fingerprint || "(unavailable)"} ·{" "}
+              {test.durationMs}ms
+            </p>
+          ) : test.kind === "fail" ? (
+            <p className="text-[11px] text-destructive">
+              Test failed: {test.message}
+            </p>
+          ) : null}
         </div>
 
         {/* Override DialogFooter's flex-col-reverse so Cancel stays on the
             left / on top regardless of viewport width. */}
-        <DialogFooter className="flex-row justify-end gap-2">
-          <DialogClose asChild>
-            <Button variant="outline" size="sm">
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button size="sm" onClick={() => void save()} disabled={saving}>
-            {saving ? "Saving…" : editing ? "Save" : "Create"}
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runTest()}
+            disabled={test.kind === "running" || saving}
+          >
+            {test.kind === "running" ? "Testing…" : "Test connection"}
           </Button>
+          <div className="flex items-center gap-2">
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button size="sm" onClick={() => void save()} disabled={saving}>
+              {saving ? "Saving…" : editing ? "Save" : "Create"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

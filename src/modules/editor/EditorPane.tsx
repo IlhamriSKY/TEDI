@@ -63,6 +63,70 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Resolve a document position to a y-coordinate in the scroller's scrollable
+ * content space (same coordinate as `scrollTop`). Falls back to a geometric
+ * estimate when `coordsAtPos` returns null (position outside viewport). */
+function scrollYFor(view: EditorView, pos: number, edge: "top" | "bottom"): number {
+  const scroller = view.scrollDOM;
+  const coords = view.coordsAtPos(pos);
+  if (coords) {
+    const sr = scroller.getBoundingClientRect();
+    const y = edge === "top" ? coords.top : coords.bottom;
+    return y - sr.top + scroller.scrollTop;
+  }
+  const block = view.lineBlockAt(pos);
+  const contentTop = view.contentDOM.offsetTop;
+  return contentTop + (edge === "top" ? block.top : block.bottom);
+}
+
+/** Compute the marker overlay's geometry: the bar's top/height relative to
+ * the outer container, plus where to paint the cursor tick and (optionally)
+ * the selection band. Returns null if the editor hasn't laid out yet. */
+function computeMarkers(
+  view: EditorView,
+  outer: HTMLElement | null,
+): {
+  barTop: number;
+  barHeight: number;
+  cursorY: number;
+  selection: { top: number; height: number } | null;
+} | null {
+  if (!outer) return null;
+  const scroller = view.scrollDOM;
+  const sr = scroller.getBoundingClientRect();
+  const or = outer.getBoundingClientRect();
+  const clientH = scroller.clientHeight;
+  if (clientH <= 0) return null;
+
+  const scrollH = scroller.scrollHeight;
+  // Two regimes unified by Math.max: if the doc fits the viewport, markers
+  // track 1:1 with on-screen y; if it overflows, they compress proportionally.
+  const denom = Math.max(scrollH, clientH, 1);
+
+  const sel = view.state.selection.main;
+  const cursorScrollY = scrollYFor(view, sel.head, "top");
+  // Center the 2px tick on the resolved y rather than using its top edge —
+  // otherwise the marker drifts ~1px below where the caret visually sits.
+  const cursorY = Math.min(
+    Math.max(0, (cursorScrollY / denom) * clientH - 1),
+    Math.max(0, clientH - 2),
+  );
+
+  let selection: { top: number; height: number } | null = null;
+  if (sel.from !== sel.to) {
+    const fromY = (scrollYFor(view, sel.from, "top") / denom) * clientH;
+    const toY = (scrollYFor(view, sel.to, "bottom") / denom) * clientH;
+    selection = { top: Math.max(0, fromY), height: Math.max(2, toY - fromY) };
+  }
+
+  return {
+    barTop: sr.top - or.top,
+    barHeight: clientH,
+    cursorY,
+    selection,
+  };
+}
+
 export const EditorPane = forwardRef<EditorPaneHandle, Props>(
   function EditorPane(
     { path, onDirtyChange, onSaved, onClose, mdPreview },
@@ -75,6 +139,13 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
+    const outerRef = useRef<HTMLDivElement>(null);
+    const [markerState, setMarkerState] = useState<{
+      barTop: number;
+      barHeight: number;
+      cursorY: number;
+      selection: { top: number; height: number } | null;
+    } | null>(null);
     const editorThemeId = usePreferencesStore((s) => s.editorTheme);
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const lineWrap = usePreferencesStore((s) => s.lineWrap);
@@ -191,6 +262,20 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
             },
           },
         ]),
+        // Update the scrollbar marker overlay state whenever selection,
+        // document, viewport, or geometry changes. Closes over `setMarkerState`
+        // and `outerRef` — both have stable identities so capturing once via
+        // the empty-deps useMemo above is fine.
+        EditorView.updateListener.of((u) => {
+          if (
+            u.selectionSet ||
+            u.docChanged ||
+            u.geometryChanged ||
+            u.viewportChanged
+          ) {
+            setMarkerState(computeMarkers(u.view, outerRef.current));
+          }
+        }),
       ],
       [],
     );
@@ -231,6 +316,31 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
         cancelled = true;
       };
     }, [path, doc.status]);
+
+    // Marker overlay positioning — refresh on scroll + size changes. The
+    // `EditorView.updateListener` in the extensions array covers selection /
+    // doc / viewport changes; this effect handles scroll-without-edit and
+    // pane resizes where CodeMirror itself doesn't fire an update.
+    useEffect(() => {
+      const view = cmRef.current?.view;
+      if (!view) return;
+      const update = () => {
+        const v = cmRef.current?.view;
+        if (!v) return;
+        setMarkerState(computeMarkers(v, outerRef.current));
+      };
+      // Initial paint after the view has laid out.
+      update();
+      const onScroll = () => update();
+      view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
+      const ro = new ResizeObserver(update);
+      ro.observe(view.scrollDOM);
+      ro.observe(view.dom);
+      return () => {
+        view.scrollDOM.removeEventListener("scroll", onScroll);
+        ro.disconnect();
+      };
+    }, [doc.status]);
 
     useImperativeHandle(
       ref,
@@ -332,7 +442,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
     // discards the language compartment, so flipping back to source would
     // lose syntax highlighting until the path changed.
     return (
-      <div className="relative flex h-full min-h-0 flex-col">
+      <div ref={outerRef} className="relative flex h-full min-h-0 flex-col">
         <div
           className={
             showMdPreview
@@ -362,6 +472,46 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
             }}
           />
         </div>
+        {/* Scrollbar marker overlay — paints the caret position and selection
+            range over the native vertical scrollbar. Lives outside CodeMirror
+            so it doesn't depend on CodeMirror's ViewPlugin lifecycle; state is
+            kept fresh by the `EditorView.updateListener` in `extensions` plus
+            a scroll/resize-watching useEffect. */}
+        {!showMdPreview && markerState && (
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              top: markerState.barTop,
+              right: 0,
+              width: 10,
+              height: markerState.barHeight,
+              zIndex: 10,
+            }}
+          >
+            {markerState.selection && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: markerState.selection.top,
+                  height: markerState.selection.height,
+                  backgroundColor: "rgba(56, 139, 253, 0.5)",
+                }}
+              />
+            )}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: markerState.cursorY,
+                height: 2,
+                backgroundColor: "rgb(56, 139, 253)",
+              }}
+            />
+          </div>
+        )}
         {showMdPreview && (
           <div className="absolute inset-0 overflow-auto bg-background p-6">
             <Streamdown className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">

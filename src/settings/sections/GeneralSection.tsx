@@ -188,7 +188,7 @@ export function GeneralSection() {
                       ⓘ
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-65">
+                  <TooltipContent side="top">
                     xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups (especially with Nerd Fonts), the atlas corrupts and terminal text becomes unreadable. Turn this off as a fallback - performance dips slightly, but text renders correctly via the DOM renderer.
                   </TooltipContent>
                 </Tooltip>

@@ -179,26 +179,28 @@ export function useUpdater() {
     }
   }, []);
 
+  // First check 8s after mount so it doesn't compete with PTY spawns + AI
+  // hydration on cold start. One-shot — re-arming on state changes caused the
+  // updater dialog to flicker closed every 8s when sitting on an actionable
+  // state.
   useEffect(() => {
-    // First check 8s after mount so it doesn't compete with PTY spawns + AI
-    // hydration on cold start.
     const first = window.setTimeout(() => {
       void checkForUpdate();
     }, 8_000);
+    return () => window.clearTimeout(first);
+  }, [checkForUpdate]);
+
+  const stateKindRef = useRef(state.kind);
+  stateKindRef.current = state.kind;
+  useEffect(() => {
     const interval = window.setInterval(() => {
-      // Don't restart a check that's already mid-flight or actively installing.
-      if (state.kind === "idle" || state.kind === "error") {
+      const k = stateKindRef.current;
+      if (k === "idle" || k === "error") {
         void checkForUpdate();
       }
     }, CHECK_INTERVAL_MS);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(interval);
-    };
-    // checkForUpdate is stable; state.kind read inside the interval needs the
-    // freshest value, so we re-arm the interval on state transitions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.kind]);
+    return () => window.clearInterval(interval);
+  }, [checkForUpdate]);
 
   return {
     state,

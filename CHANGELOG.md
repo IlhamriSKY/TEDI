@@ -4,6 +4,40 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.1.7] - 2026-05-15
+
+### Added
+- **SSH session lifecycle.** SSH leaves now expose their state to the UI via a typed `SshStatus` (`idle | connecting | connected | reconnecting | disconnected | error`). The tab strip paints a small colored dot on the SSH leaf icon (yellow connecting / reconnecting, green connected, red disconnected / error) and the SSH tab tooltip shows the matching status line.
+- **SSH status pill in the status bar.** When the active leaf is SSH-bound, a chip sits next to the updater pill with the live status, server fingerprint, "last connected" timestamp, and disconnect reason. The popover exposes **Reconnect / Disconnect / Edit connection** actions; "Reconnect" also works on a live session to force a fresh handshake (fingerprint refresh).
+- **SSH auto-reconnect with backoff.** Unintentional drops trigger up to 3 reconnect attempts on a 1s / 3s / 7s schedule, with an inline `[tedi]` banner in the terminal. After the schedule is exhausted, pressing **Enter** in the dead pane re-arms a fresh 3-attempt window.
+- **Test connection** button in the SSH dialog: probes the handshake against the current form values (no keychain write) and reports server fingerprint + roundtrip ms on success.
+- **Import private key from file** in the SSH dialog: native file picker (Tauri `dialog.open`) reads the key into the form so you don't have to paste it.
+- **Duplicate connection** action in the SSH menu: clones secrets + settings into a new `… copy` entry.
+- **Per-connection metadata persisted:** `lastConnectedAt` and `lastFingerprint` are written on every successful handshake, surfaced as `· last 2h ago` in the SSH menu and in the status pill popover.
+- **SSH leaves persist across workspace switches and restarts.** Saved tab tree now carries `sshConnectionId` on terminal leaves so the connection is re-bound automatically when the workspace is rehydrated.
+- **Editor scrollbar marker overlay.** A 10px overlay column on the right paints the current caret position and selection range over the native vertical scrollbar — VS Code-style. Tracks scroll, selection, and pane-resize changes; falls back to a geometric estimate when the position is outside the viewport.
+- **Editor minimap** (`@replit/codemirror-minimap`) with a color gutter: lines that start with a color literal get a thin colored swatch in the minimap so palette files and theme tokens are scannable at a glance.
+- **Inline color decorations** in the editor: `#rgb` / `#rrggbb` / `#rgba` / `#rrggbbaa` and functional `rgb(a)` / `hsl(a)` literals get a colored swatch background with auto-contrast text color. Parsed colors are cached (1024-entry LRU) and the scan caps at 5000 lines so a 200k-line minified file doesn't stall the UI.
+- **Retry-on-Enter for failed PTY spawns.** When local shell startup errors (missing binary, bad cwd), the error is rendered inline and pressing **Enter** in the dead pane triggers a fresh spawn instead of forcing a tab close.
+
+### Changed
+- **Global scrollbar pass.** Every native scrollbar in the app (editor, settings, dialogs, dropdowns, file tree, terminal viewport, anywhere `overflow:auto|scroll`) is now a single 10px boxy style: `--border` thumb, `--muted-foreground` on hover, transparent track, no border-radius. The Radix `<ScrollArea>` thumb is repainted to the same palette so panels with `<ScrollArea>` and panels with plain `overflow-auto` no longer disagree on scrollbar width. macOS keeps its native overlay scrollbar.
+- **Ctrl+T (new tab) and Ctrl+D / Ctrl+Shift+D (split) anchor to the explorer root** instead of the inherited PTY cwd, so a fresh terminal always starts in the folder you're browsing.
+- **Move leaf to group** no longer treats `editor ↔ editor` as forbidden — a tab can now hold multiple editor leaves. The `editor-conflict` toast path and the "Editor" disabled label in the move menu are gone.
+- **Updater dialog date formatting.** Tauri's `2024-01-15 12:34:56.000 +00:00:00` string is normalized to ISO and rendered as `dd MMM yyyy HH:mm` (en-GB locale, 24h).
+- **Updater first-check timer no longer rearms on state change.** The auto-check `setInterval` was being rebuilt on every `state.kind` transition, which closed the dialog mid-interaction; the periodic check now lives in its own effect keyed by a ref so the dialog stays put.
+- **General settings tooltip** dropped the fixed `max-w-65` clamp so the WebGL renderer explanation can use the default tooltip width.
+- **Editor padding** trimmed to `8px 0 0 8px` so the vertical scrollbar, the minimap, and the horizontal scrollbar all sit flush with the pane edges (no 8px dead strip between scrollbar and border).
+
+### Fixed
+- **Radix `<ScrollArea>` thumb width.** The wrapper was 10px wide but the thumb only painted at 8px due to a `p-px` + transparent border combo, making `<ScrollArea>` regions look thinner than plain `overflow-auto` regions. The padding/border is gone; the thumb now fills the 10px wrapper and matches every other scrollbar.
+
+### Dependencies
+- Bumped the AI SDK suite (`@ai-sdk/anthropic`, `cerebras`, `google`, `groq`, `openai`, `openai-compatible`, `react`, `xai`) to the latest 3.x line, plus `ai` to 6.0.182.
+- Bumped CodeMirror (`@codemirror/view` 6.43, `@codemirror/autocomplete` 6.20.2, `@codemirror/lint` 6.9.6, `@codemirror/legacy-modes` 6.5.3).
+- Bumped React to 19.2.6, `react-resizable-panels` 4.11.1, `tailwindcss` 4.3.0, `zod` 4.4.3, `zustand` 5.0.13, `vite` 7.3.3, `@tauri-apps/cli` 2.11.1, `@tauri-apps/api` 2.11.0.
+- Added `@replit/codemirror-minimap` for the new editor minimap.
+
 ## [0.1.6] - 2026-05-14
 
 ### Added

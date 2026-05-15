@@ -15,6 +15,8 @@ export type SavedTerminalLeaf = {
   kind: "leaf";
   leafKind: "terminal";
   cwd?: string;
+  /** Persists SSH-bound leaves across workspace switches and restarts. */
+  sshConnectionId?: string;
 };
 
 export type SavedEditorLeaf = {

@@ -6,6 +6,7 @@ import type {
   TediOpenInput,
   TediSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
+import type { SshStatus } from "@/modules/ssh/status";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useRef } from "react";
 import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
@@ -24,6 +25,7 @@ type Props = {
   onExit: (leafId: number, code: number) => void;
   onTediOpen?: (leafId: number, input: TediOpenInput) => void;
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
+  onSshStatus?: (leafId: number, status: SshStatus) => void;
   // Editor leaf callbacks
   registerEditorHandle: (
     leafId: number,
@@ -47,6 +49,7 @@ export function PaneStack({
   onExit,
   onTediOpen,
   onTediSpawnTab,
+  onSshStatus,
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
@@ -64,6 +67,7 @@ export function PaneStack({
   const exitRef = useRef(onExit);
   const tediOpenRef = useRef(onTediOpen);
   const tediSpawnTabRef = useRef(onTediSpawnTab);
+  const sshStatusRef = useRef(onSshStatus);
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
@@ -89,6 +93,9 @@ export function PaneStack({
     tediSpawnTabRef.current = onTediSpawnTab;
   }, [onTediSpawnTab]);
   useEffect(() => {
+    sshStatusRef.current = onSshStatus;
+  }, [onSshStatus]);
+  useEffect(() => {
     registerEditorRef.current = registerEditorHandle;
   }, [registerEditorHandle]);
   useEffect(() => {
@@ -110,6 +117,7 @@ export function PaneStack({
         onExit: (code) => exitRef.current(leafId, code),
         onTediOpen: (input) => tediOpenRef.current?.(leafId, input),
         onTediSpawnTab: (input) => tediSpawnTabRef.current?.(leafId, input),
+        onSshStatus: (status) => sshStatusRef.current?.(leafId, status),
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),

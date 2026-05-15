@@ -13,6 +13,7 @@ import type {
   TediOpenInput,
   TediSpawnTabInput,
 } from "@/modules/terminal/lib/useTerminalSession";
+import type { SshStatus } from "@/modules/ssh/status";
 
 export type LeafBundle = {
   // terminal-only
@@ -23,6 +24,7 @@ export type LeafBundle = {
   onExit: (code: number) => void;
   onTediOpen: (input: TediOpenInput) => void;
   onTediSpawnTab: (input: TediSpawnTabInput) => void;
+  onSshStatus: (status: SshStatus) => void;
   // editor-only
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -80,6 +82,7 @@ export function PaneTreeView({
               onExit={(_id, code) => b.onExit(code)}
               onTediOpen={(_id, input) => b.onTediOpen(input)}
               onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
+              onSshStatus={(_id, status) => b.onSshStatus(status)}
             />
           </div>
         </div>

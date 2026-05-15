@@ -37,12 +37,16 @@ export function useWorkspaceCwd(
   }, [activeTab]);
 
   const explorerRoot = useMemo<string | null>(() => {
-    if (pickedRoot) return pickedRoot;
+    // Explorer follows the focused terminal: as the user switches tabs/panes
+    // or `cd`s around, the left sidebar tracks the active shell's cwd. The
+    // picked workspace root is only used as a fallback when no terminal is
+    // open yet (and as the default path for "Open Folder").
     const cwd = activeTerminalCwd(activeTab);
     if (cwd) return cwd;
     if (lastTerminalCwd.current) return lastTerminalCwd.current;
     const any = anyTerminalCwd(tabs);
     if (any) return any;
+    if (pickedRoot) return pickedRoot;
     return home;
   }, [pickedRoot, activeTab, tabs, home]);
 

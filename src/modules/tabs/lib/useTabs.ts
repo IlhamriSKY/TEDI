@@ -668,21 +668,23 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    *
    * Rules:
    * - terminal ↔ terminal: allowed.
-   * - terminal ↔ editor (and vice versa): allowed.
-   * - editor ↔ editor: **forbidden** - a tab can hold at most one editor leaf.
+   * - terminal ↔ editor (and vice versa): allowed (via `newKind` or via the
+   *   per-tab "Move to group" affordance).
+   * - editor ↔ editor: allowed when explicitly requested with
+   *   `newKind === "editor"`, or via the per-tab "Move to group" affordance.
    *
-   * Default new-leaf kind:
-   * - active leaf is terminal → new pane is terminal (mirrors prior behavior).
-   * - active leaf is editor → new pane is terminal (the only legal companion).
-   *
-   * Pass `newKind` explicitly to override. A request for a second editor leaf
-   * is rejected (returns `null`, tree unchanged).
+   * Default new-leaf kind is **terminal** regardless of the active leaf — the
+   * Ctrl+D / Ctrl+Shift+D shortcuts always land a fresh shell so users hitting
+   * the binding from an editor still get a terminal. Pass `newKind = "editor"`
+   * to force an editor (used by callers that explicitly want a side-by-side
+   * code view).
    */
   const splitActivePane = useCallback(
     (
       tabId: number,
       dir: SplitDir,
       newKind?: "terminal" | "editor",
+      cwdOverride?: string,
     ): number | null => {
       let newLeafId: number | null = null;
       setTabs((curr) =>
@@ -692,37 +694,34 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           const active = findLeaf(t.paneTree, t.activeLeafId);
           if (!active) return t;
 
-          // Default: terminal. Editors never spawn a sibling editor.
+          // Always default to a terminal so Ctrl+D from an editor still
+          // produces a shell. Editor-side-by-side is opt-in via `newKind`.
           const kind: "terminal" | "editor" = newKind ?? "terminal";
-
-          // Reject editor↔editor: at most one editor leaf per tab.
-          if (kind === "editor") {
-            const hasEditor = leaves(t.paneTree).some(
-              (l) => l.leafKind === "editor",
-            );
-            if (hasEditor) {
-              newLeafId = null;
-              return t;
-            }
-          }
 
           const splitId = nextIdRef.current++;
           const leafId = nextIdRef.current++;
           newLeafId = leafId;
           let state: LeafState;
           if (kind === "terminal") {
+            // Caller-supplied cwd wins (e.g. Ctrl+D should land in the
+            // explorer's root, not the focused leaf's cwd if they diverge).
+            // Falls back to the focused terminal's cwd, then the tab mirror.
             const cwd =
-              active.leafKind === "terminal" ? active.cwd : t.cwd;
+              cwdOverride ??
+              (active.leafKind === "terminal" ? active.cwd : t.cwd);
             const ts: TerminalLeafState = { leafKind: "terminal", cwd };
             state = ts;
           } else {
-            // Adding an editor leaf to a terminal tab - need a file path to
-            // open. There's no obvious source path here (active is terminal,
-            // and we just verified no other editor leaf exists), so skip.
-            const sourcePath = leaves(t.paneTree).find(
-              (l): l is PaneLeaf & EditorLeafState =>
-                l.leafKind === "editor",
-            )?.path;
+            // Duplicate the active editor's path if there is one; otherwise
+            // fall back to any editor leaf in the tab. With no editor at all
+            // we can't synthesise a path, so the split is a no-op.
+            const sourcePath =
+              active.leafKind === "editor"
+                ? active.path
+                : leaves(t.paneTree).find(
+                    (l): l is PaneLeaf & EditorLeafState =>
+                      l.leafKind === "editor",
+                  )?.path;
             if (!sourcePath) {
               newLeafId = null;
               return t;
@@ -851,8 +850,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * Returns:
    * - `"ok"` - moved.
    * - `"full"` - target tab is already at `MAX_PANES_PER_TAB`.
-   * - `"editor-conflict"` - target tab already has an editor leaf and the
-   *   moving leaf is an editor (only one editor per tab is allowed).
    * - `"invalid"` - leaf not found, source = target, or target isn't a pane
    *   tab. Caller treats this as a no-op.
    */
@@ -860,8 +857,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     (
       leafId: number,
       targetTabId: number,
-    ): "ok" | "full" | "editor-conflict" | "invalid" => {
-      type MoveResult = "ok" | "full" | "editor-conflict" | "invalid";
+    ): "ok" | "full" | "invalid" => {
+      type MoveResult = "ok" | "full" | "invalid";
       // Explicit cast so TS doesn't narrow `result` to the literal `"invalid"`
       // and then flag every later comparison as unreachable. The callback
       // passed to `setTabs` mutates this through the closure - CFA can't
@@ -884,15 +881,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
         const leaf = findLeaf(source.paneTree, leafId);
         if (!leaf) return curr;
-        if (leaf.leafKind === "editor") {
-          const targetHasEditor = leaves(target.paneTree).some(
-            (l) => l.leafKind === "editor",
-          );
-          if (targetHasEditor) {
-            result = "editor-conflict";
-            return curr;
-          }
-        }
         // Reuse the moving leaf's state verbatim so cwd / sshConnectionId /
         // dirty / preview travel with it. The leaf id stays the same so the
         // underlying session keeps its mapping in App.tsx's per-leaf refs.

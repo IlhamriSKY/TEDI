@@ -79,6 +79,17 @@ import {
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
 import {
+  listConnections,
+  onConnectionsChanged,
+  type SshConnection,
+} from "@/modules/ssh/connections";
+import {
+  disconnectSsh,
+  reconnectSsh,
+} from "@/modules/terminal/lib/useTerminalSession";
+import { SshConnectionDialog } from "@/modules/ssh/SshConnectionDialog";
+import type { SshStatus } from "@/modules/ssh/status";
+import {
   defaultTabForEmptyWorkspace,
   savedToTab,
   serializeTabs,
@@ -157,6 +168,29 @@ export default function App() {
 
   // -------- runtime handles & search/url state --------
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
+  // Per-leaf SSH status. Lives in React state so TabBar's dot + StatusBar's
+  // pill rerender on transitions. Keyed by leafId; entries are cleared by
+  // the same prune-effect that drops dead terminal handles below.
+  const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(
+    () => new Map(),
+  );
+  const [sshConns, setSshConns] = useState<SshConnection[]>([]);
+  const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(
+    null,
+  );
+  const [sshEditorOpen, setSshEditorOpen] = useState(false);
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    void listConnections().then(setSshConns);
+    void onConnectionsChanged(() => {
+      void listConnections().then(setSshConns);
+    }).then((fn) => {
+      unsub = fn;
+    });
+    return () => {
+      unsub?.();
+    };
+  }, []);
   const [activeSearchAddon, setActiveSearchAddon] =
     useState<SearchAddon | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
@@ -546,6 +580,48 @@ export default function App() {
     [activeLeafIdInTab],
   );
 
+  const handleSshStatus = useCallback(
+    (leafId: number, status: SshStatus) => {
+      setSshStatuses((prev) => {
+        if (prev.get(leafId) === status) return prev;
+        const next = new Map(prev);
+        next.set(leafId, status);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // Active leaf's SSH binding + status, used to render the status bar pill.
+  const activeSshConnectionId = useMemo<string | null>(() => {
+    if (!activePaneTab) return null;
+    const leaf = activeLeaf(activePaneTab);
+    if (!leaf || leaf.leafKind !== "terminal") return null;
+    return leaf.sshConnectionId ?? null;
+  }, [activePaneTab]);
+  const activeSshConnection = useMemo<SshConnection | null>(() => {
+    if (!activeSshConnectionId) return null;
+    return sshConns.find((c) => c.id === activeSshConnectionId) ?? null;
+  }, [activeSshConnectionId, sshConns]);
+  const activeSshStatus = useMemo<SshStatus | null>(() => {
+    if (!activeSshConnectionId || activeLeafIdInTab === null) return null;
+    return sshStatuses.get(activeLeafIdInTab) ?? null;
+  }, [activeSshConnectionId, activeLeafIdInTab, sshStatuses]);
+
+  const handleSshReconnect = useCallback(() => {
+    if (activeLeafIdInTab === null) return;
+    void reconnectSsh(activeLeafIdInTab);
+  }, [activeLeafIdInTab]);
+  const handleSshDisconnect = useCallback(() => {
+    if (activeLeafIdInTab === null) return;
+    void disconnectSsh(activeLeafIdInTab);
+  }, [activeLeafIdInTab]);
+  const handleSshEdit = useCallback(() => {
+    if (!activeSshConnection) return;
+    setEditingSshConn(activeSshConnection);
+    setSshEditorOpen(true);
+  }, [activeSshConnection]);
+
   const disposeTab = useCallback(
     (id: number) => {
       // Per-leaf maps are pruned by the effect below when the tree shrinks;
@@ -592,6 +668,17 @@ export default function App() {
       if (!liveTerm.has(k)) detectedUrls.current.delete(k);
     for (const k of [...editorRefs.current.keys()])
       if (!liveEditor.has(k)) editorRefs.current.delete(k);
+    setSshStatuses((prev) => {
+      let mutated = false;
+      const next = new Map(prev);
+      for (const k of next.keys()) {
+        if (!liveTerm.has(k)) {
+          next.delete(k);
+          mutated = true;
+        }
+      }
+      return mutated ? next : prev;
+    });
   }, [tabs]);
 
   const handleClose = useCallback(
@@ -780,8 +867,10 @@ export default function App() {
   }, [askFromSelection]);
 
   const openNewTab = useCallback(() => {
-    newTab(inheritedCwdForNewTab());
-  }, [newTab, inheritedCwdForNewTab]);
+    // Ctrl+T lands the new shell in whatever the file explorer is rooted at,
+    // so a fresh tab always matches the folder the user is browsing.
+    newTab(explorerRoot ?? inheritedCwdForNewTab());
+  }, [newTab, inheritedCwdForNewTab, explorerRoot]);
 
   const sendCd = useCallback(
     (path: string) => {
@@ -908,9 +997,11 @@ export default function App() {
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
       if (!t || t.kind !== "pane") return;
-      splitActivePane(activeId, dir);
+      // Ctrl+D / Ctrl+Shift+D: new pane lands in the explorer's root path,
+      // matching the new-tab behavior so both flows are consistent.
+      splitActivePane(activeId, dir, undefined, explorerRoot ?? undefined);
     },
-    [activeId, splitActivePane],
+    [activeId, splitActivePane, explorerRoot],
   );
 
   /**
@@ -929,11 +1020,6 @@ export default function App() {
       if (result === "full") {
         toast(
           `Group "${targetTitle}" is full (${MAX_PANES_PER_TAB} panes max).`,
-          { variant: "warning" },
-        );
-      } else if (result === "editor-conflict") {
-        toast(
-          `Group "${targetTitle}" already has an editor pane.`,
           { variant: "warning" },
         );
       }
@@ -1334,6 +1420,7 @@ export default function App() {
             onConnectSsh={(conn) => newSshTab(conn.id, conn.name)}
             onMoveLeafToGroup={moveLeafToGroup}
             onRotateLeafSplit={rotateLeafSplit}
+            sshStatuses={sshStatuses}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}
@@ -1421,6 +1508,7 @@ export default function App() {
                         onExit={handleLeafExit}
                         onTediOpen={handleTediOpen}
                         onTediSpawnTab={handleTediSpawnTab}
+                        onSshStatus={handleSshStatus}
                         registerEditorHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
                         onCloseLeaf={handleEditorCloseLeaf}
@@ -1512,6 +1600,11 @@ export default function App() {
             onOpenPreview={() => {
               if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
             }}
+            sshStatus={activeSshStatus}
+            sshConnection={activeSshConnection}
+            onSshReconnect={handleSshReconnect}
+            onSshDisconnect={handleSshDisconnect}
+            onSshEdit={handleSshEdit}
           />
 
           {hasComposer ? (
@@ -1538,6 +1631,15 @@ export default function App() {
             onOpenChange={setNewEditorOpen}
             rootPath={explorerRoot ?? home}
             onCreated={(path) => openFileTab(path)}
+          />
+
+          <SshConnectionDialog
+            open={sshEditorOpen}
+            onOpenChange={(o) => {
+              setSshEditorOpen(o);
+              if (!o) setEditingSshConn(null);
+            }}
+            editing={editingSshConn}
           />
 
           <Toaster />

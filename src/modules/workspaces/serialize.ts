@@ -10,7 +10,12 @@ import type { SavedPaneNode, SavedTab } from "./store";
 
 function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
   if (leaf.leafKind === "terminal") {
-    return { kind: "leaf", leafKind: "terminal", cwd: leaf.cwd };
+    return {
+      kind: "leaf",
+      leafKind: "terminal",
+      cwd: leaf.cwd,
+      sshConnectionId: leaf.sshConnectionId,
+    };
   }
   return { kind: "leaf", leafKind: "editor", path: leaf.path };
 }
@@ -60,7 +65,13 @@ function savedToNode(
     const id = allocId();
     outLeafIds.push(id);
     if (node.leafKind === "terminal") {
-      return { kind: "leaf", id, leafKind: "terminal", cwd: node.cwd };
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "terminal",
+        cwd: node.cwd,
+        sshConnectionId: node.sshConnectionId,
+      };
     }
     return {
       kind: "leaf",

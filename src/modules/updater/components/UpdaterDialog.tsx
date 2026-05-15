@@ -85,7 +85,10 @@ export function UpdaterDialog({
                   v{state.version}
                 </span>
                 {state.date ? (
-                  <span className="text-muted-foreground"> · {state.date}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {formatReleaseDate(state.date)}
+                  </span>
                 ) : null}
               </p>
               {state.notes ? (
@@ -239,4 +242,30 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const RELEASE_DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/** Tauri's updater emits dates like "2024-01-15 12:34:56.000 +00:00:00". Native
+ *  Date can't parse that shape, so normalize to ISO first. Falls back to the
+ *  raw string when parsing fails. */
+function formatReleaseDate(raw: string): string {
+  const iso = raw
+    .replace(" ", "T")
+    .replace(/\.\d+/, "")
+    .replace(/([+-]\d{2}):(\d{2}):\d{2}$/, "$1:$2");
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    const fallback = new Date(raw);
+    if (Number.isNaN(fallback.getTime())) return raw;
+    return RELEASE_DATE_FORMAT.format(fallback);
+  }
+  return RELEASE_DATE_FORMAT.format(d);
 }

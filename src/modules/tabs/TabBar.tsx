@@ -22,6 +22,11 @@ import {
   type SshConnection,
 } from "@/modules/ssh/connections";
 import {
+  statusDotClass,
+  statusLabel,
+  type SshStatus,
+} from "@/modules/ssh/status";
+import {
   Cancel01Icon,
   CloudServerIcon,
   ComputerTerminal02Icon,
@@ -78,6 +83,8 @@ type PaneEntry = EntryBase & {
   leafKind: "terminal" | "editor";
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
+  /** Latest known status for SSH leaves, drives the colored dot. */
+  sshStatus?: SshStatus;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -119,6 +126,7 @@ function entryLabel(
 function buildEntries(
   tabs: Tab[],
   sshHosts: Map<string, SshConnection>,
+  sshStatuses?: Map<number, SshStatus>,
 ): Entry[] {
   const out: Entry[] = [];
   for (const t of tabs) {
@@ -139,6 +147,9 @@ function buildEntries(
           dirty:
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
+          sshStatus: sshConnectionId
+            ? sshStatuses?.get(leaf.id)
+            : undefined,
         });
       }
       continue;
@@ -199,7 +210,7 @@ type Props = {
    * Move a leaf out of its current tab and graft it as a split into
    * `targetTabId`. Drives the per-entry "Move to group" button (left of the
    * close X). Caller enforces `MAX_PANES_PER_TAB` and surfaces a toast on
-   * full / editor-conflict / invalid.
+   * full / invalid.
    */
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
   /**
@@ -210,6 +221,12 @@ type Props = {
    * tab untouched.
    */
   onRotateLeafSplit?: (leafId: number) => void;
+  /**
+   * Optional map keyed by leafId carrying the latest SSH session status.
+   * Drives the colored dot on the SSH entry icon and the status line in
+   * the tab tooltip. Untracked leaves render as "Connecting…".
+   */
+  sshStatuses?: Map<number, SshStatus>;
   compact?: boolean;
 };
 
@@ -262,6 +279,7 @@ export function TabBar({
   onReorderTabs,
   onMoveLeafToGroup,
   onRotateLeafSplit,
+  sshStatuses,
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -283,7 +301,10 @@ export function TabBar({
     };
   }, []);
 
-  const entries = useMemo(() => buildEntries(tabs, sshHosts), [tabs, sshHosts]);
+  const entries = useMemo(
+    () => buildEntries(tabs, sshHosts, sshStatuses),
+    [tabs, sshHosts, sshStatuses],
+  );
 
   /**
    * Snapshot of every pane tab keyed by id, used by the per-entry "Move to
@@ -302,9 +323,6 @@ export function TabBar({
                 title: t.title,
                 count: leafIds(t.paneTree).length,
                 full: leafIds(t.paneTree).length >= MAX_PANES_PER_TAB,
-                hasEditor: leaves(t.paneTree).some(
-                  (l) => l.leafKind === "editor",
-                ),
               },
             ]
           : [],
@@ -529,7 +547,6 @@ type PaneGroupForMove = {
   title: string;
   count: number;
   full: boolean;
-  hasEditor: boolean;
 };
 
 type SortableTabGroupProps = {
@@ -701,7 +718,6 @@ function SortableTabGroup({
                 paneGroupsForMove.some((g) => g.id !== e.tabId) && (
                   <MoveLeafToGroupButton
                     leafId={e.leafId}
-                    isEditorLeaf={e.leafKind === "editor"}
                     ownerTabId={e.tabId}
                     groups={paneGroupsForMove}
                     onMove={onMoveLeafToGroup}
@@ -767,11 +783,22 @@ function SortableTabGroup({
         );
 
         if (!sshHost) return trigger;
+        const sshStatus =
+          e.kind === "pane-leaf" ? e.sshStatus : undefined;
         return (
           <Tooltip key={e.key}>
             <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent side="bottom" className="font-mono text-[10.5px]">
-              SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
+            <TooltipContent side="bottom">
+              <div className="flex flex-col gap-0.5 text-[11px]">
+                <span>
+                  SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
+                </span>
+                {sshStatus ? (
+                  <span className="text-muted-foreground">
+                    {statusLabel(sshStatus)}
+                  </span>
+                ) : null}
+              </div>
             </TooltipContent>
           </Tooltip>
         );
@@ -785,21 +812,18 @@ function SortableTabGroup({
  * left of the close X. Clicking opens a dropdown of every other pane tab,
  * picking one moves THIS leaf into the chosen tab as a horizontal split.
  *
- * Tabs that are at the per-tab pane cap, or that already hold an editor
- * leaf when this leaf is an editor too, render disabled so the user sees
- * why they're unpickable (and the toast still fires through the parent's
+ * Tabs at the per-tab pane cap render disabled so the user sees why
+ * they're unpickable (and the toast still fires through the parent's
  * `onMove` callback if a stale "ok" target turns into "full" between
  * render and click).
  */
 function MoveLeafToGroupButton({
   leafId,
-  isEditorLeaf,
   ownerTabId,
   groups,
   onMove,
 }: {
   leafId: number;
-  isEditorLeaf: boolean;
   ownerTabId: number;
   groups: PaneGroupForMove[];
   onMove: (leafId: number, targetTabId: number) => void;
@@ -825,30 +849,19 @@ function MoveLeafToGroupButton({
         <TooltipContent side="bottom">Move To Group</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="min-w-48">
-        {others.map((g) => {
-          const blocked = g.full || (isEditorLeaf && g.hasEditor);
-          return (
-            <DropdownMenuItem
-              key={g.id}
-              disabled={blocked}
-              onSelect={() => onMove(leafId, g.id)}
-            >
-              <HugeiconsIcon
-                icon={Layers01Icon}
-                size={13}
-                strokeWidth={1.75}
-              />
-              <span className="flex-1 truncate">{g.title}</span>
-              <span className="text-xs text-muted-foreground">
-                {g.full
-                  ? "Full"
-                  : isEditorLeaf && g.hasEditor
-                    ? "Editor"
-                    : `${g.count}/${MAX_PANES_PER_TAB}`}
-              </span>
-            </DropdownMenuItem>
-          );
-        })}
+        {others.map((g) => (
+          <DropdownMenuItem
+            key={g.id}
+            disabled={g.full}
+            onSelect={() => onMove(leafId, g.id)}
+          >
+            <HugeiconsIcon icon={Layers01Icon} size={13} strokeWidth={1.75} />
+            <span className="flex-1 truncate">{g.title}</span>
+            <span className="text-xs text-muted-foreground">
+              {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
+            </span>
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -862,12 +875,23 @@ function EntryIcon({ entry }: { entry: Entry }) {
     }
     if (entry.sshConnectionId) {
       return (
-        <HugeiconsIcon
-          icon={CloudServerIcon}
-          size={14}
-          strokeWidth={2}
-          className="shrink-0 text-sky-600 dark:text-sky-400"
-        />
+        <span className="relative inline-flex shrink-0">
+          <HugeiconsIcon
+            icon={CloudServerIcon}
+            size={14}
+            strokeWidth={2}
+            className="shrink-0 text-sky-600 dark:text-sky-400"
+          />
+          {entry.sshStatus ? (
+            <span
+              aria-hidden
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-1 ring-background",
+                statusDotClass(entry.sshStatus),
+              )}
+            />
+          ) : null}
+        </span>
       );
     }
     return (

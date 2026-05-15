@@ -43,6 +43,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import { SshMenu } from "@/modules/ssh/SshMenu";
 import type { SshConnection } from "@/modules/ssh/connections";
+import type { SshStatus } from "@/modules/ssh/status";
 
 type Props = {
   tabs: Tab[];
@@ -70,11 +71,13 @@ type Props = {
   /**
    * Move a leaf out of its current tab into `targetTabId` as a split. Used
    * by the per-entry "Move to group" button on the tab strip. Caller toasts
-   * on full / editor-conflict.
+   * on full.
    */
   onMoveLeafToGroup: (leafId: number, targetTabId: number) => void;
   /** Flip the orientation of the split node that directly contains `leafId`. */
   onRotateLeafSplit: (leafId: number) => void;
+  /** Per-leaf SSH session status, forwarded to the tab strip for the dot. */
+  sshStatuses?: Map<number, SshStatus>;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
   /** Markdown-preview toggle for the active editor leaf. `null` hides the
@@ -131,6 +134,7 @@ export function Header({
   onConnectSsh,
   onMoveLeafToGroup,
   onRotateLeafSplit,
+  sshStatuses,
   searchTarget,
   searchRef,
   mdPreviewToggle,
@@ -302,6 +306,7 @@ export function Header({
           onReorderTabs={onReorderTabs}
           onMoveLeafToGroup={onMoveLeafToGroup}
           onRotateLeafSplit={onRotateLeafSplit}
+          sshStatuses={sshStatuses}
           compact={compact}
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />

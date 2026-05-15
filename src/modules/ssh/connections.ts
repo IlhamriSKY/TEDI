@@ -35,6 +35,10 @@ export type SshConnection = {
   hasKeyPassphrase: boolean;
   /** Free-form note shown in the UI. */
   description?: string;
+  /** Unix ms of the most recent successful `Connected` handshake. */
+  lastConnectedAt?: number;
+  /** SHA256 fingerprint of the server key recorded on the last connect. */
+  lastFingerprint?: string;
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -112,6 +116,26 @@ export async function getConnectionSecrets(id: string): Promise<{
 
 export function onConnectionsChanged(cb: () => void): Promise<UnlistenFn> {
   return listen(CHANGED_EVENT, () => cb());
+}
+
+/**
+ * Record that a connection completed an SSH handshake. Writes back the
+ * timestamp and the server-key fingerprint so the UI can show "last: 2h
+ * ago" pips and the user can spot a key rotation across reconnects.
+ */
+export async function markConnected(
+  id: string,
+  fingerprint: string,
+): Promise<void> {
+  const list = await listConnections();
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx < 0) return;
+  list[idx] = {
+    ...list[idx],
+    lastConnectedAt: Date.now(),
+    lastFingerprint: fingerprint || list[idx].lastFingerprint,
+  };
+  await persist(list);
 }
 
 async function readSecret(id: string, field: string): Promise<string | null> {

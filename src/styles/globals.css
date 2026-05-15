@@ -165,86 +165,64 @@ html[data-chrome="borderless"] #settings-root {
   background: var(--background);
 }
 
-/*
- * xterm.js + CodeMirror scrollbar styling - kept outside @layer so they win
- * against the addons' own stylesheets (which are not in any layer and would
- * otherwise override).
+/* ===== Unified scrollbar style =====
  *
- * Both surfaces opt-in to a slim themed scrollbar so the user has a clear
- * vertical/horizontal navigation affordance. `!important` is required because
- * the global `html[data-chrome="borderless"] *::-webkit-scrollbar` rule
- * further down has higher specificity and would otherwise hide these.
+ * Every native scrollbar in the app — editor, settings, dialogs, dropdowns,
+ * chat panels, terminal, file tree, anywhere `overflow:auto|scroll` is set —
+ * uses the same 10px boxy appearance: `--border` thumb, `--muted-foreground`
+ * on hover, transparent track, no border-radius. Applied via webkit pseudo-
+ * elements on Linux/Windows (borderless chrome). macOS keeps its native
+ * overlay scrollbar so the OS feel is preserved.
  *
- * Newer xterm renders scrollbars as real <div class="scrollbar vertical|horizontal">
- * children rather than relying on native overflow scrollbars; we leave those
- * untouched so xterm can paint them when the WebGL renderer is active.
+ * IMPORTANT — do NOT set `scrollbar-width` or `scrollbar-color` on `*`.
+ * In Chromium (Tauri WebView2), once either property is non-initial the
+ * engine switches to the modern CSS scrollbar UI and IGNORES every
+ * `::-webkit-scrollbar-*` rule below. The earlier "hide on borderless"
+ * approach via `scrollbar-width: none` on `*` is exactly what made the
+ * editor's scrollbars vanish — keeping those properties untouched here
+ * is what lets the rest of these rules actually take effect.
+ *
+ * Opt out per-region with `.no-scrollbar` (single element) or
+ * `.no-scrollbar-deep` (cascades to descendants). The Radix `<ScrollArea>`
+ * primitive renders its own custom thumb on top of an `overflow:scroll`
+ * viewport; the override at the bottom of this section keeps that
+ * viewport's native bar hidden so we don't get double scrollbars.
  */
-.xterm .xterm-viewport,
-.xterm-viewport {
-  scrollbar-width: thin !important;
-  scrollbar-color: var(--border) transparent !important;
-  -ms-overflow-style: auto !important;
+html[data-chrome="borderless"] *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
-.xterm .xterm-viewport::-webkit-scrollbar,
-.xterm-viewport::-webkit-scrollbar {
-  width: 10px !important;
-  height: 10px !important;
-  display: block !important;
+html[data-chrome="borderless"] *::-webkit-scrollbar-track {
+  background: transparent;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-track,
-.xterm-viewport::-webkit-scrollbar-track {
-  background: transparent !important;
+html[data-chrome="borderless"] *::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 0;
+  background-clip: padding-box;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-thumb,
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--border) !important;
-  border-radius: 5px !important;
-  border: 2px solid transparent !important;
-  background-clip: padding-box !important;
+html[data-chrome="borderless"] *::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+  background-clip: padding-box;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover,
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground) !important;
-  background-clip: padding-box !important;
+html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
+  background: transparent;
 }
+
+/* Radix ScrollArea: viewport already gets `overflow:scroll` from the
+ * primitive and a custom thumb is rendered on top. The global rule above
+ * wins on specificity, so without this `!important` override every Radix
+ * scroll area would show TWO scrollbars (native + custom). */
+[data-radix-scroll-area-viewport]::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* xterm renders its own canvas-based scrollbar via add-ons; we only need to
+ * clean up the focus outline on the host element. */
 .xterm,
 .xterm-screen,
 .xterm:focus,
 .xterm.focus {
   outline: none !important;
-}
-
-.cm-editor,
-.cm-scroller {
-  scrollbar-width: thin !important;
-  scrollbar-color: var(--border) transparent !important;
-  -ms-overflow-style: auto !important;
-}
-.cm-editor::-webkit-scrollbar,
-.cm-scroller::-webkit-scrollbar {
-  width: 10px !important;
-  height: 10px !important;
-  display: block !important;
-}
-.cm-editor::-webkit-scrollbar-track,
-.cm-scroller::-webkit-scrollbar-track {
-  background: transparent !important;
-}
-.cm-editor::-webkit-scrollbar-thumb,
-.cm-scroller::-webkit-scrollbar-thumb {
-  background: var(--border) !important;
-  border-radius: 5px !important;
-  border: 2px solid transparent !important;
-  background-clip: padding-box !important;
-}
-.cm-editor::-webkit-scrollbar-thumb:hover,
-.cm-scroller::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground) !important;
-  background-clip: padding-box !important;
-}
-.cm-editor::-webkit-scrollbar-corner,
-.cm-scroller::-webkit-scrollbar-corner {
-  background: transparent !important;
 }
 
 /* @codemirror/merge's base theme forces every .cm-editor inside .cm-mergeView
@@ -257,6 +235,11 @@ html[data-chrome="borderless"] #settings-root {
   height: 100% !important;
 }
 
+/* ===== Opt-out classes =====
+ * `.no-scrollbar` hides the scrollbar on a single element; the deep variant
+ * cascades to every descendant. Both win against the global webkit rules
+ * above via `!important`. Used for command palettes / dropdowns where a
+ * visible scrollbar would clutter the menu. */
 .no-scrollbar {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
@@ -277,64 +260,4 @@ html[data-chrome="borderless"] #settings-root {
   width: 0 !important;
   height: 0 !important;
   display: none !important;
-}
-
-/* Linux/Windows ship a chunky native Chromium scrollbar that breaks the
- * frosted-glass aesthetic. Hide it globally - visible scroll affordances are
- * provided per-region via shadcn <ScrollArea>. macOS native overlay scrollbar
- * stays untouched. */
-html[data-chrome="borderless"] {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-html[data-chrome="borderless"] *,
-html[data-chrome="borderless"] *::before,
-html[data-chrome="borderless"] *::after {
-  scrollbar-width: none;
-}
-html[data-chrome="borderless"] *::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-
-/* Re-enable a slim themed scrollbar inside surfaces that need a visible
- * navigation affordance (AI chat, settings panes, etc). The global rule above
- * hides scrollbars across the app; this opts specific regions back in. */
-.chat-scroll,
-.chat-scroll *,
-.themed-scroll,
-.themed-scroll * {
-  scrollbar-width: thin !important;
-  scrollbar-color: var(--border) transparent;
-}
-.chat-scroll *::-webkit-scrollbar,
-.chat-scroll::-webkit-scrollbar,
-.themed-scroll *::-webkit-scrollbar,
-.themed-scroll::-webkit-scrollbar {
-  width: 8px !important;
-  height: 8px !important;
-  display: block !important;
-}
-.chat-scroll *::-webkit-scrollbar-track,
-.chat-scroll::-webkit-scrollbar-track,
-.themed-scroll *::-webkit-scrollbar-track,
-.themed-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat-scroll *::-webkit-scrollbar-thumb,
-.chat-scroll::-webkit-scrollbar-thumb,
-.themed-scroll *::-webkit-scrollbar-thumb,
-.themed-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.chat-scroll *::-webkit-scrollbar-thumb:hover,
-.chat-scroll::-webkit-scrollbar-thumb:hover,
-.themed-scroll *::-webkit-scrollbar-thumb:hover,
-.themed-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
-  background-clip: padding-box;
 }

@@ -1,9 +1,11 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
-import { foldGutter, indentUnit } from "@codemirror/language";
+import { foldGutter, indentUnit, language } from "@codemirror/language";
 import { lintGutter } from "@codemirror/lint";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { showMinimap } from "@replit/codemirror-minimap";
+import { colorDecorations, colorLinesField } from "./colorDecorations";
 
 // Compartments allow runtime reconfiguration without rebuilding state.
 export const languageCompartment = new Compartment();
@@ -22,6 +24,29 @@ function makeFoldMarker(open: boolean): HTMLElement {
   return span;
 }
 
+function minimapExtension(): Extension {
+  // Deps:
+  // - "doc"      → re-parse on edits + pick up new color decorations.
+  // - language   → recompute once our async `resolveLanguage` reconfigures
+  //                the language compartment, otherwise the first paint runs
+  //                before the parser arrives and the minimap stays uncolored
+  //                until the next keystroke.
+  return showMinimap.compute(["doc", language], (state) => {
+    const colorLines = state.field(colorLinesField, false) ?? {};
+    return {
+      create: () => {
+        const dom = document.createElement("div");
+        // Match the editor surface so the minimap blends with the gutter.
+        dom.style.background = "transparent";
+        return { dom };
+      },
+      displayText: "characters",
+      showOverlay: "always",
+      gutters: Object.keys(colorLines).length > 0 ? [colorLines] : undefined,
+    };
+  });
+}
+
 export function buildSharedExtensions(): Extension[] {
   return [
     indentUnit.of("  "),
@@ -31,12 +56,20 @@ export function buildSharedExtensions(): Extension[] {
     foldGutter({
       markerDOM: makeFoldMarker,
     }),
+    colorDecorations(),
+    minimapExtension(),
     EditorView.theme({
       "&, &.cm-editor, &.cm-editor.cm-focused": {
         backgroundColor: "transparent !important",
         color: "var(--foreground)",
         outline: "none",
-        padding: "8px",
+        // Drop padding on the right + bottom so the native vertical scrollbar
+        // (and the minimap immediately to its left) and the horizontal
+        // scrollbar all sit flush with the pane edges — otherwise an 8px
+        // empty strip appears between each scrollbar and the border. Left +
+        // top keep their 8px breathing room so the gutter and first line
+        // don't crowd the pane edge.
+        padding: "8px 0 0 8px",
       },
       ".cm-scroller": {
         fontFamily: detectMonoFontFamily(),
@@ -155,6 +188,14 @@ export function buildSharedExtensions(): Extension[] {
         backgroundColor: "var(--popover)",
         color: "var(--popover-foreground)",
         borderColor: "var(--border)",
+      },
+      // The minimap gets the .cm-gutters class so it picks up the
+      // background-color rule above — but the right-side border looks wrong
+      // (it sits to the right of the gutter, against the panel edge).
+      // Move the divider to the left edge of the minimap instead.
+      ".cm-minimap-gutter": {
+        borderRight: "0 !important",
+        borderLeft: "1px solid var(--border) !important",
       },
     }),
   ];
