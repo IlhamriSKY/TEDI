@@ -32,7 +32,6 @@ Thumbs.db
 
 # Local config / secrets
 .env
-.tauri
 .env.*
 !.env.example
 .claude

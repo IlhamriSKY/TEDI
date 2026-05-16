@@ -9,6 +9,11 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   FileAddIcon,
   FileSearchIcon,
   Folder01Icon,
@@ -210,19 +215,21 @@ export function FileExplorer({
       onKeyDown={handleKeyDown}
     >
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
-        <span
-          className="flex-1 flex truncate text-xs font-medium text-foreground/80"
-          title={rootPath}
-        >
-          <img
-            src={folderIconUrl(basename(rootPath), false)}
-            alt=""
-            height={15}
-            width={15}
-            className="mx-1.5"
-          />
-          {basename(rootPath)}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex-1 flex truncate text-xs font-medium text-foreground/80">
+              <img
+                src={folderIconUrl(basename(rootPath), false)}
+                alt=""
+                height={15}
+                width={15}
+                className="mx-1.5"
+              />
+              {basename(rootPath)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{rootPath}</TooltipContent>
+        </Tooltip>
 
         <IconTooltip label="Search files" side="bottom">
           <Button

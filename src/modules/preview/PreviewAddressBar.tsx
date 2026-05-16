@@ -16,6 +16,8 @@ import {
   ArrowReloadHorizontalIcon,
   Globe02Icon,
   LinkSquare02Icon,
+  Shield01Icon,
+  ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -59,12 +61,18 @@ export type PreviewAddressBarHandle = {
 
 type Props = {
   url: string;
+  proxied: boolean;
+  canProxy: boolean;
   onSubmit: (url: string) => void;
   onReload: () => void;
+  onToggleProxy: () => void;
 };
 
 export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
-  function PreviewAddressBar({ url, onSubmit, onReload }, ref) {
+  function PreviewAddressBar(
+    { url, proxied, canProxy, onSubmit, onReload, onToggleProxy },
+    ref,
+  ) {
     const [draft, setDraft] = useState(url);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -197,6 +205,36 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
             }}
           />
         </div>
+        {canProxy ? (
+          <IconTooltip
+            label={
+              proxied
+                ? "Proxied (strips X-Frame-Options). Click to load directly."
+                : "Loading directly. Click to route through proxy."
+            }
+            side="bottom"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onToggleProxy}
+              aria-label={proxied ? "Disable preview proxy" : "Enable preview proxy"}
+              aria-pressed={proxied}
+              className={
+                proxied
+                  ? "size-7 shrink-0 rounded-md text-emerald-600 hover:bg-accent dark:text-emerald-400"
+                  : "size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              }
+            >
+              <HugeiconsIcon
+                icon={proxied ? Shield01Icon : ShieldBanIcon}
+                size={14}
+                strokeWidth={1.75}
+              />
+            </Button>
+          </IconTooltip>
+        ) : null}
         <IconTooltip label="Open in system browser" side="bottom">
           <Button
             type="button"

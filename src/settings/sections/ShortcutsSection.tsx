@@ -5,6 +5,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setShortcuts } from "@/modules/settings/store";
 import {
+  canonicalKeyFromEvent,
   getBindingTokens,
   SHORTCUTS,
   SHORTCUT_GROUPS,
@@ -311,8 +312,13 @@ function Recorder({
       if (!hasPrimaryModifier && (!e.shiftKey || isCharacterKey)) {
         return;
       }
+      // Record the canonical (layout-independent) key so a shortcut
+      // captured on a Mac with Option held or on a non-Latin layout still
+      // matches when replayed. Without this, recording Option+Z on macOS
+      // would store key="Ω" and never re-fire; recording Ctrl+T on a
+      // Cyrillic layout would store key="т".
       onRecord({
-        key: e.key,
+        key: canonicalKeyFromEvent(e),
         ctrl: e.ctrlKey,
         shift: e.shiftKey,
         alt: e.altKey,

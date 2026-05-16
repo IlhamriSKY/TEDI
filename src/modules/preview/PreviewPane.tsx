@@ -1,6 +1,7 @@
-import { Alert02Icon, Globe02Icon } from "@hugeicons/core-free-icons";
+import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { isLocalUrl, resolveIframeSrc } from "./lib/proxy";
 import {
   PreviewAddressBar,
   type PreviewAddressBarHandle,
@@ -24,6 +25,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
     // which is the only reliable cross-origin reload (calling
     // contentWindow.location.reload() throws on cross-origin frames).
     const [nonce, setNonce] = useState(0);
+    const [bypassProxy, setBypassProxy] = useState(false);
     const addressRef = useRef<PreviewAddressBarHandle>(null);
 
     useImperativeHandle(
@@ -36,7 +38,12 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
       [url],
     );
 
-    const showXfoHint = url ? !isLocalUrl(url) : false;
+    const isLocal = url ? isLocalUrl(url) : true;
+    const proxied = !isLocal && !bypassProxy;
+    const iframeSrc = useMemo(
+      () => (url ? resolveIframeSrc(url, { bypassProxy }) : ""),
+      [url, bypassProxy],
+    );
 
     return (
       <div
@@ -49,23 +56,18 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
         <PreviewAddressBar
           ref={addressRef}
           url={url}
-          onSubmit={onUrlChange}
+          proxied={proxied}
+          canProxy={!isLocal}
+          onSubmit={(next) => {
+            setBypassProxy(false);
+            onUrlChange(next);
+          }}
           onReload={() => setNonce((n) => n + 1)}
+          onToggleProxy={() => {
+            setBypassProxy((v) => !v);
+            setNonce((n) => n + 1);
+          }}
         />
-        {showXfoHint ? (
-          <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/60 bg-amber-500/8 px-3 text-[11px] text-amber-600 dark:text-amber-400">
-            <HugeiconsIcon
-              icon={Alert02Icon}
-              size={12}
-              strokeWidth={1.75}
-              className="shrink-0"
-            />
-            <span className="truncate">
-              Many public sites refuse to embed (X-Frame-Options). If the page
-              is blank, open it externally.
-            </span>
-          </div>
-        ) : null}
         <div
           className={
             url
@@ -75,8 +77,8 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
         >
           {url ? (
             <iframe
-              key={`${url}#${nonce}`}
-              src={url}
+              key={`${iframeSrc}#${nonce}`}
+              src={iframeSrc}
               title="Preview"
               className="h-full w-full border-0"
               allow="clipboard-read; clipboard-write; fullscreen"
@@ -106,26 +108,10 @@ function EmptyState() {
             Ports
           </span>{" "}
           dropdown to jump straight to your running dev server. Public sites
-          often block embedding - open them in your browser via the link icon
-          if you see a blank page.
+          are routed through TEDI's strip-XFO proxy so they render inline -
+          toggle it off with the shield button if a site looks broken.
         </p>
       </div>
     </div>
   );
-}
-
-function isLocalUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    const h = u.hostname;
-    return (
-      h === "localhost" ||
-      h === "127.0.0.1" ||
-      h === "0.0.0.0" ||
-      h === "[::1]" ||
-      h.endsWith(".localhost")
-    );
-  } catch {
-    return false;
-  }
 }

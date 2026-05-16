@@ -59,6 +59,8 @@ export type Preferences = {
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   showHiddenFiles: boolean;
+  /** Show the Source Control panel in the sidebar. Default true. */
+  showSourceControl: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   /** Model ids pinned by the user; surfaced as a "Pinned" group at the top
    *  of the AI model dropdown. Ordered by pin time (newest first). */
@@ -95,6 +97,7 @@ const KEY_SHOW_MINIMAP = "showMinimap";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
+const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
 const KEY_APPROVAL_MODE = "approvalMode";
@@ -127,6 +130,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   showHiddenFiles: false,
+  showSourceControl: true,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   pinnedModelIds: [],
   approvalMode: "ask",
@@ -194,6 +198,9 @@ export async function loadPreferences(): Promise<Preferences> {
     showHiddenFiles:
       get<boolean>(KEY_SHOW_HIDDEN_FILES) ??
       DEFAULT_PREFERENCES.showHiddenFiles,
+    showSourceControl:
+      get<boolean>(KEY_SHOW_SOURCE_CONTROL) ??
+      DEFAULT_PREFERENCES.showSourceControl,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
@@ -278,6 +285,10 @@ export async function setShowHiddenFiles(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_HIDDEN_FILES, value);
 }
 
+export async function setShowSourceControl(value: boolean): Promise<void> {
+  await writePref(KEY_SHOW_SOURCE_CONTROL, value);
+}
+
 export async function setTerminalFontSize(value: number): Promise<void> {
   const clamped = Number.isFinite(value)
     ? Math.min(
@@ -357,6 +368,7 @@ export async function onPreferencesChange(
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
+    [KEY_SHOW_SOURCE_CONTROL]: "showSourceControl",
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_PINNED_MODELS]: "pinnedModelIds",
     [KEY_APPROVAL_MODE]: "approvalMode",

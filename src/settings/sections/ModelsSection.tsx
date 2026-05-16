@@ -7,6 +7,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   AUTOCOMPLETE_PROVIDERS,
@@ -581,16 +586,20 @@ function OpenAICompatibleBlock({
                 <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[10.5px] text-muted-foreground">
                   {maskedKey}
                 </code>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => void onClearKey()}
-                  aria-label="Remove key"
-                  title="Remove key"
-                >
-                  ×
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => void onClearKey()}
+                      aria-label="Remove key"
+                    >
+                      ×
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Remove key</TooltipContent>
+                </Tooltip>
               </div>
             ) : (
               <div className="flex items-center gap-1">

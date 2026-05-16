@@ -1,6 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import {
@@ -223,22 +228,26 @@ function RunInTerminalButton({ command }: { command: string }) {
     tRef.current = window.setTimeout(() => setSent(false), 1500);
   };
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="ghost"
-      onClick={onRun}
-      className="h-5 gap-1 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-      aria-label="Run in active terminal"
-      title="Run in active terminal"
-    >
-      <HugeiconsIcon
-        icon={sent ? TerminalIcon : ArrowRight01Icon}
-        size={11}
-        strokeWidth={1.75}
-      />
-      <span>{sent ? "Sent" : "Run"}</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={onRun}
+          className="h-5 gap-1 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+          aria-label="Run in active terminal"
+        >
+          <HugeiconsIcon
+            icon={sent ? TerminalIcon : ArrowRight01Icon}
+            size={11}
+            strokeWidth={1.75}
+          />
+          <span>{sent ? "Sent" : "Run"}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Run in active terminal</TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1,5 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { presentableDiff, unifiedMergeView } from "@codemirror/merge";
@@ -169,12 +174,14 @@ export function AiDiffPane({
               New file
             </span>
           ) : null}
-          <span
-            className="truncate font-mono text-[11px] text-muted-foreground"
-            title={path}
-          >
-            {path}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="truncate font-mono text-[11px] text-muted-foreground">
+                {path}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{path}</TooltipContent>
+          </Tooltip>
           <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
             <span className="text-emerald-600 dark:text-emerald-400">
               +{stats.added}

@@ -23,6 +23,7 @@ import {
   setEditorTheme,
   setRestoreWindowState,
   setShowHiddenFiles,
+  setShowSourceControl,
   setTerminalFontSize,
   setTerminalWebglEnabled,
   setShowMinimap,
@@ -64,6 +65,7 @@ export function GeneralSection() {
   );
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
+  const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
 
   // Reconcile autostart pref with the actual OS state on mount - the user may
   // have toggled it from System Settings.
@@ -259,6 +261,19 @@ export function GeneralSection() {
           <Switch
             checked={showHiddenFiles}
             onCheckedChange={(v) => void setShowHiddenFiles(v)}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Source Control</Label>
+        <SettingRow
+          title="Show Source Control"
+          description="Display the Source Control panel in the sidebar."
+        >
+          <Switch
+            checked={showSourceControl}
+            onCheckedChange={(v) => void setShowSourceControl(v)}
           />
         </SettingRow>
       </div>

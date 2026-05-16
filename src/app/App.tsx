@@ -94,10 +94,6 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import {
-  disconnectSsh,
-  reconnectSsh,
-} from "@/modules/terminal/lib/useTerminalSession";
 import { SshConnectionDialog } from "@/modules/ssh/SshConnectionDialog";
 import type { SshStatus } from "@/modules/ssh/status";
 import {
@@ -336,6 +332,7 @@ export default function App() {
   const prefLastModelId = usePreferencesStore((s) => s.lastModelId);
   const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
+  const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const openaiCompatibleBaseURL = usePreferencesStore(
     (s) => s.openaiCompatibleBaseURL,
   );
@@ -666,36 +663,6 @@ export default function App() {
     },
     [],
   );
-
-  // Active leaf's SSH binding + status, used to render the status bar pill.
-  const activeSshConnectionId = useMemo<string | null>(() => {
-    if (!activePaneTab) return null;
-    const leaf = activeLeaf(activePaneTab);
-    if (!leaf || leaf.leafKind !== "terminal") return null;
-    return leaf.sshConnectionId ?? null;
-  }, [activePaneTab]);
-  const activeSshConnection = useMemo<SshConnection | null>(() => {
-    if (!activeSshConnectionId) return null;
-    return sshConns.find((c) => c.id === activeSshConnectionId) ?? null;
-  }, [activeSshConnectionId, sshConns]);
-  const activeSshStatus = useMemo<SshStatus | null>(() => {
-    if (!activeSshConnectionId || activeLeafIdInTab === null) return null;
-    return sshStatuses.get(activeLeafIdInTab) ?? null;
-  }, [activeSshConnectionId, activeLeafIdInTab, sshStatuses]);
-
-  const handleSshReconnect = useCallback(() => {
-    if (activeLeafIdInTab === null) return;
-    void reconnectSsh(activeLeafIdInTab);
-  }, [activeLeafIdInTab]);
-  const handleSshDisconnect = useCallback(() => {
-    if (activeLeafIdInTab === null) return;
-    void disconnectSsh(activeLeafIdInTab);
-  }, [activeLeafIdInTab]);
-  const handleSshEdit = useCallback(() => {
-    if (!activeSshConnection) return;
-    setEditingSshConn(activeSshConnection);
-    setSshEditorOpen(true);
-  }, [activeSshConnection]);
 
   const disposeTab = useCallback(
     (id: number) => {
@@ -1137,9 +1104,52 @@ export default function App() {
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
+      // Ctrl+Shift+C — copy current terminal selection to clipboard. No-op
+      // when nothing is selected (the event is still preventDefault'd by
+      // useGlobalShortcuts so it never reaches xterm; `Ctrl+C` without
+      // Shift falls through to xterm and sends SIGINT as expected).
+      "terminal.copy": () => {
+        if (
+          activeLeafIdInTab === null ||
+          activeLeafKindCurrent !== "terminal"
+        )
+          return;
+        const term = terminalRefs.current.get(activeLeafIdInTab);
+        const sel = term?.getSelection();
+        if (!sel) return;
+        // navigator.clipboard works inside Tauri 2's webview without a
+        // permission prompt. Fire-and-forget; failure is silent because
+        // the only realistic cause is the document not being focused yet
+        // (e.g., during a window-switch race) and the user can retry.
+        void navigator.clipboard.writeText(sel).catch((e) => {
+          console.warn("terminal.copy: clipboard write failed:", e);
+        });
+      },
+      // Ctrl+Shift+V — paste clipboard into the active terminal via
+      // term.paste so the shell sees a bracketed paste (multi-line
+      // snippets don't execute line-by-line under bash/zsh).
+      "terminal.paste": () => {
+        if (
+          activeLeafIdInTab === null ||
+          activeLeafKindCurrent !== "terminal"
+        )
+          return;
+        const term = terminalRefs.current.get(activeLeafIdInTab);
+        if (!term) return;
+        void navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) term.paste(text);
+          })
+          .catch((e) => {
+            console.warn("terminal.paste: clipboard read failed:", e);
+          });
+      },
     }),
     [
       activeId,
+      activeLeafIdInTab,
+      activeLeafKindCurrent,
       cycleTab,
       handleCloseTabOrPane,
       openNewTab,
@@ -1535,18 +1545,22 @@ export default function App() {
                         onAttachToAgent={handleAttachFileToAgent}
                       />
                     </ResizablePanel>
-                    <ResizableHandle withHandle />
-                    <ResizablePanel
-                      id="sidebar-scm"
-                      defaultSize="25%"
-                      minSize="10%"
-                    >
-                      <SourceControlPanel
-                        rootPath={explorerRoot}
-                        onPathDeleted={handlePathDeleted}
-                        onOpenDiff={openGitDiffTab}
-                      />
-                    </ResizablePanel>
+                    {showSourceControl ? (
+                      <>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel
+                          id="sidebar-scm"
+                          defaultSize="25%"
+                          minSize="10%"
+                        >
+                          <SourceControlPanel
+                            rootPath={explorerRoot}
+                            onPathDeleted={handlePathDeleted}
+                            onOpenDiff={openGitDiffTab}
+                          />
+                        </ResizablePanel>
+                      </>
+                    ) : null}
                     <ResizableHandle withHandle />
                     <ResizablePanel
                       id="sidebar-workspaces"
@@ -1680,11 +1694,6 @@ export default function App() {
             onOpenPreview={() => {
               if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
             }}
-            sshStatus={activeSshStatus}
-            sshConnection={activeSshConnection}
-            onSshReconnect={handleSshReconnect}
-            onSshDisconnect={handleSshDisconnect}
-            onSshEdit={handleSshEdit}
           />
 
           {hasComposer ? (

@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{fs, git, net, pty, secrets, shell, ssh};
+use modules::{fs, git, net, preview, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -200,6 +200,11 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_process::init());
 
+    // Custom URI scheme that proxies arbitrary http(s) URLs and strips
+    // X-Frame-Options / CSP frame-ancestors so the preview pane can embed
+    // public sites that would otherwise refuse to render in an iframe.
+    let builder = preview::register(builder);
+
     // Updater is desktop-only (no mobile target wired in this fork either, but
     // the plugin itself refuses to compile on android/ios).
     #[cfg(desktop)]
@@ -245,7 +250,6 @@ pub fn run() {
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,
             fs::file::fs_write_file,
-            fs::file::fs_stat,
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,
             fs::mutate::fs_rename,

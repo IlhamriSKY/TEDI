@@ -13,6 +13,9 @@ export type TerminalPaneHandle = {
   focus: () => void;
   getBuffer: (maxLines?: number) => string | null;
   getSelection: () => string | null;
+  /** Bracketed-paste-aware insert. Use this for clipboard paste paths so
+   *  multi-line snippets don't execute line-by-line under bash/zsh. */
+  paste: (data: string) => void;
 };
 
 type Props = {
@@ -84,6 +87,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
         focus: () => session.focus(),
         getBuffer: (max?: number) => session.getBuffer(max),
         getSelection: () => session.getSelection(),
+        paste: (data: string) => session.paste(data),
       }),
       [session],
     );

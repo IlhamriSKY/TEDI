@@ -147,9 +147,16 @@ export function PaneStack({
             // survive tab switches), but their DOM is hidden and ignores
             // pointer events - otherwise resize handles from inactive tabs
             // would leak into the visible workspace area.
+            //
+            // The active wrapper paints `bg-background` so it fully covers
+            // any inactive tab underneath. Without this, WebView2 can still
+            // composite `.xterm-viewport`'s native scrollbar from a hidden
+            // tab on top of the active tab — especially visible when the
+            // inactive tab is split, because its inter-pane scrollbar lands
+            // in the middle of the visible workspace.
             className={
               tabVisible
-                ? "absolute inset-0"
+                ? "absolute inset-0 bg-background"
                 : "absolute inset-0 invisible pointer-events-none"
             }
             aria-hidden={tabVisible ? "false" : "true"}

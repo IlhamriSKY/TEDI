@@ -1,5 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   ArrowDown01Icon,
@@ -321,22 +326,28 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(
                   {hits.length} {hits.length === 1 ? "result" : "results"} in{" "}
                   {fileCount} {fileCount === 1 ? "file" : "files"}
                 </span>
-                <button
-                  type="button"
-                  onClick={toggleAllGroups}
-                  className="flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
-                  aria-label={allCollapsed ? "Expand all" : "Collapse all"}
-                  title={allCollapsed ? "Expand all" : "Collapse all"}
-                >
-                  <HugeiconsIcon
-                    icon={allCollapsed ? UnfoldMoreIcon : UnfoldLessIcon}
-                    size={11}
-                    strokeWidth={2}
-                  />
-                  <span className="hidden @[180px]:inline">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleAllGroups}
+                      className="flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                      aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                    >
+                      <HugeiconsIcon
+                        icon={allCollapsed ? UnfoldMoreIcon : UnfoldLessIcon}
+                        size={11}
+                        strokeWidth={2}
+                      />
+                      <span className="hidden @[180px]:inline">
+                        {allCollapsed ? "Expand all" : "Collapse all"}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
                     {allCollapsed ? "Expand all" : "Collapse all"}
-                  </span>
-                </button>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             ) : null}
             <ScrollArea className="min-h-0 flex-1">
@@ -357,67 +368,75 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(
                         const url = fileIconUrl(name);
                         const isCollapsed = collapsed.has(r.rel);
                         return (
-                          <button
-                            key={`f-${r.rel}-${idx}`}
-                            type="button"
-                            onClick={() => toggleGroup(r.rel)}
-                            className="flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent/40"
-                            title={r.rel}
-                            aria-expanded={!isCollapsed}
-                          >
-                            <HugeiconsIcon
-                              icon={
-                                isCollapsed ? ArrowRight01Icon : ArrowDown01Icon
-                              }
-                              size={11}
-                              strokeWidth={2}
-                              className="shrink-0"
-                            />
-                            {url ? (
-                              <img
-                                src={url}
-                                alt=""
-                                className="size-3.5 shrink-0"
-                              />
-                            ) : null}
-                            <span className="shrink truncate text-foreground/80">
-                              {name}
-                            </span>
-                            <span className="hidden min-w-0 shrink truncate text-[10px] opacity-70 @[200px]:inline">
-                              {r.rel}
-                            </span>
-                            <span className="ml-auto shrink-0 rounded bg-muted px-1 text-[10px] tabular-nums opacity-80">
-                              {r.count}
-                            </span>
-                          </button>
+                          <Tooltip key={`f-${r.rel}-${idx}`}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => toggleGroup(r.rel)}
+                                className="flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent/40"
+                                aria-expanded={!isCollapsed}
+                              >
+                                <HugeiconsIcon
+                                  icon={
+                                    isCollapsed ? ArrowRight01Icon : ArrowDown01Icon
+                                  }
+                                  size={11}
+                                  strokeWidth={2}
+                                  className="shrink-0"
+                                />
+                                {url ? (
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="size-3.5 shrink-0"
+                                  />
+                                ) : null}
+                                <span className="shrink truncate text-foreground/80">
+                                  {name}
+                                </span>
+                                <span className="hidden min-w-0 shrink truncate text-[10px] opacity-70 @[200px]:inline">
+                                  {r.rel}
+                                </span>
+                                <span className="ml-auto shrink-0 rounded bg-muted px-1 text-[10px] tabular-nums opacity-80">
+                                  {r.count}
+                                </span>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">{r.rel}</TooltipContent>
+                          </Tooltip>
                         );
                       }
                     const isActive = r.hitIdx === clampedActive;
                     return (
-                      <button
-                        key={`h-${r.hit.path}-${r.hit.line}-${idx}`}
-                        type="button"
-                        data-hit-idx={r.hitIdx}
-                        onMouseEnter={() => setActiveHitIdx(r.hitIdx)}
-                        onClick={() => openHit(r.hit)}
-                        className={cn(
-                          "flex w-full cursor-pointer items-start gap-2 px-2 py-0.5 pl-7 text-left text-xs",
-                          isActive
-                            ? "bg-accent text-foreground"
-                            : "hover:bg-accent/60",
-                        )}
-                        title={`${r.hit.rel}:${r.hit.line}`}
-                      >
-                        <span className="w-8 shrink-0 pt-[1px] text-right text-[10px] leading-relaxed text-muted-foreground tabular-nums">
-                          {r.hit.line}
-                        </span>
-                        <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap">
-                          <HighlightLine
-                            text={r.hit.text}
-                            needle={query.trim()}
-                          />
-                        </span>
-                      </button>
+                      <Tooltip key={`h-${r.hit.path}-${r.hit.line}-${idx}`}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            data-hit-idx={r.hitIdx}
+                            onMouseEnter={() => setActiveHitIdx(r.hitIdx)}
+                            onClick={() => openHit(r.hit)}
+                            className={cn(
+                              "flex w-full cursor-pointer items-start gap-2 px-2 py-0.5 pl-7 text-left text-xs",
+                              isActive
+                                ? "bg-accent text-foreground"
+                                : "hover:bg-accent/60",
+                            )}
+                          >
+                            <span className="w-8 shrink-0 pt-[1px] text-right text-[10px] leading-relaxed text-muted-foreground tabular-nums">
+                              {r.hit.line}
+                            </span>
+                            <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap">
+                              <HighlightLine
+                                text={r.hit.text}
+                                needle={query.trim()}
+                              />
+                            </span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          {`${r.hit.rel}:${r.hit.line}`}
+                        </TooltipContent>
+                      </Tooltip>
                     );
                   })}
                   {truncated ? (

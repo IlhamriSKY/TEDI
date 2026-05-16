@@ -1,6 +1,5 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::Serialize;
@@ -66,21 +65,6 @@ fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
         Some("avif") => Some("image/avif"),
         _ => None,
     }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum StatKind {
-    File,
-    Dir,
-    Symlink,
-}
-
-#[derive(Serialize)]
-pub struct FileStat {
-    pub size: u64,
-    pub mtime: u64,
-    pub kind: StatKind,
 }
 
 #[tauri::command]
@@ -198,26 +182,3 @@ pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn fs_stat(path: String) -> Result<FileStat, String> {
-    let p = PathBuf::from(&path);
-    let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
-    let kind = if meta.is_dir() {
-        StatKind::Dir
-    } else if meta.file_type().is_symlink() {
-        StatKind::Symlink
-    } else {
-        StatKind::File
-    };
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    Ok(FileStat {
-        size: meta.len(),
-        mtime,
-        kind,
-    })
-}

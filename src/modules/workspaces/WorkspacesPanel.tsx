@@ -1,6 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -126,17 +131,23 @@ export function WorkspacesPanel({
                     {w.name}
                   </button>
                 )}
-                <span
-                  className={cn(
-                    "shrink-0 rounded bg-muted/50 px-1 text-[10px] tabular-nums transition-opacity",
-                    isActive ? "text-foreground/80" : "text-muted-foreground",
-                    "group-hover:opacity-0",
-                  )}
-                  title={`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
-                  aria-label={`${tabCount} tabs open`}
-                >
-                  {tabCount}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded bg-muted/50 px-1 text-[10px] tabular-nums transition-opacity",
+                        isActive ? "text-foreground/80" : "text-muted-foreground",
+                        "group-hover:opacity-0",
+                      )}
+                      aria-label={`${tabCount} tabs open`}
+                    >
+                      {tabCount}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
+                  </TooltipContent>
+                </Tooltip>
                 <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
                   <IconTooltip label="Rename">
                     <Button

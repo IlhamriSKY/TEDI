@@ -28,7 +28,7 @@ The webview never touches OS resources directly. Everything goes through `invoke
 | Module | Files | Commands | Purpose |
 |---|---|---|---|
 | `pty/` | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/` | `pty_open/write/resize/close` | Long-lived interactive PTYs (xterm ↔ portable-pty). State: `RwLock<HashMap<id, Session>>`. Streams output via Tauri `Channel<PtyEvent>`. |
-| `fs/` | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_write_file`, `fs_stat`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). |
+| `fs/` | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). |
 | `shell/` | `session.rs`, `background.rs`, `ringbuffer.rs` | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list` | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.** |
 | `secrets.rs` | - | `secrets_get/set/delete/get_all` | OS keychain (`keyring` crate). Service = `tedi`. Linux falls back to a file store gated by `#[cfg(target_os = "linux")]`. |
 | `net.rs` | - | `http_ping` | Minimal HTTP probe (dev-server detection etc.). |
@@ -104,7 +104,7 @@ Stored only in the OS keychain via Rust `secrets_*` commands. `KEYRING_SERVICE =
 | `transport.ts` | `DirectChatTransport` bridging AI SDK Chat ↔ Agent. |
 | `security.ts` | **Deny-list** refusing obvious secret paths (`.env*`, `.ssh/`, credentials, keychain dirs). Applied on **both** read and write paths. Don't bypass. |
 | `keyring.ts`, `native.ts` | Tauri command wrappers. |
-| `slashCommands.ts`, `snippets.ts`, `placeholders.ts`, `todos.ts` | Composer affordances (slash commands, reusable prompt fragments, placeholders, in-conversation todos). |
+| `slashCommands.ts`, `snippets.ts`, `todos.ts` | Composer affordances (slash commands, reusable prompt fragments, in-conversation todos). |
 
 #### Tools (`tools/`)
 

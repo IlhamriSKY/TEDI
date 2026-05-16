@@ -1,5 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -301,45 +306,48 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                 const url = hit.is_dir ? null : fileIconUrl(hit.name);
                 const isActive = index === clampedActive;
                 return (
-                  <button
-                    key={hit.path}
-                    type="button"
-                    data-result-idx={index}
-                    onMouseEnter={() => setActiveIdx(index)}
-                    onClick={() => openHit(hit)}
-                    className={cn(
-                      "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
-                      isActive
-                        ? "bg-accent text-foreground"
-                        : "hover:bg-accent/60",
-                    )}
-                    title={hit.path}
-                  >
-                    {url ? (
-                      <img src={url} alt="" className="size-3.5 shrink-0" />
-                    ) : (
-                      <HugeiconsIcon
-                        icon={Folder01Icon}
-                        size={13}
-                        strokeWidth={1.75}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                    )}
-                    <span className="truncate">
-                      <Highlighted
-                        text={hit.name}
-                        matches={hit.name_match ?? []}
-                        fallbackQuery={query}
-                      />
-                    </span>
-                    <span className="ml-auto truncate text-[10px] text-muted-foreground">
-                      <Highlighted
-                        text={hit.rel}
-                        matches={[]}
-                        fallbackQuery={query}
-                      />
-                    </span>
-                  </button>
+                  <Tooltip key={hit.path}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        data-result-idx={index}
+                        onMouseEnter={() => setActiveIdx(index)}
+                        onClick={() => openHit(hit)}
+                        className={cn(
+                          "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
+                          isActive
+                            ? "bg-accent text-foreground"
+                            : "hover:bg-accent/60",
+                        )}
+                      >
+                        {url ? (
+                          <img src={url} alt="" className="size-3.5 shrink-0" />
+                        ) : (
+                          <HugeiconsIcon
+                            icon={Folder01Icon}
+                            size={13}
+                            strokeWidth={1.75}
+                            className="shrink-0 text-muted-foreground"
+                          />
+                        )}
+                        <span className="truncate">
+                          <Highlighted
+                            text={hit.name}
+                            matches={hit.name_match ?? []}
+                            fallbackQuery={query}
+                          />
+                        </span>
+                        <span className="ml-auto truncate text-[10px] text-muted-foreground">
+                          <Highlighted
+                            text={hit.rel}
+                            matches={[]}
+                            fallbackQuery={query}
+                          />
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{hit.path}</TooltipContent>
+                  </Tooltip>
                 );
               })
             )}

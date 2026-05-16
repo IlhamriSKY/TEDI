@@ -671,30 +671,36 @@ function ModelSection({
                     {m.hint}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onTogglePin(p.id, m.id);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  aria-label={pinned ? `Unpin ${m.label}` : `Pin ${m.label}`}
-                  title={pinned ? "Unpin from top" : "Pin to top"}
-                  className={cn(
-                    "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                    pinned
-                      ? "text-foreground hover:bg-accent"
-                      : "text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus:opacity-100",
-                  )}
-                >
-                  <HugeiconsIcon
-                    icon={PinIcon}
-                    size={11}
-                    strokeWidth={pinned ? 2 : 1.5}
-                    className={cn(pinned && "fill-foreground")}
-                  />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onTogglePin(p.id, m.id);
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      aria-label={pinned ? `Unpin ${m.label}` : `Pin ${m.label}`}
+                      className={cn(
+                        "shrink-0 cursor-pointer rounded p-1 transition-colors",
+                        pinned
+                          ? "text-foreground hover:bg-accent"
+                          : "text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus:opacity-100",
+                      )}
+                    >
+                      <HugeiconsIcon
+                        icon={PinIcon}
+                        size={11}
+                        strokeWidth={pinned ? 2 : 1.5}
+                        className={cn(pinned && "fill-foreground")}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {pinned ? "Unpin from top" : "Pin to top"}
+                  </TooltipContent>
+                </Tooltip>
               </DropdownMenuItem>
             );
           })

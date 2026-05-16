@@ -4,6 +4,11 @@ import { MergeView } from "@codemirror/merge";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
@@ -179,12 +184,14 @@ export function GitDiffPane({
         <Badge variant="outline" className="text-[10px] px-2 py-0.5 uppercase">
           {changeStatus}
         </Badge>
-        <span
-          className="truncate font-mono text-[11px] text-muted-foreground"
-          title={relative}
-        >
-          {relative}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="truncate font-mono text-[11px] text-muted-foreground">
+              {relative}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{relative}</TooltipContent>
+        </Tooltip>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {loading ? (

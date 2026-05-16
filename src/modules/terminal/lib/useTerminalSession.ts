@@ -31,8 +31,23 @@ export type { TediOpenInput, TediSpawnTabInput };
 const BACKWARD_KILL_WORD = "\x17";
 const SHIFT_ENTER = "\x1b\r";
 
+// Floor for any size pushed to the PTY. xterm's FitAddon can briefly compute
+// 0×0 or 1×1 dimensions when the container collapses (drag, layout
+// transition, hidden tab), and TUIs respond to that with broken or hung
+// screens (nano shows a blank line; nvim panics out of room; btop draws
+// nothing). 2×2 is the smallest size every TUI we care about tolerates.
+const MIN_PTY_DIM = 2;
+
 const LOCAL_URL_RE =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{1,5})?(?:\/[^\s\x1b]*)?/g;
+
+// If a freshly-spawned PTY exits within this window, treat it as a spawn-time
+// crash rather than a user-initiated `exit`. Why: workspace-restore opens
+// several PTYs concurrently and a transient ConPTY/profile-init failure used
+// to bubble up as `onExit` -> `handleLeafExit` -> `closePaneByLeaf`, which
+// silently dropped panes from the restored layout. We now hold the leaf in
+// place with a retry banner so the user can recover with Enter.
+const SPAWN_GRACE_MS = 3_000;
 
 type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
@@ -81,6 +96,22 @@ type Session = {
    * request. Cleared on successful spawn.
    */
   lastPtyError: string | null;
+  /**
+   * Wall-clock ms when the current PTY's `then` resolved successfully. Used
+   * by the exit handler to distinguish "shell crashed during init" (window
+   * defined by `SPAWN_GRACE_MS`) from a user-initiated `exit` later on.
+   * Reset to `null` whenever `pty` is cleared.
+   */
+  ptySpawnedAt: number | null;
+  /**
+   * Monotonic counter bumped at the start of every `openPtyForSession`. The
+   * per-call exit handler captures the value at construction time so it can
+   * detect "this exit pertains to a pty that's already been replaced by a
+   * newer spawn" -- avoids the respawn race where late exit events for an
+   * old pty would otherwise clobber `s.pty` / fire spurious banners on the
+   * new one.
+   */
+  ptySpawnEpoch: number;
   // ---- SSH-only fields below. All ignored on local PTY leaves. ----
   /** Latest emitted status. Source of truth for both UI surfaces. */
   sshStatus: SshStatus;
@@ -158,6 +189,8 @@ function ensureSession(
     sshConnectionId,
     ptyOpening: false,
     lastPtyError: null,
+    ptySpawnedAt: null,
+    ptySpawnEpoch: 0,
     sshStatus: { kind: "idle" },
     sshUserClose: false,
     sshReconnectAttempts: 0,
@@ -166,6 +199,12 @@ function ensureSession(
   sessions.set(leafId, session);
 
   term.attachCustomKeyEventHandler((event) => {
+    // IME composition: defer entirely to the browser/IME. Without this guard,
+    // a Ctrl+Backspace pressed mid-composition (Japanese candidate delete,
+    // Hangul jamo correction) would inject \x17 into the PTY and corrupt
+    // both the IME state and the on-screen buffer. `keyCode === 229` is the
+    // legacy signal some IMEs still emit; `isComposing` is the spec field.
+    if (event.isComposing || event.keyCode === 229) return true;
     const pty = session.pty;
     if (!pty) {
       // No live shell. If we got here because of a prior open failure,
@@ -242,10 +281,40 @@ function ensureSession(
   return session;
 }
 
+/**
+ * Push the current xterm dimensions to the live PTY, floored to MIN_PTY_DIM
+ * and de-duplicated against `lastSentCols/Rows`. Returns true when an IPC
+ * resize was actually issued — used by callers that need to know whether
+ * the trip across the bridge happened.
+ *
+ * Keeping floor + compare + bookkeeping in one place means every callsite
+ * (initial attach, mid-life ResizeObserver tick, font-size effect, retry,
+ * respawn, SSH reconnect) gets identical behavior. Without this, a pane
+ * collapsed to 1×1 during a layout animation could push `cols=1` to the
+ * PTY and break the TUI on screen, then never recover because the compare
+ * would say "already aligned" once the pane grew back.
+ */
+function syncPtySize(s: Session): boolean {
+  if (!s.pty || s.disposed) return false;
+  const cols = Math.max(MIN_PTY_DIM, s.term.cols);
+  const rows = Math.max(MIN_PTY_DIM, s.term.rows);
+  if (cols === s.lastSentCols && rows === s.lastSentRows) return false;
+  s.lastSentCols = cols;
+  s.lastSentRows = rows;
+  void s.pty.resize(cols, rows);
+  return true;
+}
+
 function openPtyForSession(
   s: Session,
   cwd: string | undefined,
 ): Promise<PtySession> {
+  // Capture the epoch this open belongs to. Late exit events for a
+  // superseded spawn will see `myEpoch !== s.ptySpawnEpoch` and bail out
+  // before touching session state owned by the newer spawn.
+  s.ptySpawnEpoch += 1;
+  const myEpoch = s.ptySpawnEpoch;
+
   // Fresh decoder per pty so a partial UTF-8 codepoint from a prior shell
   // doesn't leak into the new one.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
@@ -265,16 +334,51 @@ function openPtyForSession(
     }
   };
   const onExit = (code: number) => {
+    // Late exit from a pty that's already been replaced -- ignore so we
+    // don't clobber the newer spawn's state.
+    if (myEpoch !== s.ptySpawnEpoch) return;
+
+    // Spawn-time crash detection: if the PTY died within SPAWN_GRACE_MS of
+    // opening with a non-zero exit code, the shell almost certainly failed
+    // to initialise (bad ConPTY state, profile script error, transient race
+    // with workspace hydration disposing the wrong leaf, etc.). Hold the
+    // leaf in place with a retry banner instead of forwarding the exit to
+    // App.tsx -- which would close the pane and silently shrink the
+    // restored layout.
+    const spawnedAt = s.ptySpawnedAt;
+    const elapsed = spawnedAt !== null ? Date.now() - spawnedAt : Infinity;
+    if (
+      !s.disposed &&
+      !s.sshConnectionId &&
+      spawnedAt !== null &&
+      elapsed < SPAWN_GRACE_MS &&
+      code !== 0
+    ) {
+      s.pty = null;
+      s.ptySpawnedAt = null;
+      s.term.options.disableStdin = false;
+      const msg = `shell exited with code ${code} ${elapsed}ms after spawn`;
+      s.lastPtyError = msg;
+      writePtyError(s, msg);
+      return;
+    }
     s.term.options.disableStdin = true;
     if (s.callbacks.onExit) s.callbacks.onExit(code);
     else s.pendingExit = code;
   };
 
+  // Spawn at the floored dimensions for the same reason syncPtySize floors:
+  // a pane mid-collapse would otherwise hand the shell a 1×1 viewport and
+  // leave most TUIs (nvim/btop/nano) unrecoverable until a resize event
+  // happens to fire later.
+  const spawnCols = Math.max(MIN_PTY_DIM, s.term.cols);
+  const spawnRows = Math.max(MIN_PTY_DIM, s.term.rows);
+
   if (s.sshConnectionId) {
-    return openSshForSession(s, s.sshConnectionId, onData, onExit);
+    return openSshForSession(s, s.sshConnectionId, spawnCols, spawnRows, onData, onExit);
   }
 
-  return openPty(s.term.cols, s.term.rows, { onData, onExit }, cwd);
+  return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
 }
 
 function writeSshBanner(s: Session, text: string): void {
@@ -297,6 +401,8 @@ function canRetrySsh(status: SshStatus): boolean {
 async function openSshForSession(
   s: Session,
   sshConnectionId: string,
+  cols: number,
+  rows: number,
   onData: (bytes: Uint8Array) => void,
   onExit: (code: number) => void,
 ): Promise<PtySession> {
@@ -341,6 +447,7 @@ async function openSshForSession(
     // Drop the live handle so attachSession / retrySsh treat the leaf as
     // "needs spawn" and the Enter-to-retry path can fire.
     s.pty = null;
+    s.ptySpawnedAt = null;
     scheduleSshReconnect(s, reason);
   };
 
@@ -353,8 +460,8 @@ async function openSshForSession(
       privateKey: conn.authMode === "key" ? secrets.privateKey ?? "" : undefined,
       privateKeyPassphrase:
         conn.authMode === "key" ? secrets.keyPassphrase ?? undefined : undefined,
-      cols: s.term.cols,
-      rows: s.term.rows,
+      cols,
+      rows,
     },
     {
       onConnected: (fp) => {
@@ -446,9 +553,11 @@ async function runSshReconnect(s: Session): Promise<void> {
       return;
     }
     s.pty = pty;
-    s.lastSentCols = s.term.cols;
-    s.lastSentRows = s.term.rows;
-    if (s.observer) void pty.resize(s.term.cols, s.term.rows);
+    s.ptySpawnedAt = Date.now();
+    // Only sync once the ResizeObserver is wired (post attachSession);
+    // otherwise term.cols/rows still hold pre-fit defaults that would push
+    // the wrong size across the bridge before the first measure-pass runs.
+    if (s.observer) syncPtySize(s);
   } catch (e) {
     s.ptyOpening = false;
     const msg = describeError(e);
@@ -494,6 +603,7 @@ export async function disconnectSsh(leafId: number): Promise<void> {
   }
   const pty = s.pty;
   s.pty = null;
+  s.ptySpawnedAt = null;
   if (pty) await pty.close().catch(() => {});
   emitSshStatus(s, {
     kind: "disconnected",
@@ -548,8 +658,11 @@ async function retryPty(s: Session): Promise<void> {
   s.term.reset();
   s.term.options.disableStdin = false;
   s.term.write("\x1b[2m[tedi] retrying…\x1b[0m\r\n");
-  s.lastSentCols = s.term.cols;
-  s.lastSentRows = s.term.rows;
+  // Seed to the values openPtyForSession will actually spawn at (floored)
+  // so the post-spawn syncPtySize is a coherent no-op when nothing changed
+  // mid-await.
+  s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
+  s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
   try {
     const pty = await openPtyForSession(s, s.initialCwd);
     s.ptyOpening = false;
@@ -558,14 +671,8 @@ async function retryPty(s: Session): Promise<void> {
       return;
     }
     s.pty = pty;
-    if (
-      s.term.cols !== s.lastSentCols ||
-      s.term.rows !== s.lastSentRows
-    ) {
-      s.lastSentCols = s.term.cols;
-      s.lastSentRows = s.term.rows;
-      void pty.resize(s.term.cols, s.term.rows);
-    }
+    s.ptySpawnedAt = Date.now();
+    syncPtySize(s);
   } catch (e) {
     s.ptyOpening = false;
     const msg = describeError(e);
@@ -614,6 +721,7 @@ export async function respawnSession(
   if (!s || s.disposed) return;
   s.pty?.close();
   s.pty = null;
+  s.ptySpawnedAt = null;
   s.term.reset();
   s.term.options.disableStdin = false;
   s.lastSentCols = 0;
@@ -640,11 +748,8 @@ export async function respawnSession(
     return;
   }
   s.pty = pty;
-  if (s.observer) {
-    pty.resize(s.term.cols, s.term.rows);
-    s.lastSentCols = s.term.cols;
-    s.lastSentRows = s.term.rows;
-  }
+  s.ptySpawnedAt = Date.now();
+  if (s.observer) syncPtySize(s);
 }
 
 function attachSession(
@@ -686,8 +791,10 @@ function attachSession(
   if (!s.pty && !s.ptyOpening) {
     s.ptyOpening = true;
     s.lastPtyError = null;
-    s.lastSentCols = s.term.cols;
-    s.lastSentRows = s.term.rows;
+    // Same floor as openPtyForSession so post-spawn syncPtySize doesn't
+    // double-fire on the first attach when nothing changed mid-await.
+    s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
+    s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
     openPtyForSession(s, s.initialCwd)
       .then((pty) => {
         s.ptyOpening = false;
@@ -696,14 +803,8 @@ function attachSession(
           return;
         }
         s.pty = pty;
-        if (
-          s.term.cols !== s.lastSentCols ||
-          s.term.rows !== s.lastSentRows
-        ) {
-          s.lastSentCols = s.term.cols;
-          s.lastSentRows = s.term.rows;
-          pty.resize(s.term.cols, s.term.rows);
-        }
+        s.ptySpawnedAt = Date.now();
+        syncPtySize(s);
       })
       .catch((e) => {
         s.ptyOpening = false;
@@ -724,13 +825,8 @@ function attachSession(
         s.lastPtyError = msg;
         writePtyError(s, msg);
       });
-  } else if (
-    s.pty &&
-    (s.term.cols !== s.lastSentCols || s.term.rows !== s.lastSentRows)
-  ) {
-    s.lastSentCols = s.term.cols;
-    s.lastSentRows = s.term.rows;
-    s.pty.resize(s.term.cols, s.term.rows);
+  } else if (s.pty) {
+    syncPtySize(s);
   }
 
   s.observer?.disconnect();
@@ -756,12 +852,7 @@ function attachSession(
 
   const flushPtyResize = () => {
     s.ptyTimer = null;
-    if (!s.pty || s.disposed) return;
-    if (s.term.cols === s.lastSentCols && s.term.rows === s.lastSentRows)
-      return;
-    s.lastSentCols = s.term.cols;
-    s.lastSentRows = s.term.rows;
-    s.pty.resize(s.term.cols, s.term.rows);
+    syncPtySize(s);
   };
 
   s.observer = new ResizeObserver(() => {
@@ -886,6 +977,7 @@ export function useTerminalSession({
   useEffect(() => {
     let cancelled = false;
     let rafId: number | null = null;
+    let attachIntervalId: ReturnType<typeof setInterval> | null = null;
     const s = ensureSession(leafId, initialCwd, sshConnectionId);
     // If the leaf hasn't spawned its PTY yet, accept a fresher initialCwd
     // from this render (e.g. explorerRoot resolved between mounts).
@@ -905,7 +997,17 @@ export function useTerminalSession({
     // already truthy by the time s.ready resolves, but split/unsplit and
     // strict-mode double-mount can briefly null it; retry a few frames
     // before giving up so we don't end up with a tab that has no shell.
-    const MAX_ATTACH_FRAMES = 30;
+    //
+    // Bumped from 30 to 120 frames (~2s) because workspace-restore mounts
+    // several panes through react-resizable-panels at once, and on slower
+    // machines the inner ResizablePanel's measure-pass ran past the old
+    // 30-frame budget for one of the leaves -- leaving that pane with a
+    // mounted xterm but no PTY (silent blank). After the rAF budget is
+    // exhausted, fall back to a 250ms poll until cleanup runs, so a
+    // genuinely-late mount still recovers instead of staying permanently
+    // blank.
+    const MAX_ATTACH_FRAMES = 120;
+    const ATTACH_FALLBACK_INTERVAL_MS = 250;
     const tryAttach = (framesLeft: number) => {
       if (cancelled) return;
       if (container.current) {
@@ -915,8 +1017,24 @@ export function useTerminalSession({
       }
       if (framesLeft <= 0) {
         console.warn(
-          `useTerminalSession: container ref never settled for leaf ${leafId}`,
+          `useTerminalSession: container ref never settled for leaf ${leafId} within ${MAX_ATTACH_FRAMES} frames; falling back to interval poll`,
         );
+        attachIntervalId = setInterval(() => {
+          if (cancelled) {
+            if (attachIntervalId !== null) {
+              clearInterval(attachIntervalId);
+              attachIntervalId = null;
+            }
+            return;
+          }
+          if (!container.current) return;
+          if (attachIntervalId !== null) {
+            clearInterval(attachIntervalId);
+            attachIntervalId = null;
+          }
+          attachSession(leafId, container.current, callbacks);
+          if (visible && focused) s.term.focus();
+        }, ATTACH_FALLBACK_INTERVAL_MS);
         return;
       }
       rafId = requestAnimationFrame(() => tryAttach(framesLeft - 1));
@@ -942,6 +1060,10 @@ export function useTerminalSession({
     return () => {
       cancelled = true;
       if (rafId !== null) cancelAnimationFrame(rafId);
+      if (attachIntervalId !== null) {
+        clearInterval(attachIntervalId);
+        attachIntervalId = null;
+      }
       detachSession(leafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -973,11 +1095,7 @@ export function useTerminalSession({
       }
     }
     s.fitAddon.fit();
-    if (s.pty && (s.term.cols !== s.lastSentCols || s.term.rows !== s.lastSentRows)) {
-      s.lastSentCols = s.term.cols;
-      s.lastSentRows = s.term.rows;
-      s.pty.resize(s.term.cols, s.term.rows);
-    }
+    syncPtySize(s);
   }, [leafId, fontSize]);
 
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);
@@ -1043,13 +1161,28 @@ export function useTerminalSession({
     return sel.length > 0 ? sel : null;
   }, [leafId]);
 
+  /**
+   * Hand a string to xterm as a paste rather than raw bytes. Going through
+   * `term.paste` instead of `pty.write` matters when the shell has bracketed
+   * paste mode on (most modern setups: zsh+zle, bash 4.4+ readline, fish,
+   * pwsh PSReadLine): xterm wraps the payload in `\e[200~ … \e[201~`, the
+   * shell treats it as one literal block, and editors/REPLs avoid
+   * interpreting embedded newlines as Enter-to-execute. Raw `pty.write`
+   * skips that wrapper and would, e.g., immediately run every line of a
+   * multi-line snippet pasted into bash.
+   */
+  const paste = useCallback(
+    (data: string) => sessions.get(leafId)?.term.paste(data),
+    [leafId],
+  );
+
   const applyTheme = useCallback(() => {
     const s = sessions.get(leafId);
     if (!s) return;
     s.term.options.theme = buildTerminalTheme();
   }, [leafId]);
 
-  return { write, focus, getBuffer, getSelection, applyTheme };
+  return { write, focus, getBuffer, getSelection, paste, applyTheme };
 }
 
 function isCtrlBackspace(event: KeyboardEvent): boolean {

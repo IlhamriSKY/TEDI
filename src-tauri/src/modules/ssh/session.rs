@@ -28,10 +28,6 @@ pub enum SshEvent {
     /// Remote process exited with this status. Mirrors PtyEvent::Exit so the
     /// frontend can reuse its existing handler shape.
     Exit { code: i32 },
-    /// Transport-level failure surfaced after the channel was already
-    /// opened. `code` is -1 because the remote never reported a real exit.
-    #[allow(dead_code)] // emitted from frontend bridge in future error paths
-    Error { message: String },
 }
 
 /// Trust-on-first-use stub. We accept any server key but log its fingerprint

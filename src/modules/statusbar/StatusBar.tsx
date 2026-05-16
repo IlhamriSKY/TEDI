@@ -7,9 +7,6 @@ import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
-import { SshStatusPill } from "@/modules/ssh/components/SshStatusPill";
-import type { SshConnection } from "@/modules/ssh/connections";
-import type { SshStatus } from "@/modules/ssh/status";
 
 type Props = {
   cwd: string | null;
@@ -22,16 +19,6 @@ type Props = {
   /** When set, render a one-click "Open preview" chip pointing at this URL. */
   detectedPreviewUrl?: string | null;
   onOpenPreview?: () => void;
-  /**
-   * When the active leaf is an SSH terminal, both `sshStatus` and
-   * `sshConnection` are passed in and the status chip renders next to the
-   * updater pill. Untouched for local terminal / editor / preview tabs.
-   */
-  sshStatus?: SshStatus | null;
-  sshConnection?: SshConnection | null;
-  onSshReconnect?: () => void;
-  onSshDisconnect?: () => void;
-  onSshEdit?: () => void;
 };
 
 export function StatusBar({
@@ -43,11 +30,6 @@ export function StatusBar({
   hasComposer,
   detectedPreviewUrl,
   onOpenPreview,
-  sshStatus,
-  sshConnection,
-  onSshReconnect,
-  onSshDisconnect,
-  onSshEdit,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -59,15 +41,6 @@ export function StatusBar({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {sshStatus && sshConnection && onSshReconnect && onSshDisconnect && onSshEdit ? (
-          <SshStatusPill
-            status={sshStatus}
-            connection={sshConnection}
-            onReconnect={onSshReconnect}
-            onDisconnect={onSshDisconnect}
-            onEdit={onSshEdit}
-          />
-        ) : null}
         <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (
           <IconTooltip

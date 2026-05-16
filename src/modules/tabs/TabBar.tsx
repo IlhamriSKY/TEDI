@@ -5,6 +5,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -32,12 +41,10 @@ import {
   ComputerTerminal02Icon,
   GitCompareIcon,
   Globe02Icon,
-  Layers01Icon,
   PencilEdit02Icon,
   PlusSignIcon,
-  Rotate01Icon,
 } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
   DndContext,
   DragOverlay,
@@ -55,7 +62,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { Tab } from "./lib/useTabs";
 
 /**
@@ -709,98 +717,98 @@ function SortableTabGroup({
                 />
               ) : null}
             </span>
-            {/* Trailing icons cluster: move-to-group, rotate-split, close.
-                `ms-1.5` adds the little breathing room between the tab title
-                and these controls so they don't visually crowd the label. */}
+            {/* Trailing icon: close. Rotate-split and move-to-group used to
+                live here as inline buttons; both now live in the right-click
+                context menu (built below) so the strip stays uncluttered. */}
             <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
-              {e.kind === "pane-leaf" &&
-                onMoveLeafToGroup &&
-                paneGroupsForMove.some((g) => g.id !== e.tabId) && (
-                  <MoveLeafToGroupButton
-                    leafId={e.leafId}
-                    ownerTabId={e.tabId}
-                    groups={paneGroupsForMove}
-                    onMove={onMoveLeafToGroup}
-                  />
-                )}
-              {/* Rotate orientation is exposed on EVERY entry inside a
-                  split group, but each click only flips the split that
-                  THIS leaf directly sits in - sibling splits stay as they
-                  were. Single-pane tabs hide the icon. */}
-              {isSplit && onRotateLeafSplit && e.kind === "pane-leaf" && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      role="button"
-                      aria-label="Toggle Split Orientation"
-                      onPointerDown={(ev) => ev.stopPropagation()}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        onRotateLeafSplit(e.leafId);
-                      }}
-                      className="cursor-pointer rounded p-0.5 text-current opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
-                    >
-                      <HugeiconsIcon
-                        icon={Rotate01Icon}
-                        size={11}
-                        strokeWidth={2}
-                      />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Toggle Split Orientation
-                  </TooltipContent>
-                </Tooltip>
-              )}
               {canClose && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      role="button"
-                      aria-label="Close"
-                      onPointerDown={(ev) => ev.stopPropagation()}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        onCloseEntry(
-                          e.tabId,
-                          e.kind === "pane-leaf" ? e.leafId : null,
-                        );
-                      }}
-                      className="cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover:opacity-60"
-                    >
-                      <HugeiconsIcon
-                        icon={Cancel01Icon}
-                        size={11}
-                        strokeWidth={2}
-                      />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Close</TooltipContent>
-                </Tooltip>
+                <TrailingIconButton
+                  icon={Cancel01Icon}
+                  label="Close"
+                  variant="danger"
+                  onClick={() =>
+                    onCloseEntry(
+                      e.tabId,
+                      e.kind === "pane-leaf" ? e.leafId : null,
+                    )
+                  }
+                />
               )}
             </span>
           </TabsTrigger>
         );
 
-        if (!sshHost) return trigger;
-        const sshStatus =
-          e.kind === "pane-leaf" ? e.sshStatus : undefined;
-        return (
-          <Tooltip key={e.key}>
-            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent side="bottom">
-              <div className="flex flex-col gap-0.5 text-[11px]">
-                <span>
-                  SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
-                </span>
-                {sshStatus ? (
-                  <span className="text-muted-foreground">
-                    {statusLabel(sshStatus)}
+        // Right-click actions: rotate the split this leaf sits in, and move
+        // the leaf into another pane group. Only pane-leaf entries support
+        // these, and each item is conditional on its precondition (a split
+        // exists / there's another group to move to).
+        const isPaneLeaf = e.kind === "pane-leaf";
+        const moveTargets =
+          isPaneLeaf && onMoveLeafToGroup
+            ? paneGroupsForMove.filter((g) => g.id !== e.tabId)
+            : [];
+        const canRotate = isPaneLeaf && isSplit && !!onRotateLeafSplit;
+        const canMove = moveTargets.length > 0;
+
+        // Compose: tooltip wrap (SSH-only) → context-menu wrap (when actions
+        // exist). Order matters: ContextMenuTrigger must be the outermost
+        // wrapper so right-click on the tab still fires.
+        let node: ReactNode = trigger;
+        if (sshHost) {
+          const sshStatus = isPaneLeaf ? e.sshStatus : undefined;
+          node = (
+            <Tooltip>
+              <TooltipTrigger asChild>{node}</TooltipTrigger>
+              <TooltipContent side="bottom">
+                <div className="flex flex-col gap-0.5 text-[11px]">
+                  <span>
+                    SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
                   </span>
-                ) : null}
-              </div>
-            </TooltipContent>
-          </Tooltip>
+                  {sshStatus ? (
+                    <span className="text-muted-foreground">
+                      {statusLabel(sshStatus)}
+                    </span>
+                  ) : null}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        }
+        if (!isPaneLeaf || (!canRotate && !canMove)) {
+          return <Fragment key={e.key}>{node}</Fragment>;
+        }
+        return (
+          <ContextMenu key={e.key}>
+            <ContextMenuTrigger asChild>{node}</ContextMenuTrigger>
+            <ContextMenuContent className="min-w-44">
+              {canRotate && (
+                <ContextMenuItem
+                  onSelect={() => onRotateLeafSplit!(e.leafId)}
+                >
+                  Toggle Split Orientation
+                </ContextMenuItem>
+              )}
+              {canMove && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Move to Group</ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    {moveTargets.map((g) => (
+                      <ContextMenuItem
+                        key={g.id}
+                        disabled={g.full}
+                        onSelect={() => onMoveLeafToGroup!(e.leafId, g.id)}
+                      >
+                        <span className="flex-1 truncate">{g.title}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
+                        </span>
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
+            </ContextMenuContent>
+          </ContextMenu>
         );
       })}
     </div>
@@ -808,62 +816,57 @@ function SortableTabGroup({
 }
 
 /**
- * Small layers-icon button on each pane-leaf entry, sitting just to the
- * left of the close X. Clicking opens a dropdown of every other pane tab,
- * picking one moves THIS leaf into the chosen tab as a horizontal split.
- *
- * Tabs at the per-tab pane cap render disabled so the user sees why
- * they're unpickable (and the toast still fires through the parent's
- * `onMove` callback if a stale "ok" target turns into "full" between
- * render and click).
+ * Shared styling for the small icon button(s) on the trailing edge of each
+ * tab entry. Only "close" lives here now — rotate-split and move-to-group
+ * moved into the right-click context menu (see `SortableTabGroup`).
+ * Keeping the container square at a fixed size makes the hover background
+ * a tidy 1:1 pill. `TRAILING_ICON_SIZE` is tuned for ~2-3px padding.
  */
-function MoveLeafToGroupButton({
-  leafId,
-  ownerTabId,
-  groups,
-  onMove,
+const TRAILING_BTN_BASE =
+  "inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-60";
+
+const TRAILING_BTN_VARIANT = {
+  default: "text-current hover:bg-accent hover:opacity-100",
+  danger: "hover:bg-destructive/10 hover:text-destructive hover:opacity-100",
+} as const;
+
+const TRAILING_ICON_SIZE = 9;
+
+function TrailingIconButton({
+  icon,
+  label,
+  onClick,
+  variant = "default",
 }: {
-  leafId: number;
-  ownerTabId: number;
-  groups: PaneGroupForMove[];
-  onMove: (leafId: number, targetTabId: number) => void;
+  icon: IconSvgElement;
+  label: string;
+  onClick: () => void;
+  variant?: keyof typeof TRAILING_BTN_VARIANT;
 }) {
-  const others = groups.filter((g) => g.id !== ownerTabId);
-  if (others.length === 0) return null;
   return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger
-            aria-label="Move To Group"
-            // Stop propagation so the TabsTrigger and dnd-kit don't treat the
-            // click as a tab activation / drag start, respectively. Mirrors
-            // the close-X button's pattern just below.
-            onPointerDown={(ev) => ev.stopPropagation()}
-            onClick={(ev) => ev.stopPropagation()}
-            className="cursor-pointer rounded p-0.5 text-current opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60 data-[state=open]:bg-accent data-[state=open]:opacity-100"
-          >
-            <HugeiconsIcon icon={Layers01Icon} size={11} strokeWidth={2} />
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Move To Group</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-48">
-        {others.map((g) => (
-          <DropdownMenuItem
-            key={g.id}
-            disabled={g.full}
-            onSelect={() => onMove(leafId, g.id)}
-          >
-            <HugeiconsIcon icon={Layers01Icon} size={13} strokeWidth={1.75} />
-            <span className="flex-1 truncate">{g.title}</span>
-            <span className="text-xs text-muted-foreground">
-              {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="button"
+          aria-label={label}
+          // Stop propagation so the TabsTrigger doesn't treat the click as a
+          // tab activation and dnd-kit doesn't start a drag.
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onClick();
+          }}
+          className={cn(TRAILING_BTN_BASE, TRAILING_BTN_VARIANT[variant])}
+        >
+          <HugeiconsIcon
+            icon={icon}
+            size={TRAILING_ICON_SIZE}
+            strokeWidth={2}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

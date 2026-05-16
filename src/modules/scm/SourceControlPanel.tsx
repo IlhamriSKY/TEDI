@@ -3,6 +3,11 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -242,19 +247,32 @@ export function SourceControlPanel({
           strokeWidth={2}
           className="shrink-0 text-muted-foreground"
         />
-        <span
-          className="flex-1 truncate text-xs font-medium text-foreground/80"
-          title={status?.branch ?? undefined}
-        >
-          {status?.isRepo
-            ? (status.branch ?? "HEAD")
-            : "Source Control"}
-          {status?.isRepo && sorted.length > 0 ? (
-            <span className="ml-1.5 text-[10.5px] tabular-nums text-muted-foreground">
-              ({sorted.length})
-            </span>
-          ) : null}
-        </span>
+        {status?.branch ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex-1 truncate text-xs font-medium text-foreground/80">
+                {status.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
+                {status.isRepo && sorted.length > 0 ? (
+                  <span className="ml-1.5 text-[10.5px] tabular-nums text-muted-foreground">
+                    ({sorted.length})
+                  </span>
+                ) : null}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{status.branch}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="flex-1 truncate text-xs font-medium text-foreground/80">
+            {status?.isRepo
+              ? (status.branch ?? "HEAD")
+              : "Source Control"}
+            {status?.isRepo && sorted.length > 0 ? (
+              <span className="ml-1.5 text-[10.5px] tabular-nums text-muted-foreground">
+                ({sorted.length})
+              </span>
+            ) : null}
+          </span>
+        )}
         {status?.isRepo && sorted.length > 0 ? (
           <IconTooltip label="Discard all changes" side="bottom">
             <Button
@@ -381,54 +399,58 @@ function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   const name = basename(change.relative);
   const dir = dirname(change.relative);
   return (
-    <li
-      className="group flex cursor-pointer items-center gap-1.5 px-2 py-1 hover:bg-accent/40"
-      onClick={onClickDiff}
-      title={`${change.relative} (${change.status})`}
-    >
-      <span
-        className={cn(
-          "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
-          STATUS_TONE[change.status],
-        )}
-      >
-        {STATUS_LETTER[change.status]}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span
-          className={cn(
-            "truncate text-[11.5px]",
-            change.status === "deleted" && "line-through opacity-70",
-          )}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <li
+          className="group flex cursor-pointer items-center gap-1.5 px-2 py-1 hover:bg-accent/40"
+          onClick={onClickDiff}
         >
-          {name}
-        </span>
-        {dir ? (
-          <span className="truncate text-[10px] text-muted-foreground">
-            {dir}
-          </span>
-        ) : null}
-      </span>
-      <span className="ml-1 flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-        <IconTooltip label="Discard" side="left">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-5 text-muted-foreground hover:text-destructive"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDiscard();
-            }}
-            aria-label="Discard file"
+          <span
+            className={cn(
+              "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
+              STATUS_TONE[change.status],
+            )}
           >
-            <HugeiconsIcon
-              icon={ArrowTurnBackwardIcon}
-              size={11}
-              strokeWidth={2}
-            />
-          </Button>
-        </IconTooltip>
-      </span>
-    </li>
+            {STATUS_LETTER[change.status]}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span
+              className={cn(
+                "truncate text-[11.5px]",
+                change.status === "deleted" && "line-through opacity-70",
+              )}
+            >
+              {name}
+            </span>
+            {dir ? (
+              <span className="truncate text-[10px] text-muted-foreground">
+                {dir}
+              </span>
+            ) : null}
+          </span>
+          <span className="ml-1 flex shrink-0 items-center opacity-0 group-hover:opacity-100">
+            <IconTooltip label="Discard" side="left">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDiscard();
+                }}
+                aria-label="Discard file"
+              >
+                <HugeiconsIcon
+                  icon={ArrowTurnBackwardIcon}
+                  size={11}
+                  strokeWidth={2}
+                />
+              </Button>
+            </IconTooltip>
+          </span>
+        </li>
+      </TooltipTrigger>
+      <TooltipContent side="right">{`${change.relative} (${change.status})`}</TooltipContent>
+    </Tooltip>
   );
 }

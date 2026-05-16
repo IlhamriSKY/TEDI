@@ -18,8 +18,6 @@ pub struct ShellSession {
     pub cwd: Mutex<PathBuf>,
     /// While pristine (no `run` yet), caller-provided cwd hints reseed `cwd`.
     pub pristine: AtomicBool,
-    #[allow(dead_code)]
-    pub started_at_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -39,14 +37,9 @@ const CWD_SENTINEL: &str = "__TEDI_CWD__";
 
 impl ShellSession {
     pub fn new(initial_cwd: PathBuf) -> Self {
-        let started_at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
         Self {
             cwd: Mutex::new(initial_cwd),
             pristine: AtomicBool::new(true),
-            started_at_ms,
         }
     }
 

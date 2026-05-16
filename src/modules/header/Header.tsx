@@ -370,6 +370,10 @@ export function Header({
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
 
+      {/* Vertical divider between the search bar and the trailing utility
+          cluster (shortcuts on macOS, SSH, settings, window controls). */}
+      <span className="mx-1 h-5 w-px shrink-0 bg-border" />
+
       {IS_MAC && (
         <>
           {shortcutsButton}

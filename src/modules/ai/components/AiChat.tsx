@@ -16,6 +16,11 @@ import {
 } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   ArrowUp01Icon,
   CodeIcon,
   HashtagIcon,
@@ -84,54 +89,57 @@ function UserAttachmentChips({
   return (
     <div className="flex flex-wrap gap-1">
       {snippets.map((handle, i) => (
-        <span
-          key={`s-${i}-${handle}`}
-          className="flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
-          title={`Snippet #${handle}`}
-        >
-          <HugeiconsIcon
-            icon={HashtagIcon}
-            size={11}
-            strokeWidth={2}
-            className="opacity-80"
-          />
-          <span className="font-medium">{handle}</span>
-        </span>
+        <Tooltip key={`s-${i}-${handle}`}>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+              <HugeiconsIcon
+                icon={HashtagIcon}
+                size={11}
+                strokeWidth={2}
+                className="opacity-80"
+              />
+              <span className="font-medium">{handle}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{`Snippet #${handle}`}</TooltipContent>
+        </Tooltip>
       ))}
       {selections.map((sel, i) => (
-        <span
-          key={`sel-${i}`}
-          className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
-          title={`${sel.source} selection`}
-        >
-          <HugeiconsIcon
-            icon={sel.source === "editor" ? CodeIcon : TerminalIcon}
-            size={11}
-            strokeWidth={1.75}
-            className="text-muted-foreground"
-          />
-          <span>
-            {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
-            {sel.lines > 0 ? (
-              <span className="ml-1 text-muted-foreground">· {sel.lines}L</span>
-            ) : null}
-          </span>
-        </span>
+        <Tooltip key={`sel-${i}`}>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]">
+              <HugeiconsIcon
+                icon={sel.source === "editor" ? CodeIcon : TerminalIcon}
+                size={11}
+                strokeWidth={1.75}
+                className="text-muted-foreground"
+              />
+              <span>
+                {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
+                {sel.lines > 0 ? (
+                  <span className="ml-1 text-muted-foreground">· {sel.lines}L</span>
+                ) : null}
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{`${sel.source} selection`}</TooltipContent>
+        </Tooltip>
       ))}
       {files.map((f, i) => (
-        <span
-          key={`f-${i}-${f.name}`}
-          className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
-          title={f.name}
-        >
-          <img
-            src={fileIconUrl(f.name)}
-            alt=""
-            aria-hidden
-            className="size-3.5 shrink-0"
-          />
-          <span className="max-w-40 truncate">{f.name}</span>
-        </span>
+        <Tooltip key={`f-${i}-${f.name}`}>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]">
+              <img
+                src={fileIconUrl(f.name)}
+                alt=""
+                aria-hidden
+                className="size-3.5 shrink-0"
+              />
+              <span className="max-w-40 truncate">{f.name}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{f.name}</TooltipContent>
+        </Tooltip>
       ))}
     </div>
   );
@@ -166,14 +174,16 @@ function UserMessageModelChip({
       ? `Sent via ${meta.tediModelLabel} (${ownerLabel} · ${gatewayLabel})`
       : `Sent via ${meta.tediModelLabel} (${ownerLabel})`;
   return (
-    <span
-      className="flex items-center gap-1 text-[10px] text-muted-foreground/80"
-      title={tooltip}
-    >
-      <span className="font-mono">{meta.tediModelLabel}</span>
-      <span aria-hidden>·</span>
-      <span>{ownerLabel}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/80">
+          <span className="font-mono">{meta.tediModelLabel}</span>
+          <span aria-hidden>·</span>
+          <span>{ownerLabel}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -370,32 +380,36 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   };
 
   return (
-    <motion.button
-      type="button"
-      onClick={scrollToMessage}
-      title="Jump to this message"
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-      className={cn(
-        // Sticky inside the scroll container so wheel events on the chat
-        // still bubble to the scrollable ancestor. `-mx-4` cancels
-        // ConversationContent's `px-4` so the pin is flush with the chat's
-        // left + right edges — no floating-chip gutter.
-        "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
-        "border-b border-border/60 bg-background/95 px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
-        "text-foreground/85 transition-colors hover:bg-accent hover:text-foreground",
-      )}
-    >
-      <HugeiconsIcon
-        icon={ArrowUp01Icon}
-        size={11}
-        strokeWidth={2}
-        className="shrink-0 opacity-70"
-      />
-      <span className="min-w-0 flex-1 truncate">{oneLine}</span>
-    </motion.button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <motion.button
+          type="button"
+          onClick={scrollToMessage}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+          className={cn(
+            // Sticky inside the scroll container so wheel events on the chat
+            // still bubble to the scrollable ancestor. `-mx-4` cancels
+            // ConversationContent's `px-4` so the pin is flush with the chat's
+            // left + right edges — no floating-chip gutter.
+            "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
+            "border-b border-border/60 bg-background/95 px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
+            "text-foreground/85 transition-colors hover:bg-accent hover:text-foreground",
+          )}
+        >
+          <HugeiconsIcon
+            icon={ArrowUp01Icon}
+            size={11}
+            strokeWidth={2}
+            className="shrink-0 opacity-70"
+          />
+          <span className="min-w-0 flex-1 truncate">{oneLine}</span>
+        </motion.button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Jump to this message</TooltipContent>
+    </Tooltip>
   );
 }
 

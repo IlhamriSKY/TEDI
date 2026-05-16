@@ -113,6 +113,22 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/diff").then(
       (m) => m.diff as unknown as StreamParser<unknown>,
     ),
+  sql: () =>
+    import("@codemirror/legacy-modes/mode/sql").then(
+      (m) => m.standardSQL as unknown as StreamParser<unknown>,
+    ),
+  pgsql: () =>
+    import("@codemirror/legacy-modes/mode/sql").then(
+      (m) => m.pgSQL as unknown as StreamParser<unknown>,
+    ),
+  mysql: () =>
+    import("@codemirror/legacy-modes/mode/sql").then(
+      (m) => m.mySQL as unknown as StreamParser<unknown>,
+    ),
+  sqlite: () =>
+    import("@codemirror/legacy-modes/mode/sql").then(
+      (m) => m.sqlite as unknown as StreamParser<unknown>,
+    ),
 };
 
 const aliases: Record<string, string> = {
@@ -145,6 +161,12 @@ const aliases: Record<string, string> = {
   docker: "dockerfile",
   conf: "nginx",
   patch: "diff",
+  postgres: "pgsql",
+  postgresql: "pgsql",
+  plpgsql: "pgsql",
+  psql: "pgsql",
+  mariadb: "mysql",
+  sqlite3: "sqlite",
 };
 
 type ResolvedKey =

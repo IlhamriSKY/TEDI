@@ -2,6 +2,11 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -488,30 +493,33 @@ function OpenFilesRow({
     <div className="flex flex-wrap items-center gap-1">
       <AnimatePresence initial={false}>
         {files.map((f) => (
-          <motion.button
-            type="button"
-            key={`open-${f.path}`}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            onClick={() => onAttach(f.path)}
-            title={`Click to attach ${f.path}`}
-            aria-label={`Attach ${f.name}`}
-            className={cn(
-              "group flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-border/60 bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground",
-              "transition-colors hover:border-foreground/40 hover:bg-card hover:text-foreground",
-            )}
-          >
-            <HugeiconsIcon
-              icon={PlusSignIcon}
-              size={10}
-              strokeWidth={2}
-              className="opacity-70 transition-opacity group-hover:opacity-100"
-            />
-            <span className="max-w-35 truncate">{f.name}</span>
-          </motion.button>
+          <Tooltip key={`open-${f.path}`}>
+            <TooltipTrigger asChild>
+              <motion.button
+                type="button"
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                onClick={() => onAttach(f.path)}
+                aria-label={`Attach ${f.name}`}
+                className={cn(
+                  "group flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-border/60 bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground",
+                  "transition-colors hover:border-foreground/40 hover:bg-card hover:text-foreground",
+                )}
+              >
+                <HugeiconsIcon
+                  icon={PlusSignIcon}
+                  size={10}
+                  strokeWidth={2}
+                  className="opacity-70 transition-opacity group-hover:opacity-100"
+                />
+                <span className="max-w-35 truncate">{f.name}</span>
+              </motion.button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{`Click to attach ${f.path}`}</TooltipContent>
+          </Tooltip>
         ))}
       </AnimatePresence>
     </div>
@@ -539,60 +547,66 @@ function ChipsRow({
     <div className="flex flex-wrap gap-1">
       <AnimatePresence initial={false}>
         {commands.map((cmd) => (
-          <motion.div
-            key={`cmd-${cmd.name}`}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
-            title={cmd.label}
-          >
-            <HugeiconsIcon
-              icon={cmd.icon}
-              size={11}
-              strokeWidth={1.75}
-              className="text-muted-foreground"
-            />
-            <span className="font-medium">#{cmd.name}</span>
-            <button
-              type="button"
-              onClick={() => onRemoveCommand(cmd.name)}
-              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-              aria-label="Remove command"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
+          <Tooltip key={`cmd-${cmd.name}`}>
+            <TooltipTrigger asChild>
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+              >
+                <HugeiconsIcon
+                  icon={cmd.icon}
+                  size={11}
+                  strokeWidth={1.75}
+                  className="text-muted-foreground"
+                />
+                <span className="font-medium">#{cmd.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveCommand(cmd.name)}
+                  className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  aria-label="Remove command"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="top">{cmd.label}</TooltipContent>
+          </Tooltip>
         ))}
         {snippets.map((s) => (
-          <motion.div
-            key={`snip-${s.id}`}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
-            title={s.description || s.name}
-          >
-            <HugeiconsIcon
-              icon={HashtagIcon}
-              size={11}
-              strokeWidth={2}
-              className="opacity-80"
-            />
-            <span className="font-medium">{s.handle}</span>
-            <button
-              type="button"
-              onClick={() => onRemoveSnippet(s.id)}
-              className="ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-              aria-label="Remove snippet"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
+          <Tooltip key={`snip-${s.id}`}>
+            <TooltipTrigger asChild>
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+              >
+                <HugeiconsIcon
+                  icon={HashtagIcon}
+                  size={11}
+                  strokeWidth={2}
+                  className="opacity-80"
+                />
+                <span className="font-medium">{s.handle}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveSnippet(s.id)}
+                  className="ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  aria-label="Remove snippet"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="top">{s.description || s.name}</TooltipContent>
+          </Tooltip>
         ))}
         {files.map((f) => (
           <motion.div
@@ -660,29 +674,32 @@ function QueueRow({
       </span>
       <AnimatePresence initial={false}>
         {queue.map((q, i) => (
-          <motion.div
-            key={q.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
-            title={q.text}
-          >
-            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300">
-              {i + 1}
-            </span>
-            <span className="truncate text-foreground/90">{q.text}</span>
-            <button
-              type="button"
-              onClick={() => onRemove(q.id)}
-              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-              aria-label="Remove from queue"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
+          <Tooltip key={q.id}>
+            <TooltipTrigger asChild>
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
+              >
+                <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300">
+                  {i + 1}
+                </span>
+                <span className="truncate text-foreground/90">{q.text}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(q.id)}
+                  className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  aria-label="Remove from queue"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="top">{q.text}</TooltipContent>
+          </Tooltip>
         ))}
       </AnimatePresence>
     </div>
