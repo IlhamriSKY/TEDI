@@ -89,11 +89,7 @@ import {
   type TediSpawnTabInput,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
-import {
-  listConnections,
-  onConnectionsChanged,
-  type SshConnection,
-} from "@/modules/ssh/connections";
+import { type SshConnection } from "@/modules/ssh/connections";
 import { SshConnectionDialog } from "@/modules/ssh/SshConnectionDialog";
 import type { SshStatus } from "@/modules/ssh/status";
 import {
@@ -181,23 +177,10 @@ export default function App() {
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(
     () => new Map(),
   );
-  const [sshConns, setSshConns] = useState<SshConnection[]>([]);
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(
     null,
   );
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
-  useEffect(() => {
-    let unsub: (() => void) | undefined;
-    void listConnections().then(setSshConns);
-    void onConnectionsChanged(() => {
-      void listConnections().then(setSshConns);
-    }).then((fn) => {
-      unsub = fn;
-    });
-    return () => {
-      unsub?.();
-    };
-  }, []);
   const [activeSearchAddon, setActiveSearchAddon] =
     useState<SearchAddon | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
