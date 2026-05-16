@@ -49,6 +49,40 @@ const LOCAL_URL_RE =
 // place with a retry banner so the user can recover with Enter.
 const SPAWN_GRACE_MS = 3_000;
 
+// Hard ceiling on how long we'll wait for `pty_open` to return a session id.
+// Why: workspace-restore on Windows occasionally lands in a state where the
+// `invoke("pty_open")` promise never settles — neither resolves nor rejects —
+// leaving the leaf with `pty=null` AND `lastPtyError=null`, so the keyboard
+// handler's Enter-to-retry path can't fire (it gates on `lastPtyError`). The
+// user sees a forever-black pane that refuses to accept input. After this
+// many ms we force the spawn into the retry-banner path so the leaf is
+// recoverable with Enter. Ordinary local spawns complete in <300 ms; tens of
+// seconds is well outside any legitimate slow-machine bound while still
+// covering pathological ConPTY contention.
+const SPAWN_TIMEOUT_MS = 15_000;
+
+/**
+ * Diagnostic toggle for the PTY lifecycle. Default-on so reports from users
+ * include the lifecycle traces in their devtools console; set
+ * `localStorage.TEDI_DEBUG_PTY = "0"` to silence.
+ */
+function isDebugPty(): boolean {
+  try {
+    return localStorage.getItem("TEDI_DEBUG_PTY") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * After the PTY's `pty_open` resolves we treat any further silence as a
+ * stall. A healthy shell writes its first prompt within tens of ms; if 5s
+ * goes by with zero bytes flowing through `onData`, the user sees a
+ * forever-blank pane that doesn't echo input. Surface that state as an
+ * explicit banner + retry-able error so the leaf is recoverable with Enter.
+ */
+const NO_DATA_WATCHDOG_MS = 5_000;
+
 type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
@@ -112,6 +146,12 @@ type Session = {
    * new one.
    */
   ptySpawnEpoch: number;
+  /**
+   * Watchdog timer armed when a local PTY's `pty_open` resolves. Cleared by
+   * the first incoming byte. If it fires, the shell is treated as
+   * unresponsive and the leaf gets a retry banner. Set to null when not armed.
+   */
+  noDataTimer: ReturnType<typeof setTimeout> | null;
   // ---- SSH-only fields below. All ignored on local PTY leaves. ----
   /** Latest emitted status. Source of truth for both UI surfaces. */
   sshStatus: SshStatus;
@@ -191,6 +231,7 @@ function ensureSession(
     lastPtyError: null,
     ptySpawnedAt: null,
     ptySpawnEpoch: 0,
+    noDataTimer: null,
     sshStatus: { kind: "idle" },
     sshUserClose: false,
     sshReconnectAttempts: 0,
@@ -319,7 +360,29 @@ function openPtyForSession(
   // doesn't leak into the new one.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
 
+  // Diagnostic counters — surface when a leaf claims a live PTY but the
+  // user sees an empty pane. Toggle via TEDI_DEBUG_PTY=0 in localStorage if
+  // it ever gets noisy in production.
+  const debug = isDebugPty();
+  let firstByteLogged = false;
+  let totalBytes = 0;
+  const spawnedAtForLog = performance.now();
+
   const onData = (bytes: Uint8Array) => {
+    if (debug && !firstByteLogged) {
+      firstByteLogged = true;
+      console.info(
+        `[tedi-pty] leaf=${s.term.cols}x${s.term.rows} epoch=${myEpoch} first byte after ${Math.round(
+          performance.now() - spawnedAtForLog,
+        )}ms (${bytes.length}B)`,
+      );
+    }
+    // First real bytes from the shell — disarm the no-data watchdog.
+    if (s.noDataTimer !== null) {
+      clearTimeout(s.noDataTimer);
+      s.noDataTimer = null;
+    }
+    totalBytes += bytes.length;
     s.term.write(bytes);
     if (containsSchemeSeparator(bytes)) {
       const text = urlDecoder.decode(bytes, { stream: true });
@@ -334,6 +397,11 @@ function openPtyForSession(
     }
   };
   const onExit = (code: number) => {
+    if (debug) {
+      console.info(
+        `[tedi-pty] onExit epoch=${myEpoch} code=${code} totalBytes=${totalBytes} elapsed=${Math.round(performance.now() - spawnedAtForLog)}ms`,
+      );
+    }
     // Late exit from a pty that's already been replaced -- ignore so we
     // don't clobber the newer spawn's state.
     if (myEpoch !== s.ptySpawnEpoch) return;
@@ -378,7 +446,47 @@ function openPtyForSession(
     return openSshForSession(s, s.sshConnectionId, spawnCols, spawnRows, onData, onExit);
   }
 
-  return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
+  return withSpawnTimeout(openPty(spawnCols, spawnRows, { onData, onExit }, cwd));
+}
+
+/**
+ * Rejects with a timeout error if `pty_open` doesn't settle within
+ * `SPAWN_TIMEOUT_MS`. Funnels a hung spawn into the existing retry-banner
+ * codepath so the leaf stays recoverable with Enter instead of staying a
+ * forever-black pane with no input. The race is one-shot: if the underlying
+ * promise resolves later (the spawn did eventually complete), we close the
+ * stray PTY so Rust doesn't leak the session.
+ */
+function withSpawnTimeout(p: Promise<PtySession>): Promise<PtySession> {
+  return new Promise<PtySession>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(
+          `shell did not start within ${Math.round(SPAWN_TIMEOUT_MS / 1000)}s`,
+        ),
+      );
+    }, SPAWN_TIMEOUT_MS);
+    p.then(
+      (pty) => {
+        if (settled) {
+          void pty.close().catch(() => {});
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(pty);
+      },
+      (e) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
 
 function writeSshBanner(s: Session, text: string): void {
@@ -645,6 +753,38 @@ function writePtyError(s: Session, message: string): void {
 }
 
 /**
+ * Arm the no-data watchdog. Called when a local PTY's open resolves; the
+ * watchdog fires if the shell produces no output within `NO_DATA_WATCHDOG_MS`,
+ * which happens when ConPTY/profile init silently wedges or the channel
+ * delivers the spawn-success ack but no data events. Disarmed by the first
+ * `onData` call.
+ */
+function armNoDataWatchdog(s: Session, epoch: number): void {
+  if (s.sshConnectionId) return; // SSH has its own status banner
+  if (s.noDataTimer !== null) clearTimeout(s.noDataTimer);
+  s.noDataTimer = setTimeout(() => {
+    s.noDataTimer = null;
+    if (s.disposed) return;
+    // Bail if a newer spawn has replaced this one — its own watchdog covers it.
+    if (epoch !== s.ptySpawnEpoch) return;
+    // Bail if data did arrive between the timer firing and this callback
+    // executing (rare but possible under heavy scheduling).
+    if (!s.pty) return;
+    const dyingPty = s.pty;
+    s.pty = null;
+    s.ptySpawnedAt = null;
+    // Close the orphaned PTY so Rust isn't holding a dead shell forever.
+    void dyingPty.close().catch(() => {});
+    const msg = `shell did not emit any output within ${Math.round(
+      NO_DATA_WATCHDOG_MS / 1000,
+    )}s of opening — likely stalled during init`;
+    s.lastPtyError = msg;
+    console.warn("[tedi-pty] no-data watchdog fired:", msg);
+    writePtyError(s, msg);
+  }, NO_DATA_WATCHDOG_MS);
+}
+
+/**
  * Retry a PTY spawn after a prior failure. Wired to Enter via the custom
  * key handler in `ensureSession` so users can recover without closing the
  * tab. No-ops if already opening, already alive, or disposed.
@@ -673,6 +813,7 @@ async function retryPty(s: Session): Promise<void> {
     s.pty = pty;
     s.ptySpawnedAt = Date.now();
     syncPtySize(s);
+    armNoDataWatchdog(s, s.ptySpawnEpoch);
   } catch (e) {
     s.ptyOpening = false;
     const msg = describeError(e);
@@ -750,6 +891,7 @@ export async function respawnSession(
   s.pty = pty;
   s.ptySpawnedAt = Date.now();
   if (s.observer) syncPtySize(s);
+  armNoDataWatchdog(s, s.ptySpawnEpoch);
 }
 
 function attachSession(
@@ -795,9 +937,21 @@ function attachSession(
     // double-fire on the first attach when nothing changed mid-await.
     s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
     s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
+    const debug = isDebugPty();
+    const tAttach = performance.now();
+    if (debug) {
+      console.info(
+        `[tedi-pty] attach leaf=${leafId} cols=${s.term.cols} rows=${s.term.rows} containerWxH=${container.clientWidth}x${container.clientHeight} firstAttach=${firstAttach} ssh=${s.sshConnectionId ?? "-"}`,
+      );
+    }
     openPtyForSession(s, s.initialCwd)
       .then((pty) => {
         s.ptyOpening = false;
+        if (debug) {
+          console.info(
+            `[tedi-pty] spawn ok leaf=${leafId} ptyId=${pty.id} after ${Math.round(performance.now() - tAttach)}ms disposed=${s.disposed}`,
+          );
+        }
         if (s.disposed) {
           pty.close();
           return;
@@ -805,6 +959,7 @@ function attachSession(
         s.pty = pty;
         s.ptySpawnedAt = Date.now();
         syncPtySize(s);
+        armNoDataWatchdog(s, s.ptySpawnEpoch);
       })
       .catch((e) => {
         s.ptyOpening = false;
@@ -917,6 +1072,7 @@ export function disposeSession(leafId: number): void {
   s.observer?.disconnect();
   if (s.fitTimer) clearTimeout(s.fitTimer);
   if (s.ptyTimer) clearTimeout(s.ptyTimer);
+  if (s.noDataTimer) clearTimeout(s.noDataTimer);
   s.pty?.close();
   s.term.dispose();
   sessions.delete(leafId);
@@ -1127,6 +1283,12 @@ export function useTerminalSession({
     const s = sessions.get(leafId);
     if (!s) return;
     s.fitAddon.fit();
+    // Bridge the PTY size across the visibility flip. ResizeObserver only
+    // fires on dimension changes, and `visibility: hidden` -> `visible`
+    // preserves layout dimensions -- so without this, a session that fit
+    // at the wrong size while hidden would never push the corrected
+    // cols/rows to the shell on show.
+    syncPtySize(s);
     if (focused) s.term.focus();
   }, [leafId, visible, focused]);
 

@@ -55,6 +55,19 @@ function pathOfInput(input: unknown): string | null {
   return typeof p === "string" && p.length > 0 ? p : null;
 }
 
+/** Stable key for a read_file invocation that distinguishes paged reads of
+ *  the same path. Two reads of `foo.ts` with different `offset` are NOT
+ *  redundant — they return different windows of content. */
+function readKeyOfInput(input: unknown): string | null {
+  const path = pathOfInput(input);
+  if (!path) return null;
+  if (!input || typeof input !== "object") return path;
+  const i = input as { offset?: unknown; limit?: unknown };
+  const off = typeof i.offset === "number" ? i.offset : 0;
+  const lim = typeof i.limit === "number" ? i.limit : "*";
+  return `${path}#${off}:${lim}`;
+}
+
 function collectMutationPaths(messages: ModelMessage[]): Set<string> {
   const paths = new Set<string>();
   for (const m of messages) {
@@ -76,7 +89,7 @@ function collectMutationPaths(messages: ModelMessage[]): Set<string> {
   return paths;
 }
 
-function collectLastReadIdxPerPath(
+function collectLastReadIdxPerKey(
   messages: ModelMessage[],
 ): Map<string, number> {
   const lastIdx = new Map<string, number>();
@@ -86,8 +99,8 @@ function collectLastReadIdxPerPath(
     for (const part of m.content as ToolPart[]) {
       if (part.type !== "tool-call") continue;
       if (part.toolName !== "read_file") continue;
-      const p = pathOfInput(part.input);
-      if (p) lastIdx.set(p, i);
+      const k = readKeyOfInput(part.input);
+      if (k) lastIdx.set(k, i);
     }
   }
   return lastIdx;
@@ -103,17 +116,22 @@ function dropSupersededReads(messages: ModelMessage[]): {
   touched: boolean;
 } {
   const mutated = collectMutationPaths(messages);
-  const lastReadIdx = collectLastReadIdxPerPath(messages);
+  const lastReadKey = collectLastReadIdxPerKey(messages);
 
-  const callIdxToPath = new Map<string, string>();
+  // Map a tool_call id to (path, readKey) so we can look up both the
+  // mutation set (by path) and the supersession set (by paged key).
+  const callIdxToRead = new Map<string, { path: string; key: string }>();
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (!Array.isArray(m.content)) continue;
     for (const part of m.content as ToolPart[]) {
       if (part.type !== "tool-call" || part.toolName !== "read_file") continue;
-      const p = pathOfInput(part.input);
+      const path = pathOfInput(part.input);
+      const key = readKeyOfInput(part.input);
       const id = part.toolCallId;
-      if (p && typeof id === "string") callIdxToPath.set(id, p);
+      if (path && key && typeof id === "string") {
+        callIdxToRead.set(id, { path, key });
+      }
     }
   }
 
@@ -125,11 +143,14 @@ function dropSupersededReads(messages: ModelMessage[]): {
       if (part.type !== "tool-result") return part;
       const id = part.toolCallId;
       if (typeof id !== "string") return part;
-      const path = callIdxToPath.get(id);
-      if (!path) return part;
+      const entry = callIdxToRead.get(id);
+      if (!entry) return part;
       const isStale =
-        mutated.has(path) ||
-        (lastReadIdx.has(path) && (lastReadIdx.get(path) as number) > i);
+        // Mutated since: every page of this path is potentially stale.
+        mutated.has(entry.path) ||
+        // Same (path+offset+limit) read appears later: this one is redundant.
+        (lastReadKey.has(entry.key) &&
+          (lastReadKey.get(entry.key) as number) > i);
       if (!isStale) return part;
       const r = elideToolResult(part);
       if (r.changed) local = true;

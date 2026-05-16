@@ -39,6 +39,7 @@ import { PROVIDERS } from "../config";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
+import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -225,6 +226,17 @@ export function AiChatView({
       ? lastMessage.id
       : null;
 
+  // The restore action only makes sense once the turn is done — we
+  // attribute it to the most recent user message in the chat. Hidden
+  // mid-stream to avoid the user yanking state from under a running agent.
+  const lastUserMessageId = useMemo(() => {
+    if (isBusy) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i].id;
+    }
+    return null;
+  }, [messages, isBusy]);
+
   const onApproval = useCallback(
     (id: string, approved: boolean) => addToolApprovalResponse({ id, approved }),
     [addToolApprovalResponse],
@@ -253,6 +265,7 @@ export function AiChatView({
             message={m}
             onApproval={onApproval}
             streaming={m.id === streamingMessageId}
+            isLastUser={m.id === lastUserMessageId}
           />
         ))}
         {showSpinner && <ThinkingIndicator />}
@@ -417,10 +430,12 @@ const RenderedMessage = memo(function RenderedMessage({
   message,
   onApproval,
   streaming,
+  isLastUser,
 }: {
   message: UIMessage;
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
+  isLastUser: boolean;
 }) {
   // Only the trailing text part of an in-flight assistant message is live;
   // earlier text parts (split by tool calls) are already finalized.
@@ -456,7 +471,10 @@ const RenderedMessage = memo(function RenderedMessage({
             <p className="whitespace-pre-wrap wrap-break-word">{body}</p>
           ) : null}
         </MessageContent>
-        {meta ? <UserMessageModelChip meta={meta} /> : null}
+        <div className="flex items-center justify-end gap-2 mt-1">
+          {isLastUser ? <RestoreCheckpointButton /> : null}
+          {meta ? <UserMessageModelChip meta={meta} /> : null}
+        </div>
       </Message>
     );
   }

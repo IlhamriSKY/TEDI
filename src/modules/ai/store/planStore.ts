@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 
 export type QueuedEdit = {
@@ -25,8 +26,12 @@ type PlanState = {
   enqueue: (q: QueuedEdit) => void;
   removeOne: (id: string) => void;
   clear: () => void;
-  /** Apply queued edits in order. Returns per-edit results. */
-  applyAll: () => Promise<{ id: string; ok: boolean; error?: string }[]>;
+  /** Apply queued edits in order. Pass the active sessionId so applied
+   *  mutations get recorded into its restore checkpoint — without this,
+   *  plan-applied files would be invisible to the restore action. */
+  applyAll: (
+    sessionId: string | null,
+  ) => Promise<{ id: string; ok: boolean; error?: string }[]>;
 };
 
 let nextId = 1;
@@ -45,14 +50,43 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   removeOne: (id) =>
     set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
   clear: () => set({ queue: [] }),
-  async applyAll() {
+  async applyAll(sessionId) {
     const items = get().queue;
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const q of items) {
       try {
         if (q.kind === "create_directory") {
+          if (sessionId) {
+            // Mirror the create_directory tool: only record if the dir
+            // didn't already exist (otherwise restore would delete a
+            // pre-existing dir of the user's).
+            let alreadyExists = false;
+            try {
+              await native.readDir(q.path);
+              alreadyExists = true;
+            } catch {
+              // doesn't exist — safe to record
+            }
+            if (!alreadyExists) {
+              recordFileMutation(sessionId, q.path, { kind: "create-dir" });
+            }
+          }
           await native.createDir(q.path);
         } else {
+          if (sessionId) {
+            if (q.isNewFile) {
+              recordFileMutation(sessionId, q.path, {
+                kind: "create-file",
+                writtenContent: q.proposedContent,
+              });
+            } else {
+              recordFileMutation(sessionId, q.path, {
+                kind: "modify",
+                originalContent: q.originalContent,
+                writtenContent: q.proposedContent,
+              });
+            }
+          }
           await native.writeFile(q.path, q.proposedContent);
         }
         results.push({ id: q.id, ok: true });

@@ -99,8 +99,12 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       return str("intent") ?? str("description");
     case "open_preview":
       return str("path") ?? str("url");
-    case "run_subagent":
-      return str("agent") ?? str("task");
+    case "run_subagent": {
+      const desc = str("description");
+      const type = str("type");
+      if (desc && type) return `${type} · ${desc}`;
+      return desc ?? type;
+    }
     case "todo_write": {
       const items = Array.isArray(i.todos) ? i.todos : null;
       return items
@@ -121,11 +125,12 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 };
 
 // Tools whose `input` carries large/streaming content (file bodies, sub-
-// agent prompts, todo lists). The AI diff tab is the canonical place to
-// view file changes; for the rest, the header summary + final output is
-// enough. Re-rendering streamed input on every token both stalls the UI
-// and duplicates information.
-const HEAVY_CONTENT_TOOLS = new Set([
+// agent prompts, todo lists). We hide the raw input body — the AI diff
+// tab is the canonical place for file changes, todos render in their own
+// strip, and the subagent prompt is only useful as a header summary.
+// Output is still rendered (final result, not per-token), with custom
+// renderers in `renderToolOutput`.
+const HEAVY_INPUT_TOOLS = new Set([
   "write_file",
   "edit",
   "multi_edit",
@@ -148,12 +153,19 @@ const ToolImpl = ({
   const label = meta?.label ?? toolName;
   const summary = deriveSummary(toolName, input);
   const isError = state === "output-error";
-  const open = defaultOpen ?? isError;
-  const isHeavy = HEAVY_CONTENT_TOOLS.has(toolName);
-  // For heavy tools, only show details on error - never the streamed input
-  // body, which is huge and re-renders per token.
-  const showInputBody = !isHeavy && Boolean(input);
-  const showOutputBody = !isHeavy && output !== undefined;
+  // Open by default on error OR when subagent has a summary worth reading.
+  const hasSubagentSummary =
+    toolName === "run_subagent" &&
+    output !== undefined &&
+    output !== null &&
+    typeof (output as { summary?: unknown }).summary === "string";
+  const open = defaultOpen ?? (isError || hasSubagentSummary);
+  const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
+  // Hide streamed input body for heavy tools (file bodies, subagent
+  // prompts, todo lists). Output is always shown — it's the final
+  // result, not per-token streaming.
+  const showInputBody = !heavyInput && Boolean(input);
+  const showOutputBody = output !== undefined;
   const hasDetails =
     showInputBody || showOutputBody || Boolean(errorText);
 
@@ -235,7 +247,7 @@ export const Tool = memo(ToolImpl, (a, b) => {
   if (a.errorText !== b.errorText) return false;
   if (a.output !== b.output) return false;
   if (a.className !== b.className) return false;
-  if (HEAVY_CONTENT_TOOLS.has(a.toolName)) {
+  if (HEAVY_INPUT_TOOLS.has(a.toolName)) {
     return deriveSummary(a.toolName, a.input) ===
       deriveSummary(b.toolName, b.input);
   }
@@ -559,6 +571,61 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     );
   }
 
+  if (toolName === "run_subagent") {
+    if (typeof o.error === "string") {
+      return (
+        <div className="rounded bg-destructive/10 px-2 py-1.5 font-mono text-[11px] text-destructive">
+          {o.error}
+        </div>
+      );
+    }
+    const summary = typeof o.summary === "string" ? o.summary : "";
+    const type = typeof o.type === "string" ? o.type : null;
+    const description = typeof o.description === "string" ? o.description : null;
+    const stepCount = typeof o.stepCount === "number" ? o.stepCount : null;
+    const durationMs = typeof o.durationMs === "number" ? o.durationMs : null;
+    return (
+      <div className="space-y-2">
+        {(type || description) && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            {type ? (
+              <span className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono font-medium text-foreground">
+                {type}
+              </span>
+            ) : null}
+            {description ? (
+              <span className="text-muted-foreground">{description}</span>
+            ) : null}
+          </div>
+        )}
+        {summary ? (
+          <div className="rounded border border-border/60 bg-muted/30 p-2 text-[12px] leading-relaxed whitespace-pre-wrap">
+            {summary}
+          </div>
+        ) : (
+          <div className="text-[11px] italic text-muted-foreground">
+            (no output)
+          </div>
+        )}
+        {(stepCount != null || durationMs != null) && (
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {stepCount != null ? (
+              <span>
+                {stepCount} step{stepCount === 1 ? "" : "s"}
+              </span>
+            ) : null}
+            {stepCount != null && durationMs != null ? (
+              <span aria-hidden>·</span>
+            ) : null}
+            {durationMs != null ? (
+              <span>{formatDuration(durationMs)}</span>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (toolName === "bash_background") {
     const handle = typeof o.handle === "string" ? o.handle : null;
     const cmd = typeof o.command === "string" ? o.command : "";
@@ -687,6 +754,14 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n}B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
   return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  return `${m}m ${s}s`;
 }
 
 function CodeBlockMini({ code }: { code: string; language: string }) {

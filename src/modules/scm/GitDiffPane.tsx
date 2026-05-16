@@ -130,7 +130,9 @@ export function GitDiffPane({
     mergeRef.current = null;
     host.innerHTML = "";
 
-    const shared = buildSharedExtensions();
+    // Diff view has its own scrollbars on both sides plus the unchanged-region
+    // collapser -- the minimap would only crowd the lane and never get clicked.
+    const shared = buildSharedExtensions({ showMinimap: false });
     const view = new MergeView({
       a: {
         doc: content.orig,

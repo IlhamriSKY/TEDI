@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
@@ -13,6 +14,7 @@ async function applyEdits(
   abs: string,
   edits: { old_string: string; new_string: string; replace_all?: boolean }[],
   kind: "edit" | "multi_edit",
+  sessionId: string | null,
 ): Promise<EditResult> {
   const r = await native.readFile(abs);
   if (r.kind === "binary")
@@ -97,6 +99,17 @@ async function applyEdits(
   }
 
   try {
+    // Snapshot for restore-checkpoint. The first touch of a path captures
+    // `originalContent` (the pre-turn state); subsequent edits refresh
+    // `writtenContent` so the restore-time user-modify check compares
+    // against the agent's latest write.
+    if (sessionId) {
+      recordFileMutation(sessionId, abs, {
+        kind: "modify",
+        originalContent: original,
+        writtenContent: content,
+      });
+    }
     await native.writeFile(abs, content);
     return {
       ok: true,
@@ -134,7 +147,12 @@ export function buildEditTools(ctx: ToolContext) {
             path: abs,
           };
         }
-        return applyEdits(abs, [{ old_string, new_string, replace_all }], "edit");
+        return applyEdits(
+          abs,
+          [{ old_string, new_string, replace_all }],
+          "edit",
+          ctx.getSessionId(),
+        );
       },
     }),
 
@@ -165,7 +183,7 @@ export function buildEditTools(ctx: ToolContext) {
             path: abs,
           };
         }
-        return applyEdits(abs, edits, "multi_edit");
+        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId());
       },
     }),
   } as const;

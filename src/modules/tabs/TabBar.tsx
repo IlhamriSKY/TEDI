@@ -101,6 +101,37 @@ type StandaloneEntry = EntryBase & {
 
 type Entry = PaneEntry | StandaloneEntry;
 
+/**
+ * Per-type background colour for the 2.5px accent stripe at the top of the
+ * active tab. Each tab kind gets its own colour so users can tell at a
+ * glance what kind of thing is focused — green for a local shell, sky for
+ * SSH, blue for a file editor, cyan for an in-app browser preview, violet
+ * for an AI diff, amber for a git diff.
+ *
+ * The stripe is rendered as a real `<span>` child of the tab trigger (see
+ * the JSX below) — *not* via `::after` — because the underlying primitive
+ * `TabsTrigger` already wires up its own `::after` for a different purpose
+ * with `group-data-horizontal/tabs:` variants that have equal CSS
+ * specificity to ours. That collision made the stripe blink in/out
+ * depending on tab count / split layout (the only thing that shifted CSS
+ * source order). A separate element sidesteps the fight entirely.
+ *
+ * Keep the strings as full literals so Tailwind's JIT can see them.
+ */
+function tabAccentClass(e: Entry): string {
+  if (e.kind === "pane-leaf") {
+    if (e.leafKind === "terminal") {
+      return e.sshConnectionId
+        ? "bg-sky-500 dark:bg-sky-400"
+        : "bg-emerald-500 dark:bg-emerald-400";
+    }
+    return "bg-blue-500 dark:bg-blue-400";
+  }
+  if (e.kind === "preview") return "bg-cyan-500 dark:bg-cyan-400";
+  if (e.kind === "ai-diff") return "bg-violet-500 dark:bg-violet-400";
+  return "bg-amber-500 dark:bg-amber-400";
+}
+
 function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : path;
@@ -461,6 +492,7 @@ export function TabBar({
                     tabId={group.tabId}
                     entries={group.entries}
                     totalEntries={entries.length}
+                    activeKey={activeKey}
                     compact={compact}
                     sortable={!!onReorderTabs}
                     groupDragging={activeDragId !== null}
@@ -567,6 +599,14 @@ type SortableTabGroupProps = {
   entries: Entry[];
   /** Total entries across all groups - drives "can close" gating. */
   totalEntries: number;
+  /**
+   * The currently active entry's composite key. Used to render the per-
+   * type coloured accent stripe — we compare entry.key against this rather
+   * than relying on `data-state="active"` from Radix, because Tailwind
+   * variant collisions with the primitive `TabsTrigger`'s built-in
+   * `::after` rules made CSS-only detection flaky in multi-tab layouts.
+   */
+  activeKey: string | null;
   compact?: boolean;
   sortable: boolean;
   /** True while ANY group is being dragged. */
@@ -599,6 +639,7 @@ function SortableTabGroup({
   tabId,
   entries,
   totalEntries,
+  activeKey,
   compact,
   sortable,
   groupDragging,
@@ -680,13 +721,13 @@ function SortableTabGroup({
             {...(idx === 0 ? listeners : {})}
             className={cn(
               // VSCode-style active state: tab adopts the editor background
-              // (--background), turns semibold, and gets a 2.5px primary-colored
-              // top border so the focused tab visually "lifts" out of the strip.
+              // (--background) and turns semibold. The coloured 2.5px top
+              // accent line is painted by a child `<span>` below (see the
+              // tabAccentClass helper for why a child wins over `::after`).
               // Inactive tabs sit on a dimmer --muted/30 surface (was /60) so
               // the active/inactive contrast is unmistakable at a glance.
               "group relative h-full shrink-0 gap-1.5 bg-muted/30 text-xs text-muted-foreground/80 transition-[background-color,color] duration-150 hover:bg-muted/60 hover:text-foreground/80 justify-between",
               "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold",
-              "data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:top-0 data-[state=active]:after:h-[2.5px] data-[state=active]:after:bg-primary data-[state=active]:after:content-['']",
               // Inside a split cluster, entries are flat (no rounded corners,
               // no own bg); outside, they keep the original pill look.
               isSplit ? "rounded-none" : "rounded-md",
@@ -700,6 +741,25 @@ function SortableTabGroup({
                 "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-border/70 before:content-[''] data-[state=active]:before:opacity-0",
             )}
           >
+            {/* 2.5px accent stripe at the top edge — only painted on the
+                active entry. We compute activeness in JS (e.key === activeKey)
+                instead of relying on a CSS group variant: the primitive
+                `TabsTrigger` already attaches its own `::after` with
+                `group-data-horizontal/tabs:` variants that share specificity
+                with anything we'd write, and tailwind-merge can reorder our
+                rule below theirs depending on what other classes are present
+                (which is why a 2nd tab silently broke the stripe). Doing the
+                conditional in JS is bulletproof — no class wins/loses based
+                on Tailwind's emitted CSS order. */}
+            {e.key === activeKey && (
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 top-0 h-[2.5px]",
+                  tabAccentClass(e),
+                )}
+              />
+            )}
             <span
               className={cn(
                 "flex items-center gap-1.5 truncate",

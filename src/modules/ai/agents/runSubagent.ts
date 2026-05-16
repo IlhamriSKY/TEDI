@@ -1,11 +1,11 @@
-import { Experimental_Agent as Agent, stepCountIs } from "ai";
+import { generateText, stepCountIs, type ModelMessage } from "ai";
 import {
-  DEFAULT_MODEL_ID,
-  getModel,
+  tryGetModel,
   type DynamicModelId,
-  type ModelId,
+  type ModelInfo,
 } from "../config";
 import { buildLanguageModel } from "../lib/agent";
+import { applyCacheBreakpoints } from "../lib/cache";
 import type { ProviderKeys } from "../lib/keyring";
 import type { ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
@@ -21,6 +21,7 @@ type Args = {
   modelId: DynamicModelId;
   toolContext: ToolContext;
   lmstudioBaseURL?: string;
+  openaiCompatibleBaseURL?: string;
 };
 
 type RunResult = {
@@ -36,6 +37,7 @@ export async function runSubagent({
   modelId,
   toolContext,
   lmstudioBaseURL,
+  openaiCompatibleBaseURL,
 }: Args): Promise<RunResult> {
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
@@ -51,53 +53,46 @@ export async function runSubagent({
     if (t in readOnly) filtered[t] = readOnly[t];
   }
 
-  const model = await buildLanguageModel(getModel(modelId).provider, keys, getModel(modelId).id, {
+  // Unknown ids fall back to SumoPod (the only provider with runtime
+  // discovery via /v1/models). Same shape main agent uses — keeps
+  // behavior consistent when the user picks a freshly detected model.
+  const info: ModelInfo =
+    tryGetModel(modelId) ??
+    ({
+      id: modelId,
+      provider: "sumopod",
+      label: modelId,
+      hint: "SumoPod",
+    } as ModelInfo);
+
+  const model = await buildLanguageModel(info.provider, keys, info.id, {
     lmstudioBaseURL,
+    openaiCompatibleBaseURL,
   });
 
-  // The Agent constructor's tools generic infers `never` when passed a
-  // dynamic record, so cast through unknown for both `tools` and
-  // `stopWhen` (whose StopCondition is parameterized by the same generic).
-  const agent = new Agent({
+  // Build explicit messages so we can attach provider-cache markers.
+  // The Experimental_Agent class hides this — generateText does not, and
+  // the tool-loop semantics (stopWhen) carry over.
+  const baseMessages: ModelMessage[] = [
+    { role: "system", content: def.systemPrompt },
+    { role: "user", content: prompt },
+  ];
+  const messages = applyCacheBreakpoints(baseMessages, info.provider);
+
+  // `tools` / `stopWhen` are casted because the SDK infers `never` for the
+  // tools generic when fed a dynamic record — same shape the original
+  // Experimental_Agent call site used.
+  const start = Date.now();
+  const result = await generateText({
     model,
-    instructions: def.systemPrompt,
-    tools: filtered,
+    messages,
+    tools: filtered as never,
     stopWhen: stepCountIs(SUBAGENT_MAX_STEPS) as never,
   } as never);
-
-  const start = Date.now();
-  const result = await (agent as unknown as {
-    generate: (a: { prompt: string }) => Promise<unknown>;
-  }).generate({ prompt });
   const durationMs = Date.now() - start;
 
-  // Best-effort summary extraction across SDK shape variations.
-  const r = result as unknown as {
-    text?: string;
-    response?: { messages?: { content?: unknown }[] };
-    steps?: unknown[];
-  };
-  const summary = r.text ?? extractText(r) ?? "(no output)";
-  const stepCount = Array.isArray(r.steps) ? r.steps.length : 0;
+  const summary = result.text?.trim() || "(no output)";
+  const stepCount = result.steps?.length ?? 0;
 
   return { summary, stepCount, durationMs };
 }
-
-function extractText(r: {
-  response?: { messages?: { content?: unknown }[] };
-}): string | null {
-  const msgs = r.response?.messages;
-  if (!Array.isArray(msgs)) return null;
-  const parts: string[] = [];
-  for (const m of msgs) {
-    if (typeof m.content === "string") parts.push(m.content);
-    else if (Array.isArray(m.content)) {
-      for (const p of m.content as { type?: string; text?: string }[]) {
-        if (p.type === "text" && typeof p.text === "string") parts.push(p.text);
-      }
-    }
-  }
-  return parts.join("\n").trim() || null;
-}
-
-export const DEFAULT_SUBAGENT_MODEL: ModelId = DEFAULT_MODEL_ID;

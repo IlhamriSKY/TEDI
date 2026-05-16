@@ -42,6 +42,7 @@ export const native = {
     invoke<void>("fs_write_file", { path, content }),
   createFile: (path: string) => invoke<void>("fs_create_file", { path }),
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
+  deletePath: (path: string) => invoke<void>("fs_delete", { path }),
   readDir: (path: string) => invoke<DirEntry[]>("fs_read_dir", { path }),
   grep: (params: {
     pattern: string;

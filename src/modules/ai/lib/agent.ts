@@ -21,6 +21,7 @@ import {
 } from "../config";
 import type { ProviderKeys } from "./keyring";
 import { buildTools, type ToolContext } from "../tools/tools";
+import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed } from "./compact";
 
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
@@ -192,12 +193,14 @@ export async function buildLanguageModel(
 
 const PLAN_MODE_PROMPT = `\n\n## PLAN MODE — ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active — reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
 
+/** Per-step usage delta — handler is responsible for accumulating
+ *  cumulative totals if it wants them. Cached tokens come from the
+ *  provider's prompt-cache hit counter; 0 when the provider doesn't
+ *  report it or the prefix didn't hit. */
 export type AgentUsageDelta = {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
-  lastInputTokens: number;
-  lastCachedTokens: number;
 };
 
 export type RunAgentOptions = {
@@ -242,35 +245,6 @@ function buildSystemPrompt(opts: {
       : "";
   const planBlock = opts.planMode ? PLAN_MODE_PROMPT : "";
   return `${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
-}
-
-/** Per-provider message-level annotations that engage prompt caching.
- *  Anthropic is the only provider that needs an explicit marker today;
- *  OpenAI/Gemini cache implicitly on stable prefixes ≥ ~1k tokens.
- *  See research notes in this commit for the architecture rules. */
-function applyCacheBreakpoints(
-  messages: ModelMessage[],
-  provider: ProviderId,
-): ModelMessage[] {
-  if (provider !== "anthropic") return messages;
-  if (messages.length === 0) return messages;
-  // Mark the system message so tools + system get cached together.
-  const out = messages.slice();
-  const systemIdx = out.findIndex((m) => m.role === "system");
-  if (systemIdx >= 0) {
-    const sys = out[systemIdx];
-    out[systemIdx] = {
-      ...sys,
-      providerOptions: {
-        ...(sys.providerOptions ?? {}),
-        anthropic: {
-          ...((sys.providerOptions?.anthropic as object | undefined) ?? {}),
-          cacheControl: { type: "ephemeral" },
-        },
-      },
-    } as ModelMessage;
-  }
-  return out;
 }
 
 /** Run one streaming agent step. Used by the in-process Chat transport.
@@ -339,14 +313,10 @@ export async function runAgentStream(opts: RunAgentOptions) {
       }
       if (opts.onUsage && step.usage) {
         const u = step.usage;
-        const stepInput = u.inputTokens ?? 0;
-        const stepCached = u.inputTokenDetails?.cacheReadTokens ?? 0;
         opts.onUsage({
-          inputTokens: stepInput,
+          inputTokens: u.inputTokens ?? 0,
           outputTokens: u.outputTokens ?? 0,
-          cachedInputTokens: stepCached,
-          lastInputTokens: stepInput,
-          lastCachedTokens: stepCached,
+          cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
         });
       }
     },

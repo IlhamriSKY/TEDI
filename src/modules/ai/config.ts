@@ -341,8 +341,8 @@ Each turn carries a short <env> block (workspace_root, active_terminal_cwd, opti
 
 # Tool budget
 - grep for "where is X?" beats list_directory loops. glob for "what files match Y?". list_directory for "show me this folder".
-- Don't re-read a file you read this session unless you wrote to it (read_file returns {unchanged: true}).
-- read_file defaults to first 25KB / 2000 lines — use offset/limit for big files.
+- Don't re-read a file you already read this session unless you wrote to it — the prior result is still in your history.
+- read_file defaults to the first 2000 lines (capped at 200KB). For files larger than that, page with offset/limit using the returned nextOffset.
 - todo_write before 5+ consecutive tool calls so the user sees the plan. Skip for single-step asks.
 
 # Editing
@@ -380,7 +380,7 @@ Rules:
 - Chain actions: read → understand → change → verify in one turn. Don't stop for trivial confirmations.
 - Ask only when genuinely ambiguous and a wrong guess is costly. Otherwise pick a default and proceed.
 - Bare filenames resolve to active_terminal_cwd, not workspace_root.
-- grep beats scanning many files; read_file defaults to 25KB / 2000 lines (use offset/limit for larger).
+- grep beats scanning many files; read_file defaults to 2000 lines (200KB cap) — page with offset/limit on bigger files.
 - edit/multi_edit need a prior read_file. write_file for new/tiny files only.
 - bash_list before any dev server; reuse if already running.
 - Terse. No filler, no diff recap.`;
@@ -394,13 +394,26 @@ const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
   "claude-haiku-4-5",
   "openai/gpt-oss-20b",
   "gpt-oss-120b",
+  "deepseek-v4-flash",
+  "grok-4.20-non-reasoning",
 ]);
 
+/** Heuristics that classify a model id as "lite" without a registry entry —
+ *  catches runtime-detected SumoPod models, custom OpenAI-compatible
+ *  endpoints, and future provider models we haven't enumerated. Conservative
+ *  on purpose: a false positive only loses some prompt detail, while a
+ *  false negative just costs a few hundred tokens. */
+const LITE_MODEL_PATTERN =
+  /\b(mini|nano|flash|haiku|lite|small|tiny|gemma|gpt-oss|qwen2?\.5-coder|coder-(?:1\.5|3|7)b|[1-9]b)\b/i;
+
 /** Pick the lite variant for small/fast/cheap models to keep their per-turn
- *  token cost down. The big-model variant is ~3kB; lite is ~1kB. */
+ *  token cost down. The big-model variant is ~3kB; lite is ~1kB. Anthropic
+ *  caches the system message so lite vs full only matters on the first turn
+ *  (and cross-session); for cache-less providers (Groq/Cerebras) it matters
+ *  every turn. */
 export function getSystemPrompt(modelId: string | undefined): string {
-  if (modelId && LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) {
-    return SYSTEM_PROMPT_LITE;
-  }
+  if (!modelId) return SYSTEM_PROMPT;
+  if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return SYSTEM_PROMPT_LITE;
+  if (LITE_MODEL_PATTERN.test(modelId)) return SYSTEM_PROMPT_LITE;
   return SYSTEM_PROMPT;
 }

@@ -254,6 +254,7 @@ function formatTokens(n: number): string {
 
 export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const modelId = useChatStore((s) => s.selectedModelId);
+  const usage = useChatStore((s) => s.agentMeta.usage);
   const used = useMemo(() => estimateTokens(messages), [messages]);
   const max = getModelContextLimit(modelId);
   const modelLabel = useMemo(() => {
@@ -264,10 +265,17 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
     }
   }, [modelId]);
 
+  // Cache hit ratio. Only meaningful once the session has accumulated at
+  // least one round-trip — show "—" until then so users don't see 0% on
+  // a fresh chat and assume it's broken.
+  const hasReportedUsage = usage.input > 0;
+  const cacheRatio = hasReportedUsage ? usage.cached / usage.input : 0;
+  const cacheRatioPct = Math.round(cacheRatio * 100);
+
   return (
     <Context usedTokens={used} maxTokens={max} modelId={modelId}>
       <ContextTrigger className="h-6 gap-1 px-0 text-[10.5px]" />
-      <ContextContent className="w-64 text-[11px]">
+      <ContextContent className="w-72 text-[11px]">
         <ContextContentHeader />
         <ContextContentBody>
           <div className="flex items-center justify-between text-muted-foreground">
@@ -286,10 +294,43 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
               {formatTokens(max)}
             </span>
           </div>
+
+          <div className="my-2 border-t border-border/40" />
+
+          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            Session usage
+          </div>
+          <div className="mt-1 flex items-center justify-between text-muted-foreground">
+            <span>Input</span>
+            <span className="font-mono text-foreground">
+              {hasReportedUsage ? formatTokens(usage.input) : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Output</span>
+            <span className="font-mono text-foreground">
+              {hasReportedUsage ? formatTokens(usage.output) : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Cached (prompt cache hit)</span>
+            <span
+              className={cn(
+                "font-mono",
+                hasReportedUsage && cacheRatioPct >= 50
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-foreground",
+              )}
+            >
+              {hasReportedUsage
+                ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)`
+                : "—"}
+            </span>
+          </div>
         </ContextContentBody>
         <ContextContentFooter>
           <span className="text-[10px] italic text-muted-foreground">
-            Token count is approximate (chars / 4).
+            Used = local estimate (chars/4). Session = reported by provider.
           </span>
         </ContextContentFooter>
       </ContextContent>

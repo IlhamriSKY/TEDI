@@ -11,7 +11,11 @@ import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
-import { getOrCreateChat, useChatStore } from "../store/chatStore";
+import {
+  getOrCreateChat,
+  openSendCheckpoint,
+  useChatStore,
+} from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
 export type FileAttachment = {
@@ -114,6 +118,13 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (!next) return;
     firingRef.current = true;
     const chat = getOrCreateChat(sessionId);
+    if (!openSendCheckpoint(sessionId)) {
+      // Session is mid-restore — drop this queue tick. The effect will
+      // re-fire after `isRestoring` clears (state changes will trigger
+      // a re-render through the existing dependencies).
+      firingRef.current = false;
+      return;
+    }
     void chat.sendMessage({ text: next.text });
   }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt]);
 
@@ -329,6 +340,12 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
     if (!sessionId) return;
     const chat = getOrCreateChat(sessionId);
+    if (!openSendCheckpoint(sessionId)) {
+      // Restore in progress — silently drop this submit. The user can
+      // retry after restore finishes (button auto-disables, restore is
+      // sub-second for typical turns).
+      return;
+    }
     const { selectedModelId: modelId, selectedProvider: provider } =
       useChatStore.getState();
     const modelInfo = tryGetModel(modelId);

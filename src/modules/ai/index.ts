@@ -21,4 +21,5 @@ export {
   useChatStore,
   type AgentMeta,
   type AgentRunStatus,
+  type SessionUsage,
 } from "./store/chatStore";

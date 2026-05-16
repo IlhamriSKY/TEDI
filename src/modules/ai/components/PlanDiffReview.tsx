@@ -10,6 +10,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
+import { useChatStore } from "../store/chatStore";
 import { usePlanStore, type QueuedEdit } from "../store/planStore";
 
 function basename(p: string): string {
@@ -37,6 +38,7 @@ export function PlanDiffReview() {
   const removeOne = usePlanStore((s) => s.removeOne);
   const clear = usePlanStore((s) => s.clear);
   const applyAll = usePlanStore((s) => s.applyAll);
+  const sessionId = useChatStore((s) => s.activeSessionId);
   const [busy, setBusy] = useState(false);
 
   if (queue.length === 0) return null;
@@ -44,7 +46,7 @@ export function PlanDiffReview() {
   const onApply = async () => {
     setBusy(true);
     try {
-      const results = await applyAll();
+      const results = await applyAll(sessionId);
       const failed = results.filter((r) => !r.ok);
       if (failed.length) {
         console.error("plan apply failures:", failed);

@@ -17,6 +17,12 @@ function resolveProvider(modelId: DynamicModelId): ProviderId {
 }
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
+import {
+  discardCheckpoint,
+  openCheckpoint,
+  restoreCheckpoint,
+  type RestoreOutcome,
+} from "../lib/checkpoint";
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { useTodosStore } from "./todoStore";
@@ -51,18 +57,31 @@ export type AgentRunStatus =
   | "awaiting-approval"
   | "error";
 
+/** Cumulative token usage for the active session. Reset on session
+ *  switch / clear. `cached` is the chunk of `input` that hit the
+ *  provider's prompt cache — the higher the ratio, the cheaper the run. */
+export type SessionUsage = {
+  input: number;
+  output: number;
+  cached: number;
+};
+
 export type AgentMeta = {
   status: AgentRunStatus;
   step: string | null;
   approvalsPending: number;
   error: string | null;
+  usage: SessionUsage;
 };
+
+const ZERO_USAGE: SessionUsage = { input: 0, output: 0, cached: 0 };
 
 const IDLE_META: AgentMeta = {
   status: "idle",
   step: null,
   approvalsPending: 0,
   error: null,
+  usage: ZERO_USAGE,
 };
 
 export type MiniState = {
@@ -210,10 +229,25 @@ export function flushPersist(id?: string): void {
   for (const key of Array.from(pendingPersist.keys())) flushPersistEntry(key);
 }
 
+// Per-session read cache: paths the model has called `read_file` on.
+// `edit`/`multi_edit` enforce read-before-edit by checking membership.
+// Stored at module scope (keyed by sessionId) instead of inside makeChat's
+// closure so restore-checkpoint can clear it — after a restore, the
+// model's "I've read this file" knowledge is gone from history and the
+// cache must follow.
+const readCaches = new Map<string, Set<string>>();
+
+function getReadCache(sessionId: string): Set<string> {
+  let cache = readCaches.get(sessionId);
+  if (!cache) {
+    cache = new Set<string>();
+    readCaches.set(sessionId, cache);
+  }
+  return cache;
+}
+
 function makeChat(sessionId: string): Chat<UIMessage> {
-  // Per-session read cache: paths the model has called `read_file` on.
-  // `edit`/`multi_edit` enforce read-before-edit by checking membership.
-  const readCache = new Set<string>();
+  const readCache = getReadCache(sessionId);
   const toolContext: ToolContext = {
     getCwd: () => useChatStore.getState().live.getCwd(),
     getWorkspaceRoot: () =>
@@ -254,6 +288,21 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getPlanMode: () => usePlanStore.getState().active,
     onStep: (step) => {
       useChatStore.getState().patchAgentMeta({ step });
+    },
+    onUsage: (delta) => {
+      // Accumulate per-step usage into the active session's running total.
+      // Lets the UI surface cache hit ratio (cached / input) so users can
+      // see provider prompt-cache savings without external tooling.
+      useChatStore.setState((state) => ({
+        agentMeta: {
+          ...state.agentMeta,
+          usage: {
+            input: state.agentMeta.usage.input + delta.inputTokens,
+            output: state.agentMeta.usage.output + delta.outputTokens,
+            cached: state.agentMeta.usage.cached + delta.cachedInputTokens,
+          },
+        },
+      }));
     },
   });
 
@@ -478,6 +527,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
       clearTimeout(pend.timer);
       pendingPersist.delete(id);
     }
+    discardCheckpoint(id);
+    readCaches.delete(id);
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
 
@@ -573,7 +624,15 @@ export async function sendMessage(text: string): Promise<boolean> {
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
   if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey()) return false;
+  // Guard against the restore-in-progress race: if we appended a new user
+  // message while restore was mid `c.messages = trimmed`, that message
+  // would either be lost (trim drops it) or yield an inconsistent state.
+  if (restoringSessions.has(sessionId)) return false;
   const c = getOrCreateChat(sessionId);
+  // Open a fresh restore checkpoint just before the user message is
+  // appended. Tools called by the agent will capture their pre-mutation
+  // file state into this checkpoint.
+  openCheckpoint(sessionId, c.messages.length);
   await c.sendMessage({ text });
   return true;
 }
@@ -582,4 +641,81 @@ export function stop(): void {
   const id = useChatStore.getState().activeSessionId;
   if (!id) return;
   void chats.get(id)?.stop();
+}
+
+/**
+ * Open a restore checkpoint synchronously, intended for call sites that
+ * dispatch `chat.sendMessage` directly (composer submit / queue drain).
+ * Returns false if the session is in the middle of a restore — the caller
+ * MUST then skip the send to avoid races. Otherwise opens a fresh
+ * checkpoint and returns true.
+ */
+export function openSendCheckpoint(sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  if (restoringSessions.has(sessionId)) return false;
+  const c = chats.get(sessionId);
+  if (!c) return false;
+  openCheckpoint(sessionId, c.messages.length);
+  return true;
+}
+
+/**
+ * Sessions currently mid-restore. Consulted by `openSendCheckpoint` and
+ * `sendMessage` so a quick "click Restore then quickly hit Send" can't
+ * append a new user message during `c.messages = trimmed` and end up
+ * either lost (trimmed away) or in an inconsistent state.
+ */
+const restoringSessions = new Set<string>();
+
+/**
+ * Roll the active session back to the last user-message checkpoint.
+ * Reverts any files the agent mutated, trims chat history, stops a running
+ * agent, and clears stale read-cache entries so the next turn doesn't
+ * inherit the model's view of files that were just reverted.
+ *
+ * Returns `null` if there's nothing to restore.
+ */
+export async function restoreToLastCheckpoint(): Promise<
+  RestoreOutcome | null
+> {
+  const sessionId = useChatStore.getState().activeSessionId;
+  if (!sessionId) return null;
+  const c = chats.get(sessionId);
+  if (!c) return null;
+  if (restoringSessions.has(sessionId)) return null;
+
+  restoringSessions.add(sessionId);
+  try {
+    // Stop any in-flight stream before mutating its message list.
+    try {
+      await c.stop();
+    } catch {
+      // already stopped — ignore
+    }
+
+    const outcome = await restoreCheckpoint(sessionId);
+    if (!outcome) return null;
+
+    // Trim history back to the pre-user-turn baseline.
+    const trimmed = c.messages.slice(0, outcome.baselineMessageCount);
+    c.messages = trimmed;
+    // Make sure the persisted store reflects the trim immediately — the
+    // debounced persist would catch this eventually but a session switch
+    // before then would lose the truncation.
+    flushPersist(sessionId);
+    void saveMessages(sessionId, trimmed);
+
+    // Clear read-before-edit knowledge. The trimmed history no longer
+    // contains the original read_file results, so the model's mental view
+    // of the file is gone too — the next turn must re-read before editing.
+    readCaches.get(sessionId)?.clear();
+
+    // Reset transient agent state. The agent loop is no longer running and
+    // any pending approval cards refer to messages we just removed.
+    useChatStore.setState({ agentMeta: IDLE_META });
+
+    return outcome;
+  } finally {
+    restoringSessions.delete(sessionId);
+  }
 }

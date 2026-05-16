@@ -668,12 +668,14 @@ function QueueRow({
   if (queue.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-        <HugeiconsIcon icon={Clock01Icon} size={10} strokeWidth={2} />
-        Queued
-      </span>
+      <HugeiconsIcon
+        icon={Clock01Icon}
+        size={10}
+        strokeWidth={2}
+        className="shrink-0 text-muted-foreground"
+      />
       <AnimatePresence initial={false}>
-        {queue.map((q, i) => (
+        {queue.map((q) => (
           <Tooltip key={q.id}>
             <TooltipTrigger asChild>
               <motion.div
@@ -684,9 +686,6 @@ function QueueRow({
                 transition={{ duration: 0.12 }}
                 className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
               >
-                <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300">
-                  {i + 1}
-                </span>
                 <span className="truncate text-foreground/90">{q.text}</span>
                 <button
                   type="button"
