@@ -816,7 +816,9 @@ function SortableTabGroup({
                       <ContextMenuItem
                         key={g.id}
                         disabled={g.full}
-                        onSelect={() => onMoveLeafToGroup!(e.leafId, g.id)}
+                        onSelect={() => {
+                          if (e.kind === "pane-leaf") onMoveLeafToGroup!(e.leafId, g.id);
+                        }}
                       >
                         <span className="flex-1 truncate">{g.title}</span>
                         <span className="text-muted-foreground ml-2 text-xs">

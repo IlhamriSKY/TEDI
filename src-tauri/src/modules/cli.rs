@@ -181,6 +181,7 @@ pub enum ShimInstall {
     },
     /// Platform handles `tedi` via its native installer (Windows → NSIS).
     /// The frontend should surface this as an informational note, not an error.
+    #[allow(dead_code)]
     NotApplicable { message: String },
 }
 
