@@ -15,6 +15,11 @@
 
 !include "LogicLib.nsh"
 !include "WinMessages.nsh"
+!include "StrFunc.nsh"
+; ${StrStr} needs an explicit declaration before first use — this line is
+; the declaration, not a call. Used in NSIS_HOOK_POSTINSTALL to test whether
+; $INSTDIR is already on the user's PATH so reinstalls don't pile up dupes.
+${StrStr}
 
 !define TEDI_PATH_REG_ROOT HKCU
 !define TEDI_PATH_REG_KEY  "Environment"
@@ -68,13 +73,13 @@
     WriteRegExpandStr ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path" "$INSTDIR"
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${Else}
-    ; Case-insensitive substring check against `;PATH;` sentinels so a
-    ; partial-match dir doesn't false-positive.
+    ; Substring check against `;PATH;` sentinels so a partial-match dir
+    ; doesn't false-positive. ${StrStr} returns the haystack-tail starting
+    ; at the needle (empty when missing).
     StrCpy $2 ";$1;"
     StrCpy $3 ";$INSTDIR;"
-    nsis_tauri_utils::FindInString $2 $3
-    Pop $4
-    ${If} $4 == "-1"
+    ${StrStr} $4 $2 $3
+    ${If} $4 == ""
       ; Re-write as REG_EXPAND_SZ so existing `%VAR%` references in the
       ; user's PATH keep expanding.
       WriteRegExpandStr ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path" "$1;$INSTDIR"
