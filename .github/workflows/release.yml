@@ -42,11 +42,14 @@ jobs:
             libssl-dev \
             patchelf
 
-      - uses: pnpm/action-setup@v6
+      # Pinned to v4: pnpm/action-setup@v6's self-installer crashes on
+      # windows-2025 runners with STATUS_STACK_BUFFER_OVERRUN (0xC0000409).
+      # v4 uses a different install mechanism that works on all platforms.
+      - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
