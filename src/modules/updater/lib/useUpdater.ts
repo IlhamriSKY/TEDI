@@ -1,5 +1,7 @@
 import { IS_LINUX } from "@/lib/platform";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -93,6 +95,9 @@ export async function fetchLinuxRelease(): Promise<ManualUpdateInfo | null> {
 export function useUpdater() {
   const [state, setState] = useState<UpdaterState>({ kind: "idle" });
   const updateRef = useRef<Update | null>(null);
+  // Bumped whenever a `tedi --update` request lands (startup arg or
+  // single-instance forwarding). UpdaterPill watches this to open the dialog.
+  const [forceOpenSeq, setForceOpenSeq] = useState(0);
 
   const reset = useCallback(() => {
     updateRef.current = null;
@@ -179,19 +184,49 @@ export function useUpdater() {
     }
   }, []);
 
+  const stateKindRef = useRef(state.kind);
+  stateKindRef.current = state.kind;
+
   // First check 8s after mount so it doesn't compete with PTY spawns + AI
   // hydration on cold start. One-shot — re-arming on state changes caused the
   // updater dialog to flicker closed every 8s when sitting on an actionable
-  // state.
+  // state. Guard against `tedi --update` racing us: skip if we've already
+  // transitioned out of idle (the cli drain / trigger event fires first and
+  // would otherwise be clobbered).
   useEffect(() => {
     const first = window.setTimeout(() => {
-      void checkForUpdate();
+      if (stateKindRef.current === "idle") {
+        void checkForUpdate();
+      }
     }, 8_000);
     return () => window.clearTimeout(first);
   }, [checkForUpdate]);
 
-  const stateKindRef = useRef(state.kind);
-  stateKindRef.current = state.kind;
+  // `tedi --update`: drain the startup flag once and re-fire on every
+  // single-instance forward. Both paths force the dialog open and short-circuit
+  // the 8s startup delay so the user gets immediate feedback.
+  const updateFlagDrainedRef = useRef(false);
+  useEffect(() => {
+    if (updateFlagDrainedRef.current) return;
+    updateFlagDrainedRef.current = true;
+    void invoke<boolean>("cli_take_initial_update_request").then((requested) => {
+      if (requested) {
+        setForceOpenSeq((n) => n + 1);
+        void checkForUpdate();
+      }
+    });
+  }, [checkForUpdate]);
+
+  useEffect(() => {
+    const unlistenP = listen<unknown>("tedi:trigger-update", () => {
+      setForceOpenSeq((n) => n + 1);
+      void checkForUpdate();
+    });
+    return () => {
+      void unlistenP.then((fn) => fn());
+    };
+  }, [checkForUpdate]);
+
   useEffect(() => {
     const interval = window.setInterval(() => {
       const k = stateKindRef.current;
@@ -208,6 +243,7 @@ export function useUpdater() {
     downloadAndInstall,
     relaunchApp,
     reset,
+    forceOpenSeq,
   };
 }
 

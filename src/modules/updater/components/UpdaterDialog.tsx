@@ -17,6 +17,7 @@ type Props = {
   state: UpdaterState;
   onInstall: () => void;
   onRelaunch: () => void;
+  onRetry?: () => void;
 };
 
 type DistroKey = "arch" | "debian" | "fedora";
@@ -42,7 +43,14 @@ const DISTROS: { key: DistroKey; label: string }[] = [
   { key: "fedora", label: "Fedora / RHEL" },
 ];
 
-export function UpdaterDialog({ open, onOpenChange, state, onInstall, onRelaunch }: Props) {
+export function UpdaterDialog({
+  open,
+  onOpenChange,
+  state,
+  onInstall,
+  onRelaunch,
+  onRetry,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const [distro, setDistro] = useState<DistroKey>("arch");
   const manualVersion = state.kind === "manual-available" ? state.version : "";
@@ -151,7 +159,22 @@ export function UpdaterDialog({ open, onOpenChange, state, onInstall, onRelaunch
             </p>
           )}
 
-          {state.kind === "error" && <p className="text-destructive">{state.message}</p>}
+          {state.kind === "error" && (
+            <>
+              <p className="text-destructive">{state.message}</p>
+              <p className="text-muted-foreground text-[11px]">
+                If this persists, grab the latest build manually from the GitHub releases page.
+              </p>
+            </>
+          )}
+
+          {state.kind === "checking" && (
+            <p className="text-muted-foreground">Checking for updates…</p>
+          )}
+
+          {state.kind === "idle" && (
+            <p className="text-muted-foreground">You're on the latest version of TEDI.</p>
+          )}
         </div>
 
         <DialogFooter>
@@ -185,8 +208,24 @@ export function UpdaterDialog({ open, onOpenChange, state, onInstall, onRelaunch
             </>
           )}
           {state.kind === "error" && (
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Close
+            <>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+              {onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+            </>
+          )}
+          {state.kind === "idle" && onRetry ? (
+            <>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+              <Button onClick={onRetry}>Check again</Button>
+            </>
+          ) : null}
+          {state.kind === "checking" && (
+            <Button variant="ghost" disabled>
+              Checking…
             </Button>
           )}
         </DialogFooter>
@@ -206,7 +245,11 @@ function titleFor(state: UpdaterState): string {
     case "ready":
       return "Update ready";
     case "error":
-      return "Update failed";
+      return "Update check failed";
+    case "checking":
+      return "Checking for updates";
+    case "idle":
+      return "You're up to date";
     default:
       return "Update";
   }

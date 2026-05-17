@@ -209,6 +209,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let cwd_path = std::path::PathBuf::from(&cwd);
+        let update_requested = cli::update_requested_in(argv.iter().map(|s| s.as_str()));
         let target = cli::parse(argv, &cwd_path);
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();
@@ -216,6 +217,9 @@ pub fn run() {
             let _ = window.set_focus();
             if let Some(t) = target {
                 let _ = window.emit("tedi:open-cli-target", t);
+            }
+            if update_requested {
+                let _ = window.emit("tedi:trigger-update", ());
             }
         }
     }));
@@ -298,6 +302,7 @@ pub fn run() {
             shell::shell_bg_list,
             open_settings_window,
             cli::cli_initial_target,
+            cli::cli_take_initial_update_request,
             cli::cli_install_path_shim,
             secrets::secrets_get,
             secrets::secrets_set,

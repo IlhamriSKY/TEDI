@@ -20,6 +20,11 @@ pub enum CliTarget {
 
 static INITIAL_TARGET: Mutex<Option<CliTarget>> = Mutex::new(None);
 
+/// Set when `tedi --update` / `-u` is in argv at startup. The frontend drains
+/// this once on boot and re-receives the request via `tedi:trigger-update`
+/// when a second invocation forwards `--update` through single-instance.
+static INITIAL_UPDATE_REQUEST: Mutex<bool> = Mutex::new(false);
+
 /// Returns true if `s` looks like a Tauri/webview flag (`--foo`, `-bar`) and
 /// should be skipped when scanning for the positional path arg.
 fn is_flag(s: &str) -> bool {
@@ -32,6 +37,10 @@ fn is_version_flag(s: &str) -> bool {
 
 fn is_help_flag(s: &str) -> bool {
     matches!(s, "--help" | "-h")
+}
+
+pub fn is_update_flag(s: &str) -> bool {
+    matches!(s, "--update" | "-u")
 }
 
 fn help_text() -> String {
@@ -54,6 +63,7 @@ fn help_text() -> String {
         "FLAGS:\n",
         "    -h, --help       Print this help and exit\n",
         "    -V, --version    Print version and exit\n",
+        "    -u, --update     Check for updates and open the update dialog\n",
         "\n",
         "ARGS:\n",
         "    PATH             Folder to open, or file to edit. Use `.` for the\n",
@@ -141,6 +151,19 @@ pub fn parse(args: Vec<String>, cwd: &Path) -> Option<CliTarget> {
     classify(&resolved)
 }
 
+/// Returns true when argv contains `--update` / `-u` anywhere after argv[0].
+/// Used at startup *and* by single-instance forwarding so a second `tedi --update`
+/// can trigger the in-app updater on the already-running window.
+pub fn update_requested_in<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|a| is_update_flag(a.as_ref()))
+}
+
 /// Capture the startup target. Called from `lib::run` before any `set_current_dir`
 /// could shift the cwd. Idempotent — only the first call wins.
 pub fn capture_startup() {
@@ -148,10 +171,16 @@ pub fn capture_startup() {
         Ok(p) => p,
         Err(_) => return,
     };
-    let target = parse(std::env::args().collect(), &cwd);
+    let args: Vec<String> = std::env::args().collect();
+    let target = parse(args.clone(), &cwd);
     if let Ok(mut slot) = INITIAL_TARGET.lock() {
         if slot.is_none() {
             *slot = target;
+        }
+    }
+    if update_requested_in(args.iter().map(|s| s.as_str())) {
+        if let Ok(mut slot) = INITIAL_UPDATE_REQUEST.lock() {
+            *slot = true;
         }
     }
 }
@@ -165,6 +194,16 @@ fn take_initial_target() -> Option<CliTarget> {
 #[tauri::command]
 pub fn cli_initial_target() -> Option<CliTarget> {
     take_initial_target()
+}
+
+/// Drain the captured update request. Returns true *exactly once* per launch
+/// so a webview reload doesn't re-trigger the dialog.
+#[tauri::command]
+pub fn cli_take_initial_update_request() -> bool {
+    INITIAL_UPDATE_REQUEST
+        .lock()
+        .map(|mut slot| std::mem::replace(&mut *slot, false))
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Serialize)]
