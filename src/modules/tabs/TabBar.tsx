@@ -9,17 +9,14 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
@@ -30,11 +27,7 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import {
-  statusDotClass,
-  statusLabel,
-  type SshStatus,
-} from "@/modules/ssh/status";
+import { statusDotClass, statusLabel, type SshStatus } from "@/modules/ssh/status";
 import {
   Cancel01Icon,
   CloudServerIcon,
@@ -56,11 +49,7 @@ import {
   type DropAnimation,
   type Modifier,
 } from "@dnd-kit/core";
-import {
-  horizontalListSortingStrategy,
-  SortableContext,
-  useSortable,
-} from "@dnd-kit/sortable";
+import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -172,8 +161,7 @@ function buildEntries(
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
         const label = entryLabel(leaf, t.cwd, sshHosts);
-        const sshConnectionId =
-          leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
+        const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         out.push({
           kind: "pane-leaf",
           key: `leaf-${leaf.id}`,
@@ -182,13 +170,12 @@ function buildEntries(
           leafKind: leaf.leafKind,
           label,
           italic:
-            leaf.leafKind === "editor" && (leaf as PaneLeaf & { preview?: boolean }).preview === true,
+            leaf.leafKind === "editor" &&
+            (leaf as PaneLeaf & { preview?: boolean }).preview === true,
           dirty:
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
-          sshStatus: sshConnectionId
-            ? sshStatuses?.get(leaf.id)
-            : undefined,
+          sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
         });
       }
       continue;
@@ -289,11 +276,7 @@ const DROP_ANIMATION: DropAnimation = {
  * y, the overlay drifts up/down toward whichever border is closer to the
  * cursor and visually "snaps to a line" instead of sitting centred.
  */
-const snapCenterAndLockY: Modifier = ({
-  activatorEvent,
-  draggingNodeRect,
-  transform,
-}) => {
+const snapCenterAndLockY: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
   if (!draggingNodeRect || !activatorEvent) return transform;
   const ev = activatorEvent as PointerEvent;
   const offsetX = ev.clientX - draggingNodeRect.left;
@@ -325,14 +308,10 @@ export function TabBar({
   const [activeDragId, setActiveDragId] = useState<number | null>(null);
   // Load saved SSH hosts once + on change, so we can resolve a leaf's
   // `sshConnectionId` to its `user@host:port` for the tab tooltip.
-  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(
-    () => new Map(),
-  );
+  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(() => new Map());
   useEffect(() => {
     const load = () =>
-      void listConnections().then((list) =>
-        setSshHosts(new Map(list.map((c) => [c.id, c]))),
-      );
+      void listConnections().then((list) => setSshHosts(new Map(list.map((c) => [c.id, c]))));
     load();
     const unsub = onConnectionsChanged(load);
     return () => {
@@ -387,12 +366,25 @@ export function TabBar({
   }, [entries]);
 
   const draggedEntry = useMemo(
-    () =>
-      activeDragId === null
-        ? null
-        : entries.find((e) => e.tabId === activeDragId) ?? null,
+    () => (activeDragId === null ? null : (entries.find((e) => e.tabId === activeDragId) ?? null)),
     [entries, activeDragId],
   );
+
+  // The very last entry in the strip is the one nothing can be "closed to
+  // the right of" — used to hide the menu item rather than show a no-op.
+  const lastEntryKey = entries.length > 0 ? entries[entries.length - 1].key : null;
+
+  // Close every entry visually to the right of `entry` in the strip. Each
+  // call routes through the same `onCloseEntry` the X button uses, so the
+  // dirty-editor confirmation flow still fires when applicable.
+  const closeEntriesAfter = (entry: Entry) => {
+    const idx = entries.findIndex((e) => e.key === entry.key);
+    if (idx < 0) return;
+    for (let i = idx + 1; i < entries.length; i++) {
+      const target = entries[i];
+      onCloseEntry(target.tabId, target.kind === "pane-leaf" ? target.leafId : null);
+    }
+  };
 
   // Determine which entry is "active". For pane tabs, follow tab.activeLeafId;
   // for standalone tabs, the single entry IS active when tab matches activeId.
@@ -427,9 +419,7 @@ export function TabBar({
 
   // Pointer-based DnD via dnd-kit. 5px activation distance prevents
   // accidental drags from interfering with click-to-select.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // Sortable list is keyed by top-level tab id - we reorder tabs, not leaves.
   const sortableIds = useMemo(() => tabs.map((t) => t.id), [tabs]);
@@ -445,8 +435,7 @@ export function TabBar({
     if (fromIdx < 0 || overIdx < 0) return;
     // Drop AFTER when dragging forward, BEFORE when dragging backward -
     // matches what the user sees as siblings shift around the dragged tab.
-    const beforeTabId =
-      fromIdx < overIdx ? tabs[overIdx + 1]?.id ?? null : overId;
+    const beforeTabId = fromIdx < overIdx ? (tabs[overIdx + 1]?.id ?? null) : overId;
     onReorderTabs(fromId, beforeTabId);
   };
 
@@ -460,7 +449,7 @@ export function TabBar({
       // reserving layout space, so the 28px tab strip stays vertically
       // centered against the 40px header buttons. Wheel-scroll still works
       // via the listener above.
-      className="group/tabscroll flex h-full min-w-0 shrink items-center overflow-x-auto overflow-y-hidden [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:var(--muted-foreground)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/80"
+      className="group/tabscroll hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/80 flex h-full min-w-0 shrink [scrollbar-width:thin] [scrollbar-color:transparent_transparent] items-center overflow-x-auto overflow-y-hidden hover:[scrollbar-color:var(--muted-foreground)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent"
     >
       <div data-tauri-drag-region className="flex w-max items-center gap-0.5">
         <Tabs
@@ -482,10 +471,7 @@ export function TabBar({
             onDragCancel={() => setActiveDragId(null)}
           >
             <TabsList className="h-7 w-max gap-1 bg-transparent p-0">
-              <SortableContext
-                items={sortableIds}
-                strategy={horizontalListSortingStrategy}
-              >
+              <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
                 {entryGroups.map((group) => (
                   <SortableTabGroup
                     key={group.tabId}
@@ -493,12 +479,14 @@ export function TabBar({
                     entries={group.entries}
                     totalEntries={entries.length}
                     activeKey={activeKey}
+                    lastEntryKey={lastEntryKey}
                     compact={compact}
                     sortable={!!onReorderTabs}
                     groupDragging={activeDragId !== null}
                     isDragging={activeDragId === group.tabId}
                     onPinLeaf={onPinLeaf}
                     onCloseEntry={onCloseEntry}
+                    onCloseEntriesAfter={closeEntriesAfter}
                     sshHosts={sshHosts}
                     onMoveLeafToGroup={onMoveLeafToGroup}
                     onRotateLeafSplit={onRotateLeafSplit}
@@ -507,24 +495,16 @@ export function TabBar({
                 ))}
               </SortableContext>
             </TabsList>
-            <DragOverlay
-              dropAnimation={DROP_ANIMATION}
-              modifiers={[snapCenterAndLockY]}
-            >
+            <DragOverlay dropAnimation={DROP_ANIMATION} modifiers={[snapCenterAndLockY]}>
               {draggedEntry && (
                 <div
                   className={cn(
-                    "flex h-7 items-center gap-1.5 rounded-md bg-accent/95 px-2 text-xs text-foreground shadow-lg ring-1 ring-primary/50 backdrop-blur-sm cursor-grabbing",
+                    "bg-accent/95 text-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
                     compact ? "max-w-48" : "max-w-80",
                   )}
                 >
                   <EntryIcon entry={draggedEntry} />
-                  <span
-                    className={cn(
-                      "truncate",
-                      draggedEntry.italic && "italic",
-                    )}
-                  >
+                  <span className={cn("truncate", draggedEntry.italic && "italic")}>
                     {draggedEntry.label}
                   </span>
                   {draggedEntry.dirty && (
@@ -542,7 +522,7 @@ export function TabBar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
                   aria-label="New"
                 >
                   <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
@@ -553,27 +533,19 @@ export function TabBar({
           </Tooltip>
           <DropdownMenuContent align="start" className="min-w-44">
             <DropdownMenuItem onSelect={() => onNewTerminal()}>
-              <HugeiconsIcon
-                icon={ComputerTerminal02Icon}
-                size={14}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1">Terminal</span>
-              <span className="text-xs text-muted-foreground">{fmtShortcut(MOD_KEY, "T")}</span>
+              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "T")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onNewEditor()}>
-              <HugeiconsIcon
-                icon={PencilEdit02Icon}
-                size={14}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1">Editor</span>
-              <span className="text-xs text-muted-foreground">{fmtShortcut(MOD_KEY, "E")}</span>
+              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "E")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onNewPreview()}>
               <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1">Preview</span>
-              <span className="text-xs text-muted-foreground">{fmtShortcut(MOD_KEY, "P")}</span>
+              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "P")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -607,6 +579,12 @@ type SortableTabGroupProps = {
    * `::after` rules made CSS-only detection flaky in multi-tab layouts.
    */
   activeKey: string | null;
+  /**
+   * Key of the visually last entry in the strip. Drives the right-click
+   * "Close tabs to the right" item — when an entry IS the last one, the
+   * item is hidden because there's nothing to its right to close.
+   */
+  lastEntryKey: string | null;
   compact?: boolean;
   sortable: boolean;
   /** True while ANY group is being dragged. */
@@ -615,6 +593,11 @@ type SortableTabGroupProps = {
   isDragging: boolean;
   onPinLeaf: (tabId: number, leafId: number) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
+  /**
+   * Close every entry to the right of `entry` in the strip. Implemented in
+   * TabBar so it sees the full flattened entries list across all groups.
+   */
+  onCloseEntriesAfter: (entry: Entry) => void;
   /** Resolves a leaf's SSH connection id to its host metadata for tooltip. */
   sshHosts: Map<string, SshConnection>;
   /**
@@ -640,24 +623,20 @@ function SortableTabGroup({
   entries,
   totalEntries,
   activeKey,
+  lastEntryKey,
   compact,
   sortable,
   groupDragging,
   isDragging: isThisDragging,
   onPinLeaf,
   onCloseEntry,
+  onCloseEntriesAfter,
   sshHosts,
   onMoveLeafToGroup,
   onRotateLeafSplit,
   paneGroupsForMove,
 }: SortableTabGroupProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: tabId,
     disabled: !sortable,
     transition: {
@@ -686,21 +665,16 @@ function SortableTabGroup({
         "flex h-7 shrink-0 items-center transition-[border-color,background-color,opacity] duration-150",
         // Split tabs get a bordered cluster so the entries inside are
         // visibly one group. Single-pane tabs stay "naked" - no border.
-        isSplit
-          ? "rounded-md border border-border/70 bg-muted/20 gap-0 p-0 overflow-hidden"
-          : "",
+        isSplit ? "border-border/70 bg-muted/20 gap-0 overflow-hidden rounded-md border p-0" : "",
         isSplit && groupDragging && !isThisDragging && "border-border",
         isSplit && isThisDragging && "border-primary/70 bg-accent/30",
         sortable && "cursor-grab active:cursor-grabbing",
-        isThisDragging &&
-          "opacity-30",
+        isThisDragging && "opacity-30",
       )}
     >
       {entries.map((e, idx) => {
         const sshHost =
-          e.kind === "pane-leaf" && e.sshConnectionId
-            ? sshHosts.get(e.sshConnectionId)
-            : undefined;
+          e.kind === "pane-leaf" && e.sshConnectionId ? sshHosts.get(e.sshConnectionId) : undefined;
         const trigger = (
           <TabsTrigger
             key={e.key}
@@ -726,19 +700,16 @@ function SortableTabGroup({
               // tabAccentClass helper for why a child wins over `::after`).
               // Inactive tabs sit on a dimmer --muted/30 surface (was /60) so
               // the active/inactive contrast is unmistakable at a glance.
-              "group relative h-full shrink-0 gap-1.5 bg-muted/30 text-xs text-muted-foreground/80 transition-[background-color,color] duration-150 hover:bg-muted/60 hover:text-foreground/80 justify-between",
+              "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
               "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold",
               // Inside a split cluster, entries are flat (no rounded corners,
               // no own bg); outside, they keep the original pill look.
               isSplit ? "rounded-none" : "rounded-md",
-              compact
-                ? "px-2!"
-                : totalEntries === 1
-                  ? "px-2.5!"
-                  : "ps-2.5! pe-1.5!",
+              compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!",
               // Intra-group divider on every entry except the first.
-              isSplit && idx > 0 &&
-                "before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-border/70 before:content-[''] data-[state=active]:before:opacity-0",
+              isSplit &&
+                idx > 0 &&
+                "before:bg-border/70 before:absolute before:top-1 before:bottom-1 before:left-0 before:w-px before:content-[''] data-[state=active]:before:opacity-0",
             )}
           >
             {/* 2.5px accent stripe at the top edge — only painted on the
@@ -767,9 +738,7 @@ function SortableTabGroup({
               )}
             >
               <EntryIcon entry={e} />
-              <span className={cn("truncate", e.italic && "italic")}>
-                {e.label}
-              </span>
+              <span className={cn("truncate", e.italic && "italic")}>{e.label}</span>
               {e.dirty ? (
                 <span
                   aria-label="Unsaved changes"
@@ -786,29 +755,23 @@ function SortableTabGroup({
                   icon={Cancel01Icon}
                   label="Close"
                   variant="danger"
-                  onClick={() =>
-                    onCloseEntry(
-                      e.tabId,
-                      e.kind === "pane-leaf" ? e.leafId : null,
-                    )
-                  }
+                  onClick={() => onCloseEntry(e.tabId, e.kind === "pane-leaf" ? e.leafId : null)}
                 />
               )}
             </span>
           </TabsTrigger>
         );
 
-        // Right-click actions: rotate the split this leaf sits in, and move
-        // the leaf into another pane group. Only pane-leaf entries support
-        // these, and each item is conditional on its precondition (a split
-        // exists / there's another group to move to).
+        // Right-click actions: rotate the split this leaf sits in, move the
+        // leaf into another pane group, and close every entry to the right.
+        // Rotate/move are pane-leaf only; close-tabs-to-right works for any
+        // entry as long as something is actually to its right.
         const isPaneLeaf = e.kind === "pane-leaf";
         const moveTargets =
-          isPaneLeaf && onMoveLeafToGroup
-            ? paneGroupsForMove.filter((g) => g.id !== e.tabId)
-            : [];
+          isPaneLeaf && onMoveLeafToGroup ? paneGroupsForMove.filter((g) => g.id !== e.tabId) : [];
         const canRotate = isPaneLeaf && isSplit && !!onRotateLeafSplit;
         const canMove = moveTargets.length > 0;
+        const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
 
         // Compose: tooltip wrap (SSH-only) → context-menu wrap (when actions
         // exist). Order matters: ContextMenuTrigger must be the outermost
@@ -825,26 +788,23 @@ function SortableTabGroup({
                     SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
                   </span>
                   {sshStatus ? (
-                    <span className="text-muted-foreground">
-                      {statusLabel(sshStatus)}
-                    </span>
+                    <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
                   ) : null}
                 </div>
               </TooltipContent>
             </Tooltip>
           );
         }
-        if (!isPaneLeaf || (!canRotate && !canMove)) {
+        if (!canRotate && !canMove && !canCloseToRight) {
           return <Fragment key={e.key}>{node}</Fragment>;
         }
+        const hasLeafActions = canRotate || canMove;
         return (
           <ContextMenu key={e.key}>
             <ContextMenuTrigger asChild>{node}</ContextMenuTrigger>
             <ContextMenuContent className="min-w-44">
               {canRotate && (
-                <ContextMenuItem
-                  onSelect={() => onRotateLeafSplit!(e.leafId)}
-                >
+                <ContextMenuItem onSelect={() => onRotateLeafSplit!(e.leafId)}>
                   Toggle Split Orientation
                 </ContextMenuItem>
               )}
@@ -859,13 +819,19 @@ function SortableTabGroup({
                         onSelect={() => onMoveLeafToGroup!(e.leafId, g.id)}
                       >
                         <span className="flex-1 truncate">{g.title}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="text-muted-foreground ml-2 text-xs">
                           {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
                         </span>
                       </ContextMenuItem>
                     ))}
                   </ContextMenuSubContent>
                 </ContextMenuSub>
+              )}
+              {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
+              {canCloseToRight && (
+                <ContextMenuItem onSelect={() => onCloseEntriesAfter(e)}>
+                  Close Tabs to the Right
+                </ContextMenuItem>
               )}
             </ContextMenuContent>
           </ContextMenu>
@@ -918,11 +884,7 @@ function TrailingIconButton({
           }}
           className={cn(TRAILING_BTN_BASE, TRAILING_BTN_VARIANT[variant])}
         >
-          <HugeiconsIcon
-            icon={icon}
-            size={TRAILING_ICON_SIZE}
-            strokeWidth={2}
-          />
+          <HugeiconsIcon icon={icon} size={TRAILING_ICON_SIZE} strokeWidth={2} />
         </span>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
@@ -949,7 +911,7 @@ function EntryIcon({ entry }: { entry: Entry }) {
             <span
               aria-hidden
               className={cn(
-                "absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-1 ring-background",
+                "ring-background absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1",
                 statusDotClass(entry.sshStatus),
               )}
             />
@@ -958,23 +920,11 @@ function EntryIcon({ entry }: { entry: Entry }) {
       );
     }
     return (
-      <HugeiconsIcon
-        icon={ComputerTerminal02Icon}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0"
-      />
+      <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={2} className="shrink-0" />
     );
   }
   if (entry.kind === "preview") {
-    return (
-      <HugeiconsIcon
-        icon={Globe02Icon}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0"
-      />
-    );
+    return <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={2} className="shrink-0" />;
   }
   return (
     <HugeiconsIcon

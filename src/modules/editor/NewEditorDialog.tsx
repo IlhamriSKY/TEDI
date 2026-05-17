@@ -25,12 +25,7 @@ function joinPath(parent: string, name: string): string {
   return `${parent}/${name}`;
 }
 
-export function NewEditorDialog({
-  open,
-  onOpenChange,
-  rootPath,
-  onCreated,
-}: Props) {
+export function NewEditorDialog({ open, onOpenChange, rootPath, onCreated }: Props) {
   const [name, setName] = useState("untitled.txt");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,9 +59,7 @@ export function NewEditorDialog({
       setError("No workspace root");
       return;
     }
-    const path = trimmed.startsWith("/")
-      ? trimmed
-      : joinPath(rootPath, trimmed);
+    const path = trimmed.startsWith("/") ? trimmed : joinPath(rootPath, trimmed);
     try {
       await invoke("fs_create_file", { path });
       onCreated(path);
@@ -85,8 +78,7 @@ export function NewEditorDialog({
             New file
           </DialogTitle>
           <DialogDescription>
-            Filename (relative to workspace root). The extension determines the
-            language mode.
+            Filename (relative to workspace root). The extension determines the language mode.
           </DialogDescription>
         </DialogHeader>
         <Input
@@ -105,9 +97,9 @@ export function NewEditorDialog({
           placeholder="example.ts"
         />
         {error ? (
-          <div className="text-xs text-destructive">{error}</div>
+          <div className="text-destructive text-xs">{error}</div>
         ) : (
-          <div className="text-xs text-muted-foreground truncate">
+          <div className="text-muted-foreground truncate text-xs">
             {rootPath ? joinPath(rootPath, name.trim() || "…") : "-"}
           </div>
         )}

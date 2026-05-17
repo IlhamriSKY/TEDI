@@ -166,13 +166,13 @@ export const MODELS = [
     id: "gemini-2.5-flash",
     provider: "google",
     label: "Gemini 2.5 Flash",
-    hint: "Most Efficient"
+    hint: "Most Efficient",
   },
   {
     id: "gemma-4-31b-it",
     provider: "google",
     label: "Gemma 4 31B",
-    hint:"Lean & Powerfull"
+    hint: "Lean & Powerfull",
   },
   // xAI
   {
@@ -304,10 +304,7 @@ export const AUTOCOMPLETE_PROVIDERS: readonly AutocompleteProviderId[] = [
   "lmstudio",
 ] as const;
 
-export const DEFAULT_AUTOCOMPLETE_MODEL: Record<
-  AutocompleteProviderId,
-  string
-> = {
+export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> = {
   cerebras: "gpt-oss-120b",
   groq: "openai/gpt-oss-20b",
   lmstudio: "qwen2.5-coder-7b-instruct",
@@ -315,8 +312,7 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<
 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
-export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL =
-  "https://api.openai.com/v1";
+export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 export const MAX_AGENT_STEPS = 24;
 export const TERMINAL_BUFFER_LINES = 300;
 

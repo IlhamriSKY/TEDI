@@ -15,18 +15,7 @@ type FileIcons = Record<
 // @keep-sorted
 const fileIcons: FileIcons = {
   "3d": {
-    fileExtensions: [
-      "fbx",
-      "glb",
-      "gltf",
-      "ma",
-      "mb",
-      "obj",
-      "prc",
-      "stl",
-      "u3d",
-      "usd",
-    ],
+    fileExtensions: ["fbx", "glb", "gltf", "ma", "mb", "obj", "prc", "stl", "u3d", "usd"],
   },
   "adobe-ae": {
     fileExtensions: ["aep"],
@@ -59,12 +48,7 @@ const fileIcons: FileIcons = {
   },
   angular: {
     fileExtensions: ["ng-template"],
-    fileNames: [
-      "angular-cli.json",
-      ".angular-cli.json",
-      "angular.json",
-      "ng-package.json",
-    ],
+    fileNames: ["angular-cli.json", ".angular-cli.json", "angular.json", "ng-package.json"],
   },
   "ansible-lint": {
     fileNames: [".ansible-lint", "ansible-lint.yml", "ansible-lint.yaml"],
@@ -83,10 +67,7 @@ const fileIcons: FileIcons = {
     fileNames: ["apollo.config.js", "apollo.config.ts"],
   },
   apple: {
-    fileNames: [
-      "apple-app-site-association",
-      "apple-developer-merchantid-domain-association",
-    ],
+    fileNames: ["apple-app-site-association", "apple-developer-merchantid-domain-association"],
   },
   arduino: {
     languageIds: ["arduino"],
@@ -240,11 +221,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["blink"],
   },
   blitz: {
-    fileNames: [
-      "blitz.config.js",
-      "blitz.config.ts",
-      ".blitz.config.compiled.js",
-    ],
+    fileNames: ["blitz.config.js", "blitz.config.ts", ".blitz.config.compiled.js"],
   },
   bower: {
     fileNames: [".bowerrc", "bower.json"],
@@ -344,12 +321,7 @@ const fileIcons: FileIcons = {
     ],
   },
   contributing: {
-    fileNames: [
-      "contributing.md",
-      "contributing.rst",
-      "contributing.txt",
-      "contributing",
-    ],
+    fileNames: ["contributing.md", "contributing.rst", "contributing.txt", "contributing"],
   },
   "cpp-header": {
     fileExtensions: ["hh", "hpp", "hxx", "h++", "hp", "tcc", "inl"],
@@ -477,13 +449,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["djt"],
   },
   "docker-compose": {
-    fileExtensions: [
-      "docker-compose.yml",
-      "docker-compose.yaml",
-
-      "compose.yaml",
-      "compose.yml",
-    ],
+    fileExtensions: ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"],
     fileNames: [
       "docker-compose.yml",
       "docker-compose.override.yml",
@@ -744,11 +710,7 @@ const fileIcons: FileIcons = {
     ],
   },
   flutter: {
-    fileNames: [
-      ".flutter-plugins",
-      ".flutter-plugins-dependencies",
-      ".metadata",
-    ],
+    fileNames: [".flutter-plugins", ".flutter-plugins-dependencies", ".metadata"],
   },
   font: {
     fileExtensions: [
@@ -940,12 +902,7 @@ const fileIcons: FileIcons = {
     fileNames: ["procfile"],
   },
   histoire: {
-    fileNames: [
-      "histoire.config.ts",
-      "histoire.config.js",
-      ".histoire.js",
-      ".histoire.ts",
-    ],
+    fileNames: ["histoire.config.ts", "histoire.config.js", ".histoire.js", ".histoire.ts"],
   },
   html: {
     languageIds: ["html"],
@@ -1372,16 +1329,7 @@ const fileIcons: FileIcons = {
     fileNames: ["moonwave.toml"],
   },
   "ms-excel": {
-    fileExtensions: [
-      "xlsx",
-      "xlsm",
-      "xls",
-      "xlsb",
-      "xltx",
-      "xltm",
-      "xlt",
-      "ods",
-    ],
+    fileExtensions: ["xlsx", "xlsm", "xls", "xlsb", "xltx", "xltm", "xlt", "ods"],
   },
   "ms-powerpoint": {
     fileExtensions: [
@@ -1399,16 +1347,7 @@ const fileIcons: FileIcons = {
     ],
   },
   "ms-word": {
-    fileExtensions: [
-      "doc",
-      "docm",
-      "docx",
-      "dot",
-      "dotm",
-      "dotx",
-      "rtf",
-      "odt",
-    ],
+    fileExtensions: ["doc", "docm", "docx", "dot", "dotm", "dotx", "rtf", "odt"],
   },
   msbuild: {
     fileNames: [
@@ -1422,23 +1361,13 @@ const fileIcons: FileIcons = {
     fileNames: ["nativescript.config.ts", "nativescript.config.js"],
   },
   nest: {
-    fileNames: [
-      "nest-cli.json",
-      ".nest-cli.json",
-      "nestconfig.json",
-      ".nestconfig.json",
-    ],
+    fileNames: ["nest-cli.json", ".nest-cli.json", "nestconfig.json", ".nestconfig.json"],
   },
   netlify: {
     fileNames: ["netlify.json", "netlify.yml", "netlify.yaml", "netlify.toml"],
   },
   next: {
-    fileNames: [
-      "next.config.js",
-      "next.config.mjs",
-      "next.config.ts",
-      "next.config.mts",
-    ],
+    fileNames: ["next.config.js", "next.config.mjs", "next.config.ts", "next.config.mts"],
   },
   nextflow: {
     fileExtensions: ["nf"],
@@ -1552,12 +1481,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["php"],
   },
   phrase: {
-    fileNames: [
-      ".phrase.yml",
-      ".phraseapp.yml",
-      ".phrase.yaml",
-      ".phraseapp.yaml",
-    ],
+    fileNames: [".phrase.yml", ".phraseapp.yml", ".phrase.yaml", ".phraseapp.yaml"],
   },
   phtml: {
     fileExtensions: ["phtml"],
@@ -1833,12 +1757,7 @@ const fileIcons: FileIcons = {
     fileNames: ["ruff.toml", ".ruff.toml"],
   },
   "rust-config": {
-    fileNames: [
-      "rustfmt.toml",
-      ".rustfmt.toml",
-      "rust-toolchain.toml",
-      "clippy.toml",
-    ],
+    fileNames: ["rustfmt.toml", ".rustfmt.toml", "rust-toolchain.toml", "clippy.toml"],
   },
   rust: {
     languageIds: ["rust"],
@@ -1960,11 +1879,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["sol"],
   },
   "sonar-cloud": {
-    fileNames: [
-      "sonar-project.properties",
-      ".sonarcloud.properties",
-      "sonarcloud.yaml",
-    ],
+    fileNames: ["sonar-project.properties", ".sonarcloud.properties", "sonarcloud.yaml"],
   },
   spwn: {
     fileExtensions: ["spwn"],
@@ -2041,12 +1956,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["sc", "scd"],
   },
   "svelte-config": {
-    fileNames: [
-      "svelte.config.js",
-      "svelte.config.ts",
-      "svelte.config.cjs",
-      "svelte.config.mjs",
-    ],
+    fileNames: ["svelte.config.js", "svelte.config.ts", "svelte.config.cjs", "svelte.config.mjs"],
   },
   svelte: {
     languageIds: ["svelte"],
@@ -2124,12 +2034,7 @@ const fileIcons: FileIcons = {
     fileExtensions: ["twig"],
   },
   twine: {
-    languageIds: [
-      "twee3",
-      "twee3-harlowe-3",
-      "twee3-chapbook-1",
-      "twee3-sugarcube-2",
-    ],
+    languageIds: ["twee3", "twee3-harlowe-3", "twee3-chapbook-1", "twee3-sugarcube-2"],
     fileExtensions: ["tw", "twee"],
   },
   "typescript-config": {
@@ -2306,14 +2211,7 @@ const fileIcons: FileIcons = {
     ],
   },
   vital: {
-    fileExtensions: [
-      "vital",
-      "vitalbank",
-      "vitallfo",
-      "vitalskin",
-      "vitaltable",
-      "vitaltheme",
-    ],
+    fileExtensions: ["vital", "vitalbank", "vitallfo", "vitalskin", "vitaltable", "vitaltheme"],
   },
   vite: {
     fileNames: [
@@ -2654,9 +2552,7 @@ const fileIcons: FileIcons = {
   },
 };
 
-const { languageIds, fileExtensions, fileNames } = Object.entries(
-  fileIcons,
-).reduce(
+const { languageIds, fileExtensions, fileNames } = Object.entries(fileIcons).reduce(
   ({ languageIds, fileExtensions, fileNames }, [name, icon]) => ({
     languageIds: {
       ...languageIds,

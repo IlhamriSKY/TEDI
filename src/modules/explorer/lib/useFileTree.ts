@@ -42,9 +42,7 @@ type Options = {
 export function useFileTree(rootPath: string | null, options?: Options) {
   const [nodes, setNodes] = useState<TreeState>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(
-    null,
-  );
+  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const includeHidden = options?.includeHidden ?? false;
 
@@ -190,8 +188,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         return;
       }
       const path = joinPath(pendingCreate.parentPath, trimmed);
-      const cmd =
-        pendingCreate.kind === "dir" ? "fs_create_dir" : "fs_create_file";
+      const cmd = pendingCreate.kind === "dir" ? "fs_create_dir" : "fs_create_file";
       try {
         await invoke(cmd, { path });
         await fetchChildren(pendingCreate.parentPath);

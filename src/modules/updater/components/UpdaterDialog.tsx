@@ -42,13 +42,7 @@ const DISTROS: { key: DistroKey; label: string }[] = [
   { key: "fedora", label: "Fedora / RHEL" },
 ];
 
-export function UpdaterDialog({
-  open,
-  onOpenChange,
-  state,
-  onInstall,
-  onRelaunch,
-}: Props) {
+export function UpdaterDialog({ open, onOpenChange, state, onInstall, onRelaunch }: Props) {
   const [copied, setCopied] = useState(false);
   const [distro, setDistro] = useState<DistroKey>("arch");
   const manualVersion = state.kind === "manual-available" ? state.version : "";
@@ -77,22 +71,14 @@ export function UpdaterDialog({
             <>
               <p className="text-muted-foreground">
                 A new version of TEDI is available.{" "}
-                <span className="font-medium text-foreground">
-                  v{state.currentVersion}
-                </span>{" "}
-                →{" "}
-                <span className="font-medium text-foreground">
-                  v{state.version}
-                </span>
+                <span className="text-foreground font-medium">v{state.currentVersion}</span> →{" "}
+                <span className="text-foreground font-medium">v{state.version}</span>
                 {state.date ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {formatReleaseDate(state.date)}
-                  </span>
+                  <span className="text-muted-foreground"> · {formatReleaseDate(state.date)}</span>
                 ) : null}
               </p>
               {state.notes ? (
-                <pre className="max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2 font-mono text-[11px] whitespace-pre-wrap">
+                <pre className="border-border/60 bg-muted/40 max-h-48 overflow-auto rounded-md border p-2 font-mono text-[11px] whitespace-pre-wrap">
                   {state.notes}
                 </pre>
               ) : null}
@@ -103,17 +89,11 @@ export function UpdaterDialog({
             <>
               <p className="text-muted-foreground">
                 You're on{" "}
-                <span className="font-medium text-foreground">
-                  v{state.currentVersion}
-                </span>{" "}
-                — v
-                <span className="font-medium text-foreground">
-                  {state.version}
-                </span>{" "}
-                is available. Pick your distro and run the command, or grab the
-                package from GitHub.
+                <span className="text-foreground font-medium">v{state.currentVersion}</span> — v
+                <span className="text-foreground font-medium">{state.version}</span> is available.
+                Pick your distro and run the command, or grab the package from GitHub.
               </p>
-              <div className="flex gap-1 rounded-md bg-muted/40 p-1">
+              <div className="bg-muted/40 flex gap-1 rounded-md p-1">
                 {DISTROS.map((d) => (
                   <button
                     key={d.key}
@@ -129,7 +109,7 @@ export function UpdaterDialog({
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 font-mono text-[12px]">
+              <div className="border-border/60 bg-muted/40 flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-[12px]">
                 <span className="flex-1 select-all">$ {activeCommand}</span>
                 <Button
                   variant="ghost"
@@ -141,7 +121,7 @@ export function UpdaterDialog({
                 </Button>
               </div>
               {state.notes ? (
-                <pre className="max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2 font-mono text-[11px] whitespace-pre-wrap">
+                <pre className="border-border/60 bg-muted/40 max-h-48 overflow-auto rounded-md border p-2 font-mono text-[11px] whitespace-pre-wrap">
                   {state.notes}
                 </pre>
               ) : null}
@@ -150,9 +130,7 @@ export function UpdaterDialog({
 
           {state.kind === "downloading" && (
             <>
-              <p className="text-muted-foreground">
-                Downloading v{state.version}…
-              </p>
+              <p className="text-muted-foreground">Downloading v{state.version}…</p>
               <Progress
                 value={
                   state.total && state.total > 0
@@ -160,7 +138,7 @@ export function UpdaterDialog({
                     : undefined
                 }
               />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-muted-foreground text-[11px]">
                 {formatBytes(state.received)}
                 {state.total ? ` / ${formatBytes(state.total)}` : ""}
               </p>
@@ -173,9 +151,7 @@ export function UpdaterDialog({
             </p>
           )}
 
-          {state.kind === "error" && (
-            <p className="text-destructive">{state.message}</p>
-          )}
+          {state.kind === "error" && <p className="text-destructive">{state.message}</p>}
         </div>
 
         <DialogFooter>
@@ -192,9 +168,7 @@ export function UpdaterDialog({
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 Later
               </Button>
-              <Button onClick={() => void openUrl(state.releaseUrl)}>
-                Download package
-              </Button>
+              <Button onClick={() => void openUrl(state.releaseUrl)}>Download package</Button>
             </>
           )}
           {state.kind === "downloading" && (

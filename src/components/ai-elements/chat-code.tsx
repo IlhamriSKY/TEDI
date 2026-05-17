@@ -1,11 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import {
@@ -26,27 +22,13 @@ import { highlight, isHighlightable, type HighlightedNode } from "./chat-code-le
 const StreamingCtx = createContext(false);
 export const ChatStreamingProvider = StreamingCtx.Provider;
 
-const POSIX_SHELL = new Set([
-  "bash",
-  "sh",
-  "zsh",
-  "shell",
-  "console",
-  "shellscript",
-]);
-const WINDOWS_SHELL = new Set([
-  "powershell",
-  "pwsh",
-  "ps1",
-  "ps",
-  "cmd",
-  "bat",
-  "batch",
-]);
+const POSIX_SHELL = new Set(["bash", "sh", "zsh", "shell", "console", "shellscript"]);
+const WINDOWS_SHELL = new Set(["powershell", "pwsh", "ps1", "ps", "cmd", "bat", "batch"]);
 const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
 
 function shellPrompt(lang: string): string {
-  if (WINDOWS_SHELL.has(lang)) return lang === "cmd" || lang === "bat" || lang === "batch" ? ">" : "PS>";
+  if (WINDOWS_SHELL.has(lang))
+    return lang === "cmd" || lang === "bat" || lang === "batch" ? ">" : "PS>";
   return "$";
 }
 
@@ -80,8 +62,8 @@ export function ChatCodeBlock({ code, lang }: ChatCodeBlockProps) {
 
 function GeneratingPlaceholder({ label }: { label: string }) {
   return (
-    <div className="not-prose my-2 flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-      <span className="inline-block size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
+    <div className="not-prose border-border/50 bg-muted/30 text-muted-foreground my-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px]">
+      <span className="bg-muted-foreground/60 inline-block size-1.5 animate-pulse rounded-full" />
       <Shimmer duration={1.2}>
         {label === "text" ? "Generating code…" : `Generating ${label}…`}
       </Shimmer>
@@ -99,9 +81,9 @@ function BlockChrome({
   children: React.ReactNode;
 }) {
   return (
-    <div className="not-prose my-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
-      <div className="flex items-center justify-between gap-2 border-b border-border/40 bg-muted/20 px-3 py-1">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+    <div className="not-prose border-border/50 bg-muted/30 my-2 overflow-hidden rounded-lg border">
+      <div className="border-border/40 bg-muted/20 flex items-center justify-between gap-2 border-b px-3 py-1">
+        <span className="text-muted-foreground font-mono text-[10px] tracking-wide uppercase">
           {label}
         </span>
         <CopyButton text={code} />
@@ -115,7 +97,7 @@ function FinalizedCodeBlock({ code, lang }: { code: string; lang: string }) {
   if (!isHighlightable(lang)) {
     return (
       <BlockChrome label={lang} code={code}>
-        <pre className="m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground">
+        <pre className="text-foreground m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed">
           {code}
         </pre>
       </BlockChrome>
@@ -158,14 +140,14 @@ const HighlightedPre = memo(function HighlightedPre({
 
   if (!nodes) {
     return (
-      <pre className="m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground">
+      <pre className="text-foreground m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed">
         {code}
       </pre>
     );
   }
 
   return (
-    <pre className="m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground">
+    <pre className="text-foreground m-0 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed">
       {nodes.map((node, i) =>
         node.kind === "break" ? (
           // eslint-disable-next-line react/no-array-index-key
@@ -185,9 +167,9 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
   const isMultiline = code.includes("\n");
   const prompt = shellPrompt(lang);
   return (
-    <div className="not-prose my-2 overflow-hidden rounded-lg border border-border/50 bg-muted/40">
+    <div className="not-prose border-border/50 bg-muted/40 my-2 overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between gap-2 px-3 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="text-muted-foreground font-mono text-[10px] tracking-wide uppercase">
           {normalizeLangLabel(lang)}
         </span>
         <div className="flex items-center gap-1">
@@ -195,19 +177,17 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
           <CopyButton text={code} />
         </div>
       </div>
-      <div className="border-t border-border/40 bg-background/40">
+      <div className="border-border/40 bg-background/40 border-t">
         <pre
           className={cn(
-            "m-0 overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground",
+            "text-foreground m-0 overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed",
             isMultiline ? "whitespace-pre" : "whitespace-pre-wrap",
           )}
         >
           {code.split("\n").map((line, i) => (
             // eslint-disable-next-line react/no-array-index-key
             <span key={i} className="flex">
-              <span className="mr-2 select-none text-muted-foreground/70">
-                {prompt}
-              </span>
+              <span className="text-muted-foreground/70 mr-2 select-none">{prompt}</span>
               <span>{line}</span>
             </span>
           ))}
@@ -235,7 +215,7 @@ function RunInTerminalButton({ command }: { command: string }) {
           size="sm"
           variant="ghost"
           onClick={onRun}
-          className="h-5 gap-1 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground h-5 gap-1 px-1.5 text-[10px] font-medium"
           aria-label="Run in active terminal"
         >
           <HugeiconsIcon
@@ -274,7 +254,7 @@ function CopyButton({ text }: { text: string }) {
       size="icon"
       variant="ghost"
       onClick={onCopy}
-      className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
+      className="text-muted-foreground hover:text-foreground size-5 shrink-0"
       aria-label="Copy code"
     >
       <HugeiconsIcon

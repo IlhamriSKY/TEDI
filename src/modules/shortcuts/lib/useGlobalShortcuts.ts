@@ -1,10 +1,6 @@
 import { useEffect, useRef } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  SHORTCUTS,
-  matchBinding,
-  type ShortcutId,
-} from "../shortcuts";
+import { SHORTCUTS, matchBinding, type ShortcutId } from "../shortcuts";
 
 export type ShortcutHandler = (e: KeyboardEvent) => void;
 export type ShortcutHandlers = Partial<Record<ShortcutId, ShortcutHandler>>;
@@ -43,7 +39,6 @@ export function useGlobalShortcuts(
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [userShortcuts]);
 }

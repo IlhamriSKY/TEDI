@@ -2,11 +2,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -39,10 +35,7 @@ type SnippetTrigger = {
   query: string;
 };
 
-function detectSnippetTrigger(
-  value: string,
-  caret: number,
-): SnippetTrigger | null {
+function detectSnippetTrigger(value: string, caret: number): SnippetTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
     if (ch === "#") {
@@ -137,9 +130,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     if (!trigger) return [];
     const q = trigger.query;
     const cmdItems: PickerItem[] = Object.values(SLASH_COMMANDS)
-      .filter(
-        (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
-      )
+      .filter((c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q))
       .map((command) => ({ kind: "command", command }));
     const snipItems: PickerItem[] = snippets
       .filter(
@@ -171,8 +162,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     } else {
       c.addCommand(item.command);
     }
-    const after =
-      item.kind === "command" ? afterRaw.replace(/^\s+/, "") : afterRaw;
+    const after = item.kind === "command" ? afterRaw.replace(/^\s+/, "") : afterRaw;
     c.setValue(`${before}${insert}${after}`);
     setTrigger(null);
     setActiveIndex(0);
@@ -220,8 +210,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       }));
       const selAtts: FileAttachment[] = entry.selections.map((s, i) => ({
         id: `recall-sel-${i}`,
-        name:
-          s.source === "editor" ? "Editor selection" : "Terminal selection",
+        name: s.source === "editor" ? "Editor selection" : "Terminal selection",
         kind: "selection",
         mediaType: "text/plain",
         text: s.text,
@@ -291,11 +280,11 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       : null;
 
   return (
-    <div className="shrink-0 border-t border-border/60 bg-background/40 px-2 py-2">
+    <div className="border-border/60 bg-background/40 shrink-0 border-t px-2 py-2">
       <div
         className={cn(
-          "flex flex-col gap-1.5 rounded-xl border border-border bg-muted/50 px-2 py-1.5 shadow-sm",
-          "transition-colors focus-within:border-foreground/25 focus-within:bg-muted/70 focus-within:ring-1 focus-within:ring-foreground/10",
+          "border-border bg-muted/50 flex flex-col gap-1.5 rounded-xl border px-2 py-1.5 shadow-sm",
+          "focus-within:border-foreground/25 focus-within:bg-muted/70 focus-within:ring-foreground/10 transition-colors focus-within:ring-1",
         )}
       >
         <OpenFilesRow
@@ -330,10 +319,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                   // Any edit that doesn't match the historical text exits
                   // history-nav mode so subsequent ArrowUp starts fresh from
                   // the newest entry next time the textarea is empty/aligned.
-                  if (
-                    histIndex !== null &&
-                    e.target.value !== history[histIndex].body
-                  ) {
+                  if (histIndex !== null && e.target.value !== history[histIndex].body) {
                     setHistIndex(null);
                   }
                   c.setValue(e.target.value);
@@ -345,9 +331,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                   if (pickerOpen) {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
-                      setActiveIndex((i) =>
-                        Math.min(i + 1, Math.max(0, filteredItems.length - 1)),
-                      );
+                      setActiveIndex((i) => Math.min(i + 1, Math.max(0, filteredItems.length - 1)));
                       return;
                     }
                     if (e.key === "ArrowUp") {
@@ -455,10 +439,10 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.12 }}
-              className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground"
+              className="text-muted-foreground flex items-center gap-1.5 px-1 text-[11px]"
             >
               {c.voice.recording ? (
-                <span className="size-1.5 animate-pulse rounded-full bg-destructive" />
+                <span className="bg-destructive size-1.5 animate-pulse rounded-full" />
               ) : (
                 <Spinner className="size-3" />
               )}
@@ -467,12 +451,10 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           )}
         </AnimatePresence>
 
-        <div className="flex items-center justify-between gap-1 border-t border-border/40 pt-1.5 [&>div]:flex-wrap">
+        <div className="border-border/40 flex items-center justify-between gap-1 border-t pt-1.5 [&>div]:flex-wrap">
           <div className="flex min-w-0 items-center gap-1.5">
             <AgentSwitcher />
-            {messages !== undefined ? (
-              <ContextIndicator messages={messages} />
-            ) : null}
+            {messages !== undefined ? <ContextIndicator messages={messages} /> : null}
           </div>
           <AiStatusBarControls />
         </div>
@@ -505,8 +487,8 @@ function OpenFilesRow({
                 onClick={() => onAttach(f.path)}
                 aria-label={`Attach ${f.name}`}
                 className={cn(
-                  "group flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-border/60 bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground",
-                  "transition-colors hover:border-foreground/40 hover:bg-card hover:text-foreground",
+                  "group border-border/60 text-muted-foreground flex cursor-pointer items-center gap-1 rounded-md border border-dashed bg-transparent px-1.5 py-0.5 text-[11px]",
+                  "hover:border-foreground/40 hover:bg-card hover:text-foreground transition-colors",
                 )}
               >
                 <HugeiconsIcon
@@ -541,8 +523,7 @@ function ChipsRow({
   commands: { name: string; label: string; icon: typeof HashtagIcon }[];
   onRemoveCommand: (name: string) => void;
 }) {
-  if (files.length === 0 && snippets.length === 0 && commands.length === 0)
-    return null;
+  if (files.length === 0 && snippets.length === 0 && commands.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
       <AnimatePresence initial={false}>
@@ -555,7 +536,7 @@ function ChipsRow({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.92 }}
                 transition={{ duration: 0.12 }}
-                className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+                className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
               >
                 <HugeiconsIcon
                   icon={cmd.icon}
@@ -567,7 +548,7 @@ function ChipsRow({
                 <button
                   type="button"
                   onClick={() => onRemoveCommand(cmd.name)}
-                  className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   aria-label="Remove command"
                 >
                   <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -586,7 +567,7 @@ function ChipsRow({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.92 }}
                 transition={{ duration: 0.12 }}
-                className="group flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                className="group border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
               >
                 <HugeiconsIcon
                   icon={HashtagIcon}
@@ -598,7 +579,7 @@ function ChipsRow({
                 <button
                   type="button"
                   onClick={() => onRemoveSnippet(s.id)}
-                  className="ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   aria-label="Remove snippet"
                 >
                   <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -616,7 +597,7 @@ function ChipsRow({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
             transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+            className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
           >
             {f.kind === "image" && f.url ? (
               <img src={f.url} alt="" className="size-4 rounded object-cover" />
@@ -628,25 +609,18 @@ function ChipsRow({
                 className="text-muted-foreground"
               />
             ) : (
-              <img
-                src={fileIconUrl(f.name)}
-                alt=""
-                aria-hidden
-                className="size-3.5 shrink-0"
-              />
+              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
             )}
             <span className="max-w-35 truncate">
               {f.name}
               {f.kind === "selection" && f.text ? (
-                <span className="ml-1 text-muted-foreground">
-                  · {selLineCount(f.text)}L
-                </span>
+                <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
               ) : null}
             </span>
             <button
               type="button"
               onClick={() => onRemoveFile(f.id)}
-              className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
               aria-label="Remove"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -672,7 +646,7 @@ function QueueRow({
         icon={Clock01Icon}
         size={10}
         strokeWidth={2}
-        className="shrink-0 text-muted-foreground"
+        className="text-muted-foreground shrink-0"
       />
       <AnimatePresence initial={false}>
         {queue.map((q) => (
@@ -686,11 +660,11 @@ function QueueRow({
                 transition={{ duration: 0.12 }}
                 className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
               >
-                <span className="truncate text-foreground/90">{q.text}</span>
+                <span className="text-foreground/90 truncate">{q.text}</span>
                 <button
                   type="button"
                   onClick={() => onRemove(q.id)}
-                  className="ml-0.5 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   aria-label="Remove from queue"
                 >
                   <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -723,11 +697,10 @@ export type AiInputBarProps = { tabId: number };
 export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
   const closePanel = useChatStore((s) => s.closePanel);
   return (
-    <div className="shrink-0 border-t border-border/60 bg-card/40 px-3 py-2">
+    <div className="border-border/60 bg-card/40 shrink-0 border-t px-3 py-2">
       <div className="flex h-10 items-center justify-between gap-3 rounded-lg px-3 text-xs">
         <span className="text-muted-foreground">
-          Connect any AI provider (or use local models) - your key stays in your
-          OS keychain.
+          Connect any AI provider (or use local models) - your key stays in your OS keychain.
         </span>
         <div className="flex items-center gap-1">
           <Button size="xs" onClick={onAdd}>

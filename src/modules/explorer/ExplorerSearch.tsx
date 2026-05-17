@@ -1,28 +1,13 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  Cancel01Icon,
-  Folder01Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "motion/react";
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fileIconUrl } from "./lib/iconResolver";
 
 type SearchHit = {
@@ -122,13 +107,8 @@ function Highlighted({
   );
 }
 
-export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function ExplorerSearch({
-  rootPath,
-  onOpenFile,
-  open,
-  onRequestClose,
-  onActiveChange,
-}: Props,
+export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function ExplorerSearch(
+  { rootPath, onOpenFile, open, onRequestClose, onActiveChange }: Props,
   ref,
 ) {
   const [query, setQuery] = useState("");
@@ -216,9 +196,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
   // Keep the active row in view when navigating with arrow keys.
   useEffect(() => {
     if (results.length === 0) return;
-    const el = listRef.current?.querySelector<HTMLElement>(
-      `[data-result-idx="${clampedActive}"]`,
-    );
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-result-idx="${clampedActive}"]`);
     el?.scrollIntoView({ block: "nearest" });
   }, [clampedActive, results.length]);
 
@@ -239,7 +217,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
             icon={Search01Icon}
             size={13}
             strokeWidth={2}
-            className="absolute top-1/2 left-4 -translate-y-1/2 text-muted-foreground"
+            className="text-muted-foreground absolute top-1/2 left-4 -translate-y-1/2"
           />
           <Input
             ref={inputRef}
@@ -255,17 +233,13 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
               if (e.key === "ArrowDown") {
                 e.preventDefault();
                 if (results.length === 0) return;
-                setActiveIdx((i) =>
-                  i + 1 >= results.length ? 0 : i + 1,
-                );
+                setActiveIdx((i) => (i + 1 >= results.length ? 0 : i + 1));
                 return;
               }
               if (e.key === "ArrowUp") {
                 e.preventDefault();
                 if (results.length === 0) return;
-                setActiveIdx((i) =>
-                  i - 1 < 0 ? results.length - 1 : i - 1,
-                );
+                setActiveIdx((i) => (i - 1 < 0 ? results.length - 1 : i - 1));
                 return;
               }
               if (e.key === "Enter") {
@@ -281,7 +255,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded p-0.5"
               aria-label="Clear search"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
@@ -294,13 +268,9 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
         <ScrollArea className="min-h-0 flex-1">
           <div className="py-1" ref={listRef}>
             {searching && results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                Searching…
-              </div>
+              <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching…</div>
             ) : results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                No matches
-              </div>
+              <div className="text-muted-foreground px-3 py-2 text-[11px]">No matches</div>
             ) : (
               results.map((hit, index) => {
                 const url = hit.is_dir ? null : fileIconUrl(hit.name);
@@ -315,9 +285,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                         onClick={() => openHit(hit)}
                         className={cn(
                           "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
-                          isActive
-                            ? "bg-accent text-foreground"
-                            : "hover:bg-accent/60",
+                          isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
                         )}
                       >
                         {url ? (
@@ -327,7 +295,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                             icon={Folder01Icon}
                             size={13}
                             strokeWidth={1.75}
-                            className="shrink-0 text-muted-foreground"
+                            className="text-muted-foreground shrink-0"
                           />
                         )}
                         <span className="truncate">
@@ -337,12 +305,8 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                             fallbackQuery={query}
                           />
                         </span>
-                        <span className="ml-auto truncate text-[10px] text-muted-foreground">
-                          <Highlighted
-                            text={hit.rel}
-                            matches={[]}
-                            fallbackQuery={query}
-                          />
+                        <span className="text-muted-foreground ml-auto truncate text-[10px]">
+                          <Highlighted text={hit.rel} matches={[]} fallbackQuery={query} />
                         </span>
                       </button>
                     </TooltipTrigger>

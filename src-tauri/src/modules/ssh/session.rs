@@ -67,10 +67,7 @@ pub struct SshSession {
 
 impl SshSession {
     pub async fn write(&self, data: &[u8]) -> Result<(), String> {
-        self.write_half
-            .data(data)
-            .await
-            .map_err(|e| e.to_string())
+        self.write_half.data(data).await.map_err(|e| e.to_string())
     }
 
     pub async fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {

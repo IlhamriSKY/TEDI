@@ -9,10 +9,7 @@ const MAX_PREFIX = 2000;
 const MAX_SUFFIX = 1000;
 
 export function trimContext(prefix: string, suffix: string) {
-  const p =
-    prefix.length > MAX_PREFIX
-      ? prefix.slice(prefix.length - MAX_PREFIX)
-      : prefix;
+  const p = prefix.length > MAX_PREFIX ? prefix.slice(prefix.length - MAX_PREFIX) : prefix;
   const s = suffix.length > MAX_SUFFIX ? suffix.slice(0, MAX_SUFFIX) : suffix;
   return { prefix: p, suffix: s };
 }

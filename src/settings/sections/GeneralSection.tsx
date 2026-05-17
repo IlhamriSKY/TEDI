@@ -6,12 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
@@ -30,18 +25,19 @@ import {
   setVimMode,
   type EditorThemeId,
 } from "@/modules/settings/store";
+import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
-import {
-  ArrowDown01Icon,
-  ComputerIcon,
-  Moon02Icon,
-  Sun03Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+
+type ShimInstallResult =
+  | { status: "installed"; path: string; target: string; on_path: boolean }
+  | { status: "not_applicable"; message: string };
 
 const APPEARANCE: {
   id: ThemePref;
@@ -60,9 +56,7 @@ export function GeneralSection() {
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
-  const terminalWebglEnabled = usePreferencesStore(
-    (s) => s.terminalWebglEnabled,
-  );
+  const terminalWebglEnabled = usePreferencesStore((s) => s.terminalWebglEnabled);
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
@@ -104,12 +98,25 @@ export function GeneralSection() {
 
   const onPickTerminalFontSize = (size: number) => void setTerminalFontSize(size);
 
+  const [shimStatus, setShimStatus] = useState<ShimInstallResult | null>(null);
+  const [shimError, setShimError] = useState<string | null>(null);
+  const [shimBusy, setShimBusy] = useState(false);
+  const onInstallShim = async () => {
+    setShimBusy(true);
+    setShimError(null);
+    try {
+      const res = await invoke<ShimInstallResult>("cli_install_path_shim");
+      setShimStatus(res);
+    } catch (e) {
+      setShimError(typeof e === "string" ? e : String(e));
+    } finally {
+      setShimBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader
-        title="General"
-        description="Appearance, editor, and startup."
-      />
+      <SectionHeader title="General" description="Appearance, editor, and startup." />
 
       <div className="flex flex-col gap-2">
         <Label>Appearance</Label>
@@ -120,9 +127,9 @@ export function GeneralSection() {
               type="button"
               onClick={() => setTheme(o.id)}
               className={cn(
-                "group flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border bg-card transition-all",
+                "group bg-card flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border transition-all",
                 theme === o.id
-                  ? "border-foreground/60 ring-1 ring-foreground/20"
+                  ? "border-foreground/60 ring-foreground/20 ring-1"
                   : "border-border/60 hover:border-border",
               )}
             >
@@ -137,10 +144,7 @@ export function GeneralSection() {
         <Label>Editor theme</Label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-9 justify-between gap-2 px-2.5 text-[12px]"
-            >
+            <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
               <span>{EDITOR_THEME_LABELS[editorTheme]}</span>
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -155,33 +159,21 @@ export function GeneralSection() {
               <DropdownMenuItem
                 key={t}
                 onSelect={() => onPickEditor(t)}
-                className={cn(
-                  "text-[12px]",
-                  t === editorTheme && "bg-accent/50",
-                )}
+                className={cn("text-[12px]", t === editorTheme && "bg-accent/50")}
               >
                 {EDITOR_THEME_LABELS[t]}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <SettingRow
-          title="Vim mode"
-          description="Enable Vim keybindings in the code editor."
-        >
-          <Switch
-            checked={vimMode}
-            onCheckedChange={(v) => void setVimMode(v)}
-          />
+        <SettingRow title="Vim mode" description="Enable Vim keybindings in the code editor.">
+          <Switch checked={vimMode} onCheckedChange={(v) => void setVimMode(v)} />
         </SettingRow>
         <SettingRow
           title="Show minimap"
           description="Display the code minimap on the right side of the editor."
         >
-          <Switch
-            checked={showMinimap}
-            onCheckedChange={(v) => void setShowMinimap(v)}
-          />
+          <Switch checked={showMinimap} onCheckedChange={(v) => void setShowMinimap(v)} />
         </SettingRow>
       </div>
 
@@ -195,14 +187,17 @@ export function GeneralSection() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span
-                      className="cursor-help text-[11px] text-muted-foreground/70 leading-none"
+                      className="text-muted-foreground/70 cursor-help text-[11px] leading-none"
                       aria-label="More info about WebGL renderer"
                     >
                       ⓘ
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups (especially with Nerd Fonts), the atlas corrupts and terminal text becomes unreadable. Turn this off as a fallback - performance dips slightly, but text renders correctly via the DOM renderer.
+                    xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS
+                    setups (especially with Nerd Fonts), the atlas corrupts and terminal text
+                    becomes unreadable. Turn this off as a fallback - performance dips slightly, but
+                    text renders correctly via the DOM renderer.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -210,21 +205,12 @@ export function GeneralSection() {
           }
           description="Hardware-accelerated rendering. Turn off if text shows corruption or blank tiles."
         >
-          <Switch
-            checked={terminalWebglEnabled}
-            onCheckedChange={onToggleTerminalWebgl}
-          />
+          <Switch checked={terminalWebglEnabled} onCheckedChange={onToggleTerminalWebgl} />
         </SettingRow>
-        <SettingRow
-          title="Font size"
-          description="Terminal text size."
-        >
+        <SettingRow title="Font size" description="Terminal text size.">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="h-9 justify-between gap-2 px-2.5 text-[12px]"
-              >
+              <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{terminalFontSize} px</span>
                 <HugeiconsIcon
                   icon={ArrowDown01Icon}
@@ -239,10 +225,7 @@ export function GeneralSection() {
                 <DropdownMenuItem
                   key={size}
                   onSelect={() => onPickTerminalFontSize(size)}
-                  className={cn(
-                    "text-[12px]",
-                    size === terminalFontSize && "bg-accent/50",
-                  )}
+                  className={cn("text-[12px]", size === terminalFontSize && "bg-accent/50")}
                 >
                   {size} px
                 </DropdownMenuItem>
@@ -258,10 +241,7 @@ export function GeneralSection() {
           title="Show hidden files & folders"
           description="Reveal dot-prefixed entries (.git, .env, .vscode, …) in the file tree and search."
         >
-          <Switch
-            checked={showHiddenFiles}
-            onCheckedChange={(v) => void setShowHiddenFiles(v)}
-          />
+          <Switch checked={showHiddenFiles} onCheckedChange={(v) => void setShowHiddenFiles(v)} />
         </SettingRow>
       </div>
 
@@ -279,16 +259,53 @@ export function GeneralSection() {
       </div>
 
       <div className="flex flex-col gap-2">
+        <Label>Command line</Label>
+        {IS_WINDOWS ? (
+          <SettingRow
+            title="tedi command"
+            description="The Windows installer adds a `tedi.cmd` shim and appends the install dir to your user PATH. Reinstall TEDI if `tedi .` isn't found."
+          >
+            <span className="text-muted-foreground text-[11px]">via installer</span>
+          </SettingRow>
+        ) : (
+          <SettingRow
+            title="Install `tedi` command in PATH"
+            description="Drops a wrapper at ~/.local/bin/tedi so terminals can run `tedi .` to open the current folder. Re-run after upgrading TEDI."
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-[11.5px]"
+              disabled={shimBusy}
+              onClick={() => void onInstallShim()}
+            >
+              {shimBusy ? "Installing…" : "Install"}
+            </Button>
+          </SettingRow>
+        )}
+        {shimError ? <span className="text-destructive text-[10.5px]">{shimError}</span> : null}
+        {shimStatus?.status === "installed" ? (
+          <span className="text-muted-foreground text-[10.5px]">
+            Installed at <code className="text-foreground">{shimStatus.path}</code> →{" "}
+            <code className="text-foreground">{shimStatus.target}</code>.{" "}
+            {shimStatus.on_path
+              ? "Open a new terminal and try `tedi .`."
+              : '~/.local/bin isn\'t on your PATH yet — add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc.'}
+          </span>
+        ) : null}
+        {shimStatus?.status === "not_applicable" ? (
+          <span className="text-muted-foreground text-[10.5px]">{shimStatus.message}</span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2">
         <Label>Startup</Label>
         <div className="flex flex-col gap-2">
           <SettingRow
             title="Launch at login"
             description="Open TEDI automatically when you sign in."
           >
-            <Switch
-              checked={autostart}
-              onCheckedChange={(v) => void onToggleAutostart(v)}
-            />
+            <Switch checked={autostart} onCheckedChange={(v) => void onToggleAutostart(v)} />
           </SettingRow>
           <SettingRow
             title="Restore window position & size"
@@ -307,8 +324,6 @@ export function GeneralSection() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[11px] font-medium tracking-tight text-muted-foreground">
-      {children}
-    </span>
+    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

@@ -1,9 +1,5 @@
 import { generateText, stepCountIs, type ModelMessage } from "ai";
-import {
-  tryGetModel,
-  type DynamicModelId,
-  type ModelInfo,
-} from "../config";
+import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
 import { buildLanguageModel } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import type { ProviderKeys } from "../lib/keyring";

@@ -19,10 +19,7 @@ export function AiDiffStack({ tabs, activeId, onAccept, onReject }: Props) {
         return (
           <div
             key={t.id}
-            className={cn(
-              "absolute inset-0",
-              !visible && "invisible pointer-events-none",
-            )}
+            className={cn("absolute inset-0", !visible && "pointer-events-none invisible")}
             aria-hidden={visible ? "false" : "true"}
           >
             <AiDiffPane

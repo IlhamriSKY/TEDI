@@ -8,11 +8,7 @@ import {
 } from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   FileAddIcon,
   FileSearchIcon,
@@ -126,32 +122,22 @@ export function FileExplorer({
           strokeWidth={1.5}
           className="text-muted-foreground"
         />
-        <div className="text-xs text-muted-foreground">
-          No current directory
-        </div>
+        <div className="text-muted-foreground text-xs">No current directory</div>
       </div>
     );
   }
 
   const root = tree.nodes[rootPath];
-  const pendingAtRoot =
-    tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
+  const pendingAtRoot = tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen)
-      return;
+    if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen) return;
     const target = e.target as HTMLElement;
-    if (
-      target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable
-    )
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       return;
     if (flat.length === 0) return;
 
-    const currentIdx = selectedPath
-      ? flat.findIndex((f) => f.path === selectedPath)
-      : -1;
+    const currentIdx = selectedPath ? flat.findIndex((f) => f.path === selectedPath) : -1;
 
     const move = (next: number) => {
       const clamped = Math.max(0, Math.min(flat.length - 1, next));
@@ -159,7 +145,7 @@ export function FileExplorer({
       setSelectedPath(path);
       requestAnimationFrame(() => {
         const el = listRef.current?.querySelector<HTMLElement>(
-          `[data-fs-path="${CSS.escape(path)}"]`
+          `[data-fs-path="${CSS.escape(path)}"]`,
         );
         el?.scrollIntoView({ block: "nearest" });
       });
@@ -209,15 +195,11 @@ export function FileExplorer({
   };
 
   return (
-    <div
-      className="flex h-full flex-col outline-none"
-      tabIndex={0}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
+    <div className="flex h-full flex-col outline-none" tabIndex={0} onKeyDown={handleKeyDown}>
+      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex-1 flex truncate text-xs font-medium text-foreground/80">
+            <span className="text-foreground/80 flex flex-1 truncate text-xs font-medium">
               <img
                 src={folderIconUrl(basename(rootPath), false)}
                 alt=""
@@ -235,7 +217,7 @@ export function FileExplorer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => {
               setIsGrepOpen(false);
               setIsSearchOpen((v) => !v);
@@ -250,7 +232,7 @@ export function FileExplorer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => {
               setIsSearchOpen(false);
               setIsGrepOpen((v) => !v);
@@ -265,7 +247,7 @@ export function FileExplorer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => tree.beginCreate(rootPath, "file")}
             aria-label="New file"
           >
@@ -276,7 +258,7 @@ export function FileExplorer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => tree.beginCreate(rootPath, "dir")}
             aria-label="New folder"
           >
@@ -287,7 +269,7 @@ export function FileExplorer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => tree.refresh(rootPath)}
             aria-label="Refresh"
           >
@@ -299,7 +281,7 @@ export function FileExplorer({
             variant="ghost"
             size="icon"
             disabled={tree.expanded.size === 0}
-            className="size-6 text-muted-foreground hover:text-foreground disabled:opacity-40"
+            className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-40"
             onClick={() => tree.collapseAll()}
             aria-label="Collapse folders"
           >
@@ -348,23 +330,17 @@ export function FileExplorer({
                     />
                     <InlineInput
                       initial=""
-                      placeholder={
-                        pendingAtRoot.kind === "dir" ? "New folder" : "New file"
-                      }
+                      placeholder={pendingAtRoot.kind === "dir" ? "New folder" : "New file"}
                       onCommit={tree.commitCreate}
                       onCancel={tree.cancelCreate}
                     />
                   </div>
                 )}
                 {root?.status === "loading" && (
-                  <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                    Loading…
-                  </div>
+                  <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
                 )}
                 {root?.status === "error" && (
-                  <div className="px-3 py-2 text-[11px] text-destructive">
-                    {root.message}
-                  </div>
+                  <div className="text-destructive px-3 py-2 text-[11px]">{root.message}</div>
                 )}
                 {root?.status === "loaded" &&
                   root.entries.map((entry) => (
@@ -385,7 +361,7 @@ export function FileExplorer({
               </div>
             </ScrollArea>
           </ContextMenuTrigger>
-          <ContextMenuContent 
+          <ContextMenuContent
             className={COMPACT_CONTENT}
             onCloseAutoFocus={(e) => {
               if (tree.renaming || tree.pendingCreate) e.preventDefault();
@@ -425,10 +401,7 @@ export function FileExplorer({
             >
               Copy Path
             </ContextMenuItem>
-            <ContextMenuItem
-              className={COMPACT_ITEM}
-              onSelect={() => tree.refresh(rootPath)}
-            >
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refresh(rootPath)}>
               Refresh
             </ContextMenuItem>
           </ContextMenuContent>

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,17 +17,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  ArrowDown01Icon,
   ArrowTurnBackwardIcon,
+  ArrowUp01Icon,
+  CloudUploadIcon,
   GitBranchIcon,
+  GitCommitIcon,
   Refresh01Icon,
+  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
-import {
-  gitDiscardAll,
-  gitDiscardFile,
-  gitStatus,
-} from "./api";
+import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
+import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import type { GitChange, GitChangeStatus, GitStatus } from "./types";
 
 type Props = {
@@ -88,22 +89,82 @@ function dirname(p: string): string {
   return i <= 0 ? "" : p.slice(0, i);
 }
 
-export function SourceControlPanel({
-  rootPath,
-  onPathDeleted,
-  onOpenDiff,
-}: Props) {
+/** Translate the raw stderr from `git.exe` into something a user can act on.
+ *  We keep the original text as a fallback so we never swallow an unfamiliar
+ *  error — but the common cases get plain-language hints. */
+function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("nothing to commit")) {
+    return "Nothing to commit — staged tree matches HEAD.";
+  }
+  if (lower.includes("author identity unknown") || lower.includes("please tell me who you are")) {
+    return "Set your git identity first:\n  git config --global user.email \"you@example.com\"\n  git config --global user.name \"Your Name\"";
+  }
+  if (
+    lower.includes("rejected") &&
+    (lower.includes("non-fast-forward") || lower.includes("fetch first"))
+  ) {
+    return "Push rejected — your branch is behind the remote. Pull or rebase first.";
+  }
+  if (lower.includes("could not resolve host") || lower.includes("could not resolve hostname")) {
+    return "Network error — couldn't reach the remote. Check your connection.";
+  }
+  if (
+    lower.includes("permission denied") ||
+    lower.includes("authentication failed") ||
+    lower.includes("could not read username")
+  ) {
+    return "Authentication failed — check your remote credentials / SSH key.";
+  }
+  if (lower.includes("no upstream branch")) {
+    // Shouldn't surface — backend already retries with `-u origin <branch>` —
+    // but if it does, give the user a clear next step.
+    return "No upstream configured. Run `git push -u origin <branch>` from a terminal.";
+  }
+  if (lower.includes("not a git repository")) {
+    return "Not a git repository.";
+  }
+  if (lower.includes("index.lock") || lower.includes("unable to create")) {
+    return "Another git process is running (index.lock present). Try again in a moment.";
+  }
+  if (op === "commit" && (lower.includes("empty") || lower.includes("aborting commit"))) {
+    return "Commit aborted — message or content is empty.";
+  }
+  return raw || `Failed to ${op}.`;
+}
+
+export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [confirmOne, setConfirmOne] = useState<GitChange | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState<null | "commit" | "push" | "ai">(null);
 
   const inFlightRef = useRef(false);
   const rootRef = useRef(rootPath);
+  // Tracks the last branch we saw for the current repo so we can fire a toast
+  // when an external action (terminal, another tool) switches HEAD. Reset on
+  // rootPath change so we don't false-fire across folders.
+  const prevBranchRef = useRef<string | null>(null);
   useEffect(() => {
     rootRef.current = rootPath;
+    prevBranchRef.current = null;
   }, [rootPath]);
+
+  useEffect(() => {
+    const cur = status?.branch ?? null;
+    const prev = prevBranchRef.current;
+    if (cur && prev && cur !== prev) {
+      // Preserve the in-progress commit message on purpose — switching
+      // branches shouldn't drop the user's draft.
+      toast(`Switched to branch ${cur}`);
+    }
+    prevBranchRef.current = cur;
+  }, [status?.branch]);
 
   const openDiff = useCallback(
     (c: GitChange) => {
@@ -230,9 +291,134 @@ export function SourceControlPanel({
     }
   }, [status, refresh, onPathDeleted]);
 
+  const doCommit = useCallback(async () => {
+    if (busy !== null) return;
+    if (!status?.isRepo || !status.root) {
+      toast("Not a git repository.", { variant: "error" });
+      return;
+    }
+    if (sorted.length === 0) {
+      toast("Nothing to commit — make changes first.", { variant: "warning" });
+      return;
+    }
+    const msg = message.trim();
+    if (!msg) {
+      toast("Enter a commit message first.", { variant: "warning" });
+      return;
+    }
+    // Capture identity at start of the async op — if the user opens a
+    // different folder mid-flight, we skip the state mutations that would
+    // otherwise leak into the new repo's UI (clearing draft, refresh, etc.).
+    const startRoot = status.root;
+    const startBranch = status.branch;
+    setBusy("commit");
+    try {
+      await gitCommit(startRoot, msg);
+      if (rootRef.current === startRoot) {
+        setMessage("");
+        toast(`Committed to ${startBranch ?? "HEAD"}`);
+        await refresh();
+      }
+    } catch (e) {
+      toast(friendlyGitError(e, "commit"), { variant: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, status, sorted.length, message, refresh]);
+
+  const doPush = useCallback(async () => {
+    if (busy !== null) return;
+    if (!status?.isRepo || !status.root) {
+      toast("Not a git repository.", { variant: "error" });
+      return;
+    }
+    if (status.ahead === 0 && status.upstream) {
+      toast("Nothing to push — branch is up to date.", { variant: "warning" });
+      return;
+    }
+    const startRoot = status.root;
+    const startBranch = status.branch;
+    const startUpstream = status.upstream;
+    setBusy("push");
+    try {
+      await gitPush(startRoot);
+      if (rootRef.current === startRoot) {
+        toast(
+          startUpstream
+            ? `Pushed ${startBranch ?? "HEAD"} → ${startUpstream}`
+            : `Pushed ${startBranch ?? "HEAD"}`,
+        );
+        await refresh();
+      }
+    } catch (e) {
+      toast(friendlyGitError(e, "push"), { variant: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, status, refresh]);
+
+  const doGenerate = useCallback(async () => {
+    if (busy !== null) return;
+    if (!status?.isRepo || !status.root) {
+      toast("Not a git repository.", { variant: "error" });
+      return;
+    }
+    if (sorted.length === 0) {
+      toast("No changes to summarize.", { variant: "warning" });
+      return;
+    }
+    const startRoot = status.root;
+    setBusy("ai");
+    try {
+      let diff = "";
+      try {
+        diff = await gitDiffFull(startRoot, DIFF_BYTE_CAP);
+      } catch (e) {
+        // Diff read itself failed — fall back to a deterministic message so
+        // the user can still commit instead of being stuck.
+        if (rootRef.current === startRoot) {
+          setMessage(fallbackCommitMessage(sorted));
+          toast(`Couldn't read diff: ${String(e)} — used a default message`, {
+            variant: "warning",
+          });
+        }
+        return;
+      }
+      const res = await generateCommitMessage({
+        repoPath: startRoot,
+        diff,
+        changes: sorted,
+      });
+      if (rootRef.current !== startRoot) return;
+      setMessage(res.message);
+      if (res.fallback) {
+        toast(
+          `Used a default message (${res.reason ?? "AI unavailable"})${
+            res.modelLabel ? ` — tried ${res.modelLabel}` : ""
+          }`,
+          { variant: "warning" },
+        );
+      } else if (res.modelLabel) {
+        toast(`Generated with ${res.modelLabel}`);
+      }
+    } catch (e) {
+      // Belt-and-braces: generateCommitMessage is meant to never throw, but
+      // if a bug or future refactor lets one escape, surface it cleanly
+      // instead of crashing the panel.
+      if (rootRef.current === startRoot) {
+        setMessage(fallbackCommitMessage(sorted));
+        toast(`AI generation failed: ${String(e)} — used a default message`, {
+          variant: "warning",
+        });
+      }
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, status, sorted]);
+
   if (!rootPath) {
     return (
-      <div className="flex h-full items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+      <div className="text-muted-foreground flex h-full items-center justify-center px-3 text-center text-[11px]">
         Open a folder to use source control.
       </div>
     );
@@ -240,20 +426,20 @@ export function SourceControlPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col outline-none">
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
+      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
         <HugeiconsIcon
           icon={GitBranchIcon}
           size={13}
           strokeWidth={2}
-          className="shrink-0 text-muted-foreground"
+          className="text-muted-foreground shrink-0"
         />
         {status?.branch ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="flex-1 truncate text-xs font-medium text-foreground/80">
+              <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
                 {status.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
                 {status.isRepo && sorted.length > 0 ? (
-                  <span className="ml-1.5 text-[10.5px] tabular-nums text-muted-foreground">
+                  <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
                     ({sorted.length})
                   </span>
                 ) : null}
@@ -262,31 +448,38 @@ export function SourceControlPanel({
             <TooltipContent side="bottom">{status.branch}</TooltipContent>
           </Tooltip>
         ) : (
-          <span className="flex-1 truncate text-xs font-medium text-foreground/80">
-            {status?.isRepo
-              ? (status.branch ?? "HEAD")
-              : "Source Control"}
+          <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
+            {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
             {status?.isRepo && sorted.length > 0 ? (
-              <span className="ml-1.5 text-[10.5px] tabular-nums text-muted-foreground">
+              <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
                 ({sorted.length})
               </span>
             ) : null}
           </span>
         )}
+        {status?.isRepo && status.ahead > 0 ? (
+          <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+            <HugeiconsIcon icon={ArrowUp01Icon} size={10} strokeWidth={2.25} />
+            {status.ahead}
+          </span>
+        ) : null}
+        {status?.isRepo && status.behind > 0 ? (
+          <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+            <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2.25} />
+            {status.behind}
+          </span>
+        ) : null}
+        <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
         {status?.isRepo && sorted.length > 0 ? (
           <IconTooltip label="Discard all changes" side="bottom">
             <Button
               variant="ghost"
               size="icon"
-              className="size-6 text-muted-foreground hover:text-destructive"
+              className="text-muted-foreground hover:text-destructive size-6"
               onClick={() => setConfirmAll(true)}
               aria-label="Discard all changes"
             >
-              <HugeiconsIcon
-                icon={ArrowTurnBackwardIcon}
-                size={13}
-                strokeWidth={2}
-              />
+              <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}
@@ -294,7 +487,7 @@ export function SourceControlPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => void refresh()}
             aria-label="Refresh"
             disabled={loading}
@@ -304,16 +497,106 @@ export function SourceControlPanel({
         </IconTooltip>
       </div>
 
-      {error ? (
-        <div className="px-3 py-2 text-[11px] text-destructive">{error}</div>
+      {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
+
+      {status?.isRepo ? <Separator className="bg-border" /> : null}
+
+      {status?.isRepo ? (
+        <div
+          className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-2.5"
+          aria-busy={busy !== null}
+        >
+          <div className="relative flex-1">
+            <Input
+              placeholder="Commit message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (message.trim() && sorted.length > 0 && busy === null) {
+                    void doCommit();
+                  }
+                }
+              }}
+              className="h-7 w-full rounded-md pr-7 pl-2 text-[11.5px]"
+              disabled={busy !== null}
+            />
+            <IconTooltip
+              label={
+                busy === "ai"
+                  ? "Generating…"
+                  : sorted.length === 0
+                    ? "No changes to summarize"
+                    : "Generate commit message with AI"
+              }
+              side="bottom"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md"
+                onClick={() => void doGenerate()}
+                disabled={sorted.length === 0 || busy !== null}
+                aria-label="Generate commit message"
+              >
+                <HugeiconsIcon
+                  icon={SparklesIcon}
+                  size={12}
+                  strokeWidth={2}
+                  className={busy === "ai" ? "animate-pulse" : undefined}
+                />
+              </Button>
+            </IconTooltip>
+          </div>
+          <IconTooltip label={busy === "commit" ? "Committing…" : "Commit (Enter)"} side="bottom">
+            <Button
+              size="icon"
+              className="size-7 rounded-md"
+              onClick={() => void doCommit()}
+              disabled={!message.trim() || sorted.length === 0 || busy !== null}
+              aria-label="Commit"
+            >
+              <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+          <IconTooltip
+            label={
+              busy === "push"
+                ? "Pushing…"
+                : status.upstream
+                  ? `Push to ${status.upstream}` +
+                    (status.behind > 0 ? ` (${status.behind} behind)` : "")
+                  : `Publish ${status.branch ?? "HEAD"} to origin`
+            }
+            side="bottom"
+          >
+            <Button
+              variant="outline"
+              size="icon"
+              className={cn(
+                "h-7 rounded-md",
+                status.ahead > 0 ? "w-auto gap-0.5 px-1.5" : "size-7",
+              )}
+              onClick={() => void doPush()}
+              disabled={busy !== null}
+              aria-label="Push"
+            >
+              <HugeiconsIcon icon={CloudUploadIcon} size={12} strokeWidth={2} />
+              {status.ahead > 0 ? (
+                <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
+              ) : null}
+            </Button>
+          </IconTooltip>
+        </div>
       ) : null}
 
       {!status?.isRepo ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+        <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
           Not a git repository.
         </div>
       ) : sorted.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+        <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
           No changes.
         </div>
       ) : (
@@ -336,17 +619,13 @@ export function SourceControlPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Discard all changes?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently revert every modified file to its last
-              committed state and delete every untracked file. This cannot be
-              undone.
+              This will permanently revert every modified file to its last committed state and
+              delete every untracked file. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void doDiscardAll()}
-            >
+            <AlertDialogAction variant="destructive" onClick={() => void doDiscardAll()}>
               Discard all
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -365,8 +644,7 @@ export function SourceControlPanel({
               Discard changes to {confirmOne ? basename(confirmOne.relative) : ""}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmOne?.status === "untracked" ||
-              confirmOne?.status === "added"
+              {confirmOne?.status === "untracked" || confirmOne?.status === "added"
                 ? "This will delete the untracked file from disk. This cannot be undone."
                 : "This will revert the file to its last committed state. This cannot be undone."}
             </AlertDialogDescription>
@@ -398,59 +676,71 @@ type RowProps = {
 function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   const name = basename(change.relative);
   const dir = dirname(change.relative);
+  // pr-3 keeps content clear of the Radix ScrollArea's 10px scrollbar overlay.
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <li
-          className="group flex cursor-pointer items-center gap-1.5 px-2 py-1 hover:bg-accent/40"
-          onClick={onClickDiff}
+    <li
+      className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pl-2 pr-3"
+      onClick={onClickDiff}
+    >
+      <span
+        className={cn(
+          "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
+          STATUS_TONE[change.status],
+        )}
+      >
+        {STATUS_LETTER[change.status]}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span
+          className={cn(
+            "truncate text-[11.5px]",
+            change.status === "deleted" && "line-through opacity-70",
+          )}
         >
-          <span
-            className={cn(
-              "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
-              STATUS_TONE[change.status],
-            )}
-          >
-            {STATUS_LETTER[change.status]}
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            <span
-              className={cn(
-                "truncate text-[11.5px]",
-                change.status === "deleted" && "line-through opacity-70",
-              )}
-            >
-              {name}
-            </span>
-            {dir ? (
-              <span className="truncate text-[10px] text-muted-foreground">
-                {dir}
-              </span>
-            ) : null}
-          </span>
-          <span className="ml-1 flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-            <IconTooltip label="Discard" side="left">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-5 text-muted-foreground hover:text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDiscard();
-                }}
-                aria-label="Discard file"
-              >
-                <HugeiconsIcon
-                  icon={ArrowTurnBackwardIcon}
-                  size={11}
-                  strokeWidth={2}
-                />
-              </Button>
-            </IconTooltip>
-          </span>
-        </li>
-      </TooltipTrigger>
-      <TooltipContent side="right">{`${change.relative} (${change.status})`}</TooltipContent>
-    </Tooltip>
+          {name}
+        </span>
+        {dir ? <span className="text-muted-foreground truncate text-[10px]">{dir}</span> : null}
+      </span>
+      <DiffStats change={change} />
+      <span className="ml-1 hidden shrink-0 items-center group-hover:flex">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-destructive size-5"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDiscard();
+          }}
+          aria-label="Discard file"
+        >
+          <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={11} strokeWidth={2} />
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+// Compact `+N −M` chip rendered to the right of the file name. Yields its
+// slot to the discard button on row hover (`group-hover:hidden`) so the row
+// never gets visually crowded. Binary entries show a muted "bin" tag instead
+// of misleading line counts; rows with no meaningful stats render nothing.
+function DiffStats({ change }: { change: GitChange }) {
+  if (change.binary) {
+    return (
+      <span className="text-muted-foreground ml-1 shrink-0 text-[10px] group-hover:hidden">
+        bin
+      </span>
+    );
+  }
+  if (change.added === 0 && change.removed === 0) return null;
+  return (
+    <span className="ml-1 flex shrink-0 items-center gap-1 text-[10px] tabular-nums group-hover:hidden">
+      {change.added > 0 ? (
+        <span className="text-emerald-500 dark:text-emerald-400">+{change.added}</span>
+      ) : null}
+      {change.removed > 0 ? (
+        <span className="text-rose-500 dark:text-rose-400">−{change.removed}</span>
+      ) : null}
+    </span>
   );
 }

@@ -29,9 +29,7 @@ type PlanState = {
   /** Apply queued edits in order. Pass the active sessionId so applied
    *  mutations get recorded into its restore checkpoint — without this,
    *  plan-applied files would be invisible to the restore action. */
-  applyAll: (
-    sessionId: string | null,
-  ) => Promise<{ id: string; ok: boolean; error?: string }[]>;
+  applyAll: (sessionId: string | null) => Promise<{ id: string; ok: boolean; error?: string }[]>;
 };
 
 let nextId = 1;
@@ -42,13 +40,11 @@ export function newQueuedEditId(): string {
 export const usePlanStore = create<PlanState>((set, get) => ({
   active: false,
   queue: [],
-  toggle: () =>
-    set((s) => ({ active: !s.active, queue: s.active ? [] : s.queue })),
+  toggle: () => set((s) => ({ active: !s.active, queue: s.active ? [] : s.queue })),
   enable: () => set({ active: true }),
   disable: () => set({ active: false, queue: [] }),
   enqueue: (q) => set((s) => ({ queue: [...s.queue, q] })),
-  removeOne: (id) =>
-    set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
+  removeOne: (id) => set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
   clear: () => set({ queue: [] }),
   async applyAll(sessionId) {
     const items = get().queue;

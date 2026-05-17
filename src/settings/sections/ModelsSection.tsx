@@ -7,11 +7,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   AUTOCOMPLETE_PROVIDERS,
@@ -55,10 +51,7 @@ import { SectionHeader } from "../components/SectionHeader";
 
 type KeysMap = Record<ProviderId, string | null>;
 
-function matchesQuery(
-  m: { id: string; label: string; hint: string },
-  q: string,
-): boolean {
+function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
   if (!q) return true;
   const t = q.toLowerCase();
   return (
@@ -71,9 +64,7 @@ function matchesQuery(
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
-  const openaiCompatibleBaseURL = usePreferencesStore(
-    (s) => s.openaiCompatibleBaseURL,
-  );
+  const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   const sumopodModels = useSumopodModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
@@ -83,10 +74,7 @@ export function ModelsSection() {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
       if (k["openai-compatible"] && openaiCompatibleBaseURL) {
-        void refreshOpenAICompatibleModels(
-          k["openai-compatible"],
-          openaiCompatibleBaseURL,
-        );
+        void refreshOpenAICompatibleModels(k["openai-compatible"], openaiCompatibleBaseURL);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,7 +99,7 @@ export function ModelsSection() {
   };
 
   if (!keys) {
-    return <div className="text-[12px] text-muted-foreground">Loading…</div>;
+    return <div className="text-muted-foreground text-[12px]">Loading…</div>;
   }
 
   const defaultModelInfo = tryGetModel(defaultModel) ?? {
@@ -140,16 +128,11 @@ export function ModelsSection() {
           }}
         >
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-9 justify-between gap-2 px-2.5 text-[12px]"
-            >
+            <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
               <span className="flex items-center gap-2">
                 <ProviderIcon provider={defaultModelInfo.provider} size={14} />
                 <span>{defaultModelInfo.label}</span>
-                <span className="text-muted-foreground">
-                  · {defaultModelInfo.hint}
-                </span>
+                <span className="text-muted-foreground">· {defaultModelInfo.hint}</span>
               </span>
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -163,7 +146,7 @@ export function ModelsSection() {
             align="start"
             className="max-h-105 w-(--radix-dropdown-menu-trigger-width) min-w-72 overflow-hidden p-0"
           >
-            <div className="sticky top-0 z-10 border-b border-border/60 bg-popover px-1.5 py-1.5">
+            <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
               <Input
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
@@ -186,18 +169,14 @@ export function ModelsSection() {
             <div className="max-h-92 overflow-y-auto">
               {(() => {
                 let totalMatches = 0;
-                const blocks = PROVIDERS.filter((p) =>
-                  providerNeedsKey(p.id),
-                ).map((p) => {
+                const blocks = PROVIDERS.filter((p) => providerNeedsKey(p.id)).map((p) => {
                   const all =
                     p.id === "sumopod"
                       ? sumopodModels.models
                       : p.id === "openai-compatible"
                         ? oaiCompatModels.models
                         : MODELS.filter((m) => m.provider === p.id);
-                  const filtered = all.filter((m) =>
-                    matchesQuery(m, modelQuery),
-                  );
+                  const filtered = all.filter((m) => matchesQuery(m, modelQuery));
                   totalMatches += filtered.length;
                   if (filtered.length === 0 && modelQuery) return null;
                   const hasKey = !!keys[p.id];
@@ -207,8 +186,7 @@ export function ModelsSection() {
                       : p.id === "openai-compatible"
                         ? oaiCompatModels
                         : null;
-                  const isDynamicEmpty =
-                    !!dynamicState && hasKey && filtered.length === 0;
+                  const isDynamicEmpty = !!dynamicState && hasKey && filtered.length === 0;
                   const dynamicNote =
                     dynamicState && hasKey
                       ? dynamicState.status === "loading"
@@ -219,22 +197,22 @@ export function ModelsSection() {
                       : null;
                   return (
                     <div key={p.id} className="px-1 pt-1.5">
-                      <div className="mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                      <div className="text-muted-foreground mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide uppercase">
                         <ProviderIcon provider={p.id} size={11} />
                         <span>{p.label}</span>
                         {!hasKey && (
-                          <span className="ml-auto text-[9.5px] normal-case tracking-normal text-muted-foreground/70">
+                          <span className="text-muted-foreground/70 ml-auto text-[9.5px] tracking-normal normal-case">
                             no key
                           </span>
                         )}
                       </div>
                       {dynamicNote ? (
-                        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+                        <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
                           {dynamicNote}
                         </div>
                       ) : null}
                       {isDynamicEmpty && !dynamicNote ? (
-                        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
+                        <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
                           No models detected.
                         </div>
                       ) : null}
@@ -242,9 +220,7 @@ export function ModelsSection() {
                         <DropdownMenuItem
                           key={m.id}
                           disabled={!hasKey}
-                          onSelect={() =>
-                            hasKey && void setDefaultModel(m.id)
-                          }
+                          onSelect={() => hasKey && void setDefaultModel(m.id)}
                           className={cn(
                             "flex items-center justify-between gap-2 text-[12px]",
                             m.id === defaultModel && "bg-accent/50",
@@ -252,9 +228,7 @@ export function ModelsSection() {
                         >
                           <span className="flex flex-col">
                             <span>{m.label}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {m.hint}
-                            </span>
+                            <span className="text-muted-foreground text-[10px]">{m.hint}</span>
                           </span>
                         </DropdownMenuItem>
                       ))}
@@ -265,7 +239,7 @@ export function ModelsSection() {
                   <>
                     {blocks}
                     {modelQuery && totalMatches === 0 ? (
-                      <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+                      <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
                         No models match “{modelQuery}”.
                       </div>
                     ) : null}
@@ -280,7 +254,7 @@ export function ModelsSection() {
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
           <Label>API keys</Label>
-          <span className="text-[10.5px] text-muted-foreground">
+          <span className="text-muted-foreground text-[10.5px]">
             {configuredCount} of {gridProviders.length} configured
           </span>
         </div>
@@ -320,9 +294,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
 
   const [modelDraft, setModelDraft] = useState(modelId);
   const [urlDraft, setUrlDraft] = useState(lmstudioBaseURL);
-  const [testStatus, setTestStatus] = useState<
-    "idle" | "testing" | "ok" | "fail"
-  >("idle");
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   useEffect(() => setModelDraft(modelId), [modelId]);
   useEffect(() => setUrlDraft(lmstudioBaseURL), [lmstudioBaseURL]);
@@ -355,18 +327,15 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-0.5">
           <Label>Editor autocomplete</Label>
-          <span className="text-[10.5px] leading-relaxed text-muted-foreground">
-            Inline ghost-text suggestions in the code editor. Powered by
-            ultra-fast inference (Cerebras / Groq) or a local LM Studio server.
+          <span className="text-muted-foreground text-[10.5px] leading-relaxed">
+            Inline ghost-text suggestions in the code editor. Powered by ultra-fast inference
+            (Cerebras / Groq) or a local LM Studio server.
           </span>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(v) => void setAutocompleteEnabled(v)}
-        />
+        <Switch checked={enabled} onCheckedChange={(v) => void setAutocompleteEnabled(v)} />
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
+      <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
         <div className="flex flex-col gap-1.5">
           <Label>Provider</Label>
           <div className="flex gap-1">
@@ -382,7 +351,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
                     "flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors",
                     active
                       ? "border-foreground/40 bg-accent/60"
-                      : "border-border/60 bg-transparent hover:bg-accent/30",
+                      : "border-border/60 hover:bg-accent/30 bg-transparent",
                   )}
                 >
                   <ProviderIcon provider={id} size={12} />
@@ -438,17 +407,13 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
               </Button>
             </div>
             {testStatus === "ok" ? (
-              <span className="text-[10.5px] text-emerald-500">
-                Connected - server responded.
-              </span>
+              <span className="text-[10.5px] text-emerald-500">Connected - server responded.</span>
             ) : testStatus === "fail" ? (
-              <span className="text-[10.5px] text-destructive">
+              <span className="text-destructive text-[10.5px]">
                 Could not reach the server. Is LM Studio running?
               </span>
             ) : testStatus === "testing" ? (
-              <span className="text-[10.5px] text-muted-foreground">
-                Testing…
-              </span>
+              <span className="text-muted-foreground text-[10.5px]">Testing…</span>
             ) : null}
           </div>
         ) : null}
@@ -479,9 +444,7 @@ function OpenAICompatibleBlock({
   const [revealKey, setRevealKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
-  const [testStatus, setTestStatus] = useState<
-    "idle" | "testing" | "ok" | "fail"
-  >("idle");
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => setUrlDraft(baseURL), [baseURL]);
@@ -546,7 +509,7 @@ function OpenAICompatibleBlock({
   return (
     <div className="flex flex-col gap-2">
       <Label>OpenAI Compatible endpoint</Label>
-      <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
+      <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
         <div className="flex items-center gap-2">
           <ProviderIcon provider="openai-compatible" size={14} />
           <span className="text-[12px] font-medium">OpenAI Compatible</span>
@@ -555,7 +518,7 @@ function OpenAICompatibleBlock({
               Configured
             </span>
           ) : (
-            <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[9.5px] tracking-wide text-muted-foreground uppercase">
+            <span className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px] tracking-wide uppercase">
               Not set
             </span>
           )}
@@ -563,7 +526,7 @@ function OpenAICompatibleBlock({
 
         <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground">Base URL</span>
+            <span className="text-muted-foreground text-[10px]">Base URL</span>
             <Input
               value={urlDraft}
               onChange={(e) => setUrlDraft(e.target.value)}
@@ -580,10 +543,10 @@ function OpenAICompatibleBlock({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground">API key</span>
+            <span className="text-muted-foreground text-[10px]">API key</span>
             {apiKey ? (
               <div className="flex items-center gap-1">
-                <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[10.5px] text-muted-foreground">
+                <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[10.5px]">
                   {maskedKey}
                 </code>
                 <Tooltip>
@@ -591,7 +554,7 @@ function OpenAICompatibleBlock({
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
                       onClick={() => void onClearKey()}
                       aria-label="Remove key"
                     >
@@ -627,7 +590,7 @@ function OpenAICompatibleBlock({
                     type="button"
                     onClick={() => setRevealKey((v) => !v)}
                     tabIndex={-1}
-                    className="absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px] text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px]"
                     aria-label={revealKey ? "Hide key" : "Show key"}
                   >
                     {revealKey ? "Hide" : "Show"}
@@ -647,12 +610,10 @@ function OpenAICompatibleBlock({
           </div>
         </div>
 
-        {keyError ? (
-          <span className="text-[10px] text-destructive">{keyError}</span>
-        ) : null}
+        {keyError ? <span className="text-destructive text-[10px]">{keyError}</span> : null}
 
         <div className="flex items-center gap-1.5">
-          <span className="flex-1 truncate text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground flex-1 truncate text-[10px]">
             {testStatus === "ok" ? (
               <span className="text-emerald-500">Endpoint reachable.</span>
             ) : testStatus === "fail" ? (
@@ -700,8 +661,6 @@ function OpenAICompatibleBlock({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[11px] font-medium tracking-tight text-muted-foreground">
-      {children}
-    </span>
+    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

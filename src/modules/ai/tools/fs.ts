@@ -15,17 +15,13 @@ export function buildFsTools(ctx: ToolContext) {
       description:
         "Read a UTF-8 text file. Returns content for text files; refuses binary, oversized, or sensitive files (.env, keys, credentials). Defaults to the first 2000 lines (capped at 200KB). Pass `offset`/`limit` to read a specific window of a large file.",
       inputSchema: z.object({
-        path: z
-          .string()
-          .describe("Absolute path, or relative to the active terminal cwd."),
+        path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
         offset: z
           .number()
           .int()
           .min(0)
           .optional()
-          .describe(
-            "0-based line offset to start reading from. Default 0.",
-          ),
+          .describe("0-based line offset to start reading from. Default 0."),
         limit: z
           .number()
           .int()
@@ -42,8 +38,7 @@ export function buildFsTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {
           const r = await native.readFile(abs);
-          if (r.kind === "binary")
-            return { error: "binary file refused", path: abs, size: r.size };
+          if (r.kind === "binary") return { error: "binary file refused", path: abs, size: r.size };
           if (r.kind === "toolarge") {
             return {
               error: `file too large (${r.size} bytes, limit ${r.limit})`,
@@ -70,9 +65,7 @@ export function buildFsTools(ctx: ToolContext) {
             const lastNL = sliced.lastIndexOf("\n");
             if (lastNL > 0) {
               sliced = sliced.slice(0, lastNL);
-              const includedLines = sliced.length > 0
-                ? sliced.split("\n").length
-                : 0;
+              const includedLines = sliced.length > 0 ? sliced.split("\n").length : 0;
               actualEnd = startLine + includedLines;
             }
             // If lastNL <= 0, the single line itself exceeds the byte cap.
@@ -106,9 +99,7 @@ export function buildFsTools(ctx: ToolContext) {
       description:
         "List immediate entries (files + directories) in a directory. Hidden entries are omitted.",
       inputSchema: z.object({
-        path: z
-          .string()
-          .describe("Absolute path, or relative to the active terminal cwd."),
+        path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
       }),
       execute: async ({ path }) => {
         const abs = resolvePath(path, ctx.getCwd());

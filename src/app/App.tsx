@@ -1,8 +1,4 @@
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster, toast } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -32,40 +28,31 @@ import {
   clearOpenAICompatibleModels,
   refreshOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
-import {
-  clearSumopodModels,
-  refreshSumopodModels,
-} from "@/modules/ai/lib/sumopod";
+import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
-import {
-  AiDiffStack,
-  NewEditorDialog,
-  type EditorPaneHandle,
-} from "@/modules/editor";
+import { AiDiffStack, NewEditorDialog, type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { SourceControlPanel } from "@/modules/scm/SourceControlPanel";
 import { GitDiffStack } from "@/modules/scm/GitDiffStack";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import {
-  Header,
-  type SearchInlineHandle,
-  type SearchTarget,
-} from "@/modules/header";
+import { Header, type SearchInlineHandle, type SearchTarget } from "@/modules/header";
 import { PaneStack } from "@/modules/panes";
 import { PreviewStack, type PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   onKeysChanged,
+  setContentZoom,
   setLastModelId,
   setLastProviderId,
   setLineWrap,
+  CONTENT_ZOOM_DEFAULT,
+  CONTENT_ZOOM_MAX,
+  CONTENT_ZOOM_MIN,
+  CONTENT_ZOOM_STEP,
 } from "@/modules/settings/store";
-import {
-  useGlobalShortcuts,
-  type ShortcutHandlers,
-} from "@/modules/shortcuts";
+import { useGlobalShortcuts, type ShortcutHandlers } from "@/modules/shortcuts";
 import { StatusBar } from "@/modules/statusbar";
 import {
   activeLeaf,
@@ -100,6 +87,8 @@ import {
   WorkspacesPanel,
 } from "@/modules/workspaces";
 import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { SearchAddon } from "@xterm/addon-search";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -156,10 +145,7 @@ export default function App() {
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
-  const activeTab = useMemo(
-    () => tabs.find((t) => t.id === activeId),
-    [tabs, activeId],
-  );
+  const activeTab = useMemo(() => tabs.find((t) => t.id === activeId), [tabs, activeId]);
   const activePaneTab = activeTab?.kind === "pane" ? activeTab : null;
   const isTerminalLike = activeTab ? isTerminalLikeTab(activeTab) : false;
   const isEditorLike = activeTab ? isEditorLikeTab(activeTab) : false;
@@ -174,34 +160,24 @@ export default function App() {
   // Per-leaf SSH status. Lives in React state so TabBar's dot + StatusBar's
   // pill rerender on transitions. Keyed by leafId; entries are cleared by
   // the same prune-effect that drops dead terminal handles below.
-  const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(
-    () => new Map(),
-  );
-  const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(
-    null,
-  );
+  const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
+  const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
-  const [activeSearchAddon, setActiveSearchAddon] =
-    useState<SearchAddon | null>(null);
+  const [activeSearchAddon, setActiveSearchAddon] = useState<SearchAddon | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
   const previewRefs = useRef<Map<number, PreviewPaneHandle>>(new Map());
   const detectedUrls = useRef<Map<number, string>>(new Map());
-  const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(
-    null,
-  );
-  const [activeEditorHandle, setActiveEditorHandle] =
-    useState<EditorPaneHandle | null>(null);
+  const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
+  const [activeEditorHandle, setActiveEditorHandle] = useState<EditorPaneHandle | null>(null);
   /**
    * Editor leaf ids currently rendered as a markdown-preview view instead of
    * the source editor. Keyed by leaf id so split panes can be toggled
    * independently. Cleaned up by `PaneStack`'s leaf-pruning effect - the IDs
    * here for closed leaves are harmless (just a stale `Set` entry).
    */
-  const [mdPreviewLeafIds, setMdPreviewLeafIds] = useState<ReadonlySet<number>>(
-    () => new Set(),
-  );
+  const [mdPreviewLeafIds, setMdPreviewLeafIds] = useState<ReadonlySet<number>>(() => new Set());
   const toggleMdPreviewForLeaf = useCallback((leafId: number) => {
     setMdPreviewLeafIds((curr) => {
       const next = new Set(curr);
@@ -243,8 +219,7 @@ export default function App() {
       const leaf = activeLeaf(activePaneTab);
       return leaf?.leafKind === "terminal" ? leaf.cwd : undefined;
     })();
-    const defaultPath =
-      pickedRoot ?? activeTermCwd ?? fallbackTerminalCwd ?? home ?? undefined;
+    const defaultPath = pickedRoot ?? activeTermCwd ?? fallbackTerminalCwd ?? home ?? undefined;
     const selected = await openDialog({
       directory: true,
       multiple: false,
@@ -271,6 +246,64 @@ export default function App() {
       .then((p) => setHome(p.replace(/\\/g, "/")))
       .catch(() => setHome(null));
   }, []);
+
+  // `tedi .` / `tedi <path>` handler. Drained from the Rust side on boot,
+  // and pushed live by the single-instance plugin when a second `tedi`
+  // invocation forwards its argv into this window. Folder → adopt as
+  // workspace root + open a fresh terminal there. File → adopt parent as
+  // root + open the file in an editor tab.
+  const openCliTarget = useCallback(
+    (
+      target:
+        | { kind: "folder"; path: string }
+        | {
+            kind: "file";
+            path: string;
+            parent: string;
+          },
+    ) => {
+      const root = target.kind === "folder" ? target.path : target.parent;
+      setPickedRoot(root);
+      try {
+        localStorage.setItem("tedi.workspaceRoot", root);
+      } catch {
+        // Storage may be unavailable - skip persistence.
+      }
+      if (target.kind === "folder") {
+        newTab(target.path);
+      } else {
+        newTab(target.parent);
+        openFileTab(target.path);
+      }
+    },
+    [newTab, openFileTab],
+  );
+
+  // Drain the captured startup target exactly once. The Rust side clears
+  // its slot on read, so a webview reload won't replay this.
+  const cliStartupRunRef = useRef(false);
+  useEffect(() => {
+    if (cliStartupRunRef.current) return;
+    cliStartupRunRef.current = true;
+    void invoke<
+      { kind: "folder"; path: string } | { kind: "file"; path: string; parent: string } | null
+    >("cli_initial_target").then((target) => {
+      if (target) openCliTarget(target);
+    });
+  }, [openCliTarget]);
+
+  // Live forwarding from `tauri-plugin-single-instance` when the user runs
+  // `tedi <path>` while this window is already up.
+  useEffect(() => {
+    const unlistenP = listen<
+      { kind: "folder"; path: string } | { kind: "file"; path: string; parent: string }
+    >("tedi:open-cli-target", (e) => {
+      if (e.payload) openCliTarget(e.payload);
+    });
+    return () => {
+      void unlistenP.then((fn) => fn());
+    };
+  }, [openCliTarget]);
 
   // -------- AI composer / chat store wiring --------
   const [newEditorOpen, setNewEditorOpen] = useState(false);
@@ -316,9 +349,17 @@ export default function App() {
   const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
-  const openaiCompatibleBaseURL = usePreferencesStore(
-    (s) => s.openaiCompatibleBaseURL,
-  );
+  const contentZoom = usePreferencesStore((s) => s.contentZoom);
+  // Expose the zoom factor as a CSS variable so the CodeMirror editor + diff
+  // surfaces can scale via `calc(... * var(--content-zoom))`. The terminal
+  // pulls the factor directly from the prefs store and multiplies it into
+  // xterm's `fontSize` option — applying CSS `zoom` to a canvas/WebGL terminal
+  // breaks cursor + glyph positioning, so we deliberately *don't* touch
+  // anything outside the content surfaces.
+  useEffect(() => {
+    document.documentElement.style.setProperty("--content-zoom", String(contentZoom));
+  }, [contentZoom]);
+  const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   useEffect(() => {
     const key = apiKeys["openai-compatible"];
     if (!key) {
@@ -345,8 +386,7 @@ export default function App() {
     // user's last pick to the workspace default.
     const savedProvider = prefLastProviderId as ProviderId | null;
     const savedHasKey =
-      savedProvider != null &&
-      (providerNeedsKey(savedProvider) ? !!apiKeys[savedProvider] : true);
+      savedProvider != null && (providerNeedsKey(savedProvider) ? !!apiKeys[savedProvider] : true);
     if (prefLastModelId && savedProvider && savedHasKey) {
       setSelectedModelId(prefLastModelId, savedProvider);
     } else if (prefLastModelId && hasKeyForModel(prefLastModelId)) {
@@ -497,29 +537,16 @@ export default function App() {
         replaceAllTabs(cached.tabs, cached.activeId);
         return;
       }
-      const next = useWorkspacesStore
-        .getState()
-        .workspaces.find((w) => w.id === workspaceId);
+      const next = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
       if (!next) return;
       const liveTabs: Tab[] =
         next.tabs.length === 0
           ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
           : next.tabs.map((s) => savedToTab(s, allocId));
-      const target =
-        liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ??
-        liveTabs[0];
+      const target = liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ?? liveTabs[0];
       replaceAllTabs(liveTabs, target?.id ?? null);
     },
-    [
-      wsActiveId,
-      tabs,
-      activeId,
-      wsSaveTabs,
-      wsSetActive,
-      allocId,
-      home,
-      replaceAllTabs,
-    ],
+    [wsActiveId, tabs, activeId, wsSaveTabs, wsSetActive, allocId, home, replaceAllTabs],
   );
 
   const createNewWorkspace = useCallback(() => {
@@ -541,14 +568,9 @@ export default function App() {
       wsRemove(workspaceId);
       if (!wasActive) return;
       const nextActiveId = useWorkspacesStore.getState().activeId;
-      const next = useWorkspacesStore
-        .getState()
-        .workspaces.find((w) => w.id === nextActiveId);
+      const next = useWorkspacesStore.getState().workspaces.find((w) => w.id === nextActiveId);
       if (!next) return;
-      const cached =
-        nextActiveId !== null
-          ? liveTabsByWorkspace.current.get(nextActiveId)
-          : null;
+      const cached = nextActiveId !== null ? liveTabsByWorkspace.current.get(nextActiveId) : null;
       if (cached && cached.tabs.length > 0) {
         replaceAllTabs(cached.tabs, cached.activeId);
         return;
@@ -557,9 +579,7 @@ export default function App() {
         next.tabs.length === 0
           ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
           : next.tabs.map((s) => savedToTab(s, allocId));
-      const target =
-        liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ??
-        liveTabs[0];
+      const target = liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ?? liveTabs[0];
       replaceAllTabs(liveTabs, target?.id ?? null);
     },
     [wsActiveId, wsRemove, allocId, home, replaceAllTabs],
@@ -635,17 +655,14 @@ export default function App() {
     [activeLeafIdInTab],
   );
 
-  const handleSshStatus = useCallback(
-    (leafId: number, status: SshStatus) => {
-      setSshStatuses((prev) => {
-        if (prev.get(leafId) === status) return prev;
-        const next = new Map(prev);
-        next.set(leafId, status);
-        return next;
-      });
-    },
-    [],
-  );
+  const handleSshStatus = useCallback((leafId: number, status: SshStatus) => {
+    setSshStatuses((prev) => {
+      if (prev.get(leafId) === status) return prev;
+      const next = new Map(prev);
+      next.set(leafId, status);
+      return next;
+    });
+  }, []);
 
   const disposeTab = useCallback(
     (id: number) => {
@@ -771,9 +788,7 @@ export default function App() {
         void openSettingsWindow("models");
         return;
       }
-      window.dispatchEvent(
-        new CustomEvent<string>("tedi:ai-attach-file", { detail: path }),
-      );
+      window.dispatchEvent(new CustomEvent<string>("tedi:ai-attach-file", { detail: path }));
       openPanel();
       focusInput(null);
     },
@@ -793,17 +808,9 @@ export default function App() {
     const source: "terminal" | "editor" =
       activeLeafKindCurrent === "editor" ? "editor" : "terminal";
     attachSelection(selection, source);
-  }, [
-    hasComposer,
-    captureActiveSelection,
-    focusInput,
-    attachSelection,
-    activeLeafKindCurrent,
-  ]);
+  }, [hasComposer, captureActiveSelection, focusInput, attachSelection, activeLeafKindCurrent]);
 
-  const [askPopup, setAskPopup] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  const [askPopup, setAskPopup] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const isInsideAi = (t: EventTarget | null) => {
@@ -939,9 +946,7 @@ export default function App() {
         if (!leaf || leaf.leafKind !== "terminal") return;
         const t = terminalRefs.current.get(leaf.id);
         if (!t) return;
-        const quoted = path.includes(" ")
-          ? `'${path.replace(/'/g, `'\\''`)}'`
-          : path;
+        const quoted = path.includes(" ") ? `'${path.replace(/'/g, `'\\''`)}'` : path;
         t.write(`cd ${quoted}\r`);
         t.focus();
       }, 80);
@@ -982,9 +987,7 @@ export default function App() {
         // the whole tab - simpler than surgically removing one leaf and
         // matches the prior single-leaf behavior.
         const affected = leaves(t.paneTree).some(
-          (l) =>
-            l.leafKind === "editor" &&
-            (l.path === path || l.path.startsWith(`${path}/`)),
+          (l) => l.leafKind === "editor" && (l.path === path || l.path.startsWith(`${path}/`)),
         );
         if (affected) disposeTab(t.id);
       }
@@ -1043,10 +1046,9 @@ export default function App() {
       const targetTitle = target.title;
       const result = moveLeafToTab(leafId, targetTabId);
       if (result === "full") {
-        toast(
-          `Group "${targetTitle}" is full (${MAX_PANES_PER_TAB} panes max).`,
-          { variant: "warning" },
-        );
+        toast(`Group "${targetTitle}" is full (${MAX_PANES_PER_TAB} panes max).`, {
+          variant: "warning",
+        });
       }
     },
     [moveLeafToTab],
@@ -1084,6 +1086,27 @@ export default function App() {
       "shortcuts.open": () => void openSettingsWindow("shortcuts"),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
+      "view.zoomIn": () => {
+        const current = usePreferencesStore.getState().contentZoom;
+        const next = Math.min(
+          CONTENT_ZOOM_MAX,
+          Math.round((current + CONTENT_ZOOM_STEP) * 100) / 100,
+        );
+        if (next !== current) void setContentZoom(next);
+      },
+      "view.zoomOut": () => {
+        const current = usePreferencesStore.getState().contentZoom;
+        const next = Math.max(
+          CONTENT_ZOOM_MIN,
+          Math.round((current - CONTENT_ZOOM_STEP) * 100) / 100,
+        );
+        if (next !== current) void setContentZoom(next);
+      },
+      "view.zoomReset": () => {
+        if (usePreferencesStore.getState().contentZoom !== CONTENT_ZOOM_DEFAULT) {
+          void setContentZoom(CONTENT_ZOOM_DEFAULT);
+        }
+      },
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
@@ -1092,11 +1115,7 @@ export default function App() {
       // useGlobalShortcuts so it never reaches xterm; `Ctrl+C` without
       // Shift falls through to xterm and sends SIGINT as expected).
       "terminal.copy": () => {
-        if (
-          activeLeafIdInTab === null ||
-          activeLeafKindCurrent !== "terminal"
-        )
-          return;
+        if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
         const sel = term?.getSelection();
         if (!sel) return;
@@ -1112,11 +1131,7 @@ export default function App() {
       // term.paste so the shell sees a bracketed paste (multi-line
       // snippets don't execute line-by-line under bash/zsh).
       "terminal.paste": () => {
-        if (
-          activeLeafIdInTab === null ||
-          activeLeafKindCurrent !== "terminal"
-        )
-          return;
+        if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
         if (!term) return;
         void navigator.clipboard
@@ -1128,11 +1143,25 @@ export default function App() {
             console.warn("terminal.paste: clipboard read failed:", e);
           });
       },
+      // Ctrl+Shift+X — close the focused terminal pane. Blocked when this
+      // is the last terminal in the workspace so the user is never left
+      // without a shell (mirrors the respawn rule in handleLeafExit).
+      "terminal.close": () => {
+        if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
+        let terminalLeafCount = 0;
+        for (const t of tabsRef.current) {
+          if (t.kind !== "pane") continue;
+          for (const l of leaves(t.paneTree)) if (l.leafKind === "terminal") terminalLeafCount++;
+        }
+        if (terminalLeafCount <= 1) return;
+        closePaneByLeaf(activeLeafIdInTab);
+      },
     }),
     [
       activeId,
       activeLeafIdInTab,
       activeLeafKindCurrent,
+      closePaneByLeaf,
       cycleTab,
       handleCloseTabOrPane,
       openNewTab,
@@ -1148,13 +1177,10 @@ export default function App() {
 
   useGlobalShortcuts(shortcutHandlers);
 
-  const registerTerminalHandle = useCallback(
-    (leafId: number, h: TerminalPaneHandle | null) => {
-      if (h) terminalRefs.current.set(leafId, h);
-      else terminalRefs.current.delete(leafId);
-    },
-    [],
-  );
+  const registerTerminalHandle = useCallback((leafId: number, h: TerminalPaneHandle | null) => {
+    if (h) terminalRefs.current.set(leafId, h);
+    else terminalRefs.current.delete(leafId);
+  }, []);
 
   const registerEditorHandle = useCallback(
     (leafId: number, h: EditorPaneHandle | null) => {
@@ -1165,13 +1191,10 @@ export default function App() {
     [activeLeafIdInTab],
   );
 
-  const registerPreviewHandle = useCallback(
-    (id: number, h: PreviewPaneHandle | null) => {
-      if (h) previewRefs.current.set(id, h);
-      else previewRefs.current.delete(id);
-    },
-    [],
-  );
+  const registerPreviewHandle = useCallback((id: number, h: PreviewPaneHandle | null) => {
+    if (h) previewRefs.current.set(id, h);
+    else previewRefs.current.delete(id);
+  }, []);
 
   const handlePreviewUrl = useCallback(
     (id: number, url: string) => updateTab(id, { url }),
@@ -1191,24 +1214,20 @@ export default function App() {
   const handleLeafExit = useCallback(
     (leafId: number, _code: number) => {
       const all = tabsRef.current;
-      const tab = all.find(
-        (t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
-      );
+      const tab = all.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
       if (!tab || tab.kind !== "pane") return;
       const terminalLeafCount = (() => {
         let n = 0;
         for (const t of all) {
           if (t.kind !== "pane") continue;
-          for (const l of leaves(t.paneTree))
-            if (l.leafKind === "terminal") n++;
+          for (const l of leaves(t.paneTree)) if (l.leafKind === "terminal") n++;
         }
         return n;
       })();
       // If this is the only terminal leaf left in the entire workspace,
       // respawn it instead of dropping the user into an empty UI.
       const targetLeaf = leaves(tab.paneTree).find((l) => l.id === leafId);
-      const cwd =
-        targetLeaf?.leafKind === "terminal" ? targetLeaf.cwd : undefined;
+      const cwd = targetLeaf?.leafKind === "terminal" ? targetLeaf.cwd : undefined;
       if (terminalLeafCount === 1 && leafIds(tab.paneTree).length === 1) {
         void respawnSession(leafId, cwd);
       } else {
@@ -1252,9 +1271,7 @@ export default function App() {
       // Split path: only valid if we have a previous spawned tab still alive.
       if (input.split) {
         const lastTabId = lastSpawnedTabIdRef.current;
-        const lastTab = lastTabId !== null
-          ? tabsRef.current.find((x) => x.id === lastTabId)
-          : null;
+        const lastTab = lastTabId !== null ? tabsRef.current.find((x) => x.id === lastTabId) : null;
         if (lastTab && lastTab.kind === "pane") {
           const newLeafId = splitActivePane(lastTabId!, input.split);
           if (newLeafId !== null) {
@@ -1291,9 +1308,7 @@ export default function App() {
   const handleEditorCloseLeaf = useCallback(
     (leafId: number) => {
       // vim :q in a split pane should drop that pane, not the whole tab.
-      const tab = tabsRef.current.find(
-        (t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
-      );
+      const tab = tabsRef.current.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
       if (!tab || tab.kind !== "pane") return;
       if (leafIds(tab.paneTree).length > 1) {
         closePaneByLeaf(leafId);
@@ -1310,8 +1325,7 @@ export default function App() {
         kind: "terminal",
         addon: activeSearchAddon,
         focus: () => {
-          if (activeLeafIdInTab !== null)
-            terminalRefs.current.get(activeLeafIdInTab)?.focus();
+          if (activeLeafIdInTab !== null) terminalRefs.current.get(activeLeafIdInTab)?.focus();
         },
       };
     if (isEditorLike && activeEditorHandle)
@@ -1321,13 +1335,7 @@ export default function App() {
         focus: () => activeEditorHandle.focus(),
       };
     return null;
-  }, [
-    isTerminalLike,
-    isEditorLike,
-    activeLeafIdInTab,
-    activeSearchAddon,
-    activeEditorHandle,
-  ]);
+  }, [isTerminalLike, isEditorLike, activeLeafIdInTab, activeSearchAddon, activeEditorHandle]);
 
   /** Markdown-preview toggle exposed to the Header. Non-null only when the
    *  active leaf is an editor pointed at a `.md`/`.markdown`/`.mdx` file. */
@@ -1343,13 +1351,7 @@ export default function App() {
       active: mdPreviewLeafIds.has(leafId),
       toggle: () => toggleMdPreviewForLeaf(leafId),
     };
-  }, [
-    isEditorLike,
-    activeLeafIdInTab,
-    activePaneTab,
-    mdPreviewLeafIds,
-    toggleMdPreviewForLeaf,
-  ]);
+  }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, toggleMdPreviewForLeaf]);
 
   /** Word-wrap toggle exposed to the Header. Non-null when the active leaf is
    *  an editor (markdown preview hides the source, so suppress it then too). */
@@ -1365,13 +1367,7 @@ export default function App() {
       active: lineWrap,
       toggle: () => void setLineWrap(!lineWrap),
     };
-  }, [
-    isEditorLike,
-    activeLeafIdInTab,
-    activePaneTab,
-    mdPreviewLeafIds,
-    lineWrap,
-  ]);
+  }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, lineWrap]);
 
   const activeCwd = useMemo(() => {
     if (!activePaneTab) return null;
@@ -1453,7 +1449,7 @@ export default function App() {
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
-        <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <div className="bg-background text-foreground relative flex h-screen flex-col overflow-hidden">
           <Header
             tabs={tabs}
             activeId={activeId}
@@ -1480,8 +1476,7 @@ export default function App() {
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
             canSplit={
-              activePaneTab !== null &&
-              leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB
+              activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB
             }
             onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenSettings={() => void openSettingsWindow()}
@@ -1496,10 +1491,7 @@ export default function App() {
           />
 
           <main className="flex min-h-0 flex-1 flex-col">
-            <ResizablePanelGroup
-              orientation="horizontal"
-              className="min-h-0 flex-1"
-            >
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <ResizablePanel
                 id="sidebar"
                 panelRef={sidebarRef}
@@ -1509,16 +1501,9 @@ export default function App() {
                 collapsible
                 collapsedSize={0}
               >
-                <div className="flex h-full flex-col border-r border-border/60 bg-card">
-                  <ResizablePanelGroup
-                    orientation="vertical"
-                    className="min-h-0 flex-1"
-                  >
-                    <ResizablePanel
-                      id="sidebar-files"
-                      defaultSize="50%"
-                      minSize="15%"
-                    >
+                <div className="border-border/60 bg-card flex h-full flex-col border-r">
+                  <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+                    <ResizablePanel id="sidebar-files" defaultSize="50%" minSize="15%">
                       <FileExplorer
                         rootPath={explorerRoot}
                         onOpenFile={handleOpenFile}
@@ -1531,11 +1516,7 @@ export default function App() {
                     {showSourceControl ? (
                       <>
                         <ResizableHandle withHandle />
-                        <ResizablePanel
-                          id="sidebar-scm"
-                          defaultSize="25%"
-                          minSize="10%"
-                        >
+                        <ResizablePanel id="sidebar-scm" defaultSize="25%" minSize="10%">
                           <SourceControlPanel
                             rootPath={explorerRoot}
                             onPathDeleted={handlePathDeleted}
@@ -1545,19 +1526,13 @@ export default function App() {
                       </>
                     ) : null}
                     <ResizableHandle withHandle />
-                    <ResizablePanel
-                      id="sidebar-workspaces"
-                      defaultSize="25%"
-                      minSize="10%"
-                    >
+                    <ResizablePanel id="sidebar-workspaces" defaultSize="25%" minSize="10%">
                       <WorkspacesPanel
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
                         onClose={closeWorkspace}
                         liveTabsCount={
-                          tabs.filter(
-                            (t) => t.kind === "pane" || t.kind === "preview",
-                          ).length
+                          tabs.filter((t) => t.kind === "pane" || t.kind === "preview").length
                         }
                       />
                     </ResizablePanel>
@@ -1571,7 +1546,7 @@ export default function App() {
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        !activePaneTab && "invisible pointer-events-none",
+                        !activePaneTab && "pointer-events-none invisible",
                       )}
                       aria-hidden={activePaneTab ? "false" : "true"}
                     >
@@ -1596,12 +1571,9 @@ export default function App() {
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        activeTab?.kind !== "preview" &&
-                          "invisible pointer-events-none",
+                        activeTab?.kind !== "preview" && "pointer-events-none invisible",
                       )}
-                      aria-hidden={
-                        activeTab?.kind === "preview" ? "false" : "true"
-                      }
+                      aria-hidden={activeTab?.kind === "preview" ? "false" : "true"}
                     >
                       <PreviewStack
                         tabs={tabs}
@@ -1613,12 +1585,9 @@ export default function App() {
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        activeTab?.kind !== "ai-diff" &&
-                          "invisible pointer-events-none",
+                        activeTab?.kind !== "ai-diff" && "pointer-events-none invisible",
                       )}
-                      aria-hidden={
-                        activeTab?.kind === "ai-diff" ? "false" : "true"
-                      }
+                      aria-hidden={activeTab?.kind === "ai-diff" ? "false" : "true"}
                     >
                       <AiDiffStack
                         tabs={tabs}
@@ -1630,12 +1599,9 @@ export default function App() {
                     <div
                       className={cn(
                         "absolute inset-0 px-3 pt-2 pb-2",
-                        activeTab?.kind !== "git-diff" &&
-                          "invisible pointer-events-none",
+                        activeTab?.kind !== "git-diff" && "pointer-events-none invisible",
                       )}
-                      aria-hidden={
-                        activeTab?.kind === "git-diff" ? "false" : "true"
-                      }
+                      aria-hidden={activeTab?.kind === "git-diff" ? "false" : "true"}
                     >
                       <GitDiffStack tabs={tabs} activeId={activeId} />
                     </div>
@@ -1645,19 +1611,12 @@ export default function App() {
               {keysLoaded && panelOpen ? (
                 <>
                   <ResizableHandle withHandle />
-                  <ResizablePanel
-                    id="ai-sidebar"
-                    defaultSize="22%"
-                    minSize="18%"
-                    maxSize="50%"
-                  >
+                  <ResizablePanel id="ai-sidebar" defaultSize="22%" minSize="18%" maxSize="50%">
                     {hasComposer ? (
                       <AiSidebarPanel />
                     ) : (
-                      <div className="flex h-full flex-col border-l border-border/60 bg-card/60">
-                        <AiInputBarConnect
-                          onAdd={() => void openSettingsWindow("models")}
-                        />
+                      <div className="border-border/60 bg-card/60 flex h-full flex-col border-l">
+                        <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
                       </div>
                     )}
                   </ResizablePanel>
@@ -1680,10 +1639,7 @@ export default function App() {
           />
 
           {hasComposer ? (
-            <AgentRunBridge
-              openAiDiffTab={openAiDiffTab}
-              setAiDiffStatus={setAiDiffStatus}
-            />
+            <AgentRunBridge openAiDiffTab={openAiDiffTab} setAiDiffStatus={setAiDiffStatus} />
           ) : null}
 
           <AnimatePresence>
@@ -1732,12 +1688,8 @@ export default function App() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel onClick={cancelClose}>
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction onClick={confirmClose}>
-                  Close Anyway
-                </AlertDialogAction>
+                <AlertDialogCancel onClick={cancelClose}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmClose}>Close Anyway</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

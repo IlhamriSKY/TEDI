@@ -8,11 +8,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
-import {
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-  Mic01Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowUp01Icon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
@@ -47,12 +43,7 @@ export function AiTools({ aiOpen, canSubmit, onOpenAi, onSubmit }: Props) {
           <ToolButton title="Voice input">
             <HugeiconsIcon icon={Mic01Icon} size={14} strokeWidth={1.75} />
           </ToolButton>
-          <Button
-            size="sm"
-            disabled={!canSubmit}
-            onClick={onSubmit}
-            className="ml-1 h-6 px-1.5"
-          >
+          <Button size="sm" disabled={!canSubmit} onClick={onSubmit} className="ml-1 h-6 px-1.5">
             <HugeiconsIcon icon={ArrowUp01Icon} size={13} strokeWidth={2} />
           </Button>
         </motion.div>
@@ -64,13 +55,11 @@ export function AiTools({ aiOpen, canSubmit, onOpenAi, onSubmit }: Props) {
           exit={{ opacity: 0, y: -2 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
           onClick={onOpenAi}
-          className="flex h-7 items-center gap-2 rounded-md border border-border/60 bg-card px-2 text-xs text-muted-foreground hover:text-foreground"
+          className="border-border/60 bg-card text-muted-foreground hover:text-foreground flex h-7 items-center gap-2 rounded-md border px-2 text-xs"
         >
           Open AI Agent
           <KbdGroup>
-            <Kbd className="h-4.5 min-w-4.5 px-1 font-mono">
-              {fmtShortcut(MOD_KEY, "I")}
-            </Kbd>
+            <Kbd className="h-4.5 min-w-4.5 px-1 font-mono">{fmtShortcut(MOD_KEY, "I")}</Kbd>
           </KbdGroup>
         </motion.button>
       )}
@@ -78,13 +67,7 @@ export function AiTools({ aiOpen, canSubmit, onOpenAi, onSubmit }: Props) {
   );
 }
 
-function ToolButton({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function ToolButton({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <IconTooltip label={title} side="top">
       <Button
@@ -92,7 +75,7 @@ function ToolButton({
         variant="ghost"
         size="icon"
         aria-label={title}
-        className="size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 rounded-md"
       >
         {children}
       </Button>
@@ -108,24 +91,15 @@ function ModelSelector() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground h-7 gap-1 rounded-md px-1.5 text-xs"
         >
           {selected.label}
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={12}
-            strokeWidth={2}
-            className="opacity-70"
-          />
+          <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2} className="opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {MODELS.map((m) => (
-          <DropdownMenuItem
-            key={m.id}
-            onSelect={() => setSelected(m)}
-            className="text-xs"
-          >
+          <DropdownMenuItem key={m.id} onSelect={() => setSelected(m)} className="text-xs">
             {m.label}
           </DropdownMenuItem>
         ))}

@@ -2,10 +2,7 @@ import type { EditorPaneHandle } from "@/modules/editor";
 import type { PaneTab, Tab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
-import type {
-  TediOpenInput,
-  TediSpawnTabInput,
-} from "@/modules/terminal/lib/useTerminalSession";
+import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useRef } from "react";
@@ -15,10 +12,7 @@ type Props = {
   tabs: Tab[];
   activeId: number;
   // Terminal leaf callbacks
-  registerTerminalHandle: (
-    leafId: number,
-    handle: TerminalPaneHandle | null,
-  ) => void;
+  registerTerminalHandle: (leafId: number, handle: TerminalPaneHandle | null) => void;
   onSearchReady: (leafId: number, addon: SearchAddon) => void;
   onCwd: (leafId: number, cwd: string) => void;
   onDetectedLocalUrl: (leafId: number, url: string) => void;
@@ -27,10 +21,7 @@ type Props = {
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   onSshStatus?: (leafId: number, status: SshStatus) => void;
   // Editor leaf callbacks
-  registerEditorHandle: (
-    leafId: number,
-    handle: EditorPaneHandle | null,
-  ) => void;
+  registerEditorHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
   /** Editor-leaf ids that should render as rendered markdown instead of source. */
@@ -156,8 +147,8 @@ export function PaneStack({
             // in the middle of the visible workspace.
             className={
               tabVisible
-                ? "absolute inset-0 bg-background"
-                : "absolute inset-0 invisible pointer-events-none"
+                ? "bg-background absolute inset-0"
+                : "pointer-events-none invisible absolute inset-0"
             }
             aria-hidden={tabVisible ? "false" : "true"}
           >

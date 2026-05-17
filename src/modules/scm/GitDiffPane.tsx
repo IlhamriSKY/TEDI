@@ -1,24 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { MergeView } from "@codemirror/merge";
+import { MergeView, presentableDiff } from "@codemirror/merge";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
-import {
-  loadEditorTheme,
-  tryEditorTheme,
-} from "@/modules/editor/lib/themes";
+import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
 import type { GitChangeStatusTab } from "@/modules/tabs";
 import { gitFileHead } from "./api";
-
 
 type Props = {
   path: string;
@@ -45,26 +37,38 @@ async function readFileText(path: string): Promise<string> {
   }
 }
 
-// MergeView height/scroll wiring lives in `globals.css` (.cm-mergeView rule):
+// Match AiDiffPane's coloring so diff highlighting reads the same across the
+// app. MergeView height/scroll wiring lives in `globals.css` (.cm-mergeView):
 // EditorView.theme selectors are scoped to .cm-editor and can't reach the
 // outer .cm-mergeView wrapper, so it has to be a plain stylesheet rule.
+const DIFF_THEME = EditorView.theme({
+  ".cm-changedText": {
+    background: "#88ff881a !important",
+  },
+});
 
-export function GitDiffPane({
-  path,
-  relative,
-  repoPath,
-  changeStatus,
-  reloadKey,
-}: Props) {
+const STATUS_VARIANT: Record<
+  GitChangeStatusTab,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  modified: "secondary",
+  added: "default",
+  deleted: "destructive",
+  renamed: "secondary",
+  copied: "outline",
+  untracked: "outline",
+  conflicted: "destructive",
+  ignored: "outline",
+};
+
+export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mergeRef = useRef<MergeView | null>(null);
   const langA = useRef(new Compartment()).current;
   const langB = useRef(new Compartment()).current;
 
   const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const [themeExt, setThemeExt] = useState<Extension | null>(() =>
-    tryEditorTheme(editorThemeId),
-  );
+  const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(editorThemeId));
   useEffect(() => {
     let cancelled = false;
     const cached = tryEditorTheme(editorThemeId);
@@ -100,8 +104,7 @@ export function GitDiffPane({
         ? Promise.resolve("")
         : gitFileHead(repoPath, relative).catch(() => "");
 
-    const loadCurrent =
-      changeStatus === "deleted" ? Promise.resolve("") : readFileText(path);
+    const loadCurrent = changeStatus === "deleted" ? Promise.resolve("") : readFileText(path);
 
     Promise.all([loadOriginal, loadCurrent])
       .then(([orig, curr]) => {
@@ -130,16 +133,20 @@ export function GitDiffPane({
     mergeRef.current = null;
     host.innerHTML = "";
 
-    // Diff view has its own scrollbars on both sides plus the unchanged-region
-    // collapser -- the minimap would only crowd the lane and never get clicked.
+    // Diff view has its own scrollbars on both sides -- the minimap would only
+    // crowd the lane and never get clicked. Full file is rendered (no
+    // `collapseUnchanged`) so unchanged context is always visible.
+    // `lineNumbers()` goes before `...shared` so the fold-gutter chevron
+    // lands to the RIGHT of the line-number column, matching EditorPane.
     const shared = buildSharedExtensions({ showMinimap: false });
     const view = new MergeView({
       a: {
         doc: content.orig,
         extensions: [
-          ...shared,
           lineNumbers(),
+          ...shared,
           themeExt ?? [],
+          DIFF_THEME,
           langA.of([]),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
@@ -148,9 +155,10 @@ export function GitDiffPane({
       b: {
         doc: content.curr,
         extensions: [
-          ...shared,
           lineNumbers(),
+          ...shared,
           themeExt ?? [],
+          DIFF_THEME,
           langB.of([]),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
@@ -161,7 +169,6 @@ export function GitDiffPane({
       highlightChanges: true,
       gutter: true,
       revertControls: undefined,
-      collapseUnchanged: { margin: 3, minSize: 6 },
     });
     mergeRef.current = view;
 
@@ -180,28 +187,62 @@ export function GitDiffPane({
     };
   }, [content, themeExt, path, langA, langB]);
 
+  const stats = useMemo(() => {
+    if (!content) return { added: 0, removed: 0 };
+    return computeLineStats(content.orig, content.curr);
+  }, [content]);
+
+  const isNewFile = changeStatus === "added" || changeStatus === "untracked";
+  const isDeleted = changeStatus === "deleted";
+
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-background">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-        <Badge variant="outline" className="text-[10px] px-2 py-0.5 uppercase">
-          {changeStatus}
-        </Badge>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
-              {relative}
+    <div className="border-border/60 bg-background flex h-full min-h-0 flex-col rounded-md border">
+      <div className="border-border/60 flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge
+            variant={STATUS_VARIANT[changeStatus]}
+            className="px-2.5 py-2.5 text-[11px] capitalize"
+          >
+            {changeStatus}
+          </Badge>
+          {isNewFile ? (
+            <span className="border-border/60 bg-accent/40 text-muted-foreground shrink-0 border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase">
+              New file
             </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{relative}</TooltipContent>
-        </Tooltip>
+          ) : null}
+          {isDeleted ? (
+            <span className="border-border/60 bg-accent/40 text-muted-foreground shrink-0 border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase">
+              Removed
+            </span>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground truncate font-mono text-[11px]">
+                {relative}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{relative}</TooltipContent>
+          </Tooltip>
+          {!loading && !error ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
+              <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
+              <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+            </span>
+          ) : null}
+        </div>
+        <div className="text-muted-foreground/70 flex shrink-0 items-center gap-3 text-[10px] tracking-wide uppercase">
+          <span>HEAD</span>
+          <span className="text-muted-foreground/30">→</span>
+          <span>Working tree</span>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {loading ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+          <div className="text-muted-foreground flex h-full items-center justify-center text-xs">
             Loading diff…
           </div>
         ) : error ? (
-          <div className="flex h-full items-center justify-center text-xs text-destructive">
+          <div className="text-destructive flex h-full items-center justify-center text-xs">
             {error}
           </div>
         ) : (
@@ -210,4 +251,28 @@ export function GitDiffPane({
       </div>
     </div>
   );
+}
+
+function computeLineStats(original: string, proposed: string): { added: number; removed: number } {
+  const changes = presentableDiff(original, proposed);
+  let added = 0;
+  let removed = 0;
+  for (const c of changes) {
+    removed += countLines(original, c.fromA, c.toA);
+    added += countLines(proposed, c.fromB, c.toB);
+  }
+  return { added, removed };
+}
+
+function countLines(doc: string, from: number, to: number): number {
+  if (from === to) return 0;
+  const slice = doc.slice(from, to);
+  // A change spanning N newlines touches N+1 lines, but a trailing newline
+  // means the final segment is empty - don't count that as a touched line.
+  let n = 1;
+  for (let i = 0; i < slice.length; i++) {
+    if (slice.charCodeAt(i) === 10) n++;
+  }
+  if (slice.endsWith("\n")) n--;
+  return Math.max(n, 1);
 }

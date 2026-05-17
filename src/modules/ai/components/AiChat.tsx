@@ -4,28 +4,11 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  ArrowUp01Icon,
-  CodeIcon,
-  HashtagIcon,
-  TerminalIcon,
-} from "@hugeicons/core-free-icons";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArrowUp01Icon, CodeIcon, HashtagIcon, TerminalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
@@ -40,13 +23,7 @@ import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
-import type {
-  ChatStatus,
-  DynamicToolUIPart,
-  ToolUIPart,
-  UIMessage,
-  UIMessagePart,
-} from "ai";
+import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "ai";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
@@ -55,25 +32,21 @@ function CommandSnippet({ name }: { name: string }) {
   const meta = SLASH_COMMANDS[name];
   if (!meta) {
     return (
-      <div className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2 py-1 font-mono text-[11px]">
+      <div className="border-border/50 bg-muted/40 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px]">
         /{name}
       </div>
     );
   }
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-border/50 bg-muted/40 px-2 py-1">
+    <div className="border-border/50 bg-muted/40 inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1">
       <HugeiconsIcon
         icon={meta.icon}
         size={12}
         strokeWidth={1.75}
-        className="shrink-0 text-foreground"
+        className="text-foreground shrink-0"
       />
-      <span className="font-mono text-[11px] text-foreground">
-        {meta.invocation}
-      </span>
-      <span className="truncate text-[11px] text-muted-foreground">
-        {meta.label}
-      </span>
+      <span className="text-foreground font-mono text-[11px]">{meta.invocation}</span>
+      <span className="text-muted-foreground truncate text-[11px]">{meta.label}</span>
     </div>
   );
 }
@@ -92,13 +65,8 @@ function UserAttachmentChips({
       {snippets.map((handle, i) => (
         <Tooltip key={`s-${i}-${handle}`}>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
-              <HugeiconsIcon
-                icon={HashtagIcon}
-                size={11}
-                strokeWidth={2}
-                className="opacity-80"
-              />
+            <span className="border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
+              <HugeiconsIcon icon={HashtagIcon} size={11} strokeWidth={2} className="opacity-80" />
               <span className="font-medium">{handle}</span>
             </span>
           </TooltipTrigger>
@@ -108,7 +76,7 @@ function UserAttachmentChips({
       {selections.map((sel, i) => (
         <Tooltip key={`sel-${i}`}>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]">
+            <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
               <HugeiconsIcon
                 icon={sel.source === "editor" ? CodeIcon : TerminalIcon}
                 size={11}
@@ -118,7 +86,7 @@ function UserAttachmentChips({
               <span>
                 {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
                 {sel.lines > 0 ? (
-                  <span className="ml-1 text-muted-foreground">· {sel.lines}L</span>
+                  <span className="text-muted-foreground ml-1">· {sel.lines}L</span>
                 ) : null}
               </span>
             </span>
@@ -129,13 +97,8 @@ function UserAttachmentChips({
       {files.map((f, i) => (
         <Tooltip key={`f-${i}-${f.name}`}>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]">
-              <img
-                src={fileIconUrl(f.name)}
-                alt=""
-                aria-hidden
-                className="size-3.5 shrink-0"
-              />
+            <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
+              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
               <span className="max-w-40 truncate">{f.name}</span>
             </span>
           </TooltipTrigger>
@@ -162,22 +125,17 @@ function UserMessageModelChip({
   // — so we always render the SumoPod gateway label regardless of any
   // upstream owned_by that older messages might have stamped.
   const gatewayLabel =
-    PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ??
-    meta.tediProvider;
-  const showOwner =
-    meta.tediProvider !== "sumopod" && !!meta.tediOwnedBy;
-  const ownerLabel = showOwner
-    ? capitalize(meta.tediOwnedBy as string)
-    : gatewayLabel;
+    PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ?? meta.tediProvider;
+  const showOwner = meta.tediProvider !== "sumopod" && !!meta.tediOwnedBy;
+  const ownerLabel = showOwner ? capitalize(meta.tediOwnedBy as string) : gatewayLabel;
   const tooltip =
-    showOwner &&
-    (meta.tediOwnedBy as string).toLowerCase() !== gatewayLabel.toLowerCase()
+    showOwner && (meta.tediOwnedBy as string).toLowerCase() !== gatewayLabel.toLowerCase()
       ? `Sent via ${meta.tediModelLabel} (${ownerLabel} · ${gatewayLabel})`
       : `Sent via ${meta.tediModelLabel} (${ownerLabel})`;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/80">
+        <span className="text-muted-foreground/80 flex items-center gap-1 text-[10px]">
           <span className="font-mono">{meta.tediModelLabel}</span>
           <span aria-hidden>·</span>
           <span>{ownerLabel}</span>
@@ -222,9 +180,7 @@ export function AiChatView({
   const lastMessage = messages[messages.length - 1];
   const showSpinner = isBusy && lastMessage?.role === "user";
   const streamingMessageId =
-    status === "streaming" && lastMessage?.role === "assistant"
-      ? lastMessage.id
-      : null;
+    status === "streaming" && lastMessage?.role === "assistant" ? lastMessage.id : null;
 
   // The restore action only makes sense once the turn is done — we
   // attribute it to the most recent user message in the chat. Hidden
@@ -270,11 +226,9 @@ export function AiChatView({
         ))}
         {showSpinner && <ThinkingIndicator />}
         {error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
             <div className="font-medium">Something went wrong.</div>
-            <div className="mt-0.5 leading-relaxed opacity-90">
-              {error.message}
-            </div>
+            <div className="mt-0.5 leading-relaxed opacity-90">{error.message}</div>
             <button
               type="button"
               onClick={clearError}
@@ -292,18 +246,13 @@ export function AiChatView({
 
 function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   const { scrollRef } = useStickToBottomContext();
-  const userMessages = useMemo(
-    () => messages.filter((m) => m.role === "user"),
-    [messages],
-  );
+  const userMessages = useMemo(() => messages.filter((m) => m.role === "user"), [messages]);
 
   // id → true when the message is currently scrolled above the viewport.
   // We track every user message and surface the *most recent* one that's
   // off-screen above, so scrolling deep into the history surfaces the
   // matching prompt — not just the global "last user message".
-  const [aboveViewport, setAboveViewport] = useState<
-    ReadonlyMap<string, boolean>
-  >(() => new Map());
+  const [aboveViewport, setAboveViewport] = useState<ReadonlyMap<string, boolean>>(() => new Map());
 
   useEffect(() => {
     const scroller = scrollRef.current;
@@ -336,8 +285,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
           // and rootBounds is the scroller's viewport, so this is a direct
           // y-comparison.)
           const rootTop = entry.rootBounds?.top ?? 0;
-          const isAbove =
-            !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
+          const isAbove = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
           state.set(id, isAbove);
           schedule();
         },
@@ -408,8 +356,8 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
             // ConversationContent's `px-4` so the pin is flush with the chat's
             // left + right edges — no floating-chip gutter.
             "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
-            "border-b border-border/60 bg-background/95 px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
-            "text-foreground/85 transition-colors hover:bg-accent hover:text-foreground",
+            "border-border/60 bg-background/95 border-b px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
+            "text-foreground/85 hover:bg-accent hover:text-foreground transition-colors",
           )}
         >
           <HugeiconsIcon
@@ -452,8 +400,7 @@ const RenderedMessage = memo(function RenderedMessage({
       .map((p) => p.text)
       .join("\n");
 
-    const { commandName, files, selections, snippets, body } =
-      extractUserMessage(rawText);
+    const { commandName, files, selections, snippets, body } = extractUserMessage(rawText);
 
     const meta = getTediUserMetadata(message);
     return (
@@ -461,17 +408,11 @@ const RenderedMessage = memo(function RenderedMessage({
         <MessageContent>
           {commandName ? <CommandSnippet name={commandName} /> : null}
           {files.length + selections.length + snippets.length > 0 ? (
-            <UserAttachmentChips
-              files={files}
-              selections={selections}
-              snippets={snippets}
-            />
+            <UserAttachmentChips files={files} selections={selections} snippets={snippets} />
           ) : null}
-          {body ? (
-            <p className="whitespace-pre-wrap wrap-break-word">{body}</p>
-          ) : null}
+          {body ? <p className="wrap-break-word whitespace-pre-wrap">{body}</p> : null}
         </MessageContent>
-        <div className="flex items-center justify-end gap-2 mt-1">
+        <div className="mt-1 flex items-center justify-end gap-2">
           {isLastUser ? <RestoreCheckpointButton /> : null}
           {meta ? <UserMessageModelChip meta={meta} /> : null}
         </div>
@@ -518,9 +459,7 @@ const RenderedPart = memo(function RenderedPart({
     return (
       <Reasoning>
         <ReasoningTrigger />
-        <ReasoningContent>
-          {(part as unknown as { text: string }).text}
-        </ReasoningContent>
+        <ReasoningContent>{(part as unknown as { text: string }).text}</ReasoningContent>
       </Reasoning>
     );
   }
@@ -529,12 +468,7 @@ const RenderedPart = memo(function RenderedPart({
     part.type === "dynamic-tool" ||
     (typeof part.type === "string" && part.type.startsWith("tool-"))
   ) {
-    return (
-      <RenderedTool
-        part={part as unknown as AnyToolPart}
-        onApproval={onApproval}
-      />
-    );
+    return <RenderedTool part={part as unknown as AnyToolPart} onApproval={onApproval} />;
   }
 
   return null;
@@ -547,10 +481,7 @@ const RenderedTool = memo(function RenderedTool({
   part: AnyToolPart;
   onApproval: (id: string, approved: boolean) => void;
 }) {
-  const toolName =
-    part.type === "dynamic-tool"
-      ? part.toolName
-      : part.type.replace(/^tool-/, "");
+  const toolName = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
 
   if (part.state === "approval-requested") {
     return (
@@ -581,8 +512,8 @@ function ThinkingIndicator() {
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "flex w-fit items-center gap-2 rounded-2xl border border-border/50",
-        "bg-muted/40 px-3 py-2 text-[11.5px] text-muted-foreground",
+        "border-border/50 flex w-fit items-center gap-2 rounded-2xl border",
+        "bg-muted/40 text-muted-foreground px-3 py-2 text-[11.5px]",
       )}
       role="status"
       aria-label="Thinking"
@@ -600,7 +531,7 @@ function ThinkingIndicator() {
 function ThinkingDot({ delay }: { delay: number }) {
   return (
     <motion.span
-      className="block size-1.5 rounded-full bg-muted-foreground/70"
+      className="bg-muted-foreground/70 block size-1.5 rounded-full"
       animate={{
         opacity: [0.25, 1, 0.25],
         y: [0, -2, 0],

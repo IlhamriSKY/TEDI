@@ -54,16 +54,14 @@ export function AboutSection() {
     <div className="flex flex-col gap-6">
       <SectionHeader title="About" description="" />
 
-      <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 p-5">
+      <div className="border-border/60 bg-card/60 flex items-center gap-4 rounded-xl border p-5">
         <img src="/icon.png" alt="" className="size-12" draggable={false} />
         <div className="flex min-w-0 flex-col">
-          <span className="text-[15px] font-semibold tracking-tight">
-            {name}
-          </span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[15px] font-semibold tracking-tight">{name}</span>
+          <span className="text-muted-foreground text-[11px]">
             Terminal Environment & Development Infrastructure
           </span>
-          <span className="mt-1 font-mono text-[11px] text-muted-foreground">
+          <span className="text-muted-foreground mt-1 font-mono text-[11px]">
             v{version || "-"}
           </span>
         </div>
@@ -86,7 +84,7 @@ export function AboutSection() {
           <button
             type="button"
             onClick={() => void openUrl(REPO_URL)}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
+            className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
             IlhamriSKY/TEDI
@@ -98,7 +96,7 @@ export function AboutSection() {
           <button
             type="button"
             onClick={() => void openUrl(UPSTREAM_URL)}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
+            className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
             crynta/terax-ai
@@ -107,9 +105,7 @@ export function AboutSection() {
       </dl>
 
       <div className="flex flex-col gap-1.5">
-        <p className="text-[11px] text-muted-foreground">
-          {updaterMessage(checkState)}
-        </p>
+        <p className="text-muted-foreground text-[11px]">{updaterMessage(checkState)}</p>
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -120,11 +116,7 @@ export function AboutSection() {
             {checkState.kind === "checking" ? (
               <Spinner className="size-3" />
             ) : (
-              <HugeiconsIcon
-                icon={RefreshIcon}
-                size={12}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={RefreshIcon} size={12} strokeWidth={1.75} />
             )}
             Check for updates
           </Button>
@@ -137,11 +129,7 @@ export function AboutSection() {
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
             View on GitHub
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void openUrl(`${REPO_URL}/issues/new`)}
-          >
+          <Button variant="ghost" size="sm" onClick={() => void openUrl(`${REPO_URL}/issues/new`)}>
             Report an issue
           </Button>
         </div>

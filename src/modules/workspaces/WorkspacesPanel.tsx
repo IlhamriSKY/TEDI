@@ -1,11 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -39,12 +35,7 @@ type Props = {
   liveTabsCount?: number;
 };
 
-export function WorkspacesPanel({
-  onSwitch,
-  onCreate,
-  onClose,
-  liveTabsCount,
-}: Props) {
+export function WorkspacesPanel({ onSwitch, onCreate, onClose, liveTabsCount }: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
@@ -68,7 +59,7 @@ export function WorkspacesPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/60 px-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <div className="border-border/60 text-muted-foreground flex h-7 shrink-0 items-center justify-between border-b px-2 text-[10px] font-semibold tracking-wider uppercase">
         <span>Workspaces</span>
         <IconTooltip label="New workspace">
           <Button
@@ -76,7 +67,7 @@ export function WorkspacesPanel({
             aria-label="New workspace"
             variant="ghost"
             size="icon-sm"
-            className="size-5 shrink-0 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground size-5 shrink-0 rounded"
           >
             <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2} />
           </Button>
@@ -88,9 +79,7 @@ export function WorkspacesPanel({
             const isActive = w.id === activeId;
             const isEditing = editingId === w.id;
             const tabCount =
-              isActive && liveTabsCount !== undefined
-                ? liveTabsCount
-                : w.tabs.length;
+              isActive && liveTabsCount !== undefined ? liveTabsCount : w.tabs.length;
             return (
               <li
                 key={w.id}
@@ -117,7 +106,7 @@ export function WorkspacesPanel({
                       else if (e.key === "Escape") cancelEdit();
                     }}
                     onBlur={commitEdit}
-                    className="min-w-0 flex-1 rounded border border-border/60 bg-background px-1 text-xs outline-none focus:border-primary/40"
+                    className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
                   />
                 ) : (
                   <button
@@ -135,7 +124,7 @@ export function WorkspacesPanel({
                   <TooltipTrigger asChild>
                     <span
                       className={cn(
-                        "shrink-0 rounded bg-muted/50 px-1 text-[10px] tabular-nums transition-opacity",
+                        "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
                         isActive ? "text-foreground/80" : "text-muted-foreground",
                         "group-hover:opacity-0",
                       )}
@@ -155,13 +144,9 @@ export function WorkspacesPanel({
                       aria-label="Rename workspace"
                       variant="ghost"
                       size="icon-sm"
-                      className="size-5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="text-muted-foreground hover:bg-accent hover:text-foreground size-5 rounded"
                     >
-                      <HugeiconsIcon
-                        icon={PencilEdit02Icon}
-                        size={11}
-                        strokeWidth={1.75}
-                      />
+                      <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
                     </Button>
                   </IconTooltip>
                   {workspaces.length > 1 && (
@@ -171,13 +156,9 @@ export function WorkspacesPanel({
                         aria-label="Close workspace"
                         variant="ghost"
                         size="icon-sm"
-                        className="size-5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-5 rounded"
                       >
-                        <HugeiconsIcon
-                          icon={Cancel01Icon}
-                          size={11}
-                          strokeWidth={2}
-                        />
+                        <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
                       </Button>
                     </IconTooltip>
                   )}

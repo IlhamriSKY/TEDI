@@ -1,21 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
-import {
-  getOrCreateChat,
-  openSendCheckpoint,
-  useChatStore,
-} from "../store/chatStore";
+import { getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
 export type FileAttachment = {
@@ -71,8 +61,7 @@ const Ctx = createContext<ComposerCtx | null>(null);
 
 export function useComposer(): ComposerCtx {
   const ctx = useContext(Ctx);
-  if (!ctx)
-    throw new Error("useComposer must be used inside <AiComposerProvider>");
+  if (!ctx) throw new Error("useComposer must be used inside <AiComposerProvider>");
   return ctx;
 }
 
@@ -85,9 +74,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const status = useChatStore((s) => s.agentMeta.status);
   const isBusy = status === "thinking" || status === "streaming";
   const queueLen = useChatStore((s) => s.promptQueue.length);
-  const consumeNextQueuedPrompt = useChatStore(
-    (s) => s.consumeNextQueuedPrompt,
-  );
+  const consumeNextQueuedPrompt = useChatStore((s) => s.consumeNextQueuedPrompt);
 
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<FileAttachment[]>([]);
@@ -168,10 +155,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         if (existing.has(sel.id)) continue;
         next.push({
           id: sel.id,
-          name:
-            sel.source === "editor"
-              ? "Editor selection"
-              : "Terminal selection",
+          name: sel.source === "editor" ? "Editor selection" : "Terminal selection",
           kind: "selection",
           mediaType: "text/plain",
           text: sel.text,
@@ -200,20 +184,15 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (next.length) setFiles((prev) => [...prev, ...next]);
   };
 
-  const removeFile = (id: string) =>
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+  const removeFile = (id: string) => setFiles((prev) => prev.filter((f) => f.id !== id));
 
   const addSnippet = (s: Snippet) =>
-    setPickedSnippets((prev) =>
-      prev.some((p) => p.id === s.id) ? prev : [...prev, s],
-    );
+    setPickedSnippets((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]));
   const removeSnippet = (id: string) =>
     setPickedSnippets((prev) => prev.filter((s) => s.id !== id));
 
   const addCommand = (cmd: SlashCommandMeta) =>
-    setPickedCommands((prev) =>
-      prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd],
-    );
+    setPickedCommands((prev) => (prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd]));
   const removeCommand = (name: string) =>
     setPickedCommands((prev) => prev.filter((c) => c.name !== name));
 
@@ -287,16 +266,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
     const parts: MessagePart[] = [];
     const fileBlocks = files
       .filter((f) => f.kind === "text")
-      .map(
-        (f) =>
-          `<file name="${f.name}" mediaType="${f.mediaType}">\n${f.text ?? ""}\n</file>`,
-      );
+      .map((f) => `<file name="${f.name}" mediaType="${f.mediaType}">\n${f.text ?? ""}\n</file>`);
     const selectionBlocks = files
       .filter((f) => f.kind === "selection")
-      .map(
-        (f) =>
-          `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`,
-      );
+      .map((f) => `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`);
     const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
       effectiveText,
       useSnippetsStore.getState().snippets,
@@ -306,9 +279,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     for (const s of pickedSnippets) {
       if (seenHandles.has(s.handle)) continue;
       seenHandles.add(s.handle);
-      allSnippetBlocks.push(
-        `<snippet name="${s.handle}">\n${s.content}\n</snippet>`,
-      );
+      allSnippetBlocks.push(`<snippet name="${s.handle}">\n${s.content}\n</snippet>`);
     }
     for (const block of snippetBlocks) {
       const m = block.match(/^<snippet name="([^"]+)"/);
@@ -346,8 +317,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       // sub-second for typical turns).
       return;
     }
-    const { selectedModelId: modelId, selectedProvider: provider } =
-      useChatStore.getState();
+    const { selectedModelId: modelId, selectedProvider: provider } = useChatStore.getState();
     const modelInfo = tryGetModel(modelId);
     // `selectedProvider` is the source of truth for the gateway tag — it's
     // set by the dropdown pick, so collisions in the model registry (e.g.

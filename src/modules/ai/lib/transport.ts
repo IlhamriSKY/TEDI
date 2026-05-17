@@ -1,10 +1,7 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { type DynamicModelId } from "../config";
-import {
-  runAgentStream,
-  type AgentUsageDelta,
-} from "./agent";
+import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { ProviderKeys } from "./keyring";
 import { native } from "./native";
 import type { ToolContext } from "../tools/tools";
@@ -29,9 +26,7 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
       return null;
     }
     const content =
-      r.content.length > TEDI_MD_MAX_BYTES
-        ? r.content.slice(0, TEDI_MD_MAX_BYTES)
-        : r.content;
+      r.content.length > TEDI_MD_MAX_BYTES ? r.content.slice(0, TEDI_MD_MAX_BYTES) : r.content;
     projectMemoryCache.set(workspaceRoot, {
       content,
       cachedAt: Date.now(),
@@ -69,9 +64,7 @@ type Deps = {
   getPlanMode?: () => boolean;
 };
 
-export function createContextAwareTransport(
-  deps: Deps,
-): ChatTransport<UIMessage> {
+export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage> {
   return {
     async sendMessages({ messages, abortSignal }) {
       const live = deps.getLive();

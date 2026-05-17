@@ -24,10 +24,7 @@ pub struct DirEntry {
 /// case-insensitively. Hidden (dot-prefix) entries are filtered unless
 /// `include_hidden` is true.
 #[tauri::command]
-pub fn fs_read_dir(
-    path: String,
-    include_hidden: Option<bool>,
-) -> Result<Vec<DirEntry>, String> {
+pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<DirEntry>, String> {
     let show_hidden = include_hidden.unwrap_or(false);
     let root = PathBuf::from(&path);
     let read = std::fs::read_dir(&root).map_err(|e| {

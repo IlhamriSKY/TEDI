@@ -17,10 +17,7 @@ export function GitDiffStack({ tabs, activeId }: Props) {
         return (
           <div
             key={t.id}
-            className={cn(
-              "absolute inset-0",
-              !visible && "invisible pointer-events-none",
-            )}
+            className={cn("absolute inset-0", !visible && "pointer-events-none invisible")}
             aria-hidden={visible ? "false" : "true"}
           >
             <GitDiffPane

@@ -1,8 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 
-export type PtyEvent =
-  | { type: "data"; data: string }
-  | { type: "exit"; code: number };
+export type PtyEvent = { type: "data"; data: string } | { type: "exit"; code: number };
 
 export type PtyHandlers = {
   onData: (bytes: Uint8Array) => void;

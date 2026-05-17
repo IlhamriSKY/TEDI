@@ -20,10 +20,8 @@ function approxBytes(messages: ModelMessage[]): number {
       for (const part of m.content as ToolPart[]) {
         if (part.type === "text" && typeof part.text === "string")
           n += (part.text as string).length;
-        else if (part.type === "tool-result")
-          n += JSON.stringify(part.output ?? "").length;
-        else if (part.type === "tool-call")
-          n += JSON.stringify(part.input ?? "").length;
+        else if (part.type === "tool-result") n += JSON.stringify(part.output ?? "").length;
+        else if (part.type === "tool-call") n += JSON.stringify(part.input ?? "").length;
         else n += 64;
       }
     }
@@ -89,9 +87,7 @@ function collectMutationPaths(messages: ModelMessage[]): Set<string> {
   return paths;
 }
 
-function collectLastReadIdxPerKey(
-  messages: ModelMessage[],
-): Map<string, number> {
+function collectLastReadIdxPerKey(messages: ModelMessage[]): Map<string, number> {
   const lastIdx = new Map<string, number>();
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
@@ -149,8 +145,7 @@ function dropSupersededReads(messages: ModelMessage[]): {
         // Mutated since: every page of this path is potentially stale.
         mutated.has(entry.path) ||
         // Same (path+offset+limit) read appears later: this one is redundant.
-        (lastReadKey.has(entry.key) &&
-          (lastReadKey.get(entry.key) as number) > i);
+        (lastReadKey.has(entry.key) && (lastReadKey.get(entry.key) as number) > i);
       if (!isStale) return part;
       const r = elideToolResult(part);
       if (r.changed) local = true;

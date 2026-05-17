@@ -2,9 +2,7 @@ import type { Language, StreamParser } from "@codemirror/language";
 import { StringStream } from "@codemirror/language";
 import { classHighlighter, highlightCode } from "@lezer/highlight";
 
-export type HighlightedNode =
-  | { kind: "text"; value: string; cls: string }
-  | { kind: "break" };
+export type HighlightedNode = { kind: "text"; value: string; cls: string } | { kind: "break" };
 
 type ParserLoader = () => Promise<Language>;
 type StreamLoader = () => Promise<StreamParser<unknown>>;
@@ -27,10 +25,7 @@ const loaders: Record<string, ParserLoader> = {
   markdown: () => import("@codemirror/lang-markdown").then((m) => m.markdownLanguage),
   // `phpLanguage` parses files wrapped in `<?php …`. Chat snippets are bare
   // PHP, so use the `plain: true` variant's Language.
-  php: () =>
-    import("@codemirror/lang-php").then(
-      (m) => m.php({ plain: true }).language,
-    ),
+  php: () => import("@codemirror/lang-php").then((m) => m.php({ plain: true }).language),
 };
 
 // StreamParser fallback for langs without a Lezer parser. Token names emitted
@@ -98,9 +93,7 @@ const streamLoaders: Record<string, StreamLoader> = {
       (m) => m.perl as unknown as StreamParser<unknown>,
     ),
   r: () =>
-    import("@codemirror/legacy-modes/mode/r").then(
-      (m) => m.r as unknown as StreamParser<unknown>,
-    ),
+    import("@codemirror/legacy-modes/mode/r").then((m) => m.r as unknown as StreamParser<unknown>),
   dockerfile: () =>
     import("@codemirror/legacy-modes/mode/dockerfile").then(
       (m) => m.dockerFile as unknown as StreamParser<unknown>,
@@ -178,8 +171,7 @@ function resolve(lang: string | null | undefined): ResolvedKey | null {
   const lower = lang.toLowerCase();
   const direct = lower in aliases ? aliases[lower]! : lower;
   if (direct in loaders) return { kind: "lezer", key: direct as keyof typeof loaders };
-  if (direct in streamLoaders)
-    return { kind: "stream", key: direct as keyof typeof streamLoaders };
+  if (direct in streamLoaders) return { kind: "stream", key: direct as keyof typeof streamLoaders };
   return null;
 }
 
@@ -198,9 +190,7 @@ async function getLezer(key: keyof typeof loaders): Promise<Language> {
   return lang;
 }
 
-async function getStream(
-  key: keyof typeof streamLoaders,
-): Promise<StreamParser<unknown>> {
+async function getStream(key: keyof typeof streamLoaders): Promise<StreamParser<unknown>> {
   const hit = streamCache.get(key);
   if (hit) return hit;
   const parser = await streamLoaders[key]!();
@@ -208,10 +198,7 @@ async function getStream(
   return parser;
 }
 
-function highlightStream(
-  code: string,
-  parser: StreamParser<unknown>,
-): HighlightedNode[] {
+function highlightStream(code: string, parser: StreamParser<unknown>): HighlightedNode[] {
   const state = parser.startState ? parser.startState(2) : ({} as unknown);
   const out: HighlightedNode[] = [];
   const lines = code.split("\n");
@@ -309,10 +296,7 @@ function mapStreamTag(raw: string): string {
     .join(" ");
 }
 
-export async function highlight(
-  code: string,
-  rawLang: string,
-): Promise<HighlightedNode[] | null> {
+export async function highlight(code: string, rawLang: string): Promise<HighlightedNode[] | null> {
   const r = resolve(rawLang);
   if (!r) return null;
 

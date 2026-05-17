@@ -10,9 +10,7 @@ if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
 }
 
-ReactDOM.createRoot(
-  document.getElementById("settings-root") as HTMLElement,
-).render(
+ReactDOM.createRoot(document.getElementById("settings-root") as HTMLElement).render(
   <ThemeProvider>
     <SettingsApp />
   </ThemeProvider>,

@@ -39,6 +39,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 ## Features
 
 **Terminal**
+
 - xterm.js + WebGL, multi-tab, background-streaming inactive tabs
 - Native PTY via `portable-pty` (zsh, bash, fish, pwsh)
 - Shell integration: cwd + prompt markers via OSC 7 / 133
@@ -46,6 +47,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - Inline search, link detection
 
 **Editor**
+
 - CodeMirror 6 with TS/JS, Rust, Python, PHP, HTML/CSS, JSON, Markdown, C/C++, Java, C# and More
 - Inline AI autocomplete and diff-based
 - Vim mode and themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode)
@@ -53,11 +55,13 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - Side-by-side Markdown preview
 
 **Workspaces & Tabs**
+
 - Workspaces keep distinct project sessions (tab layout + cwd) and switch without re-opening folders
 - Open-folder picker in the header auto-spawns a terminal at the picked root
 - Sortable, drag-to-reorder, pinnable tabs across terminal / editor / preview / AI-diff kinds
 
 **AI (BYOK)**
+
 - OpenAI, Anthropic, Google, Groq, xAI, Cerebras, OpenAI-compatible (LM Studio for offline)
 - Voice input, multi-agent / sub-agents, snippets, custom system prompt
 - Tools: read / write / grep / glob / shell with explicit approval
@@ -65,10 +69,12 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - Tool-routing and approval-flow polish
 
 **File Explorer**
+
 - Catppuccin / Material icon theme, fuzzy search, inline rename
 - "Reveal in terminal" opens a new tab rooted at the picked folder
 
 **Quality**
+
 - Apache-2.0, no telemetry, API keys in OS keychain (`keyring`)
 - Small bundle (~7-10 MB depending on platform)
 
@@ -79,6 +85,7 @@ Settings > AI > pick a provider, paste your API key. For local inference, point 
 ## Build from source
 
 Prereqs:
+
 - Rust stable: https://rustup.rs
 - Node 20+ and [pnpm](https://pnpm.io)
 - Tauri platform prereqs: https://tauri.app/start/prerequisites/
@@ -90,6 +97,7 @@ pnpm tauri build   # production bundle
 ```
 
 Checks:
+
 ```bash
 pnpm exec tsc --noEmit          # frontend type-check
 cd src-tauri && cargo clippy    # Rust lint
@@ -97,13 +105,13 @@ cd src-tauri && cargo clippy    # Rust lint
 
 ## Notes per platform
 
-- **Windows**: SmartScreen will warn on first launch (unsigned). Click *More info > Run anyway*. Shell priority: `pwsh.exe`, `powershell.exe`, `cmd.exe`.
+- **Windows**: SmartScreen will warn on first launch (unsigned). Click _More info > Run anyway_. Shell priority: `pwsh.exe`, `powershell.exe`, `cmd.exe`.
 - **Linux**: if you hit `EGL_BAD_PARAMETER` or a blank window, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. AppImage needs FUSE; otherwise run `--appimage-extract-and-run` or install the `.deb`/`.rpm`.
-- **macOS**: minimum macOS 10.15. Builds are ad-hoc signed but **not notarized** with Apple, so Gatekeeper may say *"TEDI is damaged and can't be opened"* on first launch. Drag the app to `/Applications`, then in Terminal run once:
+- **macOS**: minimum macOS 10.15. Builds are ad-hoc signed but **not notarized** with Apple, so Gatekeeper may say _"TEDI is damaged and can't be opened"_ on first launch. Drag the app to `/Applications`, then in Terminal run once:
   ```
   xattr -cr /Applications/TEDI.app
   ```
-  Then open from Launchpad/Finder (right-click → *Open* the first time if still prompted).
+  Then open from Launchpad/Finder (right-click → _Open_ the first time if still prompted).
 
 ## Credits
 

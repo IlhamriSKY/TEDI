@@ -1,8 +1,5 @@
 import type { PaneTab, Tab } from "@/modules/tabs";
-import type {
-  PaneLeaf,
-  PaneNode,
-} from "@/modules/terminal/lib/panes";
+import type { PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
 import { leaves } from "@/modules/terminal/lib/panes";
 import type { SavedPaneNode, SavedTab } from "./store";
 
@@ -56,11 +53,7 @@ export function serializeTabs(tabs: Tab[]): SavedTab[] {
 
 // -------- saved → live --------
 
-function savedToNode(
-  node: SavedPaneNode,
-  allocId: () => number,
-  outLeafIds: number[],
-): PaneNode {
+function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: number[]): PaneNode {
   if (node.kind === "leaf") {
     const id = allocId();
     outLeafIds.push(id);
@@ -104,9 +97,7 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   const leafIds: number[] = [];
   const paneTree = savedToNode(saved.paneTree, allocId, leafIds);
   const activeLeafId =
-    leafIds[
-      Math.min(Math.max(0, saved.activeLeafIndex), leafIds.length - 1)
-    ] ?? leafIds[0];
+    leafIds[Math.min(Math.max(0, saved.activeLeafIndex), leafIds.length - 1)] ?? leafIds[0];
   const tab: PaneTab = {
     id,
     kind: "pane",
@@ -118,10 +109,7 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
 }
 
 /** Returns a default-seeded pane tab (one terminal leaf) for empty workspaces. */
-export function defaultTabForEmptyWorkspace(
-  allocId: () => number,
-  cwd: string | undefined,
-): Tab {
+export function defaultTabForEmptyWorkspace(allocId: () => number, cwd: string | undefined): Tab {
   const leafId = allocId();
   return {
     id: allocId(),

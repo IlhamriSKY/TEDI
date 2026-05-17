@@ -24,9 +24,7 @@ export type TediUserMetadata = {
 };
 
 /** Type guard: returns the metadata bag if it looks like ours. */
-export function getTediUserMetadata(
-  message: UIMessage,
-): TediUserMetadata | null {
+export function getTediUserMetadata(message: UIMessage): TediUserMetadata | null {
   const m = message.metadata as { [k: string]: unknown } | undefined;
   if (!m) return null;
   if (typeof m.tediModel !== "string") return null;
@@ -36,8 +34,7 @@ export function getTediUserMetadata(
     tediModel: m.tediModel,
     tediModelLabel: m.tediModelLabel,
     tediProvider: m.tediProvider as ProviderId,
-    tediOwnedBy:
-      typeof m.tediOwnedBy === "string" ? m.tediOwnedBy : undefined,
+    tediOwnedBy: typeof m.tediOwnedBy === "string" ? m.tediOwnedBy : undefined,
     sentAt: typeof m.sentAt === "number" ? m.sentAt : 0,
   };
 }
@@ -101,16 +98,16 @@ export function extractUserMessage(raw: string): ExtractedMessage {
       return "";
     },
   );
-  body = body.replace(
-    /<snippet\s+name="([^"]+)">[\s\S]*?<\/snippet>/g,
-    (_m, name) => {
-      snippets.push(name);
-      return "";
-    },
-  );
+  body = body.replace(/<snippet\s+name="([^"]+)">[\s\S]*?<\/snippet>/g, (_m, name) => {
+    snippets.push(name);
+    return "";
+  });
   // Composer joins blocks with "\n\n"; collapse the orphan blank lines so
   // the surviving body doesn't render with runaway top/bottom margin.
-  body = body.replace(/^\s+/, "").replace(/\s+$/, "").replace(/\n{3,}/g, "\n\n");
+  body = body
+    .replace(/^\s+/, "")
+    .replace(/\s+$/, "")
+    .replace(/\n{3,}/g, "\n\n");
 
   return { files, selections, snippets, commandName, body };
 }
@@ -174,14 +171,14 @@ export function recallUserMessage(message: UIMessage): RecalledMessage {
       return "";
     },
   );
-  body = body.replace(
-    /<snippet\s+name="([^"]+)">[\s\S]*?<\/snippet>/g,
-    (_m, name) => {
-      snippetHandles.push(name);
-      return "";
-    },
-  );
-  body = body.replace(/^\s+/, "").replace(/\s+$/, "").replace(/\n{3,}/g, "\n\n");
+  body = body.replace(/<snippet\s+name="([^"]+)">[\s\S]*?<\/snippet>/g, (_m, name) => {
+    snippetHandles.push(name);
+    return "";
+  });
+  body = body
+    .replace(/^\s+/, "")
+    .replace(/\s+$/, "")
+    .replace(/\n{3,}/g, "\n\n");
 
   return { body, commandName, files, selections, snippetHandles };
 }

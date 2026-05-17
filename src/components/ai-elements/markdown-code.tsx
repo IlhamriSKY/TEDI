@@ -21,7 +21,7 @@ export function MarkdownCode({
   if (!match) {
     return (
       <code
-        className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+        className="bg-muted/70 text-foreground rounded px-1.5 py-0.5 font-mono text-[11px]"
         {...rest}
       >
         {children}

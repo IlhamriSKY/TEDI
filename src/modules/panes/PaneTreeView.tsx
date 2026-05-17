@@ -1,18 +1,11 @@
 import { Fragment } from "react";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
-import type {
-  TediOpenInput,
-  TediSpawnTabInput,
-} from "@/modules/terminal/lib/useTerminalSession";
+import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
 
 export type LeafBundle = {

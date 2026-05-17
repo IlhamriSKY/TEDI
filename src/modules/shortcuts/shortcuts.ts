@@ -27,9 +27,13 @@ export type ShortcutId =
   | "shortcuts.open"
   | "settings.open"
   | "sidebar.toggle"
+  | "view.zoomIn"
+  | "view.zoomOut"
+  | "view.zoomReset"
   | "editor.toggleWordWrap"
   | "terminal.copy"
-  | "terminal.paste";
+  | "terminal.paste"
+  | "terminal.close";
 
 export type ShortcutGroup =
   | "General"
@@ -83,7 +87,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.newPreview",
     label: "New preview tab",
     group: "Tabs",
-    defaultBindings: [{ [MOD_PROP]: true, key: "p" }],
+    defaultBindings: [{ [MOD_PROP]: true, alt: true, key: "p" }],
   },
   {
     id: "tab.newEditor",
@@ -199,6 +203,29 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "b" }],
   },
   {
+    // `=` is the unshifted "+" on a US layout. Matches VS Code / browser
+    // convention so Cmd/Ctrl + "+" (with or without Shift) feels natural.
+    id: "view.zoomIn",
+    label: "Zoom in",
+    group: "View",
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "=" },
+      { [MOD_PROP]: true, shift: true, key: "=" },
+    ],
+  },
+  {
+    id: "view.zoomOut",
+    label: "Zoom out",
+    group: "View",
+    defaultBindings: [{ [MOD_PROP]: true, key: "-" }],
+  },
+  {
+    id: "view.zoomReset",
+    label: "Reset zoom",
+    group: "View",
+    defaultBindings: [{ [MOD_PROP]: true, key: "0" }],
+  },
+  {
     id: "editor.toggleWordWrap",
     label: "Toggle word wrap",
     group: "Editor",
@@ -221,6 +248,14 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Paste from clipboard",
     group: "Terminal",
     defaultBindings: [{ ctrl: true, shift: true, key: "v" }],
+  },
+  {
+    // Close the focused terminal pane. No-op when it's the last terminal
+    // left in the workspace so the user never lands in an empty UI.
+    id: "terminal.close",
+    label: "Close focused terminal",
+    group: "Terminal",
+    defaultBindings: [{ ctrl: true, shift: true, key: "x" }],
   },
 ];
 
@@ -277,11 +312,7 @@ function canonicalKey(e: KeyboardEvent): string {
 /**
  * Matching logic: checks if a KeyboardEvent matches a KeyBinding.
  */
-export function matchBinding(
-  e: KeyboardEvent,
-  binding: KeyBinding,
-  id?: ShortcutId
-): boolean {
+export function matchBinding(e: KeyboardEvent, binding: KeyBinding, id?: ShortcutId): boolean {
   const eventKey = canonicalKey(e);
   const bindingKey = binding.key.toLowerCase();
 

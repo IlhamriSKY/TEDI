@@ -9,11 +9,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
@@ -110,8 +106,8 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
         onClick={onOpen}
         aria-label="Open AI agent"
         className={cn(
-          "flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 text-xs",
-          "text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground",
+          "border-border/60 bg-card flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs",
+          "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
         )}
       >
         <span>Open AI agent</span>
@@ -173,17 +169,14 @@ export function AiStatusBarControls() {
                   ? "Transcribing…"
                   : "Voice input"
           }
-          onClick={() =>
-            c.voice.recording ? c.voice.stop() : void c.voice.start()
-          }
+          onClick={() => (c.voice.recording ? c.voice.stop() : void c.voice.start())}
           disabled={c.isBusy || c.voice.transcribing || !c.voice.hasKey}
           className={cn(
-            c.voice.recording &&
-              "bg-destructive/10 text-destructive hover:bg-destructive/15",
+            c.voice.recording && "bg-destructive/10 text-destructive hover:bg-destructive/15",
           )}
         >
           {c.voice.recording ? (
-            <span className="size-2 animate-pulse rounded-full bg-destructive" />
+            <span className="bg-destructive size-2 animate-pulse rounded-full" />
           ) : c.voice.transcribing ? (
             <Spinner className="size-3" />
           ) : (
@@ -194,7 +187,7 @@ export function AiStatusBarControls() {
 
       <ModelDropdown />
 
-      <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+      <span className="bg-border mx-1 h-5 w-px" aria-hidden />
 
       {c.isBusy ? (
         <>
@@ -212,11 +205,7 @@ export function AiStatusBarControls() {
                     className="size-6 rounded-md"
                     aria-label="Send options"
                   >
-                    <HugeiconsIcon
-                      icon={ArrowUpIcon}
-                      size={13}
-                      strokeWidth={2}
-                    />
+                    <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2} />
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
@@ -228,10 +217,8 @@ export function AiStatusBarControls() {
                 disabled={!c.value.trim()}
                 className="flex flex-col items-start gap-0.5 py-1.5"
               >
-                <span className="text-[11.5px] font-medium">
-                  Send now (interrupt)
-                </span>
-                <span className="text-[10.5px] text-muted-foreground">
+                <span className="text-[11.5px] font-medium">Send now (interrupt)</span>
+                <span className="text-muted-foreground text-[10.5px]">
                   Stop the current run, then send this
                 </span>
               </DropdownMenuItem>
@@ -246,7 +233,7 @@ export function AiStatusBarControls() {
                     {fmtShortcut(MOD_KEY, "Enter")}
                   </Kbd>
                 </span>
-                <span className="text-[10.5px] text-muted-foreground">
+                <span className="text-muted-foreground text-[10.5px]">
                   Run after the current finishes
                 </span>
               </DropdownMenuItem>
@@ -271,10 +258,7 @@ export function AiStatusBarControls() {
   );
 }
 
-function matchesQuery(
-  m: { id: string; label: string; hint: string },
-  q: string,
-): boolean {
+function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
   if (!q) return true;
   const t = q.toLowerCase();
   return (
@@ -307,8 +291,7 @@ function ModelDropdown() {
     current = getModel(selected);
   } catch {
     const providerLabel =
-      PROVIDERS.find((p) => p.id === selectedProvider)?.label ??
-      selectedProvider;
+      PROVIDERS.find((p) => p.id === selectedProvider)?.label ?? selectedProvider;
     current = {
       id: selected,
       provider: selectedProvider,
@@ -326,21 +309,18 @@ function ModelDropdown() {
     setSelected(id, providerId);
   };
 
-  const togglePin = useCallback(
-    (providerId: ProviderId, modelId: string) => {
-      const pinned = usePreferencesStore.getState().pinnedModelIds;
-      const k = pinKey(providerId, modelId);
-      if (pinned.includes(k)) {
-        void setPinnedModelIds(pinned.filter((id) => id !== k));
-        return;
-      }
-      // If a legacy unqualified entry exists for this modelId, swap it for
-      // the qualified form so future toggles distinguish providers.
-      const withoutLegacy = pinned.filter((id) => id !== modelId);
-      void setPinnedModelIds([k, ...withoutLegacy]);
-    },
-    [],
-  );
+  const togglePin = useCallback((providerId: ProviderId, modelId: string) => {
+    const pinned = usePreferencesStore.getState().pinnedModelIds;
+    const k = pinKey(providerId, modelId);
+    if (pinned.includes(k)) {
+      void setPinnedModelIds(pinned.filter((id) => id !== k));
+      return;
+    }
+    // If a legacy unqualified entry exists for this modelId, swap it for
+    // the qualified form so future toggles distinguish providers.
+    const withoutLegacy = pinned.filter((id) => id !== modelId);
+    void setPinnedModelIds([k, ...withoutLegacy]);
+  }, []);
 
   const toggleSection = useCallback((key: string) => {
     setCollapsed((prev) => {
@@ -398,9 +378,7 @@ function ModelDropdown() {
     [pinnedEntries, query],
   );
 
-  const totalMatches =
-    pinnedFiltered.length +
-    sections.reduce((n, s) => n + s.filtered.length, 0);
+  const totalMatches = pinnedFiltered.length + sections.reduce((n, s) => n + s.filtered.length, 0);
 
   return (
     <DropdownMenu
@@ -417,7 +395,7 @@ function ModelDropdown() {
               size="sm"
               aria-label={modelTooltip}
               className={cn(
-                "h-5.5 gap-1 rounded-md px-1.5 my-1 text-xs hover:bg-accent hover:text-foreground",
+                "hover:bg-accent hover:text-foreground my-1 h-5.5 gap-1 rounded-md px-1.5 text-xs",
                 currentProviderHasKey
                   ? "text-muted-foreground"
                   : "text-amber-600 dark:text-amber-400",
@@ -435,11 +413,8 @@ function ModelDropdown() {
         </TooltipTrigger>
         <TooltipContent side="top">{modelTooltip}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent
-        align="end"
-        className="max-h-105 w-72 overflow-hidden p-0"
-      >
-        <div className="sticky top-0 z-10 border-b border-border/60 bg-popover px-1.5 py-1.5">
+      <DropdownMenuContent align="end" className="max-h-105 w-72 overflow-hidden p-0">
+        <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -469,9 +444,7 @@ function ModelDropdown() {
               models={pinnedFiltered.map(({ model, provider }) => ({
                 model,
                 provider,
-                hasKey: providerNeedsKey(provider.id)
-                  ? !!apiKeys[provider.id]
-                  : true,
+                hasKey: providerNeedsKey(provider.id) ? !!apiKeys[provider.id] : true,
               }))}
               collapsed={collapsed.has("__pinned")}
               onToggle={() => toggleSection("__pinned")}
@@ -530,7 +503,7 @@ function ModelDropdown() {
             );
           })}
           {query && totalMatches === 0 ? (
-            <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+            <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
               No models match “{query}”.
             </div>
           ) : null}
@@ -597,7 +570,7 @@ function ModelSection({
           aria-controls={`section-${sectionKey}`}
           className={cn(
             "group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5",
-            "text-[9.5px] font-medium tracking-wide text-muted-foreground uppercase",
+            "text-muted-foreground text-[9.5px] font-medium tracking-wide uppercase",
             "hover:bg-accent/50 hover:text-foreground",
           )}
         >
@@ -611,22 +584,17 @@ function ModelSection({
             )}
           />
           {providerIcon ? (
-            <HugeiconsIcon
-              icon={providerIcon}
-              size={14}
-              strokeWidth={1.25}
-              className="shrink-0"
-            />
+            <HugeiconsIcon icon={providerIcon} size={14} strokeWidth={1.25} className="shrink-0" />
           ) : (
             <HugeiconsIcon
               icon={PinIcon}
               size={12}
               strokeWidth={1.75}
-              className="shrink-0 fill-foreground/70"
+              className="fill-foreground/70 shrink-0"
             />
           )}
           <span className="truncate">{title}</span>
-          <span className="ml-auto text-[9px] tabular-nums text-muted-foreground/70 normal-case tracking-normal">
+          <span className="text-muted-foreground/70 ml-auto text-[9px] tracking-normal normal-case tabular-nums">
             {models.length}
           </span>
         </button>
@@ -639,22 +607,19 @@ function ModelSection({
               onSetKey();
             }}
             onPointerDown={(e) => e.stopPropagation()}
-            className="cursor-pointer rounded-sm px-1 text-[9px] normal-case tracking-normal text-amber-600 underline-offset-2 hover:underline dark:text-amber-400"
+            className="cursor-pointer rounded-sm px-1 text-[9px] tracking-normal text-amber-600 normal-case underline-offset-2 hover:underline dark:text-amber-400"
           >
             Set key…
           </button>
         ) : null}
       </div>
       {showItems && note ? (
-        <div className="px-2 pb-1 text-[10px] text-muted-foreground/80 normal-case">
-          {note}
-        </div>
+        <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">{note}</div>
       ) : null}
       {showItems
         ? models.map(({ model: m, provider: p, hasKey }) => {
             const pinned = isPinnedFor(pinnedIds, p.id, m.id);
-            const isSelected =
-              m.id === selectedId && p.id === selectedProviderId;
+            const isSelected = m.id === selectedId && p.id === selectedProviderId;
             return (
               <DropdownMenuItem
                 key={`${sectionKey}-${p.id}-${m.id}`}
@@ -667,9 +632,7 @@ function ModelSection({
               >
                 <div className="flex min-w-0 flex-1 flex-col items-start gap-0">
                   <span className="truncate font-medium">{m.label}</span>
-                  <span className="truncate text-[10px] text-muted-foreground">
-                    {m.hint}
-                  </span>
+                  <span className="text-muted-foreground truncate text-[10px]">{m.hint}</span>
                 </div>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -686,7 +649,7 @@ function ModelSection({
                         "shrink-0 cursor-pointer rounded p-1 transition-colors",
                         pinned
                           ? "text-foreground hover:bg-accent"
-                          : "text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus:opacity-100",
+                          : "text-muted-foreground/60 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
                       )}
                     >
                       <HugeiconsIcon
@@ -731,10 +694,7 @@ function IconBtn({
         aria-label={title}
         onClick={onClick}
         disabled={disabled}
-        className={cn(
-          "size-6 rounded-md text-muted-foreground hover:text-foreground",
-          className,
-        )}
+        className={cn("text-muted-foreground hover:text-foreground size-6 rounded-md", className)}
       >
         {children}
       </Button>

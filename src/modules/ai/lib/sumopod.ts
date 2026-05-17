@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  setDetectedModels,
-  SUMOPOD_BASE_URL,
-  type ModelInfo,
-} from "../config";
+import { setDetectedModels, SUMOPOD_BASE_URL, type ModelInfo } from "../config";
 
 type ModelsResponse = {
   data?: Array<{ id?: string; owned_by?: string }>;
@@ -83,9 +79,7 @@ export function getSumopodModelsState(): FetchState {
   return state;
 }
 
-export function subscribeSumopodModels(
-  cb: (s: FetchState) => void,
-): () => void {
+export function subscribeSumopodModels(cb: (s: FetchState) => void): () => void {
   listeners.add(cb);
   cb(state);
   return () => {

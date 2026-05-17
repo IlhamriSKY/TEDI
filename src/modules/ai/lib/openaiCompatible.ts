@@ -31,9 +31,7 @@ export function getOpenAICompatibleModelsState(): FetchState {
   return state;
 }
 
-export function subscribeOpenAICompatibleModels(
-  cb: (s: FetchState) => void,
-): () => void {
+export function subscribeOpenAICompatibleModels(cb: (s: FetchState) => void): () => void {
   listeners.add(cb);
   cb(state);
   return () => {
@@ -84,9 +82,7 @@ export async function refreshOpenAICompatibleModels(
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(
-        `/models returned ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
-      );
+      throw new Error(`/models returned ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
     }
     const json = (await res.json()) as ModelsResponse;
     const raws: Array<{ id: string; owned_by?: string }> = [];

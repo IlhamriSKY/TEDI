@@ -143,11 +143,17 @@ fn score_fuzzy(haystack: &str, needle: &[char]) -> (i32, Vec<usize>) {
             matches.push(char_byte_idx.get(i).copied().unwrap_or(0));
             let mut bonus = 1;
             // Word-boundary bonus.
-            let prev_ch = if i == 0 { None } else { original.get(i - 1).copied() };
+            let prev_ch = if i == 0 {
+                None
+            } else {
+                original.get(i - 1).copied()
+            };
             let is_boundary = match prev_ch {
                 None => true,
-                Some(p) => matches!(p, '_' | '-' | '/' | '\\' | '.' | ' ')
-                    || (p.is_lowercase() && original[i].is_uppercase()),
+                Some(p) => {
+                    matches!(p, '_' | '-' | '/' | '\\' | '.' | ' ')
+                        || (p.is_lowercase() && original[i].is_uppercase())
+                }
             };
             if is_boundary {
                 bonus += 4;

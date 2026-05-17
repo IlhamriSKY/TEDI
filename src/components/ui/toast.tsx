@@ -16,10 +16,7 @@ type ToastItem = {
 const listeners = new Set<(t: ToastItem) => void>();
 let nextId = 1;
 
-export function toast(
-  message: string,
-  options?: { variant?: ToastVariant; durationMs?: number },
-) {
+export function toast(message: string, options?: { variant?: ToastVariant; durationMs?: number }) {
   const item: ToastItem = {
     id: nextId++,
     message,
@@ -45,8 +42,7 @@ export function Toaster() {
     };
   }, []);
 
-  const dismiss = (id: number) =>
-    setItems((curr) => curr.filter((x) => x.id !== id));
+  const dismiss = (id: number) => setItems((curr) => curr.filter((x) => x.id !== id));
 
   return (
     <div
@@ -65,11 +61,9 @@ export function Toaster() {
             // Square/boxy minimal — `rounded-md` matches the tab strip's
             // existing button/group radii. Subtle border + popover bg keeps
             // it visually quiet against any underlying pane.
-            "pointer-events-auto flex items-start gap-2 rounded-md border bg-popover px-3 py-2 text-[12px] text-popover-foreground shadow-md ring-1 ring-foreground/5 animate-in fade-in slide-in-from-top-1 duration-150 dark:ring-foreground/10",
-            t.variant === "warning" &&
-              "border-amber-500/50 text-amber-700 dark:text-amber-300",
-            t.variant === "error" &&
-              "border-destructive/50 text-destructive",
+            "bg-popover text-popover-foreground ring-foreground/5 animate-in fade-in slide-in-from-top-1 dark:ring-foreground/10 pointer-events-auto flex items-start gap-2 rounded-md border px-3 py-2 text-[12px] shadow-md ring-1 duration-150",
+            t.variant === "warning" && "border-amber-500/50 text-amber-700 dark:text-amber-300",
+            t.variant === "error" && "border-destructive/50 text-destructive",
             t.variant === "default" && "border-border/70",
           )}
         >
@@ -78,7 +72,7 @@ export function Toaster() {
             type="button"
             aria-label="Dismiss"
             onClick={() => dismiss(t.id)}
-            className="-mr-1 -mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground -mt-0.5 -mr-1 shrink-0 rounded p-0.5 transition-colors"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
           </button>

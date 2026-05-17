@@ -1,12 +1,7 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-  Copy01Icon,
-  MinusSignIcon,
-  SquareIcon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Copy01Icon, MinusSignIcon, SquareIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
@@ -52,11 +47,7 @@ export function WindowControls({ closeOnly = false }: Props) {
               ariaLabel={maximized ? "Restore" : "Maximize"}
               onClick={() => void w.toggleMaximize()}
             >
-              <HugeiconsIcon
-                icon={maximized ? Copy01Icon : SquareIcon}
-                size={12}
-                strokeWidth={2}
-              />
+              <HugeiconsIcon icon={maximized ? Copy01Icon : SquareIcon} size={12} strokeWidth={2} />
             </CtlButton>
           </IconTooltip>
         </>
@@ -87,7 +78,7 @@ function CtlButton({
       aria-label={ariaLabel}
       onClick={onClick}
       className={cn(
-        "grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors",
+        "text-muted-foreground grid size-7 cursor-pointer place-items-center rounded-md transition-colors",
         danger
           ? "hover:bg-destructive/10 hover:text-destructive"
           : "hover:bg-accent hover:text-foreground",

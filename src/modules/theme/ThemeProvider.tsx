@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   loadPreferences,
   onPreferencesChange,
@@ -47,13 +40,8 @@ function writeFastTheme(t: Theme): void {
   }
 }
 
-export function ThemeProvider({
-  children,
-  defaultTheme = "system",
-}: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>(() =>
-    readFastTheme(defaultTheme),
-  );
+export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProviderProps) {
+  const [theme, setThemeState] = useState<Theme>(() => readFastTheme(defaultTheme));
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window === "undefined"
       ? true
@@ -107,11 +95,7 @@ export function ThemeProvider({
     [theme, resolvedTheme, setTheme],
   );
 
-  return (
-    <ThemeProviderContext.Provider value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  );
+  return <ThemeProviderContext.Provider value={value}>{children}</ThemeProviderContext.Provider>;
 }
 
 export function useTheme(): ThemeProviderState {

@@ -19,7 +19,8 @@
         "compression": "lzma",
         "installMode": "currentUser",
         "languages": ["English"],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "./installer.nsh"
       }
     }
   }

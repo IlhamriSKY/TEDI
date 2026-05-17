@@ -16,11 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import {
@@ -86,13 +82,13 @@ export function AiSidebarPanel() {
     <div
       data-ai-sidebar
       className={cn(
-        "relative flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60 bg-card/60",
+        "border-border/60 bg-card/60 relative flex h-full min-h-0 flex-col overflow-hidden border-l",
         "text-[12px]",
       )}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-foreground/[0.03] to-transparent"
+        className="from-foreground/[0.03] pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent"
       />
       {sessionId ? (
         <Body sessionId={sessionId} onClose={closePanel} />
@@ -107,20 +103,13 @@ export function AiSidebarPanel() {
 // Back-compat alias - older imports still reference `AiMiniWindow`.
 export { AiSidebarPanel as AiMiniWindow };
 
-function Body({
-  sessionId,
-  onClose,
-}: {
-  sessionId: string;
-  onClose: () => void;
-}) {
+function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const focusInput = useChatStore((s) => s.focusInput);
   const step = useChatStore((s) => s.agentMeta.step);
 
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
   const helpers = useChat<UIMessage>({ chat });
-  const isBusy =
-    helpers.status === "submitted" || helpers.status === "streaming";
+  const isBusy = helpers.status === "submitted" || helpers.status === "streaming";
 
   return (
     <>
@@ -158,17 +147,17 @@ function PlanModeStrip() {
   const disable = usePlanStore((s) => s.disable);
   if (!active) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/40 px-3 py-1.5">
+    <div className="border-border/40 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
-      <span className="text-[11px] font-medium text-foreground">Plan mode</span>
-      <span className="text-[11px] text-muted-foreground">
+      <span className="text-foreground text-[11px] font-medium">Plan mode</span>
+      <span className="text-muted-foreground text-[11px]">
         {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}
       </span>
       <span className="flex-1" />
       <button
         type="button"
         onClick={() => disable()}
-        className="cursor-pointer rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
       >
         Exit
       </button>
@@ -180,7 +169,7 @@ function EmptyShell({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Header step={null} isBusy={false} onClose={onClose} />
-      <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-[11px]">
         Loading sessions…
       </div>
     </>
@@ -200,13 +189,13 @@ function Header({
   void customAgents;
 
   return (
-    <div className="relative flex h-11 shrink-0 items-center justify-between gap-1 border-b border-border/60 px-0">
+    <div className="border-border/60 relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-0">
       <div className="flex min-w-0 flex-1 items-center">
         <SessionPicker />
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {isBusy ? (
-          <span className="flex min-w-0 items-center gap-1 pr-1 text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground flex min-w-0 items-center gap-1 pr-1 text-[10px]">
             <Spinner className="size-2.5" />
             <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
           </span>
@@ -217,7 +206,7 @@ function Header({
             size="icon"
             variant="ghost"
             onClick={onClose}
-            className="size-7 rounded-none hover:bg-destructive/10 hover:text-destructive"
+            className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
             aria-label="Close (Esc)"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
@@ -278,41 +267,37 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
       <ContextContent className="w-72 text-[11px]">
         <ContextContentHeader />
         <ContextContentBody>
-          <div className="flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground flex items-center justify-between">
             <span>Model</span>
-            <span className="font-mono text-foreground">{modelLabel}</span>
+            <span className="text-foreground font-mono">{modelLabel}</span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground mt-1 flex items-center justify-between">
             <span>Estimated used</span>
-            <span className="font-mono text-foreground">
-              {formatTokens(used)}
-            </span>
+            <span className="text-foreground font-mono">{formatTokens(used)}</span>
           </div>
-          <div className="flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground flex items-center justify-between">
             <span>Window</span>
-            <span className="font-mono text-foreground">
-              {formatTokens(max)}
-            </span>
+            <span className="text-foreground font-mono">{formatTokens(max)}</span>
           </div>
 
-          <div className="my-2 border-t border-border/40" />
+          <div className="border-border/40 my-2 border-t" />
 
-          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          <div className="text-muted-foreground/70 text-[10px] font-medium tracking-wider uppercase">
             Session usage
           </div>
-          <div className="mt-1 flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground mt-1 flex items-center justify-between">
             <span>Input</span>
-            <span className="font-mono text-foreground">
+            <span className="text-foreground font-mono">
               {hasReportedUsage ? formatTokens(usage.input) : "—"}
             </span>
           </div>
-          <div className="flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground flex items-center justify-between">
             <span>Output</span>
-            <span className="font-mono text-foreground">
+            <span className="text-foreground font-mono">
               {hasReportedUsage ? formatTokens(usage.output) : "—"}
             </span>
           </div>
-          <div className="flex items-center justify-between text-muted-foreground">
+          <div className="text-muted-foreground flex items-center justify-between">
             <span>Cached (prompt cache hit)</span>
             <span
               className={cn(
@@ -322,14 +307,12 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
                   : "text-foreground",
               )}
             >
-              {hasReportedUsage
-                ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)`
-                : "—"}
+              {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "—"}
             </span>
           </div>
         </ContextContentBody>
         <ContextContentFooter>
-          <span className="text-[10px] italic text-muted-foreground">
+          <span className="text-muted-foreground text-[10px] italic">
             Used = local estimate (chars/4). Session = reported by provider.
           </span>
         </ContextContentFooter>
@@ -358,8 +341,8 @@ function SessionPicker() {
             <button
               type="button"
               className={cn(
-                "flex min-w-0 max-w-48 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1",
-                "text-[11px] text-muted-foreground transition-colors",
+                "flex max-w-48 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1",
+                "text-muted-foreground text-[11px] transition-colors",
                 "hover:bg-accent hover:text-foreground",
               )}
               aria-label="Switch session"
@@ -383,10 +366,7 @@ function SessionPicker() {
         collisionPadding={8}
         className="max-w-[calc(var(--radix-popper-available-width)-8px)] min-w-56"
       >
-        <DropdownMenuItem
-          onSelect={() => newSession()}
-          className="gap-2 text-xs"
-        >
+        <DropdownMenuItem onSelect={() => newSession()} className="gap-2 text-xs">
           <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
           New session
         </DropdownMenuItem>
@@ -432,9 +412,7 @@ function SessionRow({
         active && "bg-accent/40",
       )}
     >
-      <span className="min-w-0 flex-1 truncate">
-        {session.title || "New chat"}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{session.title || "New chat"}</span>
       <IconTooltip label="Delete session" side="right">
         <button
           type="button"
@@ -444,7 +422,7 @@ function SessionRow({
             onDelete();
           }}
           aria-label="Delete session"
-          className="cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
         >
           <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
         </button>
@@ -458,10 +436,8 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-10 text-center">
       <img src="/icon.png" alt="TEDI" className="size-14 opacity-90" />
       <div className="space-y-1.5">
-        <p className="text-[14px] font-semibold tracking-tight">
-          Ask TEDI anything
-        </p>
-        <p className="max-w-[18rem] text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="text-[14px] font-semibold tracking-tight">Ask TEDI anything</p>
+        <p className="text-muted-foreground max-w-[18rem] text-[11.5px] leading-relaxed">
           TEDI sees the active terminal - cwd, recent commands, and output.
         </p>
       </div>
@@ -472,20 +448,16 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
             type="button"
             onClick={() => onPick(s.text)}
             className={cn(
-              "group flex cursor-pointer items-center gap-2.5 bg-card/70 rounded-lg px-2.5 py-2 border border-border text-left",
-              "transition-colors hover:bg-muted/50 hover:text-foreground",
+              "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
+              "hover:bg-muted/50 hover:text-foreground transition-colors",
             )}
           >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/70 text-muted-foreground transition-colors group-hover:bg-foreground/5 group-hover:text-foreground">
+            <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
               <HugeiconsIcon icon={s.icon} size={13} strokeWidth={1.75} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-medium text-foreground">
-                {s.label}
-              </div>
-              <div className="text-[10.5px] text-muted-foreground">
-                {s.hint}
-              </div>
+              <div className="text-foreground text-[12px] font-medium">{s.label}</div>
+              <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
             </div>
           </button>
         ))}

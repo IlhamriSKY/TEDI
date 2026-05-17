@@ -28,8 +28,7 @@ export function UpdaterPill() {
             ? `Update available · v${updater.state.version}`
             : "Update";
 
-  const Icon =
-    updater.state.kind === "ready" ? RefreshIcon : Download04Icon;
+  const Icon = updater.state.kind === "ready" ? RefreshIcon : Download04Icon;
 
   return (
     <>
@@ -38,17 +37,15 @@ export function UpdaterPill() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label={label}
-          className="inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/35 inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
         >
           <HugeiconsIcon
             icon={Icon}
             size={11}
             strokeWidth={1.75}
-            className="shrink-0 text-primary-foreground"
+            className="text-primary-foreground shrink-0"
           />
-          <span className="truncate">
-            {updater.state.kind === "ready" ? "Restart" : "Update"}
-          </span>
+          <span className="truncate">{updater.state.kind === "ready" ? "Restart" : "Update"}</span>
         </button>
       </IconTooltip>
       <UpdaterDialog

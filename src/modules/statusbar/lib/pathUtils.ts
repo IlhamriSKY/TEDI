@@ -15,8 +15,7 @@ export function segmentsFromCwd(cwd: string, home: string | null): Segment[] {
   const normHome = home !== null ? normalize(home) : null;
 
   const usingHome =
-    normHome !== null &&
-    (normCwd === normHome || normCwd.startsWith(normHome + "/"));
+    normHome !== null && (normCwd === normHome || normCwd.startsWith(normHome + "/"));
 
   let rootSegment: Segment;
   let tail: string;

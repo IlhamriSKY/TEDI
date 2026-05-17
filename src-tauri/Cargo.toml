@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.0"
+version = "0.2.1"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -65,6 +65,7 @@ windows-sys = { version = "0.59", features = [
 tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 
 [profile.dev]
 incremental = true

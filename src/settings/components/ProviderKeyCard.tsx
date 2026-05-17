@@ -29,12 +29,7 @@ function maskKey(key: string): string {
   return `${key.slice(0, 4)}${"•".repeat(8)}${key.slice(-4)}`;
 }
 
-export function ProviderKeyCard({
-  provider,
-  currentKey,
-  onSave,
-  onClear,
-}: Props) {
+export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props) {
   const [editing, setEditing] = useState(!currentKey);
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
@@ -78,7 +73,7 @@ export function ProviderKeyCard({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5",
+        "border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5",
       )}
     >
       <div className="flex items-center gap-2">
@@ -89,18 +84,14 @@ export function ProviderKeyCard({
             variant="outline"
             className="ml-1 h-4 gap-1 border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-700 dark:text-emerald-300"
           >
-            <HugeiconsIcon
-              icon={CheckmarkCircle02Icon}
-              size={9}
-              strokeWidth={2}
-            />
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
             Configured
           </Badge>
         ) : null}
         <button
           type="button"
           onClick={() => void openUrl(provider.consoleUrl)}
-          className="ml-auto cursor-pointer text-[10.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="text-muted-foreground hover:text-foreground ml-auto cursor-pointer text-[10.5px] underline-offset-2 hover:underline"
         >
           Get key
         </button>
@@ -113,9 +104,7 @@ export function ProviderKeyCard({
               type={reveal ? "text" : "password"}
               autoComplete="off"
               spellCheck={false}
-              placeholder={
-                provider.keyPrefix ? `${provider.keyPrefix}…` : "Paste API key"
-              }
+              placeholder={provider.keyPrefix ? `${provider.keyPrefix}…` : "Paste API key"}
               value={value}
               disabled={saving}
               onChange={(e) => {
@@ -134,7 +123,7 @@ export function ProviderKeyCard({
               type="button"
               onClick={() => setReveal((v) => !v)}
               tabIndex={-1}
-              className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
               aria-label={reveal ? "Hide key" : "Show key"}
             >
               <HugeiconsIcon
@@ -144,9 +133,7 @@ export function ProviderKeyCard({
               />
             </button>
           </div>
-          {error ? (
-            <p className="text-[10.5px] text-destructive">{error}</p>
-          ) : null}
+          {error ? <p className="text-destructive text-[10.5px]">{error}</p> : null}
           <div className="flex justify-end gap-1.5">
             {currentKey ? (
               <Button
@@ -172,7 +159,7 @@ export function ProviderKeyCard({
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+          <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[11px]">
             {maskKey(currentKey ?? "")}
           </code>
           <IconTooltip label="Replace" side="top">
@@ -192,7 +179,7 @@ export function ProviderKeyCard({
               variant="ghost"
               onClick={() => void onClear()}
               aria-label="Remove"
-              className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
             </Button>

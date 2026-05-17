@@ -82,7 +82,10 @@ export function buildSharedExtensions(opts?: {
       },
       ".cm-scroller": {
         fontFamily: detectMonoFontFamily(),
-        fontSize: "13px",
+        // Scale with the content-zoom CSS variable (set by App.tsx from the
+        // `contentZoom` preference). Fallback `1` keeps the editor at its
+        // base size before prefs hydrate.
+        fontSize: "calc(13px * var(--content-zoom, 1))",
         lineHeight: "1.55",
         backgroundColor: "transparent !important",
       },
@@ -153,22 +156,19 @@ export function buildSharedExtensions(opts?: {
       },
       // Inline placeholder shown where a region is folded.
       ".cm-foldPlaceholder": {
-        backgroundColor:
-          "color-mix(in srgb, var(--foreground) 10%, transparent)",
+        backgroundColor: "color-mix(in srgb, var(--foreground) 10%, transparent)",
         color: "var(--muted-foreground)",
         border: "1px solid var(--border)",
         borderRadius: "0",
         padding: "0 4px",
         margin: "0 2px",
-        fontSize: "11px",
+        fontSize: "calc(11px * var(--content-zoom, 1))",
       },
       ".cm-activeLine": {
-        backgroundColor:
-          "color-mix(in srgb, var(--foreground) 5%, transparent)",
+        backgroundColor: "color-mix(in srgb, var(--foreground) 5%, transparent)",
       },
       ".cm-activeLineGutter": {
-        backgroundColor:
-          "color-mix(in srgb, var(--foreground) 5%, transparent) !important",
+        backgroundColor: "color-mix(in srgb, var(--foreground) 5%, transparent) !important",
         color: "var(--foreground)",
         userSelect: "none",
       },
@@ -177,22 +177,17 @@ export function buildSharedExtensions(opts?: {
       },
       // Vim normal-mode block cursor - translucent foreground, no rose hue.
       ".cm-fat-cursor": {
-        background:
-          "color-mix(in srgb, var(--foreground) 35%, transparent) !important",
-        outline:
-          "1px solid color-mix(in srgb, var(--foreground) 55%, transparent) !important",
+        background: "color-mix(in srgb, var(--foreground) 35%, transparent) !important",
+        outline: "1px solid color-mix(in srgb, var(--foreground) 55%, transparent) !important",
         color: "var(--foreground) !important",
       },
       "&:not(.cm-focused) .cm-fat-cursor": {
         background: "transparent !important",
-        outline:
-          "1px solid color-mix(in srgb, var(--foreground) 35%, transparent) !important",
+        outline: "1px solid color-mix(in srgb, var(--foreground) 35%, transparent) !important",
       },
-      ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection":
-        {
-          backgroundColor:
-            "color-mix(in srgb, var(--foreground) 18%, transparent) !important",
-        },
+      ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
+        backgroundColor: "color-mix(in srgb, var(--foreground) 18%, transparent) !important",
+      },
       ".cm-panels": {
         backgroundColor: "var(--popover)",
         color: "var(--popover-foreground)",

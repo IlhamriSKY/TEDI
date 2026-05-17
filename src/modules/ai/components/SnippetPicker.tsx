@@ -15,12 +15,7 @@ type Props = {
   onHover: (index: number) => void;
 };
 
-export function SnippetPickerContent({
-  items,
-  activeIndex,
-  onPick,
-  onHover,
-}: Props) {
+export function SnippetPickerContent({ items, activeIndex, onPick, onHover }: Props) {
   const commands = items.filter((it) => it.kind === "command");
   const snippets = items.filter((it) => it.kind === "snippet");
   let cursor = -1;
@@ -33,10 +28,10 @@ export function SnippetPickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="w-72 overflow-hidden rounded-lg border border-border/60 bg-popover/95 p-0 shadow-xl backdrop-blur-xl"
+      className="border-border/60 bg-popover/95 w-72 overflow-hidden rounded-lg border p-0 shadow-xl backdrop-blur-xl"
     >
       {items.length === 0 ? (
-        <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
+        <div className="text-muted-foreground px-3 py-2.5 text-[11px]">
           No matches. Add snippets in Settings → Agents.
         </div>
       ) : (
@@ -58,9 +53,7 @@ export function SnippetPickerContent({
                         onClick={() => onPick(it)}
                         className={cn(
                           "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left text-[12px]",
-                          i === activeIndex
-                            ? "bg-accent"
-                            : "hover:bg-accent/60",
+                          i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
                         )}
                       >
                         <HugeiconsIcon
@@ -71,9 +64,7 @@ export function SnippetPickerContent({
                         />
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="flex items-center gap-1.5">
-                            <span className="font-mono text-muted-foreground">
-                              #{c.name}
-                            </span>
+                            <span className="text-muted-foreground font-mono">#{c.name}</span>
                             <span className="font-medium">{c.label}</span>
                           </span>
                         </span>
@@ -101,19 +92,15 @@ export function SnippetPickerContent({
                         onClick={() => onPick(it)}
                         className={cn(
                           "flex w-full cursor-pointer flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
-                          i === activeIndex
-                            ? "bg-accent"
-                            : "hover:bg-accent/60",
+                          i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
                         )}
                       >
                         <span className="flex w-full items-center gap-1.5">
-                          <span className="font-mono text-muted-foreground">
-                            #{s.handle}
-                          </span>
+                          <span className="text-muted-foreground font-mono">#{s.handle}</span>
                           <span className="font-medium">{s.name}</span>
                         </span>
                         {s.description ? (
-                          <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                          <span className="text-muted-foreground line-clamp-1 text-[10.5px]">
                             {s.description}
                           </span>
                         ) : null}
@@ -132,7 +119,7 @@ export function SnippetPickerContent({
 
 function SectionHeader({ label }: { label: string }) {
   return (
-    <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+    <div className="text-muted-foreground/70 px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide uppercase">
       {label}
     </div>
   );

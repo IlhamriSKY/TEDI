@@ -95,10 +95,7 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
         // if the file has odd whitespace.
         let data_url = if mime == "image/svg+xml" {
             match std::str::from_utf8(&bytes) {
-                Ok(s) => format!(
-                    "data:{mime};utf8,{}",
-                    urlencode_svg(s)
-                ),
+                Ok(s) => format!("data:{mime};utf8,{}", urlencode_svg(s)),
                 Err(_) => format!("data:{mime};base64,{}", B64.encode(&bytes)),
             }
         } else {
@@ -181,4 +178,3 @@ pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
 
     Ok(())
 }
-

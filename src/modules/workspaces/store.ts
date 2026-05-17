@@ -76,11 +76,7 @@ type Actions = {
   renameWorkspace: (id: string, name: string) => void;
   removeWorkspace: (id: string) => void;
   /** Replace a workspace's saved tabs (used to snapshot before switching). */
-  saveWorkspaceTabs: (
-    id: string,
-    tabs: SavedTab[],
-    activeTabIndex: number,
-  ) => void;
+  saveWorkspaceTabs: (id: string, tabs: SavedTab[], activeTabIndex: number) => void;
 };
 
 export const useWorkspacesStore = create<State & Actions>((set, get) => {
@@ -144,9 +140,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
 
     renameWorkspace(id, name) {
       set({
-        workspaces: get().workspaces.map((w) =>
-          w.id === id ? { ...w, name } : w,
-        ),
+        workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, name } : w)),
       });
       void persist();
     },
@@ -168,10 +162,8 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       } else {
         // When closing the active workspace, hand focus to the neighbor -
         // prefer the one below (same index after filter), fall back to above.
-        const neighborIdx =
-          removedIdx >= next.length ? next.length - 1 : removedIdx;
-        const newActive =
-          before.activeId === id ? next[neighborIdx].id : before.activeId;
+        const neighborIdx = removedIdx >= next.length ? next.length - 1 : removedIdx;
+        const newActive = before.activeId === id ? next[neighborIdx].id : before.activeId;
         set({ workspaces: next, activeId: newActive });
       }
       void persist();
@@ -179,9 +171,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
 
     saveWorkspaceTabs(id, tabs, activeTabIndex) {
       set({
-        workspaces: get().workspaces.map((w) =>
-          w.id === id ? { ...w, tabs, activeTabIndex } : w,
-        ),
+        workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, tabs, activeTabIndex } : w)),
       });
       void persist();
     },

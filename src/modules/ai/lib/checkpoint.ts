@@ -84,10 +84,7 @@ export function getCheckpointsVersion(): number {
   return version;
 }
 
-export function openCheckpoint(
-  sessionId: string,
-  baselineMessageCount: number,
-): void {
+export function openCheckpoint(sessionId: string, baselineMessageCount: number): void {
   // Drop any prior checkpoint outright — only the LAST is retained.
   checkpoints.set(sessionId, {
     baselineMessageCount,
@@ -101,11 +98,7 @@ export function discardCheckpoint(sessionId: string): void {
   if (checkpoints.delete(sessionId)) notify();
 }
 
-export function recordFileMutation(
-  sessionId: string,
-  path: string,
-  snapshot: FileSnapshot,
-): void {
+export function recordFileMutation(sessionId: string, path: string, snapshot: FileSnapshot): void {
   const cp = checkpoints.get(sessionId);
   if (!cp) return;
   const existing = cp.files.get(path);
@@ -156,9 +149,7 @@ export type RestoreOutcome = {
  *  agent last wrote. If the user has manually edited a file in the
  *  meantime, that file is skipped (their changes win). This applies
  *  per-path — other files in the checkpoint are still reverted. */
-export async function restoreCheckpoint(
-  sessionId: string,
-): Promise<RestoreOutcome | null> {
+export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutcome | null> {
   const cp = checkpoints.get(sessionId);
   if (!cp) return null;
 

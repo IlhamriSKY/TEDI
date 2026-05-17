@@ -46,10 +46,7 @@ export async function saveActiveId(id: string | null): Promise<void> {
   await store.set(KEY_ACTIVE, id);
 }
 
-export async function saveMessages(
-  id: string,
-  messages: UIMessage[],
-): Promise<void> {
+export async function saveMessages(id: string, messages: UIMessage[]): Promise<void> {
   await store.set(messagesKey(id), messages);
 }
 

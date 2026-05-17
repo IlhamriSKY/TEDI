@@ -16,8 +16,7 @@ const COLOR_RE =
 // Cache parsed colors so we don't hit the browser parser on every keystroke.
 const colorCache = new Map<string, { css: string; fg: string } | null>();
 
-const probe =
-  typeof document !== "undefined" ? document.createElement("div") : null;
+const probe = typeof document !== "undefined" ? document.createElement("div") : null;
 
 function rgbToFg(rgb: string): string {
   const m = rgb.match(/\(([^)]+)\)/);
@@ -27,10 +26,8 @@ function rgbToFg(rgb: string): string {
   const r = parseFloat(parts[0]) / 255;
   const g = parseFloat(parts[1]) / 255;
   const b = parseFloat(parts[2]) / 255;
-  const channel = (c: number) =>
-    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  const lum =
-    0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  const channel = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
   return lum > 0.5 ? "#000000" : "#ffffff";
 }
 

@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{fs, git, net, preview, pty, secrets, shell, ssh};
+use modules::{cli, fs, git, net, preview, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -50,10 +50,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
                 main.outer_size(),
                 window.outer_size(),
             ) {
-                let x = main_pos.x
-                    + (main_size.width as i32 - settings_size.width as i32) / 2;
-                let y = main_pos.y
-                    + (main_size.height as i32 - settings_size.height as i32) / 2;
+                let x = main_pos.x + (main_size.width as i32 - settings_size.width as i32) / 2;
+                let y = main_pos.y + (main_size.height as i32 - settings_size.height as i32) / 2;
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
             }
         }
@@ -114,10 +112,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
             main.outer_size(),
             window.outer_size(),
         ) {
-            let x = main_pos.x
-                + (main_size.width as i32 - settings_size.width as i32) / 2;
-            let y = main_pos.y
-                + (main_size.height as i32 - settings_size.height as i32) / 2;
+            let x = main_pos.x + (main_size.width as i32 - settings_size.width as i32) / 2;
+            let y = main_pos.y + (main_size.height as i32 - settings_size.height as i32) / 2;
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
         }
     }
@@ -194,11 +190,35 @@ fn has_nvidia_gpu() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Short-circuit `tedi --version` / `tedi --help` before anything else —
+    // we want these to be instant and never touch the GUI runtime.
+    cli::handle_version_help_and_exit();
+
+    // Resolve `tedi .` / `tedi <path>` against the launch cwd before any
+    // other startup logic can shift the working directory.
+    cli::capture_startup();
+
     #[cfg(target_os = "linux")]
     configure_linux_rendering();
 
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_process::init());
+    let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
+
+    // Second-invocation forwarding: when the user runs `tedi <path>` while an
+    // instance is already up, the new process exits early after handing off
+    // its argv. Desktop-only — the plugin doesn't build for android/ios.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        let cwd_path = std::path::PathBuf::from(&cwd);
+        let target = cli::parse(argv, &cwd_path);
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            if let Some(t) = target {
+                let _ = window.emit("tedi:open-cli-target", t);
+            }
+        }
+    }));
 
     // Custom URI scheme that proxies arbitrary http(s) URLs and strips
     // X-Frame-Options / CSP frame-ancestors so the preview pane can embed
@@ -217,6 +237,10 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 disable_windows_corner_rounding(&window);
             }
+            // Heal a stale `~/.local/bin/tedi` shim after an update that moved
+            // the binary (macOS .app relocation, AppImage filename change).
+            // No-op on Windows — the NSIS hook handles upgrades there.
+            cli::refresh_shim_if_present();
             Ok(())
         })
         // Skip restoring VISIBLE - frontend calls window.show() after first
@@ -261,6 +285,9 @@ pub fn run() {
             git::commands::git_file_head,
             git::commands::git_discard_file,
             git::commands::git_discard_all,
+            git::commands::git_commit,
+            git::commands::git_push,
+            git::commands::git_diff_full,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
@@ -270,6 +297,8 @@ pub fn run() {
             shell::shell_bg_kill,
             shell::shell_bg_list,
             open_settings_window,
+            cli::cli_initial_target,
+            cli::cli_install_path_shim,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

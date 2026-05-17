@@ -50,15 +50,11 @@ export function SshMenu({ onConnect }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<SshConnection | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<SshConnection | null>(
-    null,
-  );
+  const [confirmDelete, setConfirmDelete] = useState<SshConnection | null>(null);
 
   useEffect(() => {
     void listConnections().then(setConns);
-    const unsub = onConnectionsChanged(() =>
-      void listConnections().then(setConns),
-    );
+    const unsub = onConnectionsChanged(() => void listConnections().then(setConns));
     return () => {
       void unsub.then((fn) => fn());
     };
@@ -114,29 +110,21 @@ export function SshMenu({ onConnect }: Props) {
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
               aria-label="SSH connections"
             >
-              <HugeiconsIcon
-                icon={CloudServerIcon}
-                size={15}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={CloudServerIcon} size={15} strokeWidth={1.75} />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
         <DropdownMenuContent align="end" className="w-72 min-w-72">
-          <DropdownMenuLabel className="text-[10px] tracking-wide text-muted-foreground uppercase">
+          <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
             SSH connections
           </DropdownMenuLabel>
           {conns === null ? (
-            <div className="px-3 py-2 text-[11px] text-muted-foreground">
-              Loading…
-            </div>
+            <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
           ) : conns.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-muted-foreground">
-              No saved hosts yet.
-            </div>
+            <div className="text-muted-foreground px-3 py-2 text-[11px]">No saved hosts yet.</div>
           ) : (
             conns.map((c) => (
               <DropdownMenuItem
@@ -148,15 +136,13 @@ export function SshMenu({ onConnect }: Props) {
                 // `**:text-current!` neutralises the parent's
                 // `**:text-accent-foreground` cascade that was repainting
                 // every descendant (including delete/edit icons).
-                className="group flex items-center justify-between gap-2 pr-1 text-[12px] focus:bg-muted! focus:text-foreground! focus:**:text-current!"
+                className="group focus:bg-muted! focus:text-foreground! flex items-center justify-between gap-2 pr-1 text-[12px] focus:**:text-current!"
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{c.name}</span>
-                  <span className="truncate font-mono text-[10px] text-muted-foreground">
+                  <span className="text-muted-foreground truncate font-mono text-[10px]">
                     {c.user}@{c.host}:{c.port}
-                    {c.lastConnectedAt
-                      ? ` · last ${formatRelative(c.lastConnectedAt)}`
-                      : ""}
+                    {c.lastConnectedAt ? ` · last ${formatRelative(c.lastConnectedAt)}` : ""}
                   </span>
                 </span>
                 {/* Action buttons. preventDefault on click stops Radix'
@@ -193,11 +179,7 @@ export function SshMenu({ onConnect }: Props) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <SshConnectionDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        editing={editing}
-      />
+      <SshConnectionDialog open={editorOpen} onOpenChange={setEditorOpen} editing={editing} />
 
       <AlertDialog
         open={confirmDelete !== null}
@@ -265,10 +247,8 @@ function RowIconButton({
         e.stopPropagation();
       }}
       className={cn(
-        "flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground transition-colors",
-        danger
-          ? "hover:bg-destructive/15 hover:text-destructive"
-          : "hover:bg-muted-foreground/15",
+        "text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+        danger ? "hover:bg-destructive/15 hover:text-destructive" : "hover:bg-muted-foreground/15",
       )}
     >
       <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />

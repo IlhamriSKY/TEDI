@@ -10,10 +10,7 @@ import type { ToolContext } from "./context";
  */
 const sessionShells = new Map<string, Promise<number>>();
 
-async function getSessionShell(
-  sessionId: string,
-  cwd: string | null,
-): Promise<number> {
+async function getSessionShell(sessionId: string, cwd: string | null): Promise<number> {
   let p = sessionShells.get(sessionId);
   if (!p) {
     p = native.shellSessionOpen(cwd);
@@ -40,12 +37,7 @@ export function buildShellTools(ctx: ToolContext) {
         try {
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(sid, cwd);
-          const r = await native.shellSessionRun(
-            shellId,
-            command,
-            cwd,
-            timeout_secs,
-          );
+          const r = await native.shellSessionRun(shellId, command, cwd, timeout_secs);
           return {
             command,
             stdout: r.stdout,

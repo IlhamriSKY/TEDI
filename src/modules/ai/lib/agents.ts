@@ -1,12 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 
-export type AgentIconId =
-  | "coder"
-  | "architect"
-  | "reviewer"
-  | "security"
-  | "designer"
-  | "spark";
+export type AgentIconId = "coder" | "architect" | "reviewer" | "security" | "designer" | "spark";
 
 export type Agent = {
   id: string;
@@ -103,8 +97,7 @@ export async function loadAgents(): Promise<LoadedAgents> {
   for (const [k, v] of entries) {
     if (k === KEY_CUSTOM) custom = v as Agent[];
     else if (k === KEY_ACTIVE) activeId = v as string;
-    else if (k === KEY_BUILTIN_OVERRIDES)
-      builtinOverrides = v as BuiltinOverrides;
+    else if (k === KEY_BUILTIN_OVERRIDES) builtinOverrides = v as BuiltinOverrides;
   }
   return {
     custom: custom ?? [],
@@ -123,9 +116,7 @@ export async function saveActiveAgentId(id: string): Promise<void> {
   await store.save();
 }
 
-export async function saveBuiltinOverrides(
-  overrides: BuiltinOverrides,
-): Promise<void> {
+export async function saveBuiltinOverrides(overrides: BuiltinOverrides): Promise<void> {
   await store.set(KEY_BUILTIN_OVERRIDES, overrides);
   await store.save();
 }
@@ -136,15 +127,10 @@ export function newAgentId(): string {
 
 /** Built-in agents with any user overrides applied. */
 export function effectiveBuiltins(overrides: BuiltinOverrides): Agent[] {
-  return BUILTIN_AGENTS.map((a) =>
-    overrides[a.id] ? { ...overrides[a.id], builtIn: true } : a,
-  );
+  return BUILTIN_AGENTS.map((a) => (overrides[a.id] ? { ...overrides[a.id], builtIn: true } : a));
 }
 
-export function findAgent(
-  agents: readonly Agent[],
-  id: string | null | undefined,
-): Agent {
+export function findAgent(agents: readonly Agent[], id: string | null | undefined): Agent {
   if (!id) return BUILTIN_AGENTS[0];
   return agents.find((a) => a.id === id) ?? BUILTIN_AGENTS[0];
 }

@@ -6,18 +6,18 @@ Workspace-root agent memory (loaded like `AGENTS.md` / `CLAUDE.md`) **and** the 
 
 **TEDI** - Terminal Environment & Development Infrastructure. Lightweight cross-platform terminal with split panes, tab groups, workspaces, and a BYOK AI agent. Forked from [Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9).
 
-| | |
-|---|---|
-| Stack | Tauri 2 + Rust (`portable-pty`) ⇄ React 19 + TS + xterm.js (webgl) |
-| Bundle id | `id.ilhamrisky.tedi` |
-| Keychain service | `tedi` |
-| Package manager | **pnpm** |
-| Platforms | macOS, Linux, Windows |
-| Frontend check | `pnpm exec tsc --noEmit` |
-| Rust check | `cd src-tauri && cargo check && cargo clippy` |
-| Build | `pnpm tauri build` |
-| Dev | `pnpm tauri dev` |
-| Auto-updater | **Enabled** - signed updates via GitHub Releases (6h poll) |
+|                  |                                                                    |
+| ---------------- | ------------------------------------------------------------------ |
+| Stack            | Tauri 2 + Rust (`portable-pty`) ⇄ React 19 + TS + xterm.js (webgl) |
+| Bundle id        | `id.ilhamrisky.tedi`                                               |
+| Keychain service | `tedi`                                                             |
+| Package manager  | **pnpm**                                                           |
+| Platforms        | macOS, Linux, Windows                                              |
+| Frontend check   | `pnpm exec tsc --noEmit`                                           |
+| Rust check       | `cd src-tauri && cargo check && cargo clippy`                      |
+| Build            | `pnpm tauri build`                                                 |
+| Dev              | `pnpm tauri dev`                                                   |
+| Auto-updater     | **Enabled** - signed updates via GitHub Releases (6h poll)         |
 
 ## Architecture: two-process model
 
@@ -25,25 +25,26 @@ The webview never touches OS resources directly. Everything goes through `invoke
 
 ### Rust (`src-tauri/src/modules/`)
 
-| Module | Files | Commands | Purpose |
-|---|---|---|---|
-| `pty/` | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/` | `pty_open/write/resize/close` | Long-lived interactive PTYs (xterm ↔ portable-pty). State: `RwLock<HashMap<id, Session>>`. Streams output via Tauri `Channel<PtyEvent>`. |
-| `fs/` | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). |
-| `shell/` | `session.rs`, `background.rs`, `ringbuffer.rs` | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list` | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.** |
-| `secrets.rs` | - | `secrets_get/set/delete/get_all` | OS keychain (`keyring` crate). Service = `tedi`. Linux falls back to a file store gated by `#[cfg(target_os = "linux")]`. |
-| `net.rs` | - | `http_ping` | Minimal HTTP probe (dev-server detection etc.). |
-| `lib.rs` | - | `open_settings_window` | Spawns the Settings webview. |
+| Module       | Files                                                     | Commands                                                                                                                                                       | Purpose                                                                                                                                                                                                                           |
+| ------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`       | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/`       | `pty_open/write/resize/close`                                                                                                                                  | Long-lived interactive PTYs (xterm ↔ portable-pty). State: `RwLock<HashMap<id, Session>>`. Streams output via Tauri `Channel<PtyEvent>`.                                                                                          |
+| `fs/`        | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates).                                                                                                                                      |
+| `shell/`     | `session.rs`, `background.rs`, `ringbuffer.rs`            | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list`                                                                           | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.** |
+| `secrets.rs` | -                                                         | `secrets_get/set/delete/get_all`                                                                                                                               | OS keychain (`keyring` crate). Service = `tedi`. Linux falls back to a file store gated by `#[cfg(target_os = "linux")]`.                                                                                                         |
+| `net.rs`     | -                                                         | `http_ping`                                                                                                                                                    | Minimal HTTP probe (dev-server detection etc.).                                                                                                                                                                                   |
+| `lib.rs`     | -                                                         | `open_settings_window`                                                                                                                                         | Spawns the Settings webview.                                                                                                                                                                                                      |
 
 ### PTY shell integration
 
 Init scripts in [src-tauri/src/modules/pty/scripts/](src-tauri/src/modules/pty/scripts/) bootstrap shells to emit:
+
 - **OSC 7** - cwd updates.
 - **OSC 133 A/B/C/D** - prompt/command/output/exit-code boundaries (no prompt re-parsing needed).
 
-| Platform | Shells | How injected |
-|---|---|---|
-| Unix | zsh (`zshenv/zprofile/zlogin/zshrc`), bash (`bashrc.bash`), fish (`init.fish`) | `ZDOTDIR` (zsh), `--rcfile` (bash) |
-| Windows | pwsh 7+ → powershell 5.1 → cmd (no integration) | `pwsh -NoLogo -NoExit -ExecutionPolicy Bypass -File profile.ps1`. Wraps the user's `prompt` fn **after** `$PROFILE` runs to emit OSC 7 + 133 A/B/D. |
+| Platform | Shells                                                                         | How injected                                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unix     | zsh (`zshenv/zprofile/zlogin/zshrc`), bash (`bashrc.bash`), fish (`init.fish`) | `ZDOTDIR` (zsh), `--rcfile` (bash)                                                                                                                  |
+| Windows  | pwsh 7+ → powershell 5.1 → cmd (no integration)                                | `pwsh -NoLogo -NoExit -ExecutionPolicy Bypass -File profile.ps1`. Wraps the user's `prompt` fn **after** `$PROFILE` runs to emit OSC 7 + 133 A/B/D. |
 
 [pty/shell_init.rs](src-tauri/src/modules/pty/shell_init.rs) is split into `#[cfg(unix)]` / `#[cfg(windows)]` modules - keep new platform code in the right arm.
 
@@ -67,21 +68,21 @@ Single-window React app, path alias `@/*` → `src/*`. Tabs are a tagged union (
 
 Each module is self-contained, exports a thin barrel via `index.ts`, owns its hooks under `lib/`. **13 modules:**
 
-| Module | Role |
-|---|---|
-| **terminal/** | `TerminalPane` keeps one mounted xterm per tab via `lib/useTerminalSession` + `lib/pty-bridge`. `lib/osc-handlers.ts` parses OSC 7 (with Windows drive-letter normalization: `/C:/Users/foo` → `C:/Users/foo`) and OSC 133. Themes in `lib/themes.ts`. |
-| **editor/** | CodeMirror 6 stack (`EditorPane` mirrors `TerminalPane`). `lib/extensions.ts` configures language modes; `lib/autocomplete/` provides AI inline completion. Vim mode + prebuilt themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode). |
-| **explorer/** | File tree with Material/Catppuccin icons (`lib/iconResolver.ts`), fuzzy search, keyboard nav, inline rename, context actions. Backslash-aware `basename`. |
-| **panes/** | Split-pane orchestration. `PaneStack` + `PaneTreeView` manage horizontal/vertical splits using `react-resizable-panels`. |
-| **workspaces/** | Workspace persistence + switching (`store.ts`, `serialize.ts`). |
-| **preview/** | Auto-detected dev-server preview tab; status-bar pill suggests opening when a `localhost` URL is detected. |
-| **tabs/** | `lib/useTabs` is source of truth for tab list + active id. `lib/useWorkspaceCwd` derives explorer root + inherited cwd for new tabs. `basename` splits on **both** `/` and `\`. |
-| **header/** | Top bar + inline search (`SearchInline` adapts to terminal vs editor via `SearchTarget`). `WindowControls` rendered when `USE_CUSTOM_WINDOW_CONTROLS` is true (Linux + Windows; macOS uses native traffic lights). |
-| **statusbar/** | Bottom bar, `CwdBreadcrumb` (Unix paths + Windows drive letters + `~` home via `lib/pathUtils.segmentsFromCwd`), AI tools indicator. |
-| **shortcuts/** | Keymap registry (`shortcuts.ts`) + `lib/useGlobalShortcuts`. Handlers live in `App.tsx`, passed in by id (`tab.new`, `ai.toggle`, …). Use `metaKey \|\| ctrlKey` for cross-platform Cmd/Ctrl. |
-| **settings/** | Settings store (`store.ts` via `tauri-plugin-store`), preferences hook (`preferences.ts`), settings window opener. |
-| **theme/** | `next-themes` provider. |
-| **ai/** | See AI subsystem below. |
+| Module          | Role                                                                                                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **terminal/**   | `TerminalPane` keeps one mounted xterm per tab via `lib/useTerminalSession` + `lib/pty-bridge`. `lib/osc-handlers.ts` parses OSC 7 (with Windows drive-letter normalization: `/C:/Users/foo` → `C:/Users/foo`) and OSC 133. Themes in `lib/themes.ts`. |
+| **editor/**     | CodeMirror 6 stack (`EditorPane` mirrors `TerminalPane`). `lib/extensions.ts` configures language modes; `lib/autocomplete/` provides AI inline completion. Vim mode + prebuilt themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode).    |
+| **explorer/**   | File tree with Material/Catppuccin icons (`lib/iconResolver.ts`), fuzzy search, keyboard nav, inline rename, context actions. Backslash-aware `basename`.                                                                                              |
+| **panes/**      | Split-pane orchestration. `PaneStack` + `PaneTreeView` manage horizontal/vertical splits using `react-resizable-panels`.                                                                                                                               |
+| **workspaces/** | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                        |
+| **preview/**    | Auto-detected dev-server preview tab; status-bar pill suggests opening when a `localhost` URL is detected.                                                                                                                                             |
+| **tabs/**       | `lib/useTabs` is source of truth for tab list + active id. `lib/useWorkspaceCwd` derives explorer root + inherited cwd for new tabs. `basename` splits on **both** `/` and `\`.                                                                        |
+| **header/**     | Top bar + inline search (`SearchInline` adapts to terminal vs editor via `SearchTarget`). `WindowControls` rendered when `USE_CUSTOM_WINDOW_CONTROLS` is true (Linux + Windows; macOS uses native traffic lights).                                     |
+| **statusbar/**  | Bottom bar, `CwdBreadcrumb` (Unix paths + Windows drive letters + `~` home via `lib/pathUtils.segmentsFromCwd`), AI tools indicator.                                                                                                                   |
+| **shortcuts/**  | Keymap registry (`shortcuts.ts`) + `lib/useGlobalShortcuts`. Handlers live in `App.tsx`, passed in by id (`tab.new`, `ai.toggle`, …). Use `metaKey \|\| ctrlKey` for cross-platform Cmd/Ctrl.                                                          |
+| **settings/**   | Settings store (`store.ts` via `tauri-plugin-store`), preferences hook (`preferences.ts`), settings window opener.                                                                                                                                     |
+| **theme/**      | `next-themes` provider.                                                                                                                                                                                                                                |
+| **ai/**         | See AI subsystem below.                                                                                                                                                                                                                                |
 
 > **Note:** OSC event handling lives inside `terminal/lib/`, not a separate `shell-integration/` module. `updater/` module hosts the in-app updater (status-bar pill + dialog) on top of `tauri-plugin-updater`.
 
@@ -95,30 +96,30 @@ Stored only in the OS keychain via Rust `secrets_*` commands. `KEYRING_SERVICE =
 
 #### Core pieces (`lib/`)
 
-| File | Role |
-|---|---|
-| `agent.ts` | `Experimental_Agent` with `stopWhen: stepCountIs(MAX_AGENT_STEPS)` + system prompt from `config.ts`. Provider branching lives here. Keep the `Agent` / `DirectChatTransport` shape - the rest depends on AI SDK v6 chat semantics. |
-| `agents.ts` / `agents/registry.ts` / `agents/runSubagent.ts` | Named sub-agents with their own system prompts + tool subsets, invoked by the main agent via the `run_subagent` tool. |
-| `sessions.ts` + `store/chatStore.ts` | Conversations organized into named sessions, persisted via `tauri-plugin-store` at `tedi-sessions.json` (list + `activeId` + per-session `messages:<id>` keys). Module-scoped `Map<sessionId, Chat<UIMessage>>`; `getOrCreateChat(apiKey, sessionId)` lazily constructs a `Chat`, seeded from `hydrateSessions()` (called once from App.tsx). `AgentRunBridge` mirrors active-session messages to disk on every change and derives titles from the first user message. Switching the API key wipes the chat map; sessions persist. |
-| `composer.tsx` | React context: shared input state (text, attachments, voice) for both the docked `AiInputBar` and any other surface. Attachments: image, text-file, and `selection`. Selections come from `useChatStore.attachSelection(text, source)` (drained into chips, not pasted into the textarea) and wrap as `<selection source="terminal\|editor">…</selection>` blocks at submit. Composer derives `isBusy` from `agentMeta.status` so it mounts safely before sessions hydrate. |
-| `transport.ts` | `DirectChatTransport` bridging AI SDK Chat ↔ Agent. |
-| `security.ts` | **Deny-list** refusing obvious secret paths (`.env*`, `.ssh/`, credentials, keychain dirs). Applied on **both** read and write paths. Don't bypass. |
-| `keyring.ts`, `native.ts` | Tauri command wrappers. |
-| `slashCommands.ts`, `snippets.ts`, `todos.ts` | Composer affordances (slash commands, reusable prompt fragments, in-conversation todos). |
+| File                                                         | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent.ts`                                                   | `Experimental_Agent` with `stopWhen: stepCountIs(MAX_AGENT_STEPS)` + system prompt from `config.ts`. Provider branching lives here. Keep the `Agent` / `DirectChatTransport` shape - the rest depends on AI SDK v6 chat semantics.                                                                                                                                                                                                                                                                                                 |
+| `agents.ts` / `agents/registry.ts` / `agents/runSubagent.ts` | Named sub-agents with their own system prompts + tool subsets, invoked by the main agent via the `run_subagent` tool.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `sessions.ts` + `store/chatStore.ts`                         | Conversations organized into named sessions, persisted via `tauri-plugin-store` at `tedi-sessions.json` (list + `activeId` + per-session `messages:<id>` keys). Module-scoped `Map<sessionId, Chat<UIMessage>>`; `getOrCreateChat(apiKey, sessionId)` lazily constructs a `Chat`, seeded from `hydrateSessions()` (called once from App.tsx). `AgentRunBridge` mirrors active-session messages to disk on every change and derives titles from the first user message. Switching the API key wipes the chat map; sessions persist. |
+| `composer.tsx`                                               | React context: shared input state (text, attachments, voice) for both the docked `AiInputBar` and any other surface. Attachments: image, text-file, and `selection`. Selections come from `useChatStore.attachSelection(text, source)` (drained into chips, not pasted into the textarea) and wrap as `<selection source="terminal\|editor">…</selection>` blocks at submit. Composer derives `isBusy` from `agentMeta.status` so it mounts safely before sessions hydrate.                                                        |
+| `transport.ts`                                               | `DirectChatTransport` bridging AI SDK Chat ↔ Agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `security.ts`                                                | **Deny-list** refusing obvious secret paths (`.env*`, `.ssh/`, credentials, keychain dirs). Applied on **both** read and write paths. Don't bypass.                                                                                                                                                                                                                                                                                                                                                                                |
+| `keyring.ts`, `native.ts`                                    | Tauri command wrappers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `slashCommands.ts`, `snippets.ts`, `todos.ts`                | Composer affordances (slash commands, reusable prompt fragments, in-conversation todos).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 #### Tools (`tools/`)
 
-| File | Tools | Approval |
-|---|---|---|
-| `fs.ts` | `read_file`, `list_directory` | auto |
-| `search.ts` | `fs_search`, `fs_grep` | auto |
-| `edit.ts` | `write_file`, `create_directory`, `rename`, `delete` | **needsApproval** |
-| `shell.ts` | `run_command`, `shell_session_run`, `shell_bg_spawn` | **needsApproval** |
-| `terminal.ts` | Read live terminal buffer/cwd | auto |
-| `context.ts` | Workspace context helpers | auto |
-| `subagent.ts` | `run_subagent` | auto |
-| `todo.ts` | Todo manipulation | auto |
-| `tools.ts` | Orchestrator/aggregator | - |
+| File          | Tools                                                | Approval          |
+| ------------- | ---------------------------------------------------- | ----------------- |
+| `fs.ts`       | `read_file`, `list_directory`                        | auto              |
+| `search.ts`   | `fs_search`, `fs_grep`                               | auto              |
+| `edit.ts`     | `write_file`, `create_directory`, `rename`, `delete` | **needsApproval** |
+| `shell.ts`    | `run_command`, `shell_session_run`, `shell_bg_spawn` | **needsApproval** |
+| `terminal.ts` | Read live terminal buffer/cwd                        | auto              |
+| `context.ts`  | Workspace context helpers                            | auto              |
+| `subagent.ts` | `run_subagent`                                       | auto              |
+| `todo.ts`     | Todo manipulation                                    | auto              |
+| `tools.ts`    | Orchestrator/aggregator                              | -                 |
 
 Approval-gated tools pause via `lastAssistantMessageIsCompleteWithApprovalResponses`; auto-send after user confirms in the in-UI card.
 
@@ -126,7 +127,7 @@ Approval-gated tools pause via `lastAssistantMessageIsCompleteWithApprovalRespon
 
 #### Live context bridge
 
-`App.tsx` calls `setLive({ getCwd, getTerminalContext, … })` so tools can read the *currently active* terminal's cwd + last 300 lines. **Lazy by design** - don't pre-snapshot.
+`App.tsx` calls `setLive({ getCwd, getTerminalContext, … })` so tools can read the _currently active_ terminal's cwd + last 300 lines. **Lazy by design** - don't pre-snapshot.
 
 #### Voice input
 
@@ -144,11 +145,11 @@ Streamed transcription pipeline. Toggled from the composer.
 
 ## Window styling
 
-| Platform | Source | Behavior |
-|---|---|---|
-| macOS | `tauri.conf.json` | `titleBarStyle: Overlay` + `hiddenTitle: true` (native traffic lights via overlay) |
-| Linux | `tauri.linux.conf.json` | `decorations: false` + `transparent: true`; re-asserted post-realize for GNOME/Mutter CSD |
-| Windows | `tauri.windows.conf.json` | Same as Linux; React renders custom `WindowControls` |
+| Platform | Source                    | Behavior                                                                                  |
+| -------- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| macOS    | `tauri.conf.json`         | `titleBarStyle: Overlay` + `hiddenTitle: true` (native traffic lights via overlay)        |
+| Linux    | `tauri.linux.conf.json`   | `decorations: false` + `transparent: true`; re-asserted post-realize for GNOME/Mutter CSD |
+| Windows  | `tauri.windows.conf.json` | Same as Linux; React renders custom `WindowControls`                                      |
 
 ## Tauri capabilities
 
@@ -173,6 +174,23 @@ Already wired: `dialog`, `autostart`, `window-state`, `store`, `opener`, `os`, `
   - **Linux** - deb depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`; rpm `webkit2gtk4.1`, `gtk3`; AppImage bundles its media framework.
   - **Windows** - NSIS installer in `currentUser` mode (no admin), WebView2 via `embedBootstrapper` (offline install).
 - Auto-updater **enabled**: `tauri-plugin-updater` (Rust, desktop-only) + `@tauri-apps/plugin-updater` (JS). Endpoint is GitHub Releases `latest.json`; signature verified against `plugins.updater.pubkey` in `tauri.conf.json`. Private key + password injected as `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub secrets during release builds (see `.github/workflows/release.yml`).
+
+## `tedi` CLI entry point
+
+`tedi .` / `tedi <path>` opens the target folder (or the file's parent folder + the file in an editor tab) in the running window. `tedi --version` and `tedi --help` print to stdout and exit without touching the GUI. A second invocation with a path is forwarded to the existing window via [tauri-plugin-single-instance] and arrives as the `tedi:open-cli-target` event. Logic lives in [src-tauri/src/modules/cli.rs](src-tauri/src/modules/cli.rs):
+
+- `handle_version_help_and_exit()` runs first. Detects `--version`/`-V` and `--help`/`-h` anywhere in argv, `println!`s, then `process::exit(0)` before Tauri ever builds. On Windows release the GUI binary's stdout is detached from the parent console (`windows_subsystem = "windows"`), so the _Rust_ path prints invisibly there — the `tedi.cmd` shim emitted by `installer.nsh` intercepts these flags first and prints from the .cmd, with `${VERSION}` baked in at install time.
+- `capture_startup()` parses `argv` against `current_dir()` **before** anything else in `lib::run` so a later `set_current_dir` can't shift resolution.
+- `cli_initial_target` drains the captured target once (clears on read so a webview reload doesn't replay it).
+- `cli_install_path_shim` writes `~/.local/bin/tedi` on macOS/Linux pointing at `$APPIMAGE` (if set) or `current_exe()`. Triggered from Settings → General → "Install `tedi` command in PATH".
+- `refresh_shim_if_present` runs from the `setup` hook on every launch. If the shim exists **and** carries the `# tedi-cli-shim v1` marker, it's rewritten to point at the current binary. Heals macOS `.app` relocations and Linux AppImage filename changes after an update. User-authored scripts at the same path are left alone (no marker, no touch).
+
+| Platform        | How `tedi` lands on PATH                                                                                                                                                                                                                                                                                                              | Update behavior                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows         | NSIS installer hook ([src-tauri/installer.nsh](src-tauri/installer.nsh)) drops `tedi.cmd` next to `TEDI.exe` and appends the install dir to `HKCU\Environment\Path`. Uninstall removes the shim but leaves the PATH entry (stripping a `;`-delimited value cleanly from NSIS is fragile; a stale entry to a missing dir is harmless). | `tauri-plugin-updater` re-runs the NSIS installer in `passive` mode → postinstall hook fires → shim + PATH are re-validated. No user action.                                 |
+| Linux .deb/.rpm | Tauri auto-installs the Cargo binary as `/usr/bin/tedi`. No extra step.                                                                                                                                                                                                                                                               | apt/dnf replace the binary in place. Path stays valid. No user action.                                                                                                       |
+| Linux AppImage  | Run Settings → "Install `tedi` command in PATH". Shim resolves to `$APPIMAGE` (the .AppImage file the user keeps around), not the temp squashfs mount path.                                                                                                                                                                           | `refresh_shim_if_present` on next launch rewrites the shim to the new `$APPIMAGE` if the user renamed/replaced the .AppImage.                                                |
+| macOS .app/.dmg | Run Settings → "Install `tedi` command in PATH". Shim resolves to the binary inside `TEDI.app/Contents/MacOS/`.                                                                                                                                                                                                                       | Shim target is the absolute path inside `.app`; in-place updates keep working. If the user moves the `.app` between folders, `refresh_shim_if_present` heals on next launch. |
 
 ## Known gotchas
 

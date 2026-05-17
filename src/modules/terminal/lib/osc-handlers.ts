@@ -1,9 +1,6 @@
 import type { IMarker, Terminal } from "@xterm/xterm";
 
-export function registerCwdHandler(
-  term: Terminal,
-  onCwd: (cwd: string) => void,
-): () => void {
+export function registerCwdHandler(term: Terminal, onCwd: (cwd: string) => void): () => void {
   const d = term.parser.registerOscHandler(7, (data) => {
     const cwd = parseOsc7(data);
     if (cwd) onCwd(cwd);
@@ -117,8 +114,7 @@ function parseTediSpawnTab(data: string): TediSpawnTabInput | null {
     if (key === "cwd") out.cwd = val;
     else if (key === "cmd") out.cmd = val;
     else if (key === "title") out.title = val;
-    else if (key === "split" && (val === "row" || val === "col"))
-      out.split = val;
+    else if (key === "split" && (val === "row" || val === "col")) out.split = val;
   }
   if (!out.cwd && !out.cmd && !out.title && !out.split) return null;
   return out;

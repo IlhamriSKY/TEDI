@@ -17,8 +17,16 @@ Run these and make sure they pass:
 
 ```bash
 pnpm exec tsc --noEmit          # frontend types
+pnpm format:check               # frontend format (Prettier)
 cd src-tauri && cargo clippy    # Rust lint
 cd src-tauri && cargo fmt       # Rust format
+```
+
+To auto-fix formatting:
+
+```bash
+pnpm format                     # Prettier write
+pnpm fmt:rust                   # cargo fmt --all
 ```
 
 Build a release bundle at least once if you touched anything in `src-tauri/`:
@@ -31,13 +39,13 @@ pnpm tauri build
 
 Branch off `main`. Use these prefixes (kebab-case):
 
-| Prefix     | Use for                                  |
-| ---------- | ---------------------------------------- |
-| `feat/`    | New feature                              |
-| `fix/`     | Bug fix                                  |
-| `chore/`   | Refactor, tooling, config, dependencies  |
-| `docs/`    | Docs-only changes                        |
-| `perf/`    | Performance work                         |
+| Prefix   | Use for                                 |
+| -------- | --------------------------------------- |
+| `feat/`  | New feature                             |
+| `fix/`   | Bug fix                                 |
+| `chore/` | Refactor, tooling, config, dependencies |
+| `docs/`  | Docs-only changes                       |
+| `perf/`  | Performance work                        |
 
 Examples: `feat/split-panes`, `fix/explorer-focus`, `chore/windows-bundle-config`.
 
@@ -69,8 +77,43 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 - Follow the existing patterns. Read adjacent files before adding new ones.
 - TypeScript: no `any` unless you really mean it.
 - Rust: `cargo fmt` + `clippy` clean.
-- Few comments. Code should explain itself; comments are for the *why*, not the *what*.
+- Few comments. Code should explain itself; comments are for the _why_, not the _what_.
 - No emoji in code or commit messages.
+
+### Formatting standard
+
+Formatting is enforced by tooling — don't hand-format. The repo ships with:
+
+| File                     | Scope                              |
+| ------------------------ | ---------------------------------- |
+| `.editorconfig`          | Indent, EOL, charset (all editors) |
+| `.prettierrc.json`       | TS/TSX/JS/CSS/JSON/MD via Prettier |
+| `.prettierignore`        | Files Prettier should skip         |
+| `src-tauri/rustfmt.toml` | Rust formatting via `cargo fmt`    |
+
+**TypeScript / React / CSS / JSON / Markdown (Prettier)**
+
+- 2-space indent, LF line endings, UTF-8
+- Semicolons: **yes**
+- Quotes: **double** (`"foo"`) — JSX attributes too
+- Trailing comma: `all`
+- Print width: 100 (Markdown: 80, preserve prose)
+- Arrow parens: `always` (`(x) => x`)
+- Tailwind class ordering: handled by `prettier-plugin-tailwindcss`
+
+**Rust (rustfmt)**
+
+- 4-space indent, max width 100, LF line endings
+- `edition = "2021"`, imports + modules reordered
+- Field/try shorthand enabled
+
+**General rules**
+
+- Don't disable Prettier or rustfmt on chunks of code without a written justification in the PR description.
+- Don't mix unrelated reformatting into a feature PR — see "What gets bounced back" below.
+- File names: `kebab-case.ts` for utilities, `PascalCase.tsx` for React components, `snake_case.rs` for Rust modules — match the convention already used in the surrounding folder.
+- One blank line between top-level declarations; no consecutive blank lines.
+- Group imports: stdlib / external / `@/*` aliases / relative — separated by a blank line (Prettier preserves this; you place the breaks).
 
 ## Commits & PRs
 

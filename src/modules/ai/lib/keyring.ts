@@ -74,9 +74,7 @@ export async function getAllKeys(): Promise<ProviderKeys> {
     });
     return out;
   } catch {
-    const entries = await Promise.all(
-      need.map(async (p) => [p.id, await getKey(p.id)] as const),
-    );
+    const entries = await Promise.all(need.map(async (p) => [p.id, await getKey(p.id)] as const));
     for (const [id, v] of entries) out[id] = v;
     return out;
   }

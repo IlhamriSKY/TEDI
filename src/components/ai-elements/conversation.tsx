@@ -22,14 +22,9 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
   />
 );
 
-export type ConversationContentProps = ComponentProps<
-  typeof StickToBottom.Content
->;
+export type ConversationContentProps = ComponentProps<typeof StickToBottom.Content>;
 
-export const ConversationContent = ({
-  className,
-  ...props
-}: ConversationContentProps) => (
+export const ConversationContent = ({ className, ...props }: ConversationContentProps) => (
   // `use-stick-to-bottom` hardcodes `scrollbar-gutter: stable both-edges`
   // on the scroller via inline style, which reserves 16px on BOTH sides
   // (so the layout stays symmetric whether or not a scrollbar is shown)
@@ -62,7 +57,7 @@ export const ConversationEmptyState = ({
   <div
     className={cn(
       "flex size-full flex-col items-center justify-center gap-3 p-8 text-center",
-      className
+      className,
     )}
     {...props}
   >
@@ -70,10 +65,8 @@ export const ConversationEmptyState = ({
       <>
         {icon && <div className="text-muted-foreground">{icon}</div>}
         <div className="space-y-1">
-          <h3 className="font-medium text-sm">{title}</h3>
-          {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
-          )}
+          <h3 className="text-sm font-medium">{title}</h3>
+          {description && <p className="text-muted-foreground text-sm">{description}</p>}
         </div>
       </>
     )}
@@ -113,7 +106,7 @@ export const ConversationScrollButton = ({
               // Same outline-pill style; just enough shadow to lift it off
               // the chat, no halo ring. Text + arrow keeps the affordance
               // obvious without needing a giant glow.
-              "pointer-events-auto h-7 gap-1.5 rounded-full border border-border/60 bg-background px-3 text-[11px] font-medium text-muted-foreground shadow-md backdrop-blur transition-colors hover:border-foreground/30 hover:bg-accent hover:text-foreground active:scale-95 dark:bg-background dark:hover:bg-muted",
+              "border-border/60 bg-background text-muted-foreground hover:border-foreground/30 hover:bg-accent hover:text-foreground dark:bg-background dark:hover:bg-muted pointer-events-auto h-7 gap-1.5 rounded-full border px-3 text-[11px] font-medium shadow-md backdrop-blur transition-colors active:scale-95",
               className,
             )}
             onClick={handleScrollToBottom}
@@ -136,27 +129,20 @@ const getMessageText = (message: UIMessage): string =>
     .map((part) => part.text)
     .join("");
 
-export type ConversationDownloadProps = Omit<
-  ComponentProps<typeof Button>,
-  "onClick"
-> & {
+export type ConversationDownloadProps = Omit<ComponentProps<typeof Button>, "onClick"> & {
   messages: UIMessage[];
   filename?: string;
   formatMessage?: (message: UIMessage, index: number) => string;
 };
 
 const defaultFormatMessage = (message: UIMessage): string => {
-  const roleLabel =
-    message.role.charAt(0).toUpperCase() + message.role.slice(1);
+  const roleLabel = message.role.charAt(0).toUpperCase() + message.role.slice(1);
   return `**${roleLabel}:** ${getMessageText(message)}`;
 };
 
 export const messagesToMarkdown = (
   messages: UIMessage[],
-  formatMessage: (
-    message: UIMessage,
-    index: number
-  ) => string = defaultFormatMessage
+  formatMessage: (message: UIMessage, index: number) => string = defaultFormatMessage,
 ): string => messages.map((msg, i) => formatMessage(msg, i)).join("\n\n");
 
 export const ConversationDownload = ({
@@ -182,10 +168,7 @@ export const ConversationDownload = ({
 
   return (
     <Button
-      className={cn(
-        "absolute top-4 right-4 dark:bg-background dark:hover:bg-muted",
-        className
-      )}
+      className={cn("dark:bg-background dark:hover:bg-muted absolute top-4 right-4", className)}
       onClick={handleDownload}
       size="icon"
       type="button"

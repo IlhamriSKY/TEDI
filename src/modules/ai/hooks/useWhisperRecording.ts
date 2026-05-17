@@ -30,11 +30,7 @@ async function transcribeBlob(blob: Blob, apiKey: string): Promise<string> {
 
 type State = "idle" | "recording" | "transcribing";
 
-export function useWhisperRecording({
-  onResult,
-}: {
-  onResult: (text: string) => void;
-}) {
+export function useWhisperRecording({ onResult }: { onResult: (text: string) => void }) {
   const apiKey = useChatStore((s) => s.apiKeys.openai);
   const [state, setState] = useState<State>("idle");
   const recRef = useRef<MediaRecorder | null>(null);

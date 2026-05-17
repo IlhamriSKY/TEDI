@@ -10,11 +10,7 @@ import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useState } from "react";
 import { InlineInput } from "./InlineInput";
-import {
-  copyToClipboard,
-  relativePath,
-  revealInFinder,
-} from "./lib/contextActions";
+import { copyToClipboard, relativePath, revealInFinder } from "./lib/contextActions";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import type { DirEntry, useFileTree } from "./lib/useFileTree";
@@ -59,9 +55,7 @@ function FileTreeNodeImpl({
 
   const [isConfirming, setIsConfirming] = useState(false);
 
-  const iconUrl = isDir
-    ? folderIconUrl(entry.name, isExpanded)
-    : fileIconUrl(entry.name);
+  const iconUrl = isDir ? folderIconUrl(entry.name, isExpanded) : fileIconUrl(entry.name);
 
   const handleClick = useCallback(() => {
     if (tree.renaming) return;
@@ -73,9 +67,7 @@ function FileTreeNodeImpl({
   const isSelected = selectedPath === path;
 
   const pendingInThisDir =
-    isDir && isExpanded && tree.pendingCreate?.parentPath === path
-      ? tree.pendingCreate
-      : null;
+    isDir && isExpanded && tree.pendingCreate?.parentPath === path ? tree.pendingCreate : null;
 
   // Context menu placement: directory targets itself for new file/folder;
   // a file targets its parent.
@@ -109,22 +101,18 @@ function FileTreeNodeImpl({
               onClick={handleClick}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(
-                "group relative flex w-full items-center gap-2 px-1.5 py-0.5 text-left text-[13px] text-foreground/85 transition-colors hover:bg-accent/60 cursor-pointer",
-                isSelected &&
-                  "bg-accent text-foreground shadow-[inset_2px_0_0_0_var(--ring)]",
+                "group text-foreground/85 hover:bg-accent/60 relative flex w-full cursor-pointer items-center gap-2 px-1.5 py-0.5 text-left text-[13px] transition-colors",
+                isSelected && "bg-accent text-foreground shadow-[inset_2px_0_0_0_var(--ring)]",
               )}
               style={{ paddingLeft: 6 + depth * 12 }}
             >
-              <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+              <span className="text-muted-foreground flex size-3.5 shrink-0 items-center justify-center">
                 {isDir ? (
                   <HugeiconsIcon
                     icon={ArrowRight01Icon}
                     size={12}
                     strokeWidth={2.25}
-                    className={cn(
-                      "transition-transform",
-                      isExpanded && "rotate-90",
-                    )}
+                    className={cn("transition-transform", isExpanded && "rotate-90")}
                   />
                 ) : null}
               </span>
@@ -137,32 +125,23 @@ function FileTreeNodeImpl({
             </button>
           )}
         </ContextMenuTrigger>
-        <ContextMenuContent 
+        <ContextMenuContent
           className={COMPACT_CONTENT}
           onCloseAutoFocus={(e) => {
             if (tree.renaming || tree.pendingCreate) e.preventDefault();
           }}
         >
           {!isDir && (
-            <ContextMenuItem
-              className={COMPACT_ITEM}
-              onSelect={() => onOpenFile(path, true)}
-            >
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onOpenFile(path, true)}>
               Open
             </ContextMenuItem>
           )}
           {isDir && onRevealInTerminal && (
-            <ContextMenuItem
-              className={COMPACT_ITEM}
-              onSelect={() => onRevealInTerminal(path)}
-            >
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onRevealInTerminal(path)}>
               Open in Terminal
             </ContextMenuItem>
           )}
-          <ContextMenuItem
-            className={COMPACT_ITEM}
-            onSelect={() => void revealInFinder(path)}
-          >
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => void revealInFinder(path)}>
             Reveal in Finder
           </ContextMenuItem>
           <ContextMenuSeparator />
@@ -179,10 +158,7 @@ function FileTreeNodeImpl({
             New Folder
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            className={COMPACT_ITEM}
-            onSelect={() => void copyToClipboard(path)}
-          >
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => void copyToClipboard(path)}>
             Copy Path
           </ContextMenuItem>
           <ContextMenuItem
@@ -192,17 +168,11 @@ function FileTreeNodeImpl({
             Copy Relative Path
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            className={COMPACT_ITEM}
-            onSelect={() => onAttachToAgent?.(path)}
-          >
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onAttachToAgent?.(path)}>
             Attach to Agent
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            className={COMPACT_ITEM}
-            onSelect={() => tree.beginRename(path)}
-          >
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.beginRename(path)}>
             Rename
           </ContextMenuItem>
           <ContextMenuItem
@@ -231,18 +201,14 @@ function FileTreeNodeImpl({
           <span className="size-3.5 shrink-0" />
           <img
             src={
-              pendingInThisDir.kind === "dir"
-                ? folderIconUrl("", false)
-                : fileIconUrl("untitled")
+              pendingInThisDir.kind === "dir" ? folderIconUrl("", false) : fileIconUrl("untitled")
             }
             alt=""
             className="size-4 shrink-0 opacity-70"
           />
           <InlineInput
             initial=""
-            placeholder={
-              pendingInThisDir.kind === "dir" ? "New folder" : "New file"
-            }
+            placeholder={pendingInThisDir.kind === "dir" ? "New folder" : "New file"}
             onCommit={tree.commitCreate}
             onCancel={tree.cancelCreate}
           />
@@ -251,7 +217,7 @@ function FileTreeNodeImpl({
 
       {isDir && isExpanded && children?.status === "loading" && (
         <div
-          className="px-2 py-0.5 text-[11px] text-muted-foreground"
+          className="text-muted-foreground px-2 py-0.5 text-[11px]"
           style={{ paddingLeft: 6 + (depth + 1) * 12 + 18 }}
         >
           Loading…
@@ -259,7 +225,7 @@ function FileTreeNodeImpl({
       )}
       {isDir && isExpanded && children?.status === "error" && (
         <div
-          className="px-2 py-0.5 text-[11px] text-destructive"
+          className="text-destructive px-2 py-0.5 text-[11px]"
           style={{ paddingLeft: 6 + (depth + 1) * 12 + 18 }}
         >
           {children.message}

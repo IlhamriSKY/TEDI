@@ -78,11 +78,7 @@ export async function upsertConnection(
   const next = { ...conn };
   next.hasPassword = await writeSecret(conn.id, PASSWORD_FIELD, secrets.password);
   next.hasPrivateKey = await writeSecret(conn.id, PRIVATE_KEY_FIELD, secrets.privateKey);
-  next.hasKeyPassphrase = await writeSecret(
-    conn.id,
-    KEY_PASSPHRASE_FIELD,
-    secrets.keyPassphrase,
-  );
+  next.hasKeyPassphrase = await writeSecret(conn.id, KEY_PASSPHRASE_FIELD, secrets.keyPassphrase);
 
   const list = await listConnections();
   const idx = list.findIndex((c) => c.id === conn.id);
@@ -123,10 +119,7 @@ export function onConnectionsChanged(cb: () => void): Promise<UnlistenFn> {
  * timestamp and the server-key fingerprint so the UI can show "last: 2h
  * ago" pips and the user can spot a key rotation across reconnects.
  */
-export async function markConnected(
-  id: string,
-  fingerprint: string,
-): Promise<void> {
+export async function markConnected(id: string, fingerprint: string): Promise<void> {
   const list = await listConnections();
   const idx = list.findIndex((c) => c.id === id);
   if (idx < 0) return;

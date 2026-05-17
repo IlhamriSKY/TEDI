@@ -39,13 +39,26 @@ pub fn pty_open(
     cwd: Option<String>,
     on_event: Channel<PtyEvent>,
 ) -> Result<u32, String> {
+    // Log on invoke entry (before SPAWN_LOCK / ConPTY init) so concurrent
+    // open calls leave a trail even when one of them blocks behind a
+    // peer's slow ConPTY spawn. Without this the only signal of an
+    // in-flight open was the post-spawn "pty opened id=N" line, leaving
+    // the wedged-spawn case looking like the invoke never arrived.
+    let t0 = std::time::Instant::now();
+    log::info!(
+        "pty_open invoke cols={cols} rows={rows} cwd={}",
+        cwd.as_deref().unwrap_or("-")
+    );
     let (session, _) = session::spawn(cols, rows, cwd, on_event).map_err(|e| {
-        log::error!("pty_open failed: {e}");
+        log::error!("pty_open failed after {}ms: {e}", t0.elapsed().as_millis());
         e
     })?;
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     state.sessions.write().unwrap().insert(id, session);
-    log::info!("pty opened id={id} cols={cols} rows={rows}");
+    log::info!(
+        "pty opened id={id} cols={cols} rows={rows} setup={}ms",
+        t0.elapsed().as_millis()
+    );
     Ok(id)
 }
 

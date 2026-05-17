@@ -5,7 +5,4 @@ export {
   type ShortcutGroup,
   type ShortcutId,
 } from "./shortcuts";
-export {
-  useGlobalShortcuts,
-  type ShortcutHandlers,
-} from "./lib/useGlobalShortcuts";
+export { useGlobalShortcuts, type ShortcutHandlers } from "./lib/useGlobalShortcuts";

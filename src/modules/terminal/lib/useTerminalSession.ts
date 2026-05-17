@@ -1,5 +1,6 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "@/modules/settings/store";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
@@ -83,6 +84,23 @@ function isDebugPty(): boolean {
  */
 const NO_DATA_WATCHDOG_MS = 5_000;
 
+/**
+ * Last-resort watchdog armed when the leaf's `useEffect` runs. Catches the
+ * silent-blank failure mode where attachSession never gets reached at all
+ * (container.current never settles even past the rAF+interval safety net,
+ * OR ensureSession's `s.ready` promise stays pending forever): both
+ * `s.lastPtyError` and `s.pty` stay `null`, `ptyOpening` stays `false`, and
+ * Enter-to-retry doesn't fire because the keyboard handler gates on
+ * `lastPtyError !== null`. Observed on workspace-restore when a tab opens
+ * with two split panes — one ends up forever-blank with no input echo and
+ * no banner. After this many ms with no live PTY and no pending error, we
+ * force `retryPty` / `retrySsh` so the leaf is no longer dead. Tuned > the
+ * 120-frame (~2s) container-settle budget but < `SPAWN_TIMEOUT_MS` (15s)
+ * so we recover before a genuine slow spawn would have surfaced its own
+ * error banner.
+ */
+const STUCK_RECOVERY_MS = 8_000;
+
 type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
@@ -152,6 +170,17 @@ type Session = {
    * unresponsive and the leaf gets a retry banner. Set to null when not armed.
    */
   noDataTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Epoch number for which `onData` has already received at least one byte.
+   * Set in `onData`, read by `armNoDataWatchdog` to skip arming when bytes
+   * arrived between `invoke("pty_open")` issuing and its promise resolving
+   * (the channel's `onmessage` is wired up before the await, so the data
+   * event for the first byte CAN beat the resolution). Without this guard
+   * the watchdog would arm against a shell that already printed its prompt
+   * and is now idle, fire after 5s, close the PTY, and trigger the auto-
+   * close path via `onExit -> handleLeafExit -> closePaneByLeaf`.
+   */
+  firstByteEpoch: number;
   // ---- SSH-only fields below. All ignored on local PTY leaves. ----
   /** Latest emitted status. Source of truth for both UI surfaces. */
   sshStatus: SshStatus;
@@ -169,17 +198,26 @@ type Session = {
 
 const sessions = new Map<number, Session>();
 
-function ensureSession(
-  leafId: number,
-  initialCwd?: string,
-  sshConnectionId?: string,
-): Session {
+/**
+ * Compose the terminal's base font size with the global content-zoom factor
+ * (see `Preferences.contentZoom`), clamped to xterm's sane bounds. xterm
+ * renders glyphs into a GPU/canvas grid keyed by `fontSize`, so scaling the
+ * pref this way triggers xterm's internal recompute — far more reliable than
+ * CSS `zoom`, which leaves the canvas at the old resolution and offsets the
+ * cursor from the text.
+ */
+function effectiveTerminalFontSize(base: number, zoom: number): number {
+  const raw = Math.round(base * (Number.isFinite(zoom) ? zoom : 1));
+  return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, raw));
+}
+
+function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: string): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
 
   const prefs = usePreferencesStore.getState();
   const webglEnabled = prefs.terminalWebglEnabled;
-  const fontSize = prefs.terminalFontSize;
+  const fontSize = effectiveTerminalFontSize(prefs.terminalFontSize, prefs.contentZoom);
 
   const term = new Terminal({
     fontFamily: detectMonoFontFamily(),
@@ -200,9 +238,7 @@ function ensureSession(
   term.loadAddon(fitAddon);
   const searchAddon = new SearchAddon();
   term.loadAddon(searchAddon);
-  term.loadAddon(
-    new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)),
-  );
+  term.loadAddon(new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)));
 
   const session: Session = {
     term,
@@ -232,6 +268,7 @@ function ensureSession(
     ptySpawnedAt: null,
     ptySpawnEpoch: 0,
     noDataTimer: null,
+    firstByteEpoch: 0,
     sshStatus: { kind: "idle" },
     sshUserClose: false,
     sshReconnectAttempts: 0,
@@ -266,11 +303,7 @@ function ensureSession(
         void retryPty(session);
         return false;
       }
-      if (
-        session.sshConnectionId &&
-        enterToRetry &&
-        canRetrySsh(session.sshStatus)
-      ) {
+      if (session.sshConnectionId && enterToRetry && canRetrySsh(session.sshStatus)) {
         event.preventDefault();
         event.stopPropagation();
         void retrySsh(session);
@@ -346,10 +379,7 @@ function syncPtySize(s: Session): boolean {
   return true;
 }
 
-function openPtyForSession(
-  s: Session,
-  cwd: string | undefined,
-): Promise<PtySession> {
+function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySession> {
   // Capture the epoch this open belongs to. Late exit events for a
   // superseded spawn will see `myEpoch !== s.ptySpawnEpoch` and bail out
   // before touching session state owned by the newer spawn.
@@ -377,7 +407,13 @@ function openPtyForSession(
         )}ms (${bytes.length}B)`,
       );
     }
-    // First real bytes from the shell — disarm the no-data watchdog.
+    // First real bytes from the shell — record arrival on the session AND
+    // disarm any already-armed watchdog. Recording on the session matters
+    // when bytes beat the `invoke("pty_open")` resolution: the timer hasn't
+    // been armed yet (clearTimeout is a no-op), so `armNoDataWatchdog` will
+    // later check `firstByteEpoch` and refuse to arm against a shell that
+    // already spoke.
+    s.firstByteEpoch = myEpoch;
     if (s.noDataTimer !== null) {
       clearTimeout(s.noDataTimer);
       s.noDataTimer = null;
@@ -463,11 +499,7 @@ function withSpawnTimeout(p: Promise<PtySession>): Promise<PtySession> {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      reject(
-        new Error(
-          `shell did not start within ${Math.round(SPAWN_TIMEOUT_MS / 1000)}s`,
-        ),
-      );
+      reject(new Error(`shell did not start within ${Math.round(SPAWN_TIMEOUT_MS / 1000)}s`));
     }, SPAWN_TIMEOUT_MS);
     p.then(
       (pty) => {
@@ -518,9 +550,7 @@ async function openSshForSession(
   // password change in settings is picked up on the next reconnect
   // without restarting the app.
   const list = await listConnections();
-  const conn: SshConnection | undefined = list.find(
-    (c) => c.id === sshConnectionId,
-  );
+  const conn: SshConnection | undefined = list.find((c) => c.id === sshConnectionId);
   if (!conn) {
     throw new Error(`ssh: connection "${sshConnectionId}" not found`);
   }
@@ -564,10 +594,10 @@ async function openSshForSession(
       host: conn.host,
       port: conn.port,
       user: conn.user,
-      password: conn.authMode === "password" ? secrets.password ?? "" : undefined,
-      privateKey: conn.authMode === "key" ? secrets.privateKey ?? "" : undefined,
+      password: conn.authMode === "password" ? (secrets.password ?? "") : undefined,
+      privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
       privateKeyPassphrase:
-        conn.authMode === "key" ? secrets.keyPassphrase ?? undefined : undefined,
+        conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
       cols,
       rows,
     },
@@ -761,6 +791,13 @@ function writePtyError(s: Session, message: string): void {
  */
 function armNoDataWatchdog(s: Session, epoch: number): void {
   if (s.sshConnectionId) return; // SSH has its own status banner
+  // Bytes may have already arrived between `invoke("pty_open")` issuing and
+  // its promise resolving — the Tauri Channel's `onmessage` is wired up
+  // before the await, so the first data event CAN beat the spawn-result. If
+  // that happened for this epoch, the shell is healthy and we must NOT arm:
+  // the prompt is already printed and no further bytes are expected until
+  // the user types, so a 5s timer would fire on a perfectly working shell.
+  if (s.firstByteEpoch === epoch) return;
   if (s.noDataTimer !== null) clearTimeout(s.noDataTimer);
   s.noDataTimer = setTimeout(() => {
     s.noDataTimer = null;
@@ -803,18 +840,31 @@ async function retryPty(s: Session): Promise<void> {
   // mid-await.
   s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
   s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
+  let myEpoch = 0;
   try {
-    const pty = await openPtyForSession(s, s.initialCwd);
-    s.ptyOpening = false;
+    const promise = openPtyForSession(s, s.initialCwd);
+    // Captured after openPtyForSession's synchronous epoch bump so a later
+    // recovery (or a duplicate retry) won't have its result overwritten by
+    // this awaiter when the older spawn finally lands.
+    myEpoch = s.ptySpawnEpoch;
+    const pty = await promise;
     if (s.disposed) {
-      void pty.close();
+      void pty.close().catch(() => {});
       return;
     }
+    if (myEpoch !== s.ptySpawnEpoch) {
+      void pty.close().catch(() => {});
+      return;
+    }
+    s.ptyOpening = false;
     s.pty = pty;
     s.ptySpawnedAt = Date.now();
     syncPtySize(s);
     armNoDataWatchdog(s, s.ptySpawnEpoch);
   } catch (e) {
+    // Drop stale failures (myEpoch === 0 means openPtyForSession threw
+    // synchronously before bumping the counter — treat as a real failure).
+    if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
     s.ptyOpening = false;
     const msg = describeError(e);
     s.lastPtyError = msg;
@@ -844,9 +894,7 @@ export function writeToLeaf(leafId: number, data: string): boolean {
 export function findLeafIdFromPoint(x: number, y: number): number | null {
   const el = document.elementFromPoint(x, y);
   if (!el) return null;
-  const host = (el as Element).closest<HTMLElement>(
-    "[data-terminal-leaf-id]",
-  );
+  const host = (el as Element).closest<HTMLElement>("[data-terminal-leaf-id]");
   if (!host) return null;
   const raw = host.dataset.terminalLeafId;
   if (!raw) return null;
@@ -854,10 +902,7 @@ export function findLeafIdFromPoint(x: number, y: number): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function respawnSession(
-  leafId: number,
-  cwd?: string,
-): Promise<void> {
+export async function respawnSession(leafId: number, cwd?: string): Promise<void> {
   const s = sessions.get(leafId);
   if (!s || s.disposed) return;
   s.pty?.close();
@@ -873,9 +918,13 @@ export async function respawnSession(
   s.ptyOpening = true;
   s.lastPtyError = null;
   let pty: PtySession;
+  let myEpoch = 0;
   try {
-    pty = await openPtyForSession(s, cwd);
+    const promise = openPtyForSession(s, cwd);
+    myEpoch = s.ptySpawnEpoch;
+    pty = await promise;
   } catch (e) {
+    if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
     s.ptyOpening = false;
     const msg = describeError(e);
     s.lastPtyError = msg;
@@ -883,22 +932,22 @@ export async function respawnSession(
     writePtyError(s, msg);
     return;
   }
-  s.ptyOpening = false;
   if (s.disposed) {
-    pty.close();
+    void pty.close().catch(() => {});
     return;
   }
+  if (myEpoch !== s.ptySpawnEpoch) {
+    void pty.close().catch(() => {});
+    return;
+  }
+  s.ptyOpening = false;
   s.pty = pty;
   s.ptySpawnedAt = Date.now();
   if (s.observer) syncPtySize(s);
   armNoDataWatchdog(s, s.ptySpawnEpoch);
 }
 
-function attachSession(
-  leafId: number,
-  container: HTMLDivElement,
-  callbacks: Callbacks,
-): void {
+function attachSession(leafId: number, container: HTMLDivElement, callbacks: Callbacks): void {
   const s = sessions.get(leafId);
   if (!s || s.disposed) return;
   s.callbacks = callbacks;
@@ -944,24 +993,35 @@ function attachSession(
         `[tedi-pty] attach leaf=${leafId} cols=${s.term.cols} rows=${s.term.rows} containerWxH=${container.clientWidth}x${container.clientHeight} firstAttach=${firstAttach} ssh=${s.sshConnectionId ?? "-"}`,
       );
     }
-    openPtyForSession(s, s.initialCwd)
+    const myPromise = openPtyForSession(s, s.initialCwd);
+    // openPtyForSession bumps `s.ptySpawnEpoch` synchronously, so the value
+    // we read here belongs to this call. The stuck-recovery watchdog can
+    // later kick off a `retryPty`, bumping the epoch again; the guards
+    // below drop this stale spawn so it doesn't clobber the live state.
+    const myEpoch = s.ptySpawnEpoch;
+    myPromise
       .then((pty) => {
-        s.ptyOpening = false;
         if (debug) {
           console.info(
-            `[tedi-pty] spawn ok leaf=${leafId} ptyId=${pty.id} after ${Math.round(performance.now() - tAttach)}ms disposed=${s.disposed}`,
+            `[tedi-pty] spawn ok leaf=${leafId} ptyId=${pty.id} after ${Math.round(performance.now() - tAttach)}ms disposed=${s.disposed} stale=${myEpoch !== s.ptySpawnEpoch}`,
           );
         }
         if (s.disposed) {
-          pty.close();
+          void pty.close().catch(() => {});
           return;
         }
+        if (myEpoch !== s.ptySpawnEpoch) {
+          void pty.close().catch(() => {});
+          return;
+        }
+        s.ptyOpening = false;
         s.pty = pty;
         s.ptySpawnedAt = Date.now();
         syncPtySize(s);
         armNoDataWatchdog(s, s.ptySpawnEpoch);
       })
       .catch((e) => {
+        if (myEpoch !== s.ptySpawnEpoch) return;
         s.ptyOpening = false;
         const msg = describeError(e);
         console.error("openPty failed:", e);
@@ -970,10 +1030,7 @@ function attachSession(
         // a fresh open or a mid-session drop. Local PTY leaves keep the
         // "Press Enter to retry" flow.
         if (s.sshConnectionId) {
-          writeSshBanner(
-            s,
-            `\r\n\x1b[31m[tedi] ssh connect failed: ${msg}\x1b[0m\r\n`,
-          );
+          writeSshBanner(s, `\r\n\x1b[31m[tedi] ssh connect failed: ${msg}\x1b[0m\r\n`);
           scheduleSshReconnect(s, msg);
           return;
         }
@@ -998,16 +1055,39 @@ function attachSession(
   // Two-stage debounce:
   //  - FIT runs frequently (~one frame) so xterm visually keeps up with
   //    the window during drag. Local, no IPC.
-  //  - PTY_RESIZE only fires on the trailing edge of the drag, because
-  //    SIGWINCH is what causes shells / fancy prompts (powerlevel10k,
-  //    starship) to redraw mid-resize, which the user perceives as
-  //    blinking. The shell only cares about the FINAL size.
+  //  - PTY_RESIZE (SIGWINCH) is throttled because shells / fancy prompts
+  //    (powerlevel10k, starship) redraw on every WINCH and that reads as
+  //    blinking. BUT the previous 256 ms trailing-only setting was too
+  //    long: during a split-handle drag the xterm viewport already paints
+  //    at the new cols while the shell is still writing at the old width,
+  //    causing visible overlap, mid-line wrap, and broken TUI panels
+  //    (nvim/btop/nano need WINCH to clear+redraw their alt-screen
+  //    buffer). Two thresholds now:
+  //      - NORMAL prompt buffer → 90 ms (still trailing): the shell's
+  //        edit line stays coherent and prompts don't strobe.
+  //      - ALT-screen buffer (TUI active) → leading + 40 ms trailing:
+  //        emit WINCH on the first frame so the TUI starts its redraw
+  //        immediately, then again on the last frame for the final size.
   const FIT_DEBOUNCE_MS = 8;
-  const PTY_RESIZE_DEBOUNCE_MS = 256;
+  const PTY_RESIZE_DEBOUNCE_NORMAL_MS = 90;
+  const PTY_RESIZE_DEBOUNCE_ALT_MS = 40;
+  // Min gap between leading-edge WINCH emits while a drag is in flight.
+  // Keeps a 60Hz ResizeObserver storm from flooding the shell with one
+  // SIGWINCH per frame.
+  const PTY_RESIZE_ALT_LEADING_THROTTLE_MS = 80;
 
   const flushPtyResize = () => {
     s.ptyTimer = null;
     syncPtySize(s);
+  };
+
+  let lastAltLeadingAt = 0;
+  const isAltActive = () => {
+    try {
+      return s.term.buffer.active.type === "alternate";
+    } catch {
+      return false;
+    }
   };
 
   s.observer = new ResizeObserver(() => {
@@ -1020,16 +1100,27 @@ function attachSession(
       s.lastW = w;
       s.lastH = h;
       s.fitAddon.fit();
+      const alt = isAltActive();
+      // Leading-edge SIGWINCH for TUIs: redraw starts on frame 1 instead
+      // of waiting for drag-end. Throttled so a stream of pixel-by-pixel
+      // ResizeObserver ticks doesn't spam the shell.
+      if (alt) {
+        const now = performance.now();
+        if (now - lastAltLeadingAt >= PTY_RESIZE_ALT_LEADING_THROTTLE_MS) {
+          lastAltLeadingAt = now;
+          syncPtySize(s);
+        }
+      }
+      const debounceMs = alt ? PTY_RESIZE_DEBOUNCE_ALT_MS : PTY_RESIZE_DEBOUNCE_NORMAL_MS;
       if (s.ptyTimer) clearTimeout(s.ptyTimer);
-      s.ptyTimer = setTimeout(flushPtyResize, PTY_RESIZE_DEBOUNCE_MS);
+      s.ptyTimer = setTimeout(flushPtyResize, debounceMs);
     }, FIT_DEBOUNCE_MS);
   });
   s.observer.observe(container);
 
   // Re-sync App state after re-attach (prior detach cleared callbacks).
   if (s.lastCwd !== null) callbacks.onCwd?.(s.lastCwd);
-  if (s.lastDetectedUrl !== null)
-    callbacks.onDetectedLocalUrl?.(s.lastDetectedUrl);
+  if (s.lastDetectedUrl !== null) callbacks.onDetectedLocalUrl?.(s.lastDetectedUrl);
   callbacks.onSearchReady?.(s.searchAddon);
   if (s.sshConnectionId) {
     // Re-emit the latest known status so the pill/dot redraw correctly after
@@ -1134,6 +1225,7 @@ export function useTerminalSession({
     let cancelled = false;
     let rafId: number | null = null;
     let attachIntervalId: ReturnType<typeof setInterval> | null = null;
+    let stuckTimer: ReturnType<typeof setTimeout> | null = null;
     const s = ensureSession(leafId, initialCwd, sshConnectionId);
     // If the leaf hasn't spawned its PTY yet, accept a fresher initialCwd
     // from this render (e.g. explorerRoot resolved between mounts).
@@ -1213,6 +1305,35 @@ export function useTerminalSession({
         writePtyError(s, msg);
         tryAttach(MAX_ATTACH_FRAMES);
       });
+
+    // Stuck-recovery watchdog: see STUCK_RECOVERY_MS for the failure mode.
+    // Fires once; if the leaf is still healthy by then we no-op. If
+    // attachSession's spawn is mid-flight (ptyOpening=true, no error yet),
+    // we cancel the stale opening and force a fresh retry — the epoch
+    // guards in attachSession/retryPty drop the late stale result if it
+    // ever lands.
+    stuckTimer = setTimeout(() => {
+      stuckTimer = null;
+      if (cancelled || s.disposed) return;
+      if (s.pty) return; // healthy
+      if (s.lastPtyError !== null) return; // Enter-to-retry handles it
+      console.warn(
+        `[tedi-pty] stuck-recovery: leaf=${leafId} pty=null lastPtyError=null ptyOpening=${s.ptyOpening} sshConn=${s.sshConnectionId ?? "-"} sshStatus=${s.sshStatus.kind} containerAttached=${s.term.element !== undefined} after ${STUCK_RECOVERY_MS}ms — forcing retry`,
+      );
+      // Reset the opening flag so retryPty/retrySsh aren't blocked by a
+      // hung in-flight promise.
+      s.ptyOpening = false;
+      if (s.sshConnectionId) {
+        // SSH state machine drives its own reconnect; only intervene when
+        // we haven't even started a connect attempt yet (idle).
+        if (s.sshStatus.kind === "idle") {
+          void retrySsh(s);
+        }
+      } else {
+        void retryPty(s);
+      }
+    }, STUCK_RECOVERY_MS);
+
     return () => {
       cancelled = true;
       if (rafId !== null) cancelAnimationFrame(rafId);
@@ -1220,12 +1341,15 @@ export function useTerminalSession({
         clearInterval(attachIntervalId);
         attachIntervalId = null;
       }
+      if (stuckTimer !== null) clearTimeout(stuckTimer);
       detachSession(leafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leafId]);
 
-  const fontSize = usePreferencesStore((p) => p.terminalFontSize);
+  const baseFontSize = usePreferencesStore((p) => p.terminalFontSize);
+  const contentZoom = usePreferencesStore((p) => p.contentZoom);
+  const fontSize = effectiveTerminalFontSize(baseFontSize, contentZoom);
   useEffect(() => {
     const s = sessions.get(leafId);
     if (!s) return;
@@ -1292,10 +1416,7 @@ export function useTerminalSession({
     if (focused) s.term.focus();
   }, [leafId, visible, focused]);
 
-  const write = useCallback(
-    (data: string) => sessions.get(leafId)?.pty?.write(data),
-    [leafId],
-  );
+  const write = useCallback((data: string) => sessions.get(leafId)?.pty?.write(data), [leafId]);
 
   const focus = useCallback(() => {
     sessions.get(leafId)?.term.focus();
@@ -1333,10 +1454,7 @@ export function useTerminalSession({
    * skips that wrapper and would, e.g., immediately run every line of a
    * multi-line snippet pasted into bash.
    */
-  const paste = useCallback(
-    (data: string) => sessions.get(leafId)?.term.paste(data),
-    [leafId],
-  );
+  const paste = useCallback((data: string) => sessions.get(leafId)?.term.paste(data), [leafId]);
 
   const applyTheme = useCallback(() => {
     const s = sessions.get(leafId);

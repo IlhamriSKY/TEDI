@@ -1,0 +1,38 @@
+# Build output
+dist/
+build/
+out/
+.next/
+
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Rust
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+
+# Tauri
+.tauri/
+
+# Generated
+*.min.js
+*.min.css
+public/build/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Misc
+CHANGELOG.md
+LICENSE
+NOTICE

@@ -34,15 +34,12 @@ const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = 
   write_file: (i) => `Writing ${shortPath(i.path)}`,
   create_directory: (i) => `Creating ${shortPath(i.path)}`,
   bash_run: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
-  bash_background: (i) =>
-    `Spawning ${ellipsize(String(i.command ?? ""), 60)}`,
+  bash_background: (i) => `Spawning ${ellipsize(String(i.command ?? ""), 60)}`,
   bash_logs: () => `Reading logs`,
   bash_list: () => `Listing background processes`,
   bash_kill: () => `Stopping background process`,
-  suggest_command: (i) =>
-    `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
-  todo_write: (i) =>
-    `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
+  suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
+  todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
 };
 
@@ -80,9 +77,7 @@ export async function buildLanguageModel(
   options: BuildModelOptions = {},
 ): Promise<LanguageModel> {
   if (providerNeedsKey(provider) && !keys[provider]) {
-    throw new Error(
-      `No API key configured for ${provider}. Open Settings → AI to add one.`,
-    );
+    throw new Error(`No API key configured for ${provider}. Open Settings → AI to add one.`);
   }
   const key = keys[provider] ?? "";
   const baseURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
@@ -124,9 +119,7 @@ export async function buildLanguageModel(
       break;
     }
     case "deepseek": {
-      const { createOpenAICompatible } = await import(
-        "@ai-sdk/openai-compatible"
-      );
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
       built = createOpenAICompatible({
         name: "deepseek",
         baseURL: "https://api.deepseek.com",
@@ -135,9 +128,7 @@ export async function buildLanguageModel(
       break;
     }
     case "sumopod": {
-      const { createOpenAICompatible } = await import(
-        "@ai-sdk/openai-compatible"
-      );
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
       built = createOpenAICompatible({
         name: "sumopod",
         baseURL: SUMOPOD_BASE_URL,
@@ -146,9 +137,7 @@ export async function buildLanguageModel(
       break;
     }
     case "openai-compatible": {
-      const { createOpenAICompatible } = await import(
-        "@ai-sdk/openai-compatible"
-      );
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
       const url = (oaiCompatBase || "").replace(/\/$/, "");
       if (!url) {
         throw new Error(
@@ -168,12 +157,8 @@ export async function buildLanguageModel(
       break;
     }
     case "lmstudio": {
-      const { createOpenAICompatible } = await import(
-        "@ai-sdk/openai-compatible"
-      );
-      built = createOpenAICompatible({ name: "lmstudio", baseURL })(
-        resolvedModelId,
-      );
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      built = createOpenAICompatible({ name: "lmstudio", baseURL })(resolvedModelId);
       break;
     }
     default: {
@@ -275,10 +260,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
   });
 
   const history = await convertToModelMessages(opts.uiMessages);
-  const compact = compactModelMessagesDetailed(
-    history,
-    getModelContextLimit(modelInfo.id),
-  );
+  const compact = compactModelMessagesDetailed(history, getModelContextLimit(modelInfo.id));
   if (compact.compacted) {
     opts.onCompact?.({ droppedCount: compact.droppedCount });
   }
@@ -322,8 +304,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
     },
     onFinish: (result) => {
       opts.onStep?.(null);
-      const finishReason =
-        (result as { finishReason?: string } | undefined)?.finishReason ?? "";
+      const finishReason = (result as { finishReason?: string } | undefined)?.finishReason ?? "";
       opts.onFinishMeta?.({
         hitStepCap: stepsSeen >= MAX_AGENT_STEPS,
         finishReason,

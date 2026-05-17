@@ -14,11 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowRight01Icon,
-  Folder01Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { segmentsFromCwd, type Segment } from "./lib/pathUtils";
 
 type Props = {
@@ -56,16 +52,12 @@ function joinPath(parent: string, name: string): string {
 
 export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
   if (!cwd && !filePath) {
-    return (
-      <span className="text-xs text-muted-foreground/70">no directory</span>
-    );
+    return <span className="text-muted-foreground/70 text-xs">no directory</span>;
   }
 
   const dirPath = filePath ? dirname(filePath) : (cwd as string);
   const segments = segmentsFromCwd(dirPath, home);
-  const leafLabel = filePath
-    ? basename(filePath)
-    : segments[segments.length - 1].label;
+  const leafLabel = filePath ? basename(filePath) : segments[segments.length - 1].label;
   // When showing a file, every directory segment is a navigable link.
   // When showing a directory, the last segment is the current cwd
   // (rendered with a dropdown but no link).
@@ -88,9 +80,7 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
           </BreadcrumbItem>
         ) : (
           <BreadcrumbItem>
-            <BreadcrumbPage className={SEGMENT_BADGE_ACTIVE}>
-              {leafLabel}
-            </BreadcrumbPage>
+            <BreadcrumbPage className={SEGMENT_BADGE_ACTIVE}>{leafLabel}</BreadcrumbPage>
           </BreadcrumbItem>
         )}
       </BreadcrumbList>
@@ -98,13 +88,7 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
   );
 }
 
-function BreadcrumbSegment({
-  segment,
-  onCd,
-}: {
-  segment: Segment;
-  onCd: (path: string) => void;
-}) {
+function BreadcrumbSegment({ segment, onCd }: { segment: Segment; onCd: (path: string) => void }) {
   return (
     <span className="contents">
       <BreadcrumbItem>
@@ -122,7 +106,7 @@ function BreadcrumbSegment({
         <button
           type="button"
           aria-label={`Browse subfolders of ${segment.label}`}
-          className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded text-muted-foreground/70 hover:bg-accent/60 hover:text-foreground"
+          className="text-muted-foreground/70 hover:bg-accent/60 hover:text-foreground inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded"
         >
           <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
         </button>
@@ -223,28 +207,19 @@ function SubfolderDropdown({
       >
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {state.status === "error" ? (
-            <DropdownMenuItem disabled className="text-xs text-destructive">
+            <DropdownMenuItem disabled className="text-destructive text-xs">
               {state.message}
             </DropdownMenuItem>
           ) : state.status !== "loaded" || !interactive ? (
-            <DropdownMenuItem
-              disabled
-              className="text-xs text-muted-foreground"
-            >
+            <DropdownMenuItem disabled className="text-muted-foreground text-xs">
               Loading…
             </DropdownMenuItem>
           ) : state.dirs.length === 0 ? (
-            <DropdownMenuItem
-              disabled
-              className="text-xs text-muted-foreground"
-            >
+            <DropdownMenuItem disabled className="text-muted-foreground text-xs">
               No subfolders
             </DropdownMenuItem>
           ) : visibleDirs.length === 0 ? (
-            <DropdownMenuItem
-              disabled
-              className="text-xs text-muted-foreground"
-            >
+            <DropdownMenuItem disabled className="text-muted-foreground text-xs">
               No matches
             </DropdownMenuItem>
           ) : (
@@ -261,7 +236,7 @@ function SubfolderDropdown({
                   icon={Folder01Icon}
                   size={14}
                   strokeWidth={1.75}
-                  className="shrink-0 text-muted-foreground"
+                  className="text-muted-foreground shrink-0"
                 />
                 <span className="truncate">{name}</span>
               </DropdownMenuItem>
@@ -269,13 +244,13 @@ function SubfolderDropdown({
           )}
         </div>
         {showSearch ? (
-          <div className="shrink-0 border-t border-border/60 bg-popover p-1.5">
-            <div className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1">
+          <div className="border-border/60 bg-popover shrink-0 border-t p-1.5">
+            <div className="border-border/60 bg-muted/40 flex items-center gap-1.5 rounded-md border px-2 py-1">
               <HugeiconsIcon
                 icon={Search01Icon}
                 size={12}
                 strokeWidth={1.75}
-                className="shrink-0 text-muted-foreground"
+                className="text-muted-foreground shrink-0"
               />
               <input
                 ref={searchInputRef}
@@ -289,7 +264,7 @@ function SubfolderDropdown({
                   e.stopPropagation();
                 }}
                 placeholder="Search folders…"
-                className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                className="placeholder:text-muted-foreground w-full bg-transparent text-xs outline-none"
               />
             </div>
           </div>

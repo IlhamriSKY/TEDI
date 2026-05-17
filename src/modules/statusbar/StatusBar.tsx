@@ -35,7 +35,7 @@ export function StatusBar({
   const openPanel = useChatStore((s) => s.openPanel);
 
   return (
-    <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
+    <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
         <OsBadge />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
@@ -43,49 +43,38 @@ export function StatusBar({
       <div className="flex shrink-0 items-center gap-1.5">
         <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (
-          <IconTooltip
-            label={`Open ${detectedPreviewUrl} as a preview tab`}
-            side="top"
-          >
+          <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">
             <button
               type="button"
               onClick={onOpenPreview}
               aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
-              className="flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border border-border/70 bg-accent/40 px-2 text-[11px] text-foreground/90 transition-colors hover:bg-accent hover:text-foreground"
+              className="border-border/70 bg-accent/40 text-foreground/90 hover:bg-accent hover:text-foreground flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors"
             >
               <HugeiconsIcon
                 icon={Globe02Icon}
                 size={11}
                 strokeWidth={1.75}
-                className="shrink-0 text-muted-foreground"
+                className="text-muted-foreground shrink-0"
               />
               <span className="truncate">Open preview</span>
-              <span className="truncate text-muted-foreground">
+              <span className="text-muted-foreground truncate">
                 {hostFromUrl(detectedPreviewUrl)}
               </span>
             </button>
           </IconTooltip>
         ) : null}
         <AgentStatusPill onClick={onOpenMini} />
-        {!panelOpen || !hasComposer ? (
-          <AiOpenButton onOpen={openPanel} />
-        ) : null}
+        {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
       </div>
     </footer>
   );
 }
 
 function OsBadge() {
-  const label = IS_WINDOWS
-    ? "Windows"
-    : IS_MAC
-      ? "macOS"
-      : IS_LINUX
-        ? "Linux"
-        : null;
+  const label = IS_WINDOWS ? "Windows" : IS_MAC ? "macOS" : IS_LINUX ? "Linux" : null;
   if (!label) return null;
   return (
-    <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border bg-muted/40 px-2 text-[11px] font-medium text-muted-foreground">
+    <span className="border-border bg-muted/40 text-muted-foreground inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[11px] font-medium">
       {label}
     </span>
   );

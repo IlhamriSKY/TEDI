@@ -42,10 +42,7 @@ export function buildProxyUrl(targetUrl: string): string {
  * direct (proxying would just add latency + lose websockets). Remote URLs go
  * through the strip-XFO proxy unless the caller explicitly opts out.
  */
-export function resolveIframeSrc(
-  url: string,
-  options: { bypassProxy?: boolean } = {},
-): string {
+export function resolveIframeSrc(url: string, options: { bypassProxy?: boolean } = {}): string {
   if (!url) return url;
   if (options.bypassProxy) return url;
   if (isLocalUrl(url)) return url;

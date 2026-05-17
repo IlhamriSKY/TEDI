@@ -6,20 +6,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  getBindingTokens,
-  SHORTCUTS,
-  type ShortcutId,
-} from "@/modules/shortcuts/shortcuts";
+import { getBindingTokens, SHORTCUTS, type ShortcutId } from "@/modules/shortcuts/shortcuts";
 import {
   BookOpenIcon,
   DocumentCodeIcon,
@@ -34,11 +26,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import {
-  SearchInline,
-  type SearchInlineHandle,
-  type SearchTarget,
-} from "./SearchInline";
+import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import { SshMenu } from "@/modules/ssh/SshMenu";
@@ -178,7 +166,7 @@ export function Header({
       <Button
         variant="ghost"
         size="icon"
-        className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
         onClick={onOpenShortcuts}
         aria-label={shortcutLabel}
       >
@@ -192,7 +180,7 @@ export function Header({
       <Button
         variant="ghost"
         size="icon"
-        className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
         onClick={onOpenSettings}
         aria-label="Settings"
       >
@@ -206,7 +194,7 @@ export function Header({
       ref={rootRef}
       data-tauri-drag-region
       onMouseDown={onHeaderMouseDown}
-      className={`flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card select-none ${
+      className={`border-border/60 bg-card flex h-10 shrink-0 items-center gap-2 border-b select-none ${
         IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
       }`}
     >
@@ -217,7 +205,7 @@ export function Header({
             aria-label="Toggle sidebar"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
           >
             <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
           </Button>
@@ -229,7 +217,7 @@ export function Header({
             aria-label="Open folder"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
           >
             <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
           </Button>
@@ -242,15 +230,11 @@ export function Header({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md disabled:opacity-50"
                   aria-label="Split pane"
                   disabled={!canSplit}
                 >
-                  <HugeiconsIcon
-                    icon={GridViewIcon}
-                    size={16}
-                    strokeWidth={1.75}
-                  />
+                  <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
@@ -258,27 +242,19 @@ export function Header({
           </Tooltip>
           <DropdownMenuContent align="start" className="w-auto min-w-56">
             <DropdownMenuItem onSelect={() => onSplit("row")}>
-              <HugeiconsIcon
-                icon={LayoutTwoColumnIcon}
-                size={14}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split right</span>
               {splitRightTokens && (
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                <span className="text-muted-foreground text-xs whitespace-nowrap">
                   {splitRightTokens}
                 </span>
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onSplit("col")}>
-              <HugeiconsIcon
-                icon={LayoutTwoRowIcon}
-                size={14}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split down</span>
               {splitDownTokens && (
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                <span className="text-muted-foreground text-xs whitespace-nowrap">
                   {splitDownTokens}
                 </span>
               )}
@@ -289,9 +265,9 @@ export function Header({
         {!IS_MAC && shortcutsButton}
       </div>
 
-      {!IS_MAC && <span className="mx-1 h-5 w-px shrink-0 bg-border" />}
+      {!IS_MAC && <span className="bg-border mx-1 h-5 w-px shrink-0" />}
 
-      {IS_MAC && <span className="mr-1 h-full w-px shrink-0 bg-border" />}
+      {IS_MAC && <span className="bg-border mr-1 h-full w-px shrink-0" />}
 
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <TabBar
@@ -313,25 +289,15 @@ export function Header({
       </div>
 
       {mdPreviewToggle && (
-        <IconTooltip
-          label={
-            mdPreviewToggle.active
-              ? "Show source"
-              : "Preview markdown"
-          }
-        >
+        <IconTooltip label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}>
           <Button
             variant="ghost"
             size="icon"
             onClick={mdPreviewToggle.toggle}
-            aria-label={
-              mdPreviewToggle.active ? "Show source" : "Preview markdown"
-            }
+            aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
             aria-pressed={mdPreviewToggle.active}
-            className={`size-7 shrink-0 rounded-md hover:bg-accent hover:text-foreground ${
-              mdPreviewToggle.active
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground"
+            className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
+              mdPreviewToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
             }`}
           >
             <HugeiconsIcon
@@ -353,14 +319,10 @@ export function Header({
             variant="ghost"
             size="icon"
             onClick={lineWrapToggle.toggle}
-            aria-label={
-              lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"
-            }
+            aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
             aria-pressed={lineWrapToggle.active}
-            className={`size-7 shrink-0 rounded-md hover:bg-accent hover:text-foreground ${
-              lineWrapToggle.active
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground"
+            className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
+              lineWrapToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
             }`}
           >
             <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
@@ -372,7 +334,7 @@ export function Header({
 
       {/* Vertical divider between the search bar and the trailing utility
           cluster (shortcuts on macOS, SSH, settings, window controls). */}
-      <span className="mx-1 h-5 w-px shrink-0 bg-border" />
+      <span className="bg-border mx-1 h-5 w-px shrink-0" />
 
       {IS_MAC && (
         <>
@@ -391,7 +353,7 @@ export function Header({
 
       {USE_CUSTOM_WINDOW_CONTROLS && (
         <>
-          <span className="ml-1 h-5 w-px shrink-0 bg-border" />
+          <span className="bg-border ml-1 h-5 w-px shrink-0" />
           <WindowControls />
         </>
       )}

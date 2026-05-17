@@ -122,7 +122,10 @@ export function checkShellCommand(cmd: string): SafetyResult {
       c,
     )
   ) {
-    return { ok: false, reason: "Refused: command attempts to recursively delete the filesystem root." };
+    return {
+      ok: false,
+      reason: "Refused: command attempts to recursively delete the filesystem root.",
+    };
   }
   if (/--no-preserve-root/.test(c)) {
     return { ok: false, reason: "Refused: --no-preserve-root is not allowed." };

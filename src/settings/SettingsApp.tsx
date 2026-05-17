@@ -32,22 +32,20 @@ const AboutSection = lazy(() =>
   import("./sections/AboutSection").then((m) => ({ default: m.AboutSection })),
 );
 
-const TABS: { id: SettingsTab; label: string; icon: typeof Settings01Icon, component: ComponentType }[] =
-  [
-    { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
-    { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
-    { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
-    { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
-    { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
-  ];
-
-const VALID_TABS: SettingsTab[] = [
-  "general",
-  "shortcuts",
-  "models",
-  "agents",
-  "about",
+const TABS: {
+  id: SettingsTab;
+  label: string;
+  icon: typeof Settings01Icon;
+  component: ComponentType;
+}[] = [
+  { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
+  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
+  { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
+  { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
+  { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
 ];
+
+const VALID_TABS: SettingsTab[] = ["general", "shortcuts", "models", "agents", "about"];
 
 function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";
@@ -63,7 +61,7 @@ function readInitialTab(): SettingsTab {
 export function SettingsApp() {
   const [active, setActive] = useState<SettingsTab>(readInitialTab);
   const init = usePreferencesStore((s) => s.init);
-  const ActiveSection = TABS.find(t => t.id === active)?.component;
+  const ActiveSection = TABS.find((t) => t.id === active)?.component;
 
   useEffect(() => {
     void init();
@@ -79,9 +77,8 @@ export function SettingsApp() {
         setActive(detail as SettingsTab);
       }
     };
-    const unlistenPromise = getCurrentWebviewWindow().listen<string>(
-      "tedi:settings-tab",
-      (e) => apply(e.payload),
+    const unlistenPromise = getCurrentWebviewWindow().listen<string>("tedi:settings-tab", (e) =>
+      apply(e.payload),
     );
     return () => {
       void unlistenPromise.then((un) => un());
@@ -90,11 +87,12 @@ export function SettingsApp() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+      <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden select-none">
         <header
           data-tauri-drag-region
-          className={`flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 ${IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
-            }`}
+          className={`border-border/60 bg-card/60 flex h-11 shrink-0 items-center border-b ${
+            IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
+          }`}
         >
           <Tabs
             value={active}
@@ -103,13 +101,9 @@ export function SettingsApp() {
             className="flex-1 items-center"
             data-tauri-drag-region
           >
-            <TabsList className="mx-auto h-7 bg-muted/40 px-2">
+            <TabsList className="bg-muted/40 mx-auto h-7 px-2">
               {TABS.map((t) => (
-                <TabsTrigger
-                  key={t.id}
-                  value={t.id}
-                  className="h-6 gap-1.5 px-2.5 text-[11.5px]"
-                >
+                <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
                   <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />
                   <span>{t.label}</span>
                 </TabsTrigger>
@@ -134,9 +128,7 @@ export function SettingsApp() {
 
         <main className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-6 pb-7">
           <div className="mx-auto w-full max-w-160">
-            <Suspense fallback={null}>
-              {ActiveSection && <ActiveSection />}
-            </Suspense>
+            <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
           </div>
         </main>
       </div>

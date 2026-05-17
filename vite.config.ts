@@ -15,14 +15,10 @@ export default defineConfig(async ({ mode }) => ({
   },
   esbuild: {
     drop: mode === "production" ? (["debugger"] as ["debugger"]) : [],
-    pure:
-      mode === "production"
-        ? ["console.debug", "console.info", "console.trace"]
-        : [],
+    pure: mode === "production" ? ["console.debug", "console.info", "console.trace"] : [],
   },
   build: {
-    target:
-      process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "es2020",
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "es2020",
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       input: {
@@ -37,8 +33,7 @@ export default defineConfig(async ({ mode }) => ({
           // don't bloat the initial load (lazy-imported in agent.ts).
           if (id.includes("@ai-sdk/anthropic")) return "ai-anthropic";
           if (id.includes("@ai-sdk/google")) return "ai-google";
-          if (id.includes("@ai-sdk/openai-compatible"))
-            return "ai-openai-compat";
+          if (id.includes("@ai-sdk/openai-compatible")) return "ai-openai-compat";
           if (id.includes("@ai-sdk/openai")) return "ai-openai";
           if (id.includes("@ai-sdk/cerebras")) return "ai-cerebras";
           if (id.includes("@ai-sdk/groq")) return "ai-groq";
@@ -50,11 +45,7 @@ export default defineConfig(async ({ mode }) => ({
           // imported by the chat code renderer (chat-code-lezer.ts). Let
           // Rollup auto-split them so they load lazily — otherwise the
           // broad codemirror rule below would suck them into the eager chunk.
-          if (
-            id.includes("@codemirror/lang-") ||
-            id.includes("@codemirror/legacy-modes")
-          )
-            return;
+          if (id.includes("@codemirror/lang-") || id.includes("@codemirror/legacy-modes")) return;
           // Themes are also lazy-loaded by EditorPane / AiDiffPane / GitDiffPane.
           if (id.includes("@uiw/codemirror-theme-")) return;
           if (
@@ -63,18 +54,11 @@ export default defineConfig(async ({ mode }) => ({
             id.includes("@replit/codemirror")
           )
             return "codemirror";
-          if (id.includes("/streamdown/") || id.includes("@streamdown/"))
-            return "streamdown";
-          if (id.includes("/motion/") || id.includes("framer-motion"))
-            return "motion";
-          if (
-            id.includes("/react-dom/") ||
-            id.includes("/react/") ||
-            id.includes("/scheduler/")
-          )
+          if (id.includes("/streamdown/") || id.includes("@streamdown/")) return "streamdown";
+          if (id.includes("/motion/") || id.includes("framer-motion")) return "motion";
+          if (id.includes("/react-dom/") || id.includes("/react/") || id.includes("/scheduler/"))
             return "react";
-          if (id.includes("@radix-ui/") || id.includes("/radix-ui/"))
-            return "radix";
+          if (id.includes("@radix-ui/") || id.includes("/radix-ui/")) return "radix";
         },
       },
     },

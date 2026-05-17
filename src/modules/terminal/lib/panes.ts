@@ -75,11 +75,7 @@ export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
 }
 
 /** Update a terminal leaf's cwd. No-op for editor leaves or non-matching ids. */
-export function setLeafCwd(
-  n: PaneNode,
-  id: PaneId,
-  cwd: string,
-): PaneNode {
+export function setLeafCwd(n: PaneNode, id: PaneId, cwd: string): PaneNode {
   if (isLeaf(n)) {
     if (n.id !== id || n.leafKind !== "terminal") return n;
     return { ...n, cwd };
@@ -116,9 +112,7 @@ export function splitLeaf(
   newLeafState: LeafState,
 ): PaneNode {
   if (tree.kind === "split" && tree.dir === dir) {
-    const idx = tree.children.findIndex(
-      (c) => c.kind === "leaf" && c.id === targetId,
-    );
+    const idx = tree.children.findIndex((c) => c.kind === "leaf" && c.id === targetId);
     if (idx >= 0) {
       const newLeaf: PaneLeaf = {
         kind: "leaf",
@@ -127,11 +121,7 @@ export function splitLeaf(
       };
       return {
         ...tree,
-        children: [
-          ...tree.children.slice(0, idx + 1),
-          newLeaf,
-          ...tree.children.slice(idx + 1),
-        ],
+        children: [...tree.children.slice(0, idx + 1), newLeaf, ...tree.children.slice(idx + 1)],
       };
     }
   }
@@ -157,10 +147,7 @@ export function splitLeaf(
   };
 }
 
-export function removeLeaf(
-  tree: PaneNode,
-  targetId: PaneId,
-): PaneNode | null {
+export function removeLeaf(tree: PaneNode, targetId: PaneId): PaneNode | null {
   if (isLeaf(tree)) return tree.id === targetId ? null : tree;
   const newChildren: PaneNode[] = [];
   for (const c of tree.children) {
@@ -172,11 +159,7 @@ export function removeLeaf(
   return { ...tree, children: newChildren };
 }
 
-export function nextLeafId(
-  tree: PaneNode,
-  currentId: PaneId,
-  delta: 1 | -1,
-): PaneId {
+export function nextLeafId(tree: PaneNode, currentId: PaneId, delta: 1 | -1): PaneId {
   const ids = leafIds(tree);
   if (ids.length === 0) return currentId;
   const idx = ids.indexOf(currentId);
@@ -184,10 +167,7 @@ export function nextLeafId(
   return ids[(idx + delta + ids.length) % ids.length];
 }
 
-export function siblingLeafOf(
-  tree: PaneNode,
-  leafId: PaneId,
-): PaneId | null {
+export function siblingLeafOf(tree: PaneNode, leafId: PaneId): PaneId | null {
   if (isLeaf(tree)) return null;
   for (let i = 0; i < tree.children.length; i++) {
     const c = tree.children[i];
@@ -228,13 +208,10 @@ export function rotateLeafWithNeighbor(
   newSplitId: PaneId,
 ): PaneNode | null {
   if (isLeaf(tree)) return null;
-  const idx = tree.children.findIndex(
-    (c) => isLeaf(c) && c.id === leafId,
-  );
+  const idx = tree.children.findIndex((c) => isLeaf(c) && c.id === leafId);
   if (idx >= 0) {
     // Prefer right neighbor; fall back to left when at the tail.
-    const neighborIdx =
-      idx + 1 < tree.children.length ? idx + 1 : idx - 1;
+    const neighborIdx = idx + 1 < tree.children.length ? idx + 1 : idx - 1;
     if (neighborIdx < 0) return null;
     const lo = Math.min(idx, neighborIdx);
     const hi = Math.max(idx, neighborIdx);
@@ -289,10 +266,7 @@ export function normalizePaneTree(node: PaneNode): PaneNode {
 }
 
 /** First leaf of a given kind (used to find a default editor target etc.). */
-export function firstLeafOfKind(
-  tree: PaneNode,
-  kind: LeafState["leafKind"],
-): PaneLeaf | null {
+export function firstLeafOfKind(tree: PaneNode, kind: LeafState["leafKind"]): PaneLeaf | null {
   for (const l of leaves(tree)) {
     if (l.leafKind === kind) return l;
   }

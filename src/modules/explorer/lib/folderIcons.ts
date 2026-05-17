@@ -13,14 +13,7 @@ type FolderIcons = Record<
 // @keep-sorted
 const folderIcons: FolderIcons = {
   admin: {
-    folderNames: [
-      "admin",
-      "admins",
-      "manager",
-      "managers",
-      "moderator",
-      "moderators",
-    ],
+    folderNames: ["admin", "admins", "manager", "managers", "moderator", "moderators"],
   },
   android: {
     folderNames: ["android"],
@@ -164,15 +157,7 @@ const folderIcons: FolderIcons = {
     folderNames: [".direnv"],
   },
   dist: {
-    folderNames: [
-      "dist",
-      "dist-newstyle",
-      "out",
-      "build",
-      "release",
-      "bin",
-      ".output",
-    ],
+    folderNames: ["dist", "dist-newstyle", "out", "build", "release", "bin", ".output"],
   },
   docker: {
     folderNames: ["docker", "dockerfiles", ".docker"],
@@ -199,15 +184,7 @@ const folderIcons: FolderIcons = {
     folderNames: ["drizzle"],
   },
   examples: {
-    folderNames: [
-      "demo",
-      "demos",
-      "example",
-      "examples",
-      "sample",
-      "samples",
-      "sample-data",
-    ],
+    folderNames: ["demo", "demos", "example", "examples", "sample", "samples", "sample-data"],
   },
   fastlane: {
     folderNames: ["fastlane", ".fastlane"],
@@ -242,14 +219,7 @@ const folderIcons: FolderIcons = {
     folderNames: [".fvm"],
   },
   git: {
-    folderNames: [
-      ".git",
-      "patches",
-      "githooks",
-      ".githooks",
-      "submodules",
-      ".submodules",
-    ],
+    folderNames: [".git", "patches", "githooks", ".githooks", "submodules", ".submodules"],
   },
   github: {
     folderNames: [".github", "github"],
@@ -317,16 +287,7 @@ const folderIcons: FolderIcons = {
     folderNames: ["layout", "layouts", "_layouts"],
   },
   lib: {
-    folderNames: [
-      "lib",
-      "libs",
-      "library",
-      "libraries",
-      ".lib",
-      ".libs",
-      ".library",
-      ".libraries",
-    ],
+    folderNames: ["lib", "libs", "library", "libraries", ".lib", ".libs", ".library", ".libraries"],
   },
   linux: {
     folderNames: ["linux"],
@@ -529,16 +490,7 @@ const folderIcons: FolderIcons = {
     folderNames: ["vid", "vids", "video", "videos", "movie", "movies"],
   },
   views: {
-    folderNames: [
-      "view",
-      "views",
-      "screen",
-      "screens",
-      "page",
-      "pages",
-      "public_html",
-      "html",
-    ],
+    folderNames: ["view", "views", "screen", "screens", "page", "pages", "public_html", "html"],
   },
   vscode: {
     folderNames: [".vscode", ".vscode-test"],
@@ -567,10 +519,7 @@ const { folderNames } = Object.entries(folderIcons).reduce(
   ({ folderNames }, [name, icon]) => ({
     folderNames: {
       ...folderNames,
-      ...icon.folderNames?.reduce(
-        (a, c) => ({ ...a, [c]: `folder_${name}` }),
-        {},
-      ),
+      ...icon.folderNames?.reduce((a, c) => ({ ...a, [c]: `folder_${name}` }), {}),
     },
   }),
   {

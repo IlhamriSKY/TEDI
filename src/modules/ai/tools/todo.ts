@@ -30,8 +30,7 @@ export function buildTodoTools(ctx: ToolContext) {
       }),
       execute: async ({ todos }) => {
         const sessionId = ctx.getSessionId();
-        if (!sessionId)
-          return { error: "no active session; cannot persist todos" };
+        if (!sessionId) return { error: "no active session; cannot persist todos" };
 
         const normalized: Todo[] = todos.map((t) => ({
           id: t.id ?? newTodoId(),
@@ -48,8 +47,7 @@ export function buildTodoTools(ctx: ToolContext) {
         return {
           ok: true,
           count: normalized.length,
-          inProgress:
-            normalized.find((t) => t.status === "in_progress")?.title ?? null,
+          inProgress: normalized.find((t) => t.status === "in_progress")?.title ?? null,
         };
       },
     }),

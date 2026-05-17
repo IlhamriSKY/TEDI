@@ -9,18 +9,18 @@
  * Font installed. `swap` so the prompt isn't blank during the ~100ms it
  * takes the woff2 to land — xterm refits when the family resolves. */
 @font-face {
-    font-family: "JetBrainsMono Nerd Font Mono";
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
 }
 @font-face {
-    font-family: "JetBrainsMono Nerd Font Mono";
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url("/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
 }
 
 @source "../../node_modules/streamdown/dist/index.js";
@@ -28,81 +28,81 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: 'Inter Variable', sans-serif;
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --radius-sm: 0px;
-    --radius-md: 0px;
-    --radius-lg: 0px;
-    --radius-xl: 0px;
-    --radius-2xl: 0px;
-    --radius-3xl: 0px;
-    --radius-4xl: 0px;
+  --font-heading: var(--font-sans);
+  --font-sans: "Inter Variable", sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.148 0.004 228.8);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.148 0.004 228.8);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.148 0.004 228.8);
-    --primary: oklch(0.218 0.008 223.9);
-    --primary-foreground: oklch(0.987 0.002 197.1);
-    --secondary: oklch(0.963 0.002 197.1);
-    --secondary-foreground: oklch(0.218 0.008 223.9);
-    --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: oklch(0.56 0.021 213.5);
-    --accent: oklch(0.963 0.002 197.1);
-    --accent-foreground: oklch(0.218 0.008 223.9);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.925 0.005 214.3);
-    --input: oklch(0.925 0.005 214.3);
-    --ring: oklch(0.723 0.014 214.4);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
-    --radius: 0px;
-    --sidebar: oklch(0.987 0.002 197.1);
-    --sidebar-foreground: oklch(0.148 0.004 228.8);
-    --sidebar-primary: oklch(0.218 0.008 223.9);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.963 0.002 197.1);
-    --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
-    --sidebar-border: oklch(0.925 0.005 214.3);
-    --sidebar-ring: oklch(0.723 0.014 214.4);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.148 0.004 228.8);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.148 0.004 228.8);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.148 0.004 228.8);
+  --primary: oklch(0.218 0.008 223.9);
+  --primary-foreground: oklch(0.987 0.002 197.1);
+  --secondary: oklch(0.963 0.002 197.1);
+  --secondary-foreground: oklch(0.218 0.008 223.9);
+  --muted: oklch(0.963 0.002 197.1);
+  --muted-foreground: oklch(0.56 0.021 213.5);
+  --accent: oklch(0.963 0.002 197.1);
+  --accent-foreground: oklch(0.218 0.008 223.9);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.925 0.005 214.3);
+  --input: oklch(0.925 0.005 214.3);
+  --ring: oklch(0.723 0.014 214.4);
+  --chart-1: oklch(0.872 0.007 219.6);
+  --chart-2: oklch(0.56 0.021 213.5);
+  --chart-3: oklch(0.45 0.017 213.2);
+  --chart-4: oklch(0.378 0.015 216);
+  --chart-5: oklch(0.275 0.011 216.9);
+  --radius: 0px;
+  --sidebar: oklch(0.987 0.002 197.1);
+  --sidebar-foreground: oklch(0.148 0.004 228.8);
+  --sidebar-primary: oklch(0.218 0.008 223.9);
+  --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-accent: oklch(0.963 0.002 197.1);
+  --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
+  --sidebar-border: oklch(0.925 0.005 214.3);
+  --sidebar-ring: oklch(0.723 0.014 214.4);
 }
 
 /* VSCode Dark+ (Default Dark Modern) palette
@@ -110,62 +110,66 @@
  * focus border #0078D4, fg #CCCCCC. Hex kept as-is (sRGB) so the result
  * matches VSCode pixel-for-pixel rather than drifting through OKLCH. */
 .dark {
-    --background: #1E1E1E;
-    --foreground: #CCCCCC;
-    --card: #1F1F1F;
-    --card-foreground: #CCCCCC;
-    --popover: #1F1F1F;
-    --popover-foreground: #CCCCCC;
-    --primary: #0078D4;
-    --primary-foreground: #FFFFFF;
-    --secondary: #2A2D2E;
-    --secondary-foreground: #CCCCCC;
-    --muted: #252526;
-    --muted-foreground: #9D9D9D;
-    --accent: #04395E;
-    --accent-foreground: #FFFFFF;
-    --destructive: #F14C4C;
-    --border: #2B2B2B;
-    --input: #313131;
-    --ring: #0078D4;
-    --chart-1: #4FC1FF;
-    --chart-2: #C586C0;
-    --chart-3: #DCDCAA;
-    --chart-4: #9CDCFE;
-    --chart-5: #CE9178;
-    --sidebar: #181818;
-    --sidebar-foreground: #CCCCCC;
-    --sidebar-primary: #0078D4;
-    --sidebar-primary-foreground: #FFFFFF;
-    --sidebar-accent: #2A2D2E;
-    --sidebar-accent-foreground: #FFFFFF;
-    --sidebar-border: #2B2B2B;
-    --sidebar-ring: #0078D4;
+  --background: #1e1e1e;
+  --foreground: #cccccc;
+  --card: #1f1f1f;
+  --card-foreground: #cccccc;
+  --popover: #1f1f1f;
+  --popover-foreground: #cccccc;
+  --primary: #0078d4;
+  --primary-foreground: #ffffff;
+  --secondary: #2a2d2e;
+  --secondary-foreground: #cccccc;
+  --muted: #252526;
+  --muted-foreground: #9d9d9d;
+  --accent: #04395e;
+  --accent-foreground: #ffffff;
+  --destructive: #f14c4c;
+  --border: #2b2b2b;
+  --input: #313131;
+  --ring: #0078d4;
+  --chart-1: #4fc1ff;
+  --chart-2: #c586c0;
+  --chart-3: #dcdcaa;
+  --chart-4: #9cdcfe;
+  --chart-5: #ce9178;
+  --sidebar: #181818;
+  --sidebar-foreground: #cccccc;
+  --sidebar-primary: #0078d4;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a2d2e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2b2b2b;
+  --sidebar-ring: #0078d4;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-background text-foreground;
     margin: 0;
     overflow: hidden;
-    }
-  html, body, #root {
+  }
+  html,
+  body,
+  #root {
     height: 100%;
-    }
+  }
   html {
     @apply font-sans;
-    }
+  }
 
   /* Squarify everything globally - Tailwind's `rounded` (no suffix) and
    * `rounded-full` use literal values not derived from --radius-*, so the
    * @theme overrides above don't reach them. Force-zero every border-radius
    * to guarantee a fully boxed UI. */
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     border-radius: 0 !important;
-    }
+  }
 }
 
 /* Custom window chrome (Linux/Windows): the OS gives us a transparent
@@ -266,6 +270,14 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
  * Per-pane horizontal scroll lives on .cm-scroller and continues to work. */
 .cm-mergeView {
   height: 100% !important;
+}
+
+/* Visible 1px divider between the two MergeView panes so the HEAD side and
+ * the Working-tree side are clearly distinct. CodeMirror merge tags the
+ * right-hand editor with `.cm-merge-b`; a left border there draws the line
+ * without interfering with the package's own layout/scroll wiring. */
+.cm-mergeView .cm-merge-b {
+  border-left: 1px solid var(--border);
 }
 
 /* ===== Opt-out classes =====

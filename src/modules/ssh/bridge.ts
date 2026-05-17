@@ -39,10 +39,7 @@ function decodeBase64(b64: string): Uint8Array {
   return arr;
 }
 
-export async function openSsh(
-  input: SshOpenInput,
-  handlers: SshHandlers,
-): Promise<SshSession> {
+export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promise<SshSession> {
   const channel = new Channel<SshEvent>();
   channel.onmessage = (event) => {
     switch (event.type) {

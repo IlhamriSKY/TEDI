@@ -1,10 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
@@ -25,25 +21,15 @@ type Props = {
   onEdit: () => void;
 };
 
-export function SshStatusPill({
-  status,
-  connection,
-  onReconnect,
-  onDisconnect,
-  onEdit,
-}: Props) {
+export function SshStatusPill({ status, connection, onReconnect, onDisconnect, onEdit }: Props) {
   const [open, setOpen] = useState(false);
   if (status.kind === "idle") return null;
 
   const dotClass = statusDotClass(status);
   const live =
-    status.kind === "connecting" ||
-    status.kind === "connected" ||
-    status.kind === "reconnecting";
+    status.kind === "connecting" || status.kind === "connected" || status.kind === "reconnecting";
   const canReconnect =
-    status.kind === "disconnected" ||
-    status.kind === "error" ||
-    status.kind === "connected"; // allow force-reconnect for fingerprint refresh
+    status.kind === "disconnected" || status.kind === "error" || status.kind === "connected"; // allow force-reconnect for fingerprint refresh
   const reason =
     status.kind === "disconnected"
       ? status.reason
@@ -60,12 +46,9 @@ export function SshStatusPill({
           <button
             type="button"
             aria-label={`SSH ${connection.user}@${connection.host}: ${statusLabel(status)}`}
-            className="inline-flex h-6 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border border-border/70 bg-card px-2 text-[11px] text-foreground/90 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+            className="border-border/70 bg-card text-foreground/90 hover:bg-accent hover:text-foreground focus-visible:ring-primary/35 inline-flex h-6 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
-            <span
-              aria-hidden
-              className={cn("size-1.5 shrink-0 rounded-full", dotClass)}
-            />
+            <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
             <HugeiconsIcon
               icon={CloudServerIcon}
               size={11}
@@ -73,7 +56,7 @@ export function SshStatusPill({
               className="shrink-0 text-sky-600 dark:text-sky-400"
             />
             <span className="truncate font-medium">SSH</span>
-            <span className="truncate text-muted-foreground">
+            <span className="text-muted-foreground truncate">
               {connection.user}@{connection.host}
             </span>
             {status.kind === "reconnecting" ? (
@@ -89,28 +72,26 @@ export function SshStatusPill({
           <span className={cn("size-2 shrink-0 rounded-full", dotClass)} />
           <span className="font-semibold">{statusLabel(status)}</span>
         </div>
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
+        <div className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <span>Name</span>
-          <span className="truncate text-foreground">{connection.name}</span>
+          <span className="text-foreground truncate">{connection.name}</span>
           <span>Host</span>
-          <span className="truncate font-mono text-foreground">
+          <span className="text-foreground truncate font-mono">
             {connection.user}@{connection.host}:{connection.port}
           </span>
           {status.kind === "connected" ? (
             <>
               <span>Fingerprint</span>
-              <span className="truncate font-mono text-foreground">
+              <span className="text-foreground truncate font-mono">
                 {status.fingerprint || "—"}
               </span>
               <span>Since</span>
-              <span className="text-foreground">
-                {formatTime(status.since)}
-              </span>
+              <span className="text-foreground">{formatTime(status.since)}</span>
             </>
           ) : connection.lastFingerprint ? (
             <>
               <span>Last fingerprint</span>
-              <span className="truncate font-mono text-foreground">
+              <span className="text-foreground truncate font-mono">
                 {connection.lastFingerprint}
               </span>
             </>
@@ -118,15 +99,13 @@ export function SshStatusPill({
           {connection.lastConnectedAt ? (
             <>
               <span>Last connected</span>
-              <span className="text-foreground">
-                {formatRelative(connection.lastConnectedAt)}
-              </span>
+              <span className="text-foreground">{formatRelative(connection.lastConnectedAt)}</span>
             </>
           ) : null}
           {reason ? (
             <>
               <span>Reason</span>
-              <span className="truncate text-foreground">{reason}</span>
+              <span className="text-foreground truncate">{reason}</span>
             </>
           ) : null}
         </div>

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -43,6 +44,12 @@ pub struct GitChange {
     pub status: String,
     /// True if the entry is staged (index differs from HEAD).
     pub staged: bool,
+    /// Lines added relative to HEAD. 0 when not applicable / unknown / binary.
+    pub added: u32,
+    /// Lines removed relative to HEAD. 0 when not applicable / unknown / binary.
+    pub removed: u32,
+    /// True when git reported this entry as binary (line counts not meaningful).
+    pub binary: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +58,12 @@ pub struct GitStatus {
     pub is_repo: bool,
     pub root: Option<String>,
     pub branch: Option<String>,
+    /// Tracking branch in the form "origin/main", or None when no upstream is set.
+    pub upstream: Option<String>,
+    /// Commits ahead of upstream (HEAD has but upstream doesn't).
+    pub ahead: u32,
+    /// Commits behind upstream (upstream has but HEAD doesn't).
+    pub behind: u32,
     pub changes: Vec<GitChange>,
 }
 
@@ -74,7 +87,9 @@ fn classify(code: u8) -> &'static str {
 
 fn find_repo_root(start: &Path) -> Option<PathBuf> {
     let mut cmd = Command::new("git");
-    cmd.arg("rev-parse").arg("--show-toplevel").current_dir(start);
+    cmd.arg("rev-parse")
+        .arg("--show-toplevel")
+        .current_dir(start);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd.output().ok()?;
@@ -113,6 +128,38 @@ fn current_branch(repo: &Path) -> Option<String> {
     }
 }
 
+fn upstream_and_counts(repo: &Path) -> (Option<String>, u32, u32) {
+    let mut up = git(repo);
+    up.arg("rev-parse").arg("--abbrev-ref").arg("@{u}");
+    let upstream = match up.output() {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        }
+        _ => None,
+    };
+    if upstream.is_none() {
+        return (None, 0, 0);
+    }
+    let mut counts = git(repo);
+    counts.args(["rev-list", "--left-right", "--count", "HEAD...@{u}"]);
+    let (ahead, behind) = match counts.output() {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            let mut parts = s.split_whitespace();
+            let a: u32 = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            let b: u32 = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            (a, b)
+        }
+        _ => (0, 0),
+    };
+    (upstream, ahead, behind)
+}
+
 fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
     // Porcelain v1 with -z uses NUL as the entry separator and a second NUL
     // after the source path of a rename, so we cannot just split on '\n'.
@@ -141,9 +188,91 @@ fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
             relative: to_forward(path),
             status: classify(status_code).to_string(),
             staged,
+            added: 0,
+            removed: 0,
+            binary: false,
         });
     }
     out
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct NumstatEntry {
+    added: u32,
+    removed: u32,
+    binary: bool,
+}
+
+/// Parse `git diff --numstat HEAD` output. Each non-empty line is
+/// `<added>\t<removed>\t<path>` — binary files show "-" for both counts.
+/// Renames appear as either "old => new" or the compact "dir/{old => new}/file"
+/// form; we normalize to the new path so it matches the porcelain status output.
+fn parse_numstat(raw: &str) -> HashMap<String, NumstatEntry> {
+    let mut out: HashMap<String, NumstatEntry> = HashMap::new();
+    for line in raw.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(a), Some(r), Some(p)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let binary = a == "-" || r == "-";
+        let added: u32 = if binary { 0 } else { a.parse().unwrap_or(0) };
+        let removed: u32 = if binary { 0 } else { r.parse().unwrap_or(0) };
+        let rel = rename_new_side(p);
+        out.insert(
+            to_forward(&rel),
+            NumstatEntry {
+                added,
+                removed,
+                binary,
+            },
+        );
+    }
+    out
+}
+
+fn rename_new_side(p: &str) -> String {
+    // Compact form: "prefix/{old => new}/suffix" → "prefix/new/suffix"
+    if let Some(brace) = p.find('{') {
+        let prefix = &p[..brace];
+        let rest = &p[brace + 1..];
+        if let Some(arrow) = rest.find(" => ") {
+            let after = &rest[arrow + 4..];
+            if let Some(close) = after.find('}') {
+                let new_mid = &after[..close];
+                let suffix = &after[close + 1..];
+                return format!("{prefix}{new_mid}{suffix}");
+            }
+        }
+    }
+    // Simple form: "old => new"
+    if let Some(idx) = p.find(" => ") {
+        return p[idx + 4..].to_string();
+    }
+    p.to_string()
+}
+
+/// Count newlines in a working-tree file for an untracked entry. Caps at a
+/// modest size so we don't read multi-megabyte logs/blobs just to render a
+/// `+N` chip. Returns `None` for binary or oversize files.
+fn count_file_lines(path: &str) -> Option<u32> {
+    let meta = std::fs::metadata(path).ok()?;
+    // Skip anything larger than 512KB — counting lines in a giant log doesn't
+    // tell the user anything useful and reading it stalls the refresh.
+    if meta.len() > 512 * 1024 {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    // Quick binary sniff: a NUL byte in the first 8KB ≈ not text.
+    let sniff_len = bytes.len().min(8192);
+    if bytes[..sniff_len].contains(&0u8) {
+        return None;
+    }
+    let text = std::str::from_utf8(&bytes).ok()?;
+    if text.is_empty() {
+        return Some(0);
+    }
+    let n = text.matches('\n').count() as u32;
+    Some(if text.ends_with('\n') { n } else { n + 1 })
 }
 
 #[tauri::command]
@@ -154,6 +283,9 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
             is_repo: false,
             root: None,
             branch: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
             changes: Vec::new(),
         });
     };
@@ -161,12 +293,42 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     let mut cmd = git(&root);
     cmd.args(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
     let raw = run(cmd)?;
-    let changes = parse_porcelain_v1(&root, &raw);
+    let mut changes = parse_porcelain_v1(&root, &raw);
+    let (upstream, ahead, behind) = upstream_and_counts(&root);
+
+    // Single `git diff --numstat HEAD` covers every tracked change in one
+    // process — far cheaper than diffing per file. Untracked entries are
+    // absent from numstat (no HEAD blob); count their lines from disk.
+    let stats_raw = {
+        let mut nc = git(&root);
+        nc.args(["diff", "--numstat", "HEAD"]);
+        nc.output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    };
+    let stats = parse_numstat(&stats_raw);
+    for c in changes.iter_mut() {
+        if let Some(s) = stats.get(&c.relative) {
+            c.added = s.added;
+            c.removed = s.removed;
+            c.binary = s.binary;
+        } else if c.status == "untracked" {
+            match count_file_lines(&c.path) {
+                Some(n) => c.added = n,
+                None => c.binary = true,
+            }
+        }
+    }
 
     Ok(GitStatus {
         is_repo: true,
         root: Some(to_forward(&root.to_string_lossy())),
         branch: current_branch(&root),
+        upstream,
+        ahead,
+        behind,
         changes,
     })
 }
@@ -203,10 +365,7 @@ pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), Strin
     probe.args(["ls-files", "--error-unmatch", "--", relative.as_str()]);
     #[cfg(windows)]
     probe.creation_flags(CREATE_NO_WINDOW);
-    let tracked = probe
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let tracked = probe.output().map(|o| o.status.success()).unwrap_or(false);
 
     if tracked {
         // Unstage any staged hunks AND restore working tree to HEAD.
@@ -250,4 +409,105 @@ pub fn git_discard_all(repo_path: String) -> Result<(), String> {
     clean.args(["clean", "-fd"]);
     run(clean)?;
     Ok(())
+}
+
+/// Stages every working-tree change (tracked + untracked) and creates a commit
+/// with the given message. Mirrors the all-or-nothing model of the panel UI.
+#[tauri::command]
+pub fn git_commit(repo_path: String, message: String) -> Result<(), String> {
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err("commit message is empty".into());
+    }
+    let mut add = git(&root);
+    add.args(["add", "-A"]);
+    run(add)?;
+    let mut commit = git(&root);
+    commit.args(["commit", "-m", msg]);
+    run(commit)?;
+    Ok(())
+}
+
+/// Returns the combined diff (staged + working tree) plus a list of
+/// untracked file paths, capped at `max_bytes`. Used by the AI commit-message
+/// generator. We cap aggressively here so callers don't blow the model's
+/// context window on a giant tree.
+#[tauri::command]
+pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
+    let cap = max_bytes.unwrap_or(80_000);
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+    let mut out = String::new();
+
+    let mut staged = git(&root);
+    staged.args(["diff", "--staged", "--no-color", "--unified=3"]);
+    if let Ok(s) = run(staged) {
+        if !s.is_empty() {
+            out.push_str("# staged\n");
+            out.push_str(&s);
+        }
+    }
+
+    let mut work = git(&root);
+    work.args(["diff", "--no-color", "--unified=3"]);
+    if let Ok(w) = run(work) {
+        if !w.is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("# working-tree\n");
+            out.push_str(&w);
+        }
+    }
+
+    let mut ls = git(&root);
+    ls.args(["ls-files", "--others", "--exclude-standard", "-z"]);
+    if let Ok(raw) = run(ls) {
+        let untracked: Vec<&str> = raw.split('\0').filter(|s| !s.is_empty()).collect();
+        if !untracked.is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("# untracked\n");
+            for p in &untracked {
+                out.push_str("+++ b/");
+                out.push_str(p);
+                out.push('\n');
+            }
+        }
+    }
+
+    if out.len() > cap {
+        out.truncate(cap);
+        out.push_str(&format!("\n\n[diff truncated by host: >{} bytes]", cap));
+    }
+    Ok(out)
+}
+
+/// Pushes the current branch to its upstream. If no upstream is configured,
+/// falls back to `git push -u origin <branch>` to publish the branch.
+#[tauri::command]
+pub fn git_push(repo_path: String) -> Result<String, String> {
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+    let mut up = git(&root);
+    up.arg("rev-parse").arg("--abbrev-ref").arg("@{u}");
+    let has_upstream = up.output().map(|o| o.status.success()).unwrap_or(false);
+    if has_upstream {
+        let mut push = git(&root);
+        push.arg("push");
+        return run(push);
+    }
+    let branch = current_branch(&root).ok_or_else(|| "no current branch".to_string())?;
+    let mut push = git(&root);
+    push.args(["push", "-u", "origin", branch.as_str()]);
+    run(push)
 }

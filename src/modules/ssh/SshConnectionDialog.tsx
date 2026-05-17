@@ -63,12 +63,7 @@ type ImportState =
   | { kind: "loaded"; path: string }
   | { kind: "error"; message: string };
 
-export function SshConnectionDialog({
-  open,
-  onOpenChange,
-  editing,
-  onSaved,
-}: Props) {
+export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Props) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,8 +107,7 @@ export function SshConnectionDialog({
     if (!draft.name.trim()) return "Name is required";
     if (!draft.host.trim()) return "Host is required";
     if (!draft.user.trim()) return "User is required";
-    if (!Number.isInteger(port) || port <= 0 || port > 65535)
-      return "Port must be 1–65535";
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) return "Port must be 1–65535";
     if (draft.authMode === "password" && !draft.password)
       return "Password is required for password auth";
     if (draft.authMode === "key" && !draft.privateKey.trim())
@@ -136,67 +130,61 @@ export function SshConnectionDialog({
       // immediately. We never write to the keychain — the test runs against
       // whatever is in the form right now.
       let resolved = false;
-      const result = await new Promise<{ fingerprint: string }>(
-        (resolve, reject) => {
-          const timer = setTimeout(() => {
-            if (resolved) return;
-            resolved = true;
-            reject(new Error("test timed out after 20s"));
-          }, 20_000);
-          openSsh(
-            {
-              host: draft.host.trim(),
-              port,
-              user: draft.user.trim(),
-              password:
-                draft.authMode === "password" ? draft.password : undefined,
-              privateKey:
-                draft.authMode === "key" ? draft.privateKey : undefined,
-              privateKeyPassphrase:
-                draft.authMode === "key"
-                  ? draft.keyPassphrase || undefined
-                  : undefined,
-              cols: 80,
-              rows: 24,
-            },
-            {
-              onData: () => {},
-              onConnected: (fingerprint) => {
-                if (resolved) return;
-                resolved = true;
-                clearTimeout(timer);
-                resolve({ fingerprint });
-              },
-              onError: (msg) => {
-                if (resolved) return;
-                resolved = true;
-                clearTimeout(timer);
-                reject(new Error(msg));
-              },
-              onExit: () => {
-                if (resolved) return;
-                resolved = true;
-                clearTimeout(timer);
-                reject(new Error("session ended before authenticating"));
-              },
-            },
-          )
-            .then(async (sess) => {
-              // Close right away — we only care that the handshake worked.
-              try {
-                await sess.close();
-              } catch {
-                // ignore; the runtime will reap the dead session.
-              }
-            })
-            .catch((err) => {
+      const result = await new Promise<{ fingerprint: string }>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          reject(new Error("test timed out after 20s"));
+        }, 20_000);
+        openSsh(
+          {
+            host: draft.host.trim(),
+            port,
+            user: draft.user.trim(),
+            password: draft.authMode === "password" ? draft.password : undefined,
+            privateKey: draft.authMode === "key" ? draft.privateKey : undefined,
+            privateKeyPassphrase:
+              draft.authMode === "key" ? draft.keyPassphrase || undefined : undefined,
+            cols: 80,
+            rows: 24,
+          },
+          {
+            onData: () => {},
+            onConnected: (fingerprint) => {
               if (resolved) return;
               resolved = true;
               clearTimeout(timer);
-              reject(err);
-            });
-        },
-      );
+              resolve({ fingerprint });
+            },
+            onError: (msg) => {
+              if (resolved) return;
+              resolved = true;
+              clearTimeout(timer);
+              reject(new Error(msg));
+            },
+            onExit: () => {
+              if (resolved) return;
+              resolved = true;
+              clearTimeout(timer);
+              reject(new Error("session ended before authenticating"));
+            },
+          },
+        )
+          .then(async (sess) => {
+            // Close right away — we only care that the handshake worked.
+            try {
+              await sess.close();
+            } catch {
+              // ignore; the runtime will reap the dead session.
+            }
+          })
+          .catch((err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            reject(err);
+          });
+      });
       setTest({
         kind: "ok",
         fingerprint: result.fingerprint,
@@ -283,12 +271,10 @@ export function SshConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>
-            {editing ? "Edit SSH connection" : "New SSH connection"}
-          </DialogTitle>
+          <DialogTitle>{editing ? "Edit SSH connection" : "New SSH connection"}</DialogTitle>
           <DialogDescription>
-            Credentials are stored in your OS keychain (Windows Credential
-            Manager / macOS Keychain).
+            Credentials are stored in your OS keychain (Windows Credential Manager / macOS
+            Keychain).
           </DialogDescription>
         </DialogHeader>
 
@@ -360,9 +346,7 @@ export function SshConnectionDialog({
               <Input
                 type="password"
                 value={draft.password}
-                onChange={(e) =>
-                  setDraft({ ...draft, password: e.target.value })
-                }
+                onChange={(e) => setDraft({ ...draft, password: e.target.value })}
                 className="h-8 font-mono text-[12px]"
               />
             </Field>
@@ -372,9 +356,7 @@ export function SshConnectionDialog({
                 <div className="flex flex-col gap-1">
                   <Textarea
                     value={draft.privateKey}
-                    onChange={(e) =>
-                      setDraft({ ...draft, privateKey: e.target.value })
-                    }
+                    onChange={(e) => setDraft({ ...draft, privateKey: e.target.value })}
                     placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                     spellCheck={false}
                     className="h-32 font-mono text-[11px]"
@@ -390,15 +372,15 @@ export function SshConnectionDialog({
                       Import from file…
                     </Button>
                     {imported.kind === "loaded" ? (
-                      <span className="truncate text-[10.5px] text-muted-foreground">
+                      <span className="text-muted-foreground truncate text-[10.5px]">
                         Loaded {imported.path}
                       </span>
                     ) : imported.kind === "error" ? (
-                      <span className="truncate text-[10.5px] text-destructive">
+                      <span className="text-destructive truncate text-[10.5px]">
                         {imported.message}
                       </span>
                     ) : (
-                      <span className="text-[10.5px] text-muted-foreground">
+                      <span className="text-muted-foreground text-[10.5px]">
                         Paste or import a private key
                       </span>
                     )}
@@ -409,32 +391,23 @@ export function SshConnectionDialog({
                 <Input
                   type="password"
                   value={draft.keyPassphrase}
-                  onChange={(e) =>
-                    setDraft({ ...draft, keyPassphrase: e.target.value })
-                  }
+                  onChange={(e) => setDraft({ ...draft, keyPassphrase: e.target.value })}
                   className="h-8 font-mono text-[12px]"
                 />
               </Field>
             </>
           )}
 
-          {error ? (
-            <p className="text-[11px] text-destructive">{error}</p>
-          ) : null}
+          {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
 
           {test.kind === "running" ? (
-            <p className="text-[11px] text-muted-foreground">
-              Testing connection…
-            </p>
+            <p className="text-muted-foreground text-[11px]">Testing connection…</p>
           ) : test.kind === "ok" ? (
             <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
-              Connected · server key {test.fingerprint || "(unavailable)"} ·{" "}
-              {test.durationMs}ms
+              Connected · server key {test.fingerprint || "(unavailable)"} · {test.durationMs}ms
             </p>
           ) : test.kind === "fail" ? (
-            <p className="text-[11px] text-destructive">
-              Test failed: {test.message}
-            </p>
+            <p className="text-destructive text-[11px]">Test failed: {test.message}</p>
           ) : null}
         </div>
 
@@ -465,18 +438,10 @@ export function SshConnectionDialog({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium tracking-tight text-muted-foreground">
-        {label}
-      </span>
+      <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{label}</span>
       {children}
     </div>
   );
@@ -499,7 +464,7 @@ function AuthTab({
         "flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors " +
         (active
           ? "border-foreground/40 bg-accent/60"
-          : "border-border/60 bg-transparent hover:bg-accent/30")
+          : "border-border/60 hover:bg-accent/30 bg-transparent")
       }
     >
       {children}

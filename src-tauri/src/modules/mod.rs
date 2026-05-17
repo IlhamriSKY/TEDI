@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod fs;
 pub mod git;
 pub mod net;

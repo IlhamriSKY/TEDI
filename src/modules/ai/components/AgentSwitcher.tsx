@@ -6,19 +6,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  APPROVAL_MODE_META,
-  setApprovalMode,
-  type ApprovalMode,
-} from "@/modules/settings/store";
+import { APPROVAL_MODE_META, setApprovalMode, type ApprovalMode } from "@/modules/settings/store";
 import {
   AbsoluteIcon,
   ArrowDown01Icon,
@@ -78,8 +70,8 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               aria-label={agentTooltip}
               className={cn(
                 !isMiniWindow
-                  ? "flex h-6 items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 text-[10.5px] text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
-                  : "text-xs mr-1",
+                  ? "border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground flex h-6 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
+                  : "mr-1 text-xs",
               )}
             >
               <HugeiconsIcon icon={ActiveIcon} size={11} strokeWidth={1.75} />
@@ -96,7 +88,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
         <TooltipContent side="bottom">{agentTooltip}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" className="min-w-60">
-        <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+        <div className="text-muted-foreground px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide uppercase">
           Built-in
         </div>
         {builtIn.map((a) => {
@@ -116,14 +108,12 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 strokeWidth={1.75}
                 className={cn(
                   "mt-0.5",
-                  a.id === activeId
-                    ? "text-foreground"
-                    : "text-muted-foreground",
+                  a.id === activeId ? "text-foreground" : "text-muted-foreground",
                 )}
               />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span>{a.name}</span>
-                <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                <span className="text-muted-foreground line-clamp-1 text-[10.5px]">
                   {a.description}
                 </span>
               </span>
@@ -132,7 +122,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                   icon={Tick02Icon}
                   size={12}
                   strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-foreground"
+                  className="text-foreground mt-0.5 shrink-0"
                 />
               ) : null}
             </DropdownMenuItem>
@@ -141,7 +131,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
         {custom.length > 0 ? (
           <>
             <DropdownMenuSeparator />
-            <div className="px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+            <div className="text-muted-foreground px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase">
               Custom
             </div>
             {custom.map((a) => {
@@ -159,12 +149,12 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                     icon={Icon}
                     size={13}
                     strokeWidth={1.75}
-                    className="mt-0.5 text-muted-foreground"
+                    className="text-muted-foreground mt-0.5"
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate">{a.name}</span>
                     {a.description ? (
-                      <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                      <span className="text-muted-foreground line-clamp-1 text-[10.5px]">
                         {a.description}
                       </span>
                     ) : null}
@@ -174,7 +164,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                       icon={Tick02Icon}
                       size={12}
                       strokeWidth={2}
-                      className="mt-0.5 shrink-0 text-foreground"
+                      className="text-foreground mt-0.5 shrink-0"
                     />
                   ) : null}
                 </DropdownMenuItem>
@@ -183,7 +173,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           </>
         ) : null}
         <DropdownMenuSeparator />
-        <div className="px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+        <div className="text-muted-foreground px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase">
           Approval mode
         </div>
         {APPROVAL_MODE_ORDER.map((m) => {
@@ -197,15 +187,10 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 m === approvalMode && "bg-accent/40",
               )}
             >
-              <span
-                className={cn(
-                  "mt-1.5 size-1.5 shrink-0 rounded-full",
-                  APPROVAL_MODE_DOT[m],
-                )}
-              />
+              <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", APPROVAL_MODE_DOT[m])} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span>{meta.label}</span>
-                <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                <span className="text-muted-foreground line-clamp-1 text-[10.5px]">
                   {meta.description}
                 </span>
               </span>
@@ -214,7 +199,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                   icon={Tick02Icon}
                   size={12}
                   strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-foreground"
+                  className="text-foreground mt-0.5 shrink-0"
                 />
               ) : null}
             </DropdownMenuItem>
@@ -223,7 +208,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => void openSettingsWindow("agents")}
-          className="gap-2 text-[12px] text-muted-foreground"
+          className="text-muted-foreground gap-2 text-[12px]"
         >
           <HugeiconsIcon icon={Settings01Icon} size={12} strokeWidth={1.75} />
           Manage agents…

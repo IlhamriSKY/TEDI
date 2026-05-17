@@ -38,8 +38,7 @@ export type GlobResponse = { hits: GlobHit[]; truncated: boolean };
 
 export const native = {
   readFile: (path: string) => invoke<ReadResult>("fs_read_file", { path }),
-  writeFile: (path: string, content: string) =>
-    invoke<void>("fs_write_file", { path, content }),
+  writeFile: (path: string, content: string) => invoke<void>("fs_write_file", { path, content }),
   createFile: (path: string) => invoke<void>("fs_create_file", { path }),
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
   deletePath: (path: string) => invoke<void>("fs_delete", { path }),
@@ -64,11 +63,7 @@ export const native = {
       root: params.root,
       maxResults: params.maxResults ?? null,
     }),
-  runCommand: (
-    command: string,
-    cwd?: string | null,
-    timeoutSecs?: number,
-  ) =>
+  runCommand: (command: string, cwd?: string | null, timeoutSecs?: number) =>
     invoke<CommandOutput>("shell_run_command", {
       command,
       cwd: cwd ?? null,
@@ -77,12 +72,7 @@ export const native = {
 
   shellSessionOpen: (cwd?: string | null) =>
     invoke<number>("shell_session_open", { cwd: cwd ?? null }),
-  shellSessionRun: (
-    id: number,
-    command: string,
-    cwd?: string | null,
-    timeoutSecs?: number,
-  ) =>
+  shellSessionRun: (id: number, command: string, cwd?: string | null, timeoutSecs?: number) =>
     invoke<{
       stdout: string;
       stderr: string;
@@ -96,8 +86,7 @@ export const native = {
       cwd: cwd ?? null,
       timeoutSecs: timeoutSecs ?? null,
     }),
-  shellSessionClose: (id: number) =>
-    invoke<void>("shell_session_close", { id }),
+  shellSessionClose: (id: number) => invoke<void>("shell_session_close", { id }),
   shellBgSpawn: (command: string, cwd?: string | null) =>
     invoke<number>("shell_bg_spawn", { command, cwd: cwd ?? null }),
   shellBgLogs: (handle: number, sinceOffset?: number) =>

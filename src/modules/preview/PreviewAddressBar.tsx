@@ -7,11 +7,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ArrowReloadHorizontalIcon,
   Globe02Icon,
@@ -21,13 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 type PortPreset = {
   port: number;
@@ -69,10 +59,7 @@ type Props = {
 };
 
 export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
-  function PreviewAddressBar(
-    { url, proxied, canProxy, onSubmit, onReload, onToggleProxy },
-    ref,
-  ) {
+  function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, onToggleProxy }, ref) {
     const [draft, setDraft] = useState(url);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -124,149 +111,134 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
     };
 
     return (
-      <div className="shrink-0 border-b border-border/60">
-      <div className="flex h-9 items-center gap-1 bg-card/40 px-1.5">
-        <IconTooltip label="Reload" side="bottom">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onReload}
-            aria-label="Reload"
-            className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={ArrowReloadHorizontalIcon}
-              size={14}
-              strokeWidth={1.75}
-            />
-          </Button>
-        </IconTooltip>
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Common dev-server ports"
-                  className="h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <HugeiconsIcon
-                    icon={Globe02Icon}
-                    size={13}
-                    strokeWidth={1.75}
-                  />
-                  <span className="hidden sm:inline">Ports</span>
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Common dev-server ports</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            align="start"
-            className="max-h-80 min-w-56 overflow-y-auto"
-          >
-            {PORT_PRESETS.map((p) => (
-              <DropdownMenuItem
-                key={p.port}
-                onSelect={(e) => {
-                  e.preventDefault();
-                  void tryPort(p.port);
-                }}
-              >
-                <span className="flex-1">{p.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {checkingPort === p.port ? "checking…" : `:${p.port}`}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <div className="flex min-w-0 flex-1 items-center">
-          <Input
-            ref={inputRef}
-            value={draft}
-            placeholder="http://localhost:3000"
-            spellCheck={false}
-            autoComplete="off"
-            className="h-7 w-full bg-muted/60 px-2 text-xs placeholder:text-muted-foreground/70 focus-visible:ring-0"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                setDraft(url);
-                inputRef.current?.blur();
-              }
-            }}
-          />
-        </div>
-        {canProxy ? (
-          <IconTooltip
-            label={
-              proxied
-                ? "Proxied (strips X-Frame-Options). Click to load directly."
-                : "Loading directly. Click to route through proxy."
-            }
-            side="bottom"
-          >
+      <div className="border-border/60 shrink-0 border-b">
+        <div className="bg-card/40 flex h-9 items-center gap-1 px-1.5">
+          <IconTooltip label="Reload" side="bottom">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              onClick={onToggleProxy}
-              aria-label={proxied ? "Disable preview proxy" : "Enable preview proxy"}
-              aria-pressed={proxied}
-              className={
-                proxied
-                  ? "size-7 shrink-0 rounded-md text-emerald-600 hover:bg-accent dark:text-emerald-400"
-                  : "size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              }
+              onClick={onReload}
+              aria-label="Reload"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
             >
-              <HugeiconsIcon
-                icon={proxied ? Shield01Icon : ShieldBanIcon}
-                size={14}
-                strokeWidth={1.75}
-              />
+              <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={14} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
-        ) : null}
-        <IconTooltip label="Open in system browser" side="bottom">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              if (url) void openUrl(url).catch(console.error);
-            }}
-            aria-label="Open in system browser"
-            className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            disabled={!url}
-          >
-            <HugeiconsIcon
-              icon={LinkSquare02Icon}
-              size={14}
-              strokeWidth={1.75}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Common dev-server ports"
+                    className="text-muted-foreground hover:bg-accent hover:text-foreground h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px]"
+                  >
+                    <HugeiconsIcon icon={Globe02Icon} size={13} strokeWidth={1.75} />
+                    <span className="hidden sm:inline">Ports</span>
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Common dev-server ports</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="max-h-80 min-w-56 overflow-y-auto">
+              {PORT_PRESETS.map((p) => (
+                <DropdownMenuItem
+                  key={p.port}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    void tryPort(p.port);
+                  }}
+                >
+                  <span className="flex-1">{p.label}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {checkingPort === p.port ? "checking…" : `:${p.port}`}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div className="flex min-w-0 flex-1 items-center">
+            <Input
+              ref={inputRef}
+              value={draft}
+              placeholder="http://localhost:3000"
+              spellCheck={false}
+              autoComplete="off"
+              className="bg-muted/60 placeholder:text-muted-foreground/70 h-7 w-full px-2 text-xs focus-visible:ring-0"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraft(url);
+                  inputRef.current?.blur();
+                }
+              }}
             />
-          </Button>
-        </IconTooltip>
-      </div>
-      {notice ? (
-        <div className="flex items-center gap-1.5 bg-amber-500/8 px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400">
-          <span className="truncate">{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="ml-auto cursor-pointer rounded px-1 text-[10px] opacity-80 hover:bg-accent hover:opacity-100"
-          >
-            Dismiss
-          </button>
+          </div>
+          {canProxy ? (
+            <IconTooltip
+              label={
+                proxied
+                  ? "Proxied (strips X-Frame-Options). Click to load directly."
+                  : "Loading directly. Click to route through proxy."
+              }
+              side="bottom"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={onToggleProxy}
+                aria-label={proxied ? "Disable preview proxy" : "Enable preview proxy"}
+                aria-pressed={proxied}
+                className={
+                  proxied
+                    ? "hover:bg-accent size-7 shrink-0 rounded-md text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+                }
+              >
+                <HugeiconsIcon
+                  icon={proxied ? Shield01Icon : ShieldBanIcon}
+                  size={14}
+                  strokeWidth={1.75}
+                />
+              </Button>
+            </IconTooltip>
+          ) : null}
+          <IconTooltip label="Open in system browser" side="bottom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (url) void openUrl(url).catch(console.error);
+              }}
+              aria-label="Open in system browser"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+              disabled={!url}
+            >
+              <HugeiconsIcon icon={LinkSquare02Icon} size={14} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
         </div>
-      ) : null}
+        {notice ? (
+          <div className="flex items-center gap-1.5 bg-amber-500/8 px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400">
+            <span className="truncate">{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="hover:bg-accent ml-auto cursor-pointer rounded px-1 text-[10px] opacity-80 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   },

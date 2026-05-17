@@ -37,71 +37,69 @@ type Props = {
   onSshStatus?: (leafId: number, status: SshStatus) => void;
 };
 
-export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
-  function TerminalPane(
-    {
-      leafId,
-      visible,
-      focused = true,
-      initialCwd,
-      sshConnectionId,
-      onSearchReady,
-      onExit,
-      onCwd,
-      onDetectedLocalUrl,
-      onTediOpen,
-      onTediSpawnTab,
-      onSshStatus,
-    },
-    ref,
-  ) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const { resolvedTheme } = useTheme();
-
-    const session = useTerminalSession({
-      leafId,
-      container: containerRef,
-      visible,
-      focused,
-      initialCwd,
-      sshConnectionId,
-      onSearchReady: (a) => onSearchReady?.(leafId, a),
-      onExit: (c) => onExit?.(leafId, c),
-      onCwd: (c) => onCwd?.(leafId, c),
-      onDetectedLocalUrl: (u) => onDetectedLocalUrl?.(leafId, u),
-      onTediOpen: (input) => onTediOpen?.(leafId, input),
-      onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
-      onSshStatus: (status) => onSshStatus?.(leafId, status),
-    });
-
-    useEffect(() => {
-      // Defer one frame so CSS-variable token resolution sees the new class.
-      const id = requestAnimationFrame(() => session.applyTheme());
-      return () => cancelAnimationFrame(id);
-    }, [resolvedTheme, session]);
-
-    useImperativeHandle(
-      ref,
-      () => ({
-        write: (data: string) => session.write(data),
-        focus: () => session.focus(),
-        getBuffer: (max?: number) => session.getBuffer(max),
-        getSelection: () => session.getSelection(),
-        paste: (data: string) => session.paste(data),
-      }),
-      [session],
-    );
-
-    return (
-      <div
-        ref={containerRef}
-        className="h-full w-full"
-        data-terminal-leaf-id={leafId}
-        style={{
-          visibility: visible ? "visible" : "hidden",
-          pointerEvents: visible ? "auto" : "none",
-        }}
-      />
-    );
+export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
+  {
+    leafId,
+    visible,
+    focused = true,
+    initialCwd,
+    sshConnectionId,
+    onSearchReady,
+    onExit,
+    onCwd,
+    onDetectedLocalUrl,
+    onTediOpen,
+    onTediSpawnTab,
+    onSshStatus,
   },
-);
+  ref,
+) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+
+  const session = useTerminalSession({
+    leafId,
+    container: containerRef,
+    visible,
+    focused,
+    initialCwd,
+    sshConnectionId,
+    onSearchReady: (a) => onSearchReady?.(leafId, a),
+    onExit: (c) => onExit?.(leafId, c),
+    onCwd: (c) => onCwd?.(leafId, c),
+    onDetectedLocalUrl: (u) => onDetectedLocalUrl?.(leafId, u),
+    onTediOpen: (input) => onTediOpen?.(leafId, input),
+    onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
+    onSshStatus: (status) => onSshStatus?.(leafId, status),
+  });
+
+  useEffect(() => {
+    // Defer one frame so CSS-variable token resolution sees the new class.
+    const id = requestAnimationFrame(() => session.applyTheme());
+    return () => cancelAnimationFrame(id);
+  }, [resolvedTheme, session]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      write: (data: string) => session.write(data),
+      focus: () => session.focus(),
+      getBuffer: (max?: number) => session.getBuffer(max),
+      getSelection: () => session.getSelection(),
+      paste: (data: string) => session.paste(data),
+    }),
+    [session],
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      className="h-full w-full"
+      data-terminal-leaf-id={leafId}
+      style={{
+        visibility: visible ? "visible" : "hidden",
+        pointerEvents: visible ? "auto" : "none",
+      }}
+    />
+  );
+});

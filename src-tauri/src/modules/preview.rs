@@ -77,10 +77,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
     let upstream = rb.send().await.map_err(|e| format!("upstream: {e}"))?;
     let status = upstream.status();
     let headers = upstream.headers().clone();
-    let body = upstream
-        .bytes()
-        .await
-        .map_err(|e| format!("body: {e}"))?;
+    let body = upstream.bytes().await.map_err(|e| format!("body: {e}"))?;
 
     if body.len() > MAX_BODY_BYTES {
         return Err(format!(
@@ -172,7 +169,10 @@ fn rewrite_html(body: &[u8], target_url: &str) -> String {
         }
     }
 
-    format!("<!doctype html><html><head>{}</head><body>{}</body></html>", inject, html)
+    format!(
+        "<!doctype html><html><head>{}</head><body>{}</body></html>",
+        inject, html
+    )
 }
 
 fn build_head_injection(target_url: &str) -> String {

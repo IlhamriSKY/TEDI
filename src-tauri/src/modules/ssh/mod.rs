@@ -93,10 +93,16 @@ pub async fn ssh_write(
     id: u32,
     data: String,
 ) -> Result<(), String> {
-    let session = state.sessions.read().await.get(&id).cloned().ok_or_else(|| {
-        log::warn!("ssh_write: unknown id={id}");
-        "no session".to_string()
-    })?;
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            log::warn!("ssh_write: unknown id={id}");
+            "no session".to_string()
+        })?;
     session.write(data.as_bytes()).await
 }
 
@@ -107,10 +113,16 @@ pub async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let session = state.sessions.read().await.get(&id).cloned().ok_or_else(|| {
-        log::warn!("ssh_resize: unknown id={id}");
-        "no session".to_string()
-    })?;
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            log::warn!("ssh_resize: unknown id={id}");
+            "no session".to_string()
+        })?;
     session.resize(cols, rows).await
 }
 

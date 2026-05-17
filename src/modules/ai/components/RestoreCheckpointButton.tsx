@@ -3,11 +3,7 @@ import { cn } from "@/lib/utils";
 import { UndoIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useState, useSyncExternalStore } from "react";
-import {
-  getCheckpoint,
-  getCheckpointsVersion,
-  subscribeCheckpoints,
-} from "../lib/checkpoint";
+import { getCheckpoint, getCheckpointsVersion, subscribeCheckpoints } from "../lib/checkpoint";
 import { restoreToLastCheckpoint, useChatStore } from "../store/chatStore";
 
 /**
@@ -22,11 +18,7 @@ export function RestoreCheckpointButton() {
   const sessionId = useChatStore((s) => s.activeSessionId);
   // Re-render whenever any checkpoint state changes — opens, mutations,
   // restores all bump the version counter.
-  useSyncExternalStore(
-    subscribeCheckpoints,
-    getCheckpointsVersion,
-    getCheckpointsVersion,
-  );
+  useSyncExternalStore(subscribeCheckpoints, getCheckpointsVersion, getCheckpointsVersion);
   const checkpoint = sessionId ? getCheckpoint(sessionId) : null;
   const [busy, setBusy] = useState(false);
 
@@ -56,8 +48,8 @@ export function RestoreCheckpointButton() {
         disabled={busy}
         aria-label="Restore to last checkpoint"
         className={cn(
-          "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border/50 bg-card/60 px-1.5",
-          "text-[10.5px] text-muted-foreground transition-colors",
+          "border-border/50 bg-card/60 inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-1.5",
+          "text-muted-foreground text-[10.5px] transition-colors",
           "hover:border-border hover:bg-accent hover:text-foreground",
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}
@@ -65,9 +57,7 @@ export function RestoreCheckpointButton() {
         <HugeiconsIcon icon={UndoIcon} size={11} strokeWidth={1.75} />
         <span>Restore</span>
         {fileCount > 0 ? (
-          <span className="font-mono text-muted-foreground/70">
-            · {fileCount}
-          </span>
+          <span className="text-muted-foreground/70 font-mono">· {fileCount}</span>
         ) : null}
       </button>
     </IconTooltip>

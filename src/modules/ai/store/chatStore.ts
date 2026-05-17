@@ -50,12 +50,7 @@ type Live = {
   openPreview: (url: string) => boolean;
 };
 
-export type AgentRunStatus =
-  | "idle"
-  | "thinking"
-  | "streaming"
-  | "awaiting-approval"
-  | "error";
+export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
 
 /** Cumulative token usage for the active session. Reset on session
  *  switch / clear. `cached` is the chunk of `input` that hit the
@@ -107,10 +102,7 @@ export type QueuedPrompt = {
   enqueuedAt: number;
 };
 
-export type ApprovalResponder = (
-  approvalId: string,
-  approved: boolean,
-) => void;
+export type ApprovalResponder = (approvalId: string, approved: boolean) => void;
 
 type StoreState = {
   live: Live;
@@ -250,12 +242,9 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   const readCache = getReadCache(sessionId);
   const toolContext: ToolContext = {
     getCwd: () => useChatStore.getState().live.getCwd(),
-    getWorkspaceRoot: () =>
-      useChatStore.getState().live.getWorkspaceRoot(),
-    getTerminalContext: () =>
-      useChatStore.getState().live.getTerminalContext(),
-    injectIntoActivePty: (text) =>
-      useChatStore.getState().live.injectIntoActivePty(text),
+    getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
+    getTerminalContext: () => useChatStore.getState().live.getTerminalContext(),
+    injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
     readCache,
     getSessionId: () => sessionId,
@@ -265,11 +254,9 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
     getModelId: () => useChatStore.getState().selectedModelId,
-    getCustomInstructions: () =>
-      usePreferencesStore.getState().customInstructions,
+    getCustomInstructions: () => usePreferencesStore.getState().customInstructions,
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
-    getOpenaiCompatibleBaseURL: () =>
-      usePreferencesStore.getState().openaiCompatibleBaseURL,
+    getOpenaiCompatibleBaseURL: () => usePreferencesStore.getState().openaiCompatibleBaseURL,
     getAgentPersona: () => {
       const s = useAgentsStore.getState();
       const all = s.all();
@@ -341,8 +328,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   selectedModelId: DEFAULT_MODEL_ID,
-  selectedProvider:
-    tryGetModel(DEFAULT_MODEL_ID)?.provider ?? "openai",
+  selectedProvider: tryGetModel(DEFAULT_MODEL_ID)?.provider ?? "openai",
   setSelectedModelId: (id, provider) => {
     const resolved =
       provider ??
@@ -359,14 +345,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
   mini: { open: false },
   openMini: () => set({ panelOpen: true, mini: { open: true } }),
   closeMini: () => set({ panelOpen: false, mini: { open: false } }),
-  toggleMini: () =>
-    set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
+  toggleMini: () => set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
 
   panelOpen: false,
   openPanel: () => set({ panelOpen: true, mini: { open: true } }),
   closePanel: () => set({ panelOpen: false, mini: { open: false } }),
-  togglePanel: () =>
-    set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
+  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
 
   focusSignal: 0,
   pendingPrefill: null,
@@ -441,8 +425,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   agentMeta: IDLE_META,
-  patchAgentMeta: (patch) =>
-    set((s) => ({ agentMeta: { ...s.agentMeta, ...patch } })),
+  patchAgentMeta: (patch) => set((s) => ({ agentMeta: { ...s.agentMeta, ...patch } })),
   resetAgentMeta: () => set({ agentMeta: IDLE_META }),
 
   sessionsHydrated: false,
@@ -623,7 +606,8 @@ export async function sendMessage(text: string): Promise<boolean> {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
-  if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey()) return false;
+  if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey())
+    return false;
   // Guard against the restore-in-progress race: if we appended a new user
   // message while restore was mid `c.messages = trimmed`, that message
   // would either be lost (trim drops it) or yield an inconsistent state.
@@ -675,9 +659,7 @@ const restoringSessions = new Set<string>();
  *
  * Returns `null` if there's nothing to restore.
  */
-export async function restoreToLastCheckpoint(): Promise<
-  RestoreOutcome | null
-> {
+export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> {
   const sessionId = useChatStore.getState().activeSessionId;
   if (!sessionId) return null;
   const c = chats.get(sessionId);

@@ -1,9 +1,6 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import {
-  AlertCircleIcon,
-  ShieldUserIcon,
-} from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, ShieldUserIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useChatStore, type AgentMeta } from "../store/chatStore";
@@ -18,8 +15,7 @@ export function AgentStatusPill({ onClick }: Props) {
   // Only surface critical states in the status bar: pending approval +
   // hard errors. Routine "thinking/streaming" is already visible inside
   // the chat panel itself, so duplicating it here adds noise.
-  const isCritical =
-    meta.status === "awaiting-approval" || meta.status === "error";
+  const isCritical = meta.status === "awaiting-approval" || meta.status === "error";
   if (!isCritical) return null;
 
   const { tone, icon, label } = describe(meta);
@@ -56,24 +52,16 @@ function describe(meta: AgentMeta): {
 } {
   if (meta.status === "awaiting-approval") {
     return {
-      tone:
-        "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15",
-      icon: (
-        <HugeiconsIcon icon={ShieldUserIcon} size={12} strokeWidth={1.75} />
-      ),
+      tone: "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15",
+      icon: <HugeiconsIcon icon={ShieldUserIcon} size={12} strokeWidth={1.75} />,
       label:
-        meta.approvalsPending > 1
-          ? `${meta.approvalsPending} approvals needed`
-          : "Approval needed",
+        meta.approvalsPending > 1 ? `${meta.approvalsPending} approvals needed` : "Approval needed",
     };
   }
   // Only "error" reaches here (caller filters out thinking/streaming/idle).
   return {
-    tone:
-      "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
-    icon: (
-      <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />
-    ),
+    tone: "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
+    icon: <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />,
     label: meta.error ?? "Error",
   };
 }

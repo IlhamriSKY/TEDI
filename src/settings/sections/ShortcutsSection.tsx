@@ -13,11 +13,7 @@ import {
   type Shortcut,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
-import {
-  ArrowTurnBackwardIcon,
-  Search01Icon,
-  Delete02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowTurnBackwardIcon, Search01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState, useMemo } from "react";
 import { SectionHeader } from "../components/SectionHeader";
@@ -44,9 +40,7 @@ export function ShortcutsSection() {
     if (!search) return base;
     const lower = search.toLowerCase();
     return base.filter(
-      (s) =>
-        s.label.toLowerCase().includes(lower) ||
-        s.group.toLowerCase().includes(lower)
+      (s) => s.label.toLowerCase().includes(lower) || s.group.toLowerCase().includes(lower),
     );
   }, [search]);
 
@@ -75,21 +69,14 @@ export function ShortcutsSection() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <SectionHeader
-          title="Shortcuts"
-          description="View and customize keyboard shortcuts."
-        />
+        <SectionHeader title="Shortcuts" description="View and customize keyboard shortcuts." />
         <Button
           variant="outline"
           size="sm"
           className="h-8 gap-1.5 px-2.5 text-[11px]"
           onClick={() => setResetDialogOpen(true)}
         >
-          <HugeiconsIcon
-            icon={ArrowTurnBackwardIcon}
-            size={12}
-            strokeWidth={2}
-          />
+          <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} strokeWidth={2} />
           Reset All
         </Button>
       </div>
@@ -99,7 +86,7 @@ export function ShortcutsSection() {
           icon={Search01Icon}
           size={14}
           strokeWidth={2}
-          className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+          className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
         />
         <Input
           placeholder="Search shortcuts..."
@@ -116,10 +103,10 @@ export function ShortcutsSection() {
 
           return (
             <div key={group} className="flex flex-col gap-3">
-              <h3 className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <h3 className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
                 {group}
               </h3>
-              <div className="flex flex-col divide-y divide-border/40 rounded-lg border border-border/60 bg-card/40 overflow-hidden">
+              <div className="divide-border/40 border-border/60 bg-card/40 flex flex-col divide-y overflow-hidden rounded-lg border">
                 {items.map((s) => (
                   <ShortcutRow
                     key={s.id}
@@ -144,8 +131,8 @@ export function ShortcutsSection() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reset all shortcuts?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will revert all your custom keyboard shortcuts to their
-              factory defaults. This action cannot be undone.
+              This will revert all your custom keyboard shortcuts to their factory defaults. This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -182,20 +169,17 @@ function ShortcutRow({
   onReset: () => void;
   userBindings?: KeyBinding[];
 }) {
-  const bindings =
-    userBindings !== undefined ? userBindings : shortcut.defaultBindings;
+  const bindings = userBindings !== undefined ? userBindings : shortcut.defaultBindings;
   const isModified = userBindings !== undefined;
   const hasBindings = bindings && bindings.length > 0;
   const isReadOnly = !!shortcut.readOnly;
 
   return (
-    <div className="group flex items-center justify-between px-3 py-2.5 transition-colors hover:bg-muted/30">
+    <div className="group hover:bg-muted/30 flex items-center justify-between px-3 py-2.5 transition-colors">
       <div className="flex flex-col gap-0.5">
         <span className="text-[12.5px] font-medium">{shortcut.label}</span>
         {isReadOnly ? (
-          <span className="text-[10.5px] text-muted-foreground">
-            Built-in. Not rebindable.
-          </span>
+          <span className="text-muted-foreground text-[10.5px]">Built-in. Not rebindable.</span>
         ) : null}
       </div>
 
@@ -228,9 +212,7 @@ function ShortcutRow({
                   ))}
                 </KbdGroup>
               ) : (
-                <span className="text-[11px] text-muted-foreground italic">
-                  Unassigned
-                </span>
+                <span className="text-muted-foreground text-[11px] italic">Unassigned</span>
               )}
             </div>
 
@@ -241,7 +223,7 @@ function ShortcutRow({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-7 text-muted-foreground hover:text-foreground"
+                      className="text-muted-foreground hover:text-foreground size-7"
                       onClick={onReset}
                       aria-label="Reset to default"
                     >
@@ -253,7 +235,7 @@ function ShortcutRow({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7 opacity-0 transition-opacity group-hover:opacity-100"
                     onClick={onClear}
                     aria-label="Clear shortcut"
                   >
@@ -347,7 +329,7 @@ function Recorder({
   }, [onRecord, onCancel]);
 
   return (
-    <div className="flex items-center gap-2 rounded bg-accent/50 px-2 py-1 text-[11px] ring-1 ring-accent">
+    <div className="bg-accent/50 ring-accent flex items-center gap-2 rounded px-2 py-1 text-[11px] ring-1">
       <span className="animate-pulse font-medium">Recording...</span>
       <span className="text-muted-foreground">(Esc to cancel)</span>
     </div>

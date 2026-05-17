@@ -1,11 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import {
-  loadSnippets,
-  newSnippetId,
-  saveSnippets,
-  type Snippet,
-} from "../lib/snippets";
+import { loadSnippets, newSnippetId, saveSnippets, type Snippet } from "../lib/snippets";
 
 const CHANGED_EVENT = "tedi://ai-snippets-changed";
 

@@ -31,4 +31,4 @@ Maintainers act in this project's spaces. We don't police behavior outside the p
 
 ---
 
-*This document is intentionally short. It is inspired by the [Contributor Covenant](https://www.contributor-covenant.org/) but kept compact for a small project.*
+_This document is intentionally short. It is inspired by the [Contributor Covenant](https://www.contributor-covenant.org/) but kept compact for a small project._

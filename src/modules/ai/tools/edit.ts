@@ -17,10 +17,8 @@ async function applyEdits(
   sessionId: string | null,
 ): Promise<EditResult> {
   const r = await native.readFile(abs);
-  if (r.kind === "binary")
-    return { error: "binary file refused", path: abs };
-  if (r.kind === "toolarge")
-    return { error: `file too large (${r.size} bytes)`, path: abs };
+  if (r.kind === "binary") return { error: "binary file refused", path: abs };
+  if (r.kind === "toolarge") return { error: `file too large (${r.size} bytes)`, path: abs };
 
   const original = r.content;
   let content = original;
@@ -40,8 +38,7 @@ async function applyEdits(
       const before = content;
       content = content.split(e.old_string).join(e.new_string);
       const occurrences =
-        (before.length - content.length) /
-          (e.old_string.length - e.new_string.length || 1) || 0;
+        (before.length - content.length) / (e.old_string.length - e.new_string.length || 1) || 0;
       // Recover count via direct search to avoid divide-by-zero edge cases.
       let n = 0;
       let i = 0;
@@ -73,10 +70,7 @@ async function applyEdits(
           path: abs,
         };
       }
-      content =
-        content.slice(0, first) +
-        e.new_string +
-        content.slice(first + e.old_string.length);
+      content = content.slice(0, first) + e.new_string + content.slice(first + e.old_string.length);
       totalReplacements += 1;
     }
   }
@@ -142,8 +136,7 @@ export function buildEditTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason, path: abs };
         if (!ctx.readCache.has(abs)) {
           return {
-            error:
-              "must call read_file on this path first (read-before-edit invariant).",
+            error: "must call read_file on this path first (read-before-edit invariant).",
             path: abs,
           };
         }
@@ -178,8 +171,7 @@ export function buildEditTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason, path: abs };
         if (!ctx.readCache.has(abs)) {
           return {
-            error:
-              "must call read_file on this path first (read-before-edit invariant).",
+            error: "must call read_file on this path first (read-before-edit invariant).",
             path: abs,
           };
         }

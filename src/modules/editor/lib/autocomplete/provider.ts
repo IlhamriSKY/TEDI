@@ -6,11 +6,7 @@ import {
 import { buildLanguageModel } from "@/modules/ai/lib/agent";
 import { EMPTY_PROVIDER_KEYS } from "@/modules/ai/lib/keyring";
 import { generateText } from "ai";
-import {
-  buildUserPrompt,
-  COMPLETION_SYSTEM_PROMPT,
-  type CompletionRequest,
-} from "./prompt";
+import { buildUserPrompt, COMPLETION_SYSTEM_PROMPT, type CompletionRequest } from "./prompt";
 
 export type CompletionDeps = {
   provider: AutocompleteProviderId;
@@ -31,8 +27,7 @@ export async function requestCompletion(
   deps: CompletionDeps,
   signal: AbortSignal,
 ): Promise<string> {
-  const modelId =
-    deps.modelId.trim() || DEFAULT_AUTOCOMPLETE_MODEL[deps.provider];
+  const modelId = deps.modelId.trim() || DEFAULT_AUTOCOMPLETE_MODEL[deps.provider];
   const keys = { ...EMPTY_PROVIDER_KEYS, [deps.provider]: deps.apiKey };
   const model = await buildLanguageModel(deps.provider, keys, modelId, {
     lmstudioBaseURL: deps.lmstudioBaseURL || LMSTUDIO_DEFAULT_BASE_URL,
@@ -51,9 +46,7 @@ export async function requestCompletion(
     model,
     system: COMPLETION_SYSTEM_PROMPT,
     prompt: buildUserPrompt(req),
-    maxOutputTokens: isReasoning
-      ? MAX_OUTPUT_TOKENS_REASONING
-      : MAX_OUTPUT_TOKENS_DEFAULT,
+    maxOutputTokens: isReasoning ? MAX_OUTPUT_TOKENS_REASONING : MAX_OUTPUT_TOKENS_DEFAULT,
     maxRetries: 0,
     abortSignal: signal,
     temperature: 0.2,
