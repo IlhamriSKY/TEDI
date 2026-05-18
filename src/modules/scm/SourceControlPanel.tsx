@@ -161,7 +161,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
     if (cur && prev && cur !== prev) {
       // Preserve the in-progress commit message on purpose - switching
       // branches shouldn't drop the user's draft.
-      toast(`Switched to branch ${cur}`);
+      toast(`Switched to branch ${cur}`, { variant: "info" });
     }
     prevBranchRef.current = cur;
   }, [status?.branch]);
@@ -294,7 +294,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
   const doCommit = useCallback(async () => {
     if (busy !== null) return;
     if (!status?.isRepo || !status.root) {
-      toast("Not a git repository.", { variant: "error" });
+      toast("Not a git repository.", { variant: "warning" });
       return;
     }
     if (sorted.length === 0) {
@@ -316,7 +316,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       await gitCommit(startRoot, msg);
       if (rootRef.current === startRoot) {
         setMessage("");
-        toast(`Committed to ${startBranch ?? "HEAD"}`);
+        toast(`Committed to ${startBranch ?? "HEAD"}`, { variant: "success" });
         await refresh();
       }
     } catch (e) {
@@ -329,7 +329,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
   const doPush = useCallback(async () => {
     if (busy !== null) return;
     if (!status?.isRepo || !status.root) {
-      toast("Not a git repository.", { variant: "error" });
+      toast("Not a git repository.", { variant: "warning" });
       return;
     }
     if (status.ahead === 0 && status.upstream) {
@@ -347,6 +347,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
           startUpstream
             ? `Pushed ${startBranch ?? "HEAD"} → ${startUpstream}`
             : `Pushed ${startBranch ?? "HEAD"}`,
+          { variant: "success" },
         );
         await refresh();
       }
@@ -360,7 +361,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
   const doGenerate = useCallback(async () => {
     if (busy !== null) return;
     if (!status?.isRepo || !status.root) {
-      toast("Not a git repository.", { variant: "error" });
+      toast("Not a git repository.", { variant: "warning" });
       return;
     }
     if (sorted.length === 0) {
@@ -399,7 +400,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
           { variant: "warning" },
         );
       } else if (res.modelLabel) {
-        toast(`Generated with ${res.modelLabel}`);
+        toast(`Generated with ${res.modelLabel}`, { variant: "success" });
       }
     } catch (e) {
       // Belt-and-braces: generateCommitMessage is meant to never throw, but
