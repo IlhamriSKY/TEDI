@@ -23,6 +23,7 @@ import type { ProviderKeys } from "./keyring";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed } from "./compact";
+import { HOST_PROMPT_LINE } from "./osTag";
 
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -218,6 +219,10 @@ function buildSystemPrompt(opts: {
   planMode?: boolean;
 }): string {
   const base = getSystemPrompt(opts.modelId);
+  // Host tag is module-scoped (captured once at boot) so prepending it
+  // keeps the prefix byte-stable across turns - the precondition for
+  // every provider's prompt cache.
+  const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
   const personaBlock = opts.agentPersona?.instructions.trim()
     ? `\n\n## ACTIVE AGENT - ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
     : "";
@@ -229,7 +234,7 @@ function buildSystemPrompt(opts: {
       ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
       : "";
   const planBlock = opts.planMode ? PLAN_MODE_PROMPT : "";
-  return `${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
+  return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
 }
 
 /** Run one streaming agent step. Used by the in-process Chat transport.

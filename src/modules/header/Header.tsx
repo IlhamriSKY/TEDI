@@ -32,6 +32,7 @@ import { TabBar } from "@/modules/tabs";
 import { SshMenu } from "@/modules/ssh/SshMenu";
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
+import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 
 type Props = {
   tabs: Tab[];
@@ -66,6 +67,8 @@ type Props = {
   onRotateLeafSplit: (leafId: number) => void;
   /** Per-leaf SSH session status, forwarded to the tab strip for the dot. */
   sshStatuses?: Map<number, SshStatus>;
+  /** Per-leaf AI CLI status, forwarded to the tab strip for the dot. */
+  aiCliStatuses?: Map<number, AiCliStatus>;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
   /** Markdown-preview toggle for the active editor leaf. `null` hides the
@@ -123,6 +126,7 @@ export function Header({
   onMoveLeafToGroup,
   onRotateLeafSplit,
   sshStatuses,
+  aiCliStatuses,
   searchTarget,
   searchRef,
   mdPreviewToggle,
@@ -283,6 +287,7 @@ export function Header({
           onMoveLeafToGroup={onMoveLeafToGroup}
           onRotateLeafSplit={onRotateLeafSplit}
           sshStatuses={sshStatuses}
+          aiCliStatuses={aiCliStatuses}
           compact={compact}
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />

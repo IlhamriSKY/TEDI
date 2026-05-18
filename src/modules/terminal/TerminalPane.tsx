@@ -7,6 +7,7 @@ import {
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
+import type { AiCliStatus } from "./lib/aiCliStatus";
 
 export type TerminalPaneHandle = {
   write: (data: string) => void;
@@ -35,6 +36,7 @@ type Props = {
   onTediOpen?: (leafId: number, input: TediOpenInput) => void;
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   onSshStatus?: (leafId: number, status: SshStatus) => void;
+  onAiCliStatus?: (leafId: number, status: AiCliStatus) => void;
 };
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
@@ -51,6 +53,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     onTediOpen,
     onTediSpawnTab,
     onSshStatus,
+    onAiCliStatus,
   },
   ref,
 ) {
@@ -71,6 +74,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     onTediOpen: (input) => onTediOpen?.(leafId, input),
     onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
     onSshStatus: (status) => onSshStatus?.(leafId, status),
+    onAiCliStatus: (status) => onAiCliStatus?.(leafId, status),
   });
 
   useEffect(() => {

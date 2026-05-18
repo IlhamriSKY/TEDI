@@ -77,6 +77,11 @@ import { ThemeProvider } from "@/modules/theme";
 import { type SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import {
+  toolDisplayName,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
+import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
+import {
   defaultTabForEmptyWorkspace,
   savedToTab,
   serializeTabs,
@@ -190,6 +195,12 @@ export default function App() {
   // pill rerender on transitions. Keyed by leafId; entries are cleared by
   // the same prune-effect that drops dead terminal handles below.
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
+  // Per-leaf AI CLI status (claude, codex, opencode, copilot, pi). Surfaces
+  // a dot on the tab + a toast/beep on transitions into "blocking". Same
+  // prune flow as `sshStatuses`.
+  const [aiCliStatuses, setAiCliStatuses] = useState<Map<number, AiCliStatus>>(
+    () => new Map(),
+  );
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
   // Latches the first time each lazy dialog is requested. Stays true after -
@@ -384,6 +395,7 @@ export default function App() {
 
   const initPrefs = usePreferencesStore((s) => s.init);
   const prefDefaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const prefDefaultProvider = usePreferencesStore((s) => s.defaultProviderId);
   const prefLastModelId = usePreferencesStore((s) => s.lastModelId);
   const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
@@ -431,6 +443,10 @@ export default function App() {
     } else if (prefLastModelId && hasKeyForModel(prefLastModelId)) {
       // No saved provider (pre-fix data) - fall back to registry lookup.
       setSelectedModelId(prefLastModelId);
+    } else if (prefDefaultProvider) {
+      // Settings default with explicit provider - immune to the same id/provider
+      // ambiguity that lastProviderId fixes for the active selection.
+      setSelectedModelId(prefDefaultModel, prefDefaultProvider as ProviderId);
     } else {
       setSelectedModelId(prefDefaultModel);
     }
@@ -441,6 +457,7 @@ export default function App() {
     prefLastModelId,
     prefLastProviderId,
     prefDefaultModel,
+    prefDefaultProvider,
     setSelectedModelId,
   ]);
   // Persist the active model + provider whenever they change (after the boot
@@ -703,6 +720,54 @@ export default function App() {
     });
   }, []);
 
+  const handleAiCliStatus = useCallback((leafId: number, status: AiCliStatus) => {
+    setAiCliStatuses((prev) => {
+      try {
+        const before = prev.get(leafId) ?? null;
+        const sameTool = before?.tool === status?.tool;
+        const sameState = before?.state === status?.state;
+        if (sameTool && sameState) return prev;
+        // Fire toast/beep on transitions *into* blocking.
+        if (status && status.state === "blocking" && before?.state !== "blocking") {
+          try {
+            toast(`${toolDisplayName(status.tool)} needs your approval`, {
+              variant: "warning",
+              durationMs: 6000,
+            });
+            playBlockingBeep();
+          } catch {
+            // notification failures are non-critical
+          }
+        } else if (
+          status &&
+          status.state === "idle" &&
+          before?.state === "working" &&
+          status.tool === before.tool &&
+          Date.now() - before.since >= 1500
+        ) {
+          // Task completed - AI returned to idle after doing work. Skip the
+          // notif when working lasted <1.5s (avoids spam from brief
+          // spinner flickers or very short responses).
+          try {
+            toast(`${toolDisplayName(status.tool)} finished`, {
+              variant: "success",
+              durationMs: 4000,
+            });
+            playCompletionBeep();
+          } catch {
+            // notification failures are non-critical
+          }
+        }
+        const next = new Map(prev);
+        if (status) next.set(leafId, status);
+        else next.delete(leafId);
+        return next;
+      } catch {
+        return prev;
+      }
+    });
+  }, []);
+
   const disposeTab = useCallback(
     (id: number) => {
       // Per-leaf maps are pruned by the effect below when the tree shrinks;
@@ -750,6 +815,17 @@ export default function App() {
     for (const k of [...editorRefs.current.keys()])
       if (!liveEditor.has(k)) editorRefs.current.delete(k);
     setSshStatuses((prev) => {
+      let mutated = false;
+      const next = new Map(prev);
+      for (const k of next.keys()) {
+        if (!liveTerm.has(k)) {
+          next.delete(k);
+          mutated = true;
+        }
+      }
+      return mutated ? next : prev;
+    });
+    setAiCliStatuses((prev) => {
       let mutated = false;
       const next = new Map(prev);
       for (const k of next.keys()) {
@@ -1425,8 +1501,18 @@ export default function App() {
     explorerRoot,
     home,
     openPreviewTab,
+    newTab,
+    inheritedCwdForNewTab,
   });
-  liveContextRef.current = { tabs, activeId, explorerRoot, home, openPreviewTab };
+  liveContextRef.current = {
+    tabs,
+    activeId,
+    explorerRoot,
+    home,
+    openPreviewTab,
+    newTab,
+    inheritedCwdForNewTab,
+  };
 
   useEffect(() => {
     setLive({
@@ -1446,13 +1532,14 @@ export default function App() {
         }
         return explorerRoot ?? home ?? null;
       },
-      getTerminalContext: () => {
+      getTerminalContext: (lines) => {
         const { tabs, activeId } = liveContextRef.current;
         const t = tabs.find((x) => x.id === activeId);
         if (!t || t.kind !== "pane") return null;
         const leaf = activeLeaf(t);
         if (!leaf || leaf.leafKind !== "terminal") return null;
-        return terminalRefs.current.get(leaf.id)?.getBuffer(300) ?? null;
+        const n = Math.max(1, Math.min(2000, lines ?? 300));
+        return terminalRefs.current.get(leaf.id)?.getBuffer(n) ?? null;
       },
       injectIntoActivePty: (text) => {
         const { tabs, activeId } = liveContextRef.current;
@@ -1479,6 +1566,28 @@ export default function App() {
       },
       openPreview: (url: string) => {
         liveContextRef.current.openPreviewTab(url);
+        return true;
+      },
+      openTerminal: (cwd) => {
+        const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;
+        const target = cwd ?? explorerRoot ?? inheritedCwdForNewTab();
+        newTab(target ?? undefined);
+        return true;
+      },
+      runInActiveTerminal: (command) => {
+        const { tabs, activeId } = liveContextRef.current;
+        const t = tabs.find((x) => x.id === activeId);
+        if (!t || t.kind !== "pane") return false;
+        const leaf = activeLeaf(t);
+        if (!leaf || leaf.leafKind !== "terminal") return false;
+        const term = terminalRefs.current.get(leaf.id);
+        if (!term) return false;
+        // Strip trailing newlines we may add ourselves, then submit with CR.
+        // Windows ConPTY + pwsh require \r, not \n - same convention as the
+        // sendCd / cdInNewTab helpers above.
+        const trimmed = command.replace(/[\r\n]+$/, "");
+        term.write(`${trimmed}\r`);
+        term.focus();
         return true;
       },
     });
@@ -1546,6 +1655,7 @@ export default function App() {
             onMoveLeafToGroup={moveLeafToGroup}
             onRotateLeafSplit={rotateLeafSplit}
             sshStatuses={sshStatuses}
+            aiCliStatuses={aiCliStatuses}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}
@@ -1625,6 +1735,7 @@ export default function App() {
                         onTediOpen={handleTediOpen}
                         onTediSpawnTab={handleTediSpawnTab}
                         onSshStatus={handleSshStatus}
+                        onAiCliStatus={handleAiCliStatus}
                         registerEditorHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
                         onCloseLeaf={handleEditorCloseLeaf}

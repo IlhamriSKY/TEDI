@@ -7,6 +7,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
+import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 
 export type LeafBundle = {
   // terminal-only
@@ -18,6 +19,7 @@ export type LeafBundle = {
   onTediOpen: (input: TediOpenInput) => void;
   onTediSpawnTab: (input: TediSpawnTabInput) => void;
   onSshStatus: (status: SshStatus) => void;
+  onAiCliStatus: (status: AiCliStatus) => void;
   // editor-only
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -76,6 +78,7 @@ export function PaneTreeView({
               onTediOpen={(_id, input) => b.onTediOpen(input)}
               onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
               onSshStatus={(_id, status) => b.onSshStatus(status)}
+              onAiCliStatus={(_id, status) => b.onAiCliStatus(status)}
             />
           </div>
         </div>

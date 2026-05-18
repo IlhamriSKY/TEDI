@@ -32,7 +32,7 @@ fn is_flag(s: &str) -> bool {
 }
 
 fn is_version_flag(s: &str) -> bool {
-    matches!(s, "--version" | "-V")
+    matches!(s, "--version" | "-V" | "-v")
 }
 
 fn is_help_flag(s: &str) -> bool {
@@ -61,9 +61,9 @@ fn help_text() -> String {
         "(a second window is not opened).\n",
         "\n",
         "FLAGS:\n",
-        "    -h, --help       Print this help and exit\n",
-        "    -V, --version    Print version and exit\n",
-        "    -u, --update     Check for updates and open the update dialog\n",
+        "    -h, --help           Print this help and exit\n",
+        "    -v, -V, --version    Print version and exit\n",
+        "    -u, --update         Check for updates and open the update dialog\n",
         "\n",
         "ARGS:\n",
         "    PATH             Folder to open, or file to edit. Use `.` for the\n",
@@ -148,14 +148,35 @@ where
 /// Resolve `raw` against `base`. Relative paths join `base`; absolute paths
 /// pass through. We deliberately avoid `canonicalize` because on Windows it
 /// returns UNC paths (`\\?\C:\...`) that `portable-pty` and the rest of the
-/// frontend don't handle uniformly.
+/// frontend don't handle uniformly. Trailing `.` / `..` components are
+/// folded so `tedi .` doesn't end up with a path like `…/project/.` whose
+/// basename is the literal `.` (which then surfaces as a tab title).
 fn resolve(base: &Path, raw: &str) -> PathBuf {
     let p = Path::new(raw);
-    if p.is_absolute() {
+    let combined = if p.is_absolute() {
         p.to_path_buf()
     } else {
         base.join(p)
+    };
+    normalize_components(&combined)
+}
+
+/// Lexically collapse `.` and `..` components without touching the filesystem.
+/// `PathBuf::pop` is a no-op at the root, so an over-popped `..` is dropped
+/// rather than escaping above the prefix.
+fn normalize_components(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
     }
+    out
 }
 
 /// Normalise to forward-slash form to match the frontend's canonical path

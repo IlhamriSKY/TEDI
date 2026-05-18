@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.4"
+version = "0.2.5"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -38,6 +38,11 @@ tauri-plugin-os = "2"
 tauri-plugin-store = "2"
 tauri-plugin-process = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+# Streaming HTML rewriter (CloudFlare). Used by the preview proxy to route
+# subresource URLs (img/script/link/source) through ourselves so per-asset
+# CORP same-site headers can be stripped.
+lol_html = "1"
+url = "2"
 # Default features pull in aws-lc-rs which needs NASM at build time on
 # Windows. Use ring instead - pure-Rust + assembly, no toolchain hassle.
 russh = { version = "0.60", default-features = false, features = ["ring", "flate2", "rsa"] }

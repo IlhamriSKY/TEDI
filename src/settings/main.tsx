@@ -1,3 +1,5 @@
+import "../lib/tauri-browser-shim";
+
 import "../styles/globals.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";

@@ -4,6 +4,7 @@ import { leafIds } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
+import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useRef } from "react";
 import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
@@ -20,6 +21,7 @@ type Props = {
   onTediOpen?: (leafId: number, input: TediOpenInput) => void;
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   onSshStatus?: (leafId: number, status: SshStatus) => void;
+  onAiCliStatus?: (leafId: number, status: AiCliStatus) => void;
   // Editor leaf callbacks
   registerEditorHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
@@ -41,6 +43,7 @@ export function PaneStack({
   onTediOpen,
   onTediSpawnTab,
   onSshStatus,
+  onAiCliStatus,
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
@@ -59,6 +62,7 @@ export function PaneStack({
   const tediOpenRef = useRef(onTediOpen);
   const tediSpawnTabRef = useRef(onTediSpawnTab);
   const sshStatusRef = useRef(onSshStatus);
+  const aiCliStatusRef = useRef(onAiCliStatus);
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
@@ -87,6 +91,9 @@ export function PaneStack({
     sshStatusRef.current = onSshStatus;
   }, [onSshStatus]);
   useEffect(() => {
+    aiCliStatusRef.current = onAiCliStatus;
+  }, [onAiCliStatus]);
+  useEffect(() => {
     registerEditorRef.current = registerEditorHandle;
   }, [registerEditorHandle]);
   useEffect(() => {
@@ -109,6 +116,7 @@ export function PaneStack({
         onTediOpen: (input) => tediOpenRef.current?.(leafId, input),
         onTediSpawnTab: (input) => tediSpawnTabRef.current?.(leafId, input),
         onSshStatus: (status) => sshStatusRef.current?.(leafId, status),
+        onAiCliStatus: (status) => aiCliStatusRef.current?.(leafId, status),
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),

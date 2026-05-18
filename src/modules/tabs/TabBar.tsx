@@ -29,6 +29,12 @@ import {
 } from "@/modules/ssh/connections";
 import { statusDotClass, statusLabel, type SshStatus } from "@/modules/ssh/status";
 import {
+  aiCliLabel,
+  aiCliStateChipClass,
+  aiCliStateWord,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
+import {
   Cancel01Icon,
   CloudServerIcon,
   ComputerTerminal02Icon,
@@ -82,6 +88,12 @@ type PaneEntry = EntryBase & {
   sshConnectionId?: string;
   /** Latest known status for SSH leaves, drives the colored dot. */
   sshStatus?: SshStatus;
+  /**
+   * Latest known AI CLI status for local terminal leaves. When the user
+   * runs `claude`, `codex`, `opencode`, etc., the detector in
+   * `useTerminalSession` populates this; null when no AI CLI is active.
+   */
+  aiCliStatus?: AiCliStatus;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -155,6 +167,7 @@ function buildEntries(
   tabs: Tab[],
   sshHosts: Map<string, SshConnection>,
   sshStatuses?: Map<number, SshStatus>,
+  aiCliStatuses?: Map<number, AiCliStatus>,
 ): Entry[] {
   const out: Entry[] = [];
   for (const t of tabs) {
@@ -176,6 +189,10 @@ function buildEntries(
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
           sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
+          aiCliStatus:
+            leaf.leafKind === "terminal" && !sshConnectionId
+              ? aiCliStatuses?.get(leaf.id)
+              : undefined,
         });
       }
       continue;
@@ -253,6 +270,12 @@ type Props = {
    * the tab tooltip. Untracked leaves render as "Connecting…".
    */
   sshStatuses?: Map<number, SshStatus>;
+  /**
+   * Optional map keyed by leafId carrying the latest AI CLI status (claude,
+   * codex, opencode, copilot, pi). Drives the dot overlay on the terminal
+   * icon + the tooltip line on the tab.
+   */
+  aiCliStatuses?: Map<number, AiCliStatus>;
   compact?: boolean;
 };
 
@@ -302,6 +325,7 @@ export function TabBar({
   onMoveLeafToGroup,
   onRotateLeafSplit,
   sshStatuses,
+  aiCliStatuses,
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -320,9 +344,10 @@ export function TabBar({
   }, []);
 
   const entries = useMemo(
-    () => buildEntries(tabs, sshHosts, sshStatuses),
-    [tabs, sshHosts, sshStatuses],
+    () => buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses),
+    [tabs, sshHosts, sshStatuses, aiCliStatuses],
   );
+
 
   /**
    * Snapshot of every pane tab keyed by id, used by the per-entry "Move to
@@ -740,6 +765,9 @@ function SortableTabGroup({
             >
               <EntryIcon entry={e} />
               <span className={cn("truncate", e.italic && "italic")}>{e.label}</span>
+              {e.kind === "pane-leaf" && e.aiCliStatus ? (
+                <AiCliChip status={e.aiCliStatus} />
+              ) : null}
               {e.dirty ? (
                 <span
                   aria-label="Unsaved changes"
@@ -792,6 +820,17 @@ function SortableTabGroup({
                     <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
                   ) : null}
                 </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        } else if (isPaneLeaf && e.aiCliStatus) {
+          // Local terminal with a running AI CLI - show tool + state in tooltip.
+          const ai = e.aiCliStatus;
+          node = (
+            <Tooltip>
+              <TooltipTrigger asChild>{node}</TooltipTrigger>
+              <TooltipContent side="bottom">
+                <div className="text-[11px]">{aiCliLabel(ai)}</div>
               </TooltipContent>
             </Tooltip>
           );
@@ -892,6 +931,35 @@ function TrailingIconButton({
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * State chip rendered next to the tab label for terminal leaves running a
+ * known AI CLI. Wrapped in try/catch so a corrupt status object (or a
+ * future state value we don't know about yet) can never crash the tab bar.
+ */
+function AiCliChip({ status }: { status: NonNullable<AiCliStatus> }) {
+  let chipClass = "";
+  let word = "";
+  let label = "";
+  try {
+    chipClass = aiCliStateChipClass(status);
+    word = aiCliStateWord(status);
+    label = aiCliLabel(status);
+  } catch {
+    return null;
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex h-[14px] shrink-0 items-center rounded px-1.5 text-[10px] font-medium uppercase tracking-wide leading-none",
+        chipClass,
+      )}
+      aria-label={label}
+    >
+      {word}
+    </span>
   );
 }
 

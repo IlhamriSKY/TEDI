@@ -1,8 +1,15 @@
 import { generateText } from "ai";
 import { buildLanguageModel } from "@/modules/ai/lib/agent";
-import { DEFAULT_MODEL_ID, tryGetModel, type ProviderId } from "@/modules/ai/config";
+import {
+  DEFAULT_MODEL_ID,
+  PROVIDERS,
+  providerNeedsKey,
+  tryGetModel,
+  type ProviderId,
+} from "@/modules/ai/config";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import type { ProviderKeys } from "@/modules/ai/lib/keyring";
 import type { GitChange, GitChangeStatus } from "./types";
 
 /** Hard cap on diff bytes shipped to the model. Anything past this is
@@ -118,72 +125,77 @@ type ResolvedModel = {
   label: string;
 };
 
-/** Pick the model + provider the rest of the app considers "active". Mirrors
- *  the boot-restore logic in App.tsx so the AI commit-message generator
- *  always uses the same model the chat picker shows - including non-stock
- *  providers (openai-compatible, lmstudio, sumopod-detected, etc.) whose
- *  registry entries arrive asynchronously after a /models fetch.
+/** Resolve the display label for an (id, provider) pair. When both are
+ *  given we trust the provider explicitly - this matters for ids that
+ *  exist under multiple providers (e.g. `claude-sonnet-4-6` is shipped
+ *  by both Anthropic and SumoPod). When provider is unknown, fall back
+ *  to id-only registry lookup. */
+function labelFor(id: string, provider: ProviderId | null): string {
+  const info = tryGetModel(id);
+  if (provider && info?.provider === provider) return info.label;
+  if (provider) {
+    const providerLabel = PROVIDERS.find((p) => p.id === provider)?.label;
+    return providerLabel ? `${id} · ${providerLabel}` : id;
+  }
+  return info?.label ?? id;
+}
+
+/** Check if the given provider has a usable key (or doesn't need one). */
+function isProviderUsable(provider: ProviderId, apiKeys: ProviderKeys): boolean {
+  if (!providerNeedsKey(provider)) return true;
+  return !!apiKeys[provider];
+}
+
+/** Build the prioritized list of (id, provider) candidates to try for
+ *  commit-message generation. The Settings default wins because that's
+ *  what the user explicitly chose as "the model" - the chat picker's
+ *  last pick is a secondary fallback when the default isn't usable
+ *  (no key, provider stripped, etc.). Hardcoded DEFAULT_MODEL_ID is
+ *  the final safety net so the function always returns at least one
+ *  candidate.
  *
- *  Persisted prefs win over the in-memory chatStore because they survive a
- *  cold boot and a pre-hydration commit attempt. We trust the explicit
- *  `lastProviderId` even if the registry hasn't seen the model yet, which
- *  is the case immediately after launch for openai-compatible setups. */
-function resolveActiveModel(): ResolvedModel {
+ *  De-duped while preserving order - the same (id, provider) pair only
+ *  needs to be tried once even if multiple sources point at it. */
+function resolveModelCandidates(): ResolvedModel[] {
   const prefs = usePreferencesStore.getState();
   const chat = useChatStore.getState();
+  const out: ResolvedModel[] = [];
+  const seen = new Set<string>();
 
-  // 1. Persisted last pick with explicit provider - authoritative even
-  //    before the dynamic registry (openai-compatible /models, sumopod)
-  //    finishes loading.
-  if (prefs.lastModelId && prefs.lastProviderId) {
-    const info = tryGetModel(prefs.lastModelId);
-    return {
-      id: prefs.lastModelId,
-      provider: prefs.lastProviderId as ProviderId,
-      label: info?.label ?? prefs.lastModelId,
-    };
-  }
-
-  // 2. Persisted last pick without saved provider (pre-fix data) - derive
-  //    from registry, fall back to chatStore.selectedProvider which was
-  //    wired by App.tsx boot restore.
-  if (prefs.lastModelId) {
-    const info = tryGetModel(prefs.lastModelId);
-    return {
-      id: prefs.lastModelId,
-      provider: info?.provider ?? chat.selectedProvider,
-      label: info?.label ?? prefs.lastModelId,
-    };
-  }
-
-  // 3. Settings default. Registry may still be hydrating for runtime-
-  //    detected models - fall back to chat.selectedProvider when missing.
-  if (prefs.defaultModelId) {
-    const info = tryGetModel(prefs.defaultModelId);
-    return {
-      id: prefs.defaultModelId,
-      provider: info?.provider ?? chat.selectedProvider,
-      label: info?.label ?? prefs.defaultModelId,
-    };
-  }
-
-  // 4. In-memory chat selection (after boot it mirrors prefs).
-  if (chat.selectedModelId) {
-    const info = tryGetModel(chat.selectedModelId);
-    return {
-      id: chat.selectedModelId,
-      provider: info?.provider ?? chat.selectedProvider,
-      label: info?.label ?? chat.selectedModelId,
-    };
-  }
-
-  // 5. Hardcoded final fallback.
-  const info = tryGetModel(DEFAULT_MODEL_ID);
-  return {
-    id: DEFAULT_MODEL_ID,
-    provider: info?.provider ?? "openai",
-    label: info?.label ?? DEFAULT_MODEL_ID,
+  const push = (id: string | null | undefined, provider: string | null | undefined) => {
+    if (!id) return;
+    const info = tryGetModel(id);
+    const resolvedProvider = ((provider as ProviderId | null | undefined) ??
+      info?.provider ??
+      chat.selectedProvider) as ProviderId;
+    const key = `${resolvedProvider}::${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      id,
+      provider: resolvedProvider,
+      label: labelFor(id, resolvedProvider),
+    });
   };
+
+  // 1. Settings default - the user's explicit "use this for commit AI".
+  push(prefs.defaultModelId, prefs.defaultProviderId);
+  // 2. Last chat-picker selection - what the rest of the app is using.
+  push(prefs.lastModelId, prefs.lastProviderId);
+  // 3. In-memory chat selection (mirrors prefs after boot).
+  push(chat.selectedModelId, chat.selectedProvider);
+  // 4. Hardcoded final safety net.
+  push(DEFAULT_MODEL_ID, tryGetModel(DEFAULT_MODEL_ID)?.provider ?? "openai");
+  return out;
+}
+
+/** Pick the first candidate whose provider has a usable key. If none do,
+ *  return the first candidate anyway so the caller can surface a meaningful
+ *  "no key configured" error pointing at the *intended* model. */
+function pickUsableModel(apiKeys: ProviderKeys): ResolvedModel {
+  const candidates = resolveModelCandidates();
+  const usable = candidates.find((c) => isProviderUsable(c.provider, apiKeys));
+  return usable ?? candidates[0];
 }
 
 /** Loads the staged + working-tree diff via Tauri, asks the active model
@@ -197,7 +209,10 @@ export async function generateCommitMessage(input: {
   changes: GitChange[];
 }): Promise<GenerateCommitMessageResult> {
   const { diff, changes } = input;
-  const resolved = resolveActiveModel();
+  const { apiKeys } = useChatStore.getState();
+  const prefs = usePreferencesStore.getState();
+  const resolved = pickUsableModel(apiKeys);
+
   if (!diff || diff.trim().length === 0) {
     return {
       message: fallbackCommitMessage(changes),
@@ -207,8 +222,17 @@ export async function generateCommitMessage(input: {
     };
   }
 
-  const { apiKeys } = useChatStore.getState();
-  const prefs = usePreferencesStore.getState();
+  // Surface a clear, actionable message when the picked model's provider
+  // has no key. Without this the error bubbles up as a generic
+  // `buildLanguageModel` throw and the toast looks like a network fault.
+  if (!isProviderUsable(resolved.provider, apiKeys)) {
+    return {
+      message: fallbackCommitMessage(changes),
+      fallback: true,
+      reason: `no API key for ${resolved.provider} - open Settings → Models`,
+      modelLabel: resolved.label,
+    };
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

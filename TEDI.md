@@ -115,7 +115,7 @@ Stored only in the OS keychain via Rust `secrets_*` commands. `KEYRING_SERVICE =
 | `search.ts`   | `fs_search`, `fs_grep`                               | auto              |
 | `edit.ts`     | `write_file`, `create_directory`, `rename`, `delete` | **needsApproval** |
 | `shell.ts`    | `run_command`, `shell_session_run`, `shell_bg_spawn` | **needsApproval** |
-| `terminal.ts` | Read live terminal buffer/cwd                        | auto              |
+| `terminal.ts` | `read_terminal` (auto), `open_terminal` (needsApproval), `run_in_terminal` (needsApproval), `suggest_command` (auto), `open_preview` (auto) | mixed |
 | `context.ts`  | Workspace context helpers                            | auto              |
 | `subagent.ts` | `run_subagent`                                       | auto              |
 | `todo.ts`     | Todo manipulation                                    | auto              |
@@ -127,7 +127,7 @@ Approval-gated tools pause via `lastAssistantMessageIsCompleteWithApprovalRespon
 
 #### Live context bridge
 
-`App.tsx` calls `setLive({ getCwd, getTerminalContext, … })` so tools can read the _currently active_ terminal's cwd + last 300 lines. **Lazy by design** - don't pre-snapshot.
+`App.tsx` calls `setLive({ getCwd, getTerminalContext, openTerminal, runInActiveTerminal, … })` so tools can read the _currently active_ terminal's cwd + scrollback (default 300 lines, up to 2000), spawn a new terminal tab, or submit a command into the focused tab. **Lazy by design** - don't pre-snapshot. Per-turn `<env>` block also carries `os` / `default_shell` (detected once at module load via `@tauri-apps/plugin-os`) so the agent picks PowerShell vs POSIX syntax without asking.
 
 #### Voice input
 

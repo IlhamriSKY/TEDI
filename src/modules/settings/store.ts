@@ -5,8 +5,10 @@ import {
   DEFAULT_MODEL_ID,
   LMSTUDIO_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  tryGetModel,
   type AutocompleteProviderId,
   type DynamicModelId,
+  type ProviderId,
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 
@@ -43,6 +45,11 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: DynamicModelId;
+  /** Provider that owns `defaultModelId`. Disambiguates models that share an
+   *  id across providers (e.g. `claude-sonnet-4-6` exists for both Anthropic
+   *  and SumoPod). Persisted so boot restore lands on the right provider
+   *  even if the dynamic registry hasn't hydrated yet. */
+  defaultProviderId: ProviderId | null;
   editorTheme: EditorThemeId;
   customInstructions: string;
   autostart: boolean;
@@ -89,6 +96,7 @@ export type Preferences = {
 const STORE_PATH = "tedi-settings.json";
 const KEY_THEME = "theme";
 const KEY_DEFAULT_MODEL = "defaultModelId";
+const KEY_DEFAULT_PROVIDER = "defaultProviderId";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_AUTOSTART = "autostart";
@@ -126,6 +134,7 @@ export const TERMINAL_FONT_SIZES = [10, 12, 13, 14, 15, 16, 18, 20, 22, 24] as c
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   defaultModelId: DEFAULT_MODEL_ID,
+  defaultProviderId: tryGetModel(DEFAULT_MODEL_ID)?.provider ?? null,
   editorTheme: "atomone",
   customInstructions: "",
   autostart: false,
@@ -173,6 +182,8 @@ export async function loadPreferences(): Promise<Preferences> {
   return {
     theme: get<ThemePref>(KEY_THEME) ?? DEFAULT_PREFERENCES.theme,
     defaultModelId: get<DynamicModelId>(KEY_DEFAULT_MODEL) ?? DEFAULT_PREFERENCES.defaultModelId,
+    defaultProviderId:
+      get<ProviderId | null>(KEY_DEFAULT_PROVIDER) ?? DEFAULT_PREFERENCES.defaultProviderId,
     editorTheme: get<EditorThemeId>(KEY_EDITOR_THEME) ?? DEFAULT_PREFERENCES.editorTheme,
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
@@ -216,8 +227,17 @@ export async function setTheme(value: ThemePref): Promise<void> {
   await writePref(KEY_THEME, value);
 }
 
-export async function setDefaultModel(value: DynamicModelId): Promise<void> {
+export async function setDefaultModel(
+  value: DynamicModelId,
+  provider?: ProviderId,
+): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
+  // Pair provider with id so boot restore lands on the right entry when two
+  // providers ship the same model id. Omit `provider` and we derive from
+  // the static registry; a runtime-detected id that the registry doesn't
+  // know yet stores `null` and falls back to chat.selectedProvider later.
+  const resolved = provider ?? tryGetModel(value)?.provider ?? null;
+  await writePref(KEY_DEFAULT_PROVIDER, resolved);
 }
 
 export async function setEditorTheme(value: EditorThemeId): Promise<void> {
@@ -339,6 +359,7 @@ export async function onPreferencesChange(
   const map: Record<string, PrefKey> = {
     [KEY_THEME]: "theme",
     [KEY_DEFAULT_MODEL]: "defaultModelId",
+    [KEY_DEFAULT_PROVIDER]: "defaultProviderId",
     [KEY_EDITOR_THEME]: "editorTheme",
     [KEY_CUSTOM_INSTRUCTIONS]: "customInstructions",
     [KEY_AUTOSTART]: "autostart",

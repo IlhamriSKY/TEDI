@@ -1,6 +1,13 @@
 # tedi-shell-integration (PowerShell)
 # Emits OSC 7 (cwd) + OSC 133 A/B/D so the host tracks cwd and prompt boundaries.
 
+# ConPTY's output stream sometimes stalls before the first write on Windows 11
+# (the "blinking cursor, no prompt" symptom) - the prompt sits in conhost's
+# buffer until input forces a flush. A no-op cursor-visible sequence written
+# explicitly through [Console]::Out + an explicit Flush wakes the pipe.
+[Console]::Out.Write([char]27 + "[?25h")
+[Console]::Out.Flush()
+
 if ($global:__TEDI_HOOKS_LOADED) { return }
 $global:__TEDI_HOOKS_LOADED = $true
 
@@ -60,3 +67,10 @@ function global:prompt {
     $global:LASTEXITCODE = $lec
     "$oscD$oscA$osc7${original}${oscB}"
 }
+
+# Note: PowerShell has no native preexec hook. We previously installed a
+# PSReadLine Enter chord that emitted OSC 133 C before AcceptLine, but it
+# proved fragile across PSReadLine versions and caused intermittent shell
+# crashes. The frontend detector now synthesises command-start from the
+# Enter keystroke on its side (see aiCliDetector.ts), so we don't need it
+# here anymore.

@@ -64,6 +64,7 @@ function matchesQuery(m: { id: string; label: string; hint: string }, q: string)
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const defaultProvider = usePreferencesStore((s) => s.defaultProviderId);
   const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   const sumopodModels = useSumopodModels();
   const oaiCompatModels = useOpenAICompatibleModels();
@@ -102,12 +103,38 @@ export function ModelsSection() {
     return <div className="text-muted-foreground text-[12px]">Loading…</div>;
   }
 
-  const defaultModelInfo = tryGetModel(defaultModel) ?? {
-    id: defaultModel,
-    provider: "sumopod" as ProviderId,
-    label: defaultModel,
-    hint: "SumoPod",
-  };
+  // Resolve the default model's display info using the saved provider when
+  // present. Two providers (e.g. Anthropic + SumoPod) can ship the same
+  // model id, so an id-only lookup picks the first match and mislabels the
+  // trigger. The saved provider disambiguates.
+  const defaultModelInfo = (() => {
+    if (defaultProvider) {
+      const pool =
+        defaultProvider === "sumopod"
+          ? sumopodModels.models
+          : defaultProvider === "openai-compatible"
+            ? oaiCompatModels.models
+            : MODELS.filter((m) => m.provider === defaultProvider);
+      const hit = pool.find((m) => m.id === defaultModel);
+      if (hit) return hit;
+      const providerLabel =
+        PROVIDERS.find((p) => p.id === defaultProvider)?.label ?? defaultProvider;
+      return {
+        id: defaultModel,
+        provider: defaultProvider,
+        label: defaultModel,
+        hint: providerLabel,
+      };
+    }
+    return (
+      tryGetModel(defaultModel) ?? {
+        id: defaultModel,
+        provider: "sumopod" as ProviderId,
+        label: defaultModel,
+        hint: "SumoPod",
+      }
+    );
+  })();
   const gridProviders = PROVIDERS.filter(
     (p) => providerNeedsKey(p.id) && p.id !== "openai-compatible",
   );
@@ -218,12 +245,14 @@ export function ModelsSection() {
                       ) : null}
                       {filtered.map((m) => (
                         <DropdownMenuItem
-                          key={m.id}
+                          key={`${m.provider}::${m.id}`}
                           disabled={!hasKey}
-                          onSelect={() => hasKey && void setDefaultModel(m.id)}
+                          onSelect={() => hasKey && void setDefaultModel(m.id, m.provider)}
                           className={cn(
                             "flex items-center justify-between gap-2 text-[12px]",
-                            m.id === defaultModel && "bg-accent/50",
+                            m.id === defaultModel &&
+                              m.provider === defaultModelInfo.provider &&
+                              "bg-accent/50",
                           )}
                         >
                           <span className="flex flex-col">

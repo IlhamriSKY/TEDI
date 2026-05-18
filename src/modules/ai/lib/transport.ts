@@ -43,7 +43,6 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
 
 type LiveSnapshot = {
   cwd: string | null;
-  terminal: string | null;
   workspaceRoot: string | null;
   activeFile: string | null;
 };
@@ -118,8 +117,8 @@ function injectContext(messages: UIMessage[], live: LiveSnapshot): UIMessage[] {
 
 /** Minimal env block, prepended to the latest user message. Kept short so the
  *  cacheable conversation prefix stays as stable as possible across turns.
- *  Terminal scrollback is NOT auto-included anymore - the agent should ask
- *  the user to paste recent output when it genuinely needs it. */
+ *  Terminal scrollback is NOT auto-included - the agent should call
+ *  `read_terminal` when it needs to see what the user is looking at. */
 function formatEnvBlock(live: LiveSnapshot): string | null {
   const lines: string[] = [];
   if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);

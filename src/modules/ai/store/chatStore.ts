@@ -43,11 +43,20 @@ import type { ToolContext } from "../tools/tools";
 
 type Live = {
   getCwd: () => string | null;
-  getTerminalContext: () => string | null;
+  getTerminalContext: (lines?: number) => string | null;
   injectIntoActivePty: (text: string) => boolean;
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
   openPreview: (url: string) => boolean;
+  /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
+   *  Returns true if a new tab was created. */
+  openTerminal: (cwd?: string | null) => boolean;
+  /** Inject `command` into the active terminal AND submit (CR). Returns
+   *  false if there is no active terminal tab to run in. Use this when
+   *  the user asked the AI to "run X in the terminal" - the command and
+   *  its output stay in the terminal the user is looking at, not the
+   *  hidden agent shell. */
+  runInActiveTerminal: (command: string) => boolean;
 };
 
 export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
@@ -186,6 +195,8 @@ const NOOP_LIVE: Live = {
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
   openPreview: () => false,
+  openTerminal: () => false,
+  runInActiveTerminal: () => false,
 };
 
 // Per-session Chat instances. Transport reads the keys map lazily, so a key
@@ -243,9 +254,12 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   const toolContext: ToolContext = {
     getCwd: () => useChatStore.getState().live.getCwd(),
     getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
-    getTerminalContext: () => useChatStore.getState().live.getTerminalContext(),
+    getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
+    openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
+    runInActiveTerminal: (command) =>
+      useChatStore.getState().live.runInActiveTerminal(command),
     readCache,
     getSessionId: () => sessionId,
   };
@@ -267,7 +281,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       const live = useChatStore.getState().live;
       return {
         cwd: live.getCwd(),
-        terminal: live.getTerminalContext(),
         workspaceRoot: live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
       };

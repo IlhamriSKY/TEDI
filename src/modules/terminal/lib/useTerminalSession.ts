@@ -26,6 +26,8 @@ import {
 } from "@/modules/ssh/connections";
 import { openSsh } from "@/modules/ssh/bridge";
 import type { SshStatus } from "@/modules/ssh/status";
+import { createAiCliDetector, type AiCliDetector } from "./aiCliDetector";
+import type { AiCliStatus } from "./aiCliStatus";
 
 export type { TediOpenInput, TediSpawnTabInput };
 
@@ -110,6 +112,8 @@ type Callbacks = {
   onTediSpawnTab?: (input: TediSpawnTabInput) => void;
   /** Emitted only for SSH-bound leaves. Drives the tab dot + status pill. */
   onSshStatus?: (status: SshStatus) => void;
+  /** Emitted when an AI CLI tool is detected/changes state in this leaf. */
+  onAiCliStatus?: (status: AiCliStatus) => void;
 };
 
 const RECONNECT_BACKOFF_MS = [1_000, 3_000, 7_000] as const;
@@ -194,9 +198,40 @@ type Session = {
   sshReconnectAttempts: number;
   /** Pending timer for the next reconnect attempt (cleared on dispose). */
   sshReconnectTimer: ReturnType<typeof setTimeout> | null;
+  // ---- AI CLI detection ----
+  /** Detector instance (per-session). Created in ensureSession's ready block. */
+  aiCliDetector: AiCliDetector | null;
+  /** Latest emitted AI CLI status. Replayed on re-attach. */
+  aiCliStatus: AiCliStatus;
 };
 
 const sessions = new Map<number, Session>();
+
+/**
+ * Snapshot the visible content of an xterm Terminal's viewport as a single
+ * newline-joined string (original case - the AI-CLI detector lowercases
+ * as needed but also looks for case-sensitive Unicode markers like `❯`).
+ *
+ * Defensive: xterm's buffer / row APIs can throw or return null while the
+ * terminal is mid-reflow (resize, theme swap). Any error returns "" so
+ * the detector treats the screen as empty for that tick - safer than
+ * letting an exception kill the detector loop.
+ */
+function readTerminalViewport(term: Terminal): string {
+  try {
+    const buf = term.buffer.active;
+    const start = buf.baseY;
+    const end = start + term.rows;
+    const lines: string[] = [];
+    for (let y = start; y < end; y++) {
+      const line = buf.getLine(y);
+      if (line) lines.push(line.translateToString(true));
+    }
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
 
 /**
  * Compose the terminal's base font size with the global content-zoom factor
@@ -273,6 +308,8 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     sshUserClose: false,
     sshReconnectAttempts: 0,
     sshReconnectTimer: null,
+    aiCliDetector: null,
+    aiCliStatus: null,
   };
   sessions.set(leafId, session);
 
@@ -326,8 +363,25 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     return true;
   });
 
-  // Routes through session.pty so respawn doesn't need to rebind.
-  term.onData((data) => session.pty?.write(data));
+  // AI CLI detector. `readBuffer` gives it the live xterm viewport for
+  // screen-content classification; `isAltScreen` lets it auto-clear the
+  // active tool the moment the TUI exits back to the main shell buffer.
+  const detector = createAiCliDetector({
+    onStatus: (status) => {
+      session.aiCliStatus = status;
+      session.callbacks.onAiCliStatus?.(status);
+    },
+    readBuffer: () => readTerminalViewport(term),
+    isAltScreen: () => term.buffer.active.type === "alternate",
+  });
+  session.aiCliDetector = detector;
+  session.cleanups.push(() => detector.dispose());
+
+  // Route through session.pty so a respawn doesn't need to rebind.
+  term.onData((data) => {
+    session.aiCliDetector?.pushInput(data);
+    session.pty?.write(data);
+  });
 
   // PTY is opened lazily in attachSession after the first fit, so the shell
   // starts with the real terminal size and never flushes a 80x24-sized
@@ -420,6 +474,7 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
     }
     totalBytes += bytes.length;
     s.term.write(bytes);
+    s.aiCliDetector?.pushOutput(bytes);
     if (containsSchemeSeparator(bytes)) {
       const text = urlDecoder.decode(bytes, { stream: true });
       const matches = text.match(LOCAL_URL_RE);
@@ -467,6 +522,7 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
       return;
     }
     s.term.options.disableStdin = true;
+    s.aiCliDetector?.reset();
     if (s.callbacks.onExit) s.callbacks.onExit(code);
     else s.pendingExit = code;
   };
@@ -1127,6 +1183,12 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
     // a split or workspace-switch reattaches the leaf to a fresh App tree.
     callbacks.onSshStatus?.(s.sshStatus);
   }
+  // Same idea for AI CLI status: replay so the tab dot survives reattach.
+  // Also replay when null - covers the "tool exited while detached" case
+  // (e.g. mid-split), where the App-level Map would otherwise stay stuck on
+  // the last "blocking" entry. The handler dedups so a null-then-null is
+  // a no-op when nothing changed.
+  callbacks.onAiCliStatus?.(s.aiCliStatus);
   if (s.pendingExit !== null) {
     const code = s.pendingExit;
     s.pendingExit = null;
@@ -1185,6 +1247,8 @@ type Options = {
   onTediSpawnTab?: (input: TediSpawnTabInput) => void;
   /** Fires whenever an SSH leaf transitions between connection states. */
   onSshStatus?: (status: SshStatus) => void;
+  /** Fires when a known AI CLI tool starts / changes state / exits in this leaf. */
+  onAiCliStatus?: (status: AiCliStatus) => void;
 };
 
 export function useTerminalSession({
@@ -1201,6 +1265,7 @@ export function useTerminalSession({
   onTediOpen,
   onTediSpawnTab,
   onSshStatus,
+  onAiCliStatus,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
@@ -1210,6 +1275,7 @@ export function useTerminalSession({
     onTediOpen,
     onTediSpawnTab,
     onSshStatus,
+    onAiCliStatus,
   });
   cbRef.current = {
     onSearchReady,
@@ -1219,6 +1285,7 @@ export function useTerminalSession({
     onTediOpen,
     onTediSpawnTab,
     onSshStatus,
+    onAiCliStatus,
   };
 
   useEffect(() => {
@@ -1240,6 +1307,7 @@ export function useTerminalSession({
       onTediOpen: (input) => cbRef.current.onTediOpen?.(input),
       onTediSpawnTab: (input) => cbRef.current.onTediSpawnTab?.(input),
       onSshStatus: (status) => cbRef.current.onSshStatus?.(status),
+      onAiCliStatus: (status) => cbRef.current.onAiCliStatus?.(status),
     };
     // Wait for the container ref to be set. In normal mounts this is
     // already truthy by the time s.ready resolves, but split/unsplit and
