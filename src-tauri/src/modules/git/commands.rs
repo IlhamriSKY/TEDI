@@ -4,6 +4,8 @@ use std::process::Command;
 
 use serde::Serialize;
 
+use crate::modules::fs::file::{classify_bytes, ReadResult};
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -333,10 +335,13 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     })
 }
 
-/// Returns the HEAD blob's contents for a working-tree path, or an empty
-/// string if the file was added/untracked (no HEAD version).
+/// Returns the HEAD blob for a working-tree path, classified the same way as
+/// `fs_read_file` (text / image / binary). Newly added or untracked files
+/// have no HEAD blob → returns an empty `Text` so the diff side stays empty.
+/// Raw stdout bytes are preserved so PNG/JPEG blobs survive the trip across
+/// the Tauri boundary instead of being mangled by lossy UTF-8 decoding.
 #[tauri::command]
-pub fn git_file_head(repo_path: String, relative: String) -> Result<String, String> {
+pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
@@ -345,10 +350,14 @@ pub fn git_file_head(repo_path: String, relative: String) -> Result<String, Stri
     cmd.arg("show").arg(format!("HEAD:{}", relative));
     let out = cmd.output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        // file likely didn't exist at HEAD (newly added / untracked)
-        return Ok(String::new());
+        return Ok(ReadResult::Text {
+            content: String::new(),
+            size: 0,
+        });
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    // `classify_bytes` only uses the path for extension-based MIME hints
+    // (SVG/AVIF) — the repo-relative path is enough.
+    Ok(classify_bytes(Path::new(&relative), out.stdout))
 }
 
 /// Discards working-tree changes for a single file. Untracked files are

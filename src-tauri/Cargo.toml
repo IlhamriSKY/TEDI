@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.2"
+version = "0.2.3"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -56,6 +56,7 @@ keyring = { version = "3.6", default-features = false, features = [
 windows-sys = { version = "0.59", features = [
 	"Win32_Foundation",
 	"Win32_Security",
+	"Win32_System_Console",
 	"Win32_System_JobObjects",
 	"Win32_System_Threading",
 	"Win32_Graphics_Dwm",

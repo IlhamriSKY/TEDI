@@ -73,26 +73,67 @@ fn help_text() -> String {
     .to_string()
 }
 
+/// Re-attach this process to the parent terminal's console on Windows so a
+/// GUI-subsystem build (`windows_subsystem = "windows"`, stdout detached) can
+/// still write to the shell that spawned it. No-op on macOS/Linux where the
+/// process inherits the parent's stdio already.
+///
+/// Why we need this: the install dir ships both `tedi.exe` (GUI subsystem)
+/// and `tedi.cmd` (CLI shim that echoes version/help). Default Windows
+/// PATHEXT resolves `.EXE` *before* `.CMD`, so `tedi --version` typed in
+/// cmd/PowerShell/cmder always lands on the EXE — the .cmd shim never runs.
+/// Without `AttachConsole`, the EXE's `println!` writes to a detached handle
+/// and the user sees nothing.
+#[cfg(target_os = "windows")]
+fn attach_parent_console() {
+    use std::io::Write;
+    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // SAFETY: AttachConsole is documented safe to call from any thread and
+    // returns 0 (without side effects) if there is no parent console — e.g.
+    // launched from Explorer/Start menu. We ignore the result; a failed
+    // attach just means stdout stays detached and the println below is a
+    // silent no-op, which is the right behaviour for a no-terminal launch.
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+    // cmd.exe doesn't wait for GUI-subsystem children, so by the time we
+    // print, the next shell prompt has likely already been drawn on the
+    // current line. A leading newline puts our output on a fresh line so it
+    // doesn't visually collide with the prompt.
+    let _ = writeln!(std::io::stdout());
+}
+
+#[cfg(not(target_os = "windows"))]
+fn attach_parent_console() {}
+
 /// Short-circuit `--version` / `--help` before any GUI setup runs. Called at
 /// the very top of `lib::run`. Matches anywhere in argv (not just argv[1]) so
 /// `tedi <path> --version` still prints version.
 ///
-/// On Windows release builds the GUI binary has `windows_subsystem = "windows"`
-/// — stdout is detached from the parent console, so this `println!` is
-/// invisible. The `installer.nsh`-generated `tedi.cmd` shim intercepts the
-/// same flags *before* launching the EXE and prints there instead, so users
-/// who invoke `tedi --version` from a terminal always see output. Direct
-/// `TEDI.exe --version` is an edge case and accepts the silence.
+/// On Windows the GUI binary normally has stdout detached
+/// (`windows_subsystem = "windows"`); [`attach_parent_console`] re-binds it
+/// to the shell that launched us so these prints are actually visible. On
+/// macOS/Linux stdio is inherited from the parent, so the attach call is a
+/// no-op.
 pub fn handle_version_help_and_exit() {
+    use std::io::Write;
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().skip(1).any(|a| is_version_flag(a)) {
+    let want_version = args.iter().skip(1).any(|a| is_version_flag(a));
+    let want_help = args.iter().skip(1).any(|a| is_help_flag(a));
+    if !want_version && !want_help {
+        return;
+    }
+    attach_parent_console();
+    if want_version {
         println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        std::process::exit(0);
-    }
-    if args.iter().skip(1).any(|a| is_help_flag(a)) {
+    } else {
         println!("{}", help_text());
-        std::process::exit(0);
     }
+    // Force the buffered write out before exit — on Windows the freshly
+    // attached console handle can otherwise drop the tail of the message
+    // when the process tears down.
+    let _ = std::io::stdout().flush();
+    std::process::exit(0);
 }
 
 /// Pick the first non-flag arg after argv\[0\]. Returns `None` if no positional

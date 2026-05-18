@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
 import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "ai";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
 
@@ -248,15 +248,27 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   const { scrollRef } = useStickToBottomContext();
   const userMessages = useMemo(() => messages.filter((m) => m.role === "user"), [messages]);
 
+  // Stable key derived only from the set of user-message ids. We re-derive
+  // `userMessages` on every assistant token (since `messages` is a new array
+  // each delta), but the observers only need rewiring when a user message is
+  // actually added or removed — not on every streaming chunk.
+  const userIdsKey = useMemo(() => userMessages.map((m) => m.id).join("|"), [userMessages]);
+
   // id → true when the message is currently scrolled above the viewport.
   // We track every user message and surface the *most recent* one that's
   // off-screen above, so scrolling deep into the history surfaces the
   // matching prompt — not just the global "last user message".
   const [aboveViewport, setAboveViewport] = useState<ReadonlyMap<string, boolean>>(() => new Map());
 
+  // Keep the latest snapshot accessible inside the effect closure without
+  // making it a dependency.
+  const userMessagesRef = useRef(userMessages);
+  userMessagesRef.current = userMessages;
+
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller || userMessages.length === 0) {
+    const currentUserMessages = userMessagesRef.current;
+    if (!scroller || currentUserMessages.length === 0) {
       setAboveViewport(new Map());
       return;
     }
@@ -299,7 +311,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
     // Some messages haven't rendered yet on the first pass; retry on the
     // next frame to catch them.
     const pending: string[] = [];
-    for (const m of userMessages) {
+    for (const m of currentUserMessages) {
       if (!wireOne(m.id)) pending.push(m.id);
     }
     let retryRaf = 0;
@@ -314,7 +326,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
       if (retryRaf) cancelAnimationFrame(retryRaf);
       for (const io of observers) io.disconnect();
     };
-  }, [userMessages, scrollRef]);
+  }, [userIdsKey, scrollRef]);
 
   // Pick the latest user message that's currently above the viewport.
   // If none are scrolled off (chat fits / user is at the top), the pin

@@ -26,10 +26,13 @@ ${StrStr}
 
 !macro NSIS_HOOK_POSTINSTALL
   ; --- write the shim ------------------------------------------------------
-  ; `--version` / `--help` are handled inside the .cmd itself because the GUI
-  ; binary has `windows_subsystem = "windows"` (stdout detached). The version
-  ; string is baked in from the NSIS ${VERSION} define and refreshed on every
-  ; install/update, so the .cmd always matches the installed app.
+  ; Belt-and-suspenders for `--version` / `--help`: default Windows PATHEXT
+  ; resolves `.EXE` before `.CMD`, so plain `tedi` lands on `tedi.exe`, not
+  ; this shim. The EXE itself now calls AttachConsole(ATTACH_PARENT_PROCESS)
+  ; and prints (see modules::cli::handle_version_help_and_exit). This .cmd
+  ; still runs if the user explicitly invokes `tedi.cmd` or if some future
+  ; PATHEXT override flips the priority. ${VERSION} is baked in from NSIS
+  ; and refreshed every install/update so both paths stay in sync.
   FileOpen $0 "$INSTDIR\tedi.cmd" w
   ${If} $0 != ""
     FileWrite $0 "@echo off$\r$\n"

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type DirEntry = {
   name: string;
@@ -245,22 +245,45 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     [fetchChildren, options],
   );
 
-  return {
-    nodes,
-    expanded,
-    pendingCreate,
-    renaming,
-    toggle,
-    expand,
-    refresh,
-    collapseAll,
-    beginCreate,
-    cancelCreate,
-    commitCreate,
-    beginRename,
-    cancelRename,
-    commitRename,
-    deletePath,
-    joinPath,
-  };
+  // Memoise the return tuple so consumers can pass it as a single `tree` prop
+  // to `memo()`'d children (e.g. FileTreeNode) without invalidating the shallow
+  // prop compare on every parent render. Only the slices that actually changed
+  // bump the object identity.
+  return useMemo(
+    () => ({
+      nodes,
+      expanded,
+      pendingCreate,
+      renaming,
+      toggle,
+      expand,
+      refresh,
+      collapseAll,
+      beginCreate,
+      cancelCreate,
+      commitCreate,
+      beginRename,
+      cancelRename,
+      commitRename,
+      deletePath,
+      joinPath,
+    }),
+    [
+      nodes,
+      expanded,
+      pendingCreate,
+      renaming,
+      toggle,
+      expand,
+      refresh,
+      collapseAll,
+      beginCreate,
+      cancelCreate,
+      commitCreate,
+      beginRename,
+      cancelRename,
+      commitRename,
+      deletePath,
+    ],
+  );
 }

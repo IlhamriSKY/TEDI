@@ -114,7 +114,7 @@ function tabAccentClass(e: Entry): string {
         ? "bg-sky-500 dark:bg-sky-400"
         : "bg-emerald-500 dark:bg-emerald-400";
     }
-    return "bg-blue-500 dark:bg-blue-400";
+    return "bg-[#2596be] dark:bg-[#2596be]";
   }
   if (e.kind === "preview") return "bg-cyan-500 dark:bg-cyan-400";
   if (e.kind === "ai-diff") return "bg-violet-500 dark:bg-violet-400";

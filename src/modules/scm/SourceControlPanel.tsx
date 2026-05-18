@@ -535,7 +535,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md active:-translate-y-1/2!"
                 onClick={() => void doGenerate()}
                 disabled={sorted.length === 0 || busy !== null}
                 aria-label="Generate commit message"

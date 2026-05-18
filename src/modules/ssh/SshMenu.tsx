@@ -27,8 +27,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
-import { SshConnectionDialog } from "./SshConnectionDialog";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteConnection,
   getConnectionSecrets,
@@ -40,6 +39,13 @@ import {
 } from "./connections";
 import { formatRelative } from "./components/SshStatusPill";
 
+// Heavy module (keyring round-trip, multi-step form). Defer until the user
+// actually opens the add/edit modal so it doesn't ride along on every SSH
+// menu open.
+const SshConnectionDialog = lazy(() =>
+  import("./SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
+);
+
 type Props = {
   /** Open a saved host as a new terminal tab in the main window. */
   onConnect: (conn: SshConnection) => void;
@@ -49,6 +55,13 @@ export function SshMenu({ onConnect }: Props) {
   const [conns, setConns] = useState<SshConnection[] | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  // Latches the first time the editor dialog is opened. Keeps the (lazy)
+  // dialog mounted afterwards so Radix's exit animation can play normally on
+  // close — see the matching latch in App.tsx.
+  const [editorMounted, setEditorMounted] = useState(false);
+  useEffect(() => {
+    if (editorOpen) setEditorMounted(true);
+  }, [editorOpen]);
   const [editing, setEditing] = useState<SshConnection | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<SshConnection | null>(null);
 
@@ -179,7 +192,11 @@ export function SshMenu({ onConnect }: Props) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <SshConnectionDialog open={editorOpen} onOpenChange={setEditorOpen} editing={editing} />
+      {editorMounted ? (
+        <Suspense fallback={null}>
+          <SshConnectionDialog open={editorOpen} onOpenChange={setEditorOpen} editing={editing} />
+        </Suspense>
+      ) : null}
 
       <AlertDialog
         open={confirmDelete !== null}

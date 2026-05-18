@@ -31,14 +31,12 @@ import {
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
-import { AiDiffStack, NewEditorDialog, type EditorPaneHandle } from "@/modules/editor";
+import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
-import { SourceControlPanel } from "@/modules/scm/SourceControlPanel";
-import { GitDiffStack } from "@/modules/scm/GitDiffStack";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Header, type SearchInlineHandle, type SearchTarget } from "@/modules/header";
 import { PaneStack } from "@/modules/panes";
-import { PreviewStack, type PreviewPaneHandle } from "@/modules/preview";
+import { type PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -77,7 +75,6 @@ import {
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
 import { type SshConnection } from "@/modules/ssh/connections";
-import { SshConnectionDialog } from "@/modules/ssh/SshConnectionDialog";
 import type { SshStatus } from "@/modules/ssh/status";
 import {
   defaultTabForEmptyWorkspace,
@@ -91,8 +88,34 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { SearchAddon } from "@xterm/addon-search";
 import { AnimatePresence } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
+
+// Code-split: defer downloading these chunks until something actually opens
+// the corresponding UI. Cuts the eager main bundle (~1 MB → smaller) and
+// keeps cold-start cheap when the user is just running a terminal.
+//   - Source Control panel only mounts when `showSourceControl` is on
+//   - Diff stacks short-circuit to null when no relevant tab exists
+//   - Preview stack mounts when at least one preview tab is open
+//   - Dialogs only mount while their `open` flag is true
+const SourceControlPanel = lazy(() =>
+  import("@/modules/scm/SourceControlPanel").then((m) => ({ default: m.SourceControlPanel })),
+);
+const GitDiffStack = lazy(() =>
+  import("@/modules/scm/GitDiffStack").then((m) => ({ default: m.GitDiffStack })),
+);
+const AiDiffStack = lazy(() =>
+  import("@/modules/editor/AiDiffStack").then((m) => ({ default: m.AiDiffStack })),
+);
+const NewEditorDialog = lazy(() =>
+  import("@/modules/editor/NewEditorDialog").then((m) => ({ default: m.NewEditorDialog })),
+);
+const PreviewStack = lazy(() =>
+  import("@/modules/preview/PreviewStack").then((m) => ({ default: m.PreviewStack })),
+);
+const SshConnectionDialog = lazy(() =>
+  import("@/modules/ssh/SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
+);
 
 function sameOrigin(a: string, b: string): boolean {
   try {
@@ -150,6 +173,12 @@ export default function App() {
   const isTerminalLike = activeTab ? isTerminalLikeTab(activeTab) : false;
   const isEditorLike = activeTab ? isEditorLikeTab(activeTab) : false;
 
+  // Drive lazy-mount of the diff/preview stacks. The chunks aren't downloaded
+  // (and the components don't run) until at least one tab of that kind exists.
+  const hasPreviewTab = useMemo(() => tabs.some((t) => t.kind === "preview"), [tabs]);
+  const hasAiDiffTab = useMemo(() => tabs.some((t) => t.kind === "ai-diff"), [tabs]);
+  const hasGitDiffTab = useMemo(() => tabs.some((t) => t.kind === "git-diff"), [tabs]);
+
   // Active leaf is the single source of truth for "what's focused inside the
   // current tab" - controls Search/AI selection/CWD wiring etc.
   const activeLeafIdInTab = activePaneTab?.activeLeafId ?? null;
@@ -163,6 +192,12 @@ export default function App() {
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
+  // Latches the first time each lazy dialog is requested. Stays true after —
+  // see comments at the dialog mount sites.
+  const [sshEditorMounted, setSshEditorMounted] = useState(false);
+  useEffect(() => {
+    if (sshEditorOpen) setSshEditorMounted(true);
+  }, [sshEditorOpen]);
   const [activeSearchAddon, setActiveSearchAddon] = useState<SearchAddon | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
@@ -307,6 +342,10 @@ export default function App() {
 
   // -------- AI composer / chat store wiring --------
   const [newEditorOpen, setNewEditorOpen] = useState(false);
+  const [newEditorMounted, setNewEditorMounted] = useState(false);
+  useEffect(() => {
+    if (newEditorOpen) setNewEditorMounted(true);
+  }, [newEditorOpen]);
   const openMini = useChatStore((s) => s.openMini);
   const focusInput = useChatStore((s) => s.focusInput);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -1375,26 +1414,40 @@ export default function App() {
     return leaf?.leafKind === "terminal" ? (leaf.cwd ?? null) : null;
   }, [activePaneTab]);
 
-  useEffect(() => {
-    const findCwd = () => {
-      const active = tabs.find((x) => x.id === activeId);
-      if (active?.kind === "pane") {
-        const leaf = activeLeaf(active);
-        if (leaf?.leafKind === "terminal" && leaf.cwd) return leaf.cwd;
-      }
-      for (let i = tabs.length - 1; i >= 0; i--) {
-        const t = tabs[i];
-        if (t.kind !== "pane") continue;
-        for (const l of leaves(t.paneTree)) {
-          if (l.leafKind === "terminal" && l.cwd) return l.cwd;
-        }
-      }
-      return explorerRoot ?? home ?? null;
-    };
+  // Mirror the values the `setLive` closures need into refs so the closures
+  // can stay stable. The chat store stores the live object and never
+  // resubscribes for re-renders (consumers read via getState() in event
+  // handlers), so refreshing the closures on every `tabs` mutation — which
+  // includes per-keystroke dirty-flag flips — is pure waste.
+  const liveContextRef = useRef({
+    tabs,
+    activeId,
+    explorerRoot,
+    home,
+    openPreviewTab,
+  });
+  liveContextRef.current = { tabs, activeId, explorerRoot, home, openPreviewTab };
 
+  useEffect(() => {
     setLive({
-      getCwd: findCwd,
+      getCwd: () => {
+        const { tabs, activeId, explorerRoot, home } = liveContextRef.current;
+        const active = tabs.find((x) => x.id === activeId);
+        if (active?.kind === "pane") {
+          const leaf = activeLeaf(active);
+          if (leaf?.leafKind === "terminal" && leaf.cwd) return leaf.cwd;
+        }
+        for (let i = tabs.length - 1; i >= 0; i--) {
+          const t = tabs[i];
+          if (t.kind !== "pane") continue;
+          for (const l of leaves(t.paneTree)) {
+            if (l.leafKind === "terminal" && l.cwd) return l.cwd;
+          }
+        }
+        return explorerRoot ?? home ?? null;
+      },
       getTerminalContext: () => {
+        const { tabs, activeId } = liveContextRef.current;
         const t = tabs.find((x) => x.id === activeId);
         if (!t || t.kind !== "pane") return null;
         const leaf = activeLeaf(t);
@@ -1402,6 +1455,7 @@ export default function App() {
         return terminalRefs.current.get(leaf.id)?.getBuffer(300) ?? null;
       },
       injectIntoActivePty: (text) => {
+        const { tabs, activeId } = liveContextRef.current;
         const t = tabs.find((x) => x.id === activeId);
         if (!t || t.kind !== "pane") return false;
         const leaf = activeLeaf(t);
@@ -1412,22 +1466,30 @@ export default function App() {
         term.focus();
         return true;
       },
-      getWorkspaceRoot: () => explorerRoot ?? home ?? null,
+      getWorkspaceRoot: () => {
+        const { explorerRoot, home } = liveContextRef.current;
+        return explorerRoot ?? home ?? null;
+      },
       getActiveFile: () => {
+        const { tabs, activeId } = liveContextRef.current;
         const t = tabs.find((x) => x.id === activeId);
         if (!t || t.kind !== "pane") return null;
         const leaf = activeLeaf(t);
         return leaf?.leafKind === "editor" ? leaf.path : null;
       },
       openPreview: (url: string) => {
-        openPreviewTab(url);
+        liveContextRef.current.openPreviewTab(url);
         return true;
       },
     });
+  }, [setLive]);
 
-    // Surface every open editor leaf to the AI input as a click-to-attach
-    // suggestion chip. De-dup by path so the same file shared across split
-    // panes only shows once.
+  // Surface every open editor leaf to the AI input as a click-to-attach
+  // suggestion chip. De-dup by path so the same file shared across split
+  // panes only shows once. Runs on every `tabs` mutation, but the setter
+  // short-circuits when the resulting list is shape-equal, so most
+  // keystroke-driven re-runs are no-ops downstream.
+  useEffect(() => {
     const openFiles: { path: string; name: string }[] = [];
     const seenPaths = new Set<string>();
     for (const t of tabs) {
@@ -1444,7 +1506,7 @@ export default function App() {
       }
     }
     setOpenEditorFiles(openFiles);
-  }, [setLive, setOpenEditorFiles, activeId, tabs, explorerRoot, home, openPreviewTab]);
+  }, [setOpenEditorFiles, tabs]);
 
   const shell = (
     <ThemeProvider>
@@ -1517,11 +1579,13 @@ export default function App() {
                       <>
                         <ResizableHandle withHandle />
                         <ResizablePanel id="sidebar-scm" defaultSize="25%" minSize="10%">
-                          <SourceControlPanel
-                            rootPath={explorerRoot}
-                            onPathDeleted={handlePathDeleted}
-                            onOpenDiff={openGitDiffTab}
-                          />
+                          <Suspense fallback={null}>
+                            <SourceControlPanel
+                              rootPath={explorerRoot}
+                              onPathDeleted={handlePathDeleted}
+                              onOpenDiff={openGitDiffTab}
+                            />
+                          </Suspense>
                         </ResizablePanel>
                       </>
                     ) : null}
@@ -1575,12 +1639,16 @@ export default function App() {
                       )}
                       aria-hidden={activeTab?.kind === "preview" ? "false" : "true"}
                     >
-                      <PreviewStack
-                        tabs={tabs}
-                        activeId={activeId}
-                        registerHandle={registerPreviewHandle}
-                        onUrlChange={handlePreviewUrl}
-                      />
+                      {hasPreviewTab ? (
+                        <Suspense fallback={null}>
+                          <PreviewStack
+                            tabs={tabs}
+                            activeId={activeId}
+                            registerHandle={registerPreviewHandle}
+                            onUrlChange={handlePreviewUrl}
+                          />
+                        </Suspense>
+                      ) : null}
                     </div>
                     <div
                       className={cn(
@@ -1589,12 +1657,16 @@ export default function App() {
                       )}
                       aria-hidden={activeTab?.kind === "ai-diff" ? "false" : "true"}
                     >
-                      <AiDiffStack
-                        tabs={tabs}
-                        activeId={activeId}
-                        onAccept={(id) => respondToApproval(id, true)}
-                        onReject={(id) => respondToApproval(id, false)}
-                      />
+                      {hasAiDiffTab ? (
+                        <Suspense fallback={null}>
+                          <AiDiffStack
+                            tabs={tabs}
+                            activeId={activeId}
+                            onAccept={(id) => respondToApproval(id, true)}
+                            onReject={(id) => respondToApproval(id, false)}
+                          />
+                        </Suspense>
+                      ) : null}
                     </div>
                     <div
                       className={cn(
@@ -1603,7 +1675,11 @@ export default function App() {
                       )}
                       aria-hidden={activeTab?.kind === "git-diff" ? "false" : "true"}
                     >
-                      <GitDiffStack tabs={tabs} activeId={activeId} />
+                      {hasGitDiffTab ? (
+                        <Suspense fallback={null}>
+                          <GitDiffStack tabs={tabs} activeId={activeId} />
+                        </Suspense>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1654,21 +1730,32 @@ export default function App() {
             ) : null}
           </AnimatePresence>
 
-          <NewEditorDialog
-            open={newEditorOpen}
-            onOpenChange={setNewEditorOpen}
-            rootPath={explorerRoot ?? home}
-            onCreated={(path) => openFileTab(path)}
-          />
+          {/* Mount-once: defer the chunk until the user first opens the dialog,
+              then keep it mounted so Radix's data-state exit animation plays
+              normally on close and re-opens don't pay the chunk-load cost again. */}
+          {newEditorMounted ? (
+            <Suspense fallback={null}>
+              <NewEditorDialog
+                open={newEditorOpen}
+                onOpenChange={setNewEditorOpen}
+                rootPath={explorerRoot ?? home}
+                onCreated={(path) => openFileTab(path)}
+              />
+            </Suspense>
+          ) : null}
 
-          <SshConnectionDialog
-            open={sshEditorOpen}
-            onOpenChange={(o) => {
-              setSshEditorOpen(o);
-              if (!o) setEditingSshConn(null);
-            }}
-            editing={editingSshConn}
-          />
+          {sshEditorMounted ? (
+            <Suspense fallback={null}>
+              <SshConnectionDialog
+                open={sshEditorOpen}
+                onOpenChange={(o) => {
+                  setSshEditorOpen(o);
+                  if (!o) setEditingSshConn(null);
+                }}
+                editing={editingSshConn}
+              />
+            </Suspense>
+          ) : null}
 
           <Toaster />
 

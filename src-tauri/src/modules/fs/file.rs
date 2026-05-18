@@ -88,9 +88,18 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
         e.to_string()
     })?;
 
+    Ok(classify_bytes(&p, bytes))
+}
+
+/// Shared bytes→`ReadResult` classifier. `path` only drives extension-based
+/// MIME hints (SVG, AVIF) — callers reading a git blob can pass the repo-
+/// relative path. Size is `bytes.len()` since the blob has no on-disk size.
+pub(crate) fn classify_bytes(path: &Path, bytes: Vec<u8>) -> ReadResult {
+    let size = bytes.len() as u64;
+
     // Image sniff before the null-byte check - PNG/JPEG/etc. contain nulls
     // and would otherwise be reported as plain binary.
-    if let Some(mime) = sniff_image_mime(&p, &bytes) {
+    if let Some(mime) = sniff_image_mime(path, &bytes) {
         // SVG is text - encode as UTF-8 in the data URL so it renders even
         // if the file has odd whitespace.
         let data_url = if mime == "image/svg+xml" {
@@ -101,23 +110,23 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
         } else {
             format!("data:{mime};base64,{}", B64.encode(&bytes))
         };
-        return Ok(ReadResult::Image {
+        return ReadResult::Image {
             data_url,
             mime: mime.to_string(),
             size,
-        });
+        };
     }
 
     // Null-byte sniff on the first chunk. Not perfect (misses UTF-16 BOM
     // cases) but catches the common "this is a PNG" mistake cheaply.
     let sniff_len = bytes.len().min(BINARY_SNIFF_BYTES);
     if bytes[..sniff_len].contains(&0) {
-        return Ok(ReadResult::Binary { size });
+        return ReadResult::Binary { size };
     }
 
     match String::from_utf8(bytes) {
-        Ok(content) => Ok(ReadResult::Text { content, size }),
-        Err(_) => Ok(ReadResult::Binary { size }),
+        Ok(content) => ReadResult::Text { content, size },
+        Err(_) => ReadResult::Binary { size },
     }
 }
 

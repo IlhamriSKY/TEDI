@@ -88,7 +88,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.925 0.005 214.3);
   --input: oklch(0.925 0.005 214.3);
-  --ring: oklch(0.723 0.014 214.4);
+  --ring: #2596be;
   --chart-1: oklch(0.872 0.007 219.6);
   --chart-2: oklch(0.56 0.021 213.5);
   --chart-3: oklch(0.45 0.017 213.2);
@@ -102,13 +102,13 @@
   --sidebar-accent: oklch(0.963 0.002 197.1);
   --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
   --sidebar-border: oklch(0.925 0.005 214.3);
-  --sidebar-ring: oklch(0.723 0.014 214.4);
+  --sidebar-ring: #2596be;
 }
 
-/* VSCode Dark+ (Default Dark Modern) palette
+/* VSCode Dark+ (Default Dark Modern) palette, re-tinted to the TEDI logo blue.
  * Editor bg #1E1E1E, sidebar/activity-bar #181818, panel border #2B2B2B,
- * focus border #0078D4, fg #CCCCCC. Hex kept as-is (sRGB) so the result
- * matches VSCode pixel-for-pixel rather than drifting through OKLCH. */
+ * focus/brand #2596BE (logo blue), fg #CCCCCC. Hex kept as-is (sRGB) so the
+ * result matches VSCode's pixel feel rather than drifting through OKLCH. */
 .dark {
   --background: #1e1e1e;
   --foreground: #cccccc;
@@ -116,31 +116,31 @@
   --card-foreground: #cccccc;
   --popover: #1f1f1f;
   --popover-foreground: #cccccc;
-  --primary: #0078d4;
+  --primary: #2596be;
   --primary-foreground: #ffffff;
   --secondary: #2a2d2e;
   --secondary-foreground: #cccccc;
   --muted: #252526;
   --muted-foreground: #9d9d9d;
-  --accent: #04395e;
+  --accent: #154755;
   --accent-foreground: #ffffff;
   --destructive: #f14c4c;
   --border: #2b2b2b;
   --input: #313131;
-  --ring: #0078d4;
-  --chart-1: #4fc1ff;
+  --ring: #2596be;
+  --chart-1: #5ab4d2;
   --chart-2: #c586c0;
   --chart-3: #dcdcaa;
   --chart-4: #9cdcfe;
   --chart-5: #ce9178;
   --sidebar: #181818;
   --sidebar-foreground: #cccccc;
-  --sidebar-primary: #0078d4;
+  --sidebar-primary: #2596be;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #2a2d2e;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #2b2b2b;
-  --sidebar-ring: #0078d4;
+  --sidebar-ring: #2596be;
 }
 
 @layer base {

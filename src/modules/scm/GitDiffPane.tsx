@@ -10,7 +10,7 @@ import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
 import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
 import type { GitChangeStatusTab } from "@/modules/tabs";
-import { gitFileHead } from "./api";
+import { gitFileHead, type FileReadResult } from "./api";
 
 type Props = {
   path: string;
@@ -21,20 +21,19 @@ type Props = {
   reloadKey: number;
 };
 
-type ReadResult =
-  | { kind: "text"; content: string; size: number }
-  | { kind: "image"; dataUrl: string; mime: string; size: number }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
+const EMPTY_TEXT: FileReadResult = { kind: "text", content: "", size: 0 };
 
-async function readFileText(path: string): Promise<string> {
+async function readFileFull(path: string): Promise<FileReadResult> {
   try {
-    const r = await invoke<ReadResult>("fs_read_file", { path });
-    if (r.kind === "text") return r.content;
-    return "";
+    return await invoke<FileReadResult>("fs_read_file", { path });
   } catch {
-    return "";
+    return EMPTY_TEXT;
   }
+}
+
+/** True when the entry can't be rendered as a text MergeView. */
+function isNonText(r: FileReadResult): boolean {
+  return r.kind !== "text";
 }
 
 // Match AiDiffPane's coloring so diff highlighting reads the same across the
@@ -87,8 +86,8 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   }, [editorThemeId]);
 
   const [content, setContent] = useState<{
-    orig: string;
-    curr: string;
+    orig: FileReadResult;
+    curr: FileReadResult;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,12 +98,13 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     setLoading(true);
     setError(null);
 
-    const loadOriginal =
+    const loadOriginal: Promise<FileReadResult> =
       changeStatus === "untracked" || changeStatus === "added"
-        ? Promise.resolve("")
-        : gitFileHead(repoPath, relative).catch(() => "");
+        ? Promise.resolve(EMPTY_TEXT)
+        : gitFileHead(repoPath, relative).catch(() => EMPTY_TEXT);
 
-    const loadCurrent = changeStatus === "deleted" ? Promise.resolve("") : readFileText(path);
+    const loadCurrent: Promise<FileReadResult> =
+      changeStatus === "deleted" ? Promise.resolve(EMPTY_TEXT) : readFileFull(path);
 
     Promise.all([loadOriginal, loadCurrent])
       .then(([orig, curr]) => {
@@ -123,10 +123,20 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     };
   }, [repoPath, relative, path, changeStatus, reloadKey]);
 
-  // Construct/refresh the MergeView when content or theme changes.
+  const nonText = useMemo(() => {
+    if (!content) return false;
+    return isNonText(content.orig) || isNonText(content.curr);
+  }, [content]);
+
+  // Construct/refresh the MergeView when content or theme changes — but only
+  // when both sides are plain text. Image / binary blobs are rendered by
+  // <NonTextDiff/> instead and must NOT initialize the MergeView (CodeMirror
+  // would otherwise try to render a base64 blob as code).
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !content) return;
+    if (!host || !content || nonText) return;
+    const origText = content.orig.kind === "text" ? content.orig.content : "";
+    const currText = content.curr.kind === "text" ? content.curr.content : "";
 
     // Tear down any previous instance — MergeView is imperative.
     mergeRef.current?.destroy();
@@ -141,7 +151,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     const shared = buildSharedExtensions({ showMinimap: false });
     const view = new MergeView({
       a: {
-        doc: content.orig,
+        doc: origText,
         extensions: [
           lineNumbers(),
           ...shared,
@@ -153,7 +163,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
         ],
       },
       b: {
-        doc: content.curr,
+        doc: currText,
         extensions: [
           lineNumbers(),
           ...shared,
@@ -185,12 +195,14 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
       view.destroy();
       if (mergeRef.current === view) mergeRef.current = null;
     };
-  }, [content, themeExt, path, langA, langB]);
+  }, [content, nonText, themeExt, path, langA, langB]);
 
   const stats = useMemo(() => {
-    if (!content) return { added: 0, removed: 0 };
-    return computeLineStats(content.orig, content.curr);
-  }, [content]);
+    if (!content || nonText) return { added: 0, removed: 0 };
+    const a = content.orig.kind === "text" ? content.orig.content : "";
+    const b = content.curr.kind === "text" ? content.curr.content : "";
+    return computeLineStats(a, b);
+  }, [content, nonText]);
 
   const isNewFile = changeStatus === "added" || changeStatus === "untracked";
   const isDeleted = changeStatus === "deleted";
@@ -223,10 +235,17 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
             </TooltipTrigger>
             <TooltipContent side="bottom">{relative}</TooltipContent>
           </Tooltip>
-          {!loading && !error ? (
+          {!loading && !error && !nonText ? (
             <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
               <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
               <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+            </span>
+          ) : null}
+          {!loading && !error && nonText ? (
+            <span className="text-muted-foreground shrink-0 text-[10.5px]">
+              {content?.orig.kind === "image" || content?.curr.kind === "image"
+                ? "image"
+                : "binary"}
             </span>
           ) : null}
         </div>
@@ -245,10 +264,81 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
           <div className="text-destructive flex h-full items-center justify-center text-xs">
             {error}
           </div>
+        ) : nonText && content ? (
+          <NonTextDiff orig={content.orig} curr={content.curr} />
         ) : (
           <div ref={hostRef} className="h-full w-full" />
         )}
       </div>
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Side-by-side pane for files the MergeView can't render: images and binary
+ *  blobs. Each half mirrors the HEAD/Working-tree split of the text diff so
+ *  the layout reads the same. An empty `Text` blob (size 0) means "absent
+ *  on this side" — we render a muted placeholder instead of a blank square. */
+function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResult }) {
+  return (
+    <div className="grid h-full min-h-0 grid-cols-2 divide-x">
+      <NonTextSide side={orig} emptyLabel="No HEAD version" />
+      <NonTextSide side={curr} emptyLabel="No working-tree file" />
+    </div>
+  );
+}
+
+function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: string }) {
+  // Empty `Text` is how we signal "this side doesn't exist" for added /
+  // deleted entries — show the placeholder instead of a blank pane.
+  if (side.kind === "text" && side.size === 0) {
+    return (
+      <div className="text-muted-foreground flex h-full items-center justify-center text-[11px]">
+        {emptyLabel}
+      </div>
+    );
+  }
+  if (side.kind === "image") {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-3">
+        <div className="border-border/60 bg-accent/20 flex max-h-full max-w-full items-center justify-center overflow-auto rounded border p-2">
+          <img
+            src={side.dataUrl}
+            alt=""
+            className="max-h-full max-w-full object-contain"
+            style={{ imageRendering: "pixelated" }}
+          />
+        </div>
+        <span className="text-muted-foreground text-[10px] tabular-nums">
+          {side.mime} · {formatBytes(side.size)}
+        </span>
+      </div>
+    );
+  }
+  if (side.kind === "toolarge") {
+    return (
+      <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-3 text-center text-[11px]">
+        <span>File too large to preview</span>
+        <span className="text-[10px] tabular-nums">
+          {formatBytes(side.size)} (limit {formatBytes(side.limit)})
+        </span>
+      </div>
+    );
+  }
+  // Two cases land here:
+  //   - this side is binary (most common — paired with an image on the other)
+  //   - this side is non-empty text paired with a binary on the other side
+  //     (rare: a file flipped between text and binary across HEAD/working-tree)
+  const label = side.kind === "binary" ? "Binary file" : "Text (paired with binary)";
+  return (
+    <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-3 text-center text-[11px]">
+      <span>{label} — diff not shown</span>
+      <span className="text-[10px] tabular-nums">{formatBytes(side.size)}</span>
     </div>
   );
 }

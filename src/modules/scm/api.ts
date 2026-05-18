@@ -1,12 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { GitStatus } from "./types";
 
+/** Matches Rust `fs::file::ReadResult` — kept in sync by hand. */
+export type FileReadResult =
+  | { kind: "text"; content: string; size: number }
+  | { kind: "image"; dataUrl: string; mime: string; size: number }
+  | { kind: "binary"; size: number }
+  | { kind: "toolarge"; size: number; limit: number };
+
 export function gitStatus(repoPath: string): Promise<GitStatus> {
   return invoke<GitStatus>("git_status", { repoPath });
 }
 
-export function gitFileHead(repoPath: string, relative: string): Promise<string> {
-  return invoke<string>("git_file_head", { repoPath, relative });
+export function gitFileHead(repoPath: string, relative: string): Promise<FileReadResult> {
+  return invoke<FileReadResult>("git_file_head", { repoPath, relative });
 }
 
 export function gitDiscardFile(repoPath: string, relative: string): Promise<void> {

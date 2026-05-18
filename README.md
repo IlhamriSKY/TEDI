@@ -1,6 +1,6 @@
 <div align="center">
   <img src="public/icon.png" width="120" height="120" alt="TEDI" />
-  <p><strong>Terminal Environment & Development Infrastructure. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
+  <p><strong>TEDI - Terminal Environment & Development Infrastructure. Fork of <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
@@ -115,7 +115,7 @@ cd src-tauri && cargo clippy    # Rust lint
 
 ## Credits
 
-TEDI is derived from [crynta/terax-ai @ v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9). The original Tauri + Rust backend, the xterm.js terminal stack, the CodeMirror editor stack, and the AI agent pipeline are the work of [Crynta](https://github.com/crynta) and the Terax contributors. Please go give the upstream project a star if you use TEDI.
+TEDI is derived from [crynta/terax-ai@v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9). The original Tauri + Rust backend, the xterm.js terminal stack, the CodeMirror editor stack, and the AI agent pipeline are the work of [Crynta](https://github.com/crynta) and the Terax contributors. Please go give the upstream project a star if you use TEDI.
 
 ## License
 
