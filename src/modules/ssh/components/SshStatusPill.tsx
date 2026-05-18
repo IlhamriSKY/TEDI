@@ -83,7 +83,7 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
             <>
               <span>Fingerprint</span>
               <span className="text-foreground truncate font-mono">
-                {status.fingerprint || "—"}
+                {status.fingerprint || "-"}
               </span>
               <span>Since</span>
               <span className="text-foreground">{formatTime(status.since)}</span>
@@ -159,7 +159,7 @@ function formatTime(ms: number): string {
   try {
     return new Date(ms).toLocaleTimeString();
   } catch {
-    return "—";
+    return "-";
   }
 }
 

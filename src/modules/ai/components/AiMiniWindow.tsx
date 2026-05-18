@@ -255,7 +255,7 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   }, [modelId]);
 
   // Cache hit ratio. Only meaningful once the session has accumulated at
-  // least one round-trip — show "—" until then so users don't see 0% on
+  // least one round-trip - show "-" until then so users don't see 0% on
   // a fresh chat and assume it's broken.
   const hasReportedUsage = usage.input > 0;
   const cacheRatio = hasReportedUsage ? usage.cached / usage.input : 0;
@@ -288,13 +288,13 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
           <div className="text-muted-foreground mt-1 flex items-center justify-between">
             <span>Input</span>
             <span className="text-foreground font-mono">
-              {hasReportedUsage ? formatTokens(usage.input) : "—"}
+              {hasReportedUsage ? formatTokens(usage.input) : "-"}
             </span>
           </div>
           <div className="text-muted-foreground flex items-center justify-between">
             <span>Output</span>
             <span className="text-foreground font-mono">
-              {hasReportedUsage ? formatTokens(usage.output) : "—"}
+              {hasReportedUsage ? formatTokens(usage.output) : "-"}
             </span>
           </div>
           <div className="text-muted-foreground flex items-center justify-between">
@@ -307,7 +307,7 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
                   : "text-foreground",
               )}
             >
-              {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "—"}
+              {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "-"}
             </span>
           </div>
         </ContextContentBody>

@@ -54,7 +54,7 @@ export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-appro
 
 /** Cumulative token usage for the active session. Reset on session
  *  switch / clear. `cached` is the chunk of `input` that hit the
- *  provider's prompt cache — the higher the ratio, the cheaper the run. */
+ *  provider's prompt cache - the higher the ratio, the cheaper the run. */
 export type SessionUsage = {
   input: number;
   output: number;
@@ -224,7 +224,7 @@ export function flushPersist(id?: string): void {
 // Per-session read cache: paths the model has called `read_file` on.
 // `edit`/`multi_edit` enforce read-before-edit by checking membership.
 // Stored at module scope (keyed by sessionId) instead of inside makeChat's
-// closure so restore-checkpoint can clear it — after a restore, the
+// closure so restore-checkpoint can clear it - after a restore, the
 // model's "I've read this file" knowledge is gone from history and the
 // cache must follow.
 const readCaches = new Map<string, Set<string>>();
@@ -630,7 +630,7 @@ export function stop(): void {
 /**
  * Open a restore checkpoint synchronously, intended for call sites that
  * dispatch `chat.sendMessage` directly (composer submit / queue drain).
- * Returns false if the session is in the middle of a restore — the caller
+ * Returns false if the session is in the middle of a restore - the caller
  * MUST then skip the send to avoid races. Otherwise opens a fresh
  * checkpoint and returns true.
  */
@@ -672,7 +672,7 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
     try {
       await c.stop();
     } catch {
-      // already stopped — ignore
+      // already stopped - ignore
     }
 
     const outcome = await restoreCheckpoint(sessionId);
@@ -681,7 +681,7 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
     // Trim history back to the pre-user-turn baseline.
     const trimmed = c.messages.slice(0, outcome.baselineMessageCount);
     c.messages = trimmed;
-    // Make sure the persisted store reflects the trim immediately — the
+    // Make sure the persisted store reflects the trim immediately - the
     // debounced persist would catch this eventually but a session switch
     // before then would lose the truncation.
     flushPersist(sessionId);
@@ -689,7 +689,7 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
 
     // Clear read-before-edit knowledge. The trimmed history no longer
     // contains the original read_file results, so the model's mental view
-    // of the file is gone too — the next turn must re-read before editing.
+    // of the file is gone too - the next turn must re-read before editing.
     readCaches.get(sessionId)?.clear();
 
     // Reset transient agent state. The agent loop is no longer running and

@@ -62,7 +62,7 @@ export type Preferences = {
   /** Show the Source Control panel in the sidebar. Default true. */
   showSourceControl: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
-  /** Zoom factor applied to content surfaces only — terminal (xterm
+  /** Zoom factor applied to content surfaces only - terminal (xterm
    *  `fontSize`), code editor + diff (CodeMirror via `--content-zoom` CSS
    *  variable). 1.0 = 100%. Deliberately scoped: applying CSS `zoom` to the
    *  whole window breaks xterm's canvas/WebGL glyph positioning (cursor
@@ -79,7 +79,7 @@ export type Preferences = {
   approvalMode: ApprovalMode;
   /** The model id the user last selected via the chat picker. Restored on
    *  boot so the active model survives an app relaunch. Null until the
-   *  user makes their first pick — boot falls back to `defaultModelId`. */
+   *  user makes their first pick - boot falls back to `defaultModelId`. */
   lastModelId: DynamicModelId | null;
   /** Provider that owned `lastModelId` at pick time. Persisted alongside it
    *  so restore is immune to a stale/empty model registry on cold boot. */

@@ -654,7 +654,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * - editor ↔ editor: allowed when explicitly requested with
    *   `newKind === "editor"`, or via the per-tab "Move to group" affordance.
    *
-   * Default new-leaf kind is **terminal** regardless of the active leaf — the
+   * Default new-leaf kind is **terminal** regardless of the active leaf - the
    * Ctrl+D / Ctrl+Shift+D shortcuts always land a fresh shell so users hitting
    * the binding from an editor still get a terminal. Pass `newKind = "editor"`
    * to force an editor (used by callers that explicitly want a side-by-side

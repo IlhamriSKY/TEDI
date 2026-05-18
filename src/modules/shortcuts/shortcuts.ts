@@ -301,7 +301,7 @@ function canonicalKey(e: KeyboardEvent): string {
     return code.slice(3).toLowerCase();
   }
   // Digit0..Digit9 → "0".."9". Note: numpad digits arrive as "Numpad0"
-  // etc. — we deliberately don't map those so a user who recorded a
+  // etc. - we deliberately don't map those so a user who recorded a
   // top-row digit shortcut isn't unexpectedly triggered by NumLock input.
   if (code.length === 6 && code.startsWith("Digit")) {
     return code.slice(5);

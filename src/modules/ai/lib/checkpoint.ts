@@ -5,7 +5,7 @@ import { native } from "./native";
  *
  * Semantics: ONE checkpoint per session, always pointing at the most recent
  * user turn. When the user sends a new message, the previous checkpoint is
- * discarded (only "undo my last command" is supported — not arbitrary
+ * discarded (only "undo my last command" is supported - not arbitrary
  * history travel). Mutating tools (`edit`, `multi_edit`, `write_file`,
  * `create_directory`) record file originals into the active checkpoint
  * before the on-disk write happens. On restore we replay those originals
@@ -14,7 +14,7 @@ import { native } from "./native";
  * Memory: snapshots live in-process only. They're bounded by the # of files
  * touched in the current turn (typically ≤10), with full original content
  * for each (capped by the read-file 200KB safety net). A new turn drops the
- * old checkpoint immediately — no growth over a long session.
+ * old checkpoint immediately - no growth over a long session.
  *
  * Not persisted to disk: checkpoints are intentionally ephemeral. Restoring
  * across app restarts would require an on-disk content store with its own
@@ -26,7 +26,7 @@ export type FileSnapshot =
   | {
       /** File existed before the agent touched it. Restore writes
        *  `originalContent` back, but ONLY if the on-disk content still
-       *  matches `writtenContent` — i.e. the user hasn't manually edited
+       *  matches `writtenContent` - i.e. the user hasn't manually edited
        *  the file since the agent last wrote to it. */
       kind: "modify";
       originalContent: string;
@@ -35,20 +35,20 @@ export type FileSnapshot =
   | {
       /** File didn't exist before the agent created it via write_file.
        *  Restore deletes it, but only if the on-disk content still matches
-       *  `writtenContent` — preserves manual user edits made afterwards. */
+       *  `writtenContent` - preserves manual user edits made afterwards. */
       kind: "create-file";
       writtenContent: string;
     }
   | {
       /** Directory created by the agent. Restore deletes it ONLY if it's
-       *  empty at restore time — preserves anything the user (or another
+       *  empty at restore time - preserves anything the user (or another
        *  process) put into it afterwards. */
       kind: "create-dir";
     };
 
 export type Checkpoint = {
   /** Message count just BEFORE the user's message was appended. Restoring
-   *  trims `messages.slice(0, baselineMessageCount)` — everything from the
+   *  trims `messages.slice(0, baselineMessageCount)` - everything from the
    *  user turn onwards (user msg + assistant streams + tool results) is
    *  dropped together. */
   baselineMessageCount: number;
@@ -63,7 +63,7 @@ export type Checkpoint = {
 const checkpoints = new Map<string, Checkpoint>();
 
 // Minimal external-store contract for `useSyncExternalStore`. Each mutation
-// bumps `version` and notifies subscribers — the UI re-reads via the
+// bumps `version` and notifies subscribers - the UI re-reads via the
 // getters below.
 let version = 0;
 const listeners = new Set<() => void>();
@@ -85,7 +85,7 @@ export function getCheckpointsVersion(): number {
 }
 
 export function openCheckpoint(sessionId: string, baselineMessageCount: number): void {
-  // Drop any prior checkpoint outright — only the LAST is retained.
+  // Drop any prior checkpoint outright - only the LAST is retained.
   checkpoints.set(sessionId, {
     baselineMessageCount,
     createdAt: Date.now(),
@@ -122,7 +122,7 @@ export function recordFileMutation(sessionId: string, path: string, snapshot: Fi
     return;
   }
   // Kind mismatch (e.g. agent created a dir then wrote inside it as a
-  // separate path) — keep the earliest snapshot, don't transition.
+  // separate path) - keep the earliest snapshot, don't transition.
 }
 
 export function getCheckpoint(sessionId: string): Checkpoint | null {
@@ -134,21 +134,21 @@ export type RestoreOutcome = {
   /** Files where the recorded change was successfully reverted. */
   restoredCount: number;
   /** Files left alone because the user (or another process) had modified
-   *  them since the agent wrote — preserving manual edits is more important
+   *  them since the agent wrote - preserving manual edits is more important
    *  than full revert. Paths are surfaced so the UI can hint at them. */
   skipped: { path: string; reason: "user-modified" | "dir-non-empty" }[];
   failures: { path: string; error: string }[];
 };
 
 /** Replay the recorded originals and return the trim point. The checkpoint
- *  is consumed (deleted) regardless of partial failures — leaving a stale
+ *  is consumed (deleted) regardless of partial failures - leaving a stale
  *  one around would record further mutations into a checkpoint the UI no
  *  longer surfaces.
  *
  *  Files are reverted ONLY if their on-disk content still matches what the
  *  agent last wrote. If the user has manually edited a file in the
  *  meantime, that file is skipped (their changes win). This applies
- *  per-path — other files in the checkpoint are still reverted. */
+ *  per-path - other files in the checkpoint are still reverted. */
 export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutcome | null> {
   const cp = checkpoints.get(sessionId);
   if (!cp) return null;
@@ -182,13 +182,13 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
         try {
           const cur = await native.readFile(path);
           if (cur.kind !== "text" || cur.content !== snap.writtenContent) {
-            // User has overwritten or replaced the file — preserve.
+            // User has overwritten or replaced the file - preserve.
             skipped.push({ path, reason: "user-modified" });
             continue;
           }
           needsDelete = true;
         } catch {
-          // File already missing — state matches the restore goal.
+          // File already missing - state matches the restore goal.
         }
         if (needsDelete) {
           try {
@@ -212,7 +212,7 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
         }
         await native.deletePath(path);
       } catch {
-        // Directory already gone — nothing to undo.
+        // Directory already gone - nothing to undo.
       }
       restoredCount++;
     } catch (e) {

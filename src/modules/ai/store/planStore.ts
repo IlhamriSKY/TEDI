@@ -27,7 +27,7 @@ type PlanState = {
   removeOne: (id: string) => void;
   clear: () => void;
   /** Apply queued edits in order. Pass the active sessionId so applied
-   *  mutations get recorded into its restore checkpoint — without this,
+   *  mutations get recorded into its restore checkpoint - without this,
    *  plan-applied files would be invisible to the restore action. */
   applyAll: (sessionId: string | null) => Promise<{ id: string; ok: boolean; error?: string }[]>;
 };
@@ -61,7 +61,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
               await native.readDir(q.path);
               alreadyExists = true;
             } catch {
-              // doesn't exist — safe to record
+              // doesn't exist - safe to record
             }
             if (!alreadyExists) {
               recordFileMutation(sessionId, q.path, { kind: "create-dir" });

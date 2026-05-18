@@ -93,12 +93,12 @@ type Entry = PaneEntry | StandaloneEntry;
 /**
  * Per-type background colour for the accent stripe on the left edge of the
  * active tab. Each tab kind gets its own colour so users can tell at a
- * glance what kind of thing is focused — emerald for a local shell, sky
+ * glance what kind of thing is focused - emerald for a local shell, sky
  * for SSH, brand-blue for a file editor, cyan for an in-app browser
  * preview, violet for an AI diff, amber for a git diff.
  *
  * The stripe is rendered as a real `<span>` child of the tab trigger (see
- * the JSX below) — *not* via `::after` — because the underlying primitive
+ * the JSX below) - *not* via `::after` - because the underlying primitive
  * `TabsTrigger` already wires up its own `::after` for a different purpose
  * with `group-data-horizontal/tabs:` variants that have equal CSS
  * specificity to ours. That collision made the stripe blink in/out
@@ -371,7 +371,7 @@ export function TabBar({
   );
 
   // The very last entry in the strip is the one nothing can be "closed to
-  // the right of" — used to hide the menu item rather than show a no-op.
+  // the right of" - used to hide the menu item rather than show a no-op.
   const lastEntryKey = entries.length > 0 ? entries[entries.length - 1].key : null;
 
   // Close every entry visually to the right of `entry` in the strip. Each
@@ -573,7 +573,7 @@ type SortableTabGroupProps = {
   totalEntries: number;
   /**
    * The currently active entry's composite key. Used to render the per-
-   * type coloured accent stripe — we compare entry.key against this rather
+   * type coloured accent stripe - we compare entry.key against this rather
    * than relying on `data-state="active"` from Radix, because Tailwind
    * variant collisions with the primitive `TabsTrigger`'s built-in
    * `::after` rules made CSS-only detection flaky in multi-tab layouts.
@@ -581,7 +581,7 @@ type SortableTabGroupProps = {
   activeKey: string | null;
   /**
    * Key of the visually last entry in the strip. Drives the right-click
-   * "Close tabs to the right" item — when an entry IS the last one, the
+   * "Close tabs to the right" item - when an entry IS the last one, the
    * item is hidden because there's nothing to its right to close.
    */
   lastEntryKey: string | null;
@@ -699,7 +699,7 @@ function SortableTabGroup({
               // per-kind stripe on the left can carry the categorical hue
               // without colliding with the background. `h-full!` overrides
               // the primitive's `h-[calc(100%-1px)]` so trigger height is
-              // an even integer (28 or 26px) — keeps the stripe's centered
+              // an even integer (28 or 26px) - keeps the stripe's centered
               // position pixel-perfect across split/non-split contexts.
               "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full! shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
               "data-[state=active]:bg-accent data-[state=active]:text-foreground data-[state=active]:font-semibold",
@@ -713,7 +713,7 @@ function SortableTabGroup({
                 "before:bg-border/70 before:absolute before:top-1 before:bottom-1 before:left-0 before:w-px before:content-[''] data-[state=active]:before:opacity-0",
             )}
           >
-            {/* 2.5px accent stripe on the left edge — only painted on the
+            {/* 2.5px accent stripe on the left edge - only painted on the
                 active entry. We compute activeness in JS (e.key === activeKey)
                 instead of relying on a CSS group variant: the primitive
                 `TabsTrigger` already attaches its own `::after` with
@@ -721,7 +721,7 @@ function SortableTabGroup({
                 with anything we'd write, and tailwind-merge can reorder our
                 rule below theirs depending on what other classes are present
                 (which is why a 2nd tab silently broke the stripe). Doing the
-                conditional in JS is bulletproof — no class wins/loses based
+                conditional in JS is bulletproof - no class wins/loses based
                 on Tailwind's emitted CSS order. */}
             {e.key === activeKey && (
               <span
@@ -846,7 +846,7 @@ function SortableTabGroup({
 
 /**
  * Shared styling for the small icon button(s) on the trailing edge of each
- * tab entry. Only "close" lives here now — rotate-split and move-to-group
+ * tab entry. Only "close" lives here now - rotate-split and move-to-group
  * moved into the right-click context menu (see `SortableTabGroup`).
  * Keeping the container square at a fixed size makes the hover background
  * a tidy 1:1 pill. `TRAILING_ICON_SIZE` is tuned for ~2-3px padding.

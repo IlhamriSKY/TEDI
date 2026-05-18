@@ -10,7 +10,7 @@ export type ExtractedSelection = {
 
 /** Metadata the composer stamps onto outgoing user messages so the chat
  *  view can render the model + provider that was active at send-time.
- *  Not consumed by the LLM — UIMessage.metadata is a client-side bag. */
+ *  Not consumed by the LLM - UIMessage.metadata is a client-side bag. */
 export type TediUserMetadata = {
   tediModel: string;
   tediModelLabel: string;

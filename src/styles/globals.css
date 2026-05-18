@@ -7,7 +7,7 @@
 /* Bundled Nerd Font for the terminal. Ensures oh-my-zsh / Powerlevel10k /
  * Starship glyphs render out of the box even when the host OS has no Nerd
  * Font installed. `swap` so the prompt isn't blank during the ~100ms it
- * takes the woff2 to land — xterm refits when the family resolves. */
+ * takes the woff2 to land - xterm refits when the family resolves. */
 @font-face {
   font-family: "JetBrainsMono Nerd Font Mono";
   font-style: normal;
@@ -190,19 +190,19 @@ html[data-chrome="borderless"] #settings-root {
 
 /* ===== Unified scrollbar style =====
  *
- * Every native scrollbar in the app — editor, settings, dialogs, dropdowns,
- * chat panels, terminal, file tree, anywhere `overflow:auto|scroll` is set —
+ * Every native scrollbar in the app - editor, settings, dialogs, dropdowns,
+ * chat panels, terminal, file tree, anywhere `overflow:auto|scroll` is set -
  * uses the same 10px boxy appearance: `--border` thumb, `--muted-foreground`
  * on hover, transparent track, no border-radius. Applied via webkit pseudo-
  * elements on Linux/Windows (borderless chrome). macOS keeps its native
  * overlay scrollbar so the OS feel is preserved.
  *
- * IMPORTANT — do NOT set `scrollbar-width` or `scrollbar-color` on `*`.
+ * IMPORTANT - do NOT set `scrollbar-width` or `scrollbar-color` on `*`.
  * In Chromium (Tauri WebView2), once either property is non-initial the
  * engine switches to the modern CSS scrollbar UI and IGNORES every
  * `::-webkit-scrollbar-*` rule below. The earlier "hide on borderless"
  * approach via `scrollbar-width: none` on `*` is exactly what made the
- * editor's scrollbars vanish — keeping those properties untouched here
+ * editor's scrollbars vanish - keeping those properties untouched here
  * is what lets the rest of these rules actually take effect.
  *
  * Opt out per-region with `.no-scrollbar` (single element) or
@@ -242,7 +242,7 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 /* Radix wraps Viewport children in an inner `<div style="display:table;
  * min-width:100%">`. With `display:table`, the wrapper shrinks-to-fit
  * its widest descendant, so long unbreakable content (paths, hit lines)
- * pushes it wider than the viewport and triggers horizontal scroll —
+ * pushes it wider than the viewport and triggers horizontal scroll -
  * which breaks `truncate` and `break-all` on inner rows. Every
  * ScrollArea in this app is a vertical-only list, so coerce the wrapper
  * to a block that respects the viewport's width and lets children
@@ -263,7 +263,7 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 }
 
 /* @codemirror/merge's base theme forces every .cm-editor inside .cm-mergeView
- * to `height: auto !important`, by design — vertical scrolling is meant to
+ * to `height: auto !important`, by design - vertical scrolling is meant to
  * happen at the outer .cm-mergeView (which gets `overflow-y: auto` from the
  * package). But the package never sets a height on .cm-mergeView itself, so
  * without this rule the merge view grows past its host and nothing scrolls.

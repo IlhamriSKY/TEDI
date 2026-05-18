@@ -97,7 +97,7 @@ export function UpdaterDialog({
             <>
               <p className="text-muted-foreground">
                 You're on{" "}
-                <span className="text-foreground font-medium">v{state.currentVersion}</span> — v
+                <span className="text-foreground font-medium">v{state.currentVersion}</span> - v
                 <span className="text-foreground font-medium">{state.version}</span> is available.
                 Pick your distro and run the command, or grab the package from GitHub.
               </p>

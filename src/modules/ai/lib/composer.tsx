@@ -106,7 +106,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     firingRef.current = true;
     const chat = getOrCreateChat(sessionId);
     if (!openSendCheckpoint(sessionId)) {
-      // Session is mid-restore — drop this queue tick. The effect will
+      // Session is mid-restore - drop this queue tick. The effect will
       // re-fire after `isRestoring` clears (state changes will trigger
       // a re-render through the existing dependencies).
       firingRef.current = false;
@@ -312,14 +312,14 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (!sessionId) return;
     const chat = getOrCreateChat(sessionId);
     if (!openSendCheckpoint(sessionId)) {
-      // Restore in progress — silently drop this submit. The user can
+      // Restore in progress - silently drop this submit. The user can
       // retry after restore finishes (button auto-disables, restore is
       // sub-second for typical turns).
       return;
     }
     const { selectedModelId: modelId, selectedProvider: provider } = useChatStore.getState();
     const modelInfo = tryGetModel(modelId);
-    // `selectedProvider` is the source of truth for the gateway tag — it's
+    // `selectedProvider` is the source of truth for the gateway tag - it's
     // set by the dropdown pick, so collisions in the model registry (e.g.
     // SumoPod and OpenAI-Compatible both detecting the same id) can't mis-
     // label the chip. tryGetModel is consulted for the display label and

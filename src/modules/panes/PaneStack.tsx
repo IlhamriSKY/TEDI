@@ -142,7 +142,7 @@ export function PaneStack({
             // The active wrapper paints `bg-background` so it fully covers
             // any inactive tab underneath. Without this, WebView2 can still
             // composite `.xterm-viewport`'s native scrollbar from a hidden
-            // tab on top of the active tab — especially visible when the
+            // tab on top of the active tab - especially visible when the
             // inactive tab is split, because its inter-pane scrollbar lands
             // in the middle of the visible workspace.
             className={

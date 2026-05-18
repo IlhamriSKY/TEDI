@@ -82,7 +82,7 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 
 ### Formatting standard
 
-Formatting is enforced by tooling — don't hand-format. The repo ships with:
+Formatting is enforced by tooling - don't hand-format. The repo ships with:
 
 | File                     | Scope                              |
 | ------------------------ | ---------------------------------- |
@@ -95,7 +95,7 @@ Formatting is enforced by tooling — don't hand-format. The repo ships with:
 
 - 2-space indent, LF line endings, UTF-8
 - Semicolons: **yes**
-- Quotes: **double** (`"foo"`) — JSX attributes too
+- Quotes: **double** (`"foo"`) - JSX attributes too
 - Trailing comma: `all`
 - Print width: 100 (Markdown: 80, preserve prose)
 - Arrow parens: `always` (`(x) => x`)
@@ -110,10 +110,10 @@ Formatting is enforced by tooling — don't hand-format. The repo ships with:
 **General rules**
 
 - Don't disable Prettier or rustfmt on chunks of code without a written justification in the PR description.
-- Don't mix unrelated reformatting into a feature PR — see "What gets bounced back" below.
-- File names: `kebab-case.ts` for utilities, `PascalCase.tsx` for React components, `snake_case.rs` for Rust modules — match the convention already used in the surrounding folder.
+- Don't mix unrelated reformatting into a feature PR - see "What gets bounced back" below.
+- File names: `kebab-case.ts` for utilities, `PascalCase.tsx` for React components, `snake_case.rs` for Rust modules - match the convention already used in the surrounding folder.
 - One blank line between top-level declarations; no consecutive blank lines.
-- Group imports: stdlib / external / `@/*` aliases / relative — separated by a blank line (Prettier preserves this; you place the breaks).
+- Group imports: stdlib / external / `@/*` aliases / relative - separated by a blank line (Prettier preserves this; you place the breaks).
 
 ## Commits & PRs
 

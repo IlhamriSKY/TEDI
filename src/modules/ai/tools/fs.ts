@@ -29,7 +29,7 @@ export function buildFsTools(ctx: ToolContext) {
           .max(2000)
           .optional()
           .describe(
-            "Max lines to return. Default 2000. Cap is hard — re-call with a larger offset to page through.",
+            "Max lines to return. Default 2000. Cap is hard - re-call with a larger offset to page through.",
           ),
       }),
       execute: async ({ path, offset, limit }) => {
@@ -157,7 +157,7 @@ export function buildFsTools(ctx: ToolContext) {
         // Snapshot for restore-checkpoint. Capture original text content
         // if the file existed and was text; mark as create-file for a
         // brand-new path. Binary / oversized existing files are NOT
-        // snapshotted — we can't safely round-trip them through a text
+        // snapshotted - we can't safely round-trip them through a text
         // restore, so a future restore will leave them alone.
         const sessionId = ctx.getSessionId();
         if (sessionId) {
@@ -172,7 +172,7 @@ export function buildFsTools(ctx: ToolContext) {
             }
             // binary / toolarge: skip recording. Restore won't touch it.
           } catch {
-            // ENOENT — fresh file.
+            // ENOENT - fresh file.
             recordFileMutation(sessionId, abs, {
               kind: "create-file",
               writtenContent: content,
@@ -214,7 +214,7 @@ export function buildFsTools(ctx: ToolContext) {
           return { path: abs, queued_for_plan_review: true, ok: true };
         }
         // Snapshot for restore-checkpoint. Only record if the directory
-        // didn't already exist — otherwise restore would delete a dir the
+        // didn't already exist - otherwise restore would delete a dir the
         // agent didn't create (and possibly its prior contents).
         const sessionId = ctx.getSessionId();
         if (sessionId) {
@@ -223,7 +223,7 @@ export function buildFsTools(ctx: ToolContext) {
             await native.readDir(abs);
             alreadyExists = true;
           } catch {
-            // doesn't exist — safe to record
+            // doesn't exist - safe to record
           }
           if (!alreadyExists) {
             recordFileMutation(sessionId, abs, { kind: "create-dir" });

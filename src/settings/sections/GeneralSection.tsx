@@ -290,7 +290,7 @@ export function GeneralSection() {
             <code className="text-foreground">{shimStatus.target}</code>.{" "}
             {shimStatus.on_path
               ? "Open a new terminal and try `tedi .`."
-              : '~/.local/bin isn\'t on your PATH yet — add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc.'}
+              : '~/.local/bin isn\'t on your PATH yet - add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc.'}
           </span>
         ) : null}
         {shimStatus?.status === "not_applicable" ? (

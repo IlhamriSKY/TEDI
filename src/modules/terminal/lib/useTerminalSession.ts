@@ -52,7 +52,7 @@ const SPAWN_GRACE_MS = 3_000;
 
 // Hard ceiling on how long we'll wait for `pty_open` to return a session id.
 // Why: workspace-restore on Windows occasionally lands in a state where the
-// `invoke("pty_open")` promise never settles — neither resolves nor rejects —
+// `invoke("pty_open")` promise never settles - neither resolves nor rejects -
 // leaving the leaf with `pty=null` AND `lastPtyError=null`, so the keyboard
 // handler's Enter-to-retry path can't fire (it gates on `lastPtyError`). The
 // user sees a forever-black pane that refuses to accept input. After this
@@ -92,7 +92,7 @@ const NO_DATA_WATCHDOG_MS = 5_000;
  * `s.lastPtyError` and `s.pty` stay `null`, `ptyOpening` stays `false`, and
  * Enter-to-retry doesn't fire because the keyboard handler gates on
  * `lastPtyError !== null`. Observed on workspace-restore when a tab opens
- * with two split panes — one ends up forever-blank with no input echo and
+ * with two split panes - one ends up forever-blank with no input echo and
  * no banner. After this many ms with no live PTY and no pending error, we
  * force `retryPty` / `retrySsh` so the leaf is no longer dead. Tuned > the
  * 120-frame (~2s) container-settle budget but < `SPAWN_TIMEOUT_MS` (15s)
@@ -202,7 +202,7 @@ const sessions = new Map<number, Session>();
  * Compose the terminal's base font size with the global content-zoom factor
  * (see `Preferences.contentZoom`), clamped to xterm's sane bounds. xterm
  * renders glyphs into a GPU/canvas grid keyed by `fontSize`, so scaling the
- * pref this way triggers xterm's internal recompute — far more reliable than
+ * pref this way triggers xterm's internal recompute - far more reliable than
  * CSS `zoom`, which leaves the canvas at the old resolution and offsets the
  * cursor from the text.
  */
@@ -358,7 +358,7 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
 /**
  * Push the current xterm dimensions to the live PTY, floored to MIN_PTY_DIM
  * and de-duplicated against `lastSentCols/Rows`. Returns true when an IPC
- * resize was actually issued — used by callers that need to know whether
+ * resize was actually issued - used by callers that need to know whether
  * the trip across the bridge happened.
  *
  * Keeping floor + compare + bookkeeping in one place means every callsite
@@ -390,7 +390,7 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
   // doesn't leak into the new one.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
 
-  // Diagnostic counters — surface when a leaf claims a live PTY but the
+  // Diagnostic counters - surface when a leaf claims a live PTY but the
   // user sees an empty pane. Toggle via TEDI_DEBUG_PTY=0 in localStorage if
   // it ever gets noisy in production.
   const debug = isDebugPty();
@@ -407,7 +407,7 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
         )}ms (${bytes.length}B)`,
       );
     }
-    // First real bytes from the shell — record arrival on the session AND
+    // First real bytes from the shell - record arrival on the session AND
     // disarm any already-armed watchdog. Recording on the session matters
     // when bytes beat the `invoke("pty_open")` resolution: the timer hasn't
     // been armed yet (clearTimeout is a no-op), so `armNoDataWatchdog` will
@@ -566,7 +566,7 @@ async function openSshForSession(
   );
 
   // Track whether we've already routed this attempt's terminal event into
-  // the reconnect scheduler — russh can fire both onExit and onError for
+  // the reconnect scheduler - russh can fire both onExit and onError for
   // the same drop, and the first one wins.
   let terminated = false;
   const handleTerminal = (reason: string) => {
@@ -792,7 +792,7 @@ function writePtyError(s: Session, message: string): void {
 function armNoDataWatchdog(s: Session, epoch: number): void {
   if (s.sshConnectionId) return; // SSH has its own status banner
   // Bytes may have already arrived between `invoke("pty_open")` issuing and
-  // its promise resolving — the Tauri Channel's `onmessage` is wired up
+  // its promise resolving - the Tauri Channel's `onmessage` is wired up
   // before the await, so the first data event CAN beat the spawn-result. If
   // that happened for this epoch, the shell is healthy and we must NOT arm:
   // the prompt is already printed and no further bytes are expected until
@@ -802,7 +802,7 @@ function armNoDataWatchdog(s: Session, epoch: number): void {
   s.noDataTimer = setTimeout(() => {
     s.noDataTimer = null;
     if (s.disposed) return;
-    // Bail if a newer spawn has replaced this one — its own watchdog covers it.
+    // Bail if a newer spawn has replaced this one - its own watchdog covers it.
     if (epoch !== s.ptySpawnEpoch) return;
     // Bail if data did arrive between the timer firing and this callback
     // executing (rare but possible under heavy scheduling).
@@ -814,7 +814,7 @@ function armNoDataWatchdog(s: Session, epoch: number): void {
     void dyingPty.close().catch(() => {});
     const msg = `shell did not emit any output within ${Math.round(
       NO_DATA_WATCHDOG_MS / 1000,
-    )}s of opening — likely stalled during init`;
+    )}s of opening - likely stalled during init`;
     s.lastPtyError = msg;
     console.warn("[tedi-pty] no-data watchdog fired:", msg);
     writePtyError(s, msg);
@@ -863,7 +863,7 @@ async function retryPty(s: Session): Promise<void> {
     armNoDataWatchdog(s, s.ptySpawnEpoch);
   } catch (e) {
     // Drop stale failures (myEpoch === 0 means openPtyForSession threw
-    // synchronously before bumping the counter — treat as a real failure).
+    // synchronously before bumping the counter - treat as a real failure).
     if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
     s.ptyOpening = false;
     const msg = describeError(e);
@@ -1296,7 +1296,7 @@ export function useTerminalSession({
         // session.ready failed (font load rejected, OSC handler register
         // threw, etc.). Surface to the user with a retry hint instead of
         // leaving the tab silently empty. Still attach so the message is
-        // actually visible — writes to a detached xterm buffer in memory
+        // actually visible - writes to a detached xterm buffer in memory
         // but the user can't see them.
         if (cancelled) return;
         const msg = describeError(e);
@@ -1309,7 +1309,7 @@ export function useTerminalSession({
     // Stuck-recovery watchdog: see STUCK_RECOVERY_MS for the failure mode.
     // Fires once; if the leaf is still healthy by then we no-op. If
     // attachSession's spawn is mid-flight (ptyOpening=true, no error yet),
-    // we cancel the stale opening and force a fresh retry — the epoch
+    // we cancel the stale opening and force a fresh retry - the epoch
     // guards in attachSession/retryPty drop the late stale result if it
     // ever lands.
     stuckTimer = setTimeout(() => {
@@ -1318,7 +1318,7 @@ export function useTerminalSession({
       if (s.pty) return; // healthy
       if (s.lastPtyError !== null) return; // Enter-to-retry handles it
       console.warn(
-        `[tedi-pty] stuck-recovery: leaf=${leafId} pty=null lastPtyError=null ptyOpening=${s.ptyOpening} sshConn=${s.sshConnectionId ?? "-"} sshStatus=${s.sshStatus.kind} containerAttached=${s.term.element !== undefined} after ${STUCK_RECOVERY_MS}ms — forcing retry`,
+        `[tedi-pty] stuck-recovery: leaf=${leafId} pty=null lastPtyError=null ptyOpening=${s.ptyOpening} sshConn=${s.sshConnectionId ?? "-"} sshStatus=${s.sshStatus.kind} containerAttached=${s.term.element !== undefined} after ${STUCK_RECOVERY_MS}ms - forcing retry`,
       );
       // Reset the opening flag so retryPty/retrySsh aren't blocked by a
       // hung in-flight promise.

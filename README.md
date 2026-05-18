@@ -82,6 +82,39 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 
 Settings > AI > pick a provider, paste your API key. For local inference, point TEDI at your LM Studio endpoint. Keys are written to the OS keychain via `keyring`. They never touch disk or `localStorage`.
 
+## CLI Usage
+
+TEDI ships with a CLI that lets you open folders and files directly from the terminal.
+
+```bash
+tedi [PATH]          # Open a folder or file in TEDI
+tedi .               # Open the current directory
+tedi <file>          # Open a file in the editor (parent folder loads in explorer)
+tedi --help          # Print help message and exit
+tedi --version       # Print version and exit
+tedi --update        # Check for updates and open the update dialog
+```
+
+**Flags:**
+
+| Flag               | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `-h`, `--help`     | Print usage information and exit                 |
+| `-V`, `--version`  | Print the TEDI version number and exit           |
+| `-u`, `--update`   | Check for available updates and open the dialog  |
+
+**Positional argument:**
+
+| Arg    | Description                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------------ |
+| `PATH` | A folder to open, or a file to edit. Use `.` for the current directory. Relative paths resolve against the shell's working directory. |
+
+If TEDI is already running, the request is forwarded to the existing window - a second instance is not opened.
+
+**Installing the `tedi` command (macOS / Linux AppImage):**
+
+On macOS and Linux AppImage, the `tedi` command is not on `PATH` by default. Go to **Settings → General → "Install `tedi` command in PATH"** to create a shim at `~/.local/bin/tedi`. On Windows, the NSIS installer handles this automatically.
+
 ## Build from source
 
 Prereqs:

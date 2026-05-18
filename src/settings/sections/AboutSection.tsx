@@ -40,7 +40,7 @@ export function AboutSection() {
   const [name, setName] = useState("TEDI");
   const [build, setBuild] = useState("");
   const [checkState, setCheckState] = useState<CheckState>({ kind: "idle" });
-  // Update is intentionally outside React state — it's a non-serialisable
+  // Update is intentionally outside React state - it's a non-serialisable
   // handle bound to the plugin's native side; storing it in state would force
   // structuredClone on every render and break the download callback.
   const updateRef = useRef<Update | null>(null);
@@ -261,13 +261,13 @@ function updaterMessage(state: CheckState): string {
     case "checking":
       return "Checking for updates…";
     case "available":
-      return `v${state.version} is available — download & install below.`;
+      return `v${state.version} is available - download & install below.`;
     case "downloading":
       return `Downloading v${state.version}…`;
     case "ready":
       return `v${state.version} is installed. Restart TEDI to apply.`;
     case "manual-available":
-      return `v${state.version} is available — install manually via your package manager.`;
+      return `v${state.version} is available - install manually via your package manager.`;
     case "uptodate":
       return "You're on the latest version. Auto-update checks every 6 hours.";
     case "error":

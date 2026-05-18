@@ -62,8 +62,8 @@ export type BuildModelOptions = {
   openaiCompatibleBaseURL?: string;
 };
 
-// Memoize built models. Provider clients are not free to construct — they
-// register middleware and parse keys — and we'd otherwise rebuild one per
+// Memoize built models. Provider clients are not free to construct - they
+// register middleware and parse keys - and we'd otherwise rebuild one per
 // `sendMessages` call. Keyed on the full identity that affects the result.
 // Capped via simple LRU so rotating keys / switching base URLs doesn't grow
 // the cache forever (each entry holds a fully-wired provider client).
@@ -176,9 +176,9 @@ export async function buildLanguageModel(
   return built;
 }
 
-const PLAN_MODE_PROMPT = `\n\n## PLAN MODE — ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active — reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
+const PLAN_MODE_PROMPT = `\n\n## PLAN MODE - ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
 
-/** Per-step usage delta — handler is responsible for accumulating
+/** Per-step usage delta - handler is responsible for accumulating
  *  cumulative totals if it wants them. Cached tokens come from the
  *  provider's prompt-cache hit counter; 0 when the provider doesn't
  *  report it or the prefix didn't hit. */
@@ -206,7 +206,7 @@ export type RunAgentOptions = {
   abortSignal?: AbortSignal;
 };
 
-/** Build the full system message text. Stable per session — does NOT carry
+/** Build the full system message text. Stable per session - does NOT carry
  *  any dynamic data (cwd, terminal output, etc.). That keeps the prefix
  *  byte-stable across turns, which is the precondition for prompt caching
  *  on every provider that supports it. */
@@ -219,14 +219,14 @@ function buildSystemPrompt(opts: {
 }): string {
   const base = getSystemPrompt(opts.modelId);
   const personaBlock = opts.agentPersona?.instructions.trim()
-    ? `\n\n## ACTIVE AGENT — ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
+    ? `\n\n## ACTIVE AGENT - ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
     : "";
   const customBlock = opts.customInstructions?.trim()
-    ? `\n\n## USER CUSTOM INSTRUCTIONS — follow unless they conflict with safety rules above\n${opts.customInstructions.trim()}`
+    ? `\n\n## USER CUSTOM INSTRUCTIONS - follow unless they conflict with safety rules above\n${opts.customInstructions.trim()}`
     : "";
   const memoryBlock =
     opts.projectMemory && opts.projectMemory.trim().length > 0
-      ? `\n\n## PROJECT — TEDI.md\n${opts.projectMemory.trim()}`
+      ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
       : "";
   const planBlock = opts.planMode ? PLAN_MODE_PROMPT : "";
   return `${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;

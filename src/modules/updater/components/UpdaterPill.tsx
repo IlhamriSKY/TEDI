@@ -16,7 +16,7 @@ export function UpdaterPill() {
   }, [updater.forceOpenSeq]);
 
   // Errors used to silently hide the pill, which is exactly the state a user
-  // hits when the updater can't reach GitHub — surface it so they can see why.
+  // hits when the updater can't reach GitHub - surface it so they can see why.
   const visible =
     updater.state.kind === "available" ||
     updater.state.kind === "manual-available" ||

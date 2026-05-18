@@ -188,7 +188,7 @@ export function useUpdater() {
   stateKindRef.current = state.kind;
 
   // First check 8s after mount so it doesn't compete with PTY spawns + AI
-  // hydration on cold start. One-shot — re-arming on state changes caused the
+  // hydration on cold start. One-shot - re-arming on state changes caused the
   // updater dialog to flicker closed every 8s when sitting on an actionable
   // state. Guard against `tedi --update` racing us: skip if we've already
   // transitioned out of idle (the cli drain / trigger event fires first and

@@ -9,14 +9,14 @@
 ;
 ; On uninstall we delete the shim but deliberately leave the PATH entry
 ; alone. Stripping it cleanly from a `;`-delimited string in NSIS needs a
-; full string-replace helper and is easy to get wrong — a stale entry to a
+; full string-replace helper and is easy to get wrong - a stale entry to a
 ; non-existent dir is harmless (Windows skips it during PATH lookup), while
 ; a buggy uninstaller can corrupt the user's PATH.
 
 !include "LogicLib.nsh"
 !include "WinMessages.nsh"
 !include "StrFunc.nsh"
-; ${StrStr} needs an explicit declaration before first use — this line is
+; ${StrStr} needs an explicit declaration before first use - this line is
 ; the declaration, not a call. Used in NSIS_HOOK_POSTINSTALL to test whether
 ; $INSTDIR is already on the user's PATH so reinstalls don't pile up dupes.
 ${StrStr}

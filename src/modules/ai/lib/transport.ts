@@ -118,7 +118,7 @@ function injectContext(messages: UIMessage[], live: LiveSnapshot): UIMessage[] {
 
 /** Minimal env block, prepended to the latest user message. Kept short so the
  *  cacheable conversation prefix stays as stable as possible across turns.
- *  Terminal scrollback is NOT auto-included anymore — the agent should ask
+ *  Terminal scrollback is NOT auto-included anymore - the agent should ask
  *  the user to paste recent output when it genuinely needs it. */
 function formatEnvBlock(live: LiveSnapshot): string | null {
   const lines: string[] = [];

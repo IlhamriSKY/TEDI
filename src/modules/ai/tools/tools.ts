@@ -46,7 +46,7 @@ export type ChatTools = ReturnType<typeof buildToolsRaw>;
 // Tool definitions are pure functions of `ctx`: they capture it once and
 // read mutable state (preferences, stores) lazily inside `execute`. So
 // per-context memoization is safe and skips recreating ~12 zod schemas
-// on every user turn. WeakMap keys by context identity — a fresh chat
+// on every user turn. WeakMap keys by context identity - a fresh chat
 // session gets a fresh ctx and a fresh tools build.
 const toolsCache = new WeakMap<ToolContext, ChatTools>();
 

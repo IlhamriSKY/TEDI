@@ -106,7 +106,7 @@ function labelFor(id: string): string {
 
 function hintFor(_raw: { owned_by?: string }): string {
   // SumoPod always returns `owned_by: "openai"` regardless of the actual
-  // model maker (mimo, MiniMax, Claude, …) — so the upstream value is
+  // model maker (mimo, MiniMax, Claude, …) - so the upstream value is
   // misleading. Render every SumoPod-detected model as "via SumoPod" to
   // match how the user thinks about it ("I'm using SumoPod, not OpenAI").
   return "via SumoPod";
@@ -147,7 +147,7 @@ export async function refreshSumopodModels(
     // SumoPod proxies many upstream model makers (Anthropic, OpenAI, …),
     // but for billing + routing purposes every call goes through SumoPod's
     // gateway. We deliberately omit `ownedBy` so the chat chip always
-    // credits the request to SumoPod rather than the underlying maker — it
+    // credits the request to SumoPod rather than the underlying maker - it
     // matches how the user thinks about it ("I'm using SumoPod") and lines
     // up with the upstream "via {owned_by}" hint already shown in the
     // dropdown listing.

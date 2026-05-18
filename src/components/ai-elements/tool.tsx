@@ -118,7 +118,7 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 };
 
 // Tools whose `input` carries large/streaming content (file bodies, sub-
-// agent prompts, todo lists). We hide the raw input body — the AI diff
+// agent prompts, todo lists). We hide the raw input body - the AI diff
 // tab is the canonical place for file changes, todos render in their own
 // strip, and the subagent prompt is only useful as a header summary.
 // Output is still rendered (final result, not per-token), with custom
@@ -155,7 +155,7 @@ const ToolImpl = ({
   const open = defaultOpen ?? (isError || hasSubagentSummary);
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
   // Hide streamed input body for heavy tools (file bodies, subagent
-  // prompts, todo lists). Output is always shown — it's the final
+  // prompts, todo lists). Output is always shown - it's the final
   // result, not per-token streaming.
   const showInputBody = !heavyInput && Boolean(input);
   const showOutputBody = output !== undefined;
@@ -695,7 +695,7 @@ function formatDuration(ms: number): string {
 }
 
 function CodeBlockMini({ code }: { code: string; language: string }) {
-  // Tool input/output is debug-grade detail — JSON arrives pre-formatted and
+  // Tool input/output is debug-grade detail - JSON arrives pre-formatted and
   // file content is shown in the editor diff tab. Highlighting here is not
   // worth the parser hop.
   return (

@@ -91,13 +91,13 @@ function dirname(p: string): string {
 
 /** Translate the raw stderr from `git.exe` into something a user can act on.
  *  We keep the original text as a fallback so we never swallow an unfamiliar
- *  error — but the common cases get plain-language hints. */
+ *  error - but the common cases get plain-language hints. */
 function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string {
   const raw = e instanceof Error ? e.message : String(e);
   const lower = raw.toLowerCase();
 
   if (lower.includes("nothing to commit")) {
-    return "Nothing to commit — staged tree matches HEAD.";
+    return "Nothing to commit - staged tree matches HEAD.";
   }
   if (lower.includes("author identity unknown") || lower.includes("please tell me who you are")) {
     return "Set your git identity first:\n  git config --global user.email \"you@example.com\"\n  git config --global user.name \"Your Name\"";
@@ -106,20 +106,20 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
     lower.includes("rejected") &&
     (lower.includes("non-fast-forward") || lower.includes("fetch first"))
   ) {
-    return "Push rejected — your branch is behind the remote. Pull or rebase first.";
+    return "Push rejected - your branch is behind the remote. Pull or rebase first.";
   }
   if (lower.includes("could not resolve host") || lower.includes("could not resolve hostname")) {
-    return "Network error — couldn't reach the remote. Check your connection.";
+    return "Network error - couldn't reach the remote. Check your connection.";
   }
   if (
     lower.includes("permission denied") ||
     lower.includes("authentication failed") ||
     lower.includes("could not read username")
   ) {
-    return "Authentication failed — check your remote credentials / SSH key.";
+    return "Authentication failed - check your remote credentials / SSH key.";
   }
   if (lower.includes("no upstream branch")) {
-    // Shouldn't surface — backend already retries with `-u origin <branch>` —
+    // Shouldn't surface - backend already retries with `-u origin <branch>` -
     // but if it does, give the user a clear next step.
     return "No upstream configured. Run `git push -u origin <branch>` from a terminal.";
   }
@@ -130,7 +130,7 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
     return "Another git process is running (index.lock present). Try again in a moment.";
   }
   if (op === "commit" && (lower.includes("empty") || lower.includes("aborting commit"))) {
-    return "Commit aborted — message or content is empty.";
+    return "Commit aborted - message or content is empty.";
   }
   return raw || `Failed to ${op}.`;
 }
@@ -159,7 +159,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
     const cur = status?.branch ?? null;
     const prev = prevBranchRef.current;
     if (cur && prev && cur !== prev) {
-      // Preserve the in-progress commit message on purpose — switching
+      // Preserve the in-progress commit message on purpose - switching
       // branches shouldn't drop the user's draft.
       toast(`Switched to branch ${cur}`);
     }
@@ -298,7 +298,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       return;
     }
     if (sorted.length === 0) {
-      toast("Nothing to commit — make changes first.", { variant: "warning" });
+      toast("Nothing to commit - make changes first.", { variant: "warning" });
       return;
     }
     const msg = message.trim();
@@ -306,7 +306,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       toast("Enter a commit message first.", { variant: "warning" });
       return;
     }
-    // Capture identity at start of the async op — if the user opens a
+    // Capture identity at start of the async op - if the user opens a
     // different folder mid-flight, we skip the state mutations that would
     // otherwise leak into the new repo's UI (clearing draft, refresh, etc.).
     const startRoot = status.root;
@@ -333,7 +333,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       return;
     }
     if (status.ahead === 0 && status.upstream) {
-      toast("Nothing to push — branch is up to date.", { variant: "warning" });
+      toast("Nothing to push - branch is up to date.", { variant: "warning" });
       return;
     }
     const startRoot = status.root;
@@ -374,11 +374,11 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       try {
         diff = await gitDiffFull(startRoot, DIFF_BYTE_CAP);
       } catch (e) {
-        // Diff read itself failed — fall back to a deterministic message so
+        // Diff read itself failed - fall back to a deterministic message so
         // the user can still commit instead of being stuck.
         if (rootRef.current === startRoot) {
           setMessage(fallbackCommitMessage(sorted));
-          toast(`Couldn't read diff: ${String(e)} — used a default message`, {
+          toast(`Couldn't read diff: ${String(e)} - used a default message`, {
             variant: "warning",
           });
         }
@@ -394,7 +394,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       if (res.fallback) {
         toast(
           `Used a default message (${res.reason ?? "AI unavailable"})${
-            res.modelLabel ? ` — tried ${res.modelLabel}` : ""
+            res.modelLabel ? ` - tried ${res.modelLabel}` : ""
           }`,
           { variant: "warning" },
         );
@@ -407,7 +407,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       // instead of crashing the panel.
       if (rootRef.current === startRoot) {
         setMessage(fallbackCommitMessage(sorted));
-        toast(`AI generation failed: ${String(e)} — used a default message`, {
+        toast(`AI generation failed: ${String(e)} - used a default message`, {
           variant: "warning",
         });
       }

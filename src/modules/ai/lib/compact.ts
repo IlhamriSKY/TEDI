@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
 
 const KEEP_TAIL = 24;
-const ELISION_TEXT = "[elided to save context — see prior tool call in history]";
+const ELISION_TEXT = "[elided to save context - see prior tool call in history]";
 
 type ToolPart = {
   type: string;
@@ -55,7 +55,7 @@ function pathOfInput(input: unknown): string | null {
 
 /** Stable key for a read_file invocation that distinguishes paged reads of
  *  the same path. Two reads of `foo.ts` with different `offset` are NOT
- *  redundant — they return different windows of content. */
+ *  redundant - they return different windows of content. */
 function readKeyOfInput(input: unknown): string | null {
   const path = pathOfInput(input);
   if (!path) return null;
@@ -169,7 +169,7 @@ export type CompactResult = {
  *      no information loss because the latest read / the mutation is still
  *      in history).
  *   2. At 70% of context: elide older tool-result blocks, oldest first,
- *      until we're back under 60% — keeping the last KEEP_TAIL messages
+ *      until we're back under 60% - keeping the last KEEP_TAIL messages
  *      intact and never touching system messages.
  *  System / lite-model callers can pass smaller contextLimit values to
  *  trigger compaction sooner. */

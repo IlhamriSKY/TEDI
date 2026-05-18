@@ -50,7 +50,7 @@ export async function runSubagent({
   }
 
   // Unknown ids fall back to SumoPod (the only provider with runtime
-  // discovery via /v1/models). Same shape main agent uses — keeps
+  // discovery via /v1/models). Same shape main agent uses - keeps
   // behavior consistent when the user picks a freshly detected model.
   const info: ModelInfo =
     tryGetModel(modelId) ??
@@ -67,7 +67,7 @@ export async function runSubagent({
   });
 
   // Build explicit messages so we can attach provider-cache markers.
-  // The Experimental_Agent class hides this — generateText does not, and
+  // The Experimental_Agent class hides this - generateText does not, and
   // the tool-loop semantics (stopWhen) carry over.
   const baseMessages: ModelMessage[] = [
     { role: "system", content: def.systemPrompt },
@@ -76,7 +76,7 @@ export async function runSubagent({
   const messages = applyCacheBreakpoints(baseMessages, info.provider);
 
   // `tools` / `stopWhen` are casted because the SDK infers `never` for the
-  // tools generic when fed a dynamic record — same shape the original
+  // tools generic when fed a dynamic record - same shape the original
   // Experimental_Agent call site used.
   const start = Date.now();
   const result = await generateText({

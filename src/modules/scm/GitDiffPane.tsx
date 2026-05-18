@@ -128,7 +128,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     return isNonText(content.orig) || isNonText(content.curr);
   }, [content]);
 
-  // Construct/refresh the MergeView when content or theme changes — but only
+  // Construct/refresh the MergeView when content or theme changes - but only
   // when both sides are plain text. Image / binary blobs are rendered by
   // <NonTextDiff/> instead and must NOT initialize the MergeView (CodeMirror
   // would otherwise try to render a base64 blob as code).
@@ -138,7 +138,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     const origText = content.orig.kind === "text" ? content.orig.content : "";
     const currText = content.curr.kind === "text" ? content.curr.content : "";
 
-    // Tear down any previous instance — MergeView is imperative.
+    // Tear down any previous instance - MergeView is imperative.
     mergeRef.current?.destroy();
     mergeRef.current = null;
     host.innerHTML = "";
@@ -283,7 +283,7 @@ function formatBytes(n: number): string {
 /** Side-by-side pane for files the MergeView can't render: images and binary
  *  blobs. Each half mirrors the HEAD/Working-tree split of the text diff so
  *  the layout reads the same. An empty `Text` blob (size 0) means "absent
- *  on this side" — we render a muted placeholder instead of a blank square. */
+ *  on this side" - we render a muted placeholder instead of a blank square. */
 function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResult }) {
   return (
     <div className="grid h-full min-h-0 grid-cols-2 divide-x">
@@ -295,7 +295,7 @@ function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResul
 
 function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: string }) {
   // Empty `Text` is how we signal "this side doesn't exist" for added /
-  // deleted entries — show the placeholder instead of a blank pane.
+  // deleted entries - show the placeholder instead of a blank pane.
   if (side.kind === "text" && side.size === 0) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-[11px]">
@@ -331,13 +331,13 @@ function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: s
     );
   }
   // Two cases land here:
-  //   - this side is binary (most common — paired with an image on the other)
+  //   - this side is binary (most common - paired with an image on the other)
   //   - this side is non-empty text paired with a binary on the other side
   //     (rare: a file flipped between text and binary across HEAD/working-tree)
   const label = side.kind === "binary" ? "Binary file" : "Text (paired with binary)";
   return (
     <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-3 text-center text-[11px]">
-      <span>{label} — diff not shown</span>
+      <span>{label} - diff not shown</span>
       <span className="text-[10px] tabular-nums">{formatBytes(side.size)}</span>
     </div>
   );

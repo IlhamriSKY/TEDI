@@ -190,7 +190,7 @@ fn has_nvidia_gpu() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Short-circuit `tedi --version` / `tedi --help` before anything else —
+    // Short-circuit `tedi --version` / `tedi --help` before anything else -
     // we want these to be instant and never touch the GUI runtime.
     cli::handle_version_help_and_exit();
 
@@ -205,7 +205,7 @@ pub fn run() {
 
     // Second-invocation forwarding: when the user runs `tedi <path>` while an
     // instance is already up, the new process exits early after handing off
-    // its argv. Desktop-only — the plugin doesn't build for android/ios.
+    // its argv. Desktop-only - the plugin doesn't build for android/ios.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let cwd_path = std::path::PathBuf::from(&cwd);
@@ -243,7 +243,7 @@ pub fn run() {
             }
             // Heal a stale `~/.local/bin/tedi` shim after an update that moved
             // the binary (macOS .app relocation, AppImage filename change).
-            // No-op on Windows — the NSIS hook handles upgrades there.
+            // No-op on Windows - the NSIS hook handles upgrades there.
             cli::refresh_shim_if_present();
             Ok(())
         })

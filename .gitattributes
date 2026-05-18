@@ -1,7 +1,7 @@
 # Enforce LF for source files regardless of platform (Windows autocrlf safe)
 * text=auto eol=lf
 
-# Source code — always LF
+# Source code - always LF
 *.ts    text eol=lf
 *.tsx   text eol=lf
 *.js    text eol=lf
@@ -20,13 +20,13 @@
 *.rs    text eol=lf
 *.sh    text eol=lf
 
-# Windows-only — keep CRLF
+# Windows-only - keep CRLF
 *.bat   text eol=crlf
 *.cmd   text eol=crlf
 *.ps1   text eol=crlf
 *.nsh   text eol=crlf
 
-# Lockfiles — text, generated
+# Lockfiles - text, generated
 pnpm-lock.yaml -diff linguist-generated
 Cargo.lock     -diff linguist-generated
 

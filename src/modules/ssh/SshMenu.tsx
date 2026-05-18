@@ -57,7 +57,7 @@ export function SshMenu({ onConnect }: Props) {
   const [editorOpen, setEditorOpen] = useState(false);
   // Latches the first time the editor dialog is opened. Keeps the (lazy)
   // dialog mounted afterwards so Radix's exit animation can play normally on
-  // close — see the matching latch in App.tsx.
+  // close - see the matching latch in App.tsx.
   const [editorMounted, setEditorMounted] = useState(false);
   useEffect(() => {
     if (editorOpen) setEditorMounted(true);

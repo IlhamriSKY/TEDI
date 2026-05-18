@@ -9,7 +9,7 @@ use crate::modules::fs::file::{classify_bytes, ReadResult};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-/// CREATE_NO_WINDOW flag — prevents a console window from flashing on Windows
+/// CREATE_NO_WINDOW flag - prevents a console window from flashing on Windows
 /// when we shell out to `git.exe`.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -115,7 +115,7 @@ fn current_branch(repo: &Path) -> Option<String> {
     }
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s == "HEAD" {
-        // detached HEAD — show the short SHA instead
+        // detached HEAD - show the short SHA instead
         let mut sha = git(repo);
         sha.arg("rev-parse").arg("--short").arg("HEAD");
         let o = sha.output().ok()?;
@@ -178,7 +178,7 @@ fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
         // bytes[2] is the space
         let path = &token[3..];
         let is_rename = x == b'R' || y == b'R' || x == b'C' || y == b'C';
-        // Renames are emitted as "R  new\0old" — consume the source path.
+        // Renames are emitted as "R  new\0old" - consume the source path.
         if is_rename {
             let _src = tokens.next();
         }
@@ -206,7 +206,7 @@ struct NumstatEntry {
 }
 
 /// Parse `git diff --numstat HEAD` output. Each non-empty line is
-/// `<added>\t<removed>\t<path>` — binary files show "-" for both counts.
+/// `<added>\t<removed>\t<path>` - binary files show "-" for both counts.
 /// Renames appear as either "old => new" or the compact "dir/{old => new}/file"
 /// form; we normalize to the new path so it matches the porcelain status output.
 fn parse_numstat(raw: &str) -> HashMap<String, NumstatEntry> {
@@ -258,7 +258,7 @@ fn rename_new_side(p: &str) -> String {
 /// `+N` chip. Returns `None` for binary or oversize files.
 fn count_file_lines(path: &str) -> Option<u32> {
     let meta = std::fs::metadata(path).ok()?;
-    // Skip anything larger than 512KB — counting lines in a giant log doesn't
+    // Skip anything larger than 512KB - counting lines in a giant log doesn't
     // tell the user anything useful and reading it stalls the refresh.
     if meta.len() > 512 * 1024 {
         return None;
@@ -299,7 +299,7 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     let (upstream, ahead, behind) = upstream_and_counts(&root);
 
     // Single `git diff --numstat HEAD` covers every tracked change in one
-    // process — far cheaper than diffing per file. Untracked entries are
+    // process - far cheaper than diffing per file. Untracked entries are
     // absent from numstat (no HEAD blob); count their lines from disk.
     let stats_raw = {
         let mut nc = git(&root);
@@ -356,7 +356,7 @@ pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, 
         });
     }
     // `classify_bytes` only uses the path for extension-based MIME hints
-    // (SVG/AVIF) — the repo-relative path is enough.
+    // (SVG/AVIF) - the repo-relative path is enough.
     Ok(classify_bytes(Path::new(&relative), out.stdout))
 }
 
@@ -387,7 +387,7 @@ pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), Strin
         reset.args(["reset", "HEAD", "--", relative.as_str()]);
         let _ = reset.output();
     } else {
-        // Untracked — delete from disk.
+        // Untracked - delete from disk.
         let abs = root.join(&relative);
         if abs.exists() {
             let meta = std::fs::symlink_metadata(&abs).map_err(|e| e.to_string())?;

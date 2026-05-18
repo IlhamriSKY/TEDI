@@ -122,7 +122,7 @@ function UserMessageModelChip({
   // Prefer the model maker (e.g. "Xiaomi" for mimo) over the gateway label
   // ("OpenAI Compatible") so the chip credits the actual brand. Exception:
   // SumoPod proxies many makers and the user thinks of it as "via SumoPod"
-  // — so we always render the SumoPod gateway label regardless of any
+  // - so we always render the SumoPod gateway label regardless of any
   // upstream owned_by that older messages might have stamped.
   const gatewayLabel =
     PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ?? meta.tediProvider;
@@ -182,7 +182,7 @@ export function AiChatView({
   const streamingMessageId =
     status === "streaming" && lastMessage?.role === "assistant" ? lastMessage.id : null;
 
-  // The restore action only makes sense once the turn is done — we
+  // The restore action only makes sense once the turn is done - we
   // attribute it to the most recent user message in the chat. Hidden
   // mid-stream to avoid the user yanking state from under a running agent.
   const lastUserMessageId = useMemo(() => {
@@ -251,13 +251,13 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   // Stable key derived only from the set of user-message ids. We re-derive
   // `userMessages` on every assistant token (since `messages` is a new array
   // each delta), but the observers only need rewiring when a user message is
-  // actually added or removed — not on every streaming chunk.
+  // actually added or removed - not on every streaming chunk.
   const userIdsKey = useMemo(() => userMessages.map((m) => m.id).join("|"), [userMessages]);
 
   // id → true when the message is currently scrolled above the viewport.
   // We track every user message and surface the *most recent* one that's
   // off-screen above, so scrolling deep into the history surfaces the
-  // matching prompt — not just the global "last user message".
+  // matching prompt - not just the global "last user message".
   const [aboveViewport, setAboveViewport] = useState<ReadonlyMap<string, boolean>>(() => new Map());
 
   // Keep the latest snapshot accessible inside the effect closure without
@@ -330,7 +330,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
 
   // Pick the latest user message that's currently above the viewport.
   // If none are scrolled off (chat fits / user is at the top), the pin
-  // stays hidden — it should only appear when there's actually something
+  // stays hidden - it should only appear when there's actually something
   // to jump back to.
   const pinTarget = useMemo(() => {
     for (let i = userMessages.length - 1; i >= 0; i--) {
@@ -366,7 +366,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
             // Sticky inside the scroll container so wheel events on the chat
             // still bubble to the scrollable ancestor. `-mx-4` cancels
             // ConversationContent's `px-4` so the pin is flush with the chat's
-            // left + right edges — no floating-chip gutter.
+            // left + right edges - no floating-chip gutter.
             "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
             "border-border/60 bg-background/95 border-b px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
             "text-foreground/85 hover:bg-accent hover:text-foreground transition-colors",

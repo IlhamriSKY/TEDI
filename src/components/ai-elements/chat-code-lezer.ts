@@ -8,7 +8,7 @@ type ParserLoader = () => Promise<Language>;
 type StreamLoader = () => Promise<StreamParser<unknown>>;
 
 // Only langs that ship a real Lezer parser. Legacy stream-modes (bash,
-// yaml, toml, c/cpp, java, csharp) fall back to plain <pre> — they don't
+// yaml, toml, c/cpp, java, csharp) fall back to plain <pre> - they don't
 // produce a Tree, and dragging in a token-stream driver isn't worth the
 // bytes for chat-side highlight.
 const loaders: Record<string, ParserLoader> = {

@@ -40,7 +40,7 @@ function ScrollBar({
       // thumb visually matches the native ::-webkit-scrollbar (10px) used
       // everywhere else in the app. The earlier `p-px` + transparent
       // border combo produced an 8px-wide thumb inside a 10px wrapper,
-      // which read as a thinner scrollbar than native — inconsistent
+      // which read as a thinner scrollbar than native - inconsistent
       // between panels with <ScrollArea> (file explorer / source control
       // / workspaces) and panels with plain `overflow-auto`.
       className={cn(

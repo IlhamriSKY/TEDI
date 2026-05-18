@@ -127,7 +127,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     const started = performance.now();
     try {
       // Open a probe session, wait for the Connected event, then close it
-      // immediately. We never write to the keychain — the test runs against
+      // immediately. We never write to the keychain - the test runs against
       // whatever is in the form right now.
       let resolved = false;
       const result = await new Promise<{ fingerprint: string }>((resolve, reject) => {
@@ -171,7 +171,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           },
         )
           .then(async (sess) => {
-            // Close right away — we only care that the handshake worked.
+            // Close right away - we only care that the handshake worked.
             try {
               await sess.close();
             } catch {

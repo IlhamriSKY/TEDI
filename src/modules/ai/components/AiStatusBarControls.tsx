@@ -70,7 +70,7 @@ function isPinnedFor(
   modelId: string,
 ): boolean {
   if (pinnedIds.includes(pinKey(providerId, modelId))) return true;
-  // Legacy unqualified entry — matches any provider, but only when no
+  // Legacy unqualified entry - matches any provider, but only when no
   // qualified pin exists for this same modelId (otherwise the legacy entry
   // would double-mark every provider).
   if (pinnedIds.includes(modelId)) {
@@ -353,7 +353,7 @@ function ModelDropdown() {
   // Resolve pinned ids to actual ModelInfo entries (with their provider).
   // We build two lookups: qualified (provider::modelId) for new-style pins,
   // and legacy (modelId only) for backward compat. The legacy lookup picks
-  // the FIRST encountered provider for a given modelId — the order is the
+  // the FIRST encountered provider for a given modelId - the order is the
   // PROVIDERS array, so this is deterministic. Stale ids that no longer
   // resolve are dropped so ghost rows don't render.
   const pinnedEntries = useMemo(() => {

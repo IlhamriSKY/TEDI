@@ -74,7 +74,7 @@ export function buildSharedExtensions(opts?: {
         outline: "none",
         // Drop padding on the right + bottom so the native vertical scrollbar
         // (and the minimap immediately to its left) and the horizontal
-        // scrollbar all sit flush with the pane edges — otherwise an 8px
+        // scrollbar all sit flush with the pane edges - otherwise an 8px
         // empty strip appears between each scrollbar and the border. Left +
         // top keep their 8px breathing room so the gutter and first line
         // don't crowd the pane edge.
@@ -194,7 +194,7 @@ export function buildSharedExtensions(opts?: {
         borderColor: "var(--border)",
       },
       // The minimap gets the .cm-gutters class so it picks up the
-      // background-color rule above — but the right-side border looks wrong
+      // background-color rule above - but the right-side border looks wrong
       // (it sits to the right of the gutter, against the panel edge).
       // Move the divider to the left edge of the minimap instead.
       ".cm-minimap-gutter": {

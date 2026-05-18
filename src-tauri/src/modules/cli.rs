@@ -51,7 +51,7 @@ fn help_text() -> String {
     concat!(
         "TEDI ",
         env!("CARGO_PKG_VERSION"),
-        " — Terminal Environment & Development Infrastructure\n",
+        " - Terminal Environment & Development Infrastructure\n",
         "\n",
         "USAGE:\n",
         "    tedi [PATH]\n",
@@ -81,7 +81,7 @@ fn help_text() -> String {
 /// Why we need this: the install dir ships both `tedi.exe` (GUI subsystem)
 /// and `tedi.cmd` (CLI shim that echoes version/help). Default Windows
 /// PATHEXT resolves `.EXE` *before* `.CMD`, so `tedi --version` typed in
-/// cmd/PowerShell/cmder always lands on the EXE — the .cmd shim never runs.
+/// cmd/PowerShell/cmder always lands on the EXE - the .cmd shim never runs.
 /// Without `AttachConsole`, the EXE's `println!` writes to a detached handle
 /// and the user sees nothing.
 #[cfg(target_os = "windows")]
@@ -89,7 +89,7 @@ fn attach_parent_console() {
     use std::io::Write;
     use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
     // SAFETY: AttachConsole is documented safe to call from any thread and
-    // returns 0 (without side effects) if there is no parent console — e.g.
+    // returns 0 (without side effects) if there is no parent console - e.g.
     // launched from Explorer/Start menu. We ignore the result; a failed
     // attach just means stdout stays detached and the println below is a
     // silent no-op, which is the right behaviour for a no-terminal launch.
@@ -129,7 +129,7 @@ pub fn handle_version_help_and_exit() {
     } else {
         println!("{}", help_text());
     }
-    // Force the buffered write out before exit — on Windows the freshly
+    // Force the buffered write out before exit - on Windows the freshly
     // attached console handle can otherwise drop the tail of the message
     // when the process tears down.
     let _ = std::io::stdout().flush();
@@ -206,7 +206,7 @@ where
 }
 
 /// Capture the startup target. Called from `lib::run` before any `set_current_dir`
-/// could shift the cwd. Idempotent — only the first call wins.
+/// could shift the cwd. Idempotent - only the first call wins.
 pub fn capture_startup() {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -252,7 +252,7 @@ pub fn cli_take_initial_update_request() -> bool {
 pub enum ShimInstall {
     /// Shim was (re)written and is ready to use. `on_path` reflects whether
     /// `~/.local/bin` is currently on the user's `$PATH`. Only constructed on
-    /// unix targets — the Windows branch returns `NotApplicable`.
+    /// unix targets - the Windows branch returns `NotApplicable`.
     #[allow(dead_code)]
     Installed {
         path: String,
@@ -302,7 +302,7 @@ const SHIM_MARKER: &str = "# tedi-cli-shim v1";
 #[cfg(unix)]
 fn render_shim(target: &std::path::Path) -> String {
     // POSIX wrapper. `exec` replaces the shell so the caller doesn't keep an
-    // extra `sh` process around. Argv is forwarded verbatim — `tedi .` lands
+    // extra `sh` process around. Argv is forwarded verbatim - `tedi .` lands
     // in Rust as argv[1] = "." which `capture_startup` resolves against the
     // caller's cwd.
     format!(
@@ -355,7 +355,7 @@ fn install_shim_unix() -> Result<ShimInstall, String> {
 /// * **macOS**: user moves `TEDI.app` between folders, so the old absolute
 ///   path baked into the shim is stale.
 /// * **Linux AppImage**: user replaces `TEDI-0.2.0.AppImage` with
-///   `TEDI-0.3.0.AppImage` (different filename) — `$APPIMAGE` now points to
+///   `TEDI-0.3.0.AppImage` (different filename) - `$APPIMAGE` now points to
 ///   the new file, but the shim still references the old one.
 ///
 /// Untouched if:

@@ -43,7 +43,7 @@ export default defineConfig(async ({ mode }) => ({
           if (id.includes("/xterm/") || id.includes("@xterm/")) return "xterm";
           // Per-language grammars and the legacy stream parsers are dynamically
           // imported by the chat code renderer (chat-code-lezer.ts). Let
-          // Rollup auto-split them so they load lazily — otherwise the
+          // Rollup auto-split them so they load lazily - otherwise the
           // broad codemirror rule below would suck them into the eager chunk.
           if (id.includes("@codemirror/lang-") || id.includes("@codemirror/legacy-modes")) return;
           // Themes are also lazy-loaded by EditorPane / AiDiffPane / GitDiffPane.

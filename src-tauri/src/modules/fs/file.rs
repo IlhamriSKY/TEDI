@@ -92,7 +92,7 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
 }
 
 /// Shared bytes→`ReadResult` classifier. `path` only drives extension-based
-/// MIME hints (SVG, AVIF) — callers reading a git blob can pass the repo-
+/// MIME hints (SVG, AVIF) - callers reading a git blob can pass the repo-
 /// relative path. Size is `bytes.len()` since the blob has no on-disk size.
 pub(crate) fn classify_bytes(path: &Path, bytes: Vec<u8>) -> ReadResult {
     let size = bytes.len() as u64;

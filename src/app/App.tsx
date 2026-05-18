@@ -192,7 +192,7 @@ export default function App() {
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
-  // Latches the first time each lazy dialog is requested. Stays true after —
+  // Latches the first time each lazy dialog is requested. Stays true after -
   // see comments at the dialog mount sites.
   const [sshEditorMounted, setSshEditorMounted] = useState(false);
   useEffect(() => {
@@ -392,7 +392,7 @@ export default function App() {
   // Expose the zoom factor as a CSS variable so the CodeMirror editor + diff
   // surfaces can scale via `calc(... * var(--content-zoom))`. The terminal
   // pulls the factor directly from the prefs store and multiplies it into
-  // xterm's `fontSize` option — applying CSS `zoom` to a canvas/WebGL terminal
+  // xterm's `fontSize` option - applying CSS `zoom` to a canvas/WebGL terminal
   // breaks cursor + glyph positioning, so we deliberately *don't* touch
   // anything outside the content surfaces.
   useEffect(() => {
@@ -419,7 +419,7 @@ export default function App() {
   useEffect(() => {
     if (bootModelRestoredRef.current) return;
     if (!prefsHydrated || !keysLoaded) return;
-    // Prefer the saved provider over re-deriving via tryGetModel — the model
+    // Prefer the saved provider over re-deriving via tryGetModel - the model
     // registry may still be hydrating on cold boot (openai-compatible /v1/models
     // fetch hasn't returned yet) and we don't want that race to demote the
     // user's last pick to the workspace default.
@@ -429,7 +429,7 @@ export default function App() {
     if (prefLastModelId && savedProvider && savedHasKey) {
       setSelectedModelId(prefLastModelId, savedProvider);
     } else if (prefLastModelId && hasKeyForModel(prefLastModelId)) {
-      // No saved provider (pre-fix data) — fall back to registry lookup.
+      // No saved provider (pre-fix data) - fall back to registry lookup.
       setSelectedModelId(prefLastModelId);
     } else {
       setSelectedModelId(prefDefaultModel);
@@ -445,7 +445,7 @@ export default function App() {
   ]);
   // Persist the active model + provider whenever they change (after the boot
   // restore has settled). This is what makes the next launch land on the same
-  // model, with the same provider tag — avoiding the "registry race" that
+  // model, with the same provider tag - avoiding the "registry race" that
   // would otherwise mis-label the chip when a stale duplicate id existed.
   useEffect(() => {
     const unsub = useChatStore.subscribe((s, prev) => {
@@ -894,7 +894,7 @@ export default function App() {
           }
         }
       } catch {
-        // ignore — fall through to mouse coords
+        // ignore - fall through to mouse coords
       }
       return { x: fallbackX, y: fallbackY };
     };
@@ -905,7 +905,7 @@ export default function App() {
     };
     const onUp = (e: MouseEvent) => {
       if (isInsideAi(e.target)) return;
-      // Only consider mouseups that land inside a terminal/editor pane —
+      // Only consider mouseups that land inside a terminal/editor pane -
       // otherwise a stale xterm selection could pop the button anywhere
       // (status bar, sidebar, tab strip, etc.).
       const pane = paneLeafFor(e.target);
@@ -1149,7 +1149,7 @@ export default function App() {
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
-      // Ctrl+Shift+C — copy current terminal selection to clipboard. No-op
+      // Ctrl+Shift+C - copy current terminal selection to clipboard. No-op
       // when nothing is selected (the event is still preventDefault'd by
       // useGlobalShortcuts so it never reaches xterm; `Ctrl+C` without
       // Shift falls through to xterm and sends SIGINT as expected).
@@ -1166,7 +1166,7 @@ export default function App() {
           console.warn("terminal.copy: clipboard write failed:", e);
         });
       },
-      // Ctrl+Shift+V — paste clipboard into the active terminal via
+      // Ctrl+Shift+V - paste clipboard into the active terminal via
       // term.paste so the shell sees a bracketed paste (multi-line
       // snippets don't execute line-by-line under bash/zsh).
       "terminal.paste": () => {
@@ -1182,7 +1182,7 @@ export default function App() {
             console.warn("terminal.paste: clipboard read failed:", e);
           });
       },
-      // Ctrl+Shift+X — close the focused terminal pane. Blocked when this
+      // Ctrl+Shift+X - close the focused terminal pane. Blocked when this
       // is the last terminal in the workspace so the user is never left
       // without a shell (mirrors the respawn rule in handleLeafExit).
       "terminal.close": () => {
@@ -1417,8 +1417,8 @@ export default function App() {
   // Mirror the values the `setLive` closures need into refs so the closures
   // can stay stable. The chat store stores the live object and never
   // resubscribes for re-renders (consumers read via getState() in event
-  // handlers), so refreshing the closures on every `tabs` mutation — which
-  // includes per-keystroke dirty-flag flips — is pure waste.
+  // handlers), so refreshing the closures on every `tabs` mutation - which
+  // includes per-keystroke dirty-flag flips - is pure waste.
   const liveContextRef = useRef({
     tabs,
     activeId,

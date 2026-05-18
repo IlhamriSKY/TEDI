@@ -95,7 +95,7 @@ function computeMarkers(
 
   const sel = view.state.selection.main;
   const cursorScrollY = scrollYFor(view, sel.head, "top");
-  // Center the 2px tick on the resolved y rather than using its top edge —
+  // Center the 2px tick on the resolved y rather than using its top edge -
   // otherwise the marker drifts ~1px below where the caret visually sits.
   const cursorY = Math.min(
     Math.max(0, (cursorScrollY / denom) * clientH - 1),
@@ -250,7 +250,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       ]),
       // Update the scrollbar marker overlay state whenever selection,
       // document, viewport, or geometry changes. Closes over `setMarkerState`
-      // and `outerRef` — both have stable identities so capturing once via
+      // and `outerRef` - both have stable identities so capturing once via
       // the empty-deps useMemo above is fine.
       EditorView.updateListener.of((u) => {
         if (u.selectionSet || u.docChanged || u.geometryChanged || u.viewportChanged) {
@@ -302,7 +302,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
     };
   }, [path, doc.status]);
 
-  // Marker overlay positioning — refresh on scroll + size changes. The
+  // Marker overlay positioning - refresh on scroll + size changes. The
   // `EditorView.updateListener` in the extensions array covers selection /
   // doc / viewport changes; this effect handles scroll-without-edit and
   // pane resizes where CodeMirror itself doesn't fire an update.
@@ -451,7 +451,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
           }}
         />
       </div>
-      {/* Scrollbar marker overlay — paints the caret position and selection
+      {/* Scrollbar marker overlay - paints the caret position and selection
             range over the native vertical scrollbar. Lives outside CodeMirror
             so it doesn't depend on CodeMirror's ViewPlugin lifecycle; state is
             kept fresh by the `EditorView.updateListener` in `extensions` plus

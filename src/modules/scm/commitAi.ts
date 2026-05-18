@@ -14,18 +14,18 @@ const DIFF_BYTE_CAP = 80_000;
 const MAX_OUTPUT_TOKENS = 200;
 
 /** Hard timeout for the model call. Some providers can hang on network
- *  faults — we'd rather show the deterministic fallback than spin forever. */
+ *  faults - we'd rather show the deterministic fallback than spin forever. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const SYSTEM_PROMPT = `You write a single Conventional Commit message for the diff provided by the user.
 
 OUTPUT RULES (must follow exactly):
-- ONE line only — no body, no bullet points, no preamble, no closing remarks.
+- ONE line only - no body, no bullet points, no preamble, no closing remarks.
 - Maximum 72 characters total.
 - Format: <type>(<scope>)?: <subject>
   * <type> is one of: feat, fix, refactor, add, remove, docs, style, test, chore, perf, build, ci
   * <scope> is optional, lowercase, one short word in parentheses (e.g. "auth", "scm", "ui")
-  * <subject> is imperative present tense ("add", "fix", "rename" — NOT "added", "fixes", "renaming")
+  * <subject> is imperative present tense ("add", "fix", "rename" - NOT "added", "fixes", "renaming")
 - Pick the type that best matches the PRIMARY intent:
   * feat   = new user-facing feature/capability
   * fix    = bug fix
@@ -120,7 +120,7 @@ type ResolvedModel = {
 
 /** Pick the model + provider the rest of the app considers "active". Mirrors
  *  the boot-restore logic in App.tsx so the AI commit-message generator
- *  always uses the same model the chat picker shows — including non-stock
+ *  always uses the same model the chat picker shows - including non-stock
  *  providers (openai-compatible, lmstudio, sumopod-detected, etc.) whose
  *  registry entries arrive asynchronously after a /models fetch.
  *
@@ -132,7 +132,7 @@ function resolveActiveModel(): ResolvedModel {
   const prefs = usePreferencesStore.getState();
   const chat = useChatStore.getState();
 
-  // 1. Persisted last pick with explicit provider — authoritative even
+  // 1. Persisted last pick with explicit provider - authoritative even
   //    before the dynamic registry (openai-compatible /models, sumopod)
   //    finishes loading.
   if (prefs.lastModelId && prefs.lastProviderId) {
@@ -144,7 +144,7 @@ function resolveActiveModel(): ResolvedModel {
     };
   }
 
-  // 2. Persisted last pick without saved provider (pre-fix data) — derive
+  // 2. Persisted last pick without saved provider (pre-fix data) - derive
   //    from registry, fall back to chatStore.selectedProvider which was
   //    wired by App.tsx boot restore.
   if (prefs.lastModelId) {
@@ -157,7 +157,7 @@ function resolveActiveModel(): ResolvedModel {
   }
 
   // 3. Settings default. Registry may still be hydrating for runtime-
-  //    detected models — fall back to chat.selectedProvider when missing.
+  //    detected models - fall back to chat.selectedProvider when missing.
   if (prefs.defaultModelId) {
     const info = tryGetModel(prefs.defaultModelId);
     return {
@@ -188,7 +188,7 @@ function resolveActiveModel(): ResolvedModel {
 
 /** Loads the staged + working-tree diff via Tauri, asks the active model
  *  to summarise it as a Conventional Commit, and returns a one-line message.
- *  Never throws — failures resolve with `fallback: true` and a deterministic
+ *  Never throws - failures resolve with `fallback: true` and a deterministic
  *  message derived from the change list so the UI can still populate the
  *  input field. */
 export async function generateCommitMessage(input: {
@@ -217,7 +217,7 @@ export async function generateCommitMessage(input: {
       lmstudioBaseURL: prefs.lmstudioBaseURL,
       openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
     });
-    // Deliberately omit `temperature` — some providers (notably OpenAI's
+    // Deliberately omit `temperature` - some providers (notably OpenAI's
     // reasoning models o1/o3 and a few openai-compatible backends) reject
     // sampling params with a 400. The strict system prompt + sanitize()
     // give us deterministic-enough output without it.

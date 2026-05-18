@@ -30,7 +30,7 @@ export const ConversationContent = ({ className, ...props }: ConversationContent
   // (so the layout stays symmetric whether or not a scrollbar is shown)
   // and leaves a visible gap around full-bleed children like the sticky
   // last-message pin. Trailing `!` flag raises our class to `!important`
-  // so it beats the inline style — `auto` only allocates a gutter when a
+  // so it beats the inline style - `auto` only allocates a gutter when a
   // scrollbar actually appears, so empty / short chats render fully flush
   // and longer ones still get a clean right-side scrollbar lane.
   <StickToBottom.Content

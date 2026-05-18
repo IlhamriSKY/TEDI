@@ -29,7 +29,7 @@ export async function loadEditorTheme(id: EditorThemeId): Promise<Extension> {
   return ext;
 }
 
-/** Synchronous accessor — returns the loaded Extension if available, else
+/** Synchronous accessor - returns the loaded Extension if available, else
  *  null. Callers (e.g. EditorPane) use this for the cheap fast path on
  *  re-renders and fall back to `loadEditorTheme` when null. */
 export function tryEditorTheme(id: EditorThemeId): Extension | null {
