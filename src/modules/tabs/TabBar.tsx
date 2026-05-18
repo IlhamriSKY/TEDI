@@ -91,11 +91,11 @@ type StandaloneEntry = EntryBase & {
 type Entry = PaneEntry | StandaloneEntry;
 
 /**
- * Per-type background colour for the 2.5px accent stripe at the top of the
+ * Per-type background colour for the accent stripe on the left edge of the
  * active tab. Each tab kind gets its own colour so users can tell at a
- * glance what kind of thing is focused — green for a local shell, sky for
- * SSH, blue for a file editor, cyan for an in-app browser preview, violet
- * for an AI diff, amber for a git diff.
+ * glance what kind of thing is focused — emerald for a local shell, sky
+ * for SSH, brand-blue for a file editor, cyan for an in-app browser
+ * preview, violet for an AI diff, amber for a git diff.
  *
  * The stripe is rendered as a real `<span>` child of the tab trigger (see
  * the JSX below) — *not* via `::after` — because the underlying primitive
@@ -114,7 +114,7 @@ function tabAccentClass(e: Entry): string {
         ? "bg-sky-500 dark:bg-sky-400"
         : "bg-emerald-500 dark:bg-emerald-400";
     }
-    return "bg-[#2596be] dark:bg-[#2596be]";
+    return "bg-[#0057fe] dark:bg-[#0057fe]";
   }
   if (e.kind === "preview") return "bg-cyan-500 dark:bg-cyan-400";
   if (e.kind === "ai-diff") return "bg-violet-500 dark:bg-violet-400";
@@ -694,14 +694,15 @@ function SortableTabGroup({
             {...(idx === 0 ? attributes : {})}
             {...(idx === 0 ? listeners : {})}
             className={cn(
-              // VSCode-style active state: tab adopts the editor background
-              // (--background) and turns semibold. The coloured 2.5px top
-              // accent line is painted by a child `<span>` below (see the
-              // tabAccentClass helper for why a child wins over `::after`).
-              // Inactive tabs sit on a dimmer --muted/30 surface (was /60) so
-              // the active/inactive contrast is unmistakable at a glance.
-              "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
-              "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold",
+              // Active state: tab adopts the brand-tinted --accent surface
+              // (light blue in light mode, deep blue in dark mode) so the
+              // per-kind stripe on the left can carry the categorical hue
+              // without colliding with the background. `h-full!` overrides
+              // the primitive's `h-[calc(100%-1px)]` so trigger height is
+              // an even integer (28 or 26px) — keeps the stripe's centered
+              // position pixel-perfect across split/non-split contexts.
+              "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full! shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
+              "data-[state=active]:bg-accent data-[state=active]:text-foreground data-[state=active]:font-semibold",
               // Inside a split cluster, entries are flat (no rounded corners,
               // no own bg); outside, they keep the original pill look.
               isSplit ? "rounded-none" : "rounded-md",
@@ -712,7 +713,7 @@ function SortableTabGroup({
                 "before:bg-border/70 before:absolute before:top-1 before:bottom-1 before:left-0 before:w-px before:content-[''] data-[state=active]:before:opacity-0",
             )}
           >
-            {/* 2.5px accent stripe at the top edge — only painted on the
+            {/* 2.5px accent stripe on the left edge — only painted on the
                 active entry. We compute activeness in JS (e.key === activeKey)
                 instead of relying on a CSS group variant: the primitive
                 `TabsTrigger` already attaches its own `::after` with
@@ -726,7 +727,7 @@ function SortableTabGroup({
               <span
                 aria-hidden
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 top-0 h-[2.5px]",
+                  "pointer-events-none absolute top-1/2 left-1 h-4 w-[3px] -translate-y-1/2",
                   tabAccentClass(e),
                 )}
               />

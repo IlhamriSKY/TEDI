@@ -4,11 +4,11 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [0.2.3] - 18-05-2026
+## [0.2.4] - 18-05-2026
 
 ### Added
 
-- **Brand refresh.** New TEDI logo and icon set across Windows / macOS / Linux / Android / iOS; primary, ring, and accent palette retuned to TEDI blue `#2596BE`.
+- **Brand refresh.** New TEDI logo and icon set across Windows / macOS / Linux / Android / iOS; primary, ring, and accent palette retuned to TEDI blue `#0057FE` with a light-blue `--accent` tint (`#DBE5FF` light / `#0A2870` dark) for selection surfaces.
 - **Image diff in Source Control.** `git_file_head` returns a typed `ReadResult` (text / image / binary); `GitDiffPane` renders PNG / JPEG blobs side-by-side instead of dumping base64 into CodeMirror.
 - **`tedi` CLI launcher.** `tedi .` / `tedi <path>` opens a folder or file. Second invocation forwards to the running window via `tauri-plugin-single-instance`; `--version` / `--help` / `--update` short-circuit before GUI init.
 - **`tedi --update` / `-u`.** Triggers the in-app updater from the terminal — works whether or not an instance is running.
@@ -34,7 +34,7 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 - **PTY observability + epoch correctness.** `pty_open` invoke logs before `SPAWN_LOCK`; `retryPty` / `respawnSession` capture `myEpoch` after the synchronous bump and drop stale results. `STUCK_RECOVERY_MS = 8 s` forces a retry when both `lastPtyError` and `pty` stay null past the settle budget.
 - **SCM panel header redesigned.** Branch + change count, ahead / behind chips, vertical separator, discard-all and refresh icons, tooltips on every action.
-- **Per-tab-type accent stripe.** Emerald local shell, sky SSH, blue editor, cyan preview, violet AI diff, amber git diff. Painted by a child `<span>` to win the specificity fight with the primitive `TabsTrigger` `::after`.
+- **Per-tab-type accent stripe moved to the left edge.** A 3 × 16 px vertical bar centred on the trigger replaces the 2.5 px top stripe — emerald local shell, sky SSH, brand-blue editor, cyan preview, violet AI diff, amber git diff. Active tab now sits on the brand-tinted `--accent` surface so the categorical hue reads against a coloured background. Painted by a child `<span>` to win the specificity fight with the primitive `TabsTrigger` `::after`.
 - **Read cache lives at module scope, keyed by `sessionId`** so `restoreToLastCheckpoint` can clear it as part of the rollback.
 - **PTY size syncs on hidden → visible flip** since `ResizeObserver` only fires on dimension changes.
 - **Diff view runs without minimap** — the merge view already has dual scrollbars and unchanged-region collapser.
