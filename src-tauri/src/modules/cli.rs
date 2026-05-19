@@ -221,9 +221,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    args.into_iter()
-        .skip(1)
-        .any(|a| is_update_flag(a.as_ref()))
+    args.into_iter().skip(1).any(|a| is_update_flag(a.as_ref()))
 }
 
 /// Capture the startup target. Called from `lib::run` before any `set_current_dir`

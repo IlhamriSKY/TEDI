@@ -97,16 +97,16 @@ tedi --update        # Check for updates and open the update dialog
 
 **Flags:**
 
-| Flag               | Description                                      |
-| ------------------ | ------------------------------------------------ |
-| `-h`, `--help`     | Print usage information and exit                 |
-| `-V`, `--version`  | Print the TEDI version number and exit           |
-| `-u`, `--update`   | Check for available updates and open the dialog  |
+| Flag              | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `-h`, `--help`    | Print usage information and exit                |
+| `-V`, `--version` | Print the TEDI version number and exit          |
+| `-u`, `--update`  | Check for available updates and open the dialog |
 
 **Positional argument:**
 
-| Arg    | Description                                                                                      |
-| ------ | ------------------------------------------------------------------------------------------------ |
+| Arg    | Description                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `PATH` | A folder to open, or a file to edit. Use `.` for the current directory. Relative paths resolve against the shell's working directory. |
 
 If TEDI is already running, the request is forwarded to the existing window - a second instance is not opened.

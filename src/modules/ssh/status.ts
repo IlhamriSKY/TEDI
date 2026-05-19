@@ -5,7 +5,17 @@
 export type SshStatus =
   | { kind: "idle" }
   | { kind: "connecting"; attempt: number }
-  | { kind: "connected"; fingerprint: string; since: number }
+  | {
+      kind: "connected";
+      fingerprint: string;
+      since: number;
+      /**
+       * Russh session id returned by `ssh_open` — addresses the live shell
+       * channel AND any SFTP channels opened on the same handle. Only set
+       * while connected; reconnects produce a fresh id.
+       */
+      sessionId: number;
+    }
   | {
       kind: "reconnecting";
       attempt: number;

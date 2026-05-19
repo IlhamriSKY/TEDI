@@ -31,6 +31,7 @@ import {
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
+import { useDiscordRichPresence } from "@/modules/discord";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -76,10 +77,7 @@ import {
 import { ThemeProvider } from "@/modules/theme";
 import { type SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
-import {
-  toolDisplayName,
-  type AiCliStatus,
-} from "@/modules/terminal/lib/aiCliStatus";
+import { toolDisplayName, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
 import {
   defaultTabForEmptyWorkspace,
@@ -120,6 +118,11 @@ const PreviewStack = lazy(() =>
 );
 const SshConnectionDialog = lazy(() =>
   import("@/modules/ssh/SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
+);
+// Defer the SFTP panel + the russh-sftp IPC wrappers it imports until the
+// user actually has a live SSH session. Local-only workflows pay nothing.
+const SshFileExplorer = lazy(() =>
+  import("@/modules/ssh/SshFileExplorer").then((m) => ({ default: m.SshFileExplorer })),
 );
 
 function sameOrigin(a: string, b: string): boolean {
@@ -198,9 +201,7 @@ export default function App() {
   // Per-leaf AI CLI status (claude, codex, opencode, copilot, pi). Surfaces
   // a dot on the tab + a toast/beep on transitions into "blocking". Same
   // prune flow as `sshStatuses`.
-  const [aiCliStatuses, setAiCliStatuses] = useState<Map<number, AiCliStatus>>(
-    () => new Map(),
-  );
+  const [aiCliStatuses, setAiCliStatuses] = useState<Map<number, AiCliStatus>>(() => new Map());
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
   // Latches the first time each lazy dialog is requested. Stays true after -
@@ -667,6 +668,33 @@ export default function App() {
     pickedRoot,
   );
 
+  // Discord Rich Presence is opt-in (Settings → General). The hook stays
+  // dormant until the preference flips on; once on, it reflects the active
+  // file name (editor leaf) or terminal count (no file open) plus the
+  // current workspace folder.
+  const activeFileName = useMemo(() => {
+    if (!activePaneTab) return null;
+    const leaf = activeLeaf(activePaneTab);
+    if (!leaf || leaf.leafKind !== "editor") return null;
+    const parts = leaf.path.split(/[\\/]/);
+    return parts[parts.length - 1] || null;
+  }, [activePaneTab]);
+  const terminalCount = useMemo(() => {
+    let n = 0;
+    for (const t of tabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind === "terminal") n += 1;
+      }
+    }
+    return n;
+  }, [tabs]);
+  useDiscordRichPresence({
+    workspaceCwd: explorerRoot,
+    activeFileName,
+    terminalCount,
+  });
+
   // When the active leaf changes (or the active tab changes), surface its
   // search addon / editor handle / detected URL for the chrome bits.
   useEffect(() => {
@@ -720,6 +748,58 @@ export default function App() {
     });
   }, []);
 
+  // Derive the SFTP panel's view: prefer the active leaf's session when it
+  // is an SSH leaf that's currently `connected`. Falls back to *any*
+  // connected SSH leaf so the panel stays useful while the user is staring
+  // at the local editor next to a remote shell. Recomputed cheaply from
+  // already-tracked state — no extra IPC.
+  const activeSshContext = useMemo<{ sessionId: number | null; hostLabel: string | null }>(() => {
+    if (sshStatuses.size === 0) return { sessionId: null, hostLabel: null };
+    const lookupLeafSession = (leafId: number): number | null => {
+      const status = sshStatuses.get(leafId);
+      if (status && status.kind === "connected") return status.sessionId;
+      return null;
+    };
+    const hostLabelForTab = (tab: Tab | undefined): string | null =>
+      tab && tab.kind === "pane" ? tab.title : null;
+
+    // 1) Active leaf, if it's connected.
+    if (activePaneTab) {
+      const leaf = activeLeaf(activePaneTab);
+      if (leaf && leaf.leafKind === "terminal" && leaf.sshConnectionId) {
+        const sid = lookupLeafSession(leaf.id);
+        if (sid !== null) {
+          return { sessionId: sid, hostLabel: hostLabelForTab(activePaneTab) };
+        }
+      }
+    }
+    // 2) First connected SSH leaf anywhere. We walk pane tabs (not just
+    //    activePaneTab) so a backgrounded SSH session still drives the
+    //    panel when the user has switched to a local editor tab.
+    for (const t of tabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind !== "terminal" || !l.sshConnectionId) continue;
+        const sid = lookupLeafSession(l.id);
+        if (sid !== null) return { sessionId: sid, hostLabel: hostLabelForTab(t) };
+      }
+    }
+    return { sessionId: null, hostLabel: null };
+  }, [sshStatuses, activePaneTab, tabs]);
+
+  // Render the SFTP panel only once any SSH leaf has been opened in this
+  // session. The lazy chunk for SshFileExplorer + sftp.ts then has to load
+  // exactly once, regardless of how the user reaches it.
+  const hasAnySshLeaf = useMemo(() => {
+    for (const t of tabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind === "terminal" && l.sshConnectionId) return true;
+      }
+    }
+    return false;
+  }, [tabs]);
+
   const handleAiCliStatus = useCallback((leafId: number, status: AiCliStatus) => {
     setAiCliStatuses((prev) => {
       try {
@@ -727,8 +807,12 @@ export default function App() {
         const sameTool = before?.tool === status?.tool;
         const sameState = before?.state === status?.state;
         if (sameTool && sameState) return prev;
+        // Toast + beep are gated by the user preference. The badge state on
+        // the tab updates regardless - the user opted out of *attention-
+        // grabbing* feedback, not the visual indicator.
+        const notify = usePreferencesStore.getState().aiNotificationsEnabled;
         // Fire toast/beep on transitions *into* blocking.
-        if (status && status.state === "blocking" && before?.state !== "blocking") {
+        if (notify && status && status.state === "blocking" && before?.state !== "blocking") {
           try {
             toast(`${toolDisplayName(status.tool)} needs your approval`, {
               variant: "warning",
@@ -739,6 +823,7 @@ export default function App() {
             // notification failures are non-critical
           }
         } else if (
+          notify &&
           status &&
           status.state === "idle" &&
           before?.state === "working" &&
@@ -1694,6 +1779,19 @@ export default function App() {
                               rootPath={explorerRoot}
                               onPathDeleted={handlePathDeleted}
                               onOpenDiff={openGitDiffTab}
+                            />
+                          </Suspense>
+                        </ResizablePanel>
+                      </>
+                    ) : null}
+                    {hasAnySshLeaf ? (
+                      <>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel id="sidebar-ssh" defaultSize="30%" minSize="12%">
+                          <Suspense fallback={null}>
+                            <SshFileExplorer
+                              sessionId={activeSshContext.sessionId}
+                              hostLabel={activeSshContext.hostLabel}
                             />
                           </Suspense>
                         </ResizablePanel>

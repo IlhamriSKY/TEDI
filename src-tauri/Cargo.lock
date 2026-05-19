@@ -750,7 +750,7 @@ checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
 dependencies = [
  "byteorder",
  "fnv",
- "uuid",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -1203,6 +1203,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1380,6 +1394,19 @@ dependencies = [
  "option-ext",
  "redox_users 0.5.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "discord-rich-presence"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a75db747ecd252c01bfecaf709b07fcb4c634adf0edb5fed47bc9c3052e7076b"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_repr",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -2381,6 +2408,12 @@ checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
 dependencies = [
  "ahash 0.8.12",
 ]
+
+[[package]]
+name = "hashbrown"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -4826,7 +4859,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -4951,6 +4984,24 @@ dependencies = [
  "nix 0.31.3",
  "ssh-encoding",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "russh-sftp"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09daa0ebcf53fb18d7b16167586a68b5bf2cfa3eaad49e661a19302552a2b879"
+dependencies = [
+ "bitflags 2.11.1",
+ "bytes",
+ "chrono",
+ "dashmap",
+ "log",
+ "serde",
+ "serde_bytes",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -5157,7 +5208,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -5339,6 +5390,16 @@ dependencies = [
  "serde",
  "serde_core",
  "typeid",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -6083,7 +6144,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
- "uuid",
+ "uuid 1.23.1",
  "walkdir",
 ]
 
@@ -6409,7 +6470,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid",
+ "uuid 1.23.1",
  "walkdir",
 ]
 
@@ -6426,11 +6487,12 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "dirs 5.0.1",
+ "discord-rich-presence",
  "globset",
  "grep-matcher",
  "grep-regex",
@@ -6442,6 +6504,7 @@ dependencies = [
  "portable-pty",
  "reqwest 0.12.28",
  "russh",
+ "russh-sftp",
  "serde",
  "serde_json",
  "shared_child",
@@ -7012,6 +7075,15 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uuid"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "uuid"
@@ -8172,7 +8244,7 @@ dependencies = [
  "serde_repr",
  "tracing",
  "uds_windows",
- "uuid",
+ "uuid 1.23.1",
  "windows-sys 0.61.2",
  "winnow 1.0.3",
  "zbus_macros",

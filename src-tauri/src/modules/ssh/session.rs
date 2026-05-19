@@ -5,11 +5,13 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::client::{self, Config, Handle, Handler, Msg};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
+use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use tauri::ipc::Channel as IpcChannel;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use super::sftp::open_sftp_on_handle;
 use super::SshOpenInput;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -33,7 +35,10 @@ pub enum SshEvent {
 /// Trust-on-first-use stub. We accept any server key but log its fingerprint
 /// and surface it to the frontend so the user has a visible audit trail
 /// until a real known_hosts UI lands.
-struct AcceptAny {
+///
+/// `pub(super)` only so the parameterised `Handle<AcceptAny>` field on
+/// `SshSession` can in turn be exposed to the sibling `sftp` module.
+pub(super) struct AcceptAny {
     fingerprint_slot: Arc<Mutex<Option<String>>>,
 }
 
@@ -61,8 +66,12 @@ pub struct SshSession {
     /// Background task draining channel messages to the IPC channel.
     pump: Mutex<Option<JoinHandle<()>>>,
     /// Underlying client handle - kept alive so the TCP connection stays
-    /// up. Dropping this drops the entire SSH session.
-    handle: Mutex<Option<Handle<AcceptAny>>>,
+    /// up. Dropping this drops the entire SSH session. `pub(super)` so the
+    /// sibling `sftp` module can open new subsystem channels on it.
+    pub(super) handle: Mutex<Option<Handle<AcceptAny>>>,
+    /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops
+    /// don't pay the channel-open + handshake roundtrip every time.
+    sftp: Mutex<Option<Arc<SftpSession>>>,
 }
 
 impl SshSession {
@@ -80,6 +89,11 @@ impl SshSession {
     pub async fn close(self: Arc<Self>) {
         let _ = self.write_half.eof().await;
         let _ = self.write_half.close().await;
+        // Drop the SFTP session first so its background reader can shut
+        // down before we tear the underlying connection out from under it.
+        if let Some(sftp) = self.sftp.lock().await.take() {
+            let _ = sftp.close().await;
+        }
         if let Some(h) = self.handle.lock().await.take() {
             let _ = h
                 .disconnect(Disconnect::ByApplication, "tedi: client closed", "")
@@ -88,6 +102,20 @@ impl SshSession {
         if let Some(j) = self.pump.lock().await.take() {
             j.abort();
         }
+    }
+
+    /// Return the cached SFTP session, opening a fresh subsystem channel
+    /// on the underlying SSH handle if this is the first request. Cheap
+    /// after the first call; opens cost one channel round-trip + SFTP
+    /// version handshake.
+    pub async fn ensure_sftp(&self) -> Result<Arc<SftpSession>, String> {
+        let mut guard = self.sftp.lock().await;
+        if let Some(existing) = guard.as_ref() {
+            return Ok(existing.clone());
+        }
+        let sftp = open_sftp_on_handle(self).await?;
+        *guard = Some(sftp.clone());
+        Ok(sftp)
     }
 }
 
@@ -214,5 +242,6 @@ pub async fn connect(
         write_half,
         pump: Mutex::new(Some(pump)),
         handle: Mutex::new(Some(handle)),
+        sftp: Mutex::new(None),
     }))
 }

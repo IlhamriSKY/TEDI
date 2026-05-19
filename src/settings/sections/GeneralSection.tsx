@@ -14,7 +14,9 @@ import {
   EDITOR_THEME_LABELS,
   EDITOR_THEMES,
   TERMINAL_FONT_SIZES,
+  setAiNotificationsEnabled,
   setAutostart,
+  setDiscordRpcEnabled,
   setEditorTheme,
   setRestoreWindowState,
   setShowHiddenFiles,
@@ -60,6 +62,8 @@ export function GeneralSection() {
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
+  const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
+  const discordRpcEnabled = usePreferencesStore((s) => s.discordRpcEnabled);
 
   // Reconcile autostart pref with the actual OS state on mount - the user may
   // have toggled it from System Settings.
@@ -296,6 +300,32 @@ export function GeneralSection() {
         {shimStatus?.status === "not_applicable" ? (
           <span className="text-muted-foreground text-[10.5px]">{shimStatus.message}</span>
         ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Notifications</Label>
+        <SettingRow
+          title="AI CLI notifications"
+          description="Show a toast and play a sound when an AI CLI (Claude, Codex, opencode, …) needs your approval or finishes a task. The status badge on the tab is unaffected."
+        >
+          <Switch
+            checked={aiNotificationsEnabled}
+            onCheckedChange={(v) => void setAiNotificationsEnabled(v)}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Integrations</Label>
+        <SettingRow
+          title="Discord Rich Presence"
+          description="Share what you're working on as a Discord status (workspace folder, active file, open terminals, elapsed time). Requires the Discord desktop app to be running."
+        >
+          <Switch
+            checked={discordRpcEnabled}
+            onCheckedChange={(v) => void setDiscordRpcEnabled(v)}
+          />
+        </SettingRow>
       </div>
 
       <div className="flex flex-col gap-2">

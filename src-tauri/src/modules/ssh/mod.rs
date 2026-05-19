@@ -9,6 +9,7 @@
 //! audit trail until a known_hosts UI lands.
 
 mod session;
+pub mod sftp;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -37,7 +38,9 @@ fn ssh_runtime() -> &'static Runtime {
 }
 
 pub struct SshState {
-    sessions: tokio::sync::RwLock<HashMap<u32, Arc<SshSession>>>,
+    /// `pub(crate)` so the sibling `sftp` module can look up an existing
+    /// session by id to issue file-system commands against it.
+    pub(crate) sessions: tokio::sync::RwLock<HashMap<u32, Arc<SshSession>>>,
     next_id: AtomicU32,
 }
 

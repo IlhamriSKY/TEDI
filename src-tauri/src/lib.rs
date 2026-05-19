@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{cli, fs, git, net, preview, pty, secrets, shell, ssh};
+use modules::{cli, discord, fs, git, net, preview, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -269,6 +269,7 @@ pub fn run() {
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
         .manage(ssh::SshState::default())
+        .manage(discord::DiscordState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_write,
@@ -313,6 +314,18 @@ pub fn run() {
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,
+            ssh::sftp::ssh_sftp_home,
+            ssh::sftp::ssh_sftp_read_dir,
+            ssh::sftp::ssh_sftp_stat,
+            ssh::sftp::ssh_sftp_read_file,
+            ssh::sftp::ssh_sftp_write_file,
+            ssh::sftp::ssh_sftp_create_file,
+            ssh::sftp::ssh_sftp_create_dir,
+            ssh::sftp::ssh_sftp_rename,
+            ssh::sftp::ssh_sftp_delete,
+            discord::discord_rpc_connect,
+            discord::discord_rpc_update,
+            discord::discord_rpc_disconnect,
         ])
         .on_window_event(|window, event| {
             // Mirror main-window visibility onto the settings child so it

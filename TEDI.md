@@ -109,17 +109,17 @@ Stored only in the OS keychain via Rust `secrets_*` commands. `KEYRING_SERVICE =
 
 #### Tools (`tools/`)
 
-| File          | Tools                                                | Approval          |
-| ------------- | ---------------------------------------------------- | ----------------- |
-| `fs.ts`       | `read_file`, `list_directory`                        | auto              |
-| `search.ts`   | `fs_search`, `fs_grep`                               | auto              |
-| `edit.ts`     | `write_file`, `create_directory`, `rename`, `delete` | **needsApproval** |
-| `shell.ts`    | `run_command`, `shell_session_run`, `shell_bg_spawn` | **needsApproval** |
-| `terminal.ts` | `read_terminal` (auto), `open_terminal` (needsApproval), `run_in_terminal` (needsApproval), `suggest_command` (auto), `open_preview` (auto) | mixed |
-| `context.ts`  | Workspace context helpers                            | auto              |
-| `subagent.ts` | `run_subagent`                                       | auto              |
-| `todo.ts`     | Todo manipulation                                    | auto              |
-| `tools.ts`    | Orchestrator/aggregator                              | -                 |
+| File          | Tools                                                                                                                                       | Approval          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `fs.ts`       | `read_file`, `list_directory`                                                                                                               | auto              |
+| `search.ts`   | `fs_search`, `fs_grep`                                                                                                                      | auto              |
+| `edit.ts`     | `write_file`, `create_directory`, `rename`, `delete`                                                                                        | **needsApproval** |
+| `shell.ts`    | `run_command`, `shell_session_run`, `shell_bg_spawn`                                                                                        | **needsApproval** |
+| `terminal.ts` | `read_terminal` (auto), `open_terminal` (needsApproval), `run_in_terminal` (needsApproval), `suggest_command` (auto), `open_preview` (auto) | mixed             |
+| `context.ts`  | Workspace context helpers                                                                                                                   | auto              |
+| `subagent.ts` | `run_subagent`                                                                                                                              | auto              |
+| `todo.ts`     | Todo manipulation                                                                                                                           | auto              |
+| `tools.ts`    | Orchestrator/aggregator                                                                                                                     | -                 |
 
 Approval-gated tools pause via `lastAssistantMessageIsCompleteWithApprovalResponses`; auto-send after user confirms in the in-UI card.
 

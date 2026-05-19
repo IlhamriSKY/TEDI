@@ -133,10 +133,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
 fn derive_proxy_origin(req: &Request<Vec<u8>>) -> String {
     let uri = req.uri();
     let scheme = uri.scheme_str().unwrap_or(SCHEME);
-    let authority = uri
-        .authority()
-        .map(|a| a.as_str())
-        .unwrap_or("localhost");
+    let authority = uri.authority().map(|a| a.as_str()).unwrap_or("localhost");
     format!("{}://{}", scheme, authority)
 }
 
@@ -350,11 +347,8 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
     // Fallback for documents with no `<head>` element (rare but legal HTML5).
     // Wrap in a synthetic head so the click-proxy + base injection still apply.
     if !contains_head(&output) {
-        let mut wrapped = format!(
-            "<!doctype html><html><head>{}</head><body>",
-            head_injection
-        )
-        .into_bytes();
+        let mut wrapped =
+            format!("<!doctype html><html><head>{}</head><body>", head_injection).into_bytes();
         wrapped.extend_from_slice(&output);
         wrapped.extend_from_slice(b"</body></html>");
         return wrapped;

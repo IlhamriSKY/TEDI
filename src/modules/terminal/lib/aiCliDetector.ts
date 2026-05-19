@@ -71,6 +71,38 @@ const STREAMING_MIN_BYTES = 40;
 const ECHO_SUPPRESS_MS = 250;
 
 /**
+ * Sliding window of decoded PTY output that the detector also scans for
+ * blocking patterns. The viewport read (`opts.readBuffer`) goes through
+ * xterm's write queue which is drained on a scheduler that browsers
+ * can throttle when the element is `visibility: hidden` (other tab
+ * active) - so a "do you want to proceed?" prompt printed while the user
+ * is on a different tab can land in the xterm buffer many seconds late.
+ * PTY bytes themselves keep flowing into `pushOutput` unchanged, so we
+ * mirror them into this lightweight text buffer and pattern-match
+ * directly. Width is kept short (a few seconds) so a just-answered
+ * prompt ages out quickly - the buffer is also cleared on every user
+ * Enter-submit so AI's follow-up response doesn't re-fire blocking off
+ * the stale prompt text.
+ */
+const RECENT_OUTPUT_WINDOW_MS = 3_000;
+
+/** Hard cap on the recent-output buffer in chars - guards against
+ *  runaway memory when a long-running stream fills the window. */
+const RECENT_OUTPUT_MAX_CHARS = 32_768;
+
+/**
+ * Strips ANSI escape sequences (CSI like `\x1b[1;31m`, OSC like
+ * `\x1b]0;title\x07`) so substring matching against the recent output
+ * isn't broken by mid-text styling. Cursor/screen control codes are
+ * removed too - we only care about the textual content.
+ */
+const ANSI_RE = /\x1b\[[\d;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
+
+/**
  * Tool activation patterns. Matched against the command line typed at the
  * shell prompt: when the user enters one of these and hits Enter, the
  * detector switches into that tool's active mode.
@@ -107,9 +139,7 @@ function matchTool(line: string): AiCliKind | null {
 // pattern so a stray glyph in chat history doesn't cause a false match.
 // The middle-dot `·` is intentionally excluded - it appears in paths,
 // separators, and statuslines as a regular character.
-const SPINNER_CHARS = new Set(
-  Array.from("✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋✢✣✤✥✦✧✨⊛⊕⊙◉◎◍⁂⁕※⍟☼★☆"),
-);
+const SPINNER_CHARS = new Set(Array.from("✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋✢✣✤✥✦✧✨⊛⊕⊙◉◎◍⁂⁕※⍟☼★☆"));
 const ELLIPSIS = "…";
 const BRAILLE_LO = 0x2800;
 const BRAILLE_HI = 0x28ff;
@@ -180,23 +210,67 @@ function contentAbovePromptBox(content: string): string {
 // "AI is waiting for the user" markers. Checked case-insensitively
 // against the full viewport (not just chat area) because the prompt-box
 // itself often carries hints like "tab to amend" / "ctrl+e to explain".
+// Phrases that mean "the AI is waiting on the user". Pulled from the
+// prompt vocabulary of every supported tool (see TOOL_PATTERNS) so the
+// blocking badge fires uniformly across claude / codex / opencode /
+// gemini / aider / copilot / etc. - not just claude.
 const BLOCKED_SUBSTRINGS: readonly string[] = [
+  // Claude Code
   "do you want to proceed?",
   "would you like to proceed?",
-  "waiting for permission",
-  "do you want to allow this connection?",
   "tab to amend",
   "ctrl+e to explain",
   "chat about this",
   "review your answers",
   "skip interview and plan immediately",
+  // Codex / opencode / amazon-q / cursor-agent style approvals
   "approve?",
   "approve this",
+  "approve action",
   "allow this",
+  "allow command",
+  "allow this command",
+  "run this command?",
+  "execute this command?",
+  "apply patch?",
+  "apply changes?",
+  "save file?",
+  "save changes?",
+  // Aider style
+  "edit the file?",
+  "add to the chat?",
+  "create new file?",
+  // Gemini / pi / generic single-shot confirmations
+  "continue?",
+  "are you sure?",
+  "is this correct?",
+  // Permission / connection
+  "waiting for permission",
+  "do you want to allow this connection?",
+  // Generic single-key gates
   "press y to",
+  "press enter to continue",
+  "press any key to continue",
+  "press any key to exit",
+  "press any key",
+  "select an option",
+  "choose an option",
+  "pick one",
   "[y/n]",
   "(y/n)",
   "[y/n/a]",
+  "(y/n/a)",
+  "(yes/no)",
+  // Single-letter parenthesized choices - aider's standard prompt vocab
+  // ("(Y)es / (N)o / (D)on't ask again"). Lowercase match against
+  // stripped content; the literal `(y)es` etc. survive ANSI stripping.
+  "(y)es",
+  "(n)o",
+  "(d)on't",
+  // "esc to cancel" is a CANCEL-able wait state (approval prompt, file
+  // picker) - distinct from "esc to interrupt" / "ctrl+c to interrupt"
+  // which mark active generation. Lives in blocking, not working.
+  "esc to cancel",
 ];
 
 function hasConfirmationPrompt(content: string, lowerContent: string): boolean {
@@ -208,10 +282,25 @@ function hasConfirmationPrompt(content: string, lowerContent: string): boolean {
   return content.slice(pos).includes("❯");
 }
 
+// Cursor glyphs that mark the currently-highlighted option in a TUI
+// selection prompt. Different tools render this differently:
+//   ❯  - most modern TUIs (opencode, codex, gemini, …)
+//   >  - simple ASCII fallback
+//   )  - Claude Code's "Do you want to proceed?" approval menu
+//   ▶  - some Rust-based TUIs
+const SELECTION_CURSOR_CHARS = ["❯", ">", ")", "▶"] as const;
+
 function hasSelectionPrompt(content: string): boolean {
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
-    if (!line.startsWith("❯")) continue;
+    let cursored = false;
+    for (const c of SELECTION_CURSOR_CHARS) {
+      if (line.startsWith(c)) {
+        cursored = true;
+        break;
+      }
+    }
+    if (!cursored) continue;
     let hasDigit = false;
     let hasDot = false;
     for (const ch of line) {
@@ -223,31 +312,16 @@ function hasSelectionPrompt(content: string): boolean {
   return false;
 }
 
-function hasYesNoChoice(content: string): boolean {
-  for (const rawLine of content.split("\n")) {
-    let line = rawLine.trim();
-    if (line.startsWith("❯")) line = line.slice(1).trim();
-    const lower = line.toLowerCase();
-    if (
-      lower === "yes" ||
-      lower === "no" ||
-      lower.startsWith("1. yes") ||
-      lower.startsWith("2. no") ||
-      lower.startsWith("yes, and") ||
-      lower.startsWith("no, and tell")
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function detectBlocking(content: string, lowerContent: string): boolean {
   for (const s of BLOCKED_SUBSTRINGS) {
     if (lowerContent.includes(s)) return true;
   }
   if (hasConfirmationPrompt(content, lowerContent)) return true;
-  if (hasSelectionPrompt(content) && hasYesNoChoice(content)) return true;
+  // A numbered menu with an active cursor pointer is always a blocking
+  // interaction - the user has to pick something. Used to require a
+  // yes/no choice on top of the cursor; that was too narrow and missed
+  // free-form multi-choice prompts ("Choose a model", file picker, etc.).
+  if (hasSelectionPrompt(content)) return true;
   return false;
 }
 
@@ -256,15 +330,20 @@ function detectBlocking(content: string, lowerContent: string): boolean {
 const TOKEN_COUNTER_RE = /[↓↑⬇⬆]\s*\d[\d.,]*\s*(?:k|m)?\s*tokens?/i;
 // Status verb followed by ellipsis or "(" - catches "Thinking..." etc
 // without the strict spinner-glyph prefix that hasSpinnerActivity needs.
+// Verb list aggregated across all 12 supported tools (see TOOL_PATTERNS):
+// claude/codex/opencode/gemini/aider/copilot/cursor-agent each prefer
+// different "what am I doing" verbs in their statusline.
 const STATUS_VERB_RE =
-  /\b(?:thinking|generating|loading|processing|streaming|working|reading|writing|editing|analyzing|reviewing|searching)(?:[.…]{1,3}|\s*\()/i;
+  /\b(?:thinking|generating|loading|processing|streaming|working|reading|writing|editing|analyzing|reviewing|searching|running|executing|fetching|downloading|uploading|building|compiling|installing|planning|coding|exploring|inspecting|considering|reasoning|brainstorming|drafting|refining|finalizing|calling|invoking|querying|computing)(?:[.…]{1,3}|\s*\()/i;
 
 function detectWorking(content: string): boolean {
   const above = contentAbovePromptBox(content);
   const aboveLower = above.toLowerCase();
   if (aboveLower.includes("esc to interrupt")) return true;
   if (aboveLower.includes("ctrl+c to interrupt")) return true;
-  if (aboveLower.includes("esc to cancel")) return true;
+  // Note: "esc to cancel" is intentionally NOT a working signal - it marks
+  // a cancel-able *wait* (approval menu, file picker), not active
+  // generation. See BLOCKED_SUBSTRINGS for the inverse classification.
   if (hasSpinnerActivity(above)) return true;
   if (TOKEN_COUNTER_RE.test(above)) return true;
   return STATUS_VERB_RE.test(above);
@@ -295,6 +374,15 @@ export type AiCliDetector = {
   pushOutput: (chunk: Uint8Array | string) => void;
   /** Drop the active tool (PTY teardown / explicit reset). */
   reset: () => void;
+  /**
+   * Wired to OSC 133;A (shell prompt start). When the shell prints a new
+   * prompt while a tool was marked active, the tool exited - clear the
+   * badge. Handles tools that don't use the alt-screen (`claude --help`,
+   * `codex login`, `gemini --version`, plain stdin/stdout chats like
+   * `ollama run`) which the alt-screen auto-clear path would otherwise
+   * miss, leaving the badge stuck after the CLI is gone.
+   */
+  notifyShellPrompt: () => void;
   /** Free internal timers; called when the host session disposes. */
   dispose: () => void;
 };
@@ -308,6 +396,13 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
   let lastWorkingAt = 0;
   let lastBlockingAt = 0;
   let outputSamples: { t: number; n: number }[] = [];
+  /**
+   * Rolling time-windowed buffer of decoded, ANSI-stripped PTY output.
+   * The detector falls back to scanning this when the xterm viewport
+   * read can't be trusted - see RECENT_OUTPUT_WINDOW_MS doc above.
+   */
+  let recentOutput: { t: number; text: string }[] = [];
+  let recentOutputChars = 0;
   let lastUserInputAt = 0;
   let sawAltScreen = false;
 
@@ -362,11 +457,35 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     lastWorkingAt = 0;
     lastBlockingAt = 0;
     outputSamples = [];
+    recentOutput = [];
+    recentOutputChars = 0;
     lastUserInputAt = 0;
     sawAltScreen = false;
     hasSeenWorking = false;
     userSubmittedAtLeastOnce = false;
     pendingPrintable = false;
+  }
+
+  function pruneRecentOutput(now: number) {
+    while (recentOutput.length > 0 && now - recentOutput[0].t > RECENT_OUTPUT_WINDOW_MS) {
+      recentOutputChars -= recentOutput[0].text.length;
+      recentOutput.shift();
+    }
+    // Memory guard: when the window is dense (long burst of output), drop
+    // the oldest chunks until we're back under the cap. Keep at least one
+    // entry so the next reclassify still has *something* to scan.
+    while (recentOutputChars > RECENT_OUTPUT_MAX_CHARS && recentOutput.length > 1) {
+      recentOutputChars -= recentOutput[0].text.length;
+      recentOutput.shift();
+    }
+  }
+
+  function getRecentOutput(): string {
+    if (recentOutput.length === 0) return "";
+    if (recentOutput.length === 1) return recentOutput[0].text;
+    let out = "";
+    for (const c of recentOutput) out += c.text;
+    return out;
   }
 
   function clearTool() {
@@ -417,19 +536,50 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       const content = safeReadBuffer();
       const lower = content.toLowerCase();
       const now = Date.now();
+      pruneRecentOutput(now);
 
       const workingHit = detectWorking(content);
-      const blockingHit = detectBlocking(content, lower);
       const explicitIdle = detectExplicitIdle(content, lower);
       const rateHit = isStreamingOutput();
 
+      // Blocking is checked against BOTH the xterm viewport AND the recent
+      // decoded PTY output. The viewport is the authoritative source while
+      // the pane is visible; the raw output buffer is the fallback for when
+      // the pane is hidden (other tab active) and xterm's write queue
+      // hasn't drained yet - PTY bytes themselves still flow through
+      // pushOutput so the prompt always lands here on time.
+      //
+      // The recent-output fallback is *skipped* whenever the AI is actively
+      // producing output (workingHit or rateHit). If bytes are flowing, the
+      // prompt that may still be cached in the recent buffer was already
+      // answered and we'd otherwise mis-fire blocking on the stale text
+      // while the AI is responding to the answer.
+      let blockingHit = detectBlocking(content, lower);
+      if (!blockingHit && !workingHit && !rateHit && recentOutput.length > 0) {
+        const recent = getRecentOutput();
+        if (recent) {
+          blockingHit = detectBlocking(recent, recent.toLowerCase());
+        }
+      }
+
       if (!explicitIdle) {
-        if (blockingHit && hasSeenWorking) lastBlockingAt = now;
+        // Blocking takes priority over working. Many AI CLIs (Claude Code
+        // in particular) paint their approval prompts WHILE also rendering
+        // "esc to cancel" / a token counter from the still-active request,
+        // so workingHit and blockingHit fire together. The old code reset
+        // lastBlockingAt = 0 inside the working branch which let working
+        // unconditionally overwrite blocking; that left the badge stuck at
+        // WORKING through a "Do you want to proceed?" menu. The new flow:
+        //   - workingHit clears blocking ONLY when blocking is absent
+        //     (i.e. the AI genuinely moved on after the user answered)
+        //   - blockingHit refreshes lastBlockingAt last, so it wins the
+        //     emit decision below when both signals coexist
         if (workingHit || rateHit) {
           lastWorkingAt = now;
-          lastBlockingAt = 0;
           hasSeenWorking = true;
+          if (!blockingHit) lastBlockingAt = 0;
         }
+        if (blockingHit && hasSeenWorking) lastBlockingAt = now;
       }
 
       if (now - lastBlockingAt < BLOCKING_HOLD_MS) emit("blocking");
@@ -489,6 +639,16 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
               if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
               lastWorkingAt = Date.now() + SUBMIT_OPTIMISTIC_EXTRA_MS;
               hasSeenWorking = true;
+              // Drop the recent-output buffer so any blocking pattern
+              // cached from the just-answered prompt ("do you want to
+              // proceed?", numbered menu, etc.) doesn't keep re-firing
+              // blocking through the next ~3s while the AI starts
+              // responding to *this* submit.
+              recentOutput = [];
+              recentOutputChars = 0;
+              // Same reason for blocking-hold: the prompt was just
+              // answered, so any pending blocking emit is stale.
+              lastBlockingAt = 0;
               reclassify();
             }
             pendingPrintable = false;
@@ -501,10 +661,21 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     pushOutput(chunk: Uint8Array | string) {
       if (!activeTool) return;
       const n = typeof chunk === "string" ? chunk.length : chunk.byteLength;
-      // Drain decoder state so partial codepoints don't accumulate. The
-      // content is read directly from the xterm buffer via opts.readBuffer.
-      if (typeof chunk !== "string") textDecoder.decode(chunk, { stream: true });
+      // Decode to text for the recent-output buffer (used as the fallback
+      // source for blocking-pattern matching when the xterm viewport is
+      // lagging behind - see RECENT_OUTPUT_WINDOW_MS doc). The decoder is
+      // stateful (`stream: true`) so a multi-byte codepoint split across
+      // PTY chunks is reassembled correctly across calls.
+      const text = typeof chunk === "string" ? chunk : textDecoder.decode(chunk, { stream: true });
       const now = Date.now();
+      if (text) {
+        const clean = stripAnsi(text);
+        if (clean) {
+          recentOutput.push({ t: now, text: clean });
+          recentOutputChars += clean.length;
+          pruneRecentOutput(now);
+        }
+      }
       // Echo-window: PTY output close behind a user input event is the
       // TUI redrawing, not AI streaming. Skip those samples so typing a
       // long prompt doesn't push the rate over the streaming threshold.
@@ -515,6 +686,13 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     },
     reset() {
       cmdBuffer = "";
+      if (activeTool) clearTool();
+    },
+    notifyShellPrompt() {
+      // Shell printed a new prompt. If a tool was active, the CLI
+      // returned control to the shell - drop the active tool so the
+      // badge disappears. No-op when nothing was active (every shell
+      // also emits OSC 133;A for its very first prompt at startup).
       if (activeTool) clearTool();
     },
     dispose() {

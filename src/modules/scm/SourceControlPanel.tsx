@@ -100,7 +100,7 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
     return "Nothing to commit - staged tree matches HEAD.";
   }
   if (lower.includes("author identity unknown") || lower.includes("please tell me who you are")) {
-    return "Set your git identity first:\n  git config --global user.email \"you@example.com\"\n  git config --global user.name \"Your Name\"";
+    return 'Set your git identity first:\n  git config --global user.email "you@example.com"\n  git config --global user.name "Your Name"';
   }
   if (
     lower.includes("rejected") &&
@@ -680,7 +680,7 @@ function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   // pr-3 keeps content clear of the Radix ScrollArea's 10px scrollbar overlay.
   return (
     <li
-      className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pl-2 pr-3"
+      className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
       onClick={onClickDiff}
     >
       <span

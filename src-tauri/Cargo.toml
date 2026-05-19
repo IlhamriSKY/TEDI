@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.5"
+version = "0.2.6"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -46,8 +46,10 @@ url = "2"
 # Default features pull in aws-lc-rs which needs NASM at build time on
 # Windows. Use ring instead - pure-Rust + assembly, no toolchain hassle.
 russh = { version = "0.60", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "2.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
 async-trait = "0.1"
+discord-rich-presence = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [

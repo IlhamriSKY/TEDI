@@ -390,7 +390,14 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     await document.fonts.ready;
     if (session.disposed) return;
 
-    const prompt = registerPromptTracker(term);
+    const prompt = registerPromptTracker(term, () => {
+      // Shell printed its next prompt: any AI CLI that was active has
+      // exited back to the shell. The detector's primary auto-clear
+      // path (alt-screen toggle) misses tools that never enter the alt
+      // buffer (`claude --help`, `codex login`, `ollama run`, etc.),
+      // which would otherwise leave the tab badge stuck.
+      session.aiCliDetector?.notifyShellPrompt();
+    });
     session.cleanups.push(prompt.dispose);
     session.cleanups.push(
       registerCwdHandler(term, (cwd) => {
@@ -645,6 +652,26 @@ async function openSshForSession(
     scheduleSshReconnect(s, reason);
   };
 
+  // We need both the russh session id (known when `openSsh` resolves) AND
+  // the server fingerprint (known when `onConnected` fires) on the
+  // `connected` status. The two events aren't strictly ordered: the
+  // fingerprint event can land before OR after the open promise resolves.
+  // Track both, emit/re-emit as soon as the session id is known so the
+  // SFTP panel can wire up immediately, then patch with the fingerprint
+  // when (or if) it arrives.
+  let pendingFingerprint: string | null = null;
+  let resolvedSessionId: number | null = null;
+  const emitConnectedIfReady = () => {
+    if (resolvedSessionId === null) return;
+    s.sshReconnectAttempts = 0;
+    emitSshStatus(s, {
+      kind: "connected",
+      fingerprint: pendingFingerprint ?? "",
+      since: Date.now(),
+      sessionId: resolvedSessionId,
+    });
+  };
+
   const sshSession = await openSsh(
     {
       host: conn.host,
@@ -660,15 +687,11 @@ async function openSshForSession(
     {
       onConnected: (fp) => {
         writeSshBanner(s, `\x1b[2m[tedi] server key ${fp}\x1b[0m\r\n`);
-        s.sshReconnectAttempts = 0;
-        emitSshStatus(s, {
-          kind: "connected",
-          fingerprint: fp,
-          since: Date.now(),
-        });
+        pendingFingerprint = fp;
         // Fire-and-forget; failure to write the timestamp shouldn't take
         // the live session down.
         void markConnected(sshConnectionId, fp).catch(() => {});
+        emitConnectedIfReady();
       },
       onData,
       onExit: (code) => {
@@ -680,6 +703,9 @@ async function openSshForSession(
       },
     },
   );
+
+  resolvedSessionId = sshSession.id;
+  emitConnectedIfReady();
 
   // Adapter so the rest of useTerminalSession treats SSH like a PtySession.
   return {

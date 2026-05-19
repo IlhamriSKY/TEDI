@@ -258,8 +258,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
-    runInActiveTerminal: (command) =>
-      useChatStore.getState().live.runInActiveTerminal(command),
+    runInActiveTerminal: (command) => useChatStore.getState().live.runInActiveTerminal(command),
     readCache,
     getSessionId: () => sessionId,
   };

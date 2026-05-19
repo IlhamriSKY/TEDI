@@ -14,12 +14,20 @@ export type PromptTracker = {
   dispose: () => void;
 };
 
-export function registerPromptTracker(term: Terminal): PromptTracker {
+export function registerPromptTracker(
+  term: Terminal,
+  /** Fires on every OSC 133;A (shell-prompt-start) emit. Used by the AI
+   *  CLI detector to recognise that a previously-active tool exited back
+   *  to the shell - critical for non-alt-screen tools (e.g. `claude
+   *  --help`, `codex login`) that the alt-screen auto-clear can't see. */
+  onPromptStart?: () => void,
+): PromptTracker {
   let marker: IMarker | null = null;
   const d = term.parser.registerOscHandler(133, (data) => {
     if (data.startsWith("A")) {
       marker?.dispose();
       marker = term.registerMarker(0);
+      onPromptStart?.();
     }
     return true;
   });

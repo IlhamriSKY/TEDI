@@ -348,7 +348,6 @@ export function TabBar({
     [tabs, sshHosts, sshStatuses, aiCliStatuses],
   );
 
-
   /**
    * Snapshot of every pane tab keyed by id, used by the per-entry "Move to
    * group" button to enumerate possible targets and tell the user which ones
@@ -953,7 +952,7 @@ function AiCliChip({ status }: { status: NonNullable<AiCliStatus> }) {
   return (
     <span
       className={cn(
-        "inline-flex h-[14px] shrink-0 items-center rounded px-1.5 text-[10px] font-medium uppercase tracking-wide leading-none",
+        "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] text-[10px] leading-none font-medium tracking-wide uppercase",
         chipClass,
       )}
       aria-label={label}

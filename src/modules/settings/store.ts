@@ -91,6 +91,17 @@ export type Preferences = {
   /** Provider that owned `lastModelId` at pick time. Persisted alongside it
    *  so restore is immune to a stale/empty model registry on cold boot. */
   lastProviderId: string | null;
+  /** Toast + beep on AI CLI state transitions (idle/working → blocking,
+   *  working → idle completion). Default on. When off, the per-tab badge
+   *  (idle / working / blocking) still updates - only the toast and beep
+   *  are suppressed. */
+  aiNotificationsEnabled: boolean;
+  /** Publish a Discord Rich Presence status while TEDI is running. Default
+   *  off for privacy - when enabled, the active workspace folder name,
+   *  current file name, and open terminal count are sent to the local
+   *  Discord client over its named-pipe IPC. No data leaves the machine
+   *  beyond what Discord itself relays to its servers. */
+  discordRpcEnabled: boolean;
 };
 
 const STORE_PATH = "tedi-settings.json";
@@ -119,6 +130,8 @@ const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
+const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
+const KEY_DISCORD_RPC_ENABLED = "discordRpcEnabled";
 
 export const CONTENT_ZOOM_DEFAULT = 1.0;
 export const CONTENT_ZOOM_MIN = 0.5;
@@ -157,6 +170,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastModelId: null,
   lastProviderId: null,
   contentZoom: CONTENT_ZOOM_DEFAULT,
+  aiNotificationsEnabled: true,
+  discordRpcEnabled: false,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -215,6 +230,10 @@ export async function loadPreferences(): Promise<Preferences> {
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
     lastProviderId: get<string | null>(KEY_LAST_PROVIDER) ?? DEFAULT_PREFERENCES.lastProviderId,
     contentZoom: clampZoom(get<number>(KEY_CONTENT_ZOOM) ?? DEFAULT_PREFERENCES.contentZoom),
+    aiNotificationsEnabled:
+      get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
+    discordRpcEnabled:
+      get<boolean>(KEY_DISCORD_RPC_ENABLED) ?? DEFAULT_PREFERENCES.discordRpcEnabled,
   };
 }
 
@@ -227,10 +246,7 @@ export async function setTheme(value: ThemePref): Promise<void> {
   await writePref(KEY_THEME, value);
 }
 
-export async function setDefaultModel(
-  value: DynamicModelId,
-  provider?: ProviderId,
-): Promise<void> {
+export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
   // Pair provider with id so boot restore lands on the right entry when two
   // providers ship the same model id. Omit `provider` and we derive from
@@ -335,6 +351,14 @@ export async function setContentZoom(value: number): Promise<void> {
   await writePref(KEY_CONTENT_ZOOM, clampZoom(value));
 }
 
+export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_AI_NOTIFICATIONS_ENABLED, value);
+}
+
+export async function setDiscordRpcEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_DISCORD_RPC_ENABLED, value);
+}
+
 export const APPROVAL_MODE_META: Record<ApprovalMode, { label: string; description: string }> = {
   ask: {
     label: "Ask",
@@ -382,6 +406,8 @@ export async function onPreferencesChange(
     [KEY_LAST_MODEL]: "lastModelId",
     [KEY_LAST_PROVIDER]: "lastProviderId",
     [KEY_CONTENT_ZOOM]: "contentZoom",
+    [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
+    [KEY_DISCORD_RPC_ENABLED]: "discordRpcEnabled",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().
