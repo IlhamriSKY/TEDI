@@ -17,8 +17,13 @@ import type { GitChange, GitChangeStatus } from "./types";
 const DIFF_BYTE_CAP = 80_000;
 
 /** Upper bound on the model's response length. Commit subject lines are
- *  short; this stops a poorly-instruct-tuned model from writing a body. */
-const MAX_OUTPUT_TOKENS = 200;
+ *  short, but reasoning models (mimo, o1/o3, deepseek-reasoner, …) count
+ *  their thinking trace against this cap and emit visible text only after
+ *  reasoning settles — a 200-token ceiling left them with zero budget for
+ *  the answer, returning an empty `text`. We keep `sanitize()` to clamp the
+ *  final line to 72 chars regardless, so the extra headroom only matters
+ *  when reasoning eats tokens; non-reasoning models still finish in <50. */
+const MAX_OUTPUT_TOKENS = 4096;
 
 /** Hard timeout for the model call. Some providers can hang on network
  *  faults - we'd rather show the deterministic fallback than spin forever. */
@@ -83,6 +88,27 @@ export function fallbackCommitMessage(changes: GitChange[]): string {
     return `chore: update ${fileLabel}`;
   }
   return `chore: update project (${fileLabel})`;
+}
+
+/** Conventional-Commit shape: `<type>(<optional scope>)?: <subject>`. Used to
+ *  pluck the actual commit line out of a reasoning trace when a reasoning
+ *  model (mimo, deepseek-reasoner, …) emits its answer inside
+ *  `reasoning_content` and leaves the regular `text` field empty. */
+const COMMIT_LINE_RE =
+  /^\s*(feat|fix|refactor|add|remove|docs|style|test|chore|perf|build|ci)(\([^)]+\))?:\s+.+$/im;
+
+/** Last-ditch extraction: scan reasoning text bottom-up for a line that
+ *  matches the Conventional Commit shape. Reasoning traces typically end
+ *  with the model's final answer, so the LAST matching line is the safest
+ *  pick. Returns the matched line trimmed, or an empty string. */
+function salvageFromReasoning(reasoning: string): string {
+  if (!reasoning) return "";
+  const lines = reasoning.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (COMMIT_LINE_RE.test(line)) return line;
+  }
+  return "";
 }
 
 /** Strip stray markdown/quoting and clamp to 72 chars. Models sometimes wrap
@@ -252,12 +278,23 @@ export async function generateCommitMessage(input: {
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: controller.signal,
     });
-    const cleaned = sanitize(result.text);
+    let cleaned = sanitize(result.text);
     if (!cleaned) {
+      // Reasoning models (e.g. mimo via SumoPod) sometimes emit the final
+      // answer inside `reasoning_content` and leave `text` empty - dig the
+      // commit line out of the reasoning trace before giving up.
+      const reasoning = (result as { reasoningText?: string }).reasoningText ?? "";
+      cleaned = sanitize(salvageFromReasoning(reasoning));
+    }
+    if (!cleaned) {
+      const finishReason = (result as { finishReason?: string }).finishReason;
       return {
         message: fallbackCommitMessage(changes),
         fallback: true,
-        reason: "empty model response",
+        reason:
+          finishReason === "length"
+            ? "model hit the token budget before emitting the commit line"
+            : "empty model response",
         modelLabel: resolved.label,
       };
     }
