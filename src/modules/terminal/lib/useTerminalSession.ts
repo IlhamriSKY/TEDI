@@ -24,7 +24,7 @@ import {
   markConnected,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { openSsh } from "@/modules/ssh/bridge";
+import { openSsh, isHostKeyMismatchError } from "@/modules/ssh/bridge";
 import type { SshStatus } from "@/modules/ssh/status";
 import { createAiCliDetector, type AiCliDetector } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
@@ -681,6 +681,11 @@ async function openSshForSession(
       privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
       privateKeyPassphrase:
         conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
+      // Pin against the fingerprint recorded by the last successful connect.
+      // First-ever connect on this host has no value here and falls through
+      // to TOFU; later connects compare and fail fast on mismatch so an
+      // attacker swapping the server key can't go unnoticed.
+      expectedFingerprint: conn.lastFingerprint || undefined,
       cols,
       rows,
     },
@@ -782,6 +787,17 @@ async function runSshReconnect(s: Session): Promise<void> {
     s.ptyOpening = false;
     const msg = describeError(e);
     console.error("ssh reconnect failed:", e);
+    if (isHostKeyMismatchError(e)) {
+      // Retrying a mismatch can never recover - it'll just fail the same
+      // way at the next backoff interval and add noise. Park the leaf in
+      // the explicit error state with `canRetry: true` so the user can
+      // edit the saved connection (clear lastFingerprint) and trigger a
+      // manual retry once they've confirmed the new key is legitimate.
+      s.sshReconnectAttempts = 0;
+      writeSshBanner(s, `\r\n\x1b[31m[tedi] ${msg}\x1b[0m\r\n`);
+      emitSshStatus(s, { kind: "error", message: msg, canRetry: true });
+      return;
+    }
     scheduleSshReconnect(s, msg);
   }
 }
@@ -1112,6 +1128,16 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
         // a fresh open or a mid-session drop. Local PTY leaves keep the
         // "Press Enter to retry" flow.
         if (s.sshConnectionId) {
+          if (isHostKeyMismatchError(e)) {
+            // Same reasoning as in runSshReconnect: spinning the backoff
+            // loop on a mismatch never recovers. Park in `error` so the
+            // status pill can offer "Disconnect" and the user can fix the
+            // saved fingerprint before retrying.
+            s.sshReconnectAttempts = 0;
+            writeSshBanner(s, `\r\n\x1b[31m[tedi] ${msg}\x1b[0m\r\n`);
+            emitSshStatus(s, { kind: "error", message: msg, canRetry: true });
+            return;
+          }
           writeSshBanner(s, `\r\n\x1b[31m[tedi] ssh connect failed: ${msg}\x1b[0m\r\n`);
           scheduleSshReconnect(s, msg);
           return;

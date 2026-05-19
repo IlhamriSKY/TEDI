@@ -65,6 +65,12 @@ pub struct SshOpenInput {
     /// in `private_key_passphrase`.
     pub private_key: Option<String>,
     pub private_key_passphrase: Option<String>,
+    /// SHA256 fingerprint of the server key recorded by a previous
+    /// successful connect ("SHA256:..."). When set, the handshake fails
+    /// fast if the server presents a different key - blocks the
+    /// silent-MITM path on saved connections. None on first connect
+    /// (TOFU) and on dialog-time test connections for brand-new hosts.
+    pub expected_fingerprint: Option<String>,
     pub cols: u16,
     pub rows: u16,
 }

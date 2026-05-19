@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  clearFingerprint,
   getConnectionSecrets,
   newConnectionId,
   upsertConnection,
@@ -69,6 +70,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [imported, setImported] = useState<ImportState>({ kind: "idle" });
+  // Mirror of editing.lastFingerprint that the user can drop via the
+  // "Forget recorded key" affordance. Kept in local state so the in-dialog
+  // Test runs against the *current* pin (cleared or not) without needing
+  // a parent re-render to refresh the `editing` prop.
+  const [pinnedFingerprint, setPinnedFingerprint] = useState<string | null>(null);
 
   // Reset/populate when the dialog opens. Secrets are fetched async; the
   // form stays responsive in the meantime.
@@ -80,6 +86,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     setImported({ kind: "idle" });
     if (!editing) {
       setDraft(EMPTY_DRAFT);
+      setPinnedFingerprint(null);
       return;
     }
     setDraft({
@@ -92,6 +99,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       privateKey: "",
       keyPassphrase: "",
     });
+    setPinnedFingerprint(editing.lastFingerprint ?? null);
     void getConnectionSecrets(editing.id).then((s) => {
       setDraft((d) => ({
         ...d,
@@ -101,6 +109,15 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       }));
     });
   }, [open, editing]);
+
+  const forgetPinnedKey = async () => {
+    if (!editing) return;
+    await clearFingerprint(editing.id);
+    setPinnedFingerprint(null);
+    // Drop any stale "host key mismatch" test result that was anchored on
+    // the now-forgotten fingerprint.
+    setTest({ kind: "idle" });
+  };
 
   const validateDraft = (): string | null => {
     const port = Number.parseInt(draft.port, 10);
@@ -145,6 +162,14 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             privateKey: draft.authMode === "key" ? draft.privateKey : undefined,
             privateKeyPassphrase:
               draft.authMode === "key" ? draft.keyPassphrase || undefined : undefined,
+            // Pin against the previously recorded fingerprint when editing
+            // an existing connection so a "Test connection" can't silently
+            // re-anchor on an attacker's key under a hijacked network.
+            // Brand-new connections (editing === null) leave this unset
+            // and go through TOFU on first contact. `pinnedFingerprint`
+            // mirrors `editing.lastFingerprint` plus any in-session
+            // "Forget recorded key" the user has clicked.
+            expectedFingerprint: pinnedFingerprint || undefined,
             cols: 80,
             rows: 24,
           },
@@ -397,6 +422,34 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
               </Field>
             </>
           )}
+
+          {editing ? (
+            <Field label="Recorded server key">
+              {pinnedFingerprint ? (
+                <div className="border-border/60 bg-muted/30 flex items-center justify-between gap-2 rounded-md border px-2 py-1">
+                  <span
+                    className="truncate font-mono text-[10.5px]"
+                    title={pinnedFingerprint}
+                  >
+                    {pinnedFingerprint}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 shrink-0 px-2 text-[10.5px]"
+                    onClick={() => void forgetPinnedKey()}
+                  >
+                    Forget
+                  </Button>
+                </div>
+              ) : (
+                <span className="text-muted-foreground text-[10.5px]">
+                  No key pinned yet · next successful connect will record one (TOFU).
+                </span>
+              )}
+            </Field>
+          ) : null}
 
           {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
 

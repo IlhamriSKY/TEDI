@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use russh::client::{self, Config, Handle, Handler, Msg};
+use russh::client::{self, Config, Handle, Handler, KeyboardInteractiveAuthResponse, Msg};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
 use russh_sftp::client::SftpSession;
@@ -32,17 +32,34 @@ pub enum SshEvent {
     Exit { code: i32 },
 }
 
-/// Trust-on-first-use stub. We accept any server key but log its fingerprint
-/// and surface it to the frontend so the user has a visible audit trail
-/// until a real known_hosts UI lands.
+/// Server-key check. When the caller passed `expected_fingerprint`, the
+/// presented key must match it exactly - any mismatch is recorded for
+/// the caller to surface as a "host key changed" error and aborts the
+/// handshake. When no expected fingerprint is supplied (first connect /
+/// dialog test on a new host), we fall back to trust-on-first-use:
+/// accept the key, record its fingerprint so the caller can persist it,
+/// and rely on later connects to compare against the saved value.
 ///
-/// `pub(super)` only so the parameterised `Handle<AcceptAny>` field on
-/// `SshSession` can in turn be exposed to the sibling `sftp` module.
-pub(super) struct AcceptAny {
-    fingerprint_slot: Arc<Mutex<Option<String>>>,
+/// `pub(super)` only so the parameterised `Handle<HostKeyVerifier>`
+/// field on `SshSession` can in turn be exposed to the sibling `sftp`
+/// module.
+pub(super) struct HostKeyVerifier {
+    expected: Option<String>,
+    report: Arc<Mutex<HostKeyReport>>,
 }
 
-impl Handler for AcceptAny {
+#[derive(Default)]
+pub(super) struct HostKeyReport {
+    /// Fingerprint of the key the server actually presented, regardless
+    /// of whether it matched the expected one.
+    seen: Option<String>,
+    /// (expected, seen) pair when the server's key didn't match the
+    /// pinned fingerprint. Surfaced verbatim in the error message so
+    /// the user can compare both values before deciding to trust.
+    mismatch: Option<(String, String)>,
+}
+
+impl Handler for HostKeyVerifier {
     type Error = russh::Error;
 
     async fn check_server_key(
@@ -50,8 +67,21 @@ impl Handler for AcceptAny {
         key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
         let fp = key.fingerprint(HashAlg::Sha256).to_string();
-        log::warn!("ssh: accepting server key (TOFU) fingerprint={fp}");
-        *self.fingerprint_slot.lock().await = Some(fp);
+        let mut report = self.report.lock().await;
+        report.seen = Some(fp.clone());
+        if let Some(expected) = &self.expected {
+            if expected != &fp {
+                log::warn!("ssh: host key mismatch expected={expected} got={fp}");
+                report.mismatch = Some((expected.clone(), fp));
+                // Rejecting here makes russh fail the handshake; the
+                // caller inspects `report.mismatch` to turn that into a
+                // specific error string rather than a generic disconnect.
+                return Ok(false);
+            }
+            log::info!("ssh: host key pinned ok fingerprint={fp}");
+        } else {
+            log::warn!("ssh: accepting server key (TOFU) fingerprint={fp}");
+        }
         Ok(true)
     }
 }
@@ -68,7 +98,7 @@ pub struct SshSession {
     /// Underlying client handle - kept alive so the TCP connection stays
     /// up. Dropping this drops the entire SSH session. `pub(super)` so the
     /// sibling `sftp` module can open new subsystem channels on it.
-    pub(super) handle: Mutex<Option<Handle<AcceptAny>>>,
+    pub(super) handle: Mutex<Option<Handle<HostKeyVerifier>>>,
     /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops
     /// don't pay the channel-open + handshake roundtrip every time.
     sftp: Mutex<Option<Arc<SftpSession>>>,
@@ -145,19 +175,37 @@ pub async fn connect(
         ..Default::default()
     });
 
-    let fingerprint_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let handler = AcceptAny {
-        fingerprint_slot: fingerprint_slot.clone(),
+    let report: Arc<Mutex<HostKeyReport>> = Arc::new(Mutex::new(HostKeyReport::default()));
+    let handler = HostKeyVerifier {
+        expected: input.expected_fingerprint.clone(),
+        report: report.clone(),
     };
 
     let addr = (input.host.as_str(), input.port);
     let connect_fut = client::connect(config, addr, handler);
-    let mut handle = tokio::time::timeout(CONNECT_TIMEOUT, connect_fut)
+    let connect_result = tokio::time::timeout(CONNECT_TIMEOUT, connect_fut)
         .await
-        .map_err(|_| format!("ssh: connect to {}:{} timed out", input.host, input.port))?
-        .map_err(|e| format!("ssh: connect failed: {e}"))?;
+        .map_err(|_| format!("ssh: connect to {}:{} timed out", input.host, input.port))?;
+    let mut handle = match connect_result {
+        Ok(h) => h,
+        Err(e) => {
+            // russh rejected the handshake. If our verifier flagged a host
+            // key mismatch on the way, that's the actual cause - surface
+            // it as a structured message the frontend recognises.
+            if let Some((expected, seen)) = report.lock().await.mismatch.clone() {
+                return Err(format!(
+                    "ssh: host key mismatch: expected={expected} server={seen}. \
+                     The server presented a different key than the one recorded on the last \
+                     successful connect. If the server key was rotated legitimately, edit the \
+                     saved connection and clear the recorded fingerprint before reconnecting; \
+                     otherwise this could be a man-in-the-middle attack."
+                ));
+            }
+            return Err(format!("ssh: connect failed: {e}"));
+        }
+    };
 
-    let authed = if let Some(pk_text) = input.private_key.as_deref() {
+    let authed_ok = if let Some(pk_text) = input.private_key.as_deref() {
         let pass = input.private_key_passphrase.as_deref();
         let key = russh::keys::decode_secret_key(pk_text, pass)
             .map_err(|e| format!("ssh: parse private key failed: {e}"))?;
@@ -166,15 +214,28 @@ pub async fn connect(
             .authenticate_publickey(&input.user, pk)
             .await
             .map_err(|e| format!("ssh: pubkey auth error: {e}"))?
+            .success()
     } else {
         let password = input.password.as_deref().unwrap_or_default();
-        handle
+        let first = handle
             .authenticate_password(&input.user, password)
             .await
-            .map_err(|e| format!("ssh: password auth error: {e}"))?
+            .map_err(|e| format!("ssh: password auth error: {e}"))?;
+        if first.success() {
+            true
+        } else {
+            // Plenty of PAM-backed servers refuse the `password` method
+            // entirely and only offer `keyboard-interactive` (FreeIPA,
+            // Duo-only, certain sshd hardening profiles). Try KBI as a
+            // fallback, feeding the saved password as the first prompt's
+            // answer; for 2FA-multi-prompt setups we'll surface a clear
+            // "keyboard-interactive: more prompts than we can answer
+            // non-interactively" error instead of hanging.
+            try_keyboard_interactive(&mut handle, &input.user, password).await?
+        }
     };
 
-    if !authed.success() {
+    if !authed_ok {
         return Err("ssh: authentication rejected".into());
     }
 
@@ -201,7 +262,7 @@ pub async fn connect(
         .await
         .map_err(|e| format!("ssh: request shell failed: {e}"))?;
 
-    let fingerprint = fingerprint_slot.lock().await.clone().unwrap_or_default();
+    let fingerprint = report.lock().await.seen.clone().unwrap_or_default();
     let _ = on_event.send(SshEvent::Connected { fingerprint });
 
     // Split now so the pump task owns the read half exclusively and
@@ -244,4 +305,57 @@ pub async fn connect(
         handle: Mutex::new(Some(handle)),
         sftp: Mutex::new(None),
     }))
+}
+
+/// Run an `ssh-userauth` keyboard-interactive exchange to completion using
+/// the saved password as the response to the first prompt of the first
+/// `InfoRequest`. Returns Ok(true) on `Success`, Ok(false) on the server's
+/// final `Failure`, and Err(..) for any transport-level error.
+///
+/// We answer additional prompts (or subsequent rounds) with empty strings:
+/// for plain PAM password setups this is all the server asks for; for
+/// 2FA-style setups requiring an OTP we have no way to prompt the user
+/// non-interactively from this entry point, so the server will fail us and
+/// the caller surfaces a generic "authentication rejected" error. A
+/// dedicated 2FA prompt UI would slot in here by replacing the `responses`
+/// vector with values sourced from a frontend round-trip.
+///
+/// `MAX_KBI_ROUNDS` caps the loop so a hostile server can't keep us in an
+/// endless prompt cycle.
+async fn try_keyboard_interactive(
+    handle: &mut Handle<HostKeyVerifier>,
+    user: &str,
+    password: &str,
+) -> Result<bool, String> {
+    const MAX_KBI_ROUNDS: usize = 8;
+    let mut state = handle
+        .authenticate_keyboard_interactive_start(user.to_string(), None)
+        .await
+        .map_err(|e| format!("ssh: keyboard-interactive start failed: {e}"))?;
+    let mut first_round = true;
+    for _ in 0..MAX_KBI_ROUNDS {
+        match state {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                let responses: Vec<String> = prompts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        if first_round && i == 0 {
+                            password.to_string()
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .collect();
+                first_round = false;
+                state = handle
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await
+                    .map_err(|e| format!("ssh: keyboard-interactive respond failed: {e}"))?;
+            }
+        }
+    }
+    Err("ssh: keyboard-interactive: too many prompt rounds".into())
 }

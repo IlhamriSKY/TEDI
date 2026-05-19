@@ -131,6 +131,21 @@ export async function markConnected(id: string, fingerprint: string): Promise<vo
   await persist(list);
 }
 
+/**
+ * Forget the recorded server-key fingerprint for a connection so the next
+ * connect re-anchors via TOFU. Called from the edit dialog after the user
+ * has verified out-of-band that a key rotation on the server is
+ * legitimate; without this the pinned check would keep rejecting the new
+ * key.
+ */
+export async function clearFingerprint(id: string): Promise<void> {
+  const list = await listConnections();
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx < 0) return;
+  list[idx] = { ...list[idx], lastFingerprint: undefined };
+  await persist(list);
+}
+
 async function readSecret(id: string, field: string): Promise<string | null> {
   try {
     const v = await invoke<string | null>("secrets_get", {

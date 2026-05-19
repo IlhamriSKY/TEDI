@@ -21,9 +21,25 @@ export type SshOpenInput = {
   password?: string;
   privateKey?: string;
   privateKeyPassphrase?: string;
+  /** SHA256 fingerprint recorded by a previous successful connect. When set,
+   *  the backend rejects the handshake with a `host key mismatch` error if
+   *  the server presents a different key - guards against silent MITM on
+   *  saved connections. */
+  expectedFingerprint?: string;
   cols: number;
   rows: number;
 };
+
+/** Prefix the Rust side puts on host-key-mismatch errors. Callers detect
+ *  this to offer a "trust new key" affordance instead of treating it as a
+ *  generic transient failure that should auto-reconnect. */
+export const HOST_KEY_MISMATCH_PREFIX = "ssh: host key mismatch:";
+
+export function isHostKeyMismatchError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.startsWith(HOST_KEY_MISMATCH_PREFIX);
+}
 
 export type SshSession = {
   id: number;
@@ -71,6 +87,7 @@ export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promi
       password: input.password ?? null,
       privateKey: input.privateKey ?? null,
       privateKeyPassphrase: input.privateKeyPassphrase ?? null,
+      expectedFingerprint: input.expectedFingerprint ?? null,
       cols: input.cols,
       rows: input.rows,
     },
