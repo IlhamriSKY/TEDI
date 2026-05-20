@@ -46,14 +46,20 @@ export function ExtensionStatusItems() {
 
 function StatusItemView({ extensionId, item }: { extensionId: string; item: StatusItem }) {
   const iconUrl = useResolvedIcon(extensionId, item.icon);
-  // The icon itself is dimmed whenever we're not in the connected /
-  // success state - that's the visual contract the user asked for:
-  // greyed-out icon = "not connected yet", full-colour = "live". The
-  // success state intentionally renders WITHOUT an additional badge -
-  // full-opacity vs grayscale already conveys "live", and stacking an
-  // emerald dot on top reads as visual noise. Warning/error still get
-  // a coloured dot because those tones demand explicit attention.
+  // `<img>` ignores the parent's CSS `color`, so a `currentColor` SVG
+  // loaded that way always paints at whatever the SVG file declared
+  // (typically black). For theme-aware tinting we render the icon as a
+  // CSS mask instead - the `<span>` provides the colour via
+  // `background-color`, and only the SVG's opaque silhouette shows
+  // through. Works on every modern browser the Tauri webview targets.
+  //
+  // Detection: any data: SVG URL or a path ending in `.svg`. Raster
+  // formats (PNG / JPG / WEBP) fall back to a regular `<img>` with
+  // opacity + grayscale for the dimmed state.
   const isLive = item.tone === "success";
+  const isSvg =
+    iconUrl !== null &&
+    (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
   const dot =
     item.tone === "warning"
       ? "bg-amber-500"
@@ -65,23 +71,44 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       <span
         role="img"
         aria-label={item.tooltip}
-        className="text-foreground/85 relative inline-flex h-6 w-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
+        className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
         {iconUrl ? (
-          <img
-            src={iconUrl}
-            alt=""
-            // Dim the icon when not in the success state - signals to the
-            // user that the extension is "trying" or "errored" without
-            // needing to read the tooltip. `transition-opacity` keeps the
-            // connecting -> connected flip visually smooth.
-            className={cn(
-              "size-4 object-contain transition-opacity duration-200",
-              isLive ? "opacity-100" : "opacity-40 grayscale",
-            )}
-            loading="lazy"
-            draggable={false}
-          />
+          isSvg ? (
+            <span
+              aria-hidden
+              // CSS mask paints the parent's `background-color` only
+              // where the SVG is opaque. The two state classes pick
+              // the host theme's `--foreground` (connected, full
+              // attention) vs the muted-foreground at 40% (clearly
+              // "off" without being invisible).
+              style={{
+                WebkitMaskImage: `url("${iconUrl}")`,
+                maskImage: `url("${iconUrl}")`,
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+              className={cn(
+                "size-4 transition-colors duration-200",
+                isLive ? "bg-foreground" : "bg-muted-foreground/40",
+              )}
+            />
+          ) : (
+            <img
+              src={iconUrl}
+              alt=""
+              className={cn(
+                "size-4 object-contain transition-opacity duration-200",
+                isLive ? "opacity-100" : "opacity-40 grayscale",
+              )}
+              loading="lazy"
+              draggable={false}
+            />
+          )
         ) : (
           <span className="bg-muted size-4 rounded-sm" aria-hidden />
         )}

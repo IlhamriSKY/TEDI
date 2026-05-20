@@ -44,6 +44,11 @@ type Props = {
   sessionId: number | null;
   /** `user@host:port` style label for the panel header. */
   hostLabel: string | null;
+  /** Last-known cwd of the active SSH terminal leaf (OSC 7). When set,
+   *  the tree roots at this path instead of the SFTP-canonicalised
+   *  home directory, mirroring how the local file tree follows
+   *  whichever terminal pane is focused. */
+  currentCwd?: string | null;
 };
 
 function basename(path: string): string {
@@ -53,18 +58,19 @@ function basename(path: string): string {
   return idx >= 0 ? trimmed.slice(idx + 1) || trimmed : trimmed;
 }
 
-export function SshFileExplorer({ sessionId, hostLabel }: Props) {
+export function SshFileExplorer({ sessionId, hostLabel, currentCwd }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
-  const [rootPath, setRootPath] = useState<string | null>(null);
+  const [homePath, setHomePath] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
 
-  // Pull the remote home directory the first time we see a fresh session id.
-  // SFTP `canonicalize(".")` lands the user wherever sshd points sftp-server
-  // at start (typically $HOME) — that's the natural root and avoids
-  // surprising the user with `/`.
+  // Resolve the remote home directory once per session as a fallback.
+  // SFTP `canonicalize(".")` lands the user wherever sshd points
+  // sftp-server at start (typically `$HOME`) — used when the active
+  // terminal leaf hasn't reported a cwd yet (e.g. the shell hasn't
+  // emitted OSC 7).
   useEffect(() => {
     if (sessionId === null) {
-      setRootPath(null);
+      setHomePath(null);
       setRootError(null);
       return;
     }
@@ -73,13 +79,13 @@ export function SshFileExplorer({ sessionId, hostLabel }: Props) {
     void sftpHome(sessionId)
       .then((home) => {
         if (cancelled) return;
-        setRootPath(home || "/");
+        setHomePath(home || "/");
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         // Fall back to root so the user still sees *something* rather than
         // a stuck empty panel; the read_dir call will surface its own error.
-        setRootPath("/");
+        setHomePath("/");
         setRootError(String(e));
       });
     return () => {
@@ -87,6 +93,10 @@ export function SshFileExplorer({ sessionId, hostLabel }: Props) {
     };
   }, [sessionId]);
 
+  // Prefer the active terminal's cwd, fall back to the SFTP home.
+  // Empty string from cwd is treated as "not yet known" so we don't
+  // null-out the tree mid-session.
+  const rootPath = currentCwd && currentCwd.length > 0 ? currentCwd : homePath;
   const tree = useSshFileTree(sessionId, rootPath, { includeHidden: showHiddenFiles });
 
   if (sessionId === null) {
@@ -128,20 +138,26 @@ export function SshFileExplorer({ sessionId, hostLabel }: Props) {
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-foreground/80 flex flex-1 items-center gap-1.5 truncate text-xs font-medium">
+            <span className="text-foreground/80 flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-medium">
+              {/* Mirror the local FileExplorer header layout: a single
+                  remote-server icon, then just the current directory's
+                  basename. The full path + host live in the tooltip,
+                  so the header stays a compact h-8 strip that doesn't
+                  cut off whichever piece (host or cwd basename) the
+                  user actually wants to read. */}
               <HugeiconsIcon
                 icon={CloudServerIcon}
                 size={13}
                 strokeWidth={2}
                 className="text-muted-foreground shrink-0"
               />
-              <span className="truncate">{hostLabel ?? "remote"}</span>
-              <span className="text-muted-foreground truncate font-mono text-[10px]">
-                {basename(rootPath)}
-              </span>
+              <span className="truncate">{basename(rootPath)}</span>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{rootPath}</TooltipContent>
+          <TooltipContent side="bottom" className="font-mono text-[11px]">
+            <div>{hostLabel ?? "remote"}</div>
+            <div className="text-muted-foreground">{rootPath}</div>
+          </TooltipContent>
         </Tooltip>
 
         <IconTooltip label="New file" side="bottom">

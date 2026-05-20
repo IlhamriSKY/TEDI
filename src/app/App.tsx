@@ -822,8 +822,17 @@ export default function App() {
   // connected SSH leaf so the panel stays useful while the user is staring
   // at the local editor next to a remote shell. Recomputed cheaply from
   // already-tracked state — no extra IPC.
-  const activeSshContext = useMemo<{ sessionId: number | null; hostLabel: string | null }>(() => {
-    if (sshStatuses.size === 0) return { sessionId: null, hostLabel: null };
+  const activeSshContext = useMemo<{
+    sessionId: number | null;
+    hostLabel: string | null;
+    /** The active SSH leaf's last-known cwd (OSC 7 from the remote
+     *  shell). When set, the SSH file tree roots itself here instead
+     *  of falling back to the user's home directory - matches how the
+     *  local file tree follows whichever terminal pane is focused. */
+    cwd: string | null;
+  }>(() => {
+    if (sshStatuses.size === 0)
+      return { sessionId: null, hostLabel: null, cwd: null };
     const lookupLeafSession = (leafId: number): number | null => {
       const status = sshStatuses.get(leafId);
       if (status && status.kind === "connected") return status.sessionId;
@@ -838,7 +847,11 @@ export default function App() {
       if (leaf && leaf.leafKind === "terminal" && leaf.sshConnectionId) {
         const sid = lookupLeafSession(leaf.id);
         if (sid !== null) {
-          return { sessionId: sid, hostLabel: hostLabelForTab(activePaneTab) };
+          return {
+            sessionId: sid,
+            hostLabel: hostLabelForTab(activePaneTab),
+            cwd: leaf.cwd ?? null,
+          };
         }
       }
     }
@@ -850,10 +863,11 @@ export default function App() {
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind !== "terminal" || !l.sshConnectionId) continue;
         const sid = lookupLeafSession(l.id);
-        if (sid !== null) return { sessionId: sid, hostLabel: hostLabelForTab(t) };
+        if (sid !== null)
+          return { sessionId: sid, hostLabel: hostLabelForTab(t), cwd: l.cwd ?? null };
       }
     }
-    return { sessionId: null, hostLabel: null };
+    return { sessionId: null, hostLabel: null, cwd: null };
   }, [sshStatuses, activePaneTab, tabs]);
 
   // Render the SFTP panel only once any SSH leaf has been opened in this
@@ -2013,7 +2027,7 @@ export default function App() {
               >
                 <div className="border-border/60 bg-card flex h-full flex-col border-r">
                   <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-                    <ResizablePanel id="sidebar-files" defaultSize="50%" minSize="15%">
+                    <ResizablePanel id="sidebar-files" defaultSize="40%" minSize="15%">
                       <FileExplorer
                         rootPath={explorerRoot}
                         onOpenFile={handleOpenFile}
@@ -2023,10 +2037,28 @@ export default function App() {
                         onAttachToAgent={handleAttachFileToAgent}
                       />
                     </ResizablePanel>
+                    {/* SSH tree sits directly under the local tree so the
+                        two "file explorers" are adjacent and the user
+                        doesn't context-switch over the source-control
+                        panel to reach it. */}
+                    {hasAnySshLeaf ? (
+                      <>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel id="sidebar-ssh" defaultSize="25%" minSize="12%">
+                          <Suspense fallback={null}>
+                            <SshFileExplorer
+                              sessionId={activeSshContext.sessionId}
+                              hostLabel={activeSshContext.hostLabel}
+                              currentCwd={activeSshContext.cwd}
+                            />
+                          </Suspense>
+                        </ResizablePanel>
+                      </>
+                    ) : null}
                     {showSourceControl ? (
                       <>
                         <ResizableHandle withHandle />
-                        <ResizablePanel id="sidebar-scm" defaultSize="25%" minSize="10%">
+                        <ResizablePanel id="sidebar-scm" defaultSize="20%" minSize="10%">
                           <Suspense fallback={null}>
                             <SourceControlPanel
                               rootPath={explorerRoot}
@@ -2037,21 +2069,8 @@ export default function App() {
                         </ResizablePanel>
                       </>
                     ) : null}
-                    {hasAnySshLeaf ? (
-                      <>
-                        <ResizableHandle withHandle />
-                        <ResizablePanel id="sidebar-ssh" defaultSize="30%" minSize="12%">
-                          <Suspense fallback={null}>
-                            <SshFileExplorer
-                              sessionId={activeSshContext.sessionId}
-                              hostLabel={activeSshContext.hostLabel}
-                            />
-                          </Suspense>
-                        </ResizablePanel>
-                      </>
-                    ) : null}
                     <ResizableHandle withHandle />
-                    <ResizablePanel id="sidebar-workspaces" defaultSize="25%" minSize="10%">
+                    <ResizablePanel id="sidebar-workspaces" defaultSize="15%" minSize="10%">
                       <WorkspacesPanel
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
