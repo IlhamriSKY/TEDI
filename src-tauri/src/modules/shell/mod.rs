@@ -13,6 +13,12 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 use background::{BackgroundLogResponse, BackgroundProc, BackgroundProcInfo};
 use session::{SessionRunOutput, ShellSession};
 
@@ -91,6 +97,8 @@ fn run_blocking(
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = cmd.spawn().map_err(|e| {
         log::warn!("shell_run_command spawn failed: {e}");

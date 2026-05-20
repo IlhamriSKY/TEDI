@@ -9,9 +9,18 @@ use std::time::SystemTime;
 use serde::Serialize;
 use shared_child::SharedChild;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use super::ringbuffer::BoundedRingBuffer;
 
 const RING_CAP: usize = 4 * 1024 * 1024;
+
+/// Suppress the auto-allocated console window Windows hands a console-subsystem
+/// child when its parent is a GUI process. Without this, every sidecar exe
+/// (e.g. `tedi-discord-helper.exe`) flashes a black cmd window on spawn.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct BackgroundProc {
     pub command: String,
@@ -153,6 +162,8 @@ fn track_spawned(
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let shared = SharedChild::spawn(cmd).map_err(|e| e.to_string())?;
     let stdout_pipe = shared.take_stdout().ok_or("no stdout pipe")?;

@@ -14,8 +14,12 @@
  * Tone tinting:
  *   - `success` → icon at full opacity, no extra badge (the live
  *     vs. dimmed state already conveys "connected").
- *   - `warning` / `error` → tiny dot in the top-right corner so the
- *     user notices something needs attention.
+ *   - `warning` → icon pulses (no corner badge). The pulse already
+ *     conveys "transient / in-progress" for states like
+ *     connecting / reconnecting, where a static attention dot felt
+ *     too alarming.
+ *   - `error` → tiny red dot in the top-right corner so the user
+ *     notices something is actually broken.
  */
 import { useEffect, useState } from "react";
 
@@ -57,15 +61,13 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   // formats (PNG / JPG / WEBP) fall back to a regular `<img>` with
   // opacity + grayscale for the dimmed state.
   const isLive = item.tone === "success";
+  const isPulsing = item.tone === "warning";
   const isSvg =
     iconUrl !== null &&
     (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
-  const dot =
-    item.tone === "warning"
-      ? "bg-amber-500"
-      : item.tone === "error"
-        ? "bg-red-500"
-        : null;
+  // Only `error` gets a corner dot. `warning` (e.g. reconnecting) is
+  // signalled by pulsing the icon itself - see the docblock above.
+  const dot = item.tone === "error" ? "bg-red-500" : null;
   return (
     <IconTooltip label={item.tooltip} side="top">
       <span
@@ -95,6 +97,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
               className={cn(
                 "size-4 transition-colors duration-200",
                 isLive ? "bg-foreground" : "bg-muted-foreground/40",
+                isPulsing && "animate-pulse",
               )}
             />
           ) : (
@@ -104,6 +107,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
               className={cn(
                 "size-4 object-contain transition-opacity duration-200",
                 isLive ? "opacity-100" : "opacity-40 grayscale",
+                isPulsing && "animate-pulse",
               )}
               loading="lazy"
               draggable={false}

@@ -208,21 +208,19 @@ function contentAbovePromptBox(content: string): string {
 }
 
 // "AI is waiting for the user" markers. Checked case-insensitively
-// against the full viewport (not just chat area) because the prompt-box
-// itself often carries hints like "tab to amend" / "ctrl+e to explain".
-// Phrases that mean "the AI is waiting on the user". Pulled from the
-// prompt vocabulary of every supported tool (see TOOL_PATTERNS) so the
-// blocking badge fires uniformly across claude / codex / opencode /
-// gemini / aider / copilot / etc. - not just claude.
+// against the full viewport so a question rendered above the input box
+// AND a question baked into the prompt-box itself both fire blocking.
+//
+// IMPORTANT: only add phrases that are *unambiguous* blocking signals.
+// Generic keyboard hints that appear in the input bar during *idle* state
+// (e.g. "tab to amend", "ctrl+e to explain", "chat about this") used to
+// be on this list and made the blocking badge stick on Claude Code at
+// rest, which the user (correctly) reported as broken. The list now
+// targets only phrases that imply "the AI is waiting on a user decision".
 const BLOCKED_SUBSTRINGS: readonly string[] = [
-  // Claude Code
+  // Claude Code - explicit confirmation prompts only
   "do you want to proceed?",
   "would you like to proceed?",
-  "tab to amend",
-  "ctrl+e to explain",
-  "chat about this",
-  "review your answers",
-  "skip interview and plan immediately",
   // Codex / opencode / amazon-q / cursor-agent style approvals
   "approve?",
   "approve this",
