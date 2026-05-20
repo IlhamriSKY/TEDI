@@ -212,6 +212,80 @@ class StatusItemRegistry {
 
 export const statusItemsRegistry = new StatusItemRegistry();
 
+/**
+ * Shell-command transformer registry.
+ *
+ * Hook for extensions that need to rewrite shell commands before TEDI's
+ * built-in AI tools execute them — typically prefix wrappers like RTK
+ * (Rust Token Killer) that route every `git status` through `rtk git
+ * status`, or compression/instrumentation shims that wrap commands in
+ * `time …`, `nice -n 19 …`, etc.
+ *
+ * Each registered transformer receives the command + kind hint
+ * ("bash" for hidden agent shells used by `bash_run`/`bash_background`,
+ * "terminal" for visible user PTY injections via `suggest_command` /
+ * `run_in_terminal`) and returns the rewritten string. `applyAll`
+ * threads the result through every registered extension in insertion
+ * order so multiple wrappers compose (RTK on top of Caveman, etc.).
+ *
+ * Sync API by design: command-transform sits in the AI tool hot path
+ * and an async hop per call would add roundtrip latency for every
+ * command the agent issues. Extensions that need async state (e.g.
+ * "is RTK installed?") cache it themselves and answer synchronously.
+ *
+ * Defensive execution: each transformer is wrapped in try/catch, and
+ * non-string returns are dropped. A hostile or buggy extension can't
+ * brick the AI shell tools — worst case its transform is skipped and
+ * the next one in the chain runs against the previous result.
+ *
+ * Plug-and-play guarantee: when an extension is disabled or
+ * uninstalled the host runs its disposers, which clears the
+ * extension's entry here. Future shell calls find an empty (or
+ * smaller) chain and route as if the extension was never installed.
+ */
+export type ShellCommandKind = "bash" | "terminal";
+export type ShellCommandTransformer = (command: string, kind: ShellCommandKind) => string;
+
+class ShellTransformerRegistry {
+  /** Insertion-ordered map so the apply chain is deterministic. */
+  private readonly byExt = new Map<string, ShellCommandTransformer>();
+
+  set(extensionId: string, transformer: ShellCommandTransformer): void {
+    this.byExt.set(extensionId, transformer);
+  }
+
+  clear(extensionId: string): void {
+    this.byExt.delete(extensionId);
+  }
+
+  size(): number {
+    return this.byExt.size;
+  }
+
+  applyAll(command: string, kind: ShellCommandKind): string {
+    if (this.byExt.size === 0) return command;
+    let result = command;
+    for (const [extId, transformer] of this.byExt) {
+      try {
+        const next = transformer(result, kind);
+        if (typeof next !== "string") {
+          console.error(
+            `[extensions] shell transformer from "${extId}" returned non-string`,
+            next,
+          );
+          continue;
+        }
+        result = next;
+      } catch (err) {
+        console.error(`[extensions] shell transformer from "${extId}" threw`, err);
+      }
+    }
+    return result;
+  }
+}
+
+export const shellTransformersRegistry = new ShellTransformerRegistry();
+
 export function clearExtensionContributions(extensionId: string): void {
   settingsRegistry.clear(extensionId);
   commandsRegistry.clear(extensionId);
@@ -222,4 +296,5 @@ export function clearExtensionContributions(extensionId: string): void {
   panelsRegistry.clear(extensionId);
   aiToolsRegistry.clear(extensionId);
   statusItemsRegistry.clear(extensionId);
+  shellTransformersRegistry.clear(extensionId);
 }

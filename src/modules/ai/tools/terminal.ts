@@ -8,6 +8,7 @@ import {
   flexIntOpt,
   normalizeTargetExternal,
 } from "./schedule";
+import { applyShellTransformers } from "./shell";
 
 export function buildTerminalTools(ctx: ToolContext) {
   return {
@@ -27,7 +28,8 @@ export function buildTerminalTools(ctx: ToolContext) {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/\n+$/, "");
-        const ok = ctx.injectIntoActivePty(trimmed);
+        const effective = applyShellTransformers(trimmed, "terminal");
+        const ok = ctx.injectIntoActivePty(effective);
         if (!ok)
           return {
             error: "no active terminal to inject into",
@@ -273,7 +275,8 @@ export function buildTerminalTools(ctx: ToolContext) {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
-        const ok = ctx.runInActiveTerminal(trimmed);
+        const effective = applyShellTransformers(trimmed, "terminal");
+        const ok = ctx.runInActiveTerminal(effective);
         if (!ok) return { error: "no active terminal tab to run in", command: trimmed };
         return { command: trimmed, submitted: true };
       },

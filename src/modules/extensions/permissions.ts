@@ -91,5 +91,10 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p.startsWith("ui:")) return "low";
   if (p.startsWith("panels:")) return "low";
   if (p.startsWith("statusbar:")) return "low";
+  // `shell:transform` lets an extension rewrite every shell command the
+  // AI agent issues. That's strictly more power than reading the
+  // command — the extension chooses what actually runs. Surface that
+  // clearly at install time.
+  if (p === "shell:transform") return "high";
   return "medium";
 }

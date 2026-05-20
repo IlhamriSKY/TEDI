@@ -37,9 +37,11 @@ import {
   keybindingsRegistry,
   panelsRegistry,
   settingsRegistry,
+  shellTransformersRegistry,
   slashCommandsRegistry,
   statusItemsRegistry,
   themesRegistry,
+  type ShellCommandTransformer,
   type StatusItem,
 } from "./registries";
 
@@ -153,6 +155,23 @@ export type ExtensionContext = {
   statusBar: {
     setItem(item: StatusItem): void;
     removeItem(itemId: string): void;
+  };
+  /** AI shell hook. Extensions that want to rewrite commands before
+   *  TEDI's built-in AI tools (`bash_run`, `bash_background`,
+   *  `run_in_terminal`, `suggest_command`) execute them register a
+   *  synchronous transformer here. The transformer receives the user-
+   *  authored command and a `kind` discriminator and returns the
+   *  rewritten string. Returning the original command is a passthrough.
+   *
+   *  Multiple extensions can register transformers; they compose in
+   *  insertion order. Each call is wrapped in try/catch by the host so
+   *  a throwing extension can't break the AI shell tools.
+   *
+   *  The returned `Disposer` clears this extension's registration. The
+   *  host also auto-disposes on `deactivate`, so most extensions don't
+   *  need to capture it. Requires the `shell:transform` permission. */
+  shell: {
+    registerCommandTransformer(transformer: ShellCommandTransformer): Disposer;
   };
   /** Contribution helpers. Each call replaces the previous declaration for
    *  that category; pass `[]` to clear. The activate function would
@@ -362,6 +381,18 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         // down its own item, even if the user has revoked permission
         // post-install (e.g. via a future permission-revoke UI).
         statusItemsRegistry.removeItem(ext.id, itemId);
+      },
+    },
+    shell: {
+      registerCommandTransformer(transformer: ShellCommandTransformer): Disposer {
+        requirePermission(ext.id, declared, "shell:transform");
+        shellTransformersRegistry.set(ext.id, transformer);
+        const dispose = (): void => shellTransformersRegistry.clear(ext.id);
+        // Register with the host so disable/uninstall tears the
+        // transform chain back to passthrough without the extension
+        // having to remember anything.
+        disposers.push(dispose);
+        return dispose;
       },
     },
     contribute: {

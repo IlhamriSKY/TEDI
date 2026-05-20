@@ -1,9 +1,33 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { shellTransformersRegistry } from "@/modules/extensions/registries";
 import { native } from "../lib/native";
 import { checkShellCommand } from "../lib/security";
-import type { ToolContext } from "./context";
+import { scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
 import { flexIntOpt, flexIntReq } from "./schedule";
+
+/**
+ * Run every registered extension transformer over a command before it
+ * hits the shell. Empty chain (no extension installed, or all disabled)
+ * is a pure passthrough so the historical zero-overhead path is
+ * preserved. `safety` is checked against the *user-authored* command
+ * before transforming so transformers can never sneak past the denylist.
+ *
+ * Exported so `terminal.ts` (`run_in_terminal`, `suggest_command`) can
+ * thread the same chain as `bash_run` / `bash_background`. One source
+ * of truth keeps the user experience consistent across every AI shell
+ * path.
+ *
+ * Example: with the `tedi.rtk-bridge` extension installed and active,
+ * `git status` becomes `rtk git status`. With the extension removed,
+ * the chain is empty and the command flows through unchanged.
+ */
+export function applyShellTransformers(
+  command: string,
+  kind: "bash" | "terminal",
+): string {
+  return shellTransformersRegistry.applyAll(command, kind);
+}
 
 /**
  * Per-session lazy shell-session id. The agent gets one persistent shell per
@@ -20,6 +44,23 @@ async function getSessionShell(sessionId: string, cwd: string | null): Promise<n
   return p;
 }
 
+/**
+ * Tear down the Rust-side shell session for `sessionId`. Called by the chat
+ * store when a chat session is deleted so the long-lived shell handle does
+ * not leak (each handle holds a child process + IO pipes on the Rust side).
+ * Idempotent — extra calls are no-ops.
+ */
+export function disposeSessionShell(sessionId: string): void {
+  const p = sessionShells.get(sessionId);
+  if (!p) return;
+  sessionShells.delete(sessionId);
+  void p
+    .then((id) => native.shellSessionClose(id))
+    .catch(() => {
+      // Already closed / never opened — nothing to do.
+    });
+}
+
 export function buildShellTools(ctx: ToolContext) {
   return {
     bash_run: tool({
@@ -31,6 +72,7 @@ export function buildShellTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ command, timeout_secs }) => {
+        throwIfAborted(ctx);
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
         const sid = ctx.getSessionId();
@@ -38,7 +80,8 @@ export function buildShellTools(ctx: ToolContext) {
         try {
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(sid, cwd);
-          const r = await native.shellSessionRun(shellId, command, cwd, timeout_secs);
+          const effective = applyShellTransformers(command, "bash");
+          const r = await native.shellSessionRun(shellId, effective, cwd, timeout_secs);
           return {
             command,
             stdout: r.stdout,
@@ -49,7 +92,7 @@ export function buildShellTools(ctx: ToolContext) {
             cwd_after: r.cwd_after,
           };
         } catch (e) {
-          return { error: String(e) };
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     }),
@@ -63,14 +106,18 @@ export function buildShellTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ command, cwd }) => {
+        throwIfAborted(ctx);
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
         const effectiveCwd = cwd ?? ctx.getCwd();
         try {
-          const handle = await native.shellBgSpawn(command, effectiveCwd);
+          const handle = await native.shellBgSpawn(
+            applyShellTransformers(command, "bash"),
+            effectiveCwd,
+          );
           return { handle, command, cwd: effectiveCwd, ok: true };
         } catch (e) {
-          return { error: String(e) };
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     }),
@@ -87,7 +134,7 @@ export function buildShellTools(ctx: ToolContext) {
           const r = await native.shellBgLogs(handle, since_offset);
           return r;
         } catch (e) {
-          return { error: String(e) };
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     }),
@@ -101,7 +148,7 @@ export function buildShellTools(ctx: ToolContext) {
           const list = await native.shellBgList();
           return { processes: list };
         } catch (e) {
-          return { error: String(e) };
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     }),
@@ -114,7 +161,7 @@ export function buildShellTools(ctx: ToolContext) {
           await native.shellBgKill(handle);
           return { handle, ok: true };
         } catch (e) {
-          return { error: String(e) };
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     }),
