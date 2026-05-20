@@ -96,13 +96,28 @@ export type Preferences = {
    *  (idle / working / blocking) still updates - only the toast and beep
    *  are suppressed. */
   aiNotificationsEnabled: boolean;
-  /** Publish a Discord Rich Presence status while TEDI is running. Default
-   *  off for privacy - when enabled, the active workspace folder name,
-   *  current file name, and open terminal count are sent to the local
-   *  Discord client over its named-pipe IPC. No data leaves the machine
-   *  beyond what Discord itself relays to its servers. */
-  discordRpcEnabled: boolean;
+  /** Brand / primary accent color as a 6-digit hex (`#RRGGBB`). Drives
+   *  `--primary`, `--ring`, `--sidebar-primary`, `--sidebar-ring`, and a
+   *  derived `--accent` in both light and dark themes. Default
+   *  `#0057fe` (TEDI logo blue). */
+  brandColor: string;
 };
+
+export const BRAND_COLOR_DEFAULT = "#0057fe";
+const HEX6_RE = /^#([0-9a-f]{6})$/i;
+
+export function normalizeBrandColor(value: string | undefined | null): string {
+  if (!value) return BRAND_COLOR_DEFAULT;
+  const trimmed = value.trim();
+  if (HEX6_RE.test(trimmed)) return `#${trimmed.slice(1).toLowerCase()}`;
+  // Accept 3-digit hex (#abc -> #aabbcc) as a convenience.
+  const short = /^#([0-9a-f]{3})$/i.exec(trimmed);
+  if (short) {
+    const [r, g, b] = short[1].toLowerCase();
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return BRAND_COLOR_DEFAULT;
+}
 
 const STORE_PATH = "tedi-settings.json";
 const KEY_THEME = "theme";
@@ -131,7 +146,7 @@ const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
 const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
-const KEY_DISCORD_RPC_ENABLED = "discordRpcEnabled";
+const KEY_BRAND_COLOR = "brandColor";
 
 export const CONTENT_ZOOM_DEFAULT = 1.0;
 export const CONTENT_ZOOM_MIN = 0.5;
@@ -171,7 +186,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastProviderId: null,
   contentZoom: CONTENT_ZOOM_DEFAULT,
   aiNotificationsEnabled: true,
-  discordRpcEnabled: false,
+  brandColor: BRAND_COLOR_DEFAULT,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -232,8 +247,7 @@ export async function loadPreferences(): Promise<Preferences> {
     contentZoom: clampZoom(get<number>(KEY_CONTENT_ZOOM) ?? DEFAULT_PREFERENCES.contentZoom),
     aiNotificationsEnabled:
       get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
-    discordRpcEnabled:
-      get<boolean>(KEY_DISCORD_RPC_ENABLED) ?? DEFAULT_PREFERENCES.discordRpcEnabled,
+    brandColor: normalizeBrandColor(get<string>(KEY_BRAND_COLOR)),
   };
 }
 
@@ -355,8 +369,56 @@ export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_AI_NOTIFICATIONS_ENABLED, value);
 }
 
-export async function setDiscordRpcEnabled(value: boolean): Promise<void> {
-  await writePref(KEY_DISCORD_RPC_ENABLED, value);
+export async function setBrandColor(value: string): Promise<void> {
+  await writePref(KEY_BRAND_COLOR, normalizeBrandColor(value));
+}
+
+/**
+ * Escape hatch used by the extension host to persist contributed settings
+ * keys that don't have a typed setter here. Built-in code should use the
+ * typed setters above; extension-owned keys land here via the host API
+ * (`tedi.settings.set`).
+ *
+ * The key is required to be namespaced as `ext:<extId>:<key>` so a hostile
+ * extension can't quietly overwrite a built-in preference like `theme` or
+ * `brandColor` via this path. Validation lives here (not in host.ts) so
+ * the rule is enforced even if a future host bypasses the namespace.
+ */
+export async function _writeAny(key: string, value: unknown): Promise<void> {
+  if (!key.startsWith("ext:")) {
+    throw new Error(
+      `settings._writeAny can only write namespaced extension keys, got "${key}"`,
+    );
+  }
+  await writePref(key, value);
+}
+
+/** Companion reader for ext-namespaced keys. The typed `loadPreferences()`
+ *  ignores them; extensions use this for round-trip reads. */
+export async function _readAny<T = unknown>(key: string): Promise<T | undefined> {
+  if (!key.startsWith("ext:")) {
+    throw new Error(
+      `settings._readAny can only read namespaced extension keys, got "${key}"`,
+    );
+  }
+  const v = await store.get<T>(key);
+  return v ?? undefined;
+}
+
+/** Subscribe to changes of *any* key (typed or namespaced). Used by the
+ *  extension host so `tedi.settings.onChange("foo")` works for keys the
+ *  typed `onPreferencesChange` mapper doesn't know about. */
+export async function _onAnyChange(
+  cb: (key: string, value: unknown) => void,
+): Promise<UnlistenFn> {
+  const unsubLocal = await store.onChange<unknown>((key, value) => cb(key, value));
+  const unsubEvent = await listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
+    cb(e.payload.key, e.payload.value);
+  });
+  return () => {
+    unsubLocal();
+    unsubEvent();
+  };
 }
 
 export const APPROVAL_MODE_META: Record<ApprovalMode, { label: string; description: string }> = {
@@ -407,7 +469,7 @@ export async function onPreferencesChange(
     [KEY_LAST_PROVIDER]: "lastProviderId",
     [KEY_CONTENT_ZOOM]: "contentZoom",
     [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
-    [KEY_DISCORD_RPC_ENABLED]: "discordRpcEnabled",
+    [KEY_BRAND_COLOR]: "brandColor",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

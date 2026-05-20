@@ -42,7 +42,7 @@ import {
   setOpenAICompatibleBaseURL,
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
@@ -69,6 +69,16 @@ export function ModelsSection() {
   const sumopodModels = useSumopodModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
+  // Tracks which provider accordions are open. Reset when the dropdown opens
+  // so the user always starts with the current default provider expanded.
+  const [expandedProviders, setExpandedProviders] = useState<Set<ProviderId>>(new Set());
+  const toggleProvider = (id: ProviderId) =>
+    setExpandedProviders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   useEffect(() => {
     void getAllKeys().then((k) => {
@@ -151,7 +161,11 @@ export function ModelsSection() {
         <Label>Default model</Label>
         <DropdownMenu
           onOpenChange={(open) => {
-            if (!open) setModelQuery("");
+            if (open) {
+              setExpandedProviders(defaultProvider ? new Set([defaultProvider]) : new Set());
+            } else {
+              setModelQuery("");
+            }
           }}
         >
           <DropdownMenuTrigger asChild>
@@ -195,6 +209,7 @@ export function ModelsSection() {
             </div>
             <div className="max-h-92 overflow-y-auto">
               {(() => {
+                const searching = modelQuery.length > 0;
                 let totalMatches = 0;
                 const blocks = PROVIDERS.filter((p) => providerNeedsKey(p.id)).map((p) => {
                   const all =
@@ -205,7 +220,7 @@ export function ModelsSection() {
                         : MODELS.filter((m) => m.provider === p.id);
                   const filtered = all.filter((m) => matchesQuery(m, modelQuery));
                   totalMatches += filtered.length;
-                  if (filtered.length === 0 && modelQuery) return null;
+                  if (filtered.length === 0 && searching) return null;
                   const hasKey = !!keys[p.id];
                   const dynamicState =
                     p.id === "sumopod"
@@ -222,52 +237,78 @@ export function ModelsSection() {
                           ? "Detection failed - check key / URL"
                           : null
                       : null;
+                  // While searching, every provider with matches is expanded
+                  // so results are visible without manual toggling.
+                  const isOpen = searching || expandedProviders.has(p.id);
                   return (
-                    <div key={p.id} className="px-1 pt-1.5">
-                      <div className="text-muted-foreground mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide uppercase">
+                    <div key={p.id} className="px-1 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => !searching && toggleProvider(p.id)}
+                        aria-expanded={isOpen}
+                        disabled={searching}
+                        className={cn(
+                          "hover:bg-accent/50 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[10px] font-medium tracking-wide uppercase transition-colors",
+                          "text-muted-foreground",
+                          searching && "cursor-default hover:bg-transparent",
+                        )}
+                      >
+                        <HugeiconsIcon
+                          icon={isOpen ? ArrowDown01Icon : ArrowRight01Icon}
+                          size={10}
+                          strokeWidth={2}
+                          className={cn("opacity-60", searching && "invisible")}
+                        />
                         <ProviderIcon provider={p.id} size={11} />
                         <span>{p.label}</span>
+                        <span className="text-muted-foreground/60 tracking-normal normal-case">
+                          ({filtered.length})
+                        </span>
                         {!hasKey && (
-                          <span className="text-muted-foreground/70 ml-auto text-[9.5px] tracking-normal normal-case">
+                          <span className="text-muted-foreground/70 ml-auto tracking-normal normal-case">
                             no key
                           </span>
                         )}
-                      </div>
-                      {dynamicNote ? (
-                        <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
-                          {dynamicNote}
+                      </button>
+                      {isOpen ? (
+                        <div className="pt-0.5 pb-1">
+                          {dynamicNote ? (
+                            <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
+                              {dynamicNote}
+                            </div>
+                          ) : null}
+                          {isDynamicEmpty && !dynamicNote ? (
+                            <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
+                              No models detected.
+                            </div>
+                          ) : null}
+                          {filtered.map((m) => (
+                            <DropdownMenuItem
+                              key={`${m.provider}::${m.id}`}
+                              disabled={!hasKey}
+                              onSelect={() => hasKey && void setDefaultModel(m.id, m.provider)}
+                              className={cn(
+                                "flex items-center justify-between gap-2 text-[12px]",
+                                m.id === defaultModel &&
+                                  m.provider === defaultModelInfo.provider &&
+                                  "bg-accent/50",
+                              )}
+                            >
+                              <span className="flex flex-col">
+                                <span>{m.label}</span>
+                                <span className="text-muted-foreground text-[10px]">{m.hint}</span>
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
                         </div>
                       ) : null}
-                      {isDynamicEmpty && !dynamicNote ? (
-                        <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
-                          No models detected.
-                        </div>
-                      ) : null}
-                      {filtered.map((m) => (
-                        <DropdownMenuItem
-                          key={`${m.provider}::${m.id}`}
-                          disabled={!hasKey}
-                          onSelect={() => hasKey && void setDefaultModel(m.id, m.provider)}
-                          className={cn(
-                            "flex items-center justify-between gap-2 text-[12px]",
-                            m.id === defaultModel &&
-                              m.provider === defaultModelInfo.provider &&
-                              "bg-accent/50",
-                          )}
-                        >
-                          <span className="flex flex-col">
-                            <span>{m.label}</span>
-                            <span className="text-muted-foreground text-[10px]">{m.hint}</span>
-                          </span>
-                        </DropdownMenuItem>
-                      ))}
                     </div>
                   );
                 });
                 return (
                   <>
                     {blocks}
-                    {modelQuery && totalMatches === 0 ? (
+                    {searching && totalMatches === 0 ? (
                       <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
                         No models match “{modelQuery}”.
                       </div>
@@ -352,19 +393,28 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-0.5">
-          <Label>Editor autocomplete</Label>
+    <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-[12.5px] font-medium">Editor autocomplete</span>
           <span className="text-muted-foreground text-[10.5px] leading-relaxed">
             Inline ghost-text suggestions in the code editor. Powered by ultra-fast inference
             (Cerebras / Groq) or a local LM Studio server.
           </span>
         </div>
-        <Switch checked={enabled} onCheckedChange={(v) => void setAutocompleteEnabled(v)} />
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => void setAutocompleteEnabled(v)}
+          className="mt-0.5 shrink-0"
+        />
       </div>
 
-      <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
+      <div
+        className={cn(
+          "flex flex-col gap-2",
+          !enabled && "pointer-events-none opacity-55",
+        )}
+      >
         <div className="flex flex-col gap-1.5">
           <Label>Provider</Label>
           <div className="flex gap-1">

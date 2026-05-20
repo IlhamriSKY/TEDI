@@ -73,6 +73,15 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 - Catppuccin / Material icon theme, fuzzy search, inline rename
 - "Reveal in terminal" opens a new tab rooted at the picked folder
 
+**Extensions**
+
+- Install third-party extensions from a local `.zip` or directly from a GitHub release (`owner/repo`)
+- Manifest-declared **settings**, **themes**, **slash commands**, **AI tools**, **commands**, **keybindings**, **panels** auto-render under each card in Settings → Extensions
+- Per-extension icon, namespaced settings/secrets/storage, permission-gated host API (`invoke`, `secrets`, `events`, `app context`, `ui.toast`)
+- One-click **Check updates** + **Update** powered by the GitHub `releases/latest` endpoint
+- Two-window sync, idempotent disable/uninstall, atomic state writes, path-traversal + size guards on every install path
+- Authoring guide: [extensions/README.md](extensions/README.md) · Reference extension: [Discord Rich Presence](https://github.com/IlhamriSKY/TEDI.discord-rich-presence)
+
 **Quality**
 
 - Apache-2.0, no telemetry, API keys in OS keychain (`keyring`)
@@ -81,6 +90,21 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 ## Configure AI
 
 Settings > AI > pick a provider, paste your API key. For local inference, point TEDI at your LM Studio endpoint. Keys are written to the OS keychain via `keyring`. They never touch disk or `localStorage`.
+
+## Extensions
+
+TEDI ships **no extensions** in the binary — every extension is installed at runtime from either a local `.zip` or a GitHub release. Re-installing the same `manifest.id` replaces the previous copy, so the same install paths handle updates too.
+
+```
+Settings → Extensions → From file       (pick a local .zip)
+Settings → Extensions → From GitHub     (paste owner/repo)
+Settings → Extensions → Check updates   (re-hit releases/latest on every github-sourced extension)
+```
+
+**Reference extension — Discord Rich Presence:** <https://github.com/IlhamriSKY/TEDI.discord-rich-presence>
+Install string: `IlhamriSKY/TEDI.discord-rich-presence`.
+
+Want to write your own? See [extensions/README.md](extensions/README.md) for the manifest schema, host-API reference, lifecycle gotchas, and a copy-pasteable GitHub Actions release workflow.
 
 ## CLI Usage
 

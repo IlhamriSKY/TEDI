@@ -1,10 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { dispatchFsRefreshForFile, dispatchFsRefresh } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkReadable, checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import { resolvePath, type ToolContext } from "./context";
+import { flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
 const DEFAULT_LINE_LIMIT = 2000;
@@ -13,24 +15,15 @@ export function buildFsTools(ctx: ToolContext) {
   return {
     read_file: tool({
       description:
-        "Read a UTF-8 text file. Returns content for text files; refuses binary, oversized, or sensitive files (.env, keys, credentials). Defaults to the first 2000 lines (capped at 200KB). Pass `offset`/`limit` to read a specific window of a large file.",
+        "Read UTF-8 text file. Refuses binary / oversized / sensitive (.env, keys). Default first 2000 lines (200KB cap). Use offset/limit to page large files.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
-        offset: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe("0-based line offset to start reading from. Default 0."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(2000)
-          .optional()
-          .describe(
-            "Max lines to return. Default 2000. Cap is hard - re-call with a larger offset to page through.",
-          ),
+        offset: flexIntOpt({ min: 0 }).describe(
+          "0-based line offset to start reading from. Default 0.",
+        ),
+        limit: flexIntOpt({ min: 1, max: 2000 }).describe(
+          "Max lines to return. Default 2000. Cap is hard - re-call with a larger offset to page through.",
+        ),
       }),
       execute: async ({ path, offset, limit }) => {
         const abs = resolvePath(path, ctx.getCwd());
@@ -96,8 +89,7 @@ export function buildFsTools(ctx: ToolContext) {
     }),
 
     list_directory: tool({
-      description:
-        "List immediate entries (files + directories) in a directory. Hidden entries are omitted.",
+      description: "List immediate entries in a directory. Hidden entries omitted.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
       }),
@@ -119,7 +111,7 @@ export function buildFsTools(ctx: ToolContext) {
 
     write_file: tool({
       description:
-        "Create or overwrite a file with the given content. Always asks the user before running. Prefer `edit` / `multi_edit` for in-place changes - only use `write_file` for creating a brand-new file or fully replacing a tiny one.",
+        "Create / overwrite a file. Prefer edit / multi_edit for in-place changes; use write_file only for brand-new files or full replacement of tiny ones. Approval.",
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),
@@ -183,6 +175,7 @@ export function buildFsTools(ctx: ToolContext) {
         try {
           await native.writeFile(abs, content);
           ctx.readCache.add(abs);
+          dispatchFsRefreshForFile(abs);
           return { path: abs, bytesWritten: content.length, ok: true };
         } catch (e) {
           return { error: String(e), path: abs };
@@ -191,8 +184,7 @@ export function buildFsTools(ctx: ToolContext) {
     }),
 
     create_directory: tool({
-      description:
-        "Create a directory (and any missing parents). Always asks the user before running.",
+      description: "Create a directory (mkdir -p). Approval.",
       inputSchema: z.object({
         path: z.string(),
       }),
@@ -232,6 +224,10 @@ export function buildFsTools(ctx: ToolContext) {
 
         try {
           await native.createDir(abs);
+          dispatchFsRefreshForFile(abs);
+          // Also refresh the new dir itself in case the user has the
+          // parent expanded and immediately drills into it.
+          dispatchFsRefresh(abs);
           return { path: abs, ok: true };
         } catch (e) {
           return { error: String(e), path: abs };

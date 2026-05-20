@@ -198,7 +198,13 @@ export function Header({
       ref={rootRef}
       data-tauri-drag-region
       onMouseDown={onHeaderMouseDown}
-      className={`border-border/60 bg-card flex h-10 shrink-0 items-center gap-2 border-b select-none ${
+      // Header is 48px tall (not the usual 40px) to make room for the 10px
+      // horizontal scrollbar that sits at the bottom of the tab strip. The
+      // TabBar's scroll container reserves that 10px at its bottom; every
+      // other header item stays centered in the full 48px and the TabBar
+      // adds a matching 10px top padding so the tab labels line up
+      // vertically with the icon buttons on either side.
+      className={`border-border/60 bg-card flex h-12 shrink-0 items-center gap-2 border-b select-none ${
         IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
       }`}
     >
@@ -273,7 +279,7 @@ export function Header({
 
       {IS_MAC && <span className="bg-border mr-1 h-full w-px shrink-0" />}
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex h-full min-w-0 flex-1 items-center gap-2">
         <TabBar
           tabs={tabs}
           activeId={activeId}

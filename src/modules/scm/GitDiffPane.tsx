@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { MergeView, presentableDiff } from "@codemirror/merge";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -37,14 +38,28 @@ function isNonText(r: FileReadResult): boolean {
 }
 
 // Match AiDiffPane's coloring so diff highlighting reads the same across the
-// app. MergeView height/scroll wiring lives in `globals.css` (.cm-mergeView):
-// EditorView.theme selectors are scoped to .cm-editor and can't reach the
-// outer .cm-mergeView wrapper, so it has to be a plain stylesheet rule.
+// app. MergeView height/scroll wiring (per-pane scroll, both axes) lives in
+// `globals.css` (.cm-mergeView). EditorView.theme selectors are scoped to
+// .cm-editor and can't reach the outer .cm-mergeView wrapper, so it has to
+// be plain stylesheet rules.
 const DIFF_THEME = EditorView.theme({
   ".cm-changedText": {
     background: "#88ff881a !important",
   },
 });
+
+// One tick on the overview ruler. `total` is the doc's total line count for
+// the pane that owns this mark — used to map the line range to a top% /
+// height% inside the ruler container. `jumpTo` scrolls the owning pane to
+// the start line (the merge view's scroll sync drags the other pane along).
+type RulerMark = {
+  key: string;
+  startLine: number;
+  endLine: number;
+  total: number;
+  kind: "added" | "removed";
+  jumpTo: () => void;
+};
 
 const STATUS_VARIANT: Record<
   GitChangeStatusTab,
@@ -91,6 +106,17 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Overview-ruler state. The marks are derived from the diff once the
+  // MergeView mounts; the pane refs + ruler widths drive the portal target
+  // and the absolute width matching the native scrollbar. All set together
+  // inside the MergeView effect and cleared on teardown.
+  const [marksA, setMarksA] = useState<RulerMark[]>([]);
+  const [marksB, setMarksB] = useState<RulerMark[]>([]);
+  const [paneAEl, setPaneAEl] = useState<HTMLElement | null>(null);
+  const [paneBEl, setPaneBEl] = useState<HTMLElement | null>(null);
+  const [rulerWidthA, setRulerWidthA] = useState(0);
+  const [rulerWidthB, setRulerWidthB] = useState(0);
 
   // Load HEAD + working-tree content whenever the target or reloadKey changes.
   useEffect(() => {
@@ -182,6 +208,105 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     });
     mergeRef.current = view;
 
+    // The merge package's default layout (outer .cm-mergeView scrolls; each
+    // pane has height: auto) hides the horizontal scrollbar below the viewport
+    // for any non-trivial file. globals.css flips this to per-pane scrolling,
+    // which means the two panes no longer share a scrollTop automatically.
+    // Reattach a 1:1 vertical sync here — we mirror scroll position rather
+    // than chunk-aligned positions because both editors render the full
+    // document (no `collapseUnchanged`), so equal pixel offsets keep matching
+    // lines side-by-side.
+    const scrollA = view.a.scrollDOM;
+    const scrollB = view.b.scrollDOM;
+    let syncing = false;
+    const sync = (from: HTMLElement, to: HTMLElement) => () => {
+      if (syncing) return;
+      syncing = true;
+      to.scrollTop = from.scrollTop;
+      // requestAnimationFrame avoids the recursive event ping-pong without
+      // dropping legitimate user scrolls on either pane.
+      requestAnimationFrame(() => {
+        syncing = false;
+      });
+    };
+    const syncAB = sync(scrollA, scrollB);
+    const syncBA = sync(scrollB, scrollA);
+    scrollA.addEventListener("scroll", syncAB, { passive: true });
+    scrollB.addEventListener("scroll", syncBA, { passive: true });
+
+    // Overview ruler data: compute mark ranges once per content load. We
+    // render them via React/portal below (not imperatively here) so each
+    // mark can use the styled <Tooltip/> component instead of the native
+    // browser `title=` popover.
+    const docA = view.a.state.doc;
+    const docB = view.b.state.doc;
+    const totalA = Math.max(docA.lines, 1);
+    const totalB = Math.max(docB.lines, 1);
+    const chunks = presentableDiff(docA.toString(), docB.toString());
+    const newMarksA: RulerMark[] = [];
+    const newMarksB: RulerMark[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      if (c.toA > c.fromA) {
+        const startLine = docA.lineAt(c.fromA).number;
+        const endLine = docA.lineAt(Math.max(c.fromA, c.toA - 1)).number;
+        newMarksA.push({
+          key: `a-${i}-${startLine}-${endLine}`,
+          startLine,
+          endLine,
+          total: totalA,
+          kind: "removed",
+          jumpTo: () => {
+            const pos = view.a.state.doc.line(startLine).from;
+            view.a.dispatch({
+              effects: EditorView.scrollIntoView(pos, { y: "center" }),
+            });
+          },
+        });
+      }
+      if (c.toB > c.fromB) {
+        const startLine = docB.lineAt(c.fromB).number;
+        const endLine = docB.lineAt(Math.max(c.fromB, c.toB - 1)).number;
+        newMarksB.push({
+          key: `b-${i}-${startLine}-${endLine}`,
+          startLine,
+          endLine,
+          total: totalB,
+          kind: "added",
+          jumpTo: () => {
+            const pos = view.b.state.doc.line(startLine).from;
+            view.b.dispatch({
+              effects: EditorView.scrollIntoView(pos, { y: "center" }),
+            });
+          },
+        });
+      }
+    }
+    setMarksA(newMarksA);
+    setMarksB(newMarksB);
+
+    // Mount points for the React-rendered ruler portals. They sit on the
+    // .cm-mergeViewEditor wrappers (anchored via position:relative in
+    // globals.css) so the absolute ruler lines up with the scrollbar.
+    const wrapperA = view.a.dom.parentElement as HTMLElement | null;
+    const wrapperB = view.b.dom.parentElement as HTMLElement | null;
+    setPaneAEl(wrapperA);
+    setPaneBEl(wrapperB);
+
+    // Track each pane's native scrollbar width. The ruler width follows it
+    // exactly (so the ticks live inside the scrollbar track like VSCode's
+    // overview ruler); width: 0 hides the ruler when there's no scrollbar.
+    // ResizeObserver keeps this synced as content grows/shrinks or chrome
+    // mode toggles between borderless (10px) and native (~14px).
+    const syncRulerWidth = () => {
+      setRulerWidthA(scrollA.offsetWidth - scrollA.clientWidth);
+      setRulerWidthB(scrollB.offsetWidth - scrollB.clientWidth);
+    };
+    syncRulerWidth();
+    const ro = new ResizeObserver(syncRulerWidth);
+    ro.observe(scrollA);
+    ro.observe(scrollB);
+
     // Resolve language asynchronously and reconfigure both sides.
     let cancelled = false;
     resolveLanguage(path).then((ext) => {
@@ -192,6 +317,13 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
 
     return () => {
       cancelled = true;
+      scrollA.removeEventListener("scroll", syncAB);
+      scrollB.removeEventListener("scroll", syncBA);
+      ro.disconnect();
+      setPaneAEl(null);
+      setPaneBEl(null);
+      setMarksA([]);
+      setMarksB([]);
       view.destroy();
       if (mergeRef.current === view) mergeRef.current = null;
     };
@@ -270,6 +402,50 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
           <div ref={hostRef} className="h-full w-full" />
         )}
       </div>
+      {paneAEl
+        ? createPortal(<DiffRuler width={rulerWidthA} marks={marksA} />, paneAEl)
+        : null}
+      {paneBEl
+        ? createPortal(<DiffRuler width={rulerWidthB} marks={marksB} />, paneBEl)
+        : null}
+    </div>
+  );
+}
+
+/** React-rendered overview ruler. Each mark is wrapped in the project's
+ *  styled <Tooltip/> so hover labels look the same as every other tooltip
+ *  in the app, instead of the native browser `title=` popover. The ruler
+ *  itself sits absolute against `.cm-mergeViewEditor` (the portal target)
+ *  with its width tracking the live scrollbar width. */
+function DiffRuler({ width, marks }: { width: number; marks: RulerMark[] }) {
+  if (width <= 0 || marks.length === 0) return null;
+  return (
+    <div className="diff-ruler" style={{ width: `${width}px` }}>
+      {marks.map((m) => {
+        const topPct = ((m.startLine - 1) / m.total) * 100;
+        const heightPct = ((m.endLine - m.startLine + 1) / m.total) * 100;
+        const label =
+          m.startLine === m.endLine
+            ? `Line ${m.startLine} (${m.kind})`
+            : `Lines ${m.startLine}–${m.endLine} (${m.kind})`;
+        return (
+          <Tooltip key={m.key}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={m.jumpTo}
+                aria-label={label}
+                className={`diff-ruler-mark diff-ruler-${m.kind}`}
+                style={{
+                  top: `${topPct}%`,
+                  height: `max(2px, ${heightPct}%)`,
+                }}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="left">{label}</TooltipContent>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }

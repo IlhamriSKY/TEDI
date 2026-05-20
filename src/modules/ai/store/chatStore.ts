@@ -38,6 +38,7 @@ import {
   saveSessionsList,
   type SessionMeta,
 } from "../lib/sessions";
+import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
 
@@ -51,12 +52,42 @@ type Live = {
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
    *  Returns true if a new tab was created. */
   openTerminal: (cwd?: string | null) => boolean;
+  /** Open a new terminal with explicit placement options. `mode`:
+   *   - `"tab"`: a fresh top-level tab.
+   *   - `"split"`: split the focused leaf of `targetTabId` (or active tab if
+   *     omitted). `splitDir` is "row" (right) or "col" (down).
+   *  Returns a discriminated union so the tool layer can surface specific
+   *  errors (no-active-tab, target-not-found, MAX_PANES_PER_TAB reached). */
+  openTerminalAdvanced: (opts: {
+    cwd?: string | null;
+    mode?: "tab" | "split";
+    splitDir?: "row" | "col";
+    targetTabId?: number | null;
+  }) =>
+    | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
+    | { ok: false; error: string };
+  /** Move every terminal leaf into a single tab. Refuses if the total
+   *  exceeds the per-tab pane cap. */
+  consolidateTerminalsIntoGroup: (targetTabId: number) =>
+    | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
+    | { ok: false; error: string; movedBeforeFailure?: number };
+  /** Close a single terminal leaf. Refuses the very last leaf so the app
+   *  always has at least one tab. */
+  closeTerminalLeaf: (leafId: number) =>
+    | { ok: true; closedTab: boolean }
+    | { ok: false; error: string };
   /** Inject `command` into the active terminal AND submit (CR). Returns
    *  false if there is no active terminal tab to run in. Use this when
    *  the user asked the AI to "run X in the terminal" - the command and
    *  its output stay in the terminal the user is looking at, not the
    *  hidden agent shell. */
   runInActiveTerminal: (command: string) => boolean;
+  /** Snapshot every terminal leaf (across all tabs) with ordinal/title/cwd. */
+  listTerminals: () => TerminalInfo[];
+  /** Inject text into a specific terminal (no Enter). */
+  injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
+  /** Submit a command (Enter appended) to a specific terminal. */
+  runInTerminal: (target: TerminalTarget, command: string) => boolean;
 };
 
 export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
@@ -196,7 +227,13 @@ const NOOP_LIVE: Live = {
   getActiveFile: () => null,
   openPreview: () => false,
   openTerminal: () => false,
+  openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
+  consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),
+  closeTerminalLeaf: () => ({ ok: false, error: "live bridge not ready" }),
   runInActiveTerminal: () => false,
+  listTerminals: () => [],
+  injectIntoTerminal: () => false,
+  runInTerminal: () => false,
 };
 
 // Per-session Chat instances. Transport reads the keys map lazily, so a key
@@ -258,7 +295,16 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
+    openTerminalAdvanced: (opts) => useChatStore.getState().live.openTerminalAdvanced(opts),
+    consolidateTerminalsIntoGroup: (targetTabId) =>
+      useChatStore.getState().live.consolidateTerminalsIntoGroup(targetTabId),
+    closeTerminalLeaf: (leafId) => useChatStore.getState().live.closeTerminalLeaf(leafId),
     runInActiveTerminal: (command) => useChatStore.getState().live.runInActiveTerminal(command),
+    listTerminals: () => useChatStore.getState().live.listTerminals(),
+    injectIntoTerminal: (target, text) =>
+      useChatStore.getState().live.injectIntoTerminal(target, text),
+    runInTerminal: (target, command) =>
+      useChatStore.getState().live.runInTerminal(target, command),
     readCache,
     getSessionId: () => sessionId,
   };
@@ -282,6 +328,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
         cwd: live.getCwd(),
         workspaceRoot: live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
+        terminals: live.listTerminals(),
       };
     },
     getPlanMode: () => usePlanStore.getState().active,

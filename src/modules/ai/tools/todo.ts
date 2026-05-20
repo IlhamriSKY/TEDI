@@ -3,6 +3,7 @@ import { z } from "zod";
 import { newTodoId, validateTodos, type Todo } from "../lib/todos";
 import { useTodosStore } from "../store/todoStore";
 import type { ToolContext } from "./context";
+import { flexArrayReq } from "./schedule";
 
 const TodoStatus = z.enum(["pending", "in_progress", "completed"]);
 
@@ -10,23 +11,21 @@ export function buildTodoTools(ctx: ToolContext) {
   return {
     todo_write: tool({
       description:
-        "Replace your current task list. Use this for any non-trivial multi-step task (≥3 substantive steps). Mark exactly one item `in_progress` while you work on it; flip it to `completed` and the next to `in_progress` as you go. The tool replaces the previous list - always pass the FULL list, not a delta. Auto-executes (no approval).",
+        "Replace the task list (for ≥3-step tasks). Exactly one in_progress at a time. Pass the FULL list each call (not a delta). Auto.",
       inputSchema: z.object({
-        todos: z
-          .array(
-            z.object({
-              id: z
-                .string()
-                .optional()
-                .describe(
-                  "Stable id; generated if omitted. Reuse ids across calls to keep UI stable.",
-                ),
-              title: z.string().min(1),
-              description: z.string().optional(),
-              status: TodoStatus,
-            }),
-          )
-          .describe("The complete list of todos for this task."),
+        todos: flexArrayReq(
+          z.object({
+            id: z
+              .string()
+              .optional()
+              .describe(
+                "Stable id; generated if omitted. Reuse ids across calls to keep UI stable.",
+              ),
+            title: z.string().min(1),
+            description: z.string().optional(),
+            status: TodoStatus,
+          }),
+        ).describe("The complete list of todos for this task."),
       }),
       execute: async ({ todos }) => {
         const sessionId = ctx.getSessionId();

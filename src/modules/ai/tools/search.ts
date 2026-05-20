@@ -3,6 +3,7 @@ import { z } from "zod";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
 import { resolvePath, type ToolContext } from "./context";
+import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
 function resolveRoot(
   rawRoot: string | undefined,
@@ -29,7 +30,7 @@ export function buildSearchTools(ctx: ToolContext) {
   return {
     grep: tool({
       description:
-        "Search file contents in the workspace using a regular expression. Honors .gitignore. Returns up to `max_results` (default 200) `{path, line, text}` hits, with a `truncated` flag when more existed. Use this for code navigation - do NOT brute-force read_file across the tree.",
+        "Regex content search across workspace (ripgrep, .gitignore honored). Returns {path,line,text} hits. Prefer this over read_file loops.",
       inputSchema: z.object({
         pattern: z
           .string()
@@ -40,14 +41,11 @@ export function buildSearchTools(ctx: ToolContext) {
           .string()
           .optional()
           .describe("Root to search under. Defaults to workspace root, then active cwd."),
-        glob: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "Optional include-globs over relative paths, e.g. ['**/*.ts', 'src/**/*.tsx'].",
-          ),
-        case_insensitive: z.boolean().optional(),
-        max_results: z.number().int().min(1).max(2000).optional(),
+        glob: flexArrayOpt(z.string()).describe(
+          "Optional include-globs over relative paths, e.g. ['**/*.ts', 'src/**/*.tsx'].",
+        ),
+        case_insensitive: flexBoolOpt(),
+        max_results: flexIntOpt({ min: 1, max: 2000 }),
       }),
       execute: async ({ pattern, root, glob, case_insensitive, max_results }) => {
         const r = resolveRoot(root, ctx);
@@ -81,11 +79,11 @@ export function buildSearchTools(ctx: ToolContext) {
 
     glob: tool({
       description:
-        "Find files by path pattern (gitignore-aware). Use over `list_directory` when you want all matches recursively. Patterns use globset syntax: `**/*.ts`, `src/**/test_*.py`. Returns up to `max_results` matches.",
+        "Find files by path glob (e.g. `**/*.ts`). Gitignore-aware. Use over list_directory for recursive matches.",
       inputSchema: z.object({
         pattern: z.string().describe("Glob pattern over relative paths."),
         root: z.string().optional(),
-        max_results: z.number().int().min(1).max(2000).optional(),
+        max_results: flexIntOpt({ min: 1, max: 2000 }),
       }),
       execute: async ({ pattern, root, max_results }) => {
         const r = resolveRoot(root, ctx);

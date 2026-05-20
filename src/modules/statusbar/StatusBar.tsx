@@ -2,6 +2,8 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
+import { ExtensionStatusItems } from "@/modules/extensions";
+import { SchedulerStatusPill } from "@/modules/scheduler";
 import { UpdaterPill } from "@/modules/updater";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -41,6 +43,11 @@ export function StatusBar({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* Extension-contributed status icons, leftmost in the status
+            cluster so they don't fight the AI / updater pills for
+            primary attention. */}
+        <ExtensionStatusItems />
+        <SchedulerStatusPill />
         <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (
           <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">

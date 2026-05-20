@@ -1,5 +1,6 @@
 import { buildEditTools } from "./edit";
 import { buildFsTools } from "./fs";
+import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
 import { buildShellTools } from "./shell";
 import { buildSubagentTools } from "./subagent";
@@ -38,6 +39,7 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildSubagentTools(ctx),
     ...buildTerminalTools(ctx),
     ...buildTodoTools(ctx),
+    ...buildScheduleTools(ctx),
   } as const;
 }
 

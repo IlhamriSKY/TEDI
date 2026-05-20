@@ -5,6 +5,7 @@ import {
   setTheme as persistTheme,
   type ThemePref,
 } from "@/modules/settings/store";
+import { applyBrandColor, applyBrandColorFastPath } from "@/modules/settings/brandColor";
 
 export type Theme = ThemePref;
 
@@ -55,11 +56,14 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
       if (!alive) return;
       setThemeState(p.theme);
       writeFastTheme(p.theme);
+      applyBrandColor(p.brandColor);
     });
     const unlistenP = onPreferencesChange((key, value) => {
       if (key === "theme" && (value === "system" || value === "light" || value === "dark")) {
         setThemeState(value);
         writeFastTheme(value);
+      } else if (key === "brandColor" && typeof value === "string") {
+        applyBrandColor(value);
       }
     });
     return () => {
@@ -82,6 +86,9 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(resolvedTheme);
+    // Accent derivation differs per mode, so re-apply on theme flips using the
+    // cached hex - cheaper than re-hitting tauri-plugin-store.
+    applyBrandColorFastPath();
   }, [resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {

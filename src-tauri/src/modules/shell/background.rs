@@ -104,11 +104,57 @@ pub fn spawn(command: String, cwd: Option<String>) -> Result<Arc<BackgroundProc>
     if let Some(ref dir) = cwd {
         cmd.current_dir(dir);
     }
+    track_spawned(&mut cmd, trimmed, cwd)
+}
+
+/// Direct-binary background spawn. Unlike [`spawn`], this never wraps
+/// the program in a shell - the tracked PID is the binary's own
+/// process, so `shell_bg_kill` actually terminates it. Use this for
+/// extension-bundled native sidecars where a leaked grandchild would
+/// keep talking to external systems (Discord IPC, etc.) after the
+/// parent thinks it's gone.
+pub fn spawn_direct(
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+) -> Result<Arc<BackgroundProc>, String> {
+    if program.trim().is_empty() {
+        return Err("empty program".into());
+    }
+    if let Some(ref dir) = cwd {
+        if !PathBuf::from(dir).is_dir() {
+            return Err(format!("cwd is not a directory: {dir}"));
+        }
+    }
+    let mut cmd = std::process::Command::new(&program);
+    cmd.args(&args);
+    if let Some(ref dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    // Display string for the supervisor's bookkeeping. Not parsed; only
+    // surfaced via `shell_bg_list` / debug output.
+    let display = if args.is_empty() {
+        program.clone()
+    } else {
+        format!("{program} {}", args.join(" "))
+    };
+    track_spawned(&mut cmd, display, cwd)
+}
+
+/// Shared spawn-and-track plumbing used by both [`spawn`] (shell-wrapped)
+/// and [`spawn_direct`] (no wrapper). Owns the stdin/out/err redirects,
+/// hands the child to `SharedChild`, and starts the three logging /
+/// wait threads.
+fn track_spawned(
+    cmd: &mut std::process::Command,
+    display: String,
+    cwd: Option<String>,
+) -> Result<Arc<BackgroundProc>, String> {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let shared = SharedChild::spawn(&mut cmd).map_err(|e| e.to_string())?;
+    let shared = SharedChild::spawn(cmd).map_err(|e| e.to_string())?;
     let stdout_pipe = shared.take_stdout().ok_or("no stdout pipe")?;
     let stderr_pipe = shared.take_stderr().ok_or("no stderr pipe")?;
     let child = Arc::new(shared);
@@ -119,7 +165,7 @@ pub fn spawn(command: String, cwd: Option<String>) -> Result<Arc<BackgroundProc>
         .unwrap_or(0);
 
     let proc = Arc::new(BackgroundProc {
-        command: trimmed,
+        command: display,
         cwd,
         started_at_ms,
         child,

@@ -39,3 +39,10 @@ Thumbs.db
 # Project-local working files
 /icon.png
 TODO.MD
+
+# Extensions are developed in this workspace but pushed to their own
+# repos (each one has its own .git, README, LICENSE, release CI). Keep
+# the working copies on disk for local iteration but never commit them
+# to the TEDI main repo.
+/extensions/*/
+!/extensions/README.md

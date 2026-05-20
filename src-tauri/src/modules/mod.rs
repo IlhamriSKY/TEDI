@@ -1,5 +1,5 @@
 pub mod cli;
-pub mod discord;
+pub mod extensions;
 pub mod fs;
 pub mod git;
 pub mod net;

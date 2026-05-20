@@ -11,12 +11,12 @@ const TYPE_KEYS = Object.keys(SUBAGENTS) as [SubagentType, ...SubagentType[]];
 export function buildSubagentTools(ctx: ToolContext) {
   return {
     run_subagent: tool({
-      description: `Spawn an isolated subagent with its own restricted toolset and a fresh message history. Use when you need to delegate a self-contained read-only investigation (large search, code review, security audit) without polluting your own context. The subagent returns a single text summary; pick a 'type' that matches its job.
+      description: `Spawn an isolated read-only subagent (own tools + fresh history). Delegate large search / review / audit to keep your context clean. Returns a single text summary.
 
 Types:
 ${TYPE_KEYS.map((k) => `- ${k}: ${SUBAGENTS[k].description}`).join("\n")}
 
-Auto-executes (no approval) - subagents are read-only by design.`,
+Auto.`,
       inputSchema: z.object({
         type: z.enum(TYPE_KEYS),
         prompt: z

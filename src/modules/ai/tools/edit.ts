@@ -1,10 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { dispatchFsRefreshForFile } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import { resolvePath, type ToolContext } from "./context";
+import { flexArrayReq, flexBoolOpt } from "./schedule";
 
 type EditResult =
   | { ok: true; replacements: number; bytesWritten: number; path: string }
@@ -105,6 +107,10 @@ async function applyEdits(
       });
     }
     await native.writeFile(abs, content);
+    // Edit doesn't add/remove an entry in the parent directory, but its
+    // mtime/size still change — refresh so any explorer mtime sorts /
+    // size columns stay accurate.
+    dispatchFsRefreshForFile(abs);
     return {
       ok: true,
       replacements: totalReplacements,
@@ -120,14 +126,14 @@ export function buildEditTools(ctx: ToolContext) {
   return {
     edit: tool({
       description:
-        "Replace an exact string in a file. Requires read_file on this path first in the current session - this prevents blind edits. `old_string` must be unique in the file unless `replace_all: true`. Asks for user approval before writing.",
+        "Replace an exact string in a file. Requires prior read_file (read-before-edit). old_string must be unique unless replace_all=true. Approval.",
       inputSchema: z.object({
         path: z.string(),
         old_string: z
           .string()
           .describe("Exact substring to replace. Must be unique unless replace_all."),
         new_string: z.string().describe("Replacement substring."),
-        replace_all: z.boolean().optional(),
+        replace_all: flexBoolOpt(),
       }),
       needsApproval: true,
       execute: async ({ path, old_string, new_string, replace_all }) => {
@@ -151,18 +157,16 @@ export function buildEditTools(ctx: ToolContext) {
 
     multi_edit: tool({
       description:
-        "Apply several exact-string replacements to a single file atomically. Each edit is applied in order to the running buffer; if any edit's old_string is missing or non-unique, the whole batch aborts before writing. Requires prior read_file on the path. Asks for user approval before writing.",
+        "Apply N exact-string replacements to one file atomically. Aborts whole batch if any edit misses or is non-unique. Requires prior read_file. Approval.",
       inputSchema: z.object({
         path: z.string(),
-        edits: z
-          .array(
-            z.object({
-              old_string: z.string(),
-              new_string: z.string(),
-              replace_all: z.boolean().optional(),
-            }),
-          )
-          .min(1),
+        edits: flexArrayReq(
+          z.object({
+            old_string: z.string(),
+            new_string: z.string(),
+            replace_all: flexBoolOpt(),
+          }),
+        ).refine((arr) => arr.length >= 1, "edits must have at least one entry"),
       }),
       needsApproval: true,
       execute: async ({ path, edits }) => {

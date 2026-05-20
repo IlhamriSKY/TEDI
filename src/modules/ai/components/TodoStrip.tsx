@@ -1,7 +1,7 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Cancel01Icon, CheckmarkSquare02Icon, SquareIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -96,11 +96,9 @@ function TodoRow({ todo }: { todo: Todo }) {
 
   if (!todo.description) return row;
   return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>{row}</TooltipTrigger>
-        <TooltipContent side="left">{todo.description}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>{row}</TooltipTrigger>
+      <TooltipContent side="left">{todo.description}</TooltipContent>
+    </Tooltip>
   );
 }

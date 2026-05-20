@@ -6,7 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
@@ -16,7 +16,6 @@ import {
   TERMINAL_FONT_SIZES,
   setAiNotificationsEnabled,
   setAutostart,
-  setDiscordRpcEnabled,
   setEditorTheme,
   setRestoreWindowState,
   setShowHiddenFiles,
@@ -34,6 +33,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
+import { BrandColorPicker } from "../components/BrandColorPicker";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
@@ -63,7 +63,6 @@ export function GeneralSection() {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
-  const discordRpcEnabled = usePreferencesStore((s) => s.discordRpcEnabled);
 
   // Reconcile autostart pref with the actual OS state on mount - the user may
   // have toggled it from System Settings.
@@ -142,6 +141,12 @@ export function GeneralSection() {
             </button>
           ))}
         </div>
+        <SettingRow
+          title="Main color"
+          description="Primary accent for buttons, links, focus rings, and the sidebar selection."
+        >
+          <BrandColorPicker />
+        </SettingRow>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -187,24 +192,22 @@ export function GeneralSection() {
           title={
             <span className="inline-flex items-center gap-1.5">
               Use WebGL renderer
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      className="text-muted-foreground/70 cursor-help text-[11px] leading-none"
-                      aria-label="More info about WebGL renderer"
-                    >
-                      ⓘ
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS
-                    setups (especially with Nerd Fonts), the atlas corrupts and terminal text
-                    becomes unreadable. Turn this off as a fallback - performance dips slightly, but
-                    text renders correctly via the DOM renderer.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="text-muted-foreground/70 cursor-help text-[11px] leading-none"
+                    aria-label="More info about WebGL renderer"
+                  >
+                    ⓘ
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS
+                  setups (especially with Nerd Fonts), the atlas corrupts and terminal text
+                  becomes unreadable. Turn this off as a fallback - performance dips slightly, but
+                  text renders correctly via the DOM renderer.
+                </TooltipContent>
+              </Tooltip>
             </span>
           }
           description="Hardware-accelerated rendering. Turn off if text shows corruption or blank tiles."
@@ -311,19 +314,6 @@ export function GeneralSection() {
           <Switch
             checked={aiNotificationsEnabled}
             onCheckedChange={(v) => void setAiNotificationsEnabled(v)}
-          />
-        </SettingRow>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Integrations</Label>
-        <SettingRow
-          title="Discord Rich Presence"
-          description="Share what you're working on as a Discord status (workspace folder, active file, open terminals, elapsed time). Requires the Discord desktop app to be running."
-        >
-          <Switch
-            checked={discordRpcEnabled}
-            onCheckedChange={(v) => void setDiscordRpcEnabled(v)}
           />
         </SettingRow>
       </div>

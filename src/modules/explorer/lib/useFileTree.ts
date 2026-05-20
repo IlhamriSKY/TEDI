@@ -16,6 +16,33 @@ type ChildrenState =
 
 type TreeState = Record<string, ChildrenState>;
 
+/** Polling interval for silently re-reading every loaded directory while the
+ *  window is focused & visible. Picks up files created externally (terminal,
+ *  another editor, AI shell tools) without a backend FS watcher. */
+const AUTO_REFRESH_MS = 4000;
+
+/** Global event other modules can dispatch to ask the explorer to refresh
+ *  a specific directory immediately — e.g. after an AI write/create/delete.
+ *  Detail `{ path }` refreshes that exact directory; omitting `path`
+ *  refreshes every loaded directory. */
+export const FS_REFRESH_EVENT = "tedi:refresh-fs";
+
+function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.name !== y.name ||
+      x.kind !== y.kind ||
+      x.mtime !== y.mtime ||
+      x.size !== y.size
+    )
+      return false;
+  }
+  return true;
+}
+
 export type PendingCreate = {
   parentPath: string;
   kind: "file" | "dir";
@@ -53,27 +80,71 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const fetchGen = useRef<Map<string, number>>(new Map());
 
   const fetchChildren = useCallback(
-    async (path: string) => {
+    async (path: string, opts: { silent?: boolean } = {}) => {
       const gen = (fetchGen.current.get(path) ?? 0) + 1;
       fetchGen.current.set(path, gen);
-      setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+      // Silent refresh keeps the previous entries on screen until the new
+      // response lands - avoids a "Loading…" flash during background polling.
+      if (!opts.silent) {
+        setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+      }
       try {
         const entries = await invoke<DirEntry[]>("fs_read_dir", {
           path,
           includeHidden,
         });
         if (fetchGen.current.get(path) !== gen) return;
-        setNodes((s) => ({ ...s, [path]: { status: "loaded", entries } }));
+        setNodes((s) => {
+          // Background poll: if the listing is identical (same names,
+          // mtimes, sizes), skip the state update entirely. Avoids
+          // re-rendering the whole tree every poll tick.
+          if (opts.silent) {
+            const prev = s[path];
+            if (prev?.status === "loaded" && sameEntries(prev.entries, entries)) {
+              return s;
+            }
+          }
+          return { ...s, [path]: { status: "loaded", entries } };
+        });
       } catch (e) {
         if (fetchGen.current.get(path) !== gen) return;
-        setNodes((s) => ({
-          ...s,
-          [path]: { status: "error", message: String(e) },
-        }));
+        // Silent refresh failures (file deleted under us, permissions
+        // changed, etc.) shouldn't blow away the cached entries the user
+        // is looking at. Foreground fetches still surface the error.
+        if (!opts.silent) {
+          setNodes((s) => ({
+            ...s,
+            [path]: { status: "error", message: String(e) },
+          }));
+        }
       }
     },
     [includeHidden],
   );
+
+  // Hold the latest fetchChildren in a ref so the polling effect doesn't
+  // need to re-subscribe every time `includeHidden` flips (which would
+  // tear down + recreate the interval).
+  const fetchChildrenRef = useRef(fetchChildren);
+  fetchChildrenRef.current = fetchChildren;
+
+  /** Re-read every directory currently loaded in the tree. Silent: keeps
+   *  the existing UI on screen and only repaints rows that actually
+   *  changed. Used by the focus/visibility/interval auto-refresh. */
+  const refreshAllLoaded = useCallback(() => {
+    const dirs = Object.keys(nodes);
+    for (const p of dirs) {
+      void fetchChildrenRef.current(p, { silent: true });
+    }
+  }, [nodes]);
+
+  const refreshAllLoadedRef = useRef(refreshAllLoaded);
+  refreshAllLoadedRef.current = refreshAllLoaded;
+
+  // Latest `nodes` snapshot for use inside event handlers that we don't
+  // want to re-subscribe on every tree change.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
   // Root change → reset state.
   useEffect(() => {
@@ -108,6 +179,77 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     // mutation - including `nodes` would create a refetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeHidden, rootPath]);
+
+  // Auto-refresh: keep the tree in sync with external mutations (terminal
+  // commands creating files, another editor saving, AI shell tools, etc.)
+  // without a backend FS watcher. Three triggers:
+  //  - window focus / visibility-visible → immediate silent refresh
+  //  - polling interval while focused → silent refresh of every loaded dir
+  //  - FS_REFRESH_EVENT broadcast → targeted (or full) silent refresh
+  // Stops polling on blur / hidden so a backgrounded window doesn't burn
+  // CPU for nothing.
+  useEffect(() => {
+    if (!rootPath) return;
+
+    let intervalId: number | null = null;
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          refreshAllLoadedRef.current();
+        }
+      }, AUTO_REFRESH_MS);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshAllLoadedRef.current();
+        start();
+      } else {
+        stop();
+      }
+    };
+    const onFocus = () => {
+      refreshAllLoadedRef.current();
+      start();
+    };
+    const onBlur = () => stop();
+    const onRefreshEvent = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ path?: string } | undefined>).detail;
+      if (detail?.path) {
+        // Targeted refresh — only the specific dir whose contents changed.
+        const p = detail.path;
+        if (fetchGen.current.has(p) || nodesRef.current[p]) {
+          void fetchChildrenRef.current(p, { silent: true });
+        }
+      } else {
+        refreshAllLoadedRef.current();
+      }
+    };
+
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
+    };
+    // `nodes` is only read inside `onRefreshEvent` to validate the path,
+    // so depending on it would tear down + recreate the listeners on every
+    // tree change. We intentionally skip it - the ref-based access pattern
+    // sees the latest tree state without re-subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootPath]);
 
   const toggle = useCallback(
     (path: string) => {

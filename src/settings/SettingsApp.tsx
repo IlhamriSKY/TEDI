@@ -8,6 +8,7 @@ import {
   AiScanIcon,
   Cancel01Icon,
   InformationCircleIcon,
+  PuzzleIcon,
   Settings01Icon,
   UserMultiple02Icon,
   KeyboardIcon,
@@ -28,6 +29,9 @@ const ModelsSection = lazy(() =>
 const AgentsSection = lazy(() =>
   import("./sections/AgentsSection").then((m) => ({ default: m.AgentsSection })),
 );
+const ExtensionsSection = lazy(() =>
+  import("./sections/ExtensionsSection").then((m) => ({ default: m.ExtensionsSection })),
+);
 const AboutSection = lazy(() =>
   import("./sections/AboutSection").then((m) => ({ default: m.AboutSection })),
 );
@@ -42,10 +46,18 @@ const TABS: {
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
   { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
   { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
+  { id: "extensions", label: "Extensions", icon: PuzzleIcon, component: ExtensionsSection },
   { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
 ];
 
-const VALID_TABS: SettingsTab[] = ["general", "shortcuts", "models", "agents", "about"];
+const VALID_TABS: SettingsTab[] = [
+  "general",
+  "shortcuts",
+  "models",
+  "agents",
+  "extensions",
+  "about",
+];
 
 function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";

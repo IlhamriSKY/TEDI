@@ -5,8 +5,13 @@ import { Tooltip as TooltipPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
+// Baseline delay for every tooltip in the app. 200ms is the sweet spot
+// between "feels instant on intentional hover" and "doesn't spam popovers
+// when the cursor passes through dense rows of icon buttons". All call-sites
+// inherit this through the root <TooltipProvider/> in App.tsx and
+// SettingsApp.tsx, so a single number controls hover feel everywhere.
 function TooltipProvider({
-  delayDuration = 0,
+  delayDuration = 200,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (

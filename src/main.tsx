@@ -9,10 +9,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
+import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
 }
+
+applyBrandColorFastPath();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);
 

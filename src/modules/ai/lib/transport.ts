@@ -1,5 +1,6 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
+import type { TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { ProviderKeys } from "./keyring";
@@ -45,6 +46,10 @@ type LiveSnapshot = {
   cwd: string | null;
   workspaceRoot: string | null;
   activeFile: string | null;
+  /** Snapshot of every terminal in current tab order. Surfaced in the
+   *  per-turn <env> block so the AI can address terminals by ordinal/title
+   *  without first calling `list_terminals`. */
+  terminals: TerminalInfo[];
 };
 
 type Deps = {
@@ -124,6 +129,20 @@ function formatEnvBlock(live: LiveSnapshot): string | null {
   if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);
   if (live.cwd) lines.push(`active_terminal_cwd: ${live.cwd}`);
   if (live.activeFile) lines.push(`active_file: ${live.activeFile}`);
+  if (live.terminals.length > 0) {
+    // Compact form: each terminal on one line as
+    //   `#<ord><*>  tab=<tabId> leaf=<leafId>  <title>  <cwd>`
+    // The asterisk marks the focused terminal. Shorter than key=value pairs
+    // and still gives the model every id it needs for targeting.
+    lines.push("terminals:");
+    for (const t of live.terminals) {
+      const star = t.isActive ? "*" : " ";
+      const cwd = t.cwd ?? "";
+      lines.push(
+        `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}`,
+      );
+    }
+  }
   if (lines.length === 0) return null;
   return `<env>\n${lines.join("\n")}\n</env>\n\n`;
 }

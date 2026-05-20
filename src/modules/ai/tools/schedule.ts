@@ -1,0 +1,279 @@
+import { tool } from "ai";
+import { z } from "zod";
+import { scheduler } from "@/modules/scheduler";
+import type { TerminalTarget } from "@/modules/scheduler/types";
+import { checkShellCommand } from "../lib/security";
+import type { ToolContext } from "./context";
+
+/**
+ * Some providers (OpenAI fn-calling, several OpenAI-compatible gateways) serialize
+ * nested arg objects as JSON strings. Other models stringify numbers ("180" instead
+ * of 180). Tools defined here see both shapes, so each preprocess block coerces
+ * the value back to the expected type before zod validates - otherwise the SDK
+ * surfaces a validation error to the model and it has to retry, burning tokens.
+ */
+function coerceJsonObject(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return v;
+  }
+}
+
+function coerceNumber(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (!trimmed) return undefined;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : v;
+  }
+  return v;
+}
+
+function coerceInt(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (!trimmed) return undefined;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && Number.isInteger(n) ? n : v;
+  }
+  return v;
+}
+
+function coerceBool(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "" ) return undefined;
+    if (s === "true" || s === "1" || s === "yes") return true;
+    if (s === "false" || s === "0" || s === "no") return false;
+  }
+  return v;
+}
+
+/** Optional int field tolerant of stringified numbers and explicit `null`.
+ *  Output type is `number | undefined` (null is coerced to undefined in
+ *  preprocess so downstream code doesn't need to handle three states). */
+export function flexIntOpt(opts: { min?: number; max?: number } = {}) {
+  let inner = z.number().int();
+  if (opts.min !== undefined) inner = inner.min(opts.min);
+  if (opts.max !== undefined) inner = inner.max(opts.max);
+  return z.preprocess(coerceInt, inner.optional());
+}
+
+/** Required version of flexIntOpt. */
+export function flexIntReq(opts: { min?: number; max?: number } = {}) {
+  let inner = z.number().int();
+  if (opts.min !== undefined) inner = inner.min(opts.min);
+  if (opts.max !== undefined) inner = inner.max(opts.max);
+  return z.preprocess(coerceInt, inner);
+}
+
+/** Optional boolean tolerant of "true"/"false"/"1"/"0" strings and null.
+ *  Output type is `boolean | undefined`. */
+export function flexBoolOpt() {
+  return z.preprocess(coerceBool, z.boolean().optional());
+}
+
+/** Wrap an array schema so a JSON-stringified array is parsed before
+ *  validation. Some providers serialize array tool args as strings. Required
+ *  variant - field must be present. */
+export function flexArrayReq<T extends z.ZodTypeAny>(item: T) {
+  return z.preprocess(coerceJsonObject, z.array(item));
+}
+
+/** Optional flex array. `null` → `undefined`, JSON-string → parsed array. */
+export function flexArrayOpt<T extends z.ZodTypeAny>(item: T) {
+  return z.preprocess(coerceJsonObject, z.array(item).optional());
+}
+
+/** Wrap an object schema so a JSON-stringified object is parsed first. */
+export function flexObjectOpt<T extends z.ZodRawShape>(shape: T) {
+  return z.preprocess(coerceJsonObject, z.object(shape).optional());
+}
+
+const targetObjectSchema = z
+  .object({
+    leaf_id: flexIntOpt(),
+    tab_id: flexIntOpt(),
+    ordinal: flexIntOpt({ min: 1 }),
+    title: z.string().nullable().optional(),
+  })
+  .strict();
+
+/** Target accepted as either an object or a JSON-stringified object. */
+const targetSchema = z
+  .preprocess(coerceJsonObject, targetObjectSchema.optional())
+  .describe(
+    "Pick ONE field: { ordinal } > { leaf_id } > { tab_id } > { title }. Omit to target the focused terminal.",
+  );
+
+const flexNumber = (max: number) =>
+  z.preprocess(coerceNumber, z.number().min(0).max(max).optional());
+
+function normalizeTarget(input: unknown): TerminalTarget {
+  if (!input || typeof input !== "object") return {};
+  const i = input as Record<string, unknown>;
+  const out: TerminalTarget = {};
+  if (typeof i.leaf_id === "number") out.leafId = i.leaf_id;
+  if (typeof i.tab_id === "number") out.tabId = i.tab_id;
+  if (typeof i.ordinal === "number") out.ordinal = i.ordinal;
+  if (typeof i.title === "string" && i.title.trim()) out.title = i.title.trim();
+  return out;
+}
+
+export function buildScheduleTools(ctx: ToolContext) {
+  return {
+    list_terminals: tool({
+      description:
+        "List open terminals (ordinal, tab_id, leaf_id, title, cwd). Use when the env block is stale or you need fresh detail. Auto.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const terms = ctx.listTerminals();
+        if (terms.length === 0) return { terminals: [] };
+        return { terminals: terms };
+      },
+    }),
+
+    send_to_terminal: tool({
+      description:
+        "Type text into a specific terminal at the prompt (no Enter). Use for pre-filling so the user can edit before running.",
+      inputSchema: z.object({
+        text: z.string().describe("Text to type. No trailing newline."),
+        target: targetSchema,
+      }),
+      execute: async ({ text, target }) => {
+        const safety = checkShellCommand(text);
+        if (!safety.ok) return { error: safety.reason };
+        const trimmed = text.replace(/[\r\n]+$/, "");
+        const t = normalizeTarget(target);
+        const ok = ctx.injectIntoTerminal(t, trimmed);
+        if (!ok)
+          return { error: "target terminal not found", text: trimmed };
+        return { text: trimmed, injected: true, target: t };
+      },
+    }),
+
+    run_in_terminal_by_id: tool({
+      description:
+        "Submit a command (Enter appended) into a specific terminal. Output stays in that user-visible terminal. Needs approval.",
+      inputSchema: z.object({
+        command: z.string().describe("Command. No trailing newline."),
+        target: targetSchema,
+      }),
+      needsApproval: true,
+      execute: async ({ command, target }) => {
+        const safety = checkShellCommand(command);
+        if (!safety.ok) return { error: safety.reason };
+        const trimmed = command.replace(/[\r\n]+$/, "");
+        const t = normalizeTarget(target);
+        const ok = ctx.runInTerminal(t, trimmed);
+        if (!ok)
+          return { error: "target terminal not found", command: trimmed };
+        return { command: trimmed, submitted: true, target: t };
+      },
+    }),
+
+    schedule_command: tool({
+      description:
+        'Queue a future command. Parse time (any language) → delay_seconds OR fire_at_iso. action="submit" runs (default), "inject" only types. Approval.',
+      inputSchema: z.object({
+        command: z.string().min(1),
+        delay_seconds: flexNumber(60 * 60 * 24 * 30).describe(
+          "Seconds from now until fire. Mutually exclusive with fire_at_iso.",
+        ),
+        fire_at_iso: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Absolute ISO-8601 timestamp. Mutually exclusive with delay_seconds."),
+        action: z
+          .enum(["inject", "submit"])
+          .nullable()
+          .optional()
+          .describe('"submit" (default) runs the command. "inject" only types.'),
+        target: targetSchema,
+        label: z.string().nullable().optional(),
+      }),
+      needsApproval: true,
+      execute: async ({ command, delay_seconds, fire_at_iso, action, target, label }) => {
+        const safety = checkShellCommand(command);
+        if (!safety.ok) return { error: safety.reason };
+        const trimmed = command.replace(/[\r\n]+$/, "");
+
+        let fireAt: number;
+        if (typeof delay_seconds === "number" && delay_seconds >= 0) {
+          fireAt = Date.now() + Math.round(delay_seconds * 1000);
+        } else if (typeof fire_at_iso === "string" && fire_at_iso.trim()) {
+          const ms = Date.parse(fire_at_iso);
+          if (Number.isNaN(ms))
+            return { error: `could not parse fire_at_iso "${fire_at_iso}".` };
+          fireAt = ms;
+        } else {
+          return { error: "supply delay_seconds (relative) or fire_at_iso (absolute)." };
+        }
+        if (fireAt < Date.now() - 1000)
+          return { error: `fireAt is in the past (${new Date(fireAt).toISOString()}).` };
+
+        const t = normalizeTarget(target);
+        const schedule = await scheduler.create({
+          fireAt,
+          command: trimmed,
+          action: action ?? "submit",
+          target: t,
+          label: label?.trim() || undefined,
+        });
+        return {
+          id: schedule.id,
+          fireAt: new Date(schedule.fireAt).toISOString(),
+          fireInSeconds: Math.round((schedule.fireAt - Date.now()) / 1000),
+          command: schedule.command,
+          action: schedule.action,
+          target: schedule.target,
+          label: schedule.label,
+        };
+      },
+    }),
+
+    list_schedules: tool({
+      description: "List all pending + recent scheduled commands. Auto.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const items = scheduler.getAll().map((s) => ({
+          id: s.id,
+          status: s.status,
+          fireAt: new Date(s.fireAt).toISOString(),
+          fireInSeconds:
+            s.status === "pending" ? Math.round((s.fireAt - Date.now()) / 1000) : null,
+          command: s.command,
+          action: s.action,
+          target: s.target,
+          label: s.label,
+          firedAt: s.firedAt ? new Date(s.firedAt).toISOString() : null,
+          error: s.error,
+        }));
+        return { schedules: items };
+      },
+    }),
+
+    cancel_schedule: tool({
+      description: "Cancel a pending schedule by id (from list_schedules). Auto.",
+      inputSchema: z.object({ id: z.string() }),
+      execute: async ({ id }) => {
+        const ok = await scheduler.cancel(id);
+        if (!ok) return { error: "no pending schedule with that id" };
+        return { id, cancelled: true };
+      },
+    }),
+  } as const;
+}
+
+/** Exposed so other tool files (close_terminal etc.) reuse the same coercion. */
+export const SHARED_TARGET_SCHEMA = targetSchema;
+export const normalizeTargetExternal = normalizeTarget;

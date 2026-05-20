@@ -170,6 +170,17 @@
   *::after {
     border-radius: 0 !important;
   }
+
+  /* Default pointer for every interactive button. The shadcn `<Button>`
+   * component already declares `cursor-pointer` in its cva base, but the
+   * codebase also uses raw `<button>` elements (tabs, statusbar pills,
+   * close buttons, etc.) - giving them a pointer here keeps the feel
+   * consistent without having to remember the utility class at each call
+   * site. Disabled buttons opt out so they read as inactive. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }
 
 /* Custom window chrome (Linux/Windows): the OS gives us a transparent
@@ -262,14 +273,47 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   outline: none !important;
 }
 
-/* @codemirror/merge's base theme forces every .cm-editor inside .cm-mergeView
- * to `height: auto !important`, by design - vertical scrolling is meant to
- * happen at the outer .cm-mergeView (which gets `overflow-y: auto` from the
- * package). But the package never sets a height on .cm-mergeView itself, so
- * without this rule the merge view grows past its host and nothing scrolls.
- * Per-pane horizontal scroll lives on .cm-scroller and continues to work. */
+/* @codemirror/merge's default architecture is "outer .cm-mergeView scrolls
+ * vertically; each .cm-editor has height: auto so both panes render their
+ * full content and stay in sync naturally." Side effect: horizontal scroll
+ * lives on .cm-scroller, whose height grows with content, so the per-pane
+ * horizontal scrollbar always sits at the BOTTOM of the document (= below
+ * the viewport for any file longer than the visible area). Users never see
+ * it.
+ *
+ * Fix: flip to per-pane scrolling. Force each .cm-editor to fill its flex
+ * cell, give each .cm-scroller `overflow: auto` on both axes, and disable
+ * the outer vertical scroll. Vertical sync between the two panes is
+ * reattached imperatively in GitDiffPane (the merge package doesn't sync
+ * scrollTop itself — its design relied on a single outer scroll container).
+ *
+ * .cm-mergeViewEditors / .cm-mergeViewEditor are the package's own
+ * wrappers (see node_modules/@codemirror/merge/.../index.js); we need them
+ * to be `min-height: 0` so flex children can actually shrink. */
 .cm-mergeView {
   height: 100% !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.cm-mergeView .cm-mergeViewEditors {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.cm-mergeView .cm-mergeViewEditor {
+  min-height: 0;
+  min-width: 0;
+  /* Anchor for the absolutely-positioned .diff-ruler (overview ruler that
+   * shows added/removed line ticks next to the native scrollbar). */
+  position: relative;
+}
+.cm-mergeView .cm-editor {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+.cm-mergeView .cm-scroller {
+  overflow: auto !important;
 }
 
 /* Visible 1px divider between the two MergeView panes so the HEAD side and
@@ -278,6 +322,53 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
  * without interfering with the package's own layout/scroll wiring. */
 .cm-mergeView .cm-merge-b {
   border-left: 1px solid var(--border);
+}
+
+/* Overview ruler — VSCode-style scrollbar annotations for GitDiffPane.
+ * The ruler is laid right on top of the native scrollbar track (right: 0)
+ * and sized in JS to match the scrollbar's width; the thumb floats above
+ * the ticks the same way it does in VSCode. Container is pointer-events:
+ * none so dragging the scrollbar thumb keeps working; .diff-ruler-mark
+ * children opt back into pointer events to remain clickable for jump-to-
+ * line. z-index sits below the scrollbar thumb (which the browser paints
+ * at its own native layer) but above .cm-content. */
+.diff-ruler {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.diff-ruler-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.85;
+  border-radius: 1px;
+  /* Reset browser <button> chrome — the element is a button now (so it
+   * gets styled tooltip + keyboard focus) but the visual is the colored
+   * tick, not a button surface. */
+  padding: 0;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  transition: opacity 80ms ease;
+}
+.diff-ruler-mark:hover,
+.diff-ruler-mark:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+.diff-ruler-added {
+  background: #16a34a;
+}
+.diff-ruler-removed {
+  background: #dc2626;
 }
 
 /* ===== Opt-out classes =====

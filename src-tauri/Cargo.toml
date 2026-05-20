@@ -49,7 +49,14 @@ russh = { version = "0.60", default-features = false, features = ["ring", "flate
 russh-sftp = "2.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
 async-trait = "0.1"
-discord-rich-presence = "0.2"
+# Extension system: zip extraction with path-traversal guards via
+# `ZipFile::enclosed_name()`. Pinned to a recent line; default features
+# bring deflate/bzip2/zstd which cover GitHub-released zips.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# SHA-256 for extension integrity hashing (used to surface a stable
+# fingerprint in the install-review dialog; not used as a trust anchor).
+sha2 = "0.10"
+hex = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [
@@ -64,6 +71,7 @@ windows-sys = { version = "0.59", features = [
 	"Win32_Foundation",
 	"Win32_Security",
 	"Win32_Security_Cryptography",
+	"Win32_Storage_FileSystem",
 	"Win32_System_Console",
 	"Win32_System_JobObjects",
 	"Win32_System_Threading",

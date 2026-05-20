@@ -66,7 +66,7 @@ Single-window React app, path alias `@/*` → `src/*`. Tabs are a tagged union (
 
 ### Module layout (`src/modules/`)
 
-Each module is self-contained, exports a thin barrel via `index.ts`, owns its hooks under `lib/`. **13 modules:**
+Each module is self-contained, exports a thin barrel via `index.ts`, owns its hooks under `lib/`. **14 modules:**
 
 | Module          | Role                                                                                                                                                                                                                                                   |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -83,6 +83,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, owns its ho
 | **settings/**   | Settings store (`store.ts` via `tauri-plugin-store`), preferences hook (`preferences.ts`), settings window opener.                                                                                                                                     |
 | **theme/**      | `next-themes` provider.                                                                                                                                                                                                                                |
 | **ai/**         | See AI subsystem below.                                                                                                                                                                                                                                |
+| **extensions/** | Third-party extension system. Each extension is a `.zip` of `manifest.json` + `extension.js` + assets. Installs from local file, HTTPS URL, or `owner/repo` GitHub release. `loader.ts` boot-scans `<app_data_dir>/extensions/`, dynamic-imports each enabled one, calls `activate(ctx)`. The `host.ts` factory produces the permission-gated `ExtensionContext` (`settings`, `secrets`, `invoke`, `events`, `app`, `contribute.*`, `registerCommandHandler`). Built-in TEDI surfaces read from contribution `registries.ts` so an extension can add a setting/theme/slash command/AI tool. Reference extensions are checked into [`extensions/`](extensions/) at the repo root for users to package and install manually — nothing extension-related is bundled into the release binary. |
 
 > **Note:** OSC event handling lives inside `terminal/lib/`, not a separate `shell-integration/` module. `updater/` module hosts the in-app updater (status-bar pill + dialog) on top of `tauri-plugin-updater`.
 
@@ -191,6 +192,57 @@ Already wired: `dialog`, `autostart`, `window-state`, `store`, `opener`, `os`, `
 | Linux .deb/.rpm | Tauri auto-installs the Cargo binary as `/usr/bin/tedi`. No extra step.                                                                                                                                                                                                                                                               | apt/dnf replace the binary in place. Path stays valid. No user action.                                                                                                       |
 | Linux AppImage  | Run Settings → "Install `tedi` command in PATH". Shim resolves to `$APPIMAGE` (the .AppImage file the user keeps around), not the temp squashfs mount path.                                                                                                                                                                           | `refresh_shim_if_present` on next launch rewrites the shim to the new `$APPIMAGE` if the user renamed/replaced the .AppImage.                                                |
 | macOS .app/.dmg | Run Settings → "Install `tedi` command in PATH". Shim resolves to the binary inside `TEDI.app/Contents/MacOS/`.                                                                                                                                                                                                                       | Shim target is the absolute path inside `.app`; in-place updates keep working. If the user moves the `.app` between folders, `refresh_shim_if_present` heals on next launch. |
+
+## Extensions subsystem
+
+Extensions live at `<app_data_dir>/extensions/<id>/` and are loaded by the
+frontend via dynamic ES-module import. Each extension ships:
+
+```
+my-ext/
+├── manifest.json   (id, name, version, permissions, contributes.*)
+├── extension.js    (optional - exports activate(ctx) / deactivate())
+└── assets/         (themes, icons, css, ...)
+```
+
+**Install pipeline** (`src-tauri/src/modules/extensions/`):
+
+| Command (`#[tauri::command]`)    | Source path                                |
+| -------------------------------- | ------------------------------------------ |
+| `ext_install_from_zip`           | Local `.zip` picked via dialog plugin (also handles upgrades — same id replaces). |
+| `ext_install_from_github`        | `owner/repo` → `releases/latest` → `.zip` asset (falls back to zipball). |
+| `ext_check_update`               | Hits GitHub `releases/latest`, semver-compares against installed `manifest.version`, persists `latest_version` + `last_checked_at_ms` in `state.json`. No-op (timestamp-only) for `source: local:*` entries. |
+| `ext_list / ext_enable / ext_disable / ext_uninstall / ext_read_manifest / ext_read_asset / ext_read_asset_bytes` | state + asset ops |
+
+> Generic HTTPS-URL installs were removed deliberately. The two officially
+> supported channels are **GitHub releases** (for update tracking) and
+> **packaged `.zip` files** (for offline / private distribution). Authors
+> can still host a zip anywhere — users download it manually and feed the
+> file picker, which preserves the trust-on-first-install boundary.
+
+Security guards in [install.rs](src-tauri/src/modules/extensions/install.rs): zip entries that fail `ZipFile::enclosed_name()` are rejected; total uncompressed size capped at 50 MiB; per-file 10 MiB; HTTPS-only downloads. State persisted at `<app_data_dir>/extensions/state.json` (enabled flag, install source, approved permissions, SHA-256 fingerprint of folder).
+
+**Host API surface** (`window.tedi`-equivalent passed to `activate(ctx)`):
+
+- `ctx.settings.get/set/onChange(key)` - auto-namespaced as `ext:<id>:<key>` via `_writeAny`/`_readAny` in [settings/store.ts](src/modules/settings/store.ts).
+- `ctx.secrets.get/set(name)` - OS keychain, namespaced.
+- `ctx.invoke(cmd, args)` - permission-gated against `invoke:<cmd>` declarations. `secrets_get_all` is hard-denied even with `*`.
+- `ctx.events.emit/on(name)` - tunneled through Tauri events as `ext://<id>/<name>`.
+- `ctx.app.getContext / onContextChange` - read-only view of `{workspaceCwd, activeFileName, terminalCount}` pushed by `App.tsx` via `setAppContext` (`extensions/appBridge.ts`).
+- `ctx.contribute.{settings,commands,keybindings,slashCommands,themes,editorThemes,panels,aiTools}` - declarative contributions; built-in code reads via `registries.ts`. Settings auto-render under each extension's card in Settings -> Extensions.
+- `ctx.registerCommandHandler / registerAiToolHandler` - runtime side-channel for handlers that can't live in the JSON contribution.
+
+**Permission strings** (`permissions.ts`): `settings:read|write`, `secrets:read|write`, `invoke:<cmd>` (globs allowed, e.g. `invoke:my_plugin_*`), `events:emit|listen`, `ui:toast`, `panels:register`, or `*` for power-user installs. The set declared in the manifest is recorded in `state.json` as `approved_permissions` on every install (re-install/update replaces it). The host API uses `approved_permissions` to gate every call; raw `@tauri-apps/api invoke` bypasses the gate by design (v1 trust model is install-time review — see `extensions/README.md`).
+
+`secrets_get_all` is **hard-denied** even with `*` so an extension can never enumerate the full keychain.
+
+**Reference extensions live in their own repos.** None ship in the TEDI binary. The [`extensions/`](extensions/) folder in this workspace is gitignored (`/extensions/*/` rule in `.gitignore` with `!/extensions/README.md` re-include) — author/maintainer can keep working copies on disk under `extensions/<id>/` for local iteration, then `git init` each one as its own repo and push to GitHub. The release CI in that separate repo produces the `.zip` asset TEDI's installer consumes.
+
+| Reference extension | Repo | Install string |
+| --- | --- | --- |
+| Discord Rich Presence | [IlhamriSKY/TEDI.discord-rich-presence](https://github.com/IlhamriSKY/TEDI.discord-rich-presence) | `IlhamriSKY/TEDI.discord-rich-presence` |
+
+The Discord example demonstrates every host-API pattern an integration needs: `contribute.settings` (the "Publish presence" toggle), `settings.onChange`, `app.onContextChange`, permission-gated `invoke()`, idempotent `deactivate()`. **The codebase ships zero Discord code** (no Rust module, no crate dep, no toggle in core settings). The example handles a missing host backend gracefully — first `invoke()` returns "not found", a single warning toast fires, the retry loop short-circuits, and disable/uninstall still tear down cleanly. See [extensions/README.md](extensions/README.md) (the only file in `extensions/` that *is* committed) for the manifest schema, host-API reference, and a copy-pasteable release workflow.
 
 ## Known gotchas
 

@@ -222,6 +222,25 @@ pub fn shell_bg_spawn(
     Ok(id)
 }
 
+/// Background spawn that bypasses the host shell entirely - the tracked
+/// PID is the binary itself, so `shell_bg_kill` actually terminates the
+/// program (not just a `pwsh` / `bash` wrapper that leaks the real
+/// child). Use this for extension sidecars where a leaked grandchild
+/// would keep an external connection alive (e.g. Discord IPC) after the
+/// user thinks they disabled the extension.
+#[tauri::command]
+pub fn shell_bg_spawn_direct(
+    state: tauri::State<ShellState>,
+    program: String,
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+) -> Result<u32, String> {
+    let proc = background::spawn_direct(program, args.unwrap_or_default(), cwd)?;
+    let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
+    state.bg.write().unwrap().insert(id, proc);
+    Ok(id)
+}
+
 #[tauri::command]
 pub fn shell_bg_logs(
     state: tauri::State<ShellState>,

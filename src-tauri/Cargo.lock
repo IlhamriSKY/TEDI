@@ -750,7 +750,7 @@ checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
 dependencies = [
  "byteorder",
  "fnv",
- "uuid 1.23.1",
+ "uuid",
 ]
 
 [[package]]
@@ -1394,19 +1394,6 @@ dependencies = [
  "option-ext",
  "redox_users 0.5.2",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "discord-rich-presence"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a75db747ecd252c01bfecaf709b07fcb4c634adf0edb5fed47bc9c3052e7076b"
-dependencies = [
- "serde",
- "serde_derive",
- "serde_json",
- "serde_repr",
- "uuid 0.8.2",
 ]
 
 [[package]]
@@ -4859,7 +4846,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.23.1",
+ "uuid",
 ]
 
 [[package]]
@@ -5208,7 +5195,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid 1.23.1",
+ "uuid",
 ]
 
 [[package]]
@@ -6144,7 +6131,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
- "uuid 1.23.1",
+ "uuid",
  "walkdir",
 ]
 
@@ -6367,7 +6354,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.60.2",
- "zip",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -6470,7 +6457,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid 1.23.1",
+ "uuid",
  "walkdir",
 ]
 
@@ -6492,11 +6479,11 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "dirs 5.0.1",
- "discord-rich-presence",
  "globset",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
+ "hex",
  "ignore",
  "keyring",
  "log",
@@ -6507,6 +6494,7 @@ dependencies = [
  "russh-sftp",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "shared_child",
  "tauri",
  "tauri-build",
@@ -6523,6 +6511,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.59.0",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -7075,15 +7064,6 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.17",
-]
 
 [[package]]
 name = "uuid"
@@ -8244,7 +8224,7 @@ dependencies = [
  "serde_repr",
  "tracing",
  "uds_windows",
- "uuid 1.23.1",
+ "uuid",
  "windows-sys 0.61.2",
  "winnow 1.0.3",
  "zbus_macros",
@@ -8360,6 +8340,23 @@ dependencies = [
 
 [[package]]
 name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "displaydoc",
+ "flate2",
+ "indexmap 2.14.0",
+ "memchr",
+ "thiserror 2.0.18",
+ "zopfli",
+]
+
+[[package]]
+name = "zip"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
@@ -8375,6 +8372,18 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zopfli"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05cd8797d63865425ff89b5c4a48804f35ba0ce8d125800027ad6017d2b5249"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "log",
+ "simd-adler32",
+]
 
 [[package]]
 name = "zvariant"

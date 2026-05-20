@@ -84,6 +84,13 @@ type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
   leafKind: "terminal" | "editor";
+  /**
+   * 1-based number stamped on every terminal leaf in current tab order.
+   * Surfaces as a small badge in the TabBar AND is the same identifier the
+   * AI sees via `<env>`. So "terminal 3" in the user's prompt matches the
+   * badge directly.
+   */
+  terminalOrdinal?: number;
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
   /** Latest known status for SSH leaves, drives the colored dot. */
@@ -170,11 +177,16 @@ function buildEntries(
   aiCliStatuses?: Map<number, AiCliStatus>,
 ): Entry[] {
   const out: Entry[] = [];
+  // Running 1-based ordinal across all terminal leaves in current tab order.
+  // The same numbering is exposed to the AI via `<env>` so a badge "3" on a
+  // tab matches what the user can write ("terminal 3") and what the AI sees.
+  let terminalOrdinal = 0;
   for (const t of tabs) {
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
         const label = entryLabel(leaf, t.cwd, sshHosts);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
+        const ord = leaf.leafKind === "terminal" ? ++terminalOrdinal : undefined;
         out.push({
           kind: "pane-leaf",
           key: `leaf-${leaf.id}`,
@@ -182,6 +194,7 @@ function buildEntries(
           leafId: leaf.id,
           leafKind: leaf.leafKind,
           label,
+          terminalOrdinal: ord,
           italic:
             leaf.leafKind === "editor" &&
             (leaf as PaneLeaf & { preview?: boolean }).preview === true,
@@ -466,16 +479,23 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
-      data-tauri-drag-region
-      // Thin overlay scrollbar pinned to the bottom edge - visible on hover
-      // when there are more tabs than fit. Using `overlay` (and the WebKit
-      // height of 4px) means the scrollbar paints OVER the row instead of
-      // reserving layout space, so the 28px tab strip stays vertically
-      // centered against the 40px header buttons. Wheel-scroll still works
-      // via the listener above.
-      className="group/tabscroll hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/80 flex h-full min-w-0 shrink [scrollbar-width:thin] [scrollbar-color:transparent_transparent] items-center overflow-x-auto overflow-y-hidden hover:[scrollbar-color:var(--muted-foreground)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent"
+      // Opt out of the Tauri drag region. Without this, mousedown on the
+      // native scrollbar (or on any empty pixel inside the strip) bubbles
+      // up to the header's drag handler and starts dragging the window
+      // when the user just wanted to grab the thumb.
+      data-tauri-drag-region="false"
+      // Inherits the unified 10px boxy scrollbar from globals.css so the
+      // bar at the bottom matches every other scrollable surface in the
+      // app. The `pt-2.5` (10px) offsets the tab content downward by
+      // exactly the height the scrollbar reserves at the bottom, so the
+      // 28px tab triggers stay vertically centred against the icon buttons
+      // on either side of the 48px header. Wheel-scroll still works via
+      // the listener above. We intentionally do NOT set `scrollbar-width`
+      // or `scrollbar-color` - doing so would flip Chromium to the modern
+      // CSS scrollbar UI and bypass the global webkit rules.
+      className="flex h-full min-w-0 shrink items-center overflow-x-auto overflow-y-hidden pt-2.5"
     >
-      <div data-tauri-drag-region className="flex w-max items-center gap-0.5">
+      <div data-tauri-drag-region="false" className="flex w-max items-center gap-0.5">
         <Tabs
           value={activeKey ?? ""}
           onValueChange={(k) => {
@@ -528,6 +548,9 @@ export function TabBar({
                   )}
                 >
                   <EntryIcon entry={draggedEntry} />
+                  {draggedEntry.kind === "pane-leaf" && draggedEntry.terminalOrdinal ? (
+                    <TerminalOrdinalBadge ordinal={draggedEntry.terminalOrdinal} />
+                  ) : null}
                   <span className={cn("truncate", draggedEntry.italic && "italic")}>
                     {draggedEntry.label}
                   </span>
@@ -763,6 +786,9 @@ function SortableTabGroup({
               )}
             >
               <EntryIcon entry={e} />
+              {e.kind === "pane-leaf" && e.terminalOrdinal ? (
+                <TerminalOrdinalBadge ordinal={e.terminalOrdinal} />
+              ) : null}
               <span className={cn("truncate", e.italic && "italic")}>{e.label}</span>
               {e.kind === "pane-leaf" && e.aiCliStatus ? (
                 <AiCliChip status={e.aiCliStatus} />
@@ -958,6 +984,22 @@ function AiCliChip({ status }: { status: NonNullable<AiCliStatus> }) {
       aria-label={label}
     >
       {word}
+    </span>
+  );
+}
+
+/**
+ * Tiny monospaced "T<n>" badge stamped next to terminal entries. The same
+ * ordinal is surfaced to the AI in the per-turn `<env>` block, so users can
+ * say "send to terminal 3" and the AI maps it directly to this badge.
+ */
+function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
+  return (
+    <span
+      aria-label={`Terminal ${ordinal}`}
+      className="border-border/60 bg-muted/60 text-muted-foreground inline-flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-sm border px-[3px] font-mono text-[9px] leading-none font-semibold tabular-nums"
+    >
+      {ordinal}
     </span>
   );
 }

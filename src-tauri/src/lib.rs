@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{cli, discord, fs, git, net, preview, pty, secrets, shell, ssh};
+use modules::{cli, extensions, fs, git, net, preview, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -206,7 +206,9 @@ pub fn run() {
     // Second-invocation forwarding: when the user runs `tedi <path>` while an
     // instance is already up, the new process exits early after handing off
     // its argv. Desktop-only - the plugin doesn't build for android/ios.
-    #[cfg(desktop)]
+    // Skipped in debug builds so `pnpm tauri dev` can run alongside an
+    // installed release without the two fighting over the same identifier lock.
+    #[cfg(all(desktop, not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let cwd_path = std::path::PathBuf::from(&cwd);
         let update_requested = cli::update_requested_in(argv.iter().map(|s| s.as_str()));
@@ -269,7 +271,7 @@ pub fn run() {
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
         .manage(ssh::SshState::default())
-        .manage(discord::DiscordState::default())
+        .manage(extensions::ExtensionsState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_write,
@@ -298,6 +300,7 @@ pub fn run() {
             shell::shell_session_run,
             shell::shell_session_close,
             shell::shell_bg_spawn,
+            shell::shell_bg_spawn_direct,
             shell::shell_bg_logs,
             shell::shell_bg_kill,
             shell::shell_bg_list,
@@ -323,9 +326,18 @@ pub fn run() {
             ssh::sftp::ssh_sftp_create_dir,
             ssh::sftp::ssh_sftp_rename,
             ssh::sftp::ssh_sftp_delete,
-            discord::discord_rpc_connect,
-            discord::discord_rpc_update,
-            discord::discord_rpc_disconnect,
+            extensions::commands::ext_list,
+            extensions::commands::ext_read_manifest,
+            extensions::commands::ext_read_asset,
+            extensions::commands::ext_read_asset_bytes,
+            extensions::commands::ext_install_from_zip,
+            extensions::commands::ext_install_from_github,
+            extensions::commands::ext_peek_zip,
+            extensions::commands::ext_peek_github,
+            extensions::commands::ext_check_update,
+            extensions::commands::ext_enable,
+            extensions::commands::ext_disable,
+            extensions::commands::ext_uninstall,
         ])
         .on_window_event(|window, event| {
             // Mirror main-window visibility onto the settings child so it

@@ -31,7 +31,7 @@ import {
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
-import { useDiscordRichPresence } from "@/modules/discord";
+import { setAppContext } from "@/modules/extensions/appBridge";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -65,6 +65,7 @@ import {
 } from "@/modules/tabs";
 import {
   disposeSession,
+  findLeaf,
   hasLeaf,
   leafIds,
   leaves,
@@ -79,6 +80,8 @@ import { type SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import { toolDisplayName, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
+import { scheduler, setSchedulerBridge } from "@/modules/scheduler";
+import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import {
   defaultTabForEmptyWorkspace,
   savedToTab,
@@ -124,6 +127,65 @@ const SshConnectionDialog = lazy(() =>
 const SshFileExplorer = lazy(() =>
   import("@/modules/ssh/SshFileExplorer").then((m) => ({ default: m.SshFileExplorer })),
 );
+
+/** Context object the live-terminal helpers read. Mirrors a subset of
+ *  `liveContextRef.current` - kept narrow so the helpers stay testable. */
+type LiveTerminalCtx = {
+  tabs: ReturnType<typeof useTabs>["tabs"];
+  activeId: number;
+};
+
+/** Snapshot all terminal leaves in current tab order, assigning a stable
+ *  1-based ordinal across tabs. The same ordering is rendered as badges
+ *  on the TabBar so users and AI see consistent numbers. */
+function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
+  const out: TerminalInfo[] = [];
+  let ordinal = 0;
+  for (const t of ctx.tabs) {
+    if (t.kind !== "pane") continue;
+    for (const l of leaves(t.paneTree)) {
+      if (l.leafKind !== "terminal") continue;
+      ordinal += 1;
+      out.push({
+        tabId: t.id,
+        leafId: l.id,
+        ordinal,
+        title: t.title,
+        cwd: l.cwd ?? null,
+        isActive: t.id === ctx.activeId && t.activeLeafId === l.id,
+      });
+    }
+  }
+  return out;
+}
+
+/** Resolve a TerminalTarget to a leaf id. Order: leafId > tabId > ordinal >
+ *  title (substring, case-insensitive). Empty target → active terminal. */
+function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): number | null {
+  const list = snapshotTerminals(ctx);
+  if (list.length === 0) return null;
+  if (typeof target.leafId === "number") {
+    const hit = list.find((r) => r.leafId === target.leafId);
+    return hit ? hit.leafId : null;
+  }
+  if (typeof target.tabId === "number") {
+    const hit = list.find((r) => r.tabId === target.tabId && r.isActive)
+      ?? list.find((r) => r.tabId === target.tabId);
+    return hit ? hit.leafId : null;
+  }
+  if (typeof target.ordinal === "number") {
+    const hit = list.find((r) => r.ordinal === target.ordinal);
+    return hit ? hit.leafId : null;
+  }
+  if (typeof target.title === "string" && target.title.trim()) {
+    const needle = target.title.trim().toLowerCase();
+    const hit = list.find((r) => r.title.toLowerCase().includes(needle));
+    return hit ? hit.leafId : null;
+  }
+  // Empty target → active terminal if any.
+  const active = list.find((r) => r.isActive);
+  return active ? active.leafId : null;
+}
 
 function sameOrigin(a: string, b: string): boolean {
   try {
@@ -424,6 +486,14 @@ export default function App() {
   useEffect(() => {
     void initPrefs();
   }, [initPrefs]);
+  // Boot the extension subsystem after prefs so any extension-contributed
+  // settings (themes, slash commands, AI tools) land before the UI renders
+  // its first frame. Idempotent - safe to call again from settings window.
+  useEffect(() => {
+    void import("@/modules/extensions").then(({ useExtensionsStore }) =>
+      useExtensionsStore.getState().init(),
+    );
+  }, []);
   // One-shot boot restore: pick the last model the user actually used, fall
   // back to the workspace default if it's gone (key removed, model deleted).
   // Guarded by a ref so picking a different model in the dropdown later
@@ -668,10 +738,11 @@ export default function App() {
     pickedRoot,
   );
 
-  // Discord Rich Presence is opt-in (Settings → General). The hook stays
-  // dormant until the preference flips on; once on, it reflects the active
-  // file name (editor leaf) or terminal count (no file open) plus the
-  // current workspace folder.
+  // Snapshot of "what is the user doing right now" pushed into the
+  // extension subsystem via `setAppContext`. Extensions that want a live
+  // view (presence integrations, productivity trackers, etc.) subscribe
+  // via `tedi.app.onContextChange`. Core code no longer carries
+  // integration-specific hooks - extensions own their own lifecycles.
   const activeFileName = useMemo(() => {
     if (!activePaneTab) return null;
     const leaf = activeLeaf(activePaneTab);
@@ -689,11 +760,9 @@ export default function App() {
     }
     return n;
   }, [tabs]);
-  useDiscordRichPresence({
-    workspaceCwd: explorerRoot,
-    activeFileName,
-    terminalCount,
-  });
+  useEffect(() => {
+    setAppContext({ workspaceCwd: explorerRoot, activeFileName, terminalCount });
+  }, [explorerRoot, activeFileName, terminalCount]);
 
   // When the active leaf changes (or the active tab changes), surface its
   // search addon / editor handle / detected URL for the chrome bits.
@@ -1588,6 +1657,10 @@ export default function App() {
     openPreviewTab,
     newTab,
     inheritedCwdForNewTab,
+    splitActivePane,
+    setActiveId,
+    moveLeafToTab,
+    closePaneByLeaf,
   });
   liveContextRef.current = {
     tabs,
@@ -1597,6 +1670,10 @@ export default function App() {
     openPreviewTab,
     newTab,
     inheritedCwdForNewTab,
+    splitActivePane,
+    setActiveId,
+    moveLeafToTab,
+    closePaneByLeaf,
   };
 
   useEffect(() => {
@@ -1675,8 +1752,184 @@ export default function App() {
         term.focus();
         return true;
       },
+      listTerminals: () => snapshotTerminals(liveContextRef.current),
+      injectIntoTerminal: (target, text) => {
+        const leafId = resolveTerminalLeaf(target, liveContextRef.current);
+        if (leafId === null) return false;
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return false;
+        term.write(text);
+        return true;
+      },
+      runInTerminal: (target, command) => {
+        const leafId = resolveTerminalLeaf(target, liveContextRef.current);
+        if (leafId === null) return false;
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return false;
+        const trimmed = command.replace(/[\r\n]+$/, "");
+        term.write(`${trimmed}\r`);
+        return true;
+      },
+      openTerminalAdvanced: (opts: {
+        cwd?: string | null;
+        mode?: "tab" | "split";
+        splitDir?: "row" | "col";
+        targetTabId?: number | null;
+      }) => {
+        const {
+          tabs,
+          activeId,
+          explorerRoot,
+          inheritedCwdForNewTab,
+          splitActivePane,
+          newTab,
+          setActiveId,
+        } = liveContextRef.current;
+        const mode = opts.mode ?? "tab";
+        const cwd = opts.cwd ?? null;
+        if (mode === "split") {
+          const targetTabId = opts.targetTabId ?? activeId;
+          const target = tabs.find((x) => x.id === targetTabId);
+          if (!target) return { ok: false, error: `tab ${targetTabId} not found` };
+          if (target.kind !== "pane")
+            return { ok: false, error: `tab ${targetTabId} is not a pane tab` };
+          if (leafIds(target.paneTree).length >= MAX_PANES_PER_TAB)
+            return { ok: false, error: `tab ${targetTabId} already has MAX_PANES_PER_TAB panes` };
+          // Focus the target tab so the splitter operates on it.
+          if (targetTabId !== activeId) setActiveId(targetTabId);
+          const dir = opts.splitDir ?? "row";
+          const cwdResolved =
+            cwd ??
+            (() => {
+              const active = findLeaf(target.paneTree, target.activeLeafId);
+              return active?.leafKind === "terminal" ? (active.cwd ?? null) : null;
+            })() ??
+            explorerRoot ??
+            null;
+          const newLeafId = splitActivePane(
+            targetTabId,
+            dir,
+            "terminal",
+            cwdResolved ?? undefined,
+          );
+          if (newLeafId === null)
+            return { ok: false, error: "could not split (active leaf missing or limit reached)" };
+          return { ok: true, tabId: targetTabId, leafId: newLeafId, mode: "split" };
+        }
+        const targetCwd = cwd ?? explorerRoot ?? inheritedCwdForNewTab();
+        try {
+          const newTabId = newTab(targetCwd ?? undefined);
+          return { ok: true, tabId: newTabId, leafId: null, mode: "tab" };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+      consolidateTerminalsIntoGroup: (targetTabId) => {
+        const { tabs, moveLeafToTab, setActiveId } = liveContextRef.current;
+        const target = tabs.find((x) => x.id === targetTabId);
+        if (!target) return { ok: false, error: `tab ${targetTabId} not found` };
+        if (target.kind !== "pane")
+          return { ok: false, error: `tab ${targetTabId} is not a pane tab` };
+        const allTerminals = snapshotTerminals(liveContextRef.current);
+        if (allTerminals.length === 0)
+          return { ok: false, error: "no terminals open to consolidate" };
+        if (allTerminals.length > MAX_PANES_PER_TAB)
+          return {
+            ok: false,
+            error: `cannot consolidate ${allTerminals.length} terminals into one tab — the per-tab cap is ${MAX_PANES_PER_TAB}. Close some or merge in batches.`,
+          };
+        let moved = 0;
+        let alreadyInGroup = 0;
+        for (const t of allTerminals) {
+          if (t.tabId === targetTabId) {
+            alreadyInGroup += 1;
+            continue;
+          }
+          const r = moveLeafToTab(t.leafId, targetTabId);
+          if (r === "ok") {
+            moved += 1;
+          } else if (r === "full") {
+            return {
+              ok: false,
+              error: "target tab filled up mid-move",
+              movedBeforeFailure: moved,
+            };
+          } else {
+            return {
+              ok: false,
+              error: `move failed (${r})`,
+              movedBeforeFailure: moved,
+            };
+          }
+        }
+        // Focus the consolidated group so the user sees the result.
+        setActiveId(targetTabId);
+        return { ok: true, targetTabId, moved, alreadyInGroup };
+      },
+      closeTerminalLeaf: (leafId) => {
+        const { tabs, closePaneByLeaf } = liveContextRef.current;
+        const owner = tabs.find(
+          (t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
+        );
+        if (!owner || owner.kind !== "pane")
+          return { ok: false, error: `leaf ${leafId} not found` };
+        const onlyLeafInTab = leafIds(owner.paneTree).length === 1;
+        const onlyTab = tabs.filter((t) => t.kind === "pane").length === 1;
+        if (onlyLeafInTab && onlyTab)
+          return { ok: false, error: "refusing to close the last terminal" };
+        closePaneByLeaf(leafId);
+        return { ok: true, closedTab: onlyLeafInTab };
+      },
     });
   }, [setLive]);
+
+  // Boot the schedule-trigger engine once. The bridge closures read live
+  // state through `liveContextRef` so they stay valid across re-renders -
+  // the scheduler outlives any single React commit.
+  useEffect(() => {
+    setSchedulerBridge({
+      listTerminals: () => snapshotTerminals(liveContextRef.current),
+      injectIntoTerminal: (target, text) => {
+        const leafId = resolveTerminalLeaf(target, liveContextRef.current);
+        if (leafId === null) return false;
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return false;
+        term.write(text);
+        return true;
+      },
+      runInTerminal: (target, command) => {
+        const leafId = resolveTerminalLeaf(target, liveContextRef.current);
+        if (leafId === null) return false;
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return false;
+        const trimmed = command.replace(/[\r\n]+$/, "");
+        term.write(`${trimmed}\r`);
+        return true;
+      },
+      notify: (message, level) => {
+        const variant =
+          level === "success"
+            ? "success"
+            : level === "warning"
+              ? "warning"
+              : level === "error"
+                ? "error"
+                : "info";
+        toast(message, { variant });
+      },
+    });
+    void scheduler.boot();
+    // Prune fired/cancelled history every 5min so the persisted store stays small.
+    const interval = window.setInterval(
+      () => {
+        void scheduler.pruneHistory();
+      },
+      5 * 60_000,
+    );
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
 
   // Surface every open editor leaf to the AI input as a click-to-attach
   // suggestion chip. De-dup by path so the same file shared across split
