@@ -3,13 +3,19 @@
  * `StatusItem` currently sitting in `statusItemsRegistry`, ordered by
  * (extensionId, itemId) for stable visual layout across renders.
  *
- * Each item is a small 18 px icon with a tooltip. The icon resolves via
- * `loadExtensionIcon` so its bytes are cached across re-renders and
- * across extensions sharing the same path.
+ * Each item is a bare 16 px icon with a tooltip. 11 px (the size used
+ * by the labeled pills next door) read as too small for a stand-alone
+ * mark next to the "Open AI agent" / "Ctrl+I" affordances - 16 px is
+ * the standard `size-4` utility, balanced with the surrounding text.
+ * No frame chrome - icons read as marks, not buttons.
+ * The icon resolves via `loadExtensionIcon` so its bytes are cached
+ * across re-renders and across extensions sharing the same path.
  *
- * Tone tinting (`success` / `warning` / `error`) is rendered as a tiny
- * dot in the bottom-right corner of the icon - cheaper than colouring
- * the icon itself, and works regardless of the icon's own colour.
+ * Tone tinting:
+ *   - `success` → icon at full opacity, no extra badge (the live
+ *     vs. dimmed state already conveys "connected").
+ *   - `warning` / `error` → tiny dot in the top-right corner so the
+ *     user notices something needs attention.
  */
 import { useEffect, useState } from "react";
 
@@ -59,7 +65,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       <span
         role="img"
         aria-label={item.tooltip}
-        className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
+        className="text-foreground/85 relative inline-flex h-6 w-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
         {iconUrl ? (
           <img
@@ -77,7 +83,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
             draggable={false}
           />
         ) : (
-          <span className="bg-muted size-3.5 rounded-sm" aria-hidden />
+          <span className="bg-muted size-4 rounded-sm" aria-hidden />
         )}
         {dot ? (
           <span
