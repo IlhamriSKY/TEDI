@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{cli, extensions, fs, git, net, preview, pty, secrets, shell, ssh};
+use modules::{cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
@@ -193,6 +193,18 @@ pub fn run() {
     // Short-circuit `tedi --version` / `tedi --help` before anything else -
     // we want these to be instant and never touch the GUI runtime.
     cli::handle_version_help_and_exit();
+
+    // Short-circuit `tedi ext …` / `tedi --extension …` before GUI boot.
+    // Runs install / list / update / uninstall headlessly against the
+    // same `<app_data_dir>/extensions/` directory and exits.
+    cli_ext::handle_extension_command_and_exit();
+
+    // Short-circuit `tedi --update` / `-u` on Windows: fetch latest.json,
+    // verify the bundle's minisign signature against the embedded pubkey,
+    // spawn the NSIS installer in passive mode, exit. On non-Windows the
+    // call returns and the existing GUI updater dialog handles it via
+    // `INITIAL_UPDATE_REQUEST` (set below by `capture_startup`).
+    cli_update::handle_update_command_and_exit();
 
     // Resolve `tedi .` / `tedi <path>` against the launch cwd before any
     // other startup logic can shift the working directory.

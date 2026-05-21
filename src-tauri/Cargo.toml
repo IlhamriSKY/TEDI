@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.12"
+version = "0.2.13"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -57,6 +57,14 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # fingerprint in the install-review dialog; not used as a trust anchor).
 sha2 = "0.10"
 hex = "0.4"
+# Arrow-key `Select` prompt for the `tedi ext list` interactive picker.
+# Default features bring `editor` / `history` / `password` / fuzzy which
+# we don't use; the bare Select widget is in the always-on base.
+dialoguer = { version = "0.11", default-features = false }
+# Verify-only minisign implementation. Same crate `tauri-plugin-updater`
+# uses internally — keeps the headless `tedi --update` path semantically
+# identical to the GUI updater. No signing dependencies pulled in.
+minisign-verify = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [

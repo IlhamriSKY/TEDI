@@ -240,6 +240,15 @@ function compactActiveChat(): SlashOutcome {
   chat.messages = trimmed;
   flushPersist(sessionId);
   void saveMessages(sessionId, trimmed);
+  // Mirror auto-compact: stamp lastCompact so the context-indicator pulse
+  // fires for manual /compact too. We classify a slash-command drop as
+  // Stage-3 "dropped" since it removes whole UI messages from history.
+  state.patchAgentMeta({
+    lastCompact: {
+      at: Date.now(),
+      stages: { lossless: 0, elided: 0, dropped: info.dropped },
+    },
+  });
   return {
     kind: "handled",
     toast: `Compacted: dropped ${info.dropped}, kept ${info.kept} of ${before}`,

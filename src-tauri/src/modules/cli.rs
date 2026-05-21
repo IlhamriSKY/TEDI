@@ -56,6 +56,7 @@ fn help_text() -> String {
         "USAGE:\n",
         "    tedi [PATH]\n",
         "    tedi [FLAG]\n",
+        "    tedi ext <SUBCOMMAND> [ARGS]    (manage extensions, headless)\n",
         "\n",
         "If TEDI is already running, the request is forwarded to that window\n",
         "(a second window is not opened).\n",
@@ -63,12 +64,21 @@ fn help_text() -> String {
         "FLAGS:\n",
         "    -h, --help           Print this help and exit\n",
         "    -v, -V, --version    Print version and exit\n",
-        "    -u, --update         Check for updates and open the update dialog\n",
+        "    -u, --update         Check for updates and install in place (headless)\n",
         "\n",
         "ARGS:\n",
         "    PATH             Folder to open, or file to edit. Use `.` for the\n",
         "                     current directory. Relative paths resolve against\n",
-        "                     the shell's cwd.",
+        "                     the shell's cwd.\n",
+        "\n",
+        "EXTENSION SUBCOMMANDS (run `tedi ext help` for full reference):\n",
+        "    tedi ext install <path|owner/repo|registry-id>\n",
+        "    tedi ext list                  Browse registry (interactive picker on TTY)\n",
+        "    tedi ext list --installed      Locally installed (alias: `tedi ext installed`)\n",
+        "    tedi ext update [<ID>]         Check upstream for updates\n",
+        "    tedi ext uninstall <ID>\n",
+        "    tedi ext enable <ID>\n",
+        "    tedi ext disable <ID>",
     )
     .to_string()
 }
@@ -85,7 +95,7 @@ fn help_text() -> String {
 /// Without `AttachConsole`, the EXE's `println!` writes to a detached handle
 /// and the user sees nothing.
 #[cfg(target_os = "windows")]
-fn attach_parent_console() {
+pub(crate) fn attach_parent_console() {
     use std::io::Write;
     use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
     // SAFETY: AttachConsole is documented safe to call from any thread and
@@ -104,7 +114,7 @@ fn attach_parent_console() {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn attach_parent_console() {}
+pub(crate) fn attach_parent_console() {}
 
 /// Short-circuit `--version` / `--help` before any GUI setup runs. Called at
 /// the very top of `lib::run`. Matches anywhere in argv (not just argv[1]) so

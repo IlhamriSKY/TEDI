@@ -39,6 +39,7 @@ import {
   saveSessionsList,
   type SessionMeta,
 } from "../lib/sessions";
+import type { CompactStages } from "../lib/compact";
 import { disposeSessionShell } from "../tools/shell";
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
@@ -105,12 +106,23 @@ export type SessionUsage = {
   cached: number;
 };
 
+/** Most-recent compaction event for the active session. Drives the brief
+ *  pulse badge next to the context indicator + the breakdown line in its
+ *  hover card. Includes Stage 1 (lossless dedup) so the indicator confirms
+ *  EVERY compaction pass, even the silent-by-design ones that don't warrant
+ *  a toast. Reset on session switch / clear. */
+export type LastCompact = {
+  at: number;
+  stages: CompactStages;
+};
+
 export type AgentMeta = {
   status: AgentRunStatus;
   step: string | null;
   approvalsPending: number;
   error: string | null;
   usage: SessionUsage;
+  lastCompact: LastCompact | null;
 };
 
 const ZERO_USAGE: SessionUsage = { input: 0, output: 0, cached: 0 };
@@ -121,6 +133,7 @@ const IDLE_META: AgentMeta = {
   approvalsPending: 0,
   error: null,
   usage: ZERO_USAGE,
+  lastCompact: null,
 };
 
 export type MiniState = {
@@ -405,12 +418,14 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       }));
     },
     onCompact: ({ stages }) => {
-      // Stage 1 (lossless dedup of superseded reads) runs almost every turn
-      // — toasting it would be pure noise. Only surface meaningful action:
-      // Stage 2 elision is reversible-on-resend but the user is now near the
-      // window, and Stage 3 drop is information-loss that demands awareness.
-      if (stages.elided === 0 && stages.dropped === 0) return;
       const now = Date.now();
+      // Always reflect EVERY compaction pass (including Stage 1 lossless
+      // dedup) in agentMeta so the in-header pulse badge fires every time
+      // — that's the visible "compaction just ran" indicator.
+      useChatStore.getState().patchAgentMeta({ lastCompact: { at: now, stages } });
+      // Toast is the heavier signal: keep it for meaningful action only
+      // (Stage 2 elision or Stage 3 drop), and throttle across turns.
+      if (stages.elided === 0 && stages.dropped === 0) return;
       const last = lastAutoCompactToastAt.get(sessionId) ?? 0;
       if (now - last < AUTO_COMPACT_TOAST_THROTTLE_MS) return;
       lastAutoCompactToastAt.set(sessionId, now);

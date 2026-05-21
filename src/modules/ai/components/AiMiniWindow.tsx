@@ -26,10 +26,11 @@ import {
   Cancel01Icon,
   Delete02Icon,
   FilterIcon,
+  Minimize02Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { getModel, getModelContextLimit } from "../config";
 import type { SessionMeta } from "../lib/sessions";
 import { useAgentsStore } from "../store/agentsStore";
@@ -245,6 +246,95 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
+/** Visual proof that compaction just happened. The badge appears for
+ *  COMPACT_BADGE_MS next to the context indicator and disappears on its own.
+ *  We deliberately surface even Stage 1 (lossless dedup) here so the user can
+ *  literally see EVERY compaction pass — silent dedup would otherwise leave
+ *  the impression that "auto-compact isn't running." */
+const COMPACT_BADGE_MS = 6000;
+
+function CompactPulseBadge() {
+  const lastCompact = useChatStore((s) => s.agentMeta.lastCompact);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!lastCompact) return;
+    setVisible(true);
+    const t = setTimeout(() => setVisible(false), COMPACT_BADGE_MS);
+    return () => clearTimeout(t);
+  }, [lastCompact]);
+  if (!visible || !lastCompact) return null;
+  const { dropped, elided, lossless } = lastCompact.stages;
+  // Tone matches severity: drop = warning, elide = info, lossless = subtle.
+  const tone =
+    dropped > 0
+      ? "border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+      : elided > 0
+        ? "border-sky-500/60 bg-sky-500/15 text-sky-700 dark:text-sky-300"
+        : "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  const detail =
+    dropped > 0 ? `−${dropped}` : elided > 0 ? `~${elided}` : lossless > 0 ? "tidy" : "";
+  const tip =
+    dropped > 0
+      ? `Compacted: dropped ${dropped} old message${dropped === 1 ? "" : "s"}`
+      : elided > 0
+        ? `Compacted: elided ${elided} old tool result${elided === 1 ? "" : "s"}`
+        : "Compacted: deduplicated stale read results";
+  return (
+    <IconTooltip label={tip} side="top">
+      <span
+        aria-label={tip}
+        className={cn(
+          "flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 font-mono text-[10px] leading-none",
+          "animate-in fade-in zoom-in-95 duration-200",
+          tone,
+        )}
+      >
+        <span className="size-1.5 animate-pulse rounded-full bg-current/80" />
+        <HugeiconsIcon icon={Minimize02Icon} size={10} strokeWidth={2} />
+        {detail ? <span>{detail}</span> : null}
+      </span>
+    </IconTooltip>
+  );
+}
+
+function formatRelativeAge(ms: number): string {
+  if (ms < 1000) return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ago`;
+}
+
+function LastCompactLine() {
+  const lastCompact = useChatStore((s) => s.agentMeta.lastCompact);
+  // Re-tick once a second so the relative age stays fresh while the hover
+  // card is open. Cheap: only mounts inside the popover, only runs while open.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!lastCompact) return;
+    const i = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(i);
+  }, [lastCompact]);
+  if (!lastCompact) return null;
+  const age = formatRelativeAge(Date.now() - lastCompact.at);
+  const { dropped, elided, lossless } = lastCompact.stages;
+  const parts: string[] = [];
+  if (dropped > 0) parts.push(`dropped ${dropped}`);
+  if (elided > 0) parts.push(`elided ${elided}`);
+  if (lossless > 0) parts.push("dedup");
+  const detail = parts.length > 0 ? parts.join(" · ") : "no-op";
+  return (
+    <div className="text-muted-foreground mt-1 flex items-center justify-between">
+      <span>Last compacted</span>
+      <span className="text-foreground font-mono">
+        {age} <span className="text-muted-foreground/80">({detail})</span>
+      </span>
+    </div>
+  );
+}
+
 export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const modelId = useChatStore((s) => s.selectedModelId);
   const usage = useChatStore((s) => s.agentMeta.usage);
@@ -266,62 +356,66 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const cacheRatioPct = Math.round(cacheRatio * 100);
 
   return (
-    <Context usedTokens={used} maxTokens={max} modelId={modelId}>
-      <ContextTrigger className="h-6 gap-1 px-0 text-[10.5px]" />
-      <ContextContent className="w-72 text-[11px]">
-        <ContextContentHeader />
-        <ContextContentBody>
-          <div className="text-muted-foreground flex items-center justify-between">
-            <span>Model</span>
-            <span className="text-foreground font-mono">{modelLabel}</span>
-          </div>
-          <div className="text-muted-foreground mt-1 flex items-center justify-between">
-            <span>Estimated used</span>
-            <span className="text-foreground font-mono">{formatTokens(used)}</span>
-          </div>
-          <div className="text-muted-foreground flex items-center justify-between">
-            <span>Window</span>
-            <span className="text-foreground font-mono">{formatTokens(max)}</span>
-          </div>
+    <div className="flex shrink-0 items-center gap-1">
+      <CompactPulseBadge />
+      <Context usedTokens={used} maxTokens={max} modelId={modelId}>
+        <ContextTrigger className="h-6 gap-1 px-0 text-[10.5px]" />
+        <ContextContent className="w-72 text-[11px]">
+          <ContextContentHeader />
+          <ContextContentBody>
+            <div className="text-muted-foreground flex items-center justify-between">
+              <span>Model</span>
+              <span className="text-foreground font-mono">{modelLabel}</span>
+            </div>
+            <div className="text-muted-foreground mt-1 flex items-center justify-between">
+              <span>Estimated used</span>
+              <span className="text-foreground font-mono">{formatTokens(used)}</span>
+            </div>
+            <div className="text-muted-foreground flex items-center justify-between">
+              <span>Window</span>
+              <span className="text-foreground font-mono">{formatTokens(max)}</span>
+            </div>
+            <LastCompactLine />
 
-          <div className="border-border/40 my-2 border-t" />
+            <div className="border-border/40 my-2 border-t" />
 
-          <div className="text-muted-foreground/70 text-[10px] font-medium tracking-wider uppercase">
-            Session usage
-          </div>
-          <div className="text-muted-foreground mt-1 flex items-center justify-between">
-            <span>Input</span>
-            <span className="text-foreground font-mono">
-              {hasReportedUsage ? formatTokens(usage.input) : "-"}
+            <div className="text-muted-foreground/70 text-[10px] font-medium tracking-wider uppercase">
+              Session usage
+            </div>
+            <div className="text-muted-foreground mt-1 flex items-center justify-between">
+              <span>Input</span>
+              <span className="text-foreground font-mono">
+                {hasReportedUsage ? formatTokens(usage.input) : "-"}
+              </span>
+            </div>
+            <div className="text-muted-foreground flex items-center justify-between">
+              <span>Output</span>
+              <span className="text-foreground font-mono">
+                {hasReportedUsage ? formatTokens(usage.output) : "-"}
+              </span>
+            </div>
+            <div className="text-muted-foreground flex items-center justify-between">
+              <span>Cached (prompt cache hit)</span>
+              <span
+                className={cn(
+                  "font-mono",
+                  hasReportedUsage && cacheRatioPct >= 50
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-foreground",
+                )}
+              >
+                {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "-"}
+              </span>
+            </div>
+          </ContextContentBody>
+          <ContextContentFooter>
+            <span className="text-muted-foreground text-[10px] italic">
+              Used = local estimate (chars/4). Session = reported by provider.
             </span>
-          </div>
-          <div className="text-muted-foreground flex items-center justify-between">
-            <span>Output</span>
-            <span className="text-foreground font-mono">
-              {hasReportedUsage ? formatTokens(usage.output) : "-"}
-            </span>
-          </div>
-          <div className="text-muted-foreground flex items-center justify-between">
-            <span>Cached (prompt cache hit)</span>
-            <span
-              className={cn(
-                "font-mono",
-                hasReportedUsage && cacheRatioPct >= 50
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-foreground",
-              )}
-            >
-              {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "-"}
-            </span>
-          </div>
-        </ContextContentBody>
-        <ContextContentFooter>
-          <span className="text-muted-foreground text-[10px] italic">
-            Used = local estimate (chars/4). Session = reported by provider.
-          </span>
-        </ContextContentFooter>
-      </ContextContent>
-    </Context>
+          </ContextContentFooter>
+        </ContextContent>
+      </Context>
+    </div>
   );
 }
 

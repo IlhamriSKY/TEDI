@@ -415,7 +415,7 @@ pub async fn ext_check_update(
     })
 }
 
-fn strip_v_prefix(tag: &str) -> String {
+pub(crate) fn strip_v_prefix(tag: &str) -> String {
     tag.trim_start_matches(['v', 'V']).to_string()
 }
 
@@ -425,7 +425,7 @@ fn strip_v_prefix(tag: &str) -> String {
 /// are ignored beyond what their digits contribute - `1.0.0` and
 /// `1.0.0-beta` compare equal, which is the safer fallback (no false
 /// "update available" on the same major-minor-patch).
-fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     fn parts(s: &str) -> Vec<u32> {
         s.split(|c: char| !c.is_ascii_digit())
             .filter(|p| !p.is_empty())
@@ -446,7 +446,7 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
-fn pick_release_tag(json: &str) -> Option<String> {
+pub(crate) fn pick_release_tag(json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     v.get("tag_name").and_then(|x| x.as_str()).map(|s| s.to_string())
 }
@@ -525,9 +525,16 @@ pub async fn ext_uninstall(
 
 // ---------- HTTP helpers ----------
 
-async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+    // `connect_timeout` fails fast on unreachable hosts so a user without
+    // network gets an error in 15s instead of waiting on reqwest's default
+    // (which can stall for tens of seconds before erroring). `timeout`
+    // caps the whole request — long enough that a 50 MiB asset on a slow
+    // link still finishes, short enough that a stalled stream gives up.
     let client = reqwest::Client::builder()
         .user_agent("TEDI-Extensions/1.0")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|e| format!("http client: {e}"))?;
     let mut resp = client
@@ -566,9 +573,13 @@ async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-async fn http_get_text(url: &str) -> Result<String, String> {
+pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
+    // Small JSON bodies — short total timeout is fine. Same connect cap
+    // as `http_get_bytes` so a network outage surfaces consistently.
     let client = reqwest::Client::builder()
         .user_agent("TEDI-Extensions/1.0")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("http client: {e}"))?;
     let resp = client
@@ -583,7 +594,7 @@ async fn http_get_text(url: &str) -> Result<String, String> {
     resp.text().await.map_err(|e| format!("read body: {e}"))
 }
 
-fn normalize_owner_repo(input: &str) -> Result<String, String> {
+pub(crate) fn normalize_owner_repo(input: &str) -> Result<String, String> {
     let trimmed = input.trim().trim_end_matches('/');
     let candidate = if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
         rest
@@ -610,7 +621,7 @@ fn normalize_owner_repo(input: &str) -> Result<String, String> {
 }
 
 /// Walk the GitHub release JSON for the first `.zip` asset.
-fn pick_release_zip(json: &str) -> Option<String> {
+pub(crate) fn pick_release_zip(json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     let assets = v.get("assets")?.as_array()?;
     for a in assets {

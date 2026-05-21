@@ -187,9 +187,11 @@ Already wired: `dialog`, `autostart`, `window-state`, `store`, `opener`, `os`, `
 
 ## `tedi` CLI entry point
 
-`tedi .` / `tedi <path>` opens the target folder (or the file's parent folder + the file in an editor tab) in the running window. `tedi --version` and `tedi --help` print to stdout and exit without touching the GUI. `tedi --update` / `-u` triggers an in-app updater check + opens the dialog; if TEDI is already running the request is forwarded via `tedi:trigger-update`, otherwise the launching binary picks up `INITIAL_UPDATE_REQUEST` on boot and drains it once through `cli_take_initial_update_request`. A second invocation with a path is forwarded to the existing window via [tauri-plugin-single-instance] and arrives as the `tedi:open-cli-target` event. Logic lives in [src-tauri/src/modules/cli.rs](src-tauri/src/modules/cli.rs):
+`tedi .` / `tedi <path>` opens the target folder (or the file's parent folder + the file in an editor tab) in the running window. `tedi --version` and `tedi --help` print to stdout and exit without touching the GUI. `tedi --update` / `-u` runs the **headless updater** ([src-tauri/src/modules/cli_update.rs](src-tauri/src/modules/cli_update.rs)) — see "`tedi --update` headless updater" below; the in-app status-bar updater pill keeps its own 6h poll for users who never type the CLI flag. A second invocation with a path is forwarded to the existing window via [tauri-plugin-single-instance] and arrives as the `tedi:open-cli-target` event. Logic lives in [src-tauri/src/modules/cli.rs](src-tauri/src/modules/cli.rs):
 
 - `handle_version_help_and_exit()` runs first. Detects `--version`/`-V` and `--help`/`-h` anywhere in argv, `println!`s, then `process::exit(0)` before Tauri ever builds. On Windows release the GUI binary's stdout is detached from the parent console (`windows_subsystem = "windows"`), so the _Rust_ path prints invisibly there - the `tedi.cmd` shim emitted by `installer.nsh` intercepts these flags first and prints from the .cmd, with `${VERSION}` baked in at install time.
+- `cli_ext::handle_extension_command_and_exit()` runs **between** version/help and `cli_update`. Claims `tedi ext <subcmd>` (and the `tedi --extension <subcmd>` alias) for the headless extension CLI — see "`tedi ext` extension CLI" below — and `process::exit`s so GUI boot is skipped.
+- `cli_update::handle_update_command_and_exit()` runs after `cli_ext`. Claims `--update` / `-u` for the headless updater (see "`tedi --update` headless updater" below) and exits before Tauri boot. The status-bar pill's in-app 6h poll continues to operate independently — only the explicit CLI flag is intercepted here.
 - `capture_startup()` parses `argv` against `current_dir()` **before** anything else in `lib::run` so a later `set_current_dir` can't shift resolution.
 - `cli_initial_target` drains the captured target once (clears on read so a webview reload doesn't replay it).
 - `cli_install_path_shim` writes `~/.local/bin/tedi` on macOS/Linux pointing at `$APPIMAGE` (if set) or `current_exe()`. Triggered from Settings → General → "Install `tedi` command in PATH".
@@ -201,6 +203,53 @@ Already wired: `dialog`, `autostart`, `window-state`, `store`, `opener`, `os`, `
 | Linux .deb/.rpm | Tauri auto-installs the Cargo binary as `/usr/bin/tedi`. No extra step.                                                                                                                                                                                                                                                               | apt/dnf replace the binary in place. Path stays valid. No user action.                                                                                                       |
 | Linux AppImage  | Run Settings → "Install `tedi` command in PATH". Shim resolves to `$APPIMAGE` (the .AppImage file the user keeps around), not the temp squashfs mount path.                                                                                                                                                                           | `refresh_shim_if_present` on next launch rewrites the shim to the new `$APPIMAGE` if the user renamed/replaced the .AppImage.                                                |
 | macOS .app/.dmg | Run Settings → "Install `tedi` command in PATH". Shim resolves to the binary inside `TEDI.app/Contents/MacOS/`.                                                                                                                                                                                                                       | Shim target is the absolute path inside `.app`; in-place updates keep working. If the user moves the `.app` between folders, `refresh_shim_if_present` heals on next launch. |
+
+### `tedi ext` extension CLI
+
+Headless companion to the Settings → Extensions UI. Lives in [src-tauri/src/modules/cli_ext.rs](src-tauri/src/modules/cli_ext.rs). Short-circuits before Tauri boots (no window opens), runs against the same `<app_data_dir>/extensions/` directory and `state.json` the GUI manages, then `process::exit`s. Both forms are accepted:
+
+```
+tedi ext <subcommand> [args]
+tedi --extension <subcommand> [args]    # alias, same dispatcher
+```
+
+| Subcommand                    | Behavior                                                                                                                                                                                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `install <REF>`               | Three classifiers, in order: existing file → install via `install_from_bytes` (source: `local:<path>`); matches `owner/repo` / GitHub URL via `looks_like_github_ref` → fetch `releases/latest`, pick the `.zip` asset (or `zipball_url` fallback), install (source: `github:<o/r>`); otherwise treat as a registry id. |
+| `list`                        | GETs `https://tedi.ilhamriski.com/extensions/`, prints OFFICIAL / UNOFFICIAL groups, then opens a `dialoguer::Select` arrow-key picker. When stdout/stdin isn't a TTY (CI / pipes), the picker is skipped and the user re-runs with the chosen id.                                                                      |
+| `list --installed`            | Walks the extensions root + `state.json` and prints `[on]/[off] <name> (id) v<X>` plus an "→ vY available" hint when `latest_version` is newer than `version`. Alias: `tedi ext installed`.                                                                                                                             |
+| `update [<ID>]`               | For each `github:`-sourced install (filtered to `<ID>` when given), hits `releases/latest`, updates `latest_version` + `last_checked_at_ms` in `state.json`, then prompts `(y/N)` before applying. Non-github sources only get the timestamp bumped.                                                                    |
+| `uninstall <ID>`              | `validate_id` → `remove_dir_all` → drop the `state.json` entry. Mirrors `ext_uninstall`.                                                                                                                                                                                                                                |
+| `enable <ID>` / `disable <ID>` | Flip the `enabled` flag on the existing `state.json` entry. Errors out if the id isn't installed (unlike the GUI's `ext_enable` which silently creates a stub entry — the CLI is stricter so a typo doesn't leave orphan rows behind).                                                                                  |
+| `help` / `-h` / `--help`      | Print the subcommand cheatsheet.                                                                                                                                                                                                                                                                                        |
+
+Important behavioral choices:
+
+- **Headless by design.** A running GUI instance is *not* contacted — no single-instance forwarding, no `tedi:ext-changed` event. The GUI keeps its pre-CLI view until the user reloads or restarts. State on disk is consistent; the worst case is a "later write wins" race when the user installs from CLI and the GUI mutates state at the same instant. Two GUI windows already accept the same race, so we don't file-lock.
+- **`app_data_dir` resolved without `AppHandle`.** `<dirs::data_dir()>/<BUNDLE_ID>/extensions` matches what Tauri 2 returns; the `BUNDLE_ID` constant in `cli_ext.rs` must stay in sync with `tauri.conf.json`'s `identifier`.
+- **Helpers reused from the Tauri command layer** (`extensions::commands::{normalize_owner_repo, pick_release_zip, pick_release_tag, compare_versions, strip_v_prefix, http_get_bytes, http_get_text}`) are promoted to `pub(crate)` so the CLI doesn't fork the install pipeline. Don't re-privatize them without finding the CLI a new home for the same logic.
+- **Tokio runtime per CLI invocation.** A `new_current_thread` runtime is built once per command that needs networking. Cheap, no global state to leak.
+
+### `tedi --update` headless updater
+
+Lives in [src-tauri/src/modules/cli_update.rs](src-tauri/src/modules/cli_update.rs). Short-circuits `--update` / `-u` before Tauri boots on all three desktop OSes — the GUI never opens, the user sees stdout in their shell. Pipeline:
+
+1. **Fetch** `latest.json` from `plugins.updater.endpoints[0]` (the constant `ENDPOINT` mirrors this — keep them in sync).
+2. **Compare** versions via `extensions::commands::compare_versions` (tolerant of `v` prefixes; `strip_v_prefix` runs first).
+3. **Prompt** `(y/N)` on a TTY; non-interactive shells auto-proceed (CI/script friendly).
+4. **Download** the platform-matching bundle via the shared `http_get_bytes` (cap + chunked stream + connect/total timeouts).
+5. **Verify** with [`minisign-verify`](https://crates.io/crates/minisign-verify). Tauri wraps both the pubkey (in `tauri.conf.json`) and the per-platform signature (in `latest.json`) in an extra base64 layer over the standard minisign file format — `verify_signature` unwraps that outer base64 on each side before calling `PublicKey::decode` / `Signature::decode`.
+6. **Install** per platform:
+
+| Platform | Method                                                                                                                                                                                                                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows  | Spawn the NSIS installer with `/PASSIVE /UPDATE`. The Tauri NSIS template recognises both flags; NSIS holds no handles on the running EXE so it replaces `TEDI.exe` cleanly.                                                                                                                           |
+| Linux    | AppImage in-place swap via `$APPIMAGE`. New file written to `<appimage>.new`, chmod 0755, current rename'd to `<appimage>.old`, new renamed into place, backup removed. Rollback restores the old AppImage on rename failure. `.deb`/`.rpm` users get a clear `apt`/`dnf` hint and a non-zero exit.    |
+| macOS    | System `tar -xzf` the `.app.tar.gz`, walk up from `current_exe()` to find the running `.app` root, `mv` current to `<name>.app.old`, `mv` extracted into place. `mv` (not `std::fs::rename`) handles cross-filesystem moves between `/var/folders` staging and `/Applications`. Rollback on failure.   |
+
+The pubkey/endpoint constants are duplicated between `tauri.conf.json` and `cli_update.rs` because Tauri's `generate_context!` only exposes them inside the running app, and we short-circuit before that. The `pubkey_constant_decodes` unit test enforces the embedded constant still parses as minisign — a future edit that breaks the format fails CI instead of silently breaking every release.
+
+Live verification: `cargo test live_updater_manifest_and_signature_verify -- --ignored --nocapture` fetches the current `latest.json`, downloads the bundle for the running platform, and verifies the real signature against the real pubkey. Excluded from the default test run because it hits the network and downloads several MB.
 
 ## Extensions subsystem
 
