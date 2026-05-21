@@ -283,9 +283,17 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "lmstudio-local": 32_000,
 };
 
+/** Fallback context window for unknown / runtime-detected models. Bumped
+ *  from 128k to 256k because most modern providers ship at least 256k
+ *  these days — guessing too low fires the compaction toast prematurely
+ *  and hides headroom the user actually has. Models with a known hard
+ *  cap (e.g. `gpt-oss-*` at 128k) stay accurate via their explicit
+ *  entry in `MODEL_CONTEXT_LIMITS`. */
+const FALLBACK_CONTEXT_LIMIT = 256_000;
+
 export function getModelContextLimit(modelId: string | undefined): number {
-  if (!modelId) return 128_000;
-  return MODEL_CONTEXT_LIMITS[modelId] ?? 128_000;
+  if (!modelId) return FALLBACK_CONTEXT_LIMIT;
+  return MODEL_CONTEXT_LIMITS[modelId] ?? FALLBACK_CONTEXT_LIMIT;
 }
 
 /** Providers that do not require an API key (e.g. local servers). */

@@ -69,7 +69,11 @@ export function UpdaterPill() {
       ? "Restart"
       : updater.state.kind === "error"
         ? "Update check failed"
-        : "Update";
+        : updater.state.kind === "downloading"
+          ? // Inline the % so the status-bar pill itself shows progress —
+            // tooltip is the long form; pill stays short enough to fit.
+            `Updating ${formatProgress(updater.state.received, updater.state.total)}`
+          : "Update";
 
   return (
     <>

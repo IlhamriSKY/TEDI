@@ -1,11 +1,18 @@
-; Tauri NSIS hooks for the `tedi` CLI shim.
+; Tauri NSIS hooks for the `tedi` CLI shim + user-data safety net.
 ;
 ; On install:
+;   * Snapshot the user's app-data dir (history, settings, sessions,
+;     extensions, ...) to %TEMP% before the rest of the installer (or the
+;     previous uninstaller, which auto-update invokes in passive mode) gets
+;     a chance to touch it. PREINSTALL runs before any file deletion.
 ;   * Write `tedi.cmd` next to `TEDI.exe` so terminals can call `tedi .`
 ;     regardless of casing.
 ;   * Append the install dir to the user's PATH (HKCU\Environment) if not
 ;     already present, then broadcast WM_SETTINGCHANGE so freshly-spawned
 ;     shells pick it up without a logout.
+;   * Restore the user-data snapshot when key files vanished during the
+;     install. Belt-and-suspenders against Tauri NSIS template variants
+;     that wipe app data on upgrade.
 ;
 ; On uninstall we delete the shim but deliberately leave the PATH entry
 ; alone. Stripping it cleanly from a `;`-delimited string in NSIS needs a
@@ -23,6 +30,28 @@ ${StrStr}
 
 !define TEDI_PATH_REG_ROOT HKCU
 !define TEDI_PATH_REG_KEY  "Environment"
+
+; App-data dir must match `identifier` in tauri.conf.json. Tauri 2's
+; `app_data_dir` resolves to `%APPDATA%\<identifier>\` on Windows. The
+; backup lives in %TEMP% so it disappears on reboot even if a restore is
+; somehow skipped — never accumulates stale snapshots.
+!define TEDI_DATA_DIR    "$APPDATA\id.ilhamrisky.tedi"
+!define TEDI_DATA_BACKUP "$TEMP\tedi-userdata-backup"
+
+!macro NSIS_HOOK_PREINSTALL
+  ; --- snapshot user data --------------------------------------------------
+  ; Only snapshot when there's something to save; a fresh install has no
+  ; data dir and we don't want to seed an empty backup that the post-hook
+  ; would then "restore" over a clean install.
+  IfFileExists "${TEDI_DATA_DIR}\*.*" 0 tedi_preinstall_no_backup
+    ; Wipe any previous backup so a re-run starts clean.
+    RMDir /r "${TEDI_DATA_BACKUP}"
+    ; xcopy ships with Windows; /E recursive, /I treat target as dir,
+    ; /Y silent overwrite, /H copy hidden + system, /K preserve attrs,
+    ; /Q quiet. nul redirection suppresses console output during /PASSIVE.
+    nsExec::ExecToLog 'cmd /c xcopy "${TEDI_DATA_DIR}" "${TEDI_DATA_BACKUP}" /E /I /Y /H /K /Q >nul 2>&1'
+  tedi_preinstall_no_backup:
+!macroend
 
 !macro NSIS_HOOK_POSTINSTALL
   ; --- write the shim ------------------------------------------------------
@@ -113,6 +142,26 @@ ${StrStr}
       SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
     ${EndIf}
   ${EndIf}
+
+  ; --- restore user data ---------------------------------------------------
+  ; If PREINSTALL took a snapshot, copy it back. Two key files (settings +
+  ; sessions) gate the restore — if either is missing post-install we
+  ; assume the install flow wiped the dir and replay the snapshot. /Y
+  ; forces overwrite so the pre-install state always wins; the new TEDI
+  ; hasn't started yet, so nothing in the data dir is worth keeping. On a
+  ; clean install the backup never existed and this is a no-op.
+  IfFileExists "${TEDI_DATA_BACKUP}\*.*" 0 tedi_postinstall_no_restore
+    StrCpy $5 "0"
+    IfFileExists "${TEDI_DATA_DIR}\tedi-settings.json" +2 0
+      StrCpy $5 "1"
+    IfFileExists "${TEDI_DATA_DIR}\tedi-sessions.json" +2 0
+      StrCpy $5 "1"
+    ${If} $5 == "1"
+      CreateDirectory "${TEDI_DATA_DIR}"
+      nsExec::ExecToLog 'cmd /c xcopy "${TEDI_DATA_BACKUP}" "${TEDI_DATA_DIR}" /E /I /Y /H /K /Q >nul 2>&1'
+    ${EndIf}
+    RMDir /r "${TEDI_DATA_BACKUP}"
+  tedi_postinstall_no_restore:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

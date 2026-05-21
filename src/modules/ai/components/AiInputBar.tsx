@@ -26,7 +26,6 @@ import type { Snippet } from "../lib/snippets";
 import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
-import { ContextIndicator } from "./AiMiniWindow";
 import { AiStatusBarControls } from "./AiStatusBarControls";
 import { InfoModal } from "./InfoModal";
 import { MentionPickerContent, type MentionItem } from "./MentionPicker";
@@ -606,7 +605,6 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         <div className="border-border/40 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
           <div className="flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
-            {messages !== undefined ? <ContextIndicator messages={messages} /> : null}
           </div>
           <AiStatusBarControls />
         </div>

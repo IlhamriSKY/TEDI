@@ -1,5 +1,6 @@
 export { AgentRunBridge } from "./components/AgentRunBridge";
 export { AgentStatusPill } from "./components/AgentStatusPill";
+export { StatusBarContextIndicator } from "./components/StatusBarContextIndicator";
 export { AiInputBar } from "./components/AiInputBar";
 export { AiSidebarPanel, AiMiniWindow } from "./components/AiMiniWindow";
 export { SelectionAskAi } from "./components/SelectionAskAi";

@@ -2,7 +2,7 @@ import { memo } from "react";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
-import { useChatStore } from "@/modules/ai";
+import { StatusBarContextIndicator, useChatStore } from "@/modules/ai";
 import { ExtensionStatusItems } from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { UpdaterPill } from "@/modules/updater";
@@ -77,6 +77,7 @@ function StatusBarInner({
             </button>
           </IconTooltip>
         ) : null}
+        <StatusBarContextIndicator />
         <AgentStatusPill onClick={onOpenMini} />
         {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
       </div>
