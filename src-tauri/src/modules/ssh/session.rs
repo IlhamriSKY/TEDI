@@ -274,7 +274,7 @@ pub async fn connect(
     // the snippet's echo from the screen at the cost of also wiping
     // the motd - acceptable trade for a clean prompt.
     const OSC7_BOOTSTRAP: &[u8] = b" { if [ -n \"$ZSH_VERSION\" ]; then __tedi_o7(){ printf '\\e]7;file://%s%s\\e\\\\' \"${HOST:-$HOSTNAME}\" \"$PWD\"; }; typeset -ag precmd_functions; precmd_functions+=(__tedi_o7); elif [ -n \"$BASH_VERSION\" ]; then __tedi_o7(){ printf '\\e]7;file://%s%s\\e\\\\' \"$HOSTNAME\" \"$PWD\"; }; case \":${PROMPT_COMMAND:-}:\" in *\":__tedi_o7:\"*) ;; *) PROMPT_COMMAND=\"__tedi_o7${PROMPT_COMMAND:+;$PROMPT_COMMAND}\";; esac; fi; __tedi_o7 2>/dev/null; } 2>/dev/null; { clear 2>/dev/null || printf '\\033c'; }\r";
-    let _ = channel.data(&OSC7_BOOTSTRAP[..]).await;
+    let _ = channel.data(OSC7_BOOTSTRAP).await;
 
     let fingerprint = report.lock().await.seen.clone().unwrap_or_default();
     let _ = on_event.send(SshEvent::Connected { fingerprint });
