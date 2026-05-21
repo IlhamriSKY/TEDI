@@ -1,5 +1,6 @@
 import {
   Add01Icon,
+  CalendarAdd01Icon,
   CheckListIcon,
   Clock01Icon,
   EraserIcon,
@@ -110,6 +111,14 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     argHint: "[off]",
     hashOnly: true,
   },
+  schedule: {
+    name: "schedule",
+    invocation: "/schedule",
+    label: "Schedule command",
+    description: "Schedule a terminal command to run at a specific time.",
+    icon: CalendarAdd01Icon,
+    argHint: "[time] [command]",
+  },
 };
 
 /** Commands shown in the `/` picker. Excludes hash-only tag commands. */
@@ -209,17 +218,21 @@ function compactActiveChat(): SlashOutcome {
   const chat = getChat(sessionId);
   if (!chat) return { kind: "handled", toast: "Chat not initialized yet" };
   const before = chat.messages.length;
-  // Use the same elision-then-drop logic as runtime compaction (observation
-  // masking; research-backed: cheaper + better than LLM summarisation).
   const contextLimit = getModelContextLimit(state.selectedModelId);
+  // Force mode: manual /compact always tries to act. Without `force` the auto
+  // 70%-context gate would make the slash command a silent no-op on most
+  // chats, which feels broken to the user.
   const { messages: trimmed, info } = compactUiMessages(chat.messages, {
     contextLimit,
     keepTail: 12,
+    force: true,
   });
   if (info.dropped === 0) {
+    // The only legitimate zero-drop now is "tail already covers everything"
+    // — i.e. the chat is shorter than keepTail. Say so plainly.
     return {
       kind: "handled",
-      toast: `Nothing to compact (under threshold; ${before} message${before === 1 ? "" : "s"})`,
+      toast: `Nothing to compact — only ${before} message${before === 1 ? "" : "s"}, all kept as recent context.`,
     };
   }
   // `chat.messages` is mutable on @ai-sdk/react Chat; assigning a fresh array
@@ -281,6 +294,13 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
         prompt: INIT_PROMPT,
         commandName: "init",
       };
+    case "schedule": {
+      if (!tail) return { kind: "none" };
+      return {
+        kind: "send-prompt",
+        prompt: `Schedule a terminal command: ${tail}\n\nUse the schedule_command tool. Parse the time from the input (e.g., "in 5 minutes", "at 3pm", "tomorrow at 9am") and the command to run. If no terminal is specified, use the active terminal.`,
+      };
+    }
     default:
       return { kind: "none" };
   }

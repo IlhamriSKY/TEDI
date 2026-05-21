@@ -262,6 +262,54 @@ export function rotateLeafWithNeighbor(
 }
 
 /**
+ * Reorder `leafId` within its **immediate split parent** so that it lands
+ * just before `beforeLeafId` (or at the end of the parent's children when
+ * `beforeLeafId === null`). No-op when the two leaves aren't direct siblings
+ * of the same split — drag-to-reorder in the tab strip only shuffles within
+ * one split level, it does not warp leaves across nested splits. Returns the
+ * same tree by reference when nothing changes so callers can cheaply detect
+ * no-ops.
+ */
+export function reorderLeafInTree(
+  tree: PaneNode,
+  leafId: PaneId,
+  beforeLeafId: PaneId | null,
+): PaneNode {
+  if (isLeaf(tree)) return tree;
+  const fromIdx = tree.children.findIndex((c) => isLeaf(c) && c.id === leafId);
+  if (fromIdx >= 0) {
+    let insertIdx: number;
+    if (beforeLeafId === null) {
+      insertIdx = tree.children.length;
+    } else {
+      const toIdx = tree.children.findIndex((c) => isLeaf(c) && c.id === beforeLeafId);
+      if (toIdx < 0) return tree;
+      insertIdx = toIdx;
+    }
+    if (fromIdx === insertIdx || fromIdx + 1 === insertIdx) return tree;
+    const moving = tree.children[fromIdx];
+    const without = [...tree.children.slice(0, fromIdx), ...tree.children.slice(fromIdx + 1)];
+    const targetIdx = fromIdx < insertIdx ? insertIdx - 1 : insertIdx;
+    return {
+      ...tree,
+      children: [...without.slice(0, targetIdx), moving, ...without.slice(targetIdx)],
+    };
+  }
+  let changed = false;
+  const newChildren = tree.children.map((c) => {
+    if (isLeaf(c)) return c;
+    const r = reorderLeafInTree(c, leafId, beforeLeafId);
+    if (r !== c) {
+      changed = true;
+      return r;
+    }
+    return c;
+  });
+  if (!changed) return tree;
+  return { ...tree, children: newChildren };
+}
+
+/**
  * Canonicalise a pane tree: flatten any nested split whose direction
  * matches its parent's, and unwrap any split that ends up with a single
  * child. Used after rotations so successive toggles on the same leaf

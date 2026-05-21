@@ -5,6 +5,7 @@ import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
+import { toast } from "@/components/ui/toast";
 import { getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
@@ -319,6 +320,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     let textConsumedByCommand = false;
     let sendPromptApplied = false;
     let toastMsg: string | undefined;
+    let toastVariant: "success" | "info" | "warning" | "error" | undefined;
 
     if (trimmed.startsWith("/") || trimmed.startsWith("#")) {
       const outcome = tryRunSlashCommand(trimmed);
@@ -326,6 +328,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         textConsumedByCommand = true;
         effectiveText = "";
         if (outcome.toast) toastMsg = outcome.toast;
+        if (outcome.toastVariant) toastVariant = outcome.toastVariant;
       } else if (outcome.kind === "send-prompt") {
         sendPromptApplied = true;
         effectiveText = outcome.prompt;
@@ -339,6 +342,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       const outcome = tryRunSlashCommand(`#${cmd.name}`);
       if (outcome.kind === "handled") {
         if (outcome.toast) toastMsg = outcome.toast;
+        if (outcome.toastVariant) toastVariant = outcome.toastVariant;
         continue;
       }
       if (outcome.kind === "send-prompt") {
@@ -368,7 +372,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     ) {
       setValue("");
       setPickedCommands([]);
-      if (toastMsg) console.info(toastMsg);
+      if (toastMsg) toast(toastMsg, { variant: toastVariant ?? "info" });
       return;
     }
 

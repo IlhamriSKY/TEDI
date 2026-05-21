@@ -24,7 +24,7 @@ import {
 import type { ProviderKeys } from "./keyring";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { applyCacheBreakpoints } from "./cache";
-import { compactModelMessagesDetailed } from "./compact";
+import { compactModelMessagesDetailed, type CompactStages } from "./compact";
 import { HOST_PROMPT_LINE } from "./osTag";
 
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
@@ -239,7 +239,7 @@ export type RunAgentOptions = {
   toolContext: ToolContext;
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
-  onCompact?: (info: { droppedCount: number }) => void;
+  onCompact?: (info: { droppedCount: number; stages: CompactStages }) => void;
   onFinishMeta?: (info: {
     hitStepCap: boolean;
     finishReason: string;
@@ -316,7 +316,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
   const history = await convertToModelMessages(opts.uiMessages);
   const compact = compactModelMessagesDetailed(history, getModelContextLimit(modelInfo.id));
   if (compact.compacted) {
-    opts.onCompact?.({ droppedCount: compact.droppedCount });
+    opts.onCompact?.({ droppedCount: compact.droppedCount, stages: compact.stages });
   }
 
   const baseMessages: ModelMessage[] = [

@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
+  DashboardSquare02Icon,
   Folder01Icon,
   PencilEdit02Icon,
   PlusSignIcon,
@@ -64,17 +65,24 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border/60 text-muted-foreground flex h-7 shrink-0 items-center justify-between border-b px-2 text-[10px] font-semibold tracking-wider uppercase">
-        <span>Workspaces</span>
-        <IconTooltip label="New workspace">
+      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+        <HugeiconsIcon
+          icon={DashboardSquare02Icon}
+          size={13}
+          strokeWidth={2}
+          className="text-muted-foreground shrink-0"
+        />
+        <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
+        <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
+        <IconTooltip label="New workspace" side="bottom">
           <Button
             onClick={onCreate}
             aria-label="New workspace"
             variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground size-5 shrink-0 rounded"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-6"
           >
-            <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2} />
+            <HugeiconsIcon icon={PlusSignIcon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       </div>

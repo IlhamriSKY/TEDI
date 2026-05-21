@@ -10,6 +10,7 @@ import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
+import { ZoomIndicator } from "./ZoomIndicator";
 
 type Props = {
   cwd: string | null;
@@ -52,6 +53,7 @@ function StatusBarInner({
             cluster so they don't fight the AI / updater pills for
             primary attention. */}
         <ExtensionStatusItems />
+        <ZoomIndicator />
         <SchedulerStatusPill />
         <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (

@@ -3,6 +3,7 @@ import type { ChatTransport } from "ai";
 import type { TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
+import type { CompactStages } from "./compact";
 import type { ProviderKeys } from "./keyring";
 import { native } from "./native";
 import type { ToolContext } from "../tools/tools";
@@ -63,7 +64,7 @@ type Deps = {
   getOpenaiCompatibleBaseURL?: () => string | undefined;
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
-  onCompact?: (info: { droppedCount: number }) => void;
+  onCompact?: (info: { droppedCount: number; stages: CompactStages }) => void;
   onFinishMeta?: (info: {
     hitStepCap: boolean;
     finishReason: string;

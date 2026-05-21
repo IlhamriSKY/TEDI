@@ -317,6 +317,13 @@ export function flushPersist(id?: string): void {
   for (const key of Array.from(pendingPersist.keys())) flushPersistEntry(key);
 }
 
+// Throttle per-session so a chain of high-context turns doesn't fire a toast
+// per turn. We surface auto-compact at most once every 12 seconds — long
+// enough that the user reads the previous notice, short enough they still
+// see the next event in the same session.
+const AUTO_COMPACT_TOAST_THROTTLE_MS = 12_000;
+const lastAutoCompactToastAt = new Map<string, number>();
+
 // Per-session read cache: paths the model has called `read_file` on.
 // `edit`/`multi_edit` enforce read-before-edit by checking membership.
 // Stored at module scope (keyed by sessionId) instead of inside makeChat's
@@ -396,6 +403,29 @@ function makeChat(sessionId: string): Chat<UIMessage> {
           },
         },
       }));
+    },
+    onCompact: ({ stages }) => {
+      // Stage 1 (lossless dedup of superseded reads) runs almost every turn
+      // — toasting it would be pure noise. Only surface meaningful action:
+      // Stage 2 elision is reversible-on-resend but the user is now near the
+      // window, and Stage 3 drop is information-loss that demands awareness.
+      if (stages.elided === 0 && stages.dropped === 0) return;
+      const now = Date.now();
+      const last = lastAutoCompactToastAt.get(sessionId) ?? 0;
+      if (now - last < AUTO_COMPACT_TOAST_THROTTLE_MS) return;
+      lastAutoCompactToastAt.set(sessionId, now);
+      if (stages.dropped > 0) {
+        const msg =
+          stages.elided > 0
+            ? `Auto-compacted: dropped ${stages.dropped} old message${stages.dropped === 1 ? "" : "s"}, elided ${stages.elided} tool result${stages.elided === 1 ? "" : "s"} (context near limit).`
+            : `Auto-compacted: dropped ${stages.dropped} old message${stages.dropped === 1 ? "" : "s"} to fit context.`;
+        toast(msg, { variant: "warning" });
+      } else {
+        toast(
+          `Auto-compacted: elided ${stages.elided} old tool result${stages.elided === 1 ? "" : "s"} to reclaim context.`,
+          { variant: "info" },
+        );
+      }
     },
     onFinishMeta: (info) => {
       // Surface non-normal stop reasons so the user understands *why* the
@@ -636,6 +666,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     discardCheckpoint(id);
     readCaches.delete(id);
+    lastAutoCompactToastAt.delete(id);
     // Tear down the persistent Rust shell session (one per chat session)
     // so the OS-side child process + IO pipes are released. Without this,
     // each deleted chat leaves a zombie shell behind.

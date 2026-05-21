@@ -233,6 +233,7 @@ export default function App() {
     replaceAllTabs,
     allocId,
     reorderTabs,
+    reorderLeafInGroup,
   } = useTabs();
 
   // Drag a file from the OS file manager onto a terminal pane → paste its
@@ -2058,6 +2059,7 @@ export default function App() {
               pinTab(tabId);
             }}
             onReorderTabs={reorderTabs}
+            onReorderLeafInGroup={reorderLeafInGroup}
             onToggleSidebar={toggleSidebar}
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}

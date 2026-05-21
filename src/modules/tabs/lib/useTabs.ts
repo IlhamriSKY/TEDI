@@ -7,6 +7,7 @@ import {
   nextLeafId,
   normalizePaneTree,
   removeLeaf,
+  reorderLeafInTree,
   rotateLeafWithNeighbor,
   setLeafCwd as setLeafCwdInTree,
   siblingLeafOf,
@@ -1122,6 +1123,29 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     );
   }, []);
 
+  /**
+   * Drag-and-drop reorder of a leaf within its **own** split group: places
+   * `leafId` immediately before `beforeLeafId` among its sibling leaves, or at
+   * the end of the parent split when `beforeLeafId === null`. No-op when the
+   * two leaves aren't direct siblings of the same split — cross-split warping
+   * isn't supported here (use right-click → Move to New Tab / Join Group for
+   * cross-group moves).
+   */
+  const reorderLeafInGroup = useCallback(
+    (leafId: number, beforeLeafId: number | null) => {
+      setTabs((curr) =>
+        curr.map((t) => {
+          if (t.kind !== "pane") return t;
+          if (!hasLeaf(t.paneTree, leafId)) return t;
+          const paneTree = reorderLeafInTree(t.paneTree, leafId, beforeLeafId);
+          if (paneTree === t.paneTree) return t;
+          return syncPaneMirror({ ...t, paneTree });
+        }),
+      );
+    },
+    [],
+  );
+
   /** Drag-and-drop reorder: `fromTabId` is moved before `beforeTabId` (null = append). */
   const reorderTabs = useCallback((fromTabId: number, beforeTabId: number | null) => {
     setTabs((curr) => {
@@ -1166,5 +1190,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     replaceAllTabs,
     allocId,
     reorderTabs,
+    reorderLeafInGroup,
   };
 }

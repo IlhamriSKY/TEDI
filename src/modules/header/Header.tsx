@@ -49,6 +49,8 @@ type Props = {
   onPinLeaf: (tabId: number, leafId: number) => void;
   /** Reorder a tab in the tab strip (drag-and-drop). */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
+  /** Reorder a leaf within its split group (drag-and-drop inside a group tab). */
+  onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
   onToggleSidebar: () => void;
   onOpenFolder: () => void;
   onSplit: (dir: "row" | "col") => void;
@@ -122,6 +124,7 @@ export function Header({
   onNewEditor,
   onPinLeaf,
   onReorderTabs,
+  onReorderLeafInGroup,
   onToggleSidebar,
   onOpenFolder,
   onSplit,
@@ -399,6 +402,7 @@ export function Header({
           onNewEditor={onNewEditor}
           onPinLeaf={onPinLeaf}
           onReorderTabs={onReorderTabs}
+          onReorderLeafInGroup={onReorderLeafInGroup}
           onMoveLeafToGroup={onMoveLeafToGroup}
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}

@@ -185,10 +185,23 @@ function dropSupersededReads(messages: ModelMessage[]): {
   return { out, touched };
 }
 
+export type CompactStages = {
+  /** Stage 1: superseded read_file results elided. Lossless — never user-visible. */
+  lossless: number;
+  /** Stage 2: older tool-result blocks elided to reclaim context. */
+  elided: number;
+  /** Stage 3: oldest non-system messages hard-dropped. Information loss. */
+  dropped: number;
+};
+
 export type CompactResult = {
   messages: ModelMessage[];
+  /** True when ANY stage touched messages — including Stage 1 dedup. Use
+   *  `stages` to decide whether to surface to the user. */
   compacted: boolean;
+  /** Back-compat: sum of all stages. Prefer `stages` for accurate reporting. */
   droppedCount: number;
+  stages: CompactStages;
 };
 
 /** Hard floor for tail preservation: we never hard-drop more than this many
@@ -221,7 +234,7 @@ export function compactModelMessagesDetailed(
   messages: ModelMessage[],
   contextLimit: number,
 ): CompactResult {
-  let dropped = 0;
+  const stages: CompactStages = { lossless: 0, elided: 0, dropped: 0 };
   let working = messages;
 
   // Stage 1: drop superseded reads (lossless). Runs every turn regardless
@@ -230,7 +243,7 @@ export function compactModelMessagesDetailed(
     const r = dropSupersededReads(working);
     if (r.touched) {
       working = r.out;
-      dropped++;
+      stages.lossless++;
     }
   }
   let approxTokens = approxBytes(working) / 4;
@@ -251,7 +264,7 @@ export function compactModelMessagesDetailed(
       });
       if (local) {
         out[i] = { ...out[i], content: next } as ModelMessage;
-        dropped++;
+        stages.elided++;
         if (approxBytes(out) / 4 < 0.5 * contextLimit) break;
       }
     }
@@ -285,17 +298,19 @@ export function compactModelMessagesDetailed(
       const dropTokens = approxBytes([drop]) / 4;
       runningTokens -= dropTokens;
       cut++;
-      dropped++;
+      stages.dropped++;
     }
     if (cut > 0) {
       working = [...systemPrefix, ...rest.slice(cut)];
     }
   }
 
+  const total = stages.lossless + stages.elided + stages.dropped;
   return {
     messages: working,
-    compacted: dropped > 0,
-    droppedCount: dropped,
+    compacted: total > 0,
+    droppedCount: total,
+    stages,
   };
 }
 
@@ -319,7 +334,14 @@ export function compactUiMessages<
   },
 >(
   messages: T[],
-  opts: { contextLimit: number; keepTail?: number },
+  opts: {
+    contextLimit: number;
+    keepTail?: number;
+    /** When true, bypass the auto threshold gate. Manual /compact users want
+     *  visible action even at moderate context — we still preserve the
+     *  trailing `keepTail` messages so the active turn survives. */
+    force?: boolean;
+  },
 ): {
   messages: T[];
   info: UICompactResult;
@@ -338,15 +360,35 @@ export function compactUiMessages<
     return Math.ceil(n / 4);
   };
   let total = messages.reduce((sum, m) => sum + tokensFor(m), 0);
-  if (total < 0.7 * opts.contextLimit) {
+  const stopIdx = Math.max(0, messages.length - keepTail);
+
+  // Auto path: do nothing comfortably under threshold. Manual (`force`) skips
+  // this gate so the slash command always tries to act.
+  if (!opts.force && total < 0.7 * opts.contextLimit) {
     return { messages, info: { kept: messages.length, dropped: 0 } };
   }
-  let cut = 0;
-  const stopIdx = Math.max(0, messages.length - keepTail);
-  while (cut < stopIdx && total >= 0.5 * opts.contextLimit) {
-    total -= tokensFor(messages[cut]);
-    cut++;
+
+  // Nothing to drop without violating the tail guarantee — surface as a
+  // zero-drop result so the caller can give clear feedback instead of an
+  // unexplained no-op.
+  if (stopIdx === 0) {
+    return { messages, info: { kept: messages.length, dropped: 0 } };
   }
+
+  let cut = 0;
+  if (total >= 0.7 * opts.contextLimit) {
+    // Over-threshold: drop oldest until we're back under 50% of the window.
+    while (cut < stopIdx && total >= 0.5 * opts.contextLimit) {
+      total -= tokensFor(messages[cut]);
+      cut++;
+    }
+  } else {
+    // Force mode at moderate context: drop roughly the oldest quarter so the
+    // user sees real progress, but never less than one message (their whole
+    // point in running /compact).
+    cut = Math.max(1, Math.floor(stopIdx / 4));
+  }
+
   return {
     messages: messages.slice(cut),
     info: { kept: messages.length - cut, dropped: cut },
