@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.9] - 21-05-2026
+
+### Added
+
+- **Shell-command transformer hook for extensions (`ctx.shell.registerCommandTransformer`).** Generic per-extension registry that the AI shell tools (`bash_run`, `bash_background`, `run_in_terminal`, `suggest_command`) consult before exec. Lets companion extensions wrap every AI-issued command — prefix with `rtk ` for [TEDI.rtk-bridge](https://github.com/IlhamriSKY/TEDI.rtk-bridge), or `time …`, `nice -n 19 …`, anything — without core knowing about the specific wrapper. Multiple extensions compose in insertion order (RTK on top of caveman-cmd on top of `nice`, etc.) so the chain is stackable. Sync API to keep the AI tool hot path roundtrip-free; defensive try/catch around each transformer so a buggy extension can't brick the chain (worst case its transform is skipped and the next one runs against the previous result). Zero-overhead passthrough when no transformer is registered.
+- **`shell:transform` permission.** Declared by extensions that call `registerCommandTransformer`. High-risk tier (the extension chooses what actually runs in the AI shell) so the install-review dialog surfaces it loudly.
+- **`ShellCommandKind` + `ShellCommandTransformer` types** exported from `extensions/registries.ts` for downstream type-checking and extension SDK use. `kind` is `"bash"` (hidden agent shells via `bash_run`/`bash_background`) or `"terminal"` (visible user PTY injections via `suggest_command`/`run_in_terminal`).
+
+### Changed
+
+- **Plug-and-play teardown for shell-command extensions.** The transformer disposer is registered with the host's bookkeeping at creation, so `deactivate()` and `clearExtensionContributions()` both clear the registry entry. Disabling or uninstalling an extension reverts the AI shell tools to passthrough cleanly with zero leftover state — no core code needs to know about the specific extension.
+
 ## [0.2.8] - 20-05-2026
 
 ### Added
