@@ -27,7 +27,7 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { statusDotClass, statusLabel, type SshStatus } from "@/modules/ssh/status";
+import { statusIconClass, statusLabel, type SshStatus } from "@/modules/ssh/status";
 import {
   aiCliLabel,
   aiCliStateChipClass,
@@ -35,6 +35,8 @@ import {
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
 import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
   CloudServerIcon,
   ComputerTerminal02Icon,
@@ -101,6 +103,10 @@ type PaneEntry = EntryBase & {
    * `useTerminalSession` populates this; null when no AI CLI is active.
    */
   aiCliStatus?: AiCliStatus;
+  /** Set on editor leaves backed by an SFTP read/write on this host label.
+   *  Used to flip the file icon into a "remote" cloud variant so the user
+   *  can tell at a glance they're editing a file that lives on a server. */
+  remoteHost?: string;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -187,6 +193,10 @@ function buildEntries(
         const label = entryLabel(leaf, t.cwd, sshHosts);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         const ord = leaf.leafKind === "terminal" ? ++terminalOrdinal : undefined;
+        const remoteHost =
+          leaf.leafKind === "editor" && leaf.sshSessionId !== undefined
+            ? (leaf.sshHostLabel ?? "remote")
+            : undefined;
         out.push({
           kind: "pane-leaf",
           key: `leaf-${leaf.id}`,
@@ -206,6 +216,7 @@ function buildEntries(
             leaf.leafKind === "terminal" && !sshConnectionId
               ? aiCliStatuses?.get(leaf.id)
               : undefined,
+          remoteHost,
         });
       }
       continue;
@@ -270,6 +281,12 @@ type Props = {
    */
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
   /**
+   * Extract a leaf from its current split into a brand-new top-level pane
+   * tab — "leave group". Only meaningful for leaves that sit inside a
+   * multi-leaf split. Returns `"invalid"` for single-leaf tabs.
+   */
+  onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
+  /**
    * Flip the orientation (row ↔ col) of the split node that **directly**
    * contains `leafId`. The icon only renders on entries that belong to a
    * split group (single-pane tabs have nothing to rotate); clicks affect
@@ -307,9 +324,9 @@ const DROP_ANIMATION: DropAnimation = {
 
 /**
  * Pin the DragOverlay so the pointer stays at the horizontal centre of the
- * dragged tab and the chip never leaves the tab strip's y-line. Header has
- * a top border and the tab strip sits inside an h-10 row - without locking
- * y, the overlay drifts up/down toward whichever border is closer to the
+ * dragged tab and the chip never leaves the tab strip's y-line. The tab
+ * strip sits inside its own dedicated h-10 header row - without locking y,
+ * the overlay drifts up/down toward whichever border is closer to the
  * cursor and visually "snaps to a line" instead of sitting centred.
  */
 const snapCenterAndLockY: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
@@ -336,6 +353,7 @@ export function TabBar({
   onPinLeaf,
   onReorderTabs,
   onMoveLeafToGroup,
+  onMoveLeafToNewTab,
   onRotateLeafSplit,
   sshStatuses,
   aiCliStatuses,
@@ -454,6 +472,42 @@ export function TabBar({
     target?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, entries.length]);
 
+  // Track scroll position so the left/right nav arrows can enable / disable
+  // and hide entirely when the tab strip has no overflow at all.
+  const [overflow, setOverflow] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const ovr = el.scrollWidth > el.clientWidth + 1;
+      setOverflow(ovr);
+      setCanScrollLeft(ovr && el.scrollLeft > 0);
+      // Sub-pixel rounding: leave a 1px tolerance so the right arrow stops
+      // flickering at maximum scroll.
+      setCanScrollRight(ovr && el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    // Also watch the inner content - tabs added/removed/relabeled change
+    // scrollWidth without firing on the container itself.
+    const content = el.firstElementChild as HTMLElement | null;
+    if (content) ro.observe(content);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [entries.length]);
+
+  const scrollByDelta = (dx: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dx, behavior: "smooth" });
+  };
+
   // Pointer-based DnD via dnd-kit. 5px activation distance prevents
   // accidental drags from interfering with click-to-select.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -478,24 +532,67 @@ export function TabBar({
 
   return (
     <div
-      ref={scrollRef}
-      // Opt out of the Tauri drag region. Without this, mousedown on the
-      // native scrollbar (or on any empty pixel inside the strip) bubbles
-      // up to the header's drag handler and starts dragging the window
-      // when the user just wanted to grab the thumb.
       data-tauri-drag-region="false"
-      // Inherits the unified 10px boxy scrollbar from globals.css so the
-      // bar at the bottom matches every other scrollable surface in the
-      // app. The `pt-2.5` (10px) offsets the tab content downward by
-      // exactly the height the scrollbar reserves at the bottom, so the
-      // 28px tab triggers stay vertically centred against the icon buttons
-      // on either side of the 48px header. Wheel-scroll still works via
-      // the listener above. We intentionally do NOT set `scrollbar-width`
-      // or `scrollbar-color` - doing so would flip Chromium to the modern
-      // CSS scrollbar UI and bypass the global webkit rules.
-      className="flex h-full min-w-0 shrink items-center overflow-x-auto overflow-y-hidden pt-2.5"
+      className="flex h-full min-w-0 shrink items-center"
     >
-      <div data-tauri-drag-region="false" className="flex w-max items-center gap-0.5">
+      {/* Left/right scroll arrows. Only rendered when the tab strip
+          overflows - keeps the toolbar visually clean when every tab fits.
+          Each arrow is disabled when the strip is already at that bound.
+          Wheel scroll, drag-to-reorder and keyboard navigation still work
+          regardless. */}
+      {overflow && (
+        <div
+          data-tauri-drag-region="false"
+          className="flex shrink-0 items-center gap-0.5 pr-1"
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Scroll tabs left"
+                onClick={() => scrollByDelta(-200)}
+                disabled={!canScrollLeft}
+                // Sized to match the tab triggers (`h-7` = 28px) and styled
+                // with the same border / muted background as the split-tab
+                // cluster wrapper, so the arrows visually belong to the
+                // tab strip rather than the toolbar.
+                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80"
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Scroll tabs left</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Scroll tabs right"
+                onClick={() => scrollByDelta(200)}
+                disabled={!canScrollRight}
+                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80"
+              >
+                <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={2} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Scroll tabs right</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
+      <div
+        ref={scrollRef}
+        // Opt out of the Tauri drag region. Without this, mousedown on any
+        // empty pixel inside the strip bubbles up to the header's drag
+        // handler and starts dragging the window.
+        data-tauri-drag-region="false"
+        // `.no-scrollbar` (defined in globals.css) hides the horizontal
+        // scrollbar — navigation is now driven by the arrow buttons above
+        // plus wheel-scroll. The strip still uses `overflow-x-auto` so
+        // `scrollIntoView` on active-tab change continues to work.
+        className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
+      >
+        <div data-tauri-drag-region="false" className="flex w-max items-center gap-0.5">
         <Tabs
           value={activeKey ?? ""}
           onValueChange={(k) => {
@@ -533,6 +630,7 @@ export function TabBar({
                     onCloseEntriesAfter={closeEntriesAfter}
                     sshHosts={sshHosts}
                     onMoveLeafToGroup={onMoveLeafToGroup}
+                    onMoveLeafToNewTab={onMoveLeafToNewTab}
                     onRotateLeafSplit={onRotateLeafSplit}
                     paneGroupsForMove={paneGroupsForMove}
                   />
@@ -548,9 +646,6 @@ export function TabBar({
                   )}
                 >
                   <EntryIcon entry={draggedEntry} />
-                  {draggedEntry.kind === "pane-leaf" && draggedEntry.terminalOrdinal ? (
-                    <TerminalOrdinalBadge ordinal={draggedEntry.terminalOrdinal} />
-                  ) : null}
                   <span className={cn("truncate", draggedEntry.italic && "italic")}>
                     {draggedEntry.label}
                   </span>
@@ -596,6 +691,7 @@ export function TabBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
       </div>
     </div>
   );
@@ -654,6 +750,9 @@ type SortableTabGroupProps = {
    * tab (including this one - the renderer filters out self).
    */
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
+  /** Extract the entry's leaf into a new top-level pane tab — "leave group".
+   *  Shown only on entries inside a split (single-leaf tabs have nothing to leave). */
+  onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split that directly contains the entry's
    *  leaf (row ↔ col). Shown only on entries inside a split group. */
   onRotateLeafSplit?: (leafId: number) => void;
@@ -680,6 +779,7 @@ function SortableTabGroup({
   onCloseEntriesAfter,
   sshHosts,
   onMoveLeafToGroup,
+  onMoveLeafToNewTab,
   onRotateLeafSplit,
   paneGroupsForMove,
 }: SortableTabGroupProps) {
@@ -786,9 +886,6 @@ function SortableTabGroup({
               )}
             >
               <EntryIcon entry={e} />
-              {e.kind === "pane-leaf" && e.terminalOrdinal ? (
-                <TerminalOrdinalBadge ordinal={e.terminalOrdinal} />
-              ) : null}
               <span className={cn("truncate", e.italic && "italic")}>{e.label}</span>
               {e.kind === "pane-leaf" && e.aiCliStatus ? (
                 <AiCliChip status={e.aiCliStatus} />
@@ -816,14 +913,17 @@ function SortableTabGroup({
           </TabsTrigger>
         );
 
-        // Right-click actions: rotate the split this leaf sits in, move the
-        // leaf into another pane group, and close every entry to the right.
-        // Rotate/move are pane-leaf only; close-tabs-to-right works for any
-        // entry as long as something is actually to its right.
+        // Right-click actions: rotate the split this leaf sits in, leave the
+        // group (extract into a new tab), move the leaf into another pane
+        // group, and close every entry to the right. Rotate / leave-group
+        // are pane-leaf-inside-split only; move-to-group needs another tab
+        // to exist; close-tabs-to-right works for any entry as long as
+        // something is actually to its right.
         const isPaneLeaf = e.kind === "pane-leaf";
         const moveTargets =
           isPaneLeaf && onMoveLeafToGroup ? paneGroupsForMove.filter((g) => g.id !== e.tabId) : [];
         const canRotate = isPaneLeaf && isSplit && !!onRotateLeafSplit;
+        const canLeaveGroup = isPaneLeaf && isSplit && !!onMoveLeafToNewTab;
         const canMove = moveTargets.length > 0;
         const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
 
@@ -860,10 +960,10 @@ function SortableTabGroup({
             </Tooltip>
           );
         }
-        if (!canRotate && !canMove && !canCloseToRight) {
+        if (!canRotate && !canLeaveGroup && !canMove && !canCloseToRight) {
           return <Fragment key={e.key}>{node}</Fragment>;
         }
-        const hasLeafActions = canRotate || canMove;
+        const hasLeafActions = canRotate || canLeaveGroup || canMove;
         return (
           <ContextMenu key={e.key}>
             <ContextMenuTrigger asChild>{node}</ContextMenuTrigger>
@@ -871,6 +971,15 @@ function SortableTabGroup({
               {canRotate && (
                 <ContextMenuItem onSelect={() => onRotateLeafSplit!(e.leafId)}>
                   Toggle Split Orientation
+                </ContextMenuItem>
+              )}
+              {canLeaveGroup && (
+                <ContextMenuItem
+                  onSelect={() => {
+                    if (e.kind === "pane-leaf") onMoveLeafToNewTab!(e.leafId);
+                  }}
+                >
+                  Move to New Tab
                 </ContextMenuItem>
               )}
               {canMove && (
@@ -989,15 +1098,22 @@ function AiCliChip({ status }: { status: NonNullable<AiCliStatus> }) {
 }
 
 /**
- * Tiny monospaced "T<n>" badge stamped next to terminal entries. The same
+ * Tiny monospaced "T<n>" badge stamped on terminal entries. The same
  * ordinal is surfaced to the AI in the per-turn `<env>` block, so users can
  * say "send to terminal 3" and the AI maps it directly to this badge.
+ *
+ * When `overlay` is set, the badge is absolutely positioned at the icon's
+ * bottom-right corner (used inside `EntryIcon`'s `relative` wrapper) so the
+ * tab stays compact. Otherwise it renders inline.
  */
-function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
+function TerminalOrdinalBadge({ ordinal, overlay }: { ordinal: number; overlay?: boolean }) {
   return (
     <span
       aria-label={`Terminal ${ordinal}`}
-      className="border-border/60 bg-muted/60 text-muted-foreground inline-flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-sm border px-[3px] font-mono text-[9px] leading-none font-semibold tabular-nums"
+      className={cn(
+        "border-border/60 bg-card text-muted-foreground inline-flex h-3 min-w-3 shrink-0 items-center justify-center rounded-sm border px-[2px] font-mono text-[8px] leading-none font-semibold tabular-nums",
+        overlay && "ring-background absolute -right-1.5 -bottom-1 ring-1",
+      )}
     >
       {ordinal}
     </span>
@@ -1008,32 +1124,59 @@ function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
     if (entry.leafKind === "editor") {
       const url = fileIconUrl(entry.label);
+      // Remote files keep the file-type icon's shape but get recolored to
+      // the same sky-blue as the SSH terminal accent, so the user can tell
+      // remote vs local at a glance without a badge. `<img>` ignores CSS
+      // color, so we paint the SVG via `mask-image` over a solid sky span
+      // (mirrors how the status icons get themed). Trade-off: we lose the
+      // file-type colour cues (PHP purple, JS yellow, etc.) in exchange
+      // for a uniform "this lives on a server" hint.
+      if (entry.remoteHost) {
+        if (!url) return null;
+        return (
+          <span
+            aria-hidden
+            className="size-3.5 shrink-0 bg-sky-600 dark:bg-sky-400"
+            style={{
+              WebkitMaskImage: `url("${url}")`,
+              maskImage: `url("${url}")`,
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+              WebkitMaskPosition: "center",
+              maskPosition: "center",
+              WebkitMaskSize: "contain",
+              maskSize: "contain",
+            }}
+          />
+        );
+      }
       return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
     }
-    if (entry.sshConnectionId) {
+    // Terminal leaf — pick the right icon, then stamp the ordinal badge
+    // at the icon's bottom-right corner so the tab stays compact (no
+    // extra horizontal slot between icon and label).
+    const terminalIcon = entry.sshConnectionId ? (
+      <HugeiconsIcon
+        icon={CloudServerIcon}
+        size={14}
+        strokeWidth={2}
+        // Connection status drives the icon's tint directly - no separate dot
+        // overlay. emerald=connected, yellow=connecting/reconnecting,
+        // red=disconnected/error, sky=idle/unknown.
+        className={cn("shrink-0", statusIconClass(entry.sshStatus))}
+      />
+    ) : (
+      <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={2} className="shrink-0" />
+    );
+    if (entry.terminalOrdinal) {
       return (
         <span className="relative inline-flex shrink-0">
-          <HugeiconsIcon
-            icon={CloudServerIcon}
-            size={14}
-            strokeWidth={2}
-            className="shrink-0 text-sky-600 dark:text-sky-400"
-          />
-          {entry.sshStatus ? (
-            <span
-              aria-hidden
-              className={cn(
-                "ring-background absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1",
-                statusDotClass(entry.sshStatus),
-              )}
-            />
-          ) : null}
+          {terminalIcon}
+          <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} overlay />
         </span>
       );
     }
-    return (
-      <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={2} className="shrink-0" />
-    );
+    return terminalIcon;
   }
   if (entry.kind === "preview") {
     return <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={2} className="shrink-0" />;

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
 
 use serde::Serialize;
 
@@ -292,24 +293,53 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
         });
     };
 
-    let mut cmd = git(&root);
-    cmd.args(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-    let raw = run(cmd)?;
-    let mut changes = parse_porcelain_v1(&root, &raw);
-    let (upstream, ahead, behind) = upstream_and_counts(&root);
-
-    // Single `git diff --numstat HEAD` covers every tracked change in one
-    // process - far cheaper than diffing per file. Untracked entries are
-    // absent from numstat (no HEAD blob); count their lines from disk.
-    let stats_raw = {
-        let mut nc = git(&root);
-        nc.args(["diff", "--numstat", "HEAD"]);
-        nc.output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+    // Fan out the four independent git subprocesses. Each spawn on Windows
+    // costs ~10ms, so running them serially added ~40ms to every refresh
+    // (the panel auto-polls). Joining here keeps the API sync — Tauri runs
+    // each `#[tauri::command]` on its worker pool, so we're free to block.
+    let status_handle = {
+        let root = root.clone();
+        thread::spawn(move || {
+            let mut cmd = git(&root);
+            cmd.args(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+            run(cmd)
+        })
     };
+    let branch_handle = {
+        let root = root.clone();
+        thread::spawn(move || current_branch(&root))
+    };
+    let upstream_handle = {
+        let root = root.clone();
+        thread::spawn(move || upstream_and_counts(&root))
+    };
+    let numstat_handle = {
+        let root = root.clone();
+        thread::spawn(move || {
+            let mut nc = git(&root);
+            nc.args(["diff", "--numstat", "HEAD"]);
+            nc.output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default()
+        })
+    };
+
+    let raw = status_handle
+        .join()
+        .map_err(|_| "git status thread panicked".to_string())??;
+    let branch = branch_handle
+        .join()
+        .map_err(|_| "branch thread panicked".to_string())?;
+    let (upstream, ahead, behind) = upstream_handle
+        .join()
+        .map_err(|_| "upstream thread panicked".to_string())?;
+    let stats_raw = numstat_handle
+        .join()
+        .map_err(|_| "numstat thread panicked".to_string())?;
+
+    let mut changes = parse_porcelain_v1(&root, &raw);
     let stats = parse_numstat(&stats_raw);
     for c in changes.iter_mut() {
         if let Some(s) = stats.get(&c.relative) {
@@ -327,7 +357,7 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     Ok(GitStatus {
         is_repo: true,
         root: Some(to_forward(&root.to_string_lossy())),
-        branch: current_branch(&root),
+        branch,
         upstream,
         ahead,
         behind,

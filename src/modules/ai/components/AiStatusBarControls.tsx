@@ -16,7 +16,6 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   Add01Icon,
   ArrowDown01Icon,
-  ArrowUpIcon,
   ChatGptIcon,
   ClaudeIcon,
   CloudServerIcon,
@@ -29,6 +28,7 @@ import {
   Grok02Icon,
   Mic01Icon,
   PinIcon,
+  SentIcon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -137,7 +137,7 @@ export function AiStatusBarControls() {
   };
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex shrink-0 items-center gap-0.5">
       <input
         ref={fileInputRef}
         type="file"
@@ -189,9 +189,14 @@ export function AiStatusBarControls() {
 
       <span className="bg-border mx-1 h-5 w-px" aria-hidden />
 
-      {c.isBusy ? (
+      {c.isActive ? (
         <>
-          <IconBtn title="Stop" onClick={c.stop}>
+          <IconBtn
+            title={
+              c.isBusy ? "Stop" : c.value.trim() ? "Cancel run" : "Cancel run (clears agent state)"
+            }
+            onClick={c.stop}
+          >
             <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.75} />
           </IconBtn>
           <DropdownMenu>
@@ -200,16 +205,17 @@ export function AiStatusBarControls() {
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
-                    size="icon"
+                    size="sm"
                     disabled={!c.value.trim()}
-                    className="size-6 rounded-md"
+                    className="h-6 gap-1 rounded-md px-2 text-[11px]"
                     aria-label="Send options"
                   >
-                    <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2} />
+                    <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />
+                    Send
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent side="top">Send</TooltipContent>
+              <TooltipContent side="top">Send options</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuItem
@@ -244,13 +250,14 @@ export function AiStatusBarControls() {
         <IconTooltip label="Send (Enter)" side="top">
           <Button
             type="button"
-            size="icon"
+            size="sm"
             onClick={c.submit}
             disabled={!c.canSend}
-            className="size-6 rounded-md"
+            className="h-6 gap-1 rounded-md px-2 text-[11px]"
             aria-label="Send (Enter)"
           >
-            <HugeiconsIcon icon={ArrowUpIcon} size={13} strokeWidth={2} />
+            <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />
+            Send
           </Button>
         </IconTooltip>
       )}
@@ -395,18 +402,18 @@ function ModelDropdown() {
               size="sm"
               aria-label={modelTooltip}
               className={cn(
-                "hover:bg-accent hover:text-foreground my-1 h-5.5 gap-1 rounded-md px-1.5 text-xs",
+                "hover:bg-accent hover:text-foreground my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
                 currentProviderHasKey
                   ? "text-muted-foreground"
                   : "text-amber-600 dark:text-amber-400",
               )}
             >
-              {current.label}
+              <span className="truncate">{current.label}</span>
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
                 size={11}
                 strokeWidth={2}
-                className="opacity-70"
+                className="shrink-0 opacity-70"
               />
             </Button>
           </DropdownMenuTrigger>

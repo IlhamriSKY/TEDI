@@ -27,6 +27,15 @@ export type EditorLeafState = {
   dirty: boolean;
   /** VSCode-style preview tab indicator (italic title). */
   preview: boolean;
+  /** When set, this leaf edits a remote file via the matching russh
+   *  session. The editor pane branches to SFTP read/write instead of the
+   *  local FS Tauri commands. `path` is still the (forward-slash) absolute
+   *  path on the remote side. */
+  sshSessionId?: number;
+  /** `user@host:port` for the remote host - shown in the tab tooltip /
+   *  status bar so the user can tell a remote tab apart from a local one
+   *  at a glance. Only meaningful when `sshSessionId` is set. */
+  sshHostLabel?: string;
 };
 
 export type LeafState = TerminalLeafState | EditorLeafState;

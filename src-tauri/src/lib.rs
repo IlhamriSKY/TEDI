@@ -280,6 +280,7 @@ pub fn run() {
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,
+            fs::file::fs_read_file_portion,
             fs::file::fs_write_file,
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,

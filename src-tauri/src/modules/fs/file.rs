@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -145,6 +145,116 @@ fn urlencode_svg(s: &str) -> String {
         }
     }
     out
+}
+
+/// Result of a partial (offset/limit) file read. Only the requested line
+/// range crosses the IPC boundary, avoiding multi-MB payloads for the AI tool.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ReadPortionResult {
+    Text {
+        content: String,
+        size: u64,
+        #[serde(rename = "totalLines")]
+        total_lines: usize,
+        #[serde(rename = "startLine")]
+        start_line: usize,
+        #[serde(rename = "endLine")]
+        end_line: usize,
+    },
+    Binary {
+        size: u64,
+    },
+    TooLarge {
+        size: u64,
+        limit: u64,
+    },
+}
+
+/// Read only a slice of lines from a text file. The file is streamed through
+/// a `BufReader` so only the requested `[offset, offset+limit)` range is
+/// allocated as `String`s - the rest of the file is scanned byte-by-byte
+/// just to count newlines.
+#[tauri::command]
+pub fn fs_read_file_portion(
+    path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<ReadPortionResult, String> {
+    let p = PathBuf::from(&path);
+    let meta = std::fs::metadata(&p).map_err(|e| {
+        log::debug!("fs_read_file_portion stat({}) failed: {e}", p.display());
+        e.to_string()
+    })?;
+
+    let size = meta.len();
+    if size > MAX_READ_BYTES {
+        return Ok(ReadPortionResult::TooLarge {
+            size,
+            limit: MAX_READ_BYTES,
+        });
+    }
+
+    let file = std::fs::File::open(&p).map_err(|e| {
+        log::debug!("fs_read_file_portion open({}) failed: {e}", p.display());
+        e.to_string()
+    })?;
+
+    let mut reader = BufReader::new(file);
+
+    // Binary sniff: peek at the first chunk without consuming from the buffer.
+    {
+        let buf = reader.fill_buf().map_err(|e| {
+            log::debug!("fs_read_file_portion fill_buf({}) failed: {e}", p.display());
+            e.to_string()
+        })?;
+        let sniff_len = buf.len().min(BINARY_SNIFF_BYTES);
+        if buf[..sniff_len].contains(&0) {
+            return Ok(ReadPortionResult::Binary { size });
+        }
+    }
+
+    let start = offset.unwrap_or(0);
+    // Hard cap so a misbehaving caller can't ask for `usize::MAX` lines and
+    // overflow `start + lim` below (panic in debug, wrap in release).
+    const MAX_LINE_LIMIT: usize = 10_000;
+    let lim = limit.unwrap_or(2000).min(MAX_LINE_LIMIT);
+    let end = start.saturating_add(lim);
+
+    // Stream lines: skip `start` lines, collect up to `lim`, then count the rest.
+    let mut line_buf = String::new();
+    let mut total_lines: usize = 0;
+    let mut collected: Vec<String> = Vec::with_capacity(lim.min(2048));
+
+    loop {
+        line_buf.clear();
+        let bytes_read = reader.read_line(&mut line_buf).map_err(|e| {
+            log::debug!("fs_read_file_portion read_line({}) failed: {e}", p.display());
+            e.to_string()
+        })?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        if total_lines >= start && total_lines < end {
+            // Strip trailing \r\n so the output is equivalent to
+            // `full_content.split("\n").slice(...)` on the frontend.
+            let trimmed = line_buf.trim_end_matches(['\r', '\n']);
+            collected.push(trimmed.to_string());
+        }
+        total_lines += 1;
+    }
+
+    let end_line = (start + collected.len()).min(total_lines);
+    let content = collected.join("\n");
+
+    Ok(ReadPortionResult::Text {
+        content,
+        size,
+        total_lines,
+        start_line: start,
+        end_line,
+    })
 }
 
 /// Atomic write: stage into a sibling temp file, then rename over the target.

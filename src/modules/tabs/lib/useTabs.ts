@@ -260,12 +260,16 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       curr: Tab[],
       path: string,
       predicate: (l: PaneLeaf & EditorLeafState) => boolean = () => true,
+      sshSessionId?: number,
     ): { tab: PaneTab; leaf: PaneLeaf & EditorLeafState } | null => {
       for (const t of curr) {
         if (t.kind !== "pane") continue;
         for (const l of leaves(t.paneTree)) {
           if (l.leafKind !== "editor") continue;
           if (l.path !== path) continue;
+          // Same path on different sessions (or local vs remote) is a
+          // different file - only dedup when the session identity matches.
+          if ((l.sshSessionId ?? null) !== (sshSessionId ?? null)) continue;
           if (!predicate(l)) continue;
           return { tab: t, leaf: l };
         }
@@ -284,11 +288,15 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * - `pin = false` - VSCode-style preview slot.
    */
   const openFileTab = useCallback(
-    (path: string, pin = true) => {
+    (
+      path: string,
+      pin = true,
+      remote?: { sshSessionId: number; sshHostLabel: string },
+    ) => {
       let targetTabId: number | null = null;
       setTabs((curr) => {
         if (pin) {
-          const hit = findEditorLeafIn(curr, path);
+          const hit = findEditorLeafIn(curr, path, undefined, remote?.sshSessionId);
           if (hit) {
             targetTabId = hit.tab.id;
             return curr.map((t) => {
@@ -314,6 +322,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             path,
             dirty: false,
             preview: false,
+            ...(remote && {
+              sshSessionId: remote.sshSessionId,
+              sshHostLabel: remote.sshHostLabel,
+            }),
           };
           return [
             ...curr,
@@ -328,7 +340,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
 
         // Preview open
-        const persistent = findEditorLeafIn(curr, path, (l) => !l.preview);
+        const persistent = findEditorLeafIn(
+          curr,
+          path,
+          (l) => !l.preview,
+          remote?.sshSessionId,
+        );
         if (persistent) {
           targetTabId = persistent.tab.id;
           return curr.map((t) => {
@@ -339,7 +356,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             });
           });
         }
-        const existingPreview = findEditorLeafIn(curr, path, (l) => l.preview);
+        const existingPreview = findEditorLeafIn(
+          curr,
+          path,
+          (l) => l.preview,
+          remote?.sshSessionId,
+        );
         if (existingPreview) {
           targetTabId = existingPreview.tab.id;
           return curr.map((t) => {
@@ -370,6 +392,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           path,
           dirty: false,
           preview: true,
+          ...(remote && {
+            sshSessionId: remote.sshSessionId,
+            sshHostLabel: remote.sshHostLabel,
+          }),
         };
         const tab: PaneTab = syncPaneMirror({
           id,
@@ -851,6 +877,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
                 path: leaf.path,
                 dirty: leaf.dirty,
                 preview: leaf.preview,
+                sshSessionId: leaf.sshSessionId,
+                sshHostLabel: leaf.sshHostLabel,
               };
         const newSourceTree = removeLeaf(source.paneTree, leafId);
         const splitId = nextIdRef.current++;
@@ -908,6 +936,90 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     },
     [],
   );
+
+  /**
+   * Extract a leaf from its current tab's split into a brand-new top-level
+   * pane tab — "leave group". Leaf id and state (terminal cwd/SSH binding or
+   * editor path/dirty/preview) are preserved verbatim so the underlying PTY
+   * or editor session survives the relocation. Returns `"invalid"` when
+   * `leafId` isn't inside a multi-leaf split (single-leaf tabs have nothing
+   * to leave) and `"ok"` on success.
+   */
+  const moveLeafToNewTab = useCallback((leafId: number): "ok" | "invalid" => {
+    type MoveResult = "ok" | "invalid";
+    let result = "invalid" as MoveResult;
+    let newTabId: number | null = null;
+    setTabs((curr) => {
+      const source = curr.find(
+        (t): t is PaneTab => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
+      );
+      if (!source) return curr;
+      // Only meaningful for split tabs — extracting from a single-leaf tab
+      // would just rename the tab and waste a fresh id.
+      const sourceLeafIds = leafIds(source.paneTree);
+      if (sourceLeafIds.length < 2) return curr;
+      const leaf = findLeaf(source.paneTree, leafId);
+      if (!leaf) return curr;
+      const state: LeafState =
+        leaf.leafKind === "terminal"
+          ? {
+              leafKind: "terminal",
+              cwd: leaf.cwd,
+              sshConnectionId: leaf.sshConnectionId,
+            }
+          : {
+              leafKind: "editor",
+              path: leaf.path,
+              dirty: leaf.dirty,
+              preview: leaf.preview,
+              sshSessionId: leaf.sshSessionId,
+              sshHostLabel: leaf.sshHostLabel,
+            };
+      const newSourceTree = removeLeaf(source.paneTree, leafId);
+      // Source has ≥2 leaves so removing one always leaves something behind;
+      // `newSourceTree === null` should not happen but guard anyway.
+      if (newSourceTree === null) return curr;
+      const tabId = nextIdRef.current++;
+      const newLeaf: PaneLeaf = {
+        kind: "leaf",
+        id: leafId,
+        ...state,
+      };
+      const remaining = leafIds(newSourceTree);
+      let sourceActive = source.activeLeafId;
+      if (source.activeLeafId === leafId) {
+        const sib = siblingLeafOf(source.paneTree, leafId);
+        sourceActive = sib && remaining.includes(sib) ? sib : remaining[0];
+      }
+      result = "ok";
+      newTabId = tabId;
+      const next: Tab[] = [];
+      for (const t of curr) {
+        next.push(t);
+        if (t.id === source.id) {
+          next[next.length - 1] = syncPaneMirror({
+            ...source,
+            paneTree: newSourceTree,
+            activeLeafId: sourceActive,
+          });
+          // Insert the new tab right after the source so the user's eye
+          // tracks the leaf to its new home without scanning the strip.
+          next.push(
+            syncPaneMirror({
+              id: tabId,
+              kind: "pane",
+              title: source.title,
+              paneTree: newLeaf,
+              activeLeafId: leafId,
+            }),
+          );
+        }
+      }
+      return next;
+    });
+    if (result === "ok" && newTabId !== null) setActiveId(newTabId);
+    return result;
+  }, []);
 
   /**
    * Rotate `leafId` by pairing it with its immediate sibling in a sub-
@@ -974,6 +1086,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     closeActivePane,
     closePaneByLeaf,
     moveLeafToTab,
+    moveLeafToNewTab,
     rotateLeafSplit,
     replaceAllTabs,
     allocId,

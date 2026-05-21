@@ -64,7 +64,11 @@ type Deps = {
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number }) => void;
-  onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
+  onFinishMeta?: (info: {
+    hitStepCap: boolean;
+    finishReason: string;
+    stopReason: "step-cap" | "tool-repetition" | "no-progress" | "normal";
+  }) => void;
   getPlanMode?: () => boolean;
 };
 

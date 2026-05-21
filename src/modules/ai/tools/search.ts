@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
-import { resolvePath, type ToolContext } from "./context";
+import { resolvePath, scrubErrorPath, type ToolContext } from "./context";
 import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
 function resolveRoot(
@@ -72,7 +72,7 @@ export function buildSearchTools(ctx: ToolContext) {
             files_scanned: res.files_scanned,
           };
         } catch (e) {
-          return { error: String(e), root: r.path };
+          return { error: scrubErrorPath(e, ctx), root: r.path };
         }
       },
     }),
@@ -102,7 +102,7 @@ export function buildSearchTools(ctx: ToolContext) {
             truncated: res.truncated,
           };
         } catch (e) {
-          return { error: String(e), root: r.path };
+          return { error: scrubErrorPath(e, ctx), root: r.path };
         }
       },
     }),

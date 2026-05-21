@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -67,14 +67,13 @@ pub async fn shell_run_command(
             .clamp(1, MAX_TIMEOUT_SECS),
     );
 
-    // The blocking spawn + wait runs on a worker thread so the Tauri async
-    // runtime stays unblocked.
-    let (tx, rx) = mpsc::channel::<Result<CommandOutput, String>>();
-    thread::spawn(move || {
-        let _ = tx.send(run_blocking(trimmed, cwd_path, dur));
-    });
-
-    rx.recv().map_err(|e| e.to_string())?
+    // The blocking spawn + wait runs on Tokio's dedicated blocking pool via
+    // Tauri's wrapper. Previously we hand-rolled a `thread::spawn` + `rx.recv()`,
+    // which DID move the work off-thread but then re-blocked the async fn's
+    // future on the channel — defeating the runtime entirely.
+    tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
 }
 
 pub(crate) fn run_blocking_inner(
@@ -205,11 +204,9 @@ pub async fn shell_session_run(
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .clamp(1, MAX_TIMEOUT_SECS),
     );
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = tx.send(session.run(command, cwd, dur));
-    });
-    rx.recv().map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || session.run(command, cwd, dur))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
 }
 
 #[tauri::command]

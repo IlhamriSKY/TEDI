@@ -34,6 +34,17 @@ type Listener = (schedules: Schedule[]) => void;
 
 class SchedulerEngine {
   private schedules: Schedule[] = [];
+  // Cached defensive copy of `schedules`. Rebuilt only when the underlying
+  // array reference changes — every mutator reassigns `this.schedules = [new]`,
+  // so identity comparison is enough to detect change without dirty-flag plumbing.
+  //
+  // `useSyncExternalStore` calls `getSnapshot` on every render and uses
+  // `Object.is` to decide whether to re-render; returning a fresh array each
+  // call would cause infinite re-renders. We must hand back a stable reference
+  // until state actually mutates, but also not leak the live internal array
+  // (callers could `push()` and corrupt engine state).
+  private snapshotFor: Schedule[] | null = null;
+  private snapshotCache: Schedule[] = [];
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private bridge: SchedulerBridge = NOOP_BRIDGE;
   private listeners = new Set<Listener>();
@@ -45,18 +56,26 @@ class SchedulerEngine {
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
-    fn(this.schedules);
+    fn(this.snapshot());
     return () => {
       this.listeners.delete(fn);
     };
   }
 
   getAll(): Schedule[] {
-    return this.schedules;
+    return this.snapshot();
   }
 
   getPending(): Schedule[] {
     return this.schedules.filter((s) => s.status === "pending");
+  }
+
+  private snapshot(): Schedule[] {
+    if (this.snapshotFor !== this.schedules) {
+      this.snapshotCache = this.schedules.slice();
+      this.snapshotFor = this.schedules;
+    }
+    return this.snapshotCache;
   }
 
   /** Idempotent boot: load persisted schedules, arm timers, fire past-due. */
@@ -198,7 +217,8 @@ class SchedulerEngine {
   }
 
   private emit(): void {
-    for (const l of this.listeners) l(this.schedules);
+    const snap = this.snapshot();
+    for (const l of this.listeners) l(snap);
   }
 }
 

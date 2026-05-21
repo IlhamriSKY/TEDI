@@ -238,7 +238,7 @@ function isStreamParser(v: unknown): boolean {
 
 export async function resolveLanguage(filename: string): Promise<Extension | null> {
   const lower = filename.toLowerCase();
-  const base = lower.split("/").pop() ?? lower;
+  const base = lower.split(/[\\/]/).pop() ?? lower;
 
   const byName = filenameOverrides[base];
   const loader = byName ?? loaders[extOf(base) ?? ""];

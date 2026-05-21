@@ -26,6 +26,7 @@ import {
   Refresh01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
+import { Spinner } from "@/components/ui/spinner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
@@ -541,12 +542,15 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
                 disabled={sorted.length === 0 || busy !== null}
                 aria-label="Generate commit message"
               >
-                <HugeiconsIcon
-                  icon={SparklesIcon}
-                  size={12}
-                  strokeWidth={2}
-                  className={busy === "ai" ? "animate-pulse" : undefined}
-                />
+                {busy === "ai" ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <HugeiconsIcon
+                    icon={SparklesIcon}
+                    size={12}
+                    strokeWidth={2}
+                  />
+                )}
               </Button>
             </IconTooltip>
           </div>

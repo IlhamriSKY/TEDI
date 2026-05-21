@@ -5,6 +5,18 @@ export type ReadResult =
   | { kind: "binary"; size: number }
   | { kind: "toolarge"; size: number; limit: number };
 
+export type ReadPortionResult =
+  | {
+      kind: "text";
+      content: string;
+      size: number;
+      totalLines: number;
+      startLine: number;
+      endLine: number;
+    }
+  | { kind: "binary"; size: number }
+  | { kind: "toolarge"; size: number; limit: number };
+
 export type DirEntry = {
   name: string;
   kind: "file" | "dir" | "symlink";
@@ -38,6 +50,12 @@ export type GlobResponse = { hits: GlobHit[]; truncated: boolean };
 
 export const native = {
   readFile: (path: string) => invoke<ReadResult>("fs_read_file", { path }),
+  readFilePortion: (path: string, offset?: number, limit?: number) =>
+    invoke<ReadPortionResult>("fs_read_file_portion", {
+      path,
+      offset: offset ?? null,
+      limit: limit ?? null,
+    }),
   writeFile: (path: string, content: string) => invoke<void>("fs_write_file", { path, content }),
   createFile: (path: string) => invoke<void>("fs_create_file", { path }),
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),

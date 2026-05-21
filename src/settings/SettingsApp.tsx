@@ -99,6 +99,14 @@ export function SettingsApp() {
 
   return (
     <TooltipProvider>
+      {/* The primary-tinted border + rounded corners are painted on the
+          outer `#settings-root` by globals.css (see the
+          `html[data-chrome="borderless"] #settings-root` rule). Doing it
+          there - instead of on this inner React root - avoids a 2px
+          height overshoot (h-screen + inner border would clip its own
+          bottom under the outer's `overflow: hidden`). On macOS, where
+          `data-chrome=borderless` isn't set, the window keeps the native
+          chrome and no extra border is needed. */}
       <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden select-none">
         <header
           data-tauri-drag-region

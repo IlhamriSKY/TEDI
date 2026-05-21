@@ -1,7 +1,15 @@
 import type { ModelMessage } from "ai";
 
 const KEEP_TAIL = 24;
-const ELISION_TEXT = "[elided to save context - see prior tool call in history]";
+/** Elision marker that's deliberately "self-terminating" — the original
+ *  wording ("see prior tool call in history") nudged some lite models into
+ *  re-issuing the same tool call to recover the content. The two variants
+ *  below tell the model bluntly *not* to retry, because either a fresher
+ *  copy is downstream or the underlying file has been mutated. */
+const ELISION_TEXT =
+  "[elided — newer output for this call is already further down in the conversation. Do not retry.]";
+const ELISION_TEXT_MUTATED =
+  "[elided — this file has been modified since; the post-mutation read is below. Do not re-read this snapshot.]";
 
 type ToolPart = {
   type: string;
@@ -29,7 +37,10 @@ function approxBytes(messages: ModelMessage[]): number {
   return n;
 }
 
-function elideToolResult(part: ToolPart): { changed: boolean; part: ToolPart } {
+function elideToolResult(
+  part: ToolPart,
+  reason: "superseded" | "mutated" = "superseded",
+): { changed: boolean; part: ToolPart } {
   if (part.type !== "tool-result") return { changed: false, part };
   if (
     part.output &&
@@ -38,11 +49,12 @@ function elideToolResult(part: ToolPart): { changed: boolean; part: ToolPart } {
   ) {
     return { changed: false, part };
   }
+  const value = reason === "mutated" ? ELISION_TEXT_MUTATED : ELISION_TEXT;
   return {
     changed: true,
     part: {
       ...part,
-      output: { type: "text", value: ELISION_TEXT, __elided: true },
+      output: { type: "text", value, __elided: true },
     },
   };
 }
@@ -141,13 +153,11 @@ function dropSupersededReads(messages: ModelMessage[]): {
       if (typeof id !== "string") return part;
       const entry = callIdxToRead.get(id);
       if (!entry) return part;
-      const isStale =
-        // Mutated since: every page of this path is potentially stale.
-        mutated.has(entry.path) ||
-        // Same (path+offset+limit) read appears later: this one is redundant.
-        (lastReadKey.has(entry.key) && (lastReadKey.get(entry.key) as number) > i);
-      if (!isStale) return part;
-      const r = elideToolResult(part);
+      const wasMutated = mutated.has(entry.path);
+      const wasSuperseded =
+        lastReadKey.has(entry.key) && (lastReadKey.get(entry.key) as number) > i;
+      if (!wasMutated && !wasSuperseded) return part;
+      const r = elideToolResult(part, wasMutated ? "mutated" : "superseded");
       if (r.changed) local = true;
       return r.part;
     });
@@ -164,13 +174,30 @@ export type CompactResult = {
   droppedCount: number;
 };
 
-/** Two-stage compaction:
- *   1. At 55% of context: drop superseded read_file results (cheap wins,
- *      no information loss because the latest read / the mutation is still
- *      in history).
- *   2. At 70% of context: elide older tool-result blocks, oldest first,
- *      until we're back under 60% - keeping the last KEEP_TAIL messages
+/** Hard floor for tail preservation: we never hard-drop more than this many
+ *  trailing messages even if everything still spills the window — better to
+ *  send an over-budget request and let the provider error than to lose the
+ *  user's most recent turn. */
+const MIN_TAIL = Math.min(KEEP_TAIL, 8);
+
+/** Three-stage compaction (per recent "Complexity Trap" research: masking
+ *  observations beats LLM summarisation, both in tokens spent and quality):
+ *
+ *   1. ALWAYS: drop superseded read_file results (no information loss
+ *      because the latest read / the mutation is still in history). This
+ *      also doubles as anti-loop — even at 10% context, if the model
+ *      re-read the same file twice we trim the older copy so it can't
+ *      "see" the duplicate and decide to recurse on it.
+ *   2. At 60% of context: elide older tool-result blocks, oldest first,
+ *      until we're back under 50% - keeping the last KEEP_TAIL messages
  *      intact and never touching system messages.
+ *   3. If still over 80% after Stage 2 (e.g. the conversation itself has
+ *      blown past the window, not just tool noise): HARD-DROP oldest
+ *      non-system messages until we are under 65%, while preserving the
+ *      last KEEP_TAIL messages. This is the only path that loses
+ *      information; it's the safety net that keeps a runaway context
+ *      from indefinitely 4xx-ing the provider.
+ *
  *  System / lite-model callers can pass smaller contextLimit values to
  *  trigger compaction sooner. */
 export function compactModelMessagesDetailed(
@@ -179,46 +206,132 @@ export function compactModelMessagesDetailed(
 ): CompactResult {
   let dropped = 0;
   let working = messages;
-  let approxTokens = approxBytes(working) / 4;
 
-  if (approxTokens >= 0.55 * contextLimit) {
+  // Stage 1: drop superseded reads (lossless). Runs every turn regardless
+  // of budget — anti-loop, not just budget management.
+  {
     const r = dropSupersededReads(working);
     if (r.touched) {
       working = r.out;
       dropped++;
-      approxTokens = approxBytes(working) / 4;
     }
   }
+  let approxTokens = approxBytes(working) / 4;
 
-  if (approxTokens < 0.7 * contextLimit) {
-    return {
-      messages: working,
-      compacted: dropped > 0,
-      droppedCount: dropped,
-    };
+  // Stage 2: elide older tool-result blocks until back under 50% (or the
+  // KEEP_TAIL boundary is reached).
+  if (approxTokens >= 0.6 * contextLimit) {
+    const out = working.slice();
+    const stopIdx = Math.max(0, out.length - KEEP_TAIL);
+    for (let i = 0; i < stopIdx; i++) {
+      if (out[i].role === "system") continue;
+      if (!Array.isArray(out[i].content)) continue;
+      let local = false;
+      const next = (out[i].content as ToolPart[]).map((part) => {
+        const r = elideToolResult(part);
+        if (r.changed) local = true;
+        return r.part;
+      });
+      if (local) {
+        out[i] = { ...out[i], content: next } as ModelMessage;
+        dropped++;
+        if (approxBytes(out) / 4 < 0.5 * contextLimit) break;
+      }
+    }
+    working = out;
+    approxTokens = approxBytes(working) / 4;
   }
 
-  const out = working.slice();
-  const stopIdx = Math.max(0, out.length - KEEP_TAIL);
-  for (let i = 0; i < stopIdx; i++) {
-    if (out[i].role === "system") continue;
-    if (!Array.isArray(out[i].content)) continue;
-    let local = false;
-    const next = (out[i].content as ToolPart[]).map((part) => {
-      const r = elideToolResult(part);
-      if (r.changed) local = true;
-      return r.part;
-    });
-    if (local) {
-      out[i] = { ...out[i], content: next } as ModelMessage;
+  // Stage 3: when conversation itself has exceeded the window (huge file
+  // pastes, runaway streaming, etc.), elision is not enough. Hard-drop the
+  // oldest non-system messages. We do this in pairs (user + assistant) when
+  // possible to avoid orphaning a tool-call from its tool-result.
+  if (approxTokens >= 0.8 * contextLimit) {
+    const systemPrefix: ModelMessage[] = [];
+    const rest: ModelMessage[] = [];
+    for (const m of working) {
+      if (m.role === "system" && rest.length === 0) systemPrefix.push(m);
+      else rest.push(m);
+    }
+    // Number of trailing messages we MUST keep. Tighten when the context is
+    // dramatically over so we can actually fit; relax to KEEP_TAIL on minor
+    // overruns to retain conversational continuity.
+    const tail =
+      approxTokens >= 2 * contextLimit
+        ? MIN_TAIL
+        : Math.min(KEEP_TAIL, Math.max(MIN_TAIL, rest.length - 1));
+    const stopIdx = Math.max(0, rest.length - tail);
+    let cut = 0;
+    let runningTokens = approxTokens;
+    while (cut < stopIdx && runningTokens >= 0.65 * contextLimit) {
+      const drop = rest[cut];
+      const dropTokens = approxBytes([drop]) / 4;
+      runningTokens -= dropTokens;
+      cut++;
       dropped++;
-      if (approxBytes(out) / 4 < 0.6 * contextLimit) break;
+    }
+    if (cut > 0) {
+      working = [...systemPrefix, ...rest.slice(cut)];
     }
   }
 
   return {
-    messages: out,
+    messages: working,
     compacted: dropped > 0,
     droppedCount: dropped,
+  };
+}
+
+/** Hard-drop the oldest UI messages so the on-disk / SDK-side message list
+ *  itself stays under a soft cap. Used by the `/compact` slash command to
+ *  surface the same logic to users when the context indicator turns red.
+ *
+ *  Returns `null` if no compaction is needed. Mutating callers should write
+ *  the returned array back into the Chat instance + persist it. */
+export type UICompactResult = { kept: number; dropped: number };
+
+export function compactUiMessages<
+  T extends {
+    role: string;
+    parts?: Array<{
+      type?: string;
+      text?: string;
+      input?: unknown;
+      output?: unknown;
+    }>;
+  },
+>(
+  messages: T[],
+  opts: { contextLimit: number; keepTail?: number },
+): {
+  messages: T[];
+  info: UICompactResult;
+} {
+  const keepTail = opts.keepTail ?? KEEP_TAIL;
+  const tokensFor = (m: T): number => {
+    let n = 0;
+    for (const p of m.parts ?? []) {
+      if (typeof p.type !== "string") continue;
+      if (p.type === "text" || p.type === "reasoning") n += (p.text ?? "").length;
+      else if (p.type.startsWith("tool-")) {
+        if (p.input) n += JSON.stringify(p.input).length;
+        if (p.output) n += JSON.stringify(p.output).length;
+      }
+    }
+    return Math.ceil(n / 4);
+  };
+  let total = messages.reduce((sum, m) => sum + tokensFor(m), 0);
+  if (total < 0.7 * opts.contextLimit) {
+    return { messages, info: { kept: messages.length, dropped: 0 } };
+  }
+  let cut = 0;
+  const stopIdx = Math.max(0, messages.length - keepTail);
+  while (cut < stopIdx && total >= 0.5 * opts.contextLimit) {
+    total -= tokensFor(messages[cut]);
+    cut++;
+  }
+  return {
+    messages: messages.slice(cut),
+    info: { kept: messages.length - cut, dropped: cut },
   };
 }

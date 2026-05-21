@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use serde::Serialize;
 
 use super::to_canon;
@@ -45,8 +47,9 @@ pub fn fs_search(
     }
     let show_hidden = include_hidden.unwrap_or(false);
 
-    let mut out: Vec<SearchHit> = Vec::with_capacity(cap.min(64));
-
+    // Walk in parallel — `ignore::WalkBuilder` is already pulled in for the
+    // grep path, and on a large monorepo the single-threaded walk + scoring
+    // pass was the bottleneck for the fuzzy file picker.
     let walker = WalkBuilder::new(&root_path)
         .hidden(!show_hidden)
         .git_ignore(true)
@@ -55,56 +58,102 @@ pub fn fs_search(
         .ignore(true)
         .parents(true)
         .follow_links(false)
-        .build();
+        .build_parallel();
 
-    for dent in walker.flatten() {
-        if out.len() >= cap.saturating_mul(4) {
-            // Walk a few times the requested cap so ranking has options.
-            break;
-        }
-        let path = dent.path();
-        if path == root_path {
-            continue;
-        }
-        let rel = match path.strip_prefix(&root_path) {
-            Ok(r) => to_canon(r),
-            Err(_) => continue,
-        };
-        let name = path
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let is_dir = dent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+    let worker_bufs: Arc<Mutex<Vec<Vec<SearchHit>>>> = Arc::new(Mutex::new(Vec::new()));
+    let collected = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    // Walk a few times the requested cap so ranking has options to pick from.
+    let walk_cap = cap.saturating_mul(4);
 
-        let (name_score, name_match) = score_fuzzy(&name, &q_chars);
-        let (path_score, _) = score_fuzzy(&rel, &q_chars);
-        if name_score == 0 && path_score == 0 {
-            continue;
+    struct WorkerBuf {
+        local: Vec<SearchHit>,
+        out: Arc<Mutex<Vec<Vec<SearchHit>>>>,
+    }
+    impl Drop for WorkerBuf {
+        fn drop(&mut self) {
+            if !self.local.is_empty() {
+                if let Ok(mut guard) = self.out.lock() {
+                    guard.push(std::mem::take(&mut self.local));
+                }
+            }
         }
-
-        // Filename matches outweigh path matches by a constant boost so a
-        // matched name always wins against a matched path component.
-        let mut score = name_score.max(0) * 3 + path_score.max(0);
-        if name_score > 0 {
-            score += 1_000;
-        }
-        // Slight penalty for deeper paths so closer hits surface first.
-        score -= rel.matches('/').count() as i32 * 2;
-
-        out.push(SearchHit {
-            path: to_canon(path),
-            rel,
-            name,
-            is_dir,
-            score,
-            name_match: if name_score > 0 {
-                name_match.iter().map(|&i| i as u32).collect()
-            } else {
-                Vec::new()
-            },
-        });
     }
 
+    walker.run(|| {
+        let q_chars = q_chars.clone();
+        let root_path = root_path.clone();
+        let collected = collected.clone();
+        let stop = stop.clone();
+        let mut worker = WorkerBuf {
+            local: Vec::new(),
+            out: worker_bufs.clone(),
+        };
+
+        Box::new(move |dent_res| {
+            if stop.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
+            let dent = match dent_res {
+                Ok(d) => d,
+                Err(_) => return WalkState::Continue,
+            };
+            let path = dent.path();
+            if path == root_path {
+                return WalkState::Continue;
+            }
+            let rel = match path.strip_prefix(&root_path) {
+                Ok(r) => to_canon(r),
+                Err(_) => return WalkState::Continue,
+            };
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let is_dir = dent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+            let (name_score, name_match) = score_fuzzy(&name, &q_chars);
+            let (path_score, _) = score_fuzzy(&rel, &q_chars);
+            if name_score == 0 && path_score == 0 {
+                return WalkState::Continue;
+            }
+
+            let mut score = name_score.max(0) * 3 + path_score.max(0);
+            if name_score > 0 {
+                score += 1_000;
+            }
+            score -= rel.matches('/').count() as i32 * 2;
+
+            // Atomic claim against the over-walk cap.
+            let prev = collected.fetch_add(1, Ordering::Relaxed);
+            if prev >= walk_cap {
+                stop.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+
+            worker.local.push(SearchHit {
+                path: to_canon(path),
+                rel,
+                name,
+                is_dir,
+                score,
+                name_match: if name_score > 0 {
+                    name_match.iter().map(|&i| i as u32).collect()
+                } else {
+                    Vec::new()
+                },
+            });
+
+            WalkState::Continue
+        })
+    });
+
+    let mut out: Vec<SearchHit> = Arc::into_inner(worker_bufs)
+        .and_then(|m| m.into_inner().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .collect();
     out.sort_by(|a, b| b.score.cmp(&a.score).then(a.rel.len().cmp(&b.rel.len())));
     out.truncate(cap);
     Ok(out)

@@ -420,7 +420,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
 function DiffRuler({ width, marks }: { width: number; marks: RulerMark[] }) {
   if (width <= 0 || marks.length === 0) return null;
   return (
-    <div className="diff-ruler" style={{ width: `${width}px` }}>
+    <div className="diff-ruler" style={{ width: `${width}px`, right: `${width}px` }}>
       {marks.map((m) => {
         const topPct = ((m.startLine - 1) / m.total) * 100;
         const heightPct = ((m.endLine - m.startLine + 1) / m.total) * 100;

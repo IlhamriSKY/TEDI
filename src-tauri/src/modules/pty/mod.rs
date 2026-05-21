@@ -1,5 +1,5 @@
 #[cfg(windows)]
-mod job;
+pub(crate) mod job;
 mod session;
 pub(crate) mod shell_init;
 

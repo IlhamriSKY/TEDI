@@ -6,7 +6,7 @@ import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/us
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
 
 type Props = {
@@ -50,7 +50,13 @@ export function PaneStack({
   mdPreviewLeafIds,
   onFocusLeaf,
 }: Props) {
-  const paneTabs = tabs.filter((t): t is PaneTab => t.kind === "pane");
+  // Memoize the filter so the prune effect below doesn't re-run every render
+  // — `tabs.filter` returns a fresh array identity each time, which would
+  // otherwise tear bundles unnecessarily.
+  const paneTabs = useMemo(
+    () => tabs.filter((t): t is PaneTab => t.kind === "pane"),
+    [tabs],
+  );
 
   // Stable refs for all per-leaf callbacks - avoid re-creating bundles each
   // render which would tear down PTY/editor state.

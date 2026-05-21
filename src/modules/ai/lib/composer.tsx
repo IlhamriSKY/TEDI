@@ -38,6 +38,9 @@ type ComposerCtx = {
   addFiles: (list: FileList | null) => Promise<void>;
   /** Attach a file by absolute path - used by the file explorer's "Attach to Agent". */
   attachFileByPath: (path: string) => Promise<void>;
+  /** Attach a directory snapshot (one-level listing) by absolute path. Returns
+   *  false if the read failed (path missing, permission, sensitive root, …). */
+  attachFolderByPath: (path: string) => Promise<boolean>;
   removeFile: (id: string) => void;
   /** Replace the full attachment list. Used by ArrowUp/Down history recall
    *  to swap in the attachments that were sent with a previous message. */
@@ -51,6 +54,11 @@ type ComposerCtx = {
   addCommand: (c: SlashCommandMeta) => void;
   removeCommand: (name: string) => void;
   isBusy: boolean;
+  /** True whenever the agent is in any non-idle state (thinking, streaming,
+   *  awaiting an approval, or post-error). Drives the Stop button so the
+   *  user can always interrupt — including when a stuck approval card or a
+   *  post-error stream-handle is hiding the regular Send button. */
+  isActive: boolean;
   submit: () => void;
   stop: () => void;
   voice: Voice;
@@ -73,6 +81,11 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const status = useChatStore((s) => s.agentMeta.status);
   const isBusy = status === "thinking" || status === "streaming";
+  // Active = anything but `idle`. Includes `awaiting-approval` and `error`
+  // so the Stop button stays reachable when a hung approval card or post-
+  // error stream handle would otherwise leave the user with no way to
+  // cancel.
+  const isActive = status !== "idle";
   const queueLen = useChatStore((s) => s.promptQueue.length);
   const consumeNextQueuedPrompt = useChatStore((s) => s.consumeNextQueuedPrompt);
 
@@ -81,6 +94,21 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const [pickedSnippets, setPickedSnippets] = useState<Snippet[]>([]);
   const [pickedCommands, setPickedCommands] = useState<SlashCommandMeta[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset composer state whenever the active session changes (e.g. user ran
+  // `/new`, picked a different session in the history dialog, or switched
+  // sessions externally). Without this, attachments/snippets from the prior
+  // session linger and silently get sent with the next message in the new
+  // session — surprising and easy to miss.
+  const lastSessionIdRef = useRef<string | null>(sessionId);
+  useEffect(() => {
+    if (lastSessionIdRef.current === sessionId) return;
+    lastSessionIdRef.current = sessionId;
+    setValue("");
+    setFiles([]);
+    setPickedSnippets([]);
+    setPickedCommands([]);
+  }, [sessionId]);
 
   // Auto-fire next queued prompt when the agent settles. Awaiting-approval
   // counts as "busy" - we never bypass a pending approval just to drain the
@@ -101,17 +129,19 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (firingRef.current) return;
     if (queueLen === 0) return;
     if (!sessionId) return;
+    // Open the checkpoint FIRST. If the session is mid-restore, leave the
+    // queued item in the queue so it survives across the restore window —
+    // consuming before the checkpoint passes would permanently drop the
+    // prompt on a transient race.
+    if (!openSendCheckpoint(sessionId)) {
+      // The effect will re-fire after `restoringSessions` clears (state
+      // changes trigger a re-render through the existing dependencies).
+      return;
+    }
     const next = consumeNextQueuedPrompt();
     if (!next) return;
     firingRef.current = true;
     const chat = getOrCreateChat(sessionId);
-    if (!openSendCheckpoint(sessionId)) {
-      // Session is mid-restore - drop this queue tick. The effect will
-      // re-fire after `isRestoring` clears (state changes will trigger
-      // a re-render through the existing dependencies).
-      firingRef.current = false;
-      return;
-    }
     void chat.sendMessage({ text: next.text });
   }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt]);
 
@@ -208,7 +238,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         console.warn("attachFileByPath: skipped non-text file", path, result);
         return;
       }
-      const name = path.split("/").pop() || path;
+      const name = normalizeBasename(path);
       const id = `path-${path}`;
       setFiles((prev) => {
         if (prev.some((f) => f.id === id)) return prev;
@@ -229,6 +259,38 @@ export function AiComposerProvider({ children }: ProviderProps) {
     }
   };
 
+  const attachFolderByPath = async (path: string): Promise<boolean> => {
+    try {
+      type DirEntry = { name: string; kind: "file" | "dir" | "symlink"; size: number };
+      const entries = await invoke<DirEntry[]>("fs_read_dir", { path });
+      const lines: string[] = [];
+      for (const e of entries) {
+        if (e.name.startsWith(".")) continue;
+        lines.push(e.kind === "dir" ? `${e.name}/` : e.name);
+      }
+      const body = lines.length === 0 ? "(empty)" : lines.join("\n");
+      const name = `${normalizeBasename(path)}/`;
+      const id = `folder-${path}`;
+      setFiles((prev) => {
+        if (prev.some((f) => f.id === id)) return prev;
+        const att: FileAttachment = {
+          id,
+          name,
+          kind: "text",
+          mediaType: "text/directory",
+          text: `Directory listing of ${path}:\n${body}`,
+          size: body.length,
+        };
+        return [...prev, att];
+      });
+      useChatStore.getState().focusInput();
+      return true;
+    } catch (e) {
+      console.error("attachFolderByPath failed:", e);
+      return false;
+    }
+  };
+
   const submit = () => {
     if (isBusy) return;
     const trimmed = value.trim();
@@ -240,27 +302,74 @@ export function AiComposerProvider({ children }: ProviderProps) {
     )
       return;
 
-    // Slash-command interception. `/plan` toggles plan mode; `/init` rewrites
-    // the prompt to the TEDI.md scan template before sending.
+    // Slash-command interception.
+    //
+    // Two input shapes feed this:
+    //   - Raw text starting with `/cmd` or `#cmd` (user typed it)
+    //   - Hash chips from the # picker (`#init`, `#plan`) accumulated in
+    //     `pickedCommands`. Multiple chips can stack and ALL must fire.
+    //
+    // Each command source is either `handled` (a side effect like toggling
+    // plan mode) or `send-prompt` (rewrites the message body, e.g. `#init`).
+    // We fire every handled source, and use the first send-prompt source as
+    // the effective body — only one source can rewrite the prompt, the rest
+    // remain fire-and-forget.
     let effectiveText = trimmed;
     let commandMarker: string | null = null;
-    let commandSource = trimmed;
-    if (pickedCommands.length > 0 && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
-      commandSource = `#${pickedCommands[0].name} ${trimmed}`.trim();
-    }
-    if (commandSource.startsWith("/") || commandSource.startsWith("#")) {
-      const outcome = tryRunSlashCommand(commandSource);
+    let textConsumedByCommand = false;
+    let sendPromptApplied = false;
+    let toastMsg: string | undefined;
+
+    if (trimmed.startsWith("/") || trimmed.startsWith("#")) {
+      const outcome = tryRunSlashCommand(trimmed);
       if (outcome.kind === "handled") {
-        setValue("");
-        if (outcome.toast) console.info(outcome.toast);
-        return;
-      }
-      if (outcome.kind === "send-prompt") {
+        textConsumedByCommand = true;
+        effectiveText = "";
+        if (outcome.toast) toastMsg = outcome.toast;
+      } else if (outcome.kind === "send-prompt") {
+        sendPromptApplied = true;
         effectiveText = outcome.prompt;
         if (outcome.commandName) {
           commandMarker = `<tedi-command name="${outcome.commandName}" />`;
         }
       }
+    }
+
+    for (const cmd of pickedCommands) {
+      const outcome = tryRunSlashCommand(`#${cmd.name}`);
+      if (outcome.kind === "handled") {
+        if (outcome.toast) toastMsg = outcome.toast;
+        continue;
+      }
+      if (outcome.kind === "send-prompt") {
+        // First send-prompt wins as the body. Subsequent ones are dropped:
+        // the user can't `#init` twice in one message.
+        if (!sendPromptApplied) {
+          sendPromptApplied = true;
+          effectiveText = outcome.prompt;
+          if (outcome.commandName) {
+            commandMarker = `<tedi-command name="${outcome.commandName}" />`;
+          }
+        }
+      }
+    }
+
+    // Everything was consumed by handled side effects (no body, no other
+    // attachments either) — nothing to actually send. Covers:
+    //   - user typed only `/clear` (textConsumedByCommand=true) with nothing else
+    //   - user has only `#plan` chip(s) and an empty textarea
+    const anyCommandRan = textConsumedByCommand || pickedCommands.length > 0;
+    if (
+      anyCommandRan &&
+      !sendPromptApplied &&
+      effectiveText === "" &&
+      files.length === 0 &&
+      pickedSnippets.length === 0
+    ) {
+      setValue("");
+      setPickedCommands([]);
+      if (toastMsg) console.info(toastMsg);
+      return;
     }
 
     const parts: MessagePart[] = [];
@@ -344,6 +453,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const stop = () => {
     if (!sessionId) return;
     void getOrCreateChat(sessionId).stop();
+    // Reset transient agent meta — clears `error` / `step` so a hung error
+    // banner or stale step label doesn't linger after the user cancels.
+    useChatStore.getState().resetAgentMeta();
   };
 
   const canSend =
@@ -360,6 +472,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
     files,
     addFiles,
     attachFileByPath,
+    attachFolderByPath,
+    isActive,
     removeFile,
     setAttachments: setFiles,
     pickedSnippets,
@@ -377,6 +491,13 @@ export function AiComposerProvider({ children }: ProviderProps) {
   };
 
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
+}
+
+function normalizeBasename(path: string): string {
+  const norm = path.replace(/\\/g, "/");
+  const trimmed = norm.endsWith("/") ? norm.slice(0, -1) : norm;
+  const i = trimmed.lastIndexOf("/");
+  return i === -1 ? trimmed : trimmed.slice(i + 1);
 }
 
 async function readAttachment(file: File): Promise<FileAttachment | null> {

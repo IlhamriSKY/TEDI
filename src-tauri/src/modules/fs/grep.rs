@@ -80,17 +80,39 @@ pub fn fs_grep(
         .follow_links(false)
         .build_parallel();
 
-    let hits: Arc<Mutex<Vec<GrepHit>>> = Arc::new(Mutex::new(Vec::new()));
+    // Per-worker local buffer drained into `worker_bufs` on worker drop.
+    // The previous design locked one `Mutex<Vec<GrepHit>>` per match, which
+    // serialized every parallel walker thread on a single hot lock.
+    let worker_bufs: Arc<Mutex<Vec<Vec<GrepHit>>>> = Arc::new(Mutex::new(Vec::new()));
+    let total_hits = Arc::new(AtomicUsize::new(0));
     let scanned = Arc::new(AtomicUsize::new(0));
     let truncated = Arc::new(AtomicBool::new(false));
+
+    struct WorkerBuf {
+        local: Vec<GrepHit>,
+        out: Arc<Mutex<Vec<Vec<GrepHit>>>>,
+    }
+    impl Drop for WorkerBuf {
+        fn drop(&mut self) {
+            if !self.local.is_empty() {
+                if let Ok(mut guard) = self.out.lock() {
+                    guard.push(std::mem::take(&mut self.local));
+                }
+            }
+        }
+    }
 
     walker.run(|| {
         let matcher = matcher.clone();
         let globs = globs.clone();
-        let hits = hits.clone();
+        let total_hits = total_hits.clone();
         let scanned = scanned.clone();
         let truncated = truncated.clone();
         let root_path = root_path.clone();
+        let mut worker = WorkerBuf {
+            local: Vec::new(),
+            out: worker_bufs.clone(),
+        };
 
         Box::new(move |dent_res| {
             if truncated.load(Ordering::Relaxed) {
@@ -132,17 +154,19 @@ pub fn fs_grep(
                 &matcher,
                 path,
                 UTF8(|line_num, text| {
-                    let line_text = text.trim_end_matches('\n').to_string();
-                    let mut guard = hits.lock().unwrap();
-                    if guard.len() >= cap {
+                    // Atomic claim of one slot in the global cap. We bump
+                    // total_hits up-front; if we lost the race, set the
+                    // truncated flag so other workers exit fast.
+                    let prev = total_hits.fetch_add(1, Ordering::Relaxed);
+                    if prev >= cap {
                         truncated.store(true, Ordering::Relaxed);
                         return Ok(false);
                     }
-                    guard.push(GrepHit {
+                    worker.local.push(GrepHit {
                         path: abs.clone(),
                         rel: rel_clone.clone(),
                         line: line_num,
-                        text: line_text,
+                        text: text.trim_end_matches('\n').to_string(),
                     });
                     Ok(true)
                 }),
@@ -152,9 +176,23 @@ pub fn fs_grep(
         })
     });
 
-    let final_hits = Arc::try_unwrap(hits)
-        .map(|m| m.into_inner().unwrap())
-        .unwrap_or_default();
+    // All worker closures have been dropped at this point, so `worker_bufs`
+    // is no longer referenced by anyone but us.
+    let mut final_hits: Vec<GrepHit> = Arc::into_inner(worker_bufs)
+        .and_then(|m| m.into_inner().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .collect();
+    // Per-worker buffers concatenate hits clustered by thread, not by walker
+    // traversal order. Sort by (rel, line) so the result is deterministic and
+    // visually grouped per file in the UI.
+    final_hits.sort_by(|a, b| a.rel.cmp(&b.rel).then(a.line.cmp(&b.line)));
+    // The atomic-claim path can overshoot when many workers race past `cap`
+    // simultaneously — trim to the requested cap for a stable result size.
+    if final_hits.len() > cap {
+        final_hits.truncate(cap);
+    }
 
     Ok(GrepResponse {
         hits: final_hits,

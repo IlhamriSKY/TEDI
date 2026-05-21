@@ -4,7 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { runSubagent } from "../agents/runSubagent";
 import { SUBAGENTS, type SubagentType } from "../agents/registry";
 import { useChatStore } from "../store/chatStore";
-import type { ToolContext } from "./context";
+import { scrubErrorPath, type ToolContext } from "./context";
 
 const TYPE_KEYS = Object.keys(SUBAGENTS) as [SubagentType, ...SubagentType[]];
 
@@ -41,6 +41,9 @@ Auto.`,
             toolContext: ctx,
             lmstudioBaseURL: prefs.lmstudioBaseURL,
             openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
+            // Inherits the parent agent's cancel signal so a top-level Stop
+            // also aborts the subagent's HTTP fetch.
+            abortSignal: ctx.abortSignal,
           });
           return {
             type,
@@ -50,7 +53,7 @@ Auto.`,
             durationMs: r.durationMs,
           };
         } catch (e) {
-          return { error: String(e), type };
+          return { error: scrubErrorPath(e, ctx), type };
         }
       },
     }),

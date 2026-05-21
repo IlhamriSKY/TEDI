@@ -20,6 +20,7 @@ import {
   KeyboardIcon,
   LayoutTwoColumnIcon,
   LayoutTwoRowIcon,
+  PuzzleIcon,
   Settings01Icon,
   SidebarLeftIcon,
   TextWrapIcon,
@@ -54,6 +55,7 @@ type Props = {
   /** Layout currently below per-tab pane cap (still has room for a split). */
   canSplit: boolean;
   onOpenShortcuts: () => void;
+  onOpenExtensions: () => void;
   onOpenSettings: () => void;
   /** Open a saved SSH host as a new terminal tab. */
   onConnectSsh: (conn: SshConnection) => void;
@@ -63,6 +65,10 @@ type Props = {
    * on full.
    */
   onMoveLeafToGroup: (leafId: number, targetTabId: number) => void;
+  /** Extract `leafId` from its current split into a brand-new top-level pane
+   *  tab — "leave group". Returns `"invalid"` if the leaf wasn't inside a
+   *  multi-leaf split. */
+  onMoveLeafToNewTab: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split node that directly contains `leafId`. */
   onRotateLeafSplit: (leafId: number) => void;
   /** Per-leaf SSH session status, forwarded to the tab strip for the dot. */
@@ -121,9 +127,11 @@ export function Header({
   onSplit,
   canSplit,
   onOpenShortcuts,
+  onOpenExtensions,
   onOpenSettings,
   onConnectSsh,
   onMoveLeafToGroup,
+  onMoveLeafToNewTab,
   onRotateLeafSplit,
   sshStatuses,
   aiCliStatuses,
@@ -179,6 +187,20 @@ export function Header({
     </IconTooltip>
   );
 
+  const extensionsButton = (
+    <IconTooltip label="Extensions">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+        onClick={onOpenExtensions}
+        aria-label="Extensions"
+      >
+        <HugeiconsIcon icon={PuzzleIcon} size={16} strokeWidth={1.75} />
+      </Button>
+    </IconTooltip>
+  );
+
   const settingsButton = (
     <IconTooltip label="Settings">
       <Button
@@ -196,90 +218,177 @@ export function Header({
   return (
     <div
       ref={rootRef}
-      data-tauri-drag-region
-      onMouseDown={onHeaderMouseDown}
-      // Header is 48px tall (not the usual 40px) to make room for the 10px
-      // horizontal scrollbar that sits at the bottom of the tab strip. The
-      // TabBar's scroll container reserves that 10px at its bottom; every
-      // other header item stays centered in the full 48px and the TabBar
-      // adds a matching 10px top padding so the tab labels line up
-      // vertically with the icon buttons on either side.
-      className={`border-border/60 bg-card flex h-12 shrink-0 items-center gap-2 border-b select-none ${
-        IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
-      }`}
+      className="border-border/60 bg-card flex shrink-0 flex-col border-b select-none"
     >
-      <div className="flex shrink-0 items-center gap-0.5">
-        <IconTooltip label="Toggle sidebar">
-          <Button
-            onClick={onToggleSidebar}
-            aria-label="Toggle sidebar"
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
+      {/* Row 1 — Toolbar: window controls live here, traffic-light padding
+          and drag region scoped to this row only. */}
+      <div
+        data-tauri-drag-region
+        onMouseDown={onHeaderMouseDown}
+        className={`flex h-9 shrink-0 items-center gap-2 ${
+          IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
+        }`}
+      >
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IconTooltip label="Toggle sidebar">
+            <Button
+              onClick={onToggleSidebar}
+              aria-label="Toggle sidebar"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
+            >
+              <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+
+          <IconTooltip label="Open folder…">
+            <Button
+              onClick={onOpenFolder}
+              aria-label="Open folder"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
+            >
+              <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md disabled:opacity-50"
+                    aria-label="Split pane"
+                    disabled={!canSplit}
+                  >
+                    <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Split pane</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="w-auto min-w-56">
+              <DropdownMenuItem onSelect={() => onSplit("row")}>
+                <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 whitespace-nowrap">Split right</span>
+                {splitRightTokens && (
+                  <span className="text-muted-foreground text-xs whitespace-nowrap">
+                    {splitRightTokens}
+                  </span>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onSplit("col")}>
+                <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 whitespace-nowrap">Split down</span>
+                {splitDownTokens && (
+                  <span className="text-muted-foreground text-xs whitespace-nowrap">
+                    {splitDownTokens}
+                  </span>
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {!IS_MAC && shortcutsButton}
+          {!IS_MAC && extensionsButton}
+        </div>
+
+        {/* Drag spacer between the left icon cluster and the right utility
+            cluster. Lets the user grab any blank area in the toolbar to
+            move the window. */}
+        <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
+
+        {mdPreviewToggle && (
+          <IconTooltip label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={mdPreviewToggle.toggle}
+              aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
+              aria-pressed={mdPreviewToggle.active}
+              className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
+                mdPreviewToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <HugeiconsIcon
+                icon={mdPreviewToggle.active ? DocumentCodeIcon : BookOpenIcon}
+                size={15}
+                strokeWidth={1.75}
+              />
+            </Button>
+          </IconTooltip>
+        )}
+
+        {lineWrapToggle && (
+          <IconTooltip
+            label={`${lineWrapToggle.active ? "Disable" : "Enable"} word wrap${
+              wordWrapTokens ? ` (${wordWrapTokens})` : ""
+            }`}
           >
-            <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={lineWrapToggle.toggle}
+              aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
+              aria-pressed={lineWrapToggle.active}
+              className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
+                lineWrapToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+        )}
 
-        <IconTooltip label="Open folder…">
-          <Button
-            onClick={onOpenFolder}
-            aria-label="Open folder"
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
-          >
-            <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
+        <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
 
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md disabled:opacity-50"
-                  aria-label="Split pane"
-                  disabled={!canSplit}
-                >
-                  <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Split pane</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="start" className="w-auto min-w-56">
-            <DropdownMenuItem onSelect={() => onSplit("row")}>
-              <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
-              <span className="flex-1 whitespace-nowrap">Split right</span>
-              {splitRightTokens && (
-                <span className="text-muted-foreground text-xs whitespace-nowrap">
-                  {splitRightTokens}
-                </span>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onSplit("col")}>
-              <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
-              <span className="flex-1 whitespace-nowrap">Split down</span>
-              {splitDownTokens && (
-                <span className="text-muted-foreground text-xs whitespace-nowrap">
-                  {splitDownTokens}
-                </span>
-              )}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Vertical divider between the search bar and the trailing utility
+            cluster (shortcuts on macOS, SSH, settings, window controls). */}
+        <span className="bg-border mx-1 h-5 w-px shrink-0" />
 
-        {!IS_MAC && shortcutsButton}
+        {IS_MAC && (
+          <>
+            {shortcutsButton}
+            {extensionsButton}
+            <SshMenu onConnect={onConnectSsh} />
+            {settingsButton}
+          </>
+        )}
+
+        {!IS_MAC && (
+          <>
+            <SshMenu onConnect={onConnectSsh} />
+            {settingsButton}
+          </>
+        )}
+
+        {/* Note: extensions button sits next to keyboard shortcuts in the
+            left icon cluster (non-mac) / right cluster (mac, where it
+            follows the macOS-only `shortcutsButton`). The "left" placement
+            keeps it near the workspace-level affordances rather than the
+            trailing utility cluster. */}
+
+        {USE_CUSTOM_WINDOW_CONTROLS && (
+          <>
+            <span className="bg-border ml-1 h-5 w-px shrink-0" />
+            <WindowControls />
+          </>
+        )}
       </div>
 
-      {!IS_MAC && <span className="bg-border mx-1 h-5 w-px shrink-0" />}
-
-      {IS_MAC && <span className="bg-border mr-1 h-full w-px shrink-0" />}
-
-      <div className="flex h-full min-w-0 flex-1 items-center gap-2">
+      {/* Row 2 — Tab strip gets the full window width. The container is
+          h-10 (40px) so the 28px tab triggers + the 10px horizontal
+          scrollbar TabBar reserves at its bottom fit without clipping.
+          A faint top border separates it from the toolbar row above. */}
+      <div
+        data-tauri-drag-region
+        onMouseDown={onHeaderMouseDown}
+        className="border-border/60 flex h-10 shrink-0 items-center border-t pl-2"
+      >
         <TabBar
           tabs={tabs}
           activeId={activeId}
@@ -291,83 +400,16 @@ export function Header({
           onPinLeaf={onPinLeaf}
           onReorderTabs={onReorderTabs}
           onMoveLeafToGroup={onMoveLeafToGroup}
+          onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
           sshStatuses={sshStatuses}
           aiCliStatuses={aiCliStatuses}
           compact={compact}
         />
+        {/* Trailing drag region so empty space to the right of the tabs
+            still lets the user grab the window. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
-
-      {mdPreviewToggle && (
-        <IconTooltip label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={mdPreviewToggle.toggle}
-            aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
-            aria-pressed={mdPreviewToggle.active}
-            className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
-              mdPreviewToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            <HugeiconsIcon
-              icon={mdPreviewToggle.active ? DocumentCodeIcon : BookOpenIcon}
-              size={15}
-              strokeWidth={1.75}
-            />
-          </Button>
-        </IconTooltip>
-      )}
-
-      {lineWrapToggle && (
-        <IconTooltip
-          label={`${lineWrapToggle.active ? "Disable" : "Enable"} word wrap${
-            wordWrapTokens ? ` (${wordWrapTokens})` : ""
-          }`}
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={lineWrapToggle.toggle}
-            aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
-            aria-pressed={lineWrapToggle.active}
-            className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
-              lineWrapToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
-      )}
-
-      <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
-
-      {/* Vertical divider between the search bar and the trailing utility
-          cluster (shortcuts on macOS, SSH, settings, window controls). */}
-      <span className="bg-border mx-1 h-5 w-px shrink-0" />
-
-      {IS_MAC && (
-        <>
-          {shortcutsButton}
-          <SshMenu onConnect={onConnectSsh} />
-          {settingsButton}
-        </>
-      )}
-
-      {!IS_MAC && (
-        <>
-          <SshMenu onConnect={onConnectSsh} />
-          {settingsButton}
-        </>
-      )}
-
-      {USE_CUSTOM_WINDOW_CONTROLS && (
-        <>
-          <span className="bg-border ml-1 h-5 w-px shrink-0" />
-          <WindowControls />
-        </>
-      )}
     </div>
   );
 }

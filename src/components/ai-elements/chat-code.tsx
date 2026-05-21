@@ -16,15 +16,17 @@ import { createContext, memo, useContext, useEffect, useRef, useState } from "re
 import { Shimmer } from "./shimmer";
 import { highlight, isHighlightable, type HighlightedNode } from "./chat-code-lezer";
 
+// Shell langs that get the CommandCard UI (prompt prefix + Run button).
+// These are still highlightable — the card delegates to HighlightedPre.
+const POSIX_SHELL = new Set(["bash", "sh", "zsh", "shell", "console", "shellscript"]);
+const WINDOWS_SHELL = new Set(["powershell", "pwsh", "ps1", "ps", "cmd", "bat", "batch"]);
+const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
+
 // True while the parent message is still streaming from the model. We hide
 // fenced-code contents during this phase: parsing partial code is wasted
 // work and a flashing skeleton is calmer UI than text that grows char-by-char.
 const StreamingCtx = createContext(false);
 export const ChatStreamingProvider = StreamingCtx.Provider;
-
-const POSIX_SHELL = new Set(["bash", "sh", "zsh", "shell", "console", "shellscript"]);
-const WINDOWS_SHELL = new Set(["powershell", "pwsh", "ps1", "ps", "cmd", "bat", "batch"]);
-const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
 
 function shellPrompt(lang: string): string {
   if (WINDOWS_SHELL.has(lang))
@@ -166,6 +168,21 @@ const HighlightedPre = memo(function HighlightedPre({
 function CommandCard({ code, lang }: { code: string; lang: string }) {
   const isMultiline = code.includes("\n");
   const prompt = shellPrompt(lang);
+  const [nodes, setNodes] = useState<HighlightedNode[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    highlight(code, lang)
+      .then((result) => {
+        if (!cancelled) setNodes(result);
+      })
+      .catch(() => {
+        /* no highlight available */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
   return (
     <div className="not-prose border-border/50 bg-muted/40 my-2 overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between gap-2 px-3 py-1.5">
@@ -178,24 +195,79 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
         </div>
       </div>
       <div className="border-border/40 bg-background/40 border-t">
-        <pre
-          className={cn(
-            "text-foreground m-0 overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed",
-            isMultiline ? "whitespace-pre" : "whitespace-pre-wrap",
-          )}
-        >
-          {code.split("\n").map((line, i) => (
-            // eslint-disable-next-line react/no-array-index-key
-            <span key={i} className="flex">
-              <span className="text-muted-foreground/70 mr-2 select-none">{prompt}</span>
-              <span>{line}</span>
-            </span>
-          ))}
-        </pre>
+        <HighlightedShellCode
+          code={code}
+          nodes={nodes}
+          prompt={prompt}
+          isMultiline={isMultiline}
+        />
       </div>
     </div>
   );
 }
+
+const HighlightedShellCode = memo(function HighlightedShellCode({
+  code,
+  nodes,
+  prompt,
+  isMultiline,
+}: {
+  code: string;
+  nodes: HighlightedNode[] | null;
+  prompt: string;
+  isMultiline: boolean;
+}) {
+  if (!nodes) {
+    // Fallback: plain text with prompt
+    return (
+      <pre
+        className={cn(
+          "text-foreground m-0 overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed",
+          isMultiline ? "whitespace-pre" : "whitespace-pre-wrap",
+        )}
+      >
+        {code.split("\n").map((line, i) => (
+          // eslint-disable-next-line react/no-array-index-key
+          <span key={i} className="flex">
+            <span className="text-muted-foreground/70 mr-2 select-none">{prompt}</span>
+            <span>{line}</span>
+          </span>
+        ))}
+      </pre>
+    );
+  }
+
+  // Split highlighted nodes into lines and prepend prompt to each
+  const lines: React.ReactNode[][] = [[]];
+  for (const node of nodes) {
+    if (node.kind === "break") {
+      lines.push([]);
+    } else {
+      lines[lines.length - 1].push(
+        <span key={lines.length - 1 + "-" + lines[lines.length - 1].length} className={node.cls || undefined}>
+          {node.value}
+        </span>,
+      );
+    }
+  }
+
+  return (
+    <pre
+      className={cn(
+        "text-foreground m-0 overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed",
+        isMultiline ? "whitespace-pre" : "whitespace-pre-wrap",
+      )}
+    >
+      {lines.map((lineNodes, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <span key={i} className="flex">
+          <span className="text-muted-foreground/70 mr-2 select-none">{prompt}</span>
+          <span>{lineNodes}</span>
+        </span>
+      ))}
+    </pre>
+  );
+});
 
 function RunInTerminalButton({ command }: { command: string }) {
   const [sent, setSent] = useState(false);

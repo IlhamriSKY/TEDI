@@ -18,6 +18,11 @@ type Args = {
   toolContext: ToolContext;
   lmstudioBaseURL?: string;
   openaiCompatibleBaseURL?: string;
+  /** Forwarded from the parent agent so a top-level Stop click also cancels
+   *  in-flight subagent HTTP fetches. Without this, subagents keep running
+   *  after the user has already abandoned the parent turn — wasted tokens
+   *  and perceived-cancel lag. */
+  abortSignal?: AbortSignal;
 };
 
 type RunResult = {
@@ -34,6 +39,7 @@ export async function runSubagent({
   toolContext,
   lmstudioBaseURL,
   openaiCompatibleBaseURL,
+  abortSignal,
 }: Args): Promise<RunResult> {
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
@@ -84,6 +90,7 @@ export async function runSubagent({
     messages,
     tools: filtered as never,
     stopWhen: stepCountIs(SUBAGENT_MAX_STEPS) as never,
+    abortSignal,
   } as never);
   const durationMs = Date.now() - start;
 

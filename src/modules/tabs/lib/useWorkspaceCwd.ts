@@ -10,14 +10,18 @@ type Result = {
 function activeTerminalCwd(tab: Tab | undefined): string | undefined {
   if (!tab || !isTerminalLikeTab(tab)) return undefined;
   const leaf = activeLeaf(tab);
-  return leaf && leaf.leafKind === "terminal" ? leaf.cwd : undefined;
+  // SSH leaves report remote paths via OSC 7 - those drive the SSH file
+  // tree, not the local explorer. Letting an SSH cwd leak in here would
+  // root the local tree at a Linux path Windows can't resolve.
+  if (!leaf || leaf.leafKind !== "terminal" || leaf.sshConnectionId) return undefined;
+  return leaf.cwd;
 }
 
 function anyTerminalCwd(tabs: Tab[]): string | undefined {
   for (const t of tabs) {
     if (t.kind !== "pane") continue;
     for (const l of leaves(t.paneTree)) {
-      if (l.leafKind === "terminal" && l.cwd) return l.cwd;
+      if (l.leafKind === "terminal" && !l.sshConnectionId && l.cwd) return l.cwd;
     }
   }
   return undefined;

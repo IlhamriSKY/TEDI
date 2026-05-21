@@ -1,5 +1,19 @@
-import { CheckListIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  CheckListIcon,
+  Clock01Icon,
+  EraserIcon,
+  HelpCircleIcon,
+  Minimize02Icon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
+import { getModelContextLimit } from "../config";
+import { flushPersist, getChat, useChatStore } from "../store/chatStore";
+import { showInfoModal } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
+import { discardCheckpoint } from "./checkpoint";
+import { compactUiMessages } from "./compact";
+import { saveMessages } from "./sessions";
 
 /**
  * Outcome of intercepting a slash command from the composer.
@@ -9,7 +23,7 @@ import { usePlanStore } from "../store/planStore";
  * - `"none"`: not a slash command; let the composer behave as usual.
  */
 export type SlashOutcome =
-  | { kind: "handled"; toast?: string }
+  | { kind: "handled"; toast?: string; toastVariant?: "success" | "info" | "warning" | "error" }
   | { kind: "send-prompt"; prompt: string; commandName?: string }
   | { kind: "none" };
 
@@ -27,60 +41,246 @@ export type SlashCommandMeta = {
   name: string;
   invocation: string;
   label: string;
+  description: string;
   icon: typeof SparklesIcon;
+  /** Optional argument hint, e.g. `[off]` for `#plan`. */
+  argHint?: string;
+  /** When true, the command lives in the `#` picker (alongside snippets)
+   *  and NOT in the `/` picker. Reserved for commands that behave like
+   *  persistent "tags" on the conversation rather than one-shot actions —
+   *  currently `init` (writes a tedi-command marker into the user message
+   *  that re-renders as a chip in history) and `plan` (a session-wide mode
+   *  toggle).
+   *
+   *  Commands like `/help`, `/clear`, `/new`, etc. don't qualify — they are
+   *  ephemeral actions, so they live exclusively in the `/` picker. */
+  hashOnly?: boolean;
 };
 
 export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
+  help: {
+    name: "help",
+    invocation: "/help",
+    label: "Show help",
+    description: "List every slash command.",
+    icon: HelpCircleIcon,
+  },
+  new: {
+    name: "new",
+    invocation: "/new",
+    label: "New chat",
+    description: "Start a fresh chat session.",
+    icon: Add01Icon,
+  },
+  clear: {
+    name: "clear",
+    invocation: "/clear",
+    label: "Clear messages",
+    description: "Wipe the current chat history (keeps the session).",
+    icon: EraserIcon,
+  },
+  history: {
+    name: "history",
+    invocation: "/history",
+    label: "Chat history",
+    description: "Open the session history picker.",
+    icon: Clock01Icon,
+  },
+  compact: {
+    name: "compact",
+    invocation: "/compact",
+    label: "Compact history",
+    description: "Trim older messages to reclaim context (keeps the most recent turns).",
+    icon: Minimize02Icon,
+  },
   init: {
     name: "init",
-    invocation: "/init",
+    invocation: "#init",
     label: "Initialize workspace",
+    description: "Scan the workspace and write TEDI.md project memory.",
     icon: SparklesIcon,
+    hashOnly: true,
   },
   plan: {
     name: "plan",
-    invocation: "/plan",
+    invocation: "#plan",
     label: "Plan mode",
+    description: "Queue mutations for batch review. `#plan off` to disable.",
     icon: CheckListIcon,
+    argHint: "[off]",
+    hashOnly: true,
   },
 };
+
+/** Commands shown in the `/` picker. Excludes hash-only tag commands. */
+export const VISIBLE_SLASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
+  (c) => !c.hashOnly,
+);
+
+/** Commands shown in the `#` picker alongside snippets (tag-style commands). */
+export const HASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
+  (c) => c.hashOnly,
+);
 
 export const TEDI_CMD_RE =
   /^<tedi-command\s+name="([a-z0-9-]+)"(?:\s+state="([a-z]+)")?\s*\/>(?:\n+|$)/;
 
-export function wrapWithCommandMarker(prompt: string, name: string): string {
-  return `<tedi-command name="${name}" />\n\n${prompt}`;
+function showHelp(): void {
+  showInfoModal({
+    id: "slash-help",
+    title: "Composer commands",
+    subtitle:
+      "Type `/` for one-shot commands, `#` for tag commands & snippets, `@` for files. Tab or Enter to insert.",
+    sections: [
+      {
+        title: "Slash commands (one-shot actions)",
+        rows: VISIBLE_SLASH_COMMANDS.map((c) => ({
+          kbd: c.argHint ? `${c.invocation} ${c.argHint}` : c.invocation,
+          label: c.label,
+          desc: c.description,
+        })),
+      },
+      {
+        title: "Hash commands (tag the message / session)",
+        rows: HASH_COMMANDS.map((c) => ({
+          kbd: c.argHint ? `${c.invocation} ${c.argHint}` : c.invocation,
+          label: c.label,
+          desc: c.description,
+        })),
+      },
+      {
+        title: "Other triggers",
+        rows: [
+          {
+            kbd: "@",
+            label: "Mention picker",
+            desc: "Workspace files & folders (fuzzy search, scrollable).",
+          },
+          {
+            kbd: "#handle",
+            label: "Snippets",
+            desc: "Reusable snippet handles from Settings → Agents.",
+          },
+        ],
+      },
+    ],
+    footer: "Press Esc to dismiss this dialog.",
+  });
+}
+
+function clearActiveChat(): SlashOutcome {
+  const state = useChatStore.getState();
+  const sessionId = state.activeSessionId;
+  if (!sessionId) return { kind: "handled", toast: "No active session" };
+  const chat = getChat(sessionId);
+  if (chat) {
+    // Optimistic clear so the UI feels instant.
+    chat.messages = [];
+    // Abort any in-flight stream, then re-clear in case a chunk landed in
+    // the microsecond gap between the assignment above and the SDK
+    // honouring the abort signal. Matches the await-stop pattern used in
+    // restoreToLastCheckpoint, but kept fire-and-forget so this stays a
+    // synchronous slash outcome.
+    void chat
+      .stop()
+      .then(() => {
+        if (chat.messages.length > 0) chat.messages = [];
+      })
+      .catch(() => {
+        // Already stopped — nothing to do.
+      });
+  }
+  // Drop any restore checkpoint pointing at the now-deleted messages. Without
+  // this, hitting Restore after `/clear` would still revert file mutations
+  // recorded against the cleared turns.
+  discardCheckpoint(sessionId);
+  // Hard-replace the pending persist entry so the on-disk store sees `[]`
+  // even if the debounced timer was about to write a stale snapshot.
+  flushPersist(sessionId);
+  void saveMessages(sessionId, []);
+  state.resetAgentMeta();
+  return { kind: "handled", toast: "Chat cleared", toastVariant: "success" };
+}
+
+function compactActiveChat(): SlashOutcome {
+  const state = useChatStore.getState();
+  const sessionId = state.activeSessionId;
+  if (!sessionId) return { kind: "handled", toast: "No active session" };
+  const chat = getChat(sessionId);
+  if (!chat) return { kind: "handled", toast: "Chat not initialized yet" };
+  const before = chat.messages.length;
+  // Use the same elision-then-drop logic as runtime compaction (observation
+  // masking; research-backed: cheaper + better than LLM summarisation).
+  const contextLimit = getModelContextLimit(state.selectedModelId);
+  const { messages: trimmed, info } = compactUiMessages(chat.messages, {
+    contextLimit,
+    keepTail: 12,
+  });
+  if (info.dropped === 0) {
+    return {
+      kind: "handled",
+      toast: `Nothing to compact (under threshold; ${before} message${before === 1 ? "" : "s"})`,
+    };
+  }
+  // `chat.messages` is mutable on @ai-sdk/react Chat; assigning a fresh array
+  // triggers the underlying notifier so React re-renders.
+  chat.messages = trimmed;
+  flushPersist(sessionId);
+  void saveMessages(sessionId, trimmed);
+  return {
+    kind: "handled",
+    toast: `Compacted: dropped ${info.dropped}, kept ${info.kept} of ${before}`,
+    toastVariant: "success",
+  };
 }
 
 export function tryRunSlashCommand(input: string): SlashOutcome {
   const trimmed = input.trim();
   const lead = trimmed[0];
   if (lead !== "/" && lead !== "#") return { kind: "none" };
-  const [head, ...rest] = trimmed.slice(1).split(/\s+/);
+  const [headRaw, ...rest] = trimmed.slice(1).split(/\s+/);
+  const head = headRaw.toLowerCase();
+  // Hash trigger only fires for registered commands — leaves `#tag` free
+  // for snippets / arbitrary text.
   if (lead === "#" && !SLASH_COMMANDS[head]) return { kind: "none" };
   const tail = rest.join(" ").trim();
 
   switch (head) {
+    case "help":
+      showHelp();
+      return { kind: "handled" };
+    case "new": {
+      useChatStore.getState().newSession();
+      return { kind: "handled", toast: "New chat", toastVariant: "success" };
+    }
+    case "clear":
+      return clearActiveChat();
+    case "history": {
+      useChatStore.setState({ showHistoryPicker: true });
+      return { kind: "handled" };
+    }
+    case "compact":
+      return compactActiveChat();
     case "plan": {
       const store = usePlanStore.getState();
       if (tail === "off" || tail === "exit") {
         store.disable();
-        return { kind: "handled", toast: "Plan mode off" };
+        return { kind: "handled", toast: "Plan mode off", toastVariant: "info" };
       }
       store.toggle();
       const nowActive = usePlanStore.getState().active;
       return {
         kind: "handled",
         toast: nowActive ? "Plan mode on" : "Plan mode off",
+        toastVariant: "info",
       };
     }
-    case "init": {
+    case "init":
       return {
         kind: "send-prompt",
         prompt: INIT_PROMPT,
         commandName: "init",
       };
-    }
     default:
       return { kind: "none" };
   }

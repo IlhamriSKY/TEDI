@@ -5,11 +5,14 @@ import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkReadable, checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
-import { resolvePath, type ToolContext } from "./context";
+import { resolvePath, scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
 import { flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
 const DEFAULT_LINE_LIMIT = 2000;
+/** Files larger than this won't be snapshotted for undo — the IPC cost of
+ *  transferring multi-MB content just for a checkpoint isn't worth it. */
+const SNAPSHOT_SIZE_CAP = 1_000_000;
 
 export function buildFsTools(ctx: ToolContext) {
   return {
@@ -30,7 +33,12 @@ export function buildFsTools(ctx: ToolContext) {
         const safety = checkReadable(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {
-          const r = await native.readFile(abs);
+          const startLine = offset ?? 0;
+          const lineLimit = limit ?? DEFAULT_LINE_LIMIT;
+
+          // Read only the requested line range on the Rust side via BufReader
+          // so only the sliced content crosses the IPC boundary.
+          const r = await native.readFilePortion(abs, startLine, lineLimit);
           if (r.kind === "binary") return { error: "binary file refused", path: abs, size: r.size };
           if (r.kind === "toolarge") {
             return {
@@ -40,41 +48,34 @@ export function buildFsTools(ctx: ToolContext) {
           }
 
           ctx.readCache.add(abs);
-          const lines = r.content.split("\n");
-          const totalLines = lines.length;
-          const startLine = offset ?? 0;
-          const lineLimit = limit ?? DEFAULT_LINE_LIMIT;
-          const requestedEnd = Math.min(totalLines, startLine + lineLimit);
-          let sliced = lines.slice(startLine, requestedEnd).join("\n");
-          let actualEnd = requestedEnd;
+
+          let content = r.content;
+          let actualEnd = r.endLine;
           let byteTruncated = false;
 
           // Byte cap is a final safety net against pathological lines. Trim
           // to the last complete line so the output stays parseable and
           // `actualEnd` reflects how many full lines were included.
-          if (sliced.length > AI_READ_CAP) {
-            sliced = sliced.slice(0, AI_READ_CAP);
+          if (content.length > AI_READ_CAP) {
+            content = content.slice(0, AI_READ_CAP);
             byteTruncated = true;
-            const lastNL = sliced.lastIndexOf("\n");
+            const lastNL = content.lastIndexOf("\n");
             if (lastNL > 0) {
-              sliced = sliced.slice(0, lastNL);
-              const includedLines = sliced.length > 0 ? sliced.split("\n").length : 0;
+              content = content.slice(0, lastNL);
+              const includedLines = content.length > 0 ? content.split("\n").length : 0;
               actualEnd = startLine + includedLines;
             }
-            // If lastNL <= 0, the single line itself exceeds the byte cap.
-            // We can't page through it with a line-offset API; the model
-            // should grep/sed if it needs more.
           }
 
-          const linesTruncated = actualEnd < totalLines;
+          const linesTruncated = actualEnd < r.totalLines;
           const truncated = linesTruncated || byteTruncated;
           return {
             path: abs,
-            content: sliced,
+            content,
             size: r.size,
-            startLine,
+            startLine: r.startLine,
             endLine: actualEnd,
-            totalLines,
+            totalLines: r.totalLines,
             ...(truncated
               ? {
                   truncated: true,
@@ -83,7 +84,7 @@ export function buildFsTools(ctx: ToolContext) {
               : {}),
           };
         } catch (e) {
-          return { error: String(e), path: abs };
+          return { error: scrubErrorPath(e, ctx), path: abs };
         }
       },
     }),
@@ -104,7 +105,7 @@ export function buildFsTools(ctx: ToolContext) {
             entries: entries.map((e) => ({ name: e.name, kind: e.kind })),
           };
         } catch (e) {
-          return { error: String(e), path: abs };
+          return { error: scrubErrorPath(e, ctx), path: abs };
         }
       },
     }),
@@ -118,6 +119,7 @@ export function buildFsTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ path, content }) => {
+        throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         const safety = checkWritable(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -126,8 +128,18 @@ export function buildFsTools(ctx: ToolContext) {
           let original = "";
           let isNewFile = false;
           try {
-            const r = await native.readFile(abs);
-            if (r.kind === "text") original = r.content;
+            // Use readFilePortion as a lightweight size probe — only reads
+            // 1 line but returns the full file `size`. Full read only if the
+            // file is small enough to snapshot.
+            const probe = await native.readFilePortion(abs, 0, 1);
+            if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
+              const r = await native.readFile(abs);
+              if (r.kind === "text") original = r.content;
+            } else if (probe.kind === "text") {
+              // Large text file — plan review will show proposed content only.
+            } else {
+              // binary / toolarge
+            }
           } catch {
             isNewFile = true;
           }
@@ -154,15 +166,20 @@ export function buildFsTools(ctx: ToolContext) {
         const sessionId = ctx.getSessionId();
         if (sessionId) {
           try {
-            const r = await native.readFile(abs);
-            if (r.kind === "text") {
-              recordFileMutation(sessionId, abs, {
-                kind: "modify",
-                originalContent: r.content,
-                writtenContent: content,
-              });
+            // Probe size first to avoid reading multi-MB files over IPC
+            // just for an undo checkpoint.
+            const probe = await native.readFilePortion(abs, 0, 1);
+            if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
+              const r = await native.readFile(abs);
+              if (r.kind === "text") {
+                recordFileMutation(sessionId, abs, {
+                  kind: "modify",
+                  originalContent: r.content,
+                  writtenContent: content,
+                });
+              }
             }
-            // binary / toolarge: skip recording. Restore won't touch it.
+            // binary / toolarge / oversized: skip recording. Restore won't touch it.
           } catch {
             // ENOENT - fresh file.
             recordFileMutation(sessionId, abs, {
@@ -178,7 +195,7 @@ export function buildFsTools(ctx: ToolContext) {
           dispatchFsRefreshForFile(abs);
           return { path: abs, bytesWritten: content.length, ok: true };
         } catch (e) {
-          return { error: String(e), path: abs };
+          return { error: scrubErrorPath(e, ctx), path: abs };
         }
       },
     }),
@@ -190,6 +207,7 @@ export function buildFsTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ path }) => {
+        throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         const safety = checkWritable(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -230,7 +248,7 @@ export function buildFsTools(ctx: ToolContext) {
           dispatchFsRefresh(abs);
           return { path: abs, ok: true };
         } catch (e) {
-          return { error: String(e), path: abs };
+          return { error: scrubErrorPath(e, ctx), path: abs };
         }
       },
     }),

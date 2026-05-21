@@ -271,9 +271,23 @@ const BLOCKED_SUBSTRINGS: readonly string[] = [
   "esc to cancel",
 ];
 
+// Confirmation-phrase prefixes. The phrase alone isn't enough - chat
+// content could quote any of these - so we also require either "yes"
+// or a `❯` cursor in the same region of the viewport to confirm it's
+// an actual menu vs a passing reference in prose.
+//
+// "are you sure" catches gh copilot's "Are you sure you want to execute
+// the suggested command?" which the older "do you want / would you
+// like" pair missed because the question stem starts with a different
+// verb.
+const CONFIRMATION_PREFIXES = ["do you want", "would you like", "are you sure"] as const;
+
 function hasConfirmationPrompt(content: string, lowerContent: string): boolean {
-  let pos = lowerContent.indexOf("do you want");
-  if (pos < 0) pos = lowerContent.indexOf("would you like");
+  let pos = -1;
+  for (const prefix of CONFIRMATION_PREFIXES) {
+    pos = lowerContent.indexOf(prefix);
+    if (pos >= 0) break;
+  }
   if (pos < 0) return false;
   const afterLower = lowerContent.slice(pos);
   if (afterLower.includes("yes")) return true;
@@ -282,30 +296,34 @@ function hasConfirmationPrompt(content: string, lowerContent: string): boolean {
 
 // Cursor glyphs that mark the currently-highlighted option in a TUI
 // selection prompt. Different tools render this differently:
-//   ❯  - most modern TUIs (opencode, codex, gemini, …)
-//   >  - simple ASCII fallback
-//   )  - Claude Code's "Do you want to proceed?" approval menu
+//   ❯  - most modern TUIs (claude code, opencode, codex, gemini, …)
 //   ▶  - some Rust-based TUIs
-const SELECTION_CURSOR_CHARS = ["❯", ">", ")", "▶"] as const;
+// Note: `>` and `)` are intentionally excluded - they appear too often
+// in regular text (shell prompts, quoted lines, pasted file paths with
+// parentheses, Claude Code's own input-box paste indicator) and caused
+// false blocking on plain user input that happened to contain digits
+// and dots (e.g. a Screenshot path with `2026-05-20 ... .png`).
+const SELECTION_CURSOR_CHARS = ["❯", "▶"] as const;
+
+// A numbered menu option after the cursor looks like `❯ 1. Yes` or
+// `❯ 2. No` - digit(s) immediately followed by `.` and whitespace, all
+// near the start. Loose "has a digit somewhere AND a dot somewhere"
+// matched any pasted text with a filename, so we require the actual
+// `\d+\.\s` pattern.
+const NUMBERED_OPTION_RE = /^\s*\d+\.\s+\S/;
 
 function hasSelectionPrompt(content: string): boolean {
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
-    let cursored = false;
+    let cursorLen = 0;
     for (const c of SELECTION_CURSOR_CHARS) {
       if (line.startsWith(c)) {
-        cursored = true;
+        cursorLen = c.length;
         break;
       }
     }
-    if (!cursored) continue;
-    let hasDigit = false;
-    let hasDot = false;
-    for (const ch of line) {
-      if (ch >= "0" && ch <= "9") hasDigit = true;
-      else if (ch === ".") hasDot = true;
-      if (hasDigit && hasDot) return true;
-    }
+    if (cursorLen === 0) continue;
+    if (NUMBERED_OPTION_RE.test(line.slice(cursorLen))) return true;
   }
   return false;
 }
@@ -334,7 +352,22 @@ const TOKEN_COUNTER_RE = /[↓↑⬇⬆]\s*\d[\d.,]*\s*(?:k|m)?\s*tokens?/i;
 const STATUS_VERB_RE =
   /\b(?:thinking|generating|loading|processing|streaming|working|reading|writing|editing|analyzing|reviewing|searching|running|executing|fetching|downloading|uploading|building|compiling|installing|planning|coding|exploring|inspecting|considering|reasoning|brainstorming|drafting|refining|finalizing|calling|invoking|querying|computing)(?:[.…]{1,3}|\s*\()/i;
 
-function detectWorking(content: string): boolean {
+/**
+ * Classifies "AI is working" from the live viewport. Signals are split into
+ * two tiers so stale chat history doesn't pin the badge to working forever:
+ *
+ *  - Strong signals: unambiguous "AI is doing something *now*" markers
+ *    that the tool only paints while a request is in flight (esc / ctrl+c
+ *    interrupt hints, animated spinner-glyph line). Trusted unconditionally.
+ *
+ *  - Weak signals: token counters and verb-with-ellipsis ("Thinking...",
+ *    "Generating...") that also appear in past message headers in
+ *    scrollback - e.g. `(7m 42s · ↑ 16.2k tokens · thought for 20s)` is
+ *    visible long after the AI finished. Only counted as working when
+ *    paired with `hasFreshOutput`, so the badge can drop to idle once
+ *    PTY output stops even though the stats line still sits on screen.
+ */
+function detectWorking(content: string, hasFreshOutput: boolean): boolean {
   const above = contentAbovePromptBox(content);
   const aboveLower = above.toLowerCase();
   if (aboveLower.includes("esc to interrupt")) return true;
@@ -343,6 +376,7 @@ function detectWorking(content: string): boolean {
   // a cancel-able *wait* (approval menu, file picker), not active
   // generation. See BLOCKED_SUBSTRINGS for the inverse classification.
   if (hasSpinnerActivity(above)) return true;
+  if (!hasFreshOutput) return false;
   if (TOKEN_COUNTER_RE.test(above)) return true;
   return STATUS_VERB_RE.test(above);
 }
@@ -504,15 +538,31 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     scheduleReclassify();
   }
 
-  function isStreamingOutput(): boolean {
-    const now = Date.now();
+  function pruneOutputSamples(now: number) {
     while (outputSamples.length > 0 && now - outputSamples[0].t > RATE_WINDOW_MS) {
       outputSamples.shift();
     }
+  }
+
+  function isStreamingOutput(): boolean {
+    pruneOutputSamples(Date.now());
     if (outputSamples.length < STREAMING_MIN_CHUNKS) return false;
     let total = 0;
     for (const s of outputSamples) total += s.n;
     return total >= STREAMING_MIN_BYTES;
+  }
+
+  /**
+   * Loose "did anything just come out of the PTY" check - any sample
+   * inside RATE_WINDOW_MS counts. Used to qualify the weak working
+   * signals (token counter, status verb) so stale stats in scrollback
+   * can't keep the badge pinned to working after the AI has actually
+   * stopped. Stricter than isStreamingOutput which needs a sustained
+   * stream (4 chunks + 40 bytes) to declare token streaming.
+   */
+  function hasFreshOutput(): boolean {
+    pruneOutputSamples(Date.now());
+    return outputSamples.length > 0;
   }
 
   function reclassify() {
@@ -536,7 +586,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       const now = Date.now();
       pruneRecentOutput(now);
 
-      const workingHit = detectWorking(content);
+      const workingHit = detectWorking(content, hasFreshOutput());
       const explicitIdle = detectExplicitIdle(content, lower);
       const rateHit = isStreamingOutput();
 

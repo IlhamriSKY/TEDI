@@ -17,6 +17,7 @@
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::http::{Request, Response, StatusCode};
 use tauri::{Builder, Runtime};
@@ -53,6 +54,22 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
 
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 
+// Shared proxy client — rebuilding per request defeated reqwest's connection
+// pool and re-paid TLS-handshake cost on every subresource (a single HTML page
+// can fan out to 50+ assets).
+static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn proxy_client() -> &'static reqwest::Client {
+    PROXY_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .user_agent(USER_AGENT)
+            .build()
+            .expect("preview proxy client init")
+    })
+}
+
 pub fn register<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.register_asynchronous_uri_scheme_protocol(SCHEME, |_ctx, req, responder| {
         tauri::async_runtime::spawn(async move {
@@ -69,14 +86,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
     let proxy_origin = derive_proxy_origin(&req);
     let target = extract_target(&req)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("client init: {e}"))?;
-
-    let mut rb = client.get(&target);
+    let mut rb = proxy_client().get(&target);
     // Pass through headers that affect content negotiation without leaking
     // anything sensitive from our app origin.
     for name in ["range", "accept", "accept-language"] {
@@ -85,17 +95,33 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
         }
     }
 
-    let upstream = rb.send().await.map_err(|e| format!("upstream: {e}"))?;
+    let mut upstream = rb.send().await.map_err(|e| format!("upstream: {e}"))?;
     let status = upstream.status();
     let headers = upstream.headers().clone();
-    let body = upstream.bytes().await.map_err(|e| format!("body: {e}"))?;
 
-    if body.len() > MAX_BODY_BYTES {
-        return Err(format!(
-            "response too large ({} bytes; cap {})",
-            body.len(),
-            MAX_BODY_BYTES
-        ));
+    // Stream the body so a malicious upstream can't OOM us before the cap
+    // check fires. `bytes()` would buffer the entire response first.
+    let mut body: Vec<u8> = Vec::with_capacity(
+        headers
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok())
+            .map(|n| n.min(MAX_BODY_BYTES))
+            .unwrap_or(0),
+    );
+    while let Some(chunk) = upstream
+        .chunk()
+        .await
+        .map_err(|e| format!("body: {e}"))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+            return Err(format!(
+                "response too large (>{} bytes; cap {})",
+                body.len() + chunk.len(),
+                MAX_BODY_BYTES
+            ));
+        }
+        body.extend_from_slice(&chunk);
     }
 
     let content_type = headers
@@ -107,7 +133,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
     let out_bytes = if content_type.starts_with("text/html") {
         rewrite_html(&body, &target, &proxy_origin)
     } else {
-        body.to_vec()
+        body
     };
 
     let mut builder = Response::builder().status(status.as_u16());

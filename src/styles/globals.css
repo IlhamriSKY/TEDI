@@ -199,6 +199,15 @@ html[data-chrome="borderless"] #settings-root {
   background: var(--background);
 }
 
+/* Settings window reads as a modal floating over the main app, so it gets
+ * the brand `--primary` accent border + rounded corners. `overflow: hidden`
+ * inherited from the rule above clips header/main children to the curve,
+ * so the inner React root does NOT need its own border/rounded classes. */
+html[data-chrome="borderless"] #settings-root {
+  border-color: var(--primary);
+  border-radius: 0.5rem;
+}
+
 /* ===== Unified scrollbar style =====
  *
  * Every native scrollbar in the app - editor, settings, dialogs, dropdowns,
@@ -342,8 +351,8 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 }
 .diff-ruler-mark {
   position: absolute;
-  left: 0;
   right: 0;
+  width: 100%;
   pointer-events: auto;
   cursor: pointer;
   opacity: 0.85;

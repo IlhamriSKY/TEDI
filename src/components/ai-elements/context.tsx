@@ -54,7 +54,9 @@ export const Context = ({ usedTokens, maxTokens, usage, modelId, ...props }: Con
 const ContextIcon = () => {
   const { usedTokens, maxTokens } = useContextValue();
   const circumference = 2 * Math.PI * ICON_RADIUS;
-  const usedPercent = usedTokens / maxTokens;
+  // Clamp the ring to [0,1] so a runaway context doesn't render past the
+  // circle and visually wrap around (which made the indicator misleading).
+  const usedPercent = Math.min(1, Math.max(0, usedTokens / maxTokens));
   const dashOffset = circumference * (1 - usedPercent);
 
   return (
@@ -92,21 +94,40 @@ const ContextIcon = () => {
   );
 };
 
-export type ContextTriggerProps = ComponentProps<typeof Button>;
-
-export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
-  const { usedTokens, maxTokens } = useContextValue();
-  const usedPercent = usedTokens / maxTokens;
-  const renderedPercent = new Intl.NumberFormat("en-US", {
+/** Format a context-usage ratio for the chip / header. Caps the displayed
+ *  number at "100%+" once the real ratio exceeds the window, so a runaway
+ *  conversation never shows e.g. "3,006.9%" (which is confusing and
+ *  pointless — anything past 100% is just "over"). */
+function formatContextPercent(ratio: number): string {
+  if (!isFinite(ratio) || ratio < 0) return "0%";
+  if (ratio >= 1) return "100%+";
+  return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 1,
     style: "percent",
-  }).format(usedPercent);
+  }).format(ratio);
+}
+
+export type ContextTriggerProps = ComponentProps<typeof Button>;
+
+export const ContextTrigger = ({ children, className, ...props }: ContextTriggerProps) => {
+  const { usedTokens, maxTokens } = useContextValue();
+  const usedPercent = usedTokens / maxTokens;
+  const renderedPercent = formatContextPercent(usedPercent);
+  // Warn (amber) at 80%+, alert (red) at the window itself. The threshold
+  // matches Stage-2 elision so the chip turns colour around the same time
+  // the agent starts compacting under the hood.
+  const tone =
+    usedPercent >= 1
+      ? "text-red-600 dark:text-red-400"
+      : usedPercent >= 0.8
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-muted-foreground";
 
   return (
     <HoverCardTrigger asChild>
       {children ?? (
-        <Button type="button" variant="ghost" {...props}>
-          <span className="text-muted-foreground font-medium">{renderedPercent}</span>
+        <Button type="button" variant="ghost" className={className} {...props}>
+          <span className={cn("font-medium", tone)}>{renderedPercent}</span>
           <ContextIcon />
         </Button>
       )}
@@ -129,30 +150,49 @@ export const ContextContentHeader = ({
 }: ContextContentHeaderProps) => {
   const { usedTokens, maxTokens } = useContextValue();
   const usedPercent = usedTokens / maxTokens;
-  const displayPct = new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 1,
-    style: "percent",
-  }).format(usedPercent);
+  const displayPct = formatContextPercent(usedPercent);
   const used = new Intl.NumberFormat("en-US", {
     notation: "compact",
   }).format(usedTokens);
   const total = new Intl.NumberFormat("en-US", {
     notation: "compact",
   }).format(maxTokens);
+  // Progress bar is clamped to [0, 100] so the fill never overflows the
+  // track; the textual "100%+" already signals the overrun.
+  const progressValue = Math.min(PERCENT_MAX, Math.max(0, usedPercent * PERCENT_MAX));
 
   return (
     <div className={cn("w-full space-y-2 p-3", className)} {...props}>
       {children ?? (
         <>
           <div className="flex items-center justify-between gap-3 text-xs">
-            <p>{displayPct}</p>
+            <p
+              className={cn(
+                usedPercent >= 1
+                  ? "text-red-600 dark:text-red-400"
+                  : usedPercent >= 0.8
+                    ? "text-amber-600 dark:text-amber-400"
+                    : undefined,
+              )}
+            >
+              {displayPct}
+            </p>
             <p className="text-muted-foreground font-mono">
               {used} / {total}
             </p>
           </div>
           <div className="space-y-2">
-            <Progress className="bg-muted" value={usedPercent * PERCENT_MAX} />
+            <Progress className="bg-muted" value={progressValue} />
           </div>
+          {usedPercent >= 1 ? (
+            <p className="text-[10px] text-red-600 dark:text-red-400">
+              Over context window. Run <span className="font-mono">/compact</span> to trim history.
+            </p>
+          ) : usedPercent >= 0.8 ? (
+            <p className="text-[10px] text-amber-600/90 dark:text-amber-400/90">
+              Near window — older tool results will be auto-elided on next turn.
+            </p>
+          ) : null}
         </>
       )}
     </div>

@@ -10,6 +10,8 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
   FileAddIcon,
   FileSearchIcon,
   Folder01Icon,
@@ -38,6 +40,11 @@ type Props = {
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  /** Accordion mode: when set, the header becomes a chevron toggle and the
+   *  body is hidden while `collapsed` is true. Callers pair this with a
+   *  collapsible ResizablePanel to drop the body off the layout entirely. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 };
 
 function basename(path: string): string {
@@ -52,6 +59,8 @@ export function FileExplorer({
   onPathDeleted,
   onRevealInTerminal,
   onAttachToAgent,
+  collapsed = false,
+  onToggleCollapsed,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const tree = useFileTree(rootPath, {
@@ -94,6 +103,7 @@ export function FileExplorer({
 
   useGlobalShortcuts({
     "explorer.search": () => {
+      if (collapsed) onToggleCollapsed?.();
       if (searchRef.current?.isFocused()) {
         setIsSearchOpen(false);
         return;
@@ -103,6 +113,7 @@ export function FileExplorer({
       searchRef.current?.focus();
     },
     "explorer.grep": () => {
+      if (collapsed) onToggleCollapsed?.();
       if (grepRef.current?.isFocused()) {
         setIsGrepOpen(false);
         return;
@@ -112,6 +123,13 @@ export function FileExplorer({
       grepRef.current?.focus();
     },
   });
+
+  useEffect(() => {
+    if (collapsed) {
+      setIsSearchOpen(false);
+      setIsGrepOpen(false);
+    }
+  }, [collapsed]);
 
   if (!rootPath) {
     return (
@@ -131,6 +149,7 @@ export function FileExplorer({
   const pendingAtRoot = tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (collapsed) return;
     if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen) return;
     const target = e.target as HTMLElement;
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
@@ -177,7 +196,8 @@ export function FileExplorer({
         if (item.isDir && tree.expanded.has(item.path)) {
           tree.toggle(item.path);
         } else {
-          const parent = item.path.slice(0, item.path.lastIndexOf("/"));
+          const cut = Math.max(item.path.lastIndexOf("/"), item.path.lastIndexOf("\\"));
+          const parent = cut > 0 ? item.path.slice(0, cut) : "";
           if (parent && parent !== rootPath) setSelectedPath(parent);
         }
         break;
@@ -194,25 +214,52 @@ export function FileExplorer({
     }
   };
 
+  const accordion = !!onToggleCollapsed;
+  const titleNode = (
+    <span className="text-foreground/80 flex min-w-0 flex-1 items-center truncate text-xs font-medium">
+      {accordion ? (
+        <HugeiconsIcon
+          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
+          size={10}
+          strokeWidth={2.25}
+          className="text-muted-foreground mr-1 shrink-0"
+        />
+      ) : null}
+      <img
+        src={folderIconUrl(basename(rootPath), false)}
+        alt=""
+        height={15}
+        width={15}
+        className="mx-1.5 shrink-0"
+      />
+      <span className="truncate">{basename(rootPath)}</span>
+    </span>
+  );
+
   return (
     <div className="flex h-full flex-col outline-none" tabIndex={0} onKeyDown={handleKeyDown}>
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-foreground/80 flex flex-1 truncate text-xs font-medium">
-              <img
-                src={folderIconUrl(basename(rootPath), false)}
-                alt=""
-                height={15}
-                width={15}
-                className="mx-1.5"
-              />
-              {basename(rootPath)}
-            </span>
+            {accordion ? (
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                className="hover:text-foreground flex min-w-0 flex-1 cursor-pointer items-center truncate outline-none"
+                aria-expanded={!collapsed}
+                aria-label={collapsed ? "Expand local files" : "Collapse local files"}
+              >
+                {titleNode}
+              </button>
+            ) : (
+              titleNode
+            )}
           </TooltipTrigger>
           <TooltipContent side="bottom">{rootPath}</TooltipContent>
         </Tooltip>
 
+        {collapsed ? null : (
+        <>
         <IconTooltip label="Search files" side="bottom">
           <Button
             variant="ghost"
@@ -288,8 +335,12 @@ export function FileExplorer({
             <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        </>
+        )}
       </div>
 
+      {collapsed ? null : (
+      <>
       <ExplorerSearch
         ref={searchRef}
         rootPath={rootPath}
@@ -407,6 +458,8 @@ export function FileExplorer({
           </ContextMenuContent>
         </ContextMenu>
       ) : null}
+      </>
+      )}
     </div>
   );
 }

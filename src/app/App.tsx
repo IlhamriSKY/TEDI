@@ -222,6 +222,7 @@ export default function App() {
     splitActivePane,
     closeActivePane,
     moveLeafToTab,
+    moveLeafToNewTab,
     rotateLeafSplit,
     replaceAllTabs,
     allocId,
@@ -300,6 +301,26 @@ export default function App() {
     const p = sidebarRef.current;
     if (!p) return;
     if (p.getSize().asPercentage <= 0) p.expand();
+    else p.collapse();
+  }, []);
+
+  // Accordion sub-panels inside the merged Files section. Each sub-panel
+  // collapses to a 32px header strip (matches the h-8 strip the explorers
+  // render) so the user keeps a clickable toggle even when the body is hidden.
+  const localFilesRef = useRef<PanelImperativeHandle | null>(null);
+  const sshFilesRef = useRef<PanelImperativeHandle | null>(null);
+  const [localFilesCollapsed, setLocalFilesCollapsed] = useState(false);
+  const [sshFilesCollapsed, setSshFilesCollapsed] = useState(false);
+  const toggleLocalFiles = useCallback(() => {
+    const p = localFilesRef.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  }, []);
+  const toggleSshFiles = useCallback(() => {
+    const p = sshFilesRef.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
     else p.collapse();
   }, []);
 
@@ -1244,6 +1265,20 @@ export default function App() {
     [openFileTab],
   );
 
+  // SSH tree calls this when the user clicks a remote file. We pin the
+  // tab (pin=true) because preview-mode shares a single slot with local
+  // previews and would silently replace whichever local file was being
+  // previewed - confusing when the two sides have unrelated paths.
+  const handleOpenRemoteFile = useCallback(
+    (path: string, sessionId: number, hostLabel: string | null) => {
+      openFileTab(path, true, {
+        sshSessionId: sessionId,
+        sshHostLabel: hostLabel ?? "remote",
+      });
+    },
+    [openFileTab],
+  );
+
   const handlePathRenamed = useCallback(
     (from: string, to: string) => {
       for (const t of tabs) {
@@ -2002,9 +2037,11 @@ export default function App() {
               activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB
             }
             onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
+            onOpenExtensions={() => void openSettingsWindow("extensions")}
             onOpenSettings={() => void openSettingsWindow()}
             onConnectSsh={(conn) => newSshTab(conn.id, conn.name)}
             onMoveLeafToGroup={moveLeafToGroup}
+            onMoveLeafToNewTab={moveLeafToNewTab}
             onRotateLeafSplit={rotateLeafSplit}
             sshStatuses={sshStatuses}
             aiCliStatuses={aiCliStatuses}
@@ -2027,34 +2064,68 @@ export default function App() {
               >
                 <div className="border-border/60 bg-card flex h-full flex-col border-r">
                   <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-                    <ResizablePanel id="sidebar-files" defaultSize="40%" minSize="15%">
-                      <FileExplorer
-                        rootPath={explorerRoot}
-                        onOpenFile={handleOpenFile}
-                        onPathRenamed={handlePathRenamed}
-                        onPathDeleted={handlePathDeleted}
-                        onRevealInTerminal={cdInNewTab}
-                        onAttachToAgent={handleAttachFileToAgent}
-                      />
-                    </ResizablePanel>
-                    {/* SSH tree sits directly under the local tree so the
-                        two "file explorers" are adjacent and the user
-                        doesn't context-switch over the source-control
-                        panel to reach it. */}
-                    {hasAnySshLeaf ? (
-                      <>
-                        <ResizableHandle withHandle />
-                        <ResizablePanel id="sidebar-ssh" defaultSize="25%" minSize="12%">
-                          <Suspense fallback={null}>
-                            <SshFileExplorer
-                              sessionId={activeSshContext.sessionId}
-                              hostLabel={activeSshContext.hostLabel}
-                              currentCwd={activeSshContext.cwd}
-                            />
-                          </Suspense>
+                    {/* Files section: one outer panel that hosts both the
+                        local tree (top) and, when an SSH leaf is connected,
+                        the remote tree (bottom). Each inner panel is
+                        collapsible so the user can accordion either tree
+                        down to its h-8 header for a compact sidebar. */}
+                    <ResizablePanel
+                      id="sidebar-files"
+                      defaultSize={hasAnySshLeaf ? "65%" : "40%"}
+                      minSize="20%"
+                    >
+                      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+                        <ResizablePanel
+                          id="sidebar-files-local"
+                          panelRef={localFilesRef}
+                          defaultSize={hasAnySshLeaf ? "55%" : "100%"}
+                          minSize="15%"
+                          collapsible
+                          collapsedSize="32px"
+                          onResize={(size) =>
+                            setLocalFilesCollapsed(size.inPixels > 0 && size.inPixels <= 33)
+                          }
+                        >
+                          <FileExplorer
+                            rootPath={explorerRoot}
+                            onOpenFile={handleOpenFile}
+                            onPathRenamed={handlePathRenamed}
+                            onPathDeleted={handlePathDeleted}
+                            onRevealInTerminal={cdInNewTab}
+                            onAttachToAgent={handleAttachFileToAgent}
+                            collapsed={localFilesCollapsed}
+                            onToggleCollapsed={toggleLocalFiles}
+                          />
                         </ResizablePanel>
-                      </>
-                    ) : null}
+                        {hasAnySshLeaf ? (
+                          <>
+                            <ResizableHandle withHandle />
+                            <ResizablePanel
+                              id="sidebar-files-ssh"
+                              panelRef={sshFilesRef}
+                              defaultSize="45%"
+                              minSize="15%"
+                              collapsible
+                              collapsedSize="32px"
+                              onResize={(size) =>
+                                setSshFilesCollapsed(size.inPixels > 0 && size.inPixels <= 33)
+                              }
+                            >
+                              <Suspense fallback={null}>
+                                <SshFileExplorer
+                                  sessionId={activeSshContext.sessionId}
+                                  hostLabel={activeSshContext.hostLabel}
+                                  currentCwd={activeSshContext.cwd}
+                                  onOpenFile={handleOpenRemoteFile}
+                                  collapsed={sshFilesCollapsed}
+                                  onToggleCollapsed={toggleSshFiles}
+                                />
+                              </Suspense>
+                            </ResizablePanel>
+                          </>
+                        ) : null}
+                      </ResizablePanelGroup>
+                    </ResizablePanel>
                     {showSourceControl ? (
                       <>
                         <ResizableHandle withHandle />

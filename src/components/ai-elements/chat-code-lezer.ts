@@ -32,6 +32,7 @@ const loaders: Record<string, ParserLoader> = {
 // by legacy-modes (e.g. `keyword`, `string`, `comment`, `number`) line up with
 // our `tok-*` CSS by prefix, so the same stylesheet works for both paths.
 const streamLoaders: Record<string, StreamLoader> = {
+  // ── C-like ──
   c: () =>
     import("@codemirror/legacy-modes/mode/clike").then(
       (m) => m.c as unknown as StreamParser<unknown>,
@@ -64,6 +65,7 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/clike").then(
       (m) => m.dart as unknown as StreamParser<unknown>,
     ),
+  // ── Config / Data ──
   yaml: () =>
     import("@codemirror/legacy-modes/mode/yaml").then(
       (m) => m.yaml as unknown as StreamParser<unknown>,
@@ -72,6 +74,11 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/toml").then(
       (m) => m.toml as unknown as StreamParser<unknown>,
     ),
+  properties: () =>
+    import("@codemirror/legacy-modes/mode/properties").then(
+      (m) => m.properties as unknown as StreamParser<unknown>,
+    ),
+  // ── Scripting ──
   ruby: () =>
     import("@codemirror/legacy-modes/mode/ruby").then(
       (m) => m.ruby as unknown as StreamParser<unknown>,
@@ -94,6 +101,21 @@ const streamLoaders: Record<string, StreamLoader> = {
     ),
   r: () =>
     import("@codemirror/legacy-modes/mode/r").then((m) => m.r as unknown as StreamParser<unknown>),
+  // ── Shell ──
+  shell: () =>
+    import("@codemirror/legacy-modes/mode/shell").then(
+      (m) => m.shell as unknown as StreamParser<unknown>,
+    ),
+  powershell: () =>
+    import("@codemirror/legacy-modes/mode/powershell").then(
+      (m) => m.powerShell as unknown as StreamParser<unknown>,
+    ),
+  // ── Markup ──
+  xml: () =>
+    import("@codemirror/legacy-modes/mode/xml").then(
+      (m) => m.xml as unknown as StreamParser<unknown>,
+    ),
+  // ── DevOps / Infra ──
   dockerfile: () =>
     import("@codemirror/legacy-modes/mode/dockerfile").then(
       (m) => m.dockerFile as unknown as StreamParser<unknown>,
@@ -102,6 +124,15 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/nginx").then(
       (m) => m.nginx as unknown as StreamParser<unknown>,
     ),
+  groovy: () =>
+    import("@codemirror/legacy-modes/mode/groovy").then(
+      (m) => m.groovy as unknown as StreamParser<unknown>,
+    ),
+  tcl: () =>
+    import("@codemirror/legacy-modes/mode/tcl").then(
+      (m) => m.tcl as unknown as StreamParser<unknown>,
+    ),
+  // ── Diff / SQL ──
   diff: () =>
     import("@codemirror/legacy-modes/mode/diff").then(
       (m) => m.diff as unknown as StreamParser<unknown>,
@@ -122,18 +153,76 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/sql").then(
       (m) => m.sqlite as unknown as StreamParser<unknown>,
     ),
+  // ── Typed / Academic ──
+  vb: () =>
+    import("@codemirror/legacy-modes/mode/vb").then(
+      (m) => m.vb as unknown as StreamParser<unknown>,
+    ),
+  octave: () =>
+    import("@codemirror/legacy-modes/mode/octave").then(
+      (m) => m.octave as unknown as StreamParser<unknown>,
+    ),
+  scheme: () =>
+    import("@codemirror/legacy-modes/mode/scheme").then(
+      (m) => m.scheme as unknown as StreamParser<unknown>,
+    ),
+  erlang: () =>
+    import("@codemirror/legacy-modes/mode/erlang").then(
+      (m) => m.erlang as unknown as StreamParser<unknown>,
+    ),
+  pascal: () =>
+    import("@codemirror/legacy-modes/mode/pascal").then(
+      (m) => m.pascal as unknown as StreamParser<unknown>,
+    ),
+  protobuf: () =>
+    import("@codemirror/legacy-modes/mode/protobuf").then(
+      (m) => m.protobuf as unknown as StreamParser<unknown>,
+    ),
+  verilog: () =>
+    import("@codemirror/legacy-modes/mode/verilog").then(
+      (m) => m.verilog as unknown as StreamParser<unknown>,
+    ),
+  oCaml: () =>
+    import("@codemirror/legacy-modes/mode/mllike").then(
+      (m) => m.oCaml as unknown as StreamParser<unknown>,
+    ),
+  fSharp: () =>
+    import("@codemirror/legacy-modes/mode/mllike").then(
+      (m) => m.fSharp as unknown as StreamParser<unknown>,
+    ),
+  http: () =>
+    import("@codemirror/legacy-modes/mode/http").then(
+      (m) => m.http as unknown as StreamParser<unknown>,
+    ),
+  gherkin: () =>
+    import("@codemirror/legacy-modes/mode/gherkin").then(
+      (m) => m.gherkin as unknown as StreamParser<unknown>,
+    ),
 };
 
 const aliases: Record<string, string> = {
+  // JavaScript / TypeScript
   javascript: "js",
   mjs: "js",
   cjs: "js",
   typescript: "ts",
+  // Rust / Go
   rs: "rust",
+  golang: "go",
+  // Python
   py: "python",
+  // Markdown
   md: "markdown",
+  mdx: "markdown",
+  // HTML / Web
   htm: "html",
-  // Stream-mode aliases.
+  xhtml: "html",
+  svg: "xml",
+  // CSS
+  scss: "css",
+  sass: "css",
+  less: "css",
+  // C-like
   "c++": "cpp",
   cxx: "cpp",
   cc: "cpp",
@@ -147,19 +236,90 @@ const aliases: Record<string, string> = {
   "objective-c": "objectivec",
   objc: "objectivec",
   m: "objectivec",
+  // Config
   yml: "yaml",
+  ini: "properties",
+  env: "properties",
+  cfg: "properties",
+  // Scripting
   rb: "ruby",
+  erb: "ruby",
+  gemspec: "ruby",
   pl: "perl",
+  pm: "perl",
   hs: "haskell",
+  jl: "octave",
+  matlab: "octave",
+  // Shell
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  fish: "shell",
+  ksh: "shell",
+  shellscript: "shell",
+  console: "shell",
+  // PowerShell
+  pwsh: "powershell",
+  ps1: "powershell",
+  psm1: "powershell",
+  psd1: "powershell",
+  // DevOps
   docker: "dockerfile",
   conf: "nginx",
+  nginxconf: "nginx",
+  gradle: "groovy",
+  // Diff
   patch: "diff",
+  // SQL
   postgres: "pgsql",
   postgresql: "pgsql",
   plpgsql: "pgsql",
   psql: "pgsql",
   mariadb: "mysql",
   sqlite3: "sqlite",
+  // Markup
+  xsd: "xml",
+  xsl: "xml",
+  xslt: "xml",
+  plist: "xml",
+  csproj: "xml",
+  // Schema
+  proto: "protobuf",
+  graphql: "protobuf",
+  gql: "protobuf",
+  // Hardware
+  v: "verilog",
+  sv: "verilog",
+  vhdl: "verilog",
+  vhd: "verilog",
+  // VB
+  vbnet: "vb",
+  vbs: "vb",
+  // Erlang
+  erl: "erlang",
+  hrl: "erlang",
+  // Pascal
+  pas: "pascal",
+  pp: "pascal",
+  lpr: "pascal",
+  // Scheme / Lisp
+  scm: "scheme",
+  rkt: "scheme",
+  lisp: "scheme",
+  cl: "scheme",
+  el: "scheme",
+  // OCaml / ML
+  ml: "oCaml",
+  mli: "oCaml",
+  fs: "fSharp",
+  fsx: "fSharp",
+  fsi: "fSharp",
+  // HTTP
+  https: "http",
+  curl: "shell",
+  wget: "shell",
+  // BDD
+  feature: "gherkin",
 };
 
 type ResolvedKey =

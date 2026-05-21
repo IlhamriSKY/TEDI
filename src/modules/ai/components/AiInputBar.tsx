@@ -18,37 +18,79 @@ import { AnimatePresence, motion } from "motion/react";
 import type { UIMessage } from "@ai-sdk/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
-import { SLASH_COMMANDS } from "../lib/slashCommands";
+import { HASH_COMMANDS, VISIBLE_SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { ContextIndicator } from "./AiMiniWindow";
 import { AiStatusBarControls } from "./AiStatusBarControls";
+import { InfoModal } from "./InfoModal";
+import { MentionPickerContent, type MentionItem } from "./MentionPicker";
+import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
 
-type SnippetTrigger = {
+type PickerTrigger = {
   start: number;
   end: number;
   query: string;
+  /** Which sigil triggered the picker.
+   *  - `slash`: commands-only (Claude Code / Cursor convention).
+   *  - `hash`: legacy snippets + commands.
+   *  - `mention`: file / folder picker. */
+  kind: "slash" | "hash" | "mention";
 };
 
-function detectSnippetTrigger(value: string, caret: number): SnippetTrigger | null {
+/** Mention scanner — allows path chars (`/`, `.`, `_`, `-`) inside the query
+ *  so users can type `@src/foo/bar`. Scans backwards looking for `@`; if it
+ *  hits any other sigil or whitespace first, no mention. */
+function detectMentionTrigger(value: string, caret: number): PickerTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
-    if (ch === "#") {
+    if (ch === "@") {
+      const prev = i === 0 ? " " : value[i - 1];
+      if (!/\s/.test(prev)) return null;
+      const slice = value.slice(i + 1, caret);
+      return { start: i, end: caret, query: slice, kind: "mention" };
+    }
+    if (/\s/.test(ch)) return null;
+    if (!/[a-zA-Z0-9_\-./]/.test(ch)) return null;
+  }
+  return null;
+}
+
+/** Command scanner — `/` or `#` followed by `[a-z0-9-]*`. Returns null as
+ *  soon as it sees any non-command char (including `.` or `/`) so it never
+ *  fights with the mention scanner on path-like input. */
+function detectCommandTrigger(value: string, caret: number): PickerTrigger | null {
+  for (let i = caret - 1; i >= 0; i--) {
+    const ch = value[i];
+    if (ch === "#" || ch === "/") {
       const prev = i === 0 ? " " : value[i - 1];
       if (!/\s/.test(prev)) return null;
       const slice = value.slice(i + 1, caret);
       if (!/^[a-z0-9-]*$/i.test(slice)) return null;
-      return { start: i, end: caret, query: slice.toLowerCase() };
+      return {
+        start: i,
+        end: caret,
+        query: slice.toLowerCase(),
+        kind: ch === "/" ? "slash" : "hash",
+      };
     }
     if (/\s/.test(ch)) return null;
     if (!/[a-z0-9-]/i.test(ch)) return null;
   }
   return null;
+}
+
+function detectPickerTrigger(value: string, caret: number): PickerTrigger | null {
+  // Mention takes priority: `@src/foo` has both `@` and `/` in scope, but the
+  // user clearly meant the mention. If no mention is open, fall back to the
+  // command detector.
+  return detectMentionTrigger(value, caret) ?? detectCommandTrigger(value, caret);
 }
 
 export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
@@ -72,7 +114,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     [openEditorFiles, attachedPaths],
   );
 
-  const [trigger, setTrigger] = useState<SnippetTrigger | null>(null);
+  const [trigger, setTrigger] = useState<PickerTrigger | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   // Shell-style ArrowUp/Down navigation through previously sent user messages.
@@ -121,17 +163,35 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       setTrigger(null);
       return;
     }
-    setTrigger(detectSnippetTrigger(c.value, el.selectionStart ?? 0));
+    setTrigger(detectPickerTrigger(c.value, el.selectionStart ?? 0));
   };
 
   useEffect(updateTrigger, [c.value, c.textareaRef]);
 
+  const isMention = trigger?.kind === "mention";
+  const mentionQuery = isMention ? (trigger?.query ?? "") : "";
+  const mention = useMentionSearch({
+    active: !!isMention,
+    query: mentionQuery,
+    openFiles: openEditorFiles,
+  });
+
   const filteredItems = useMemo<PickerItem[]>(() => {
-    if (!trigger) return [];
-    const q = trigger.query;
-    const cmdItems: PickerItem[] = Object.values(SLASH_COMMANDS)
-      .filter((c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q))
-      .map((command) => ({ kind: "command", command }));
+    if (!trigger || trigger.kind === "mention") return [];
+    const q = trigger.query.toLowerCase();
+    //   `/` → every command (Claude Code / Cursor convention)
+    //   `#` → snippets + tag-style commands (currently `init`, `plan`) only,
+    //         because those two behave like persistent session tags rather
+    //         than one-shot actions. Other commands stay slash-only.
+    if (trigger.kind === "slash") {
+      return VISIBLE_SLASH_COMMANDS.filter(
+        (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
+      ).map((command) => ({ kind: "command", command }));
+    }
+    // trigger.kind === "hash"
+    const hashCmds: PickerItem[] = HASH_COMMANDS.filter(
+      (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
+    ).map((command) => ({ kind: "command", command }));
     const snipItems: PickerItem[] = snippets
       .filter(
         (s) =>
@@ -141,12 +201,16 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           s.description.toLowerCase().includes(q),
       )
       .map((snippet) => ({ kind: "snippet", snippet }));
-    return [...cmdItems, ...snipItems];
+    return [...hashCmds, ...snipItems];
   }, [trigger, snippets]);
 
+  /** Length of the currently navigable list — drives ArrowUp/Down/Tab/Enter
+   *  regardless of which picker is open. */
+  const navLength = isMention ? mention.items.length : filteredItems.length;
+
   useEffect(() => {
-    if (activeIndex >= filteredItems.length) setActiveIndex(0);
-  }, [filteredItems.length, activeIndex]);
+    if (activeIndex >= navLength) setActiveIndex(0);
+  }, [navLength, activeIndex]);
 
   const pickerOpen = trigger !== null;
 
@@ -159,10 +223,17 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       const needsSpace = afterRaw.length === 0 || !/^\s/.test(afterRaw);
       insert = `#${item.snippet.handle}${needsSpace ? " " : ""}`;
       c.addSnippet(item.snippet);
+    } else if (trigger.kind === "slash") {
+      // `/cmd ` — let the user type args (when applicable) and hit Enter,
+      // or hit Enter immediately for no-arg commands. We deliberately leave
+      // the text in the textarea rather than auto-executing on pick so the
+      // user has a chance to back out.
+      insert = `/${item.command.name} `;
     } else {
       c.addCommand(item.command);
     }
-    const after = item.kind === "command" ? afterRaw.replace(/^\s+/, "") : afterRaw;
+    const after =
+      item.kind === "command" && trigger.kind === "hash" ? afterRaw.replace(/^\s+/, "") : afterRaw;
     c.setValue(`${before}${insert}${after}`);
     setTrigger(null);
     setActiveIndex(0);
@@ -170,6 +241,33 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       const el = c.textareaRef.current;
       if (!el) return;
       const caret = before.length + insert.length;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const onPickMention = (item: MentionItem) => {
+    if (!trigger) return;
+    const before = c.value.slice(0, trigger.start);
+    const afterRaw = c.value.slice(trigger.end);
+    // Drop the `@query` from the textarea and rely on the chip strip below
+    // to surface the attachment. Industry convention is to either leave a
+    // visual token (`@filename`) or to strip the trigger entirely; we strip
+    // because chips already represent the attachment unambiguously.
+    const after = afterRaw.replace(/^\s+/, "");
+    const sep = before && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
+    c.setValue(`${before}${sep}${after}`);
+    setTrigger(null);
+    setActiveIndex(0);
+    if (item.kind === "file") {
+      void c.attachFileByPath(item.path);
+    } else if (item.kind === "folder") {
+      void c.attachFolderByPath(item.path);
+    }
+    requestAnimationFrame(() => {
+      const el = c.textareaRef.current;
+      if (!el) return;
+      const caret = before.length + sep.length;
       el.focus();
       el.setSelectionRange(caret, caret);
     });
@@ -269,6 +367,11 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   };
 
   const pickActive = () => {
+    if (isMention) {
+      const it = mention.items[activeIndex];
+      if (it) onPickMention(it);
+      return;
+    }
     const it = filteredItems[activeIndex];
     if (it) onPickItem(it);
   };
@@ -281,6 +384,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
 
   return (
     <div className="border-border/60 bg-background/40 shrink-0 border-t px-2 py-2">
+      <SessionHistoryDialog />
+      <InfoModal />
       <div
         className={cn(
           "border-border bg-muted/50 flex flex-col gap-1.5 rounded-xl border px-2 py-1.5 shadow-sm",
@@ -331,7 +436,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                   if (pickerOpen) {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
-                      setActiveIndex((i) => Math.min(i + 1, Math.max(0, filteredItems.length - 1)));
+                      setActiveIndex((i) => Math.min(i + 1, Math.max(0, navLength - 1)));
                       return;
                     }
                     if (e.key === "ArrowUp") {
@@ -340,9 +445,16 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                       return;
                     }
                     if (e.key === "Tab" || e.key === "Enter") {
-                      if (filteredItems.length > 0) {
+                      if (navLength > 0) {
                         e.preventDefault();
                         pickActive();
+                        return;
+                      }
+                      // Picker is open but still loading / empty — swallow
+                      // Enter so it doesn't accidentally submit the half-typed
+                      // `@query` to the LLM.
+                      if (isMention) {
+                        e.preventDefault();
                         return;
                       }
                     }
@@ -413,7 +525,9 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                 placeholder={
                   c.isBusy
                     ? "AI is responding · Ctrl+Enter to queue"
-                    : "Ask TEDI anything   -   # for snippets and commands"
+                    : // Short enough to fit the narrow panel without truncating.
+                      // The full /-@-# hint lives in /help.
+                      "Ask TEDI · / @ #"
                 }
                 rows={1}
                 className={cn(
@@ -423,12 +537,32 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
               />
             </div>
           </PopoverAnchor>
-          <SnippetPickerContent
-            items={filteredItems}
-            activeIndex={activeIndex}
-            onPick={onPickItem}
-            onHover={setActiveIndex}
-          />
+          {isMention ? (
+            <MentionPickerContent
+              items={mention.items}
+              activeIndex={activeIndex}
+              onPick={onPickMention}
+              onHover={setActiveIndex}
+              loading={mention.loading}
+              query={mentionQuery}
+            />
+          ) : (
+            <SnippetPickerContent
+              items={filteredItems}
+              activeIndex={activeIndex}
+              onPick={onPickItem}
+              onHover={setActiveIndex}
+              emptyText={
+                trigger?.kind === "slash"
+                  ? trigger.query
+                    ? `No commands match "/${trigger.query}"`
+                    : "Type a command name…"
+                  : trigger?.query
+                    ? `No snippets match "#${trigger.query}". Add snippets in Settings → Agents.`
+                    : "Type a snippet handle, or add one in Settings → Agents."
+              }
+            />
+          )}
         </Popover>
 
         <AnimatePresence initial={false}>
@@ -451,8 +585,13 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           )}
         </AnimatePresence>
 
-        <div className="border-border/40 flex items-center justify-between gap-1 border-t pt-1.5 [&>div]:flex-wrap">
-          <div className="flex min-w-0 items-center gap-1.5">
+        {/* Bottom toolbar: wraps at the GROUP level — when the panel
+            gets narrower than the sum of (meta group) + (action group),
+            the action group drops to a fresh row. Wrapping individual
+            buttons was the old approach and produced a 4-row cascade in
+            narrow panels (see screenshot 2026-05-20 195933). */}
+        <div className="border-border/40 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
+          <div className="flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
             {messages !== undefined ? <ContextIndicator messages={messages} /> : null}
           </div>

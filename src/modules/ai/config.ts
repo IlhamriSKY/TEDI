@@ -313,7 +313,12 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
-export const MAX_AGENT_STEPS = 24;
+/** Per-turn cap on agent tool-call steps. 24 was generous compared to
+ *  industry baselines (Claude Code ~15, Cursor ~12, subagent here is 12)
+ *  and gave runway for tool-call loops to accumulate huge contexts. 15 keeps
+ *  legitimate multi-step tasks intact while shortening the rope a misbehaving
+ *  model can hang itself on. */
+export const MAX_AGENT_STEPS = 15;
 export const TERMINAL_BUFFER_LINES = 300;
 
 export const SYSTEM_PROMPT = `You are TEDI, an AI agent embedded in a developer terminal emulator. You are a hands-on engineer - *do* the work, don't narrate it.
@@ -337,6 +342,7 @@ Env lists every terminal with its ordinal (matches the badge user sees). "termin
 # Read / search budget
 - grep for "where is X?"; glob for "files matching Y"; list_directory for "show me this folder".
 - Don't re-read a file you already read this session unless you wrote to it.
+- Don't repeat the same tool call with the same args. If a tool returns the same error twice in a row, stop and ask — never retry a third time.
 - read_file pages large files via offset/limit (first 2000 lines, 200KB cap).
 - todo_write before 5+ consecutive tool calls. Skip for single-step asks.
 
@@ -378,6 +384,8 @@ Rules:
 - Target a SPECIFIC terminal: user says "terminal 2" → use the ordinal from env's terminals list with send_to_terminal / run_in_terminal_by_id / schedule_command.
 - Bulk layout: open_terminal accepts \`count\` (≤6) — mode="tab" count=N makes a fresh group of N panes; mode="split" target_tab_id=X count=N adds N splits. consolidate_terminals merges every terminal into one tab. close_terminal closes one or many (target / targets / all).
 - Defer in any language: "5 menit lagi …", "in 30s …", "at 9am tomorrow…" → schedule_command (delay_seconds OR fire_at_iso). Parse the time yourself.
+- Don't repeat the same tool call with the same args. Don't re-read files you already read this turn unless you wrote to them.
+- If a tool returns the same error twice, stop and ask the user — don't retry a third time. Refused reads on sensitive files (.env, .ssh, credentials) are final, never retry.
 - Terse. No filler, no diff recap.`;
 
 const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([

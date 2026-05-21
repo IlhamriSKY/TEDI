@@ -153,6 +153,9 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   useEffect(() => {
     openedRef.current = new Set();
     fileMutationFingerprintRef.current = "";
+    // Prune the auto-approve dedup set on every session switch so it doesn't
+    // grow unboundedly across a long-running session-hop session.
+    autoRespondedRef.current = new Set();
   }, [sessionId]);
 
   // Cheap fingerprint of file-mutation tool parts only. The diff-tab effect

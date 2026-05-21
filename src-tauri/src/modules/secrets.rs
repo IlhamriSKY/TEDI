@@ -285,13 +285,13 @@ pub async fn secrets_set(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let k = key(&service, &account);
-        with_store(&app, &state, |m| {
+        // Mutate and snapshot under a single lock acquisition so a concurrent
+        // writer can't slip an update in between, which would leave the on-disk
+        // file lagging the in-memory cache (lost-update race).
+        let snapshot = with_store(&app, &state, |m| {
             m.insert(k, password);
+            m.clone()
         })?;
-        let snapshot = {
-            let guard = state.cache.lock().map_err(|e| e.to_string())?;
-            guard.as_ref().cloned().unwrap_or_default()
-        };
         write_store(&app, &snapshot)?;
         #[cfg(target_os = "windows")]
         {
@@ -319,13 +319,10 @@ pub async fn secrets_delete(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let k = key(&service, &account);
-        with_store(&app, &state, |m| {
+        let snapshot = with_store(&app, &state, |m| {
             m.remove(&k);
+            m.clone()
         })?;
-        let snapshot = {
-            let guard = state.cache.lock().map_err(|e| e.to_string())?;
-            guard.as_ref().cloned().unwrap_or_default()
-        };
         write_store(&app, &snapshot)?;
         #[cfg(target_os = "windows")]
         {

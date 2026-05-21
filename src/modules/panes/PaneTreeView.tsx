@@ -102,6 +102,7 @@ export function PaneTreeView({
           onDirtyChange={b.onDirtyChange}
           onClose={b.onCloseLeaf}
           mdPreview={mdPreviewLeafIds.has(node.id)}
+          sshSessionId={node.sshSessionId}
         />
       </div>
     );

@@ -54,7 +54,10 @@ export function joinPath(parent: string, name: string): string {
 }
 
 export function dirname(path: string): string {
-  const i = path.lastIndexOf("/");
+  // Tab cwds are canonical forward-slash, but Rust fs calls may surface
+  // backslash paths on Windows — accept both so the file tree doesn't
+  // collapse to root after an in-place rename / delete on Windows.
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   if (i <= 0) return "/";
   return path.slice(0, i);
 }

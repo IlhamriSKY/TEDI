@@ -5,7 +5,7 @@ import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
-import { resolvePath, type ToolContext } from "./context";
+import { resolvePath, scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
 import { flexArrayReq, flexBoolOpt } from "./schedule";
 
 type EditResult =
@@ -17,6 +17,7 @@ async function applyEdits(
   edits: { old_string: string; new_string: string; replace_all?: boolean }[],
   kind: "edit" | "multi_edit",
   sessionId: string | null,
+  ctx: ToolContext,
 ): Promise<EditResult> {
   const r = await native.readFile(abs);
   if (r.kind === "binary") return { error: "binary file refused", path: abs };
@@ -118,7 +119,7 @@ async function applyEdits(
       path: abs,
     };
   } catch (err) {
-    return { error: String(err), path: abs };
+    return { error: scrubErrorPath(err, ctx), path: abs };
   }
 }
 
@@ -137,6 +138,7 @@ export function buildEditTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ path, old_string, new_string, replace_all }) => {
+        throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         const safety = checkWritable(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -151,6 +153,7 @@ export function buildEditTools(ctx: ToolContext) {
           [{ old_string, new_string, replace_all }],
           "edit",
           ctx.getSessionId(),
+          ctx,
         );
       },
     }),
@@ -170,6 +173,7 @@ export function buildEditTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ path, edits }) => {
+        throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         const safety = checkWritable(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -179,7 +183,7 @@ export function buildEditTools(ctx: ToolContext) {
             path: abs,
           };
         }
-        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId());
+        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId(), ctx);
       },
     }),
   } as const;

@@ -34,7 +34,7 @@ export const ConversationContent = ({ className, ...props }: ConversationContent
   // scrollbar actually appears, so empty / short chats render fully flush
   // and longer ones still get a clean right-side scrollbar lane.
   <StickToBottom.Content
-    scrollClassName="[scrollbar-gutter:auto]!"
+    scrollClassName="[scrollbar-gutter:auto]! overflow-x-hidden"
     className={cn("flex flex-col gap-5 p-4", className)}
     {...props}
   />

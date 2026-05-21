@@ -45,6 +45,10 @@ type Props = {
   /** When true and the file is markdown, render a rendered MD view instead
    *  of the CodeMirror editor. Ignored for non-markdown files. */
   mdPreview?: boolean;
+  /** When set, this pane edits a remote file over SFTP on the matching
+   *  russh session id. Threaded straight through to `useDocument` so
+   *  reads/writes branch to the SSH backend. */
+  sshSessionId?: number;
 };
 
 function formatBytes(n: number): string {
@@ -118,12 +122,13 @@ function computeMarkers(
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPane(
-  { path, onDirtyChange, onSaved, onClose, mdPreview },
+  { path, onDirtyChange, onSaved, onClose, mdPreview, sshSessionId },
   ref,
 ) {
   const { doc, liveContent, onChange, save, reload } = useDocument({
     path,
     onDirtyChange,
+    sshSessionId,
   });
   const reloadRef = useRef(reload);
   reloadRef.current = reload;

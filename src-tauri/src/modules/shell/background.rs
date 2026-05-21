@@ -31,6 +31,10 @@ pub struct BackgroundProc {
     pub exited: AtomicBool,
     pub exit_code: AtomicI32,
     pub exit_unknown: AtomicBool,
+    // Windows: kill-on-close Job Object catches descendants when TEDI dies.
+    // Without it, a pwsh-wrapped `npm run dev` leaks its node grandchild.
+    #[cfg(windows)]
+    _job: Option<crate::modules::pty::job::PtyJob>,
 }
 
 #[derive(Serialize)]
@@ -168,6 +172,19 @@ fn track_spawned(
     let shared = SharedChild::spawn(cmd).map_err(|e| e.to_string())?;
     let stdout_pipe = shared.take_stdout().ok_or("no stdout pipe")?;
     let stderr_pipe = shared.take_stderr().ok_or("no stderr pipe")?;
+
+    #[cfg(windows)]
+    let job = match crate::modules::pty::job::PtyJob::create_for(shared.id()) {
+        Ok(j) => Some(j),
+        Err(e) => {
+            log::warn!(
+                "shell bg job-object setup failed for pid={}: {e}",
+                shared.id()
+            );
+            None
+        }
+    };
+
     let child = Arc::new(shared);
 
     let started_at_ms = SystemTime::now()
@@ -184,6 +201,8 @@ fn track_spawned(
         exited: AtomicBool::new(false),
         exit_code: AtomicI32::new(0),
         exit_unknown: AtomicBool::new(false),
+        #[cfg(windows)]
+        _job: job,
     });
 
     {

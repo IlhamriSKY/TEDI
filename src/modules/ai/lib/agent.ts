@@ -4,6 +4,8 @@ import {
   streamText,
   type LanguageModel,
   type ModelMessage,
+  type StopCondition,
+  type ToolSet,
   type UIMessage,
 } from "ai";
 import {
@@ -179,6 +181,46 @@ export async function buildLanguageModel(
 
 const PLAN_MODE_PROMPT = `\n\n## PLAN MODE - ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
 
+/** Stable fingerprint for a tool invocation: name + JSON-stringified args
+ *  with sorted keys so semantically-equal inputs hash to the same string. */
+function toolCallFingerprint(toolName: string, input: unknown): string {
+  if (!input || typeof input !== "object") return `${toolName}::${JSON.stringify(input)}`;
+  const sortedKeys = Object.keys(input as Record<string, unknown>).sort();
+  return `${toolName}::${JSON.stringify(input, sortedKeys)}`;
+}
+
+/** Stop when the last `maxRepeats` steps each called the SAME tool with the
+ *  SAME input. Targets the hot-loop pattern "read_file X → read_file X →
+ *  read_file X" that runs up token spend without progress.
+ *
+ *  Conservative threshold (3) — multi-step agents legitimately call e.g.
+ *  `bash_logs(handle)` twice in a row to wait for output, but never three
+ *  times with identical args. */
+function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
+  return ({ steps }) => {
+    if (steps.length < maxRepeats) return false;
+    const recent = steps.slice(-maxRepeats);
+    const fingerprints: (string | null)[] = recent.map((s) => {
+      const call = s.toolCalls?.[0];
+      if (!call) return null;
+      return toolCallFingerprint(call.toolName, call.input);
+    });
+    if (fingerprints.some((x) => x === null)) return false;
+    return fingerprints.every((x) => x === fingerprints[0]);
+  };
+}
+
+/** Stop when the last `maxIdle` steps produced no tool calls at all. The
+ *  agent is supposed to act; a streak of text-only steps means it's stalled
+ *  ("ngoceh" without progress). 2 is enough — a single legit text turn
+ *  finishes naturally on its own, never chains another empty step. */
+function noProgressStop<T extends ToolSet>(maxIdle = 2): StopCondition<T> {
+  return ({ steps }) => {
+    if (steps.length < maxIdle) return false;
+    return steps.slice(-maxIdle).every((s) => (s.toolCalls?.length ?? 0) === 0);
+  };
+}
+
 /** Per-step usage delta - handler is responsible for accumulating
  *  cumulative totals if it wants them. Cached tokens come from the
  *  provider's prompt-cache hit counter; 0 when the provider doesn't
@@ -198,7 +240,14 @@ export type RunAgentOptions = {
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number }) => void;
-  onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
+  onFinishMeta?: (info: {
+    hitStepCap: boolean;
+    finishReason: string;
+    /** Which guard tripped the agent loop (if any). Surfaces to the UI so
+     *  the user knows *why* the agent paused — running out of step budget,
+     *  hot-looping a tool, or stalling on text-only output. */
+    stopReason: "step-cap" | "tool-repetition" | "no-progress" | "normal";
+  }) => void;
   lmstudioBaseURL?: string;
   openaiCompatibleBaseURL?: string;
   planMode?: boolean;
@@ -276,12 +325,59 @@ export async function runAgentStream(opts: RunAgentOptions) {
   ];
   const finalMessages = applyCacheBreakpoints(baseMessages, provider);
 
+  // Thread the agent-level abort signal into the ToolContext so individual
+  // tools can fast-fail on cancellation (Stop button, session delete, etc.)
+  // — Vercel AI SDK only abort the HTTP fetch by default, leaving in-flight
+  // tool IPC running until completion otherwise.
+  const toolContextWithAbort: ToolContext = {
+    ...opts.toolContext,
+    abortSignal: opts.abortSignal,
+  };
+
   let stepsSeen = 0;
+  // Three stop predicates (any one trips → agent loop ends):
+  //   1. Step cap (industry baseline)
+  //   2. Identical tool+input 3x in a row (anti hot-loop)
+  //   3. Two consecutive text-only steps (anti stalled chatter)
+  //
+  // We wrap each predicate so the first one to return true records WHICH
+  // guard tripped — surfaces to the UI as a stopReason so users know why
+  // the agent paused.
+  let trippedReason: "step-cap" | "tool-repetition" | "no-progress" | null = null;
+  const capPred = stepCountIs(MAX_AGENT_STEPS);
+  const repeatPred = noToolRepetition<ToolSet>(3);
+  const idlePred = noProgressStop<ToolSet>(2);
+  const trackingStopWhen: StopCondition<ToolSet>[] = [
+    (args) => {
+      if (capPred(args) as boolean) {
+        if (!trippedReason) trippedReason = "step-cap";
+        return true;
+      }
+      return false;
+    },
+    (args) => {
+      if (repeatPred(args) as boolean) {
+        if (!trippedReason) trippedReason = "tool-repetition";
+        return true;
+      }
+      return false;
+    },
+    (args) => {
+      if (idlePred(args) as boolean) {
+        if (!trippedReason) trippedReason = "no-progress";
+        return true;
+      }
+      return false;
+    },
+  ];
   return streamText({
     model,
     messages: finalMessages,
-    tools: buildTools(opts.toolContext),
-    stopWhen: stepCountIs(MAX_AGENT_STEPS),
+    tools: buildTools(toolContextWithAbort),
+    // The SDK infers a specific ToolSet shape from `tools` and refuses our
+    // generic `StopCondition<ToolSet>[]`. Predicates only touch the common
+    // `toolCalls[].toolName`/`.input` shape, so a structural cast is safe.
+    stopWhen: trackingStopWhen as never,
     abortSignal: opts.abortSignal,
     onStepFinish: (step) => {
       stepsSeen++;
@@ -313,6 +409,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
       opts.onFinishMeta?.({
         hitStepCap: stepsSeen >= MAX_AGENT_STEPS,
         finishReason,
+        stopReason: trippedReason ?? "normal",
       });
     },
   });

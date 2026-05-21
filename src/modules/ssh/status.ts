@@ -56,6 +56,24 @@ export function statusDotClass(s: SshStatus): string {
   }
 }
 
+/** Tailwind `text-*` class for the SSH icon itself. Used on the cloud icon
+ *  in the tab bar so the icon's colour carries the connection status — no
+ *  separate dot overlay needed. Sky is the resting tint when there's no
+ *  status yet (icon is rendered before the session settles). */
+export function statusIconClass(s: SshStatus | undefined): string {
+  if (!s) return "text-sky-600 dark:text-sky-400";
+  switch (statusTone(s)) {
+    case "neutral":
+      return "text-sky-600 dark:text-sky-400";
+    case "warn":
+      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+    case "ok":
+      return "text-emerald-600 dark:text-emerald-400";
+    case "bad":
+      return "text-red-600 dark:text-red-400";
+  }
+}
+
 export function statusLabel(s: SshStatus): string {
   switch (s.kind) {
     case "idle":

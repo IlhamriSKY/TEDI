@@ -26,6 +26,7 @@ import {
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { useTodosStore } from "./todoStore";
+import { toast } from "@/components/ui/toast";
 import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
 import {
   deleteSessionData,
@@ -38,6 +39,7 @@ import {
   saveSessionsList,
   type SessionMeta,
 } from "../lib/sessions";
+import { disposeSessionShell } from "../tools/shell";
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
@@ -68,14 +70,16 @@ type Live = {
     | { ok: false; error: string };
   /** Move every terminal leaf into a single tab. Refuses if the total
    *  exceeds the per-tab pane cap. */
-  consolidateTerminalsIntoGroup: (targetTabId: number) =>
+  consolidateTerminalsIntoGroup: (
+    targetTabId: number,
+  ) =>
     | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
     | { ok: false; error: string; movedBeforeFailure?: number };
   /** Close a single terminal leaf. Refuses the very last leaf so the app
    *  always has at least one tab. */
-  closeTerminalLeaf: (leafId: number) =>
-    | { ok: true; closedTab: boolean }
-    | { ok: false; error: string };
+  closeTerminalLeaf: (
+    leafId: number,
+  ) => { ok: true; closedTab: boolean } | { ok: false; error: string };
   /** Inject `command` into the active terminal AND submit (CR). Returns
    *  false if there is no active terminal tab to run in. Use this when
    *  the user asked the AI to "run X in the terminal" - the command and
@@ -217,6 +221,9 @@ type StoreState = {
   renameSession: (id: string, title: string) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
   persistMessages: (id: string, messages: UIMessage[]) => void;
+
+  showHistoryPicker: boolean;
+  setShowHistoryPicker: (open: boolean) => void;
 };
 
 const NOOP_LIVE: Live = {
@@ -237,8 +244,49 @@ const NOOP_LIVE: Live = {
 };
 
 // Per-session Chat instances. Transport reads the keys map lazily, so a key
-// change does not require rebuilding chats.
+// change does not require rebuilding chats. The map is bounded by `CHAT_LRU_CAP`
+// (least-recently-touched chats are hibernated: messages flushed to disk and
+// the Chat instance dropped; re-opening the session rebuilds from disk).
 const chats = new Map<string, Chat<UIMessage>>();
+const CHAT_LRU_CAP = 10;
+
+function touchChatLRU(sessionId: string): void {
+  const existing = chats.get(sessionId);
+  if (!existing) return;
+  chats.delete(sessionId);
+  chats.set(sessionId, existing);
+}
+
+function hibernateOldestChat(): void {
+  let guard = chats.size + 1;
+  while (chats.size > CHAT_LRU_CAP && guard-- > 0) {
+    const oldest = chats.keys().next().value;
+    if (oldest === undefined) return;
+    const activeId = useChatStore.getState().activeSessionId;
+    // Never evict the active session. Move it to the tail and look at the
+    // next candidate.
+    if (oldest === activeId) {
+      touchChatLRU(oldest);
+      continue;
+    }
+    const victim = chats.get(oldest);
+    if (victim) {
+      try {
+        void victim.stop();
+      } catch {
+        // already stopped — ignore
+      }
+      // Snapshot the in-memory message list back to `seedMessages` so the
+      // next access through getOrCreateChat re-hydrates correctly. (The
+      // debounced persist may not have fired yet, so disk could be stale.)
+      seedMessages.set(oldest, victim.messages);
+    }
+    flushPersistEntry(oldest);
+    chats.delete(oldest);
+    // `readCaches` are retained: they're tiny, and after rehydration the
+    // model's view of which files it has read this session is still valid.
+  }
+}
 // Initial messages for a session, populated at hydration time and consumed
 // when the matching Chat is constructed.
 const seedMessages = new Map<string, UIMessage[]>();
@@ -303,8 +351,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     listTerminals: () => useChatStore.getState().live.listTerminals(),
     injectIntoTerminal: (target, text) =>
       useChatStore.getState().live.injectIntoTerminal(target, text),
-    runInTerminal: (target, command) =>
-      useChatStore.getState().live.runInTerminal(target, command),
+    runInTerminal: (target, command) => useChatStore.getState().live.runInTerminal(target, command),
     readCache,
     getSessionId: () => sessionId,
   };
@@ -349,6 +396,24 @@ function makeChat(sessionId: string): Chat<UIMessage> {
           },
         },
       }));
+    },
+    onFinishMeta: (info) => {
+      // Surface non-normal stop reasons so the user understands *why* the
+      // agent paused. Step-cap and tool-repetition are common failure
+      // modes — silently swallowing them looks like a bug.
+      if (info.stopReason === "step-cap") {
+        toast("Stopped after reaching the per-turn step limit. Reply to continue.", {
+          variant: "warning",
+        });
+      } else if (info.stopReason === "tool-repetition") {
+        toast("Stopped: model was repeating the same tool call. Tell it what you actually need.", {
+          variant: "warning",
+        });
+      } else if (info.stopReason === "no-progress") {
+        toast("Stopped: model went idle without making progress. Reply to continue.", {
+          variant: "info",
+        });
+      }
     },
   });
 
@@ -571,6 +636,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     discardCheckpoint(id);
     readCaches.delete(id);
+    // Tear down the persistent Rust shell session (one per chat session)
+    // so the OS-side child process + IO pipes are released. Without this,
+    // each deleted chat leaves a zombie shell behind.
+    disposeSessionShell(id);
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
 
@@ -630,6 +699,9 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set({ sessions: next });
     void saveSessionsList(next);
   },
+
+  showHistoryPicker: false,
+  setShowHistoryPicker: (open: boolean) => set({ showHistoryPicker: open }),
 }));
 
 export function getAgentMeta(): AgentMeta {
@@ -649,9 +721,13 @@ export function hasKeyForModel(modelId: DynamicModelId): boolean {
 
 export function getOrCreateChat(sessionId: string): Chat<UIMessage> {
   const existing = chats.get(sessionId);
-  if (existing) return existing;
+  if (existing) {
+    touchChatLRU(sessionId);
+    return existing;
+  }
   const c = makeChat(sessionId);
   chats.set(sessionId, c);
+  hibernateOldestChat();
   return c;
 }
 
