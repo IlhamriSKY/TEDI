@@ -12,6 +12,7 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       leafKind: "terminal",
       cwd: leaf.cwd,
       sshConnectionId: leaf.sshConnectionId,
+      terminalOrdinal: leaf.terminalOrdinal,
     };
   }
   return { kind: "leaf", leafKind: "editor", path: leaf.path };
@@ -64,6 +65,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         leafKind: "terminal",
         cwd: node.cwd,
         sshConnectionId: node.sshConnectionId,
+        terminalOrdinal: node.terminalOrdinal,
       };
     }
     return {
@@ -108,7 +110,10 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   return tab;
 }
 
-/** Returns a default-seeded pane tab (one terminal leaf) for empty workspaces. */
+/** Returns a default-seeded pane tab (one terminal leaf) for empty workspaces.
+ *  `terminalOrdinal` is intentionally omitted — `useTabs.replaceAllTabs`
+ *  backfills it at hydrate time so the very first terminal in the workspace
+ *  picks up #1 regardless of which seed path produced it. */
 export function defaultTabForEmptyWorkspace(allocId: () => number, cwd: string | undefined): Tab {
   const leafId = allocId();
   return {

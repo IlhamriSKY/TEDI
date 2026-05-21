@@ -74,6 +74,27 @@ export function statusIconClass(s: SshStatus | undefined): string {
   }
 }
 
+/** Tailwind `text-*` class for the SSH tab's TITLE text — carries the
+ *  connection status on the label itself rather than tinting the cloud
+ *  icon. `connecting` / `reconnecting` pulse so the user notices the
+ *  transient state at a glance. Empty string when the status is the
+ *  resting "idle" or unknown — let the label inherit the tab's default
+ *  foreground colour so it doesn't read as a colored chip when nothing
+ *  is happening. */
+export function statusLabelClass(s: SshStatus | undefined): string {
+  if (!s) return "";
+  switch (statusTone(s)) {
+    case "neutral":
+      return "";
+    case "warn":
+      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+    case "ok":
+      return "text-emerald-600 dark:text-emerald-400";
+    case "bad":
+      return "text-red-600 dark:text-red-400";
+  }
+}
+
 export function statusLabel(s: SshStatus): string {
   switch (s.kind) {
     case "idle":

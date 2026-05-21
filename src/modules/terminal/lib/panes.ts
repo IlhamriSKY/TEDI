@@ -17,6 +17,15 @@ export type TerminalLeafState = {
    * shell decides the working dir).
    */
   sshConnectionId?: string;
+  /**
+   * Stable FIFO creation index — the 1-based number rendered on the tab
+   * chip and surfaced to the AI in the per-turn `<env>` block. Assigned
+   * once when the leaf is created and travels with the leaf across split
+   * moves, tab reorders, workspace serialisation, and app restarts. Drag
+   * does NOT renumber. Optional only to keep the type backward-compatible
+   * with saved state from older builds; live code always populates it.
+   */
+  terminalOrdinal?: number;
 };
 
 export type EditorLeafState = {

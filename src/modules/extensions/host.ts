@@ -96,6 +96,8 @@ export type AppContextSnapshot = {
   workspaceCwd: string | null;
   activeFileName: string | null;
   terminalCount: number;
+  /** Kind of the currently focused tab. `null` when no tab is active. */
+  activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | null;
 };
 
 export type ExtensionContext = {

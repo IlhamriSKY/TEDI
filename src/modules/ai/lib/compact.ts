@@ -20,20 +20,37 @@ type ToolPart = {
   [k: string]: unknown;
 };
 
-function approxBytes(messages: ModelMessage[]): number {
+/** Per-message byte cache. The React adapter's `replaceMessage` deep-clones
+ *  via `structuredClone` on every state mutation (see
+ *  `@ai-sdk/react/dist/index.mjs` — `this.snapshot = (v) => structuredClone(v)`),
+ *  so a mutated message always lands in this map under a *new* reference.
+ *  WeakMap key identity therefore matches "content-stable" — turns the
+ *  inner loop inside Stage 2 (which used to re-run approxBytes over every
+ *  message after every single elision) from O(N²) JSON.stringify into
+ *  O(N) amortized. */
+const bytesCache = new WeakMap<ModelMessage & object, number>();
+
+function bytesForMessage(m: ModelMessage): number {
+  const key = m as ModelMessage & object;
+  const cached = bytesCache.get(key);
+  if (cached !== undefined) return cached;
   let n = 0;
-  for (const m of messages) {
-    if (typeof m.content === "string") n += m.content.length;
-    else if (Array.isArray(m.content)) {
-      for (const part of m.content as ToolPart[]) {
-        if (part.type === "text" && typeof part.text === "string")
-          n += (part.text as string).length;
-        else if (part.type === "tool-result") n += JSON.stringify(part.output ?? "").length;
-        else if (part.type === "tool-call") n += JSON.stringify(part.input ?? "").length;
-        else n += 64;
-      }
+  if (typeof m.content === "string") n += m.content.length;
+  else if (Array.isArray(m.content)) {
+    for (const part of m.content as ToolPart[]) {
+      if (part.type === "text" && typeof part.text === "string") n += (part.text as string).length;
+      else if (part.type === "tool-result") n += JSON.stringify(part.output ?? "").length;
+      else if (part.type === "tool-call") n += JSON.stringify(part.input ?? "").length;
+      else n += 64;
     }
   }
+  bytesCache.set(key, n);
+  return n;
+}
+
+function approxBytes(messages: ModelMessage[]): number {
+  let n = 0;
+  for (const m of messages) n += bytesForMessage(m);
   return n;
 }
 

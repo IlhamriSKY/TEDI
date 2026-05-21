@@ -61,6 +61,24 @@ export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
   }
 }
 
+/** Tailwind `text-*` class for the terminal-leaf icon when a known AI CLI
+ *  is active. Drives the icon tint directly — TabBar no longer renders a
+ *  separate "idle/working/blocking" chip, so the icon's colour IS the
+ *  status indicator. `working` and `blocking` pulse to draw the eye. The
+ *  detector is what clears the state cleanly when the CLI exits (alt-
+ *  screen toggle, OSC 133;A, or SSH disconnect reset); the icon is just a
+ *  mirror of that state. */
+export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
+  switch (s.state) {
+    case "idle":
+      return "text-emerald-600 dark:text-emerald-400";
+    case "working":
+      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+    case "blocking":
+      return "text-red-600 dark:text-red-400 animate-pulse";
+  }
+}
+
 export function toolDisplayName(t: AiCliKind): string {
   switch (t) {
     case "claude":

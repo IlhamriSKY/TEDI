@@ -10,7 +10,7 @@ import {
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useWorkspacesStore } from "./store";
 
 type Props = {
@@ -35,7 +35,12 @@ type Props = {
   liveTabsCount?: number;
 };
 
-export function WorkspacesPanel({ onSwitch, onCreate, onClose, liveTabsCount }: Props) {
+// Memoised so unrelated parent state churn (tabs mutation, OSC 7 cwd
+// updates, AI streaming) doesn't re-render the workspaces strip. Callback
+// props are useCallback-stable from App.tsx; liveTabsCount is a useMemo
+// primitive, so the shallow equality check skips render unless one of
+// those genuinely changed.
+function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
@@ -171,3 +176,5 @@ export function WorkspacesPanel({ onSwitch, onCreate, onClose, liveTabsCount }: 
     </div>
   );
 }
+
+export const WorkspacesPanel = memo(WorkspacesPanelInner);

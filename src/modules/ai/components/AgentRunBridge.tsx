@@ -1,6 +1,6 @@
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import type { ToolUIPart, UIMessagePart } from "ai";
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
@@ -39,11 +39,15 @@ type Props = {
   setAiDiffStatus: (approvalId: string, status: AiDiffStatus) => void;
 };
 
-export function AgentRunBridge(props: Props) {
+// Memoised so unrelated parent re-renders (App.tsx state churn from tabs /
+// workspaces / live-bridge updates) don't re-render this bridge. Both props
+// are stable useCallback values originating from useTabs(), so the shallow
+// equality check skips re-render whenever only tabs state has changed.
+export const AgentRunBridge = memo(function AgentRunBridge(props: Props) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   if (!sessionId) return null;
   return <Bridge sessionId={sessionId} {...props} />;
-}
+});
 
 type WriteFileInput = { path?: unknown; content?: unknown };
 
@@ -115,16 +119,28 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     return () => flushPersist(sessionId);
   }, [sessionId]);
 
-  const approvalsPending = useMemo(() => {
-    let n = 0;
+  // Single-pass scan: approvalsPending + fileMutationFingerprint share the
+  // same message walk. Splitting them used to iterate every assistant part
+  // twice on every token during streaming; one pass cuts that in half on
+  // the hottest path of the agent UI.
+  const messageStats = useMemo(() => {
+    let approvals = 0;
+    let mutationFp = "";
     for (const m of messages) {
       if (m.role !== "assistant") continue;
-      for (const p of m.parts) {
-        if ((p as { state?: string }).state === "approval-requested") n++;
+      for (const p of m.parts as AnyPart[]) {
+        const state = (p as { state?: string }).state;
+        if (state === "approval-requested") approvals++;
+        const t = (p as { type?: string }).type;
+        if (t === "tool-write_file" || t === "tool-edit" || t === "tool-multi_edit") {
+          const id = (p as { approval?: { id?: string } }).approval?.id ?? "";
+          mutationFp += `${id}:${state ?? ""}|`;
+        }
       }
     }
-    return n;
+    return { approvalsPending: approvals, fileMutationFingerprint: mutationFp };
   }, [messages]);
+  const { approvalsPending, fileMutationFingerprint } = messageStats;
 
   useEffect(() => {
     let runStatus: AgentRunStatus;
@@ -158,25 +174,9 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     autoRespondedRef.current = new Set();
   }, [sessionId]);
 
-  // Cheap fingerprint of file-mutation tool parts only. The diff-tab effect
-  // is the most expensive thing on the streaming path, so we skip it when
-  // only text/reasoning tokens have arrived (the common case).
-  const fileMutationFingerprint = useMemo(() => {
-    let fp = "";
-    for (const m of messages) {
-      if (m.role !== "assistant") continue;
-      for (const p of m.parts as AnyPart[]) {
-        const t = (p as { type?: string }).type;
-        if (t === "tool-write_file" || t === "tool-edit" || t === "tool-multi_edit") {
-          const state = (p as { state?: string }).state ?? "";
-          const id = (p as { approval?: { id?: string } }).approval?.id ?? "";
-          fp += `${id}:${state}|`;
-        }
-      }
-    }
-    return fp;
-  }, [messages]);
-
+  // fileMutationFingerprint is derived from the same pass as approvalsPending
+  // above — see `messageStats`. The diff-tab effect short-circuits when the
+  // fingerprint hasn't changed, so this stays cheap on text-only tokens.
   useEffect(() => {
     type Pending = {
       approvalId: string;

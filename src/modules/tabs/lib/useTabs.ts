@@ -185,6 +185,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       id: leafId,
       leafKind: "terminal",
       cwd: initial?.cwd,
+      terminalOrdinal: 1,
     };
     return [
       syncPaneMirror({
@@ -198,57 +199,101 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   });
   const [activeId, setActiveId] = useState(1);
   const nextIdRef = useRef(3);
+  // Monotonic counter for the FIFO chip number on terminal leaves. Stays in
+  // sync with `maxTerminalOrdinal(tabs)` so a freshly created terminal —
+  // whether spawned via newTab, newSshTab, splitInActive, or hydrated from
+  // saved state — picks up the next unused integer. Dragging tabs around
+  // does NOT bump this; ordinals belong to the leaf, not its position.
+  const nextOrdinalRef = useRef(2);
 
-  const newTab = useCallback((cwd?: string) => {
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    const leaf: PaneLeaf = {
-      kind: "leaf",
-      id: leafId,
-      leafKind: "terminal",
-      cwd,
-    };
-    setTabs((t) => [
-      ...t,
-      syncPaneMirror({
-        id: tabId,
-        kind: "pane",
-        title: "shell",
-        paneTree: leaf,
-        activeLeafId: leafId,
-      }),
-    ]);
-    setActiveId(tabId);
-    return tabId;
+  /** Returns the highest `terminalOrdinal` currently in use across all tabs. */
+  const peekMaxOrdinal = useCallback((curr: Tab[]): number => {
+    let max = 0;
+    for (const t of curr) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind === "terminal" && typeof l.terminalOrdinal === "number") {
+          if (l.terminalOrdinal > max) max = l.terminalOrdinal;
+        }
+      }
+    }
+    return max;
   }, []);
+
+  /** Allocates the next ordinal and advances the counter. Called inside
+   *  setTabs updaters where `curr` is the latest tabs snapshot. */
+  const allocOrdinal = useCallback(
+    (curr: Tab[]): number => {
+      const max = Math.max(nextOrdinalRef.current - 1, peekMaxOrdinal(curr));
+      const ord = max + 1;
+      nextOrdinalRef.current = ord + 1;
+      return ord;
+    },
+    [peekMaxOrdinal],
+  );
+
+  const newTab = useCallback(
+    (cwd?: string) => {
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      setTabs((curr) => {
+        const leaf: PaneLeaf = {
+          kind: "leaf",
+          id: leafId,
+          leafKind: "terminal",
+          cwd,
+          terminalOrdinal: allocOrdinal(curr),
+        };
+        return [
+          ...curr,
+          syncPaneMirror({
+            id: tabId,
+            kind: "pane",
+            title: "shell",
+            paneTree: leaf,
+            activeLeafId: leafId,
+          }),
+        ];
+      });
+      setActiveId(tabId);
+      return tabId;
+    },
+    [allocOrdinal],
+  );
 
   /**
    * Open a new tab whose initial terminal leaf is bound to a saved SSH
    * connection. `useTerminalSession` reads `leaf.sshConnectionId` and
    * routes through `ssh_open` instead of `pty_open`.
    */
-  const newSshTab = useCallback((sshConnectionId: string, title: string) => {
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    const leaf: PaneLeaf = {
-      kind: "leaf",
-      id: leafId,
-      leafKind: "terminal",
-      sshConnectionId,
-    };
-    setTabs((t) => [
-      ...t,
-      syncPaneMirror({
-        id: tabId,
-        kind: "pane",
-        title,
-        paneTree: leaf,
-        activeLeafId: leafId,
-      }),
-    ]);
-    setActiveId(tabId);
-    return tabId;
-  }, []);
+  const newSshTab = useCallback(
+    (sshConnectionId: string, title: string) => {
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      setTabs((curr) => {
+        const leaf: PaneLeaf = {
+          kind: "leaf",
+          id: leafId,
+          leafKind: "terminal",
+          sshConnectionId,
+          terminalOrdinal: allocOrdinal(curr),
+        };
+        return [
+          ...curr,
+          syncPaneMirror({
+            id: tabId,
+            kind: "pane",
+            title,
+            paneTree: leaf,
+            activeLeafId: leafId,
+          }),
+        ];
+      });
+      setActiveId(tabId);
+      return tabId;
+    },
+    [allocOrdinal],
+  );
 
   /**
    * Find a pane tab that has any editor leaf matching `predicate`. Used by
@@ -714,7 +759,11 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             // explorer's root, not the focused leaf's cwd if they diverge).
             // Falls back to the focused terminal's cwd, then the tab mirror.
             const cwd = cwdOverride ?? (active.leafKind === "terminal" ? active.cwd : t.cwd);
-            const ts: TerminalLeafState = { leafKind: "terminal", cwd };
+            const ts: TerminalLeafState = {
+              leafKind: "terminal",
+              cwd,
+              terminalOrdinal: allocOrdinal(curr),
+            };
             state = ts;
           } else {
             // Duplicate the active editor's path if there is one; otherwise
@@ -744,7 +793,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       );
       return newLeafId;
     },
-    [],
+    [allocOrdinal],
   );
 
   const closePaneByLeaf = useCallback((leafId: number): void => {
@@ -808,21 +857,43 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
 
   /**
    * Workspaces switch - replace the full tab list + active id atomically.
-   * Also rebases `nextIdRef` so new ids never collide with the incoming set.
+   * Also rebases `nextIdRef` so new ids never collide with the incoming set,
+   * and backfills `terminalOrdinal` on any saved leaf that pre-dates the
+   * ordinal field. Backfill walks tabs left→right + leaves in tree order so
+   * older state gets the same numbering it'd have if it were created fresh
+   * — first opened wins #1, etc.
    */
   const replaceAllTabs = useCallback((nextTabs: Tab[], nextActiveId: number | null) => {
-    setTabs(nextTabs);
-    if (nextActiveId !== null) setActiveId(nextActiveId);
     let maxId = 0;
+    let maxOrdinal = 0;
     for (const t of nextTabs) {
       if (t.id > maxId) maxId = t.id;
       if (t.kind === "pane") {
         for (const l of leaves(t.paneTree)) {
           if (l.id > maxId) maxId = l.id;
+          if (l.leafKind === "terminal" && typeof l.terminalOrdinal === "number") {
+            if (l.terminalOrdinal > maxOrdinal) maxOrdinal = l.terminalOrdinal;
+          }
         }
       }
     }
+    let nextOrdinal = maxOrdinal + 1;
+    const stamp = (node: PaneNode): PaneNode => {
+      if (node.kind === "leaf") {
+        if (node.leafKind === "terminal" && node.terminalOrdinal == null) {
+          return { ...node, terminalOrdinal: nextOrdinal++ };
+        }
+        return node;
+      }
+      return { ...node, children: node.children.map(stamp) };
+    };
+    const stamped = nextTabs.map((t) =>
+      t.kind === "pane" ? syncPaneMirror({ ...t, paneTree: stamp(t.paneTree) }) : t,
+    );
+    setTabs(stamped);
+    if (nextActiveId !== null) setActiveId(nextActiveId);
     nextIdRef.current = Math.max(nextIdRef.current, maxId + 1);
+    nextOrdinalRef.current = nextOrdinal;
   }, []);
 
   /** Allocate a fresh id from the same counter that drives tabs/leaves. */
@@ -863,14 +934,17 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         const leaf = findLeaf(source.paneTree, leafId);
         if (!leaf) return curr;
         // Reuse the moving leaf's state verbatim so cwd / sshConnectionId /
-        // dirty / preview travel with it. The leaf id stays the same so the
-        // underlying session keeps its mapping in App.tsx's per-leaf refs.
+        // terminalOrdinal / dirty / preview travel with it. The leaf id
+        // stays the same so the underlying session keeps its mapping in
+        // App.tsx's per-leaf refs, and the ordinal travels too so dragging
+        // doesn't renumber the chip.
         const state: LeafState =
           leaf.leafKind === "terminal"
             ? {
                 leafKind: "terminal",
                 cwd: leaf.cwd,
                 sshConnectionId: leaf.sshConnectionId,
+                terminalOrdinal: leaf.terminalOrdinal,
               }
             : {
                 leafKind: "editor",
@@ -966,6 +1040,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               leafKind: "terminal",
               cwd: leaf.cwd,
               sshConnectionId: leaf.sshConnectionId,
+              terminalOrdinal: leaf.terminalOrdinal,
             }
           : {
               leafKind: "editor",

@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.11] - 21-05-2026
+
+### Added
+
+- **Cursor-position AI CLI detection.** The xterm cursor's current line is now the canonical "where is the user RIGHT NOW" signal — independent of alt-screen toggle, OSC handlers, or shell-integration. When the cursor sits on a recognisable system shell PS1 (`]$`, `user@host:path$`, zsh `%`, `PS C:\>`, `C:\path>`), the previously-active AI CLI is treated as gone, period. Closes the gap left by the prior alt-screen / shell-prompt / TUI-marker triad, which each had edges (claude v2.1+ inline rendering, killed CLIs that never emit `\x1b[?1049l`, SSH drops leaving ghost state).
+- **AI CLI status on SSH leaves.** The detector runs on the byte stream regardless of whether the PTY is local or remote, so a remote `claude` / `codex` / `opencode` session now lights up the tab icon the same way as a local one. SSH disconnect resets the detector's `activeTool` so the icon doesn't ghost forward into the next reconnect.
+- **History-recall / paste-then-Enter command activation.** When `cmdBuffer` is empty on Enter — because the user recalled a command via ↑, accepted shell completion via Tab+Enter, or pasted-then-pressed-Enter — the detector now strips the PS1 prefix off the cursor's prompt line and runs that through `matchTool`. Previously these paths bypassed the keystroke accumulator and never activated the tool.
+- **Stable FIFO terminal ordinals.** The number rendered on each terminal tab chip — and surfaced to the AI in the per-turn `<env>` block — is now a `terminalOrdinal` assigned once at leaf creation. The same number travels with the leaf across split moves, tab reorders, workspace serialisation, and app restarts. "terminal 3" the user pinned in their head before quitting stays "terminal 3" forever. Older saved state without the field is backfilled on hydration via `maxTerminalOrdinal(tabs) + 1`.
+- **`activeTabKind` in the extension App-context snapshot.** Extensions can now distinguish `terminal` / `ssh` / `editor` / `diff` / `preview` for the focused tab via `ctx.app.getContext()` / `onContextChange`. `null` when no tab is active.
+
+### Changed
+
+- **TabBar icon IS the AI CLI status indicator.** The separate `idle` / `working` / `blocking` chip is gone; the terminal-leaf icon tints emerald (idle) / yellow-pulse (working) / red-pulse (blocking) directly. Less visual noise on each tab, and the icon's bounding box becomes the hit target for the tooltip rather than a tiny chip beside it.
+- **SSH status now tints the tab title, not the cloud icon.** `connecting` / `reconnecting` pulse yellow, `connected` turns emerald, `disconnected` / error turns red — colour lives on the text. The cloud icon stays neutral sky so the colour cue belongs to the label, not the glyph.
+- **Files sidebar accordion runs on plain flex, not react-resizable-panels collapse.** The library used to redistribute freed space proportionally to other panels' `defaultSize` weights, so collapsing both local + SSH file trees at once forced one back open because the other got a non-zero share. Each section is now `flex-1` when open and `h-8 shrink-0` when collapsed; the user can still resize the whole Files section against SCM / Workspaces below.
+- **`AgentRunBridge`, `AiSidebarPanel`, `StatusBar`, `WorkspacesPanel` memoised.** Unrelated parent state churn (tab open/close, OSC 7 cwd updates, AI streaming) no longer re-renders these subtrees. Callback props from App.tsx are useCallback-stable, so the shallow equality check reliably short-circuits.
+- **`AgentRunBridge`: single-pass message scan.** `approvalsPending` + `fileMutationFingerprint` now share one walk over `messages` instead of two. Cuts the hottest path on the streaming agent UI in half.
+- **`AiInputBar`: WeakMap recall-parse cache.** User messages aren't re-cloned after their initial `pushMessage`, so a WeakMap keyed on the message itself avoids re-parsing every `<file>` / `<selection>` block on every assistant token. Previously the parse ran for every prior user message on every single token.
+- **`useMentionSearch`: content-stable `openFiles` dep + GLOB_CAP halved.** Mention popover effect used to re-fire (re-issuing two workspace-wide globs) on every unrelated re-render because `opts.openFiles` was recreated by the parent each render. Now keyed off a derived string. `GLOB_CAP` 600 → 300 halves IPC payload per keystroke while keeping fuzzy ranking quality high.
+- **`compact.ts`: per-message byte cache (WeakMap).** Stage 2 of the compaction loop used to re-run `approxBytes` over every message after every single elision (`O(N²)` `JSON.stringify`). The cache keys off message identity — and because the AI-SDK React adapter deep-clones via `structuredClone` on every mutation, a changed message always lands under a fresh reference — so the inner loop drops to `O(N)` amortized.
+
+### Fixed
+
+- **Right-click on SSH tabs did nothing.** The previous tab-trigger composition wrapped `TabsTrigger` in `<Tooltip>` first, then handed that block to `ContextMenuTrigger asChild`. Tooltip is a Provider, not a DOM element, so Radix' `Slot` silently dropped the `onContextMenu` handler. Both `asChild` triggers now stack around the same `TabsTrigger` so the context-menu handler reaches the actual DOM node.
+- **Ordinal badge clipped by tab label's overflow.** `truncate` on the entry container had `overflow:hidden`, which cut off the corner-overlay ordinal badge that protrudes past the icon's bounding box. The container is now `flex min-w-0` (no overflow clipping); the label's own `truncate` still ellipsizes the title.
+- **Streaming detection on inline AI CLIs (claude v2.1+, opencode).** Rate-based "is the AI generating?" fallback would only fire while alt-screen was active; inline tools that don't toggle alt-screen during a stream never lit up the working icon. The cursor scan now establishes "not at shell prompt" first, so streaming output below correctly flags `working`.
+
 ## [0.2.10] - 21-05-2026
 
 ### Changed

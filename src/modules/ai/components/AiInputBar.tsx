@@ -121,13 +121,26 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   // `histIndex` is the position in `history` (0 = most recent, increasing =
   // older). `null` means we're not navigating - typing or sending exits the
   // mode and the user's draft is restored when stepping past the newest entry.
+  //
+  // Per-message parse cache. User messages aren't re-cloned after their
+  // initial pushMessage (only the streaming assistant message is replaced
+  // each token, see @ai-sdk/react ReactChatState.replaceMessage), so the
+  // user-message references in `messages` stay stable across the whole
+  // session — a WeakMap keyed on the message itself avoids re-parsing
+  // every <file>/<selection> block on every assistant token.
+  const recallCacheRef = useRef<WeakMap<UIMessage, RecalledMessage>>(new WeakMap());
   const history = useMemo<RecalledMessage[]>(() => {
     if (!messages) return [];
+    const cache = recallCacheRef.current;
     const out: RecalledMessage[] = [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role !== "user") continue;
-      const rec = recallUserMessage(m);
+      let rec = cache.get(m);
+      if (!rec) {
+        rec = recallUserMessage(m);
+        cache.set(m, rec);
+      }
       if (
         !rec.body &&
         rec.files.length === 0 &&

@@ -7,12 +7,12 @@ export type { MentionItem };
 
 const MAX_FILES = 40;
 const MAX_FOLDERS = 8;
-const SEARCH_DEBOUNCE_MS = 120;
+const SEARCH_DEBOUNCE_MS = 150;
 /** Hard cap on candidate count before client-side fuzzy ranking. The Rust
  *  `glob` walker is cheap, but pulling thousands of paths over IPC for each
- *  keystroke adds up. 600 is enough to keep ranking sensible without
- *  bloating allocations. */
-const GLOB_CAP = 600;
+ *  keystroke adds up. 300 keeps ranking quality high while halving the
+ *  per-keystroke IPC payload vs. the older 600. */
+const GLOB_CAP = 300;
 
 type State = {
   items: MentionItem[];
@@ -56,6 +56,15 @@ export function useMentionSearch(opts: {
   const [state, setState] = useState<State>({ items: [], loading: false });
   const reqRef = useRef(0);
 
+  // Stabilize the openFiles dependency: the parent recreates the array on
+  // every render even when the underlying paths haven't changed, which used
+  // to re-fire the effect (and re-issue two workspace-wide globs) on every
+  // unrelated re-render. A primitive string dep makes React's Object.is
+  // comparison cheap and content-accurate.
+  const openFilesKey = opts.openFiles.map((f) => `${f.path}${f.name}`).join("\n");
+  const openFilesRef = useRef(opts.openFiles);
+  openFilesRef.current = opts.openFiles;
+
   useEffect(() => {
     if (!opts.active) {
       setState({ items: [], loading: false });
@@ -64,10 +73,11 @@ export function useMentionSearch(opts: {
     const reqId = ++reqRef.current;
     const workspaceRoot = useChatStore.getState().live.getWorkspaceRoot();
     const q = opts.query.trim();
+    const openFiles = openFilesRef.current;
 
     // Open editor tabs render instantly on first frame so the picker has
     // something to show while the workspace glob is in flight.
-    const openItems: MentionItem[] = opts.openFiles
+    const openItems: MentionItem[] = openFiles
       .filter((f) => !q || fuzzyScore(q, f.name, relativize(f.path, workspaceRoot)) !== -1)
       .map((f) => ({
         kind: "file",
@@ -90,7 +100,7 @@ export function useMentionSearch(opts: {
         ]);
         if (cancelled || reqRef.current !== reqId) return;
 
-        const seenOpen = new Set(opts.openFiles.map((f) => f.path));
+        const seenOpen = new Set(openFiles.map((f) => f.path));
 
         const ranked: { item: MentionItem; score: number }[] = [];
         for (const hit of filesRes.hits) {
@@ -134,7 +144,11 @@ export function useMentionSearch(opts: {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [opts.active, opts.query, opts.openFiles]);
+    // openFilesKey is a content-stable string derived from opts.openFiles so
+    // unrelated parent re-renders don't fire the workspace glob. The effect
+    // still reads the latest list via openFilesRef inside the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opts.active, opts.query, openFilesKey]);
 
   return state;
 }

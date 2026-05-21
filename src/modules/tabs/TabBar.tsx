@@ -27,11 +27,10 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { statusIconClass, statusLabel, type SshStatus } from "@/modules/ssh/status";
+import { statusLabel, statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import {
+  aiCliIconClass,
   aiCliLabel,
-  aiCliStateChipClass,
-  aiCliStateWord,
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
 import {
@@ -183,16 +182,20 @@ function buildEntries(
   aiCliStatuses?: Map<number, AiCliStatus>,
 ): Entry[] {
   const out: Entry[] = [];
-  // Running 1-based ordinal across all terminal leaves in current tab order.
-  // The same numbering is exposed to the AI via `<env>` so a badge "3" on a
-  // tab matches what the user can write ("terminal 3") and what the AI sees.
-  let terminalOrdinal = 0;
   for (const t of tabs) {
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
         const label = entryLabel(leaf, t.cwd, sshHosts);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
-        const ord = leaf.leafKind === "terminal" ? ++terminalOrdinal : undefined;
+        // Stable FIFO ordinal — assigned at leaf creation, preserved through
+        // drag/reorder/move-to-group and across app restarts via workspace
+        // serialisation. The same number is surfaced to the AI in the
+        // per-turn `<env>` block so "terminal 3" maps to the chip the user
+        // sees, even after the tab strip has been rearranged.
+        const ord =
+          leaf.leafKind === "terminal" && typeof leaf.terminalOrdinal === "number"
+            ? leaf.terminalOrdinal
+            : undefined;
         const remoteHost =
           leaf.leafKind === "editor" && leaf.sshSessionId !== undefined
             ? (leaf.sshHostLabel ?? "remote")
@@ -212,10 +215,12 @@ function buildEntries(
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
           sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
+          // Surface AI CLI status for SSH leaves too — the detector runs
+          // on the byte stream regardless of whether the PTY is local or
+          // remote, so a remote `claude` / `codex` session lights up the
+          // tab icon the same way as a local one.
           aiCliStatus:
-            leaf.leafKind === "terminal" && !sshConnectionId
-              ? aiCliStatuses?.get(leaf.id)
-              : undefined,
+            leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
           remoteHost,
         });
       }
@@ -881,15 +886,31 @@ function SortableTabGroup({
             )}
             <span
               className={cn(
-                "flex items-center gap-1.5 truncate",
+                // No `truncate` here — its `overflow:hidden` used to clip
+                // the corner-overlay ordinal badge that protrudes past the
+                // icon's bounding box. `min-w-0` keeps flex-shrink working
+                // so the label can still ellipsize via its own `truncate`.
+                "flex min-w-0 items-center gap-1.5",
                 compact ? "max-w-48" : "max-w-80",
               )}
             >
               <EntryIcon entry={e} />
-              <span className={cn("truncate", e.italic && "italic")}>{e.label}</span>
-              {e.kind === "pane-leaf" && e.aiCliStatus ? (
-                <AiCliChip status={e.aiCliStatus} />
-              ) : null}
+              <span
+                className={cn(
+                  "truncate",
+                  e.italic && "italic",
+                  // SSH leaves wear their connection status on the label
+                  // text — connecting/reconnecting pulse yellow, connected
+                  // turns emerald, disconnected/error turns red. The cloud
+                  // icon stays neutral sky so the colour cue belongs to
+                  // the title, not the glyph.
+                  e.kind === "pane-leaf" && e.sshConnectionId
+                    ? statusLabelClass(e.sshStatus)
+                    : null,
+                )}
+              >
+                {e.label}
+              </span>
               {e.dirty ? (
                 <span
                   aria-label="Unsaved changes"
@@ -926,92 +947,112 @@ function SortableTabGroup({
         const canLeaveGroup = isPaneLeaf && isSplit && !!onMoveLeafToNewTab;
         const canMove = moveTargets.length > 0;
         const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
+        const hasContextActions = canRotate || canLeaveGroup || canMove || canCloseToRight;
+        const hasLeafActions = canRotate || canLeaveGroup || canMove;
+        const tooltipMode: "ssh" | "ai" | null = sshHost
+          ? "ssh"
+          : isPaneLeaf && e.aiCliStatus
+            ? "ai"
+            : null;
 
-        // Compose: tooltip wrap (SSH-only) → context-menu wrap (when actions
-        // exist). Order matters: ContextMenuTrigger must be the outermost
-        // wrapper so right-click on the tab still fires.
-        let node: ReactNode = trigger;
-        if (sshHost) {
+        // Build innermost-out: TabsTrigger must be the DOM child of every
+        // asChild trigger so Radix' Slot can merge handlers (onContextMenu,
+        // onPointerEnter, …) into the actual element. The previous version
+        // wrapped TabsTrigger in <Tooltip> first, then handed that block to
+        // ContextMenuTrigger asChild — but Tooltip is a Provider, not a DOM
+        // element, so asChild silently dropped the context-menu handler on
+        // SSH tabs (right-click did nothing). Stacking the two `asChild`
+        // triggers around the same TabsTrigger fixes the SSH path while
+        // leaving non-SSH tabs unchanged.
+        let inner: ReactNode = trigger;
+        if (tooltipMode) inner = <TooltipTrigger asChild>{inner}</TooltipTrigger>;
+        if (hasContextActions) inner = <ContextMenuTrigger asChild>{inner}</ContextMenuTrigger>;
+
+        let wrapped: ReactNode = inner;
+        if (hasContextActions) {
+          wrapped = (
+            <ContextMenu>
+              {wrapped}
+              <ContextMenuContent className="min-w-44">
+                {canRotate && (
+                  <ContextMenuItem onSelect={() => onRotateLeafSplit!(e.leafId)}>
+                    Toggle Split Orientation
+                  </ContextMenuItem>
+                )}
+                {canLeaveGroup && (
+                  <ContextMenuItem
+                    onSelect={() => {
+                      if (e.kind === "pane-leaf") onMoveLeafToNewTab!(e.leafId);
+                    }}
+                  >
+                    Move to New Tab
+                  </ContextMenuItem>
+                )}
+                {canMove && (
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>Join Group</ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      {moveTargets.map((g) => (
+                        <ContextMenuItem
+                          key={g.id}
+                          disabled={g.full}
+                          onSelect={() => {
+                            if (e.kind === "pane-leaf") onMoveLeafToGroup!(e.leafId, g.id);
+                          }}
+                        >
+                          <span className="flex-1 truncate">{g.title}</span>
+                          <span className="text-muted-foreground ml-2 text-xs">
+                            {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
+                          </span>
+                        </ContextMenuItem>
+                      ))}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                )}
+                {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
+                {canCloseToRight && (
+                  <ContextMenuItem onSelect={() => onCloseEntriesAfter(e)}>
+                    Close Tabs to the Right
+                  </ContextMenuItem>
+                )}
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        }
+        if (tooltipMode === "ssh") {
           const sshStatus = isPaneLeaf ? e.sshStatus : undefined;
-          node = (
+          const ai = isPaneLeaf ? e.aiCliStatus : undefined;
+          wrapped = (
             <Tooltip>
-              <TooltipTrigger asChild>{node}</TooltipTrigger>
+              {wrapped}
               <TooltipContent side="bottom">
                 <div className="flex flex-col gap-0.5 text-[11px]">
                   <span>
-                    SSH · {sshHost.user}@{sshHost.host}:{sshHost.port}
+                    SSH · {sshHost!.user}@{sshHost!.host}:{sshHost!.port}
                   </span>
                   {sshStatus ? (
                     <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
+                  ) : null}
+                  {ai ? (
+                    <span className="text-muted-foreground">{aiCliLabel(ai)}</span>
                   ) : null}
                 </div>
               </TooltipContent>
             </Tooltip>
           );
-        } else if (isPaneLeaf && e.aiCliStatus) {
-          // Local terminal with a running AI CLI - show tool + state in tooltip.
-          const ai = e.aiCliStatus;
-          node = (
+        } else if (tooltipMode === "ai") {
+          const ai = (e as PaneEntry).aiCliStatus!;
+          wrapped = (
             <Tooltip>
-              <TooltipTrigger asChild>{node}</TooltipTrigger>
+              {wrapped}
               <TooltipContent side="bottom">
                 <div className="text-[11px]">{aiCliLabel(ai)}</div>
               </TooltipContent>
             </Tooltip>
           );
         }
-        if (!canRotate && !canLeaveGroup && !canMove && !canCloseToRight) {
-          return <Fragment key={e.key}>{node}</Fragment>;
-        }
-        const hasLeafActions = canRotate || canLeaveGroup || canMove;
-        return (
-          <ContextMenu key={e.key}>
-            <ContextMenuTrigger asChild>{node}</ContextMenuTrigger>
-            <ContextMenuContent className="min-w-44">
-              {canRotate && (
-                <ContextMenuItem onSelect={() => onRotateLeafSplit!(e.leafId)}>
-                  Toggle Split Orientation
-                </ContextMenuItem>
-              )}
-              {canLeaveGroup && (
-                <ContextMenuItem
-                  onSelect={() => {
-                    if (e.kind === "pane-leaf") onMoveLeafToNewTab!(e.leafId);
-                  }}
-                >
-                  Move to New Tab
-                </ContextMenuItem>
-              )}
-              {canMove && (
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>Move to Group</ContextMenuSubTrigger>
-                  <ContextMenuSubContent>
-                    {moveTargets.map((g) => (
-                      <ContextMenuItem
-                        key={g.id}
-                        disabled={g.full}
-                        onSelect={() => {
-                          if (e.kind === "pane-leaf") onMoveLeafToGroup!(e.leafId, g.id);
-                        }}
-                      >
-                        <span className="flex-1 truncate">{g.title}</span>
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
-                        </span>
-                      </ContextMenuItem>
-                    ))}
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              )}
-              {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
-              {canCloseToRight && (
-                <ContextMenuItem onSelect={() => onCloseEntriesAfter(e)}>
-                  Close Tabs to the Right
-                </ContextMenuItem>
-              )}
-            </ContextMenuContent>
-          </ContextMenu>
-        );
+
+        return <Fragment key={e.key}>{wrapped}</Fragment>;
       })}
     </div>
   );
@@ -1069,50 +1110,23 @@ function TrailingIconButton({
 }
 
 /**
- * State chip rendered next to the tab label for terminal leaves running a
- * known AI CLI. Wrapped in try/catch so a corrupt status object (or a
- * future state value we don't know about yet) can never crash the tab bar.
- */
-function AiCliChip({ status }: { status: NonNullable<AiCliStatus> }) {
-  let chipClass = "";
-  let word = "";
-  let label = "";
-  try {
-    chipClass = aiCliStateChipClass(status);
-    word = aiCliStateWord(status);
-    label = aiCliLabel(status);
-  } catch {
-    return null;
-  }
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] text-[10px] leading-none font-medium tracking-wide uppercase",
-        chipClass,
-      )}
-      aria-label={label}
-    >
-      {word}
-    </span>
-  );
-}
-
-/**
- * Tiny monospaced "T<n>" badge stamped on terminal entries. The same
- * ordinal is surfaced to the AI in the per-turn `<env>` block, so users can
- * say "send to terminal 3" and the AI maps it directly to this badge.
+ * Inline pill badge stamped next to terminal entries. The same ordinal is
+ * surfaced to the AI in the per-turn `<env>` block, so users can say "send
+ * to terminal 3" and the AI maps it directly to this badge.
  *
- * When `overlay` is set, the badge is absolutely positioned at the icon's
- * bottom-right corner (used inside `EntryIcon`'s `relative` wrapper) so the
- * tab stays compact. Otherwise it renders inline.
+ * Colors are intentionally neutral muted — the emerald/yellow/red palette is
+ * reserved for the AI CLI icon tint (`aiCliIconClass`). Keeping the ordinal
+ * chip uncolored means a tab with no running CLI shows ZERO status hues:
+ * the user sees a plain ordinal next to a plain icon, not an "idle" green
+ * pill that could be mistaken for an AI status.
  */
-function TerminalOrdinalBadge({ ordinal, overlay }: { ordinal: number; overlay?: boolean }) {
+function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
   return (
     <span
       aria-label={`Terminal ${ordinal}`}
       className={cn(
-        "border-border/60 bg-card text-muted-foreground inline-flex h-3 min-w-3 shrink-0 items-center justify-center rounded-sm border px-[2px] font-mono text-[8px] leading-none font-semibold tabular-nums",
-        overlay && "ring-background absolute -right-1.5 -bottom-1 ring-1",
+        "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold tabular-nums",
+        "bg-muted text-muted-foreground",
       )}
     >
       {ordinal}
@@ -1152,27 +1166,35 @@ function EntryIcon({ entry }: { entry: Entry }) {
       }
       return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
     }
-    // Terminal leaf — pick the right icon, then stamp the ordinal badge
-    // at the icon's bottom-right corner so the tab stays compact (no
-    // extra horizontal slot between icon and label).
+    // Terminal leaf — pick the right icon, then optionally tint it for AI
+    // CLI state. SSH connection status lives on the title text (see the
+    // outer label render), so the icon is reserved for AI CLI state on
+    // both local and remote terminals: emerald=idle, yellow=working,
+    // red=blocking (the last two pulse to draw the eye). When no AI CLI
+    // is running, both icons inherit the tab's default foreground — local
+    // and SSH read identically at rest, the only differentiator is the
+    // glyph (terminal vs cloud).
+    const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
     const terminalIcon = entry.sshConnectionId ? (
       <HugeiconsIcon
         icon={CloudServerIcon}
         size={14}
         strokeWidth={2}
-        // Connection status drives the icon's tint directly - no separate dot
-        // overlay. emerald=connected, yellow=connecting/reconnecting,
-        // red=disconnected/error, sky=idle/unknown.
-        className={cn("shrink-0", statusIconClass(entry.sshStatus))}
+        className={cn("shrink-0", aiTint)}
       />
     ) : (
-      <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={2} className="shrink-0" />
+      <HugeiconsIcon
+        icon={ComputerTerminal02Icon}
+        size={14}
+        strokeWidth={2}
+        className={cn("shrink-0", aiTint)}
+      />
     );
     if (entry.terminalOrdinal) {
       return (
-        <span className="relative inline-flex shrink-0">
+        <span className="inline-flex shrink-0 items-center gap-1">
           {terminalIcon}
-          <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} overlay />
+          <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} />
         </span>
       );
     }

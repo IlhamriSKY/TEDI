@@ -17,6 +17,13 @@ export type SavedTerminalLeaf = {
   cwd?: string;
   /** Persists SSH-bound leaves across workspace switches and restarts. */
   sshConnectionId?: string;
+  /**
+   * Stable FIFO chip number assigned at leaf creation. Persists so the
+   * "Terminal 3" the user pinned in their head before quitting stays
+   * "Terminal 3" on next launch. Absent on older saved state — see the
+   * load-time backfill in `useTabs.ts`.
+   */
+  terminalOrdinal?: number;
 };
 
 export type SavedEditorLeaf = {

@@ -12,6 +12,7 @@ let snapshot: AppContextSnapshot = {
   workspaceCwd: null,
   activeFileName: null,
   terminalCount: 0,
+  activeTabKind: null,
 };
 
 const listeners = new Set<(ctx: AppContextSnapshot) => void>();
@@ -27,7 +28,8 @@ export function setAppContext(next: AppContextSnapshot): void {
   if (
     next.workspaceCwd === snapshot.workspaceCwd &&
     next.activeFileName === snapshot.activeFileName &&
-    next.terminalCount === snapshot.terminalCount
+    next.terminalCount === snapshot.terminalCount &&
+    next.activeTabKind === snapshot.activeTabKind
   ) {
     return;
   }

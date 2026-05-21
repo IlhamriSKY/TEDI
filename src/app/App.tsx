@@ -32,6 +32,7 @@ import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumop
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
+import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -135,21 +136,25 @@ type LiveTerminalCtx = {
   activeId: number;
 };
 
-/** Snapshot all terminal leaves in current tab order, assigning a stable
- *  1-based ordinal across tabs. The same ordering is rendered as badges
- *  on the TabBar so users and AI see consistent numbers. */
+/** Snapshot all terminal leaves in current tab order. The `ordinal` field
+ *  surfaced to the AI is the leaf's stable FIFO `terminalOrdinal` — the
+ *  same number rendered on the TabBar chip — so "terminal 3" from the user
+ *  maps to the exact leaf they're pointing at, even after closes, drags,
+ *  or workspace restarts. A positional fallback covers legacy saved state
+ *  where the ordinal field is missing; `replaceAllTabs` backfills it on
+ *  hydration so this path is rare in practice. */
 function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   const out: TerminalInfo[] = [];
-  let ordinal = 0;
+  let fallback = 0;
   for (const t of ctx.tabs) {
     if (t.kind !== "pane") continue;
     for (const l of leaves(t.paneTree)) {
       if (l.leafKind !== "terminal") continue;
-      ordinal += 1;
+      fallback += 1;
       out.push({
         tabId: t.id,
         leafId: l.id,
-        ordinal,
+        ordinal: l.terminalOrdinal ?? fallback,
         title: t.title,
         cwd: l.cwd ?? null,
         isActive: t.id === ctx.activeId && t.activeLeafId === l.id,
@@ -169,8 +174,9 @@ function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): numb
     return hit ? hit.leafId : null;
   }
   if (typeof target.tabId === "number") {
-    const hit = list.find((r) => r.tabId === target.tabId && r.isActive)
-      ?? list.find((r) => r.tabId === target.tabId);
+    const hit =
+      list.find((r) => r.tabId === target.tabId && r.isActive) ??
+      list.find((r) => r.tabId === target.tabId);
     return hit ? hit.leafId : null;
   }
   if (typeof target.ordinal === "number") {
@@ -304,24 +310,22 @@ export default function App() {
     else p.collapse();
   }, []);
 
-  // Accordion sub-panels inside the merged Files section. Each sub-panel
-  // collapses to a 32px header strip (matches the h-8 strip the explorers
-  // render) so the user keeps a clickable toggle even when the body is hidden.
-  const localFilesRef = useRef<PanelImperativeHandle | null>(null);
-  const sshFilesRef = useRef<PanelImperativeHandle | null>(null);
+  // Accordion sub-panels inside the merged Files section. Each section
+  // collapses to its h-8 header strip via a plain flex layout (not via
+  // react-resizable-panels' collapse mechanism). The library distributes
+  // freed space proportionally to other panels' `defaultSize` weights — so
+  // collapsing both at once would force one back open because the other
+  // got a non-zero share of the freed space. Plain flex sidesteps that:
+  // each section is `flex-1` when open and `h-8 shrink-0` when collapsed,
+  // and the parent stays a single ResizablePanel so the user can still
+  // resize the whole Files section against SCM / Workspaces below.
   const [localFilesCollapsed, setLocalFilesCollapsed] = useState(false);
   const [sshFilesCollapsed, setSshFilesCollapsed] = useState(false);
   const toggleLocalFiles = useCallback(() => {
-    const p = localFilesRef.current;
-    if (!p) return;
-    if (p.isCollapsed()) p.expand();
-    else p.collapse();
+    setLocalFilesCollapsed((v) => !v);
   }, []);
   const toggleSshFiles = useCallback(() => {
-    const p = sshFilesRef.current;
-    if (!p) return;
-    if (p.isCollapsed()) p.expand();
-    else p.collapse();
+    setSshFilesCollapsed((v) => !v);
   }, []);
 
   // -------- home / picked root --------
@@ -781,9 +785,31 @@ export default function App() {
     }
     return n;
   }, [tabs]);
+  const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
+    if (!activeTab) return null;
+    if (activeTab.kind === "preview") return "preview";
+    if (activeTab.kind === "ai-diff" || activeTab.kind === "git-diff") return "diff";
+    if (activeTab.kind === "pane") {
+      const leaf = activeLeaf(activeTab);
+      if (!leaf) return null;
+      if (leaf.leafKind === "editor") return "editor";
+      // SSH-backed terminal leaves declare it on the leaf itself
+      // (sshConnectionId set at create time). Connection status is a
+      // separate concern; the kind only mirrors how the leaf was opened.
+      if (leaf.leafKind === "terminal") {
+        return leaf.sshConnectionId ? "ssh" : "terminal";
+      }
+    }
+    return null;
+  }, [activeTab]);
   useEffect(() => {
-    setAppContext({ workspaceCwd: explorerRoot, activeFileName, terminalCount });
-  }, [explorerRoot, activeFileName, terminalCount]);
+    setAppContext({
+      workspaceCwd: explorerRoot,
+      activeFileName,
+      terminalCount,
+      activeTabKind,
+    });
+  }, [explorerRoot, activeFileName, terminalCount, activeTabKind]);
 
   // When the active leaf changes (or the active tab changes), surface its
   // search addon / editor handle / detected URL for the chrome bits.
@@ -852,8 +878,7 @@ export default function App() {
      *  local file tree follows whichever terminal pane is focused. */
     cwd: string | null;
   }>(() => {
-    if (sshStatuses.size === 0)
-      return { sessionId: null, hostLabel: null, cwd: null };
+    if (sshStatuses.size === 0) return { sessionId: null, hostLabel: null, cwd: null };
     const lookupLeafSession = (leafId: number): number | null => {
       const status = sshStatuses.get(leafId);
       if (status && status.kind === "connected") return status.sessionId;
@@ -1855,12 +1880,7 @@ export default function App() {
             })() ??
             explorerRoot ??
             null;
-          const newLeafId = splitActivePane(
-            targetTabId,
-            dir,
-            "terminal",
-            cwdResolved ?? undefined,
-          );
+          const newLeafId = splitActivePane(targetTabId, dir, "terminal", cwdResolved ?? undefined);
           if (newLeafId === null)
             return { ok: false, error: "could not split (active leaf missing or limit reached)" };
           return { ok: true, tabId: targetTabId, leafId: newLeafId, mode: "split" };
@@ -1917,9 +1937,7 @@ export default function App() {
       },
       closeTerminalLeaf: (leafId) => {
         const { tabs, closePaneByLeaf } = liveContextRef.current;
-        const owner = tabs.find(
-          (t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
-        );
+        const owner = tabs.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
         if (!owner || owner.kind !== "pane")
           return { ok: false, error: `leaf ${leafId} not found` };
         const onlyLeafInTab = leafIds(owner.paneTree).length === 1;
@@ -1969,12 +1987,9 @@ export default function App() {
     });
     void scheduler.boot();
     // Prune fired/cancelled history every 5min so the persisted store stays small.
-    const interval = window.setInterval(
-      () => {
-        void scheduler.pruneHistory();
-      },
-      5 * 60_000,
-    );
+    const interval = window.setInterval(() => {
+      void scheduler.pruneHistory();
+    }, 5 * 60_000);
     return () => {
       window.clearInterval(interval);
     };
@@ -2003,6 +2018,19 @@ export default function App() {
     }
     setOpenEditorFiles(openFiles);
   }, [setOpenEditorFiles, tabs]);
+
+  // Stable props for memoised footer / sidebar children so unrelated state
+  // churn in App (per-token AI streaming, per-tick PaneStack updates, etc.)
+  // doesn't re-render them. Inline arrows + per-render expressions would
+  // defeat the memo equality check.
+  const handleOpenDetectedPreview = useCallback(() => {
+    if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
+  }, [detectedPreviewUrl, openPreviewTab]);
+  const handleAddProviderKey = useCallback(() => void openSettingsWindow("models"), []);
+  const liveTabsCount = useMemo(
+    () => tabs.filter((t) => t.kind === "pane" || t.kind === "preview").length,
+    [tabs],
+  );
 
   const shell = (
     <ThemeProvider>
@@ -2074,17 +2102,16 @@ export default function App() {
                       defaultSize={hasAnySshLeaf ? "65%" : "40%"}
                       minSize="20%"
                     >
-                      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-                        <ResizablePanel
-                          id="sidebar-files-local"
-                          panelRef={localFilesRef}
-                          defaultSize={hasAnySshLeaf ? "55%" : "100%"}
-                          minSize="15%"
-                          collapsible
-                          collapsedSize="32px"
-                          onResize={(size) =>
-                            setLocalFilesCollapsed(size.inPixels > 0 && size.inPixels <= 33)
-                          }
+                      {/* Plain flex stack — see the comment on
+                          `localFilesCollapsed` for why this is NOT a
+                          nested ResizablePanelGroup. Each section is
+                          `flex-1` when open and `h-8 shrink-0` when
+                          collapsed; both can be collapsed independently
+                          and the parent ResizablePanel keeps the
+                          drag-resize against SCM / Workspaces below. */}
+                      <div className="flex h-full min-h-0 flex-col">
+                        <div
+                          className={cn("min-h-0", localFilesCollapsed ? "h-8 shrink-0" : "flex-1")}
                         >
                           <FileExplorer
                             rootPath={explorerRoot}
@@ -2096,35 +2123,27 @@ export default function App() {
                             collapsed={localFilesCollapsed}
                             onToggleCollapsed={toggleLocalFiles}
                           />
-                        </ResizablePanel>
+                        </div>
                         {hasAnySshLeaf ? (
-                          <>
-                            <ResizableHandle withHandle />
-                            <ResizablePanel
-                              id="sidebar-files-ssh"
-                              panelRef={sshFilesRef}
-                              defaultSize="45%"
-                              minSize="15%"
-                              collapsible
-                              collapsedSize="32px"
-                              onResize={(size) =>
-                                setSshFilesCollapsed(size.inPixels > 0 && size.inPixels <= 33)
-                              }
-                            >
-                              <Suspense fallback={null}>
-                                <SshFileExplorer
-                                  sessionId={activeSshContext.sessionId}
-                                  hostLabel={activeSshContext.hostLabel}
-                                  currentCwd={activeSshContext.cwd}
-                                  onOpenFile={handleOpenRemoteFile}
-                                  collapsed={sshFilesCollapsed}
-                                  onToggleCollapsed={toggleSshFiles}
-                                />
-                              </Suspense>
-                            </ResizablePanel>
-                          </>
+                          <div
+                            className={cn(
+                              "border-border/60 min-h-0 border-t",
+                              sshFilesCollapsed ? "h-8 shrink-0" : "flex-1",
+                            )}
+                          >
+                            <Suspense fallback={null}>
+                              <SshFileExplorer
+                                sessionId={activeSshContext.sessionId}
+                                hostLabel={activeSshContext.hostLabel}
+                                currentCwd={activeSshContext.cwd}
+                                onOpenFile={handleOpenRemoteFile}
+                                collapsed={sshFilesCollapsed}
+                                onToggleCollapsed={toggleSshFiles}
+                              />
+                            </Suspense>
+                          </div>
                         ) : null}
-                      </ResizablePanelGroup>
+                      </div>
                     </ResizablePanel>
                     {showSourceControl ? (
                       <>
@@ -2146,9 +2165,7 @@ export default function App() {
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
                         onClose={closeWorkspace}
-                        liveTabsCount={
-                          tabs.filter((t) => t.kind === "pane" || t.kind === "preview").length
-                        }
+                        liveTabsCount={liveTabsCount}
                       />
                     </ResizablePanel>
                   </ResizablePanelGroup>
@@ -2244,7 +2261,7 @@ export default function App() {
                       <AiSidebarPanel />
                     ) : (
                       <div className="border-border/60 bg-card/60 flex h-full flex-col border-l">
-                        <AiInputBarConnect onAdd={() => void openSettingsWindow("models")} />
+                        <AiInputBarConnect onAdd={handleAddProviderKey} />
                       </div>
                     )}
                   </ResizablePanel>
@@ -2261,9 +2278,7 @@ export default function App() {
             onOpenMini={openMini}
             hasComposer={hasComposer}
             detectedPreviewUrl={detectedPreviewUrl}
-            onOpenPreview={() => {
-              if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
-            }}
+            onOpenPreview={handleOpenDetectedPreview}
           />
 
           {hasComposer ? (

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
@@ -23,7 +24,11 @@ type Props = {
   onOpenPreview?: () => void;
 };
 
-export function StatusBar({
+// Memoised: callers pass useCallback-stable callbacks + primitive cwd / file
+// path / detectedPreviewUrl, so the shallow equality check skips render
+// whenever only unrelated parent state churned (tab open/close, OSC 7
+// updates, AI streaming).
+function StatusBarInner({
   cwd,
   filePath,
   home,
@@ -76,6 +81,8 @@ export function StatusBar({
     </footer>
   );
 }
+
+export const StatusBar = memo(StatusBarInner);
 
 function OsBadge() {
   const label = IS_WINDOWS ? "Windows" : IS_MAC ? "macOS" : IS_LINUX ? "Linux" : null;

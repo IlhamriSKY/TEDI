@@ -373,6 +373,15 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     },
     readBuffer: () => readTerminalViewport(term),
     isAltScreen: () => term.buffer.active.type === "alternate",
+    readCursorLine: () => {
+      try {
+        const buf = term.buffer.active;
+        const line = buf.getLine(buf.baseY + buf.cursorY);
+        return line ? line.translateToString(true) : "";
+      } catch {
+        return "";
+      }
+    },
   });
   session.aiCliDetector = detector;
   session.cleanups.push(() => detector.dispose());
@@ -636,6 +645,12 @@ async function openSshForSession(
     if (terminated) return;
     terminated = true;
     if (s.disposed) return;
+    // SSH lost its end of the wire — whatever AI CLI was running on the
+    // remote shell is gone with it. Reset the detector so its `activeTool`
+    // doesn't ghost forward into the next reconnect; without this, the icon
+    // could stay tinted (or shell traffic could trigger false "working"
+    // detection through `isStreamingOutput`).
+    s.aiCliDetector?.reset();
     if (s.sshUserClose) {
       emitSshStatus(s, {
         kind: "disconnected",

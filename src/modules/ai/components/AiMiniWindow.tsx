@@ -29,7 +29,7 @@ import {
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { getModel, getModelContextLimit } from "../config";
 import type { SessionMeta } from "../lib/sessions";
 import { useAgentsStore } from "../store/agentsStore";
@@ -61,7 +61,11 @@ const SUGGESTIONS = [
   },
 ];
 
-export function AiSidebarPanel() {
+// Memoised so unrelated parent re-renders (tab open/close, OSC 7 cwd
+// updates, ResizeObserver ticks in TabBar) don't re-render the entire AI
+// sidebar tree. The component takes zero props, so the default shallow
+// equality check always short-circuits to "skip".
+export const AiSidebarPanel = memo(function AiSidebarPanel() {
   const closePanel = useChatStore((s) => s.closePanel);
   const sessionId = useChatStore((s) => s.activeSessionId);
 
@@ -98,7 +102,7 @@ export function AiSidebarPanel() {
       <PlanDiffReview />
     </div>
   );
-}
+});
 
 // Back-compat alias - older imports still reference `AiMiniWindow`.
 export { AiSidebarPanel as AiMiniWindow };

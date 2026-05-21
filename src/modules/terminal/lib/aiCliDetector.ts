@@ -133,6 +133,82 @@ function matchTool(line: string): AiCliKind | null {
   return null;
 }
 
+/**
+ * Pull the command portion out of a shell-prompt line (everything after
+ * `]$ `, `# `, `> `, `% `, etc.). Used by the activation fallback when
+ * `cmdBuffer` is empty on Enter (history recall via ↑, paste-then-Enter,
+ * shell autocompletion accepted via Tab+Enter — all of those bypass the
+ * keystroke accumulator).
+ */
+function extractCommandFromPromptLine(line: string): string {
+  // Trailing-whitespace strip first so the regex doesn't have to handle it.
+  const trimmed = line.replace(/\s+$/, "");
+  // Match the last occurrence of a shell-prompt marker in the line and
+  // return everything after it. Markers: `$ `, `# `, `% `, `> ` (PowerShell,
+  // fish). The space is required so words like `foo$bar` inside a path
+  // don't false-trigger.
+  const m = trimmed.match(/[\$#%>]\s+(.*)$/);
+  if (m) return m[1];
+  return trimmed;
+}
+
+/**
+ * Returns the last non-empty line of the viewport content. Used by the
+ * shell-prompt auto-clear path to inspect what's at the cursor.
+ */
+function lastNonEmptyLine(content: string): string {
+  const lines = content.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.replace(/\s+/g, "").length > 0) return line;
+  }
+  return "";
+}
+
+/**
+ * Cursor-line shell-PS1 detection. The xterm cursor's current line is the
+ * SINGLE most reliable "where is the user RIGHT NOW" signal — independent
+ * of whether the CLI uses alt-screen (older claude, codex), renders inline
+ * (claude v2.1+, opencode), or left scrollback content visible above.
+ *
+ * If the cursor sits on a recognisable system shell PS1 the previously-
+ * active CLI is gone, full stop. We deliberately MATCH ANYWHERE in the
+ * line (not just at the end) because a typed-but-not-yet-submitted command
+ * like `[user@host ~]$ cd /var` still puts the cursor on a shell line —
+ * we want to recognise that as "the user is back at shell" too, so the
+ * icon isn't stuck while they're mid-command.
+ *
+ * The patterns are tight enough that they don't false-positive on AI CLI
+ * input lines (those use `> `, `❯ `, or `│ > ` inside box-drawn frames,
+ * none of which contain the bracketed `]$`/`user@host:path$`/`PS C:\>`
+ * structure of a shell PS1).
+ */
+const SHELL_PROMPT_LINE_PATTERNS: RegExp[] = [
+  // `]$` or `]#` bracketed bash prompt (red hat / fedora / arch). The
+  // trailing whitespace is optional because xterm's translateToString
+  // trims trailing space, so `[user@host ~]$` and `[user@host ~]$ command`
+  // both need to match.
+  /\][\$#](?:\s|$)/,
+  // `user@host:path$ ` debian/ubuntu — same trailing-space rule.
+  /[\w.-]+@[\w.-]+:[^\s]*[\$#](?:\s|$)/,
+  // zsh trailing `%` (default macOS prompt). Require some non-empty
+  // content before the `%` so a literal `%` in random text doesn't fire.
+  /^\s*\S.*\s%(?:\s|$)/,
+  // PowerShell `PS C:\path>` / `PS /usr/local>`.
+  /^\s*PS\s+\S.*>\s?$/i,
+  // Windows cmd `C:\path>`.
+  /^\s*[A-Za-z]:\\[^>]*>\s?$/i,
+];
+
+function cursorLineLooksLikeShellPrompt(line: string): boolean {
+  if (!line || line.replace(/\s+/g, "").length === 0) return false;
+  for (const re of SHELL_PROMPT_LINE_PATTERNS) {
+    if (re.test(line)) return true;
+  }
+  return false;
+}
+
+
 // Spinner-glyph alphabet. The leading char of an "AI is spinning" line is
 // almost always one of these in Claude Code / opencode / codex / etc. We
 // pair this with the strict herdr "+ space + ellipsis + alphanumeric"
@@ -397,6 +473,17 @@ export type AiCliDetectorOptions = {
    * main buffer means the TUI exited and the active tool should clear.
    */
   isAltScreen: () => boolean;
+  /**
+   * Returns the current cursor line content (the line `term.buffer.active.
+   * cursorY` is on, translated to string). The cursor position is the
+   * single most reliable signal for "where the user is RIGHT NOW" —
+   * regardless of whether the CLI uses alt-screen, renders inline, or
+   * left scrollback content visible above. Used as the canonical
+   * "tool-exited" signal: when the cursor sits on a system shell PS1
+   * the previously-active CLI is gone, period. Independent of scrollback,
+   * independent of alt-screen toggle, independent of shell-integration.
+   */
+  readCursorLine: () => string;
 };
 
 export type AiCliDetector = {
@@ -484,6 +571,13 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       return false;
     }
   }
+  function safeReadCursorLine(): string {
+    try {
+      return opts.readCursorLine();
+    } catch {
+      return "";
+    }
+  }
 
   function resetRuntime() {
     lastWorkingAt = 0;
@@ -568,12 +662,46 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
   function reclassify() {
     if (!activeTool) return;
     try {
-      // Auto-clear: TUI left alternate-screen means the AI tool exited
-      // back to the main shell. Drop the active tool so the badge clears.
+      // Cursor-position is the canonical "where is the user RIGHT NOW"
+      // signal — independent of alt-screen toggle, shell-integration,
+      // OSC handlers, or whether the CLI renders inline / takes over
+      // the alt buffer. herdr & Zed both lean on screen-content rather
+      // than event streams for the same reason: events miss edges
+      // (CLI killed mid-flight, SSH drops, shell-init not loaded), but
+      // "what's painted under the cursor" is always observable.
+      //
+      // Rules:
+      //   1. Cursor sits on a shell PS1 → CLI exited, clear tool. The
+      //      single source of truth for "no longer running". Beats the
+      //      alt-screen / shell-prompt / TUI-marker triad we had to
+      //      stack before because they each had edge cases (claude
+      //      v2.1+ is inline, xterm can get stuck in alt buffer if
+      //      the CLI was killed without ?1049l, SSH disconnect leaves
+      //      ghost state, …). Cursor at PS1 ⇒ unambiguously back at
+      //      the shell.
+      //   2. Alt-screen TOGGLE BACK to normal is still a valid signal
+      //      when we observed alt-screen and now don't — older CLIs
+      //      that DO use alt-screen surface this earlier than the
+      //      cursor scan does.
       const isAlt = safeIsAltScreen();
+      const content = safeReadBuffer();
+      const cursorLine = safeReadCursorLine();
+      const cursorAtShell = cursorLineLooksLikeShellPrompt(cursorLine);
+
       if (isAlt) {
         sawAltScreen = true;
       } else if (sawAltScreen) {
+        // We saw alt-screen earlier and now don't — CLI exited via the
+        // canonical `\x1b[?1049l` toggle.
+        clearTool();
+        return;
+      }
+      if (cursorAtShell) {
+        // Cursor sits on a system shell PS1 — CLI is gone, period.
+        // Irrespective of alt-screen state, scrollback contents, or
+        // shell-integration presence. AI CLIs paint their input on
+        // `>` / `❯` lines or inside box-drawn frames, none of which
+        // match SHELL_PROMPT_LINE_PATTERNS, so this is safe.
         clearTool();
         return;
       }
@@ -581,13 +709,19 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         emit("idle");
         return;
       }
-      const content = safeReadBuffer();
       const lower = content.toLowerCase();
       const now = Date.now();
       pruneRecentOutput(now);
 
       const workingHit = detectWorking(content, hasFreshOutput());
       const explicitIdle = detectExplicitIdle(content, lower);
+      // Rate-based fallback only fires while the cursor is INSIDE the
+      // CLI (not at the shell prompt). With the cursor scan above, by
+      // the time we reach this line we already know `cursorAtShell` is
+      // false — so streaming output here is the AI generating, not a
+      // shell printing a colourful PS1 after `cd /var`. This restores
+      // working detection for inline tools (claude v2.1+, opencode)
+      // that don't keep alt-screen active during a stream.
       const rateHit = isStreamingOutput();
 
       // Blocking is checked against BOTH the xterm viewport AND the recent
@@ -666,8 +800,16 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
           // Accumulating a shell command line. Activate on Enter if it
           // matches a known AI CLI invocation.
           if (isEnter) {
-            const tool = matchTool(cmdBuffer);
+            let cmd = cmdBuffer;
             cmdBuffer = "";
+            if (!cmd) {
+              // History recall (↑+Enter), shell-completion accept, or
+              // paste-then-Enter — `cmdBuffer` never accumulated, so the
+              // command-name lives on the prompt line in the viewport
+              // instead. Strip the PS1 prefix and try matching.
+              cmd = extractCommandFromPromptLine(lastNonEmptyLine(safeReadBuffer()));
+            }
+            const tool = matchTool(cmd);
             if (tool) activateTool(tool);
           } else if (code >= 0x20 && code !== 0x7f) {
             if (cmdBuffer.length < COMMAND_BUFFER_MAX) cmdBuffer += ch;
@@ -681,7 +823,11 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         } else {
           // Inside the tool TUI. A "printable text + Enter" combo is a
           // real submission - flip the chip to working optimistically so
-          // the user sees feedback before bytes start flowing back.
+          // the user sees feedback before bytes start flowing back. The
+          // ghost-tool case (user typing shell commands while activeTool
+          // is stale) is handled by the shell-prompt sanity checks in
+          // `reclassify` — they clearTool BEFORE this optimistic working
+          // can surface as a visible state via the next emit().
           if (isEnter) {
             if (pendingPrintable) {
               if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
@@ -730,7 +876,12 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       if (now - lastUserInputAt > ECHO_SUPPRESS_MS) {
         outputSamples.push({ t: now, n });
       }
-      reclassify();
+      // Classification is driven by the 250ms scheduleReclassify timer
+      // instead of running per-chunk. A noisy dev server can emit dozens
+      // of chunks per second; the old per-chunk reclassify ran a full
+      // viewport read + regex sweep on each, which dominated frame time
+      // under heavy output. Timer cadence still surfaces transitions
+      // within one tick of viewport-visible.
     },
     reset() {
       cmdBuffer = "";

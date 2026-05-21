@@ -2,8 +2,10 @@
  * Selector for picking a target terminal. The engine resolves the first
  * field present in order: `leafId` > `tabId` > `ordinal` > `title`.
  *
- * - `ordinal` is **1-based** and counts only terminal leaves, left-to-right
- *   in current tab order. "terminal 1" → ordinal: 1.
+ * - `ordinal` is the leaf's stable FIFO `terminalOrdinal` — the same 1-based
+ *   number rendered on the TabBar chip. Assigned at creation and preserved
+ *   across closes, drags, and workspace restarts (so "terminal 3" maps to
+ *   the chip the user sees, not to the leaf's current position).
  * - `title` does a case-insensitive substring match against the tab title.
  * - All fields optional; an empty target falls back to the active terminal.
  */
