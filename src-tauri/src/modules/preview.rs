@@ -106,11 +106,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
             .map(|n| n.min(MAX_BODY_BYTES))
             .unwrap_or(0),
     );
-    while let Some(chunk) = upstream
-        .chunk()
-        .await
-        .map_err(|e| format!("body: {e}"))?
-    {
+    while let Some(chunk) = upstream.chunk().await.map_err(|e| format!("body: {e}"))? {
         if body.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
             return Err(format!(
                 "response too large (>{} bytes; cap {})",

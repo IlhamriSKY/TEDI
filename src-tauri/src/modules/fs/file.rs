@@ -228,7 +228,10 @@ pub fn fs_read_file_portion(
     loop {
         line_buf.clear();
         let bytes_read = reader.read_line(&mut line_buf).map_err(|e| {
-            log::debug!("fs_read_file_portion read_line({}) failed: {e}", p.display());
+            log::debug!(
+                "fs_read_file_portion read_line({}) failed: {e}",
+                p.display()
+            );
             e.to_string()
         })?;
         if bytes_read == 0 {

@@ -88,11 +88,15 @@ fn extensions_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn sweep_stale_staging(root: &Path) {
     use super::state::now_ms;
-    let Ok(entries) = fs::read_dir(root) else { return };
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
     let now = now_ms();
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(name_str) = name.to_str() else { continue };
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
         // `.staging-<ts>`: install crashed mid-extract.
         // `.trash-<id>-<ts>`: update could not delete the previous copy
         // (sidecar still holding a file open). Both safe to sweep after
@@ -105,7 +109,9 @@ fn sweep_stale_staging(root: &Path) {
         } else {
             continue;
         };
-        let Ok(ts) = ts_str.parse::<i64>() else { continue };
+        let Ok(ts) = ts_str.parse::<i64>() else {
+            continue;
+        };
         if now.saturating_sub(ts) > 10 * 60 * 1000 {
             let _ = fs::remove_dir_all(entry.path());
         }
@@ -152,7 +158,9 @@ pub async fn ext_list(app: tauri::AppHandle) -> Result<Vec<ListEntry>, String> {
         out.push(ListEntry {
             id: manifest.id.clone(),
             enabled: st.map(|s| s.enabled).unwrap_or(true),
-            source: st.map(|s| s.source.clone()).unwrap_or_else(|| "local".into()),
+            source: st
+                .map(|s| s.source.clone())
+                .unwrap_or_else(|| "local".into()),
             installed_at_ms: st.map(|s| s.installed_at_ms).unwrap_or(0),
             version: st
                 .map(|s| s.version.clone())
@@ -264,8 +272,8 @@ pub async fn ext_peek_github(repo: String) -> Result<PeekResult, String> {
     let normalized = normalize_owner_repo(&repo)?;
     let api = format!("https://api.github.com/repos/{normalized}/releases/latest");
     let json = http_get_text(&api).await?;
-    let asset_url = pick_release_zip(&json)
-        .ok_or_else(|| "no .zip asset in latest release".to_string())?;
+    let asset_url =
+        pick_release_zip(&json).ok_or_else(|| "no .zip asset in latest release".to_string())?;
     let bytes = http_get_bytes(&asset_url).await?;
     super::install::peek_bytes(&bytes, &format!("github:{normalized}"))
 }
@@ -280,8 +288,8 @@ pub async fn ext_install_from_github(
     let normalized = normalize_owner_repo(&repo)?;
     let api = format!("https://api.github.com/repos/{normalized}/releases/latest");
     let json = http_get_text(&api).await?;
-    let asset_url = pick_release_zip(&json)
-        .ok_or_else(|| "no .zip asset in latest release".to_string())?;
+    let asset_url =
+        pick_release_zip(&json).ok_or_else(|| "no .zip asset in latest release".to_string())?;
     let bytes = http_get_bytes(&asset_url).await?;
     install_and_return(state, &app, &bytes, &format!("github:{normalized}")).await
 }
@@ -439,7 +447,9 @@ pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 
 pub(crate) fn pick_release_tag(json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
-    v.get("tag_name").and_then(|x| x.as_str()).map(|s| s.to_string())
+    v.get("tag_name")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
 }
 
 #[tauri::command]
@@ -517,6 +527,18 @@ pub async fn ext_uninstall(
 // ---------- HTTP helpers ----------
 
 pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+    http_get_bytes_with_progress(url, |_done, _total| {}).await
+}
+
+/// Streaming variant of [`http_get_bytes`] that reports cumulative bytes
+/// received via `on_progress`. The closure runs on the network thread on
+/// every chunk read — keep it cheap (typical implementation: send through
+/// an `mpsc` channel). `bytes_total` is `Some(content_length)` when the
+/// server advertised one, `None` otherwise.
+pub(crate) async fn http_get_bytes_with_progress<F: FnMut(u64, Option<u64>)>(
+    url: &str,
+    mut on_progress: F,
+) -> Result<Vec<u8>, String> {
     // `connect_timeout` fails fast on unreachable hosts so an offline user
     // gets an error in 15s instead of reqwest's default tens-of-seconds
     // stall. `timeout` caps the whole request: long enough for a 50 MiB
@@ -539,7 +561,8 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
     // Trust an honest content-length first so we bail early when the server
     // advertises a multi-GB body. Servers that omit or lie still hit the
     // running-total check below.
-    if let Some(len) = resp.content_length() {
+    let total = resp.content_length();
+    if let Some(len) = total {
         if len > MAX_DOWNLOAD_BYTES {
             return Err(format!(
                 "download too large: {} bytes (cap {})",
@@ -547,6 +570,8 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
             ));
         }
     }
+    // Initial tick lets the UI render "0 / N" before the first chunk lands.
+    on_progress(0, total);
     // Stream chunks so a misreporting server cannot push past the cap.
     // Stop when the body ends or the running total tips over.
     let mut bytes = Vec::with_capacity(64 * 1024);
@@ -558,6 +583,7 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
             ));
         }
         bytes.extend_from_slice(&chunk);
+        on_progress(bytes.len() as u64, total);
     }
     Ok(bytes)
 }
@@ -602,7 +628,10 @@ pub(crate) fn normalize_owner_repo(input: &str) -> Result<String, String> {
     }
     let owner = parts[0];
     let repo = parts[1];
-    let safe = |s: &str| s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    let safe = |s: &str| {
+        s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
     if !safe(owner) || !safe(repo) {
         return Err("owner/repo contains unsupported characters".into());
     }

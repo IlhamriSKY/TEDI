@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.17] - 22-05-2026
+
+### Added
+
+- **Full TUI dashboard for `tedi ext` subcommands.** All extension management — install / list / installed / update / uninstall / enable / disable — now opens a single keyboard-driven `ratatui` dashboard on a TTY, replacing the v0.2.13 line-by-line `println!` + `dialoguer::Select` UX. Three tabs (Installed / Registry / Updates) switchable via `Tab` / `Shift-Tab` / `1` `2` `3` / `h` `l`. Vim-style nav (`j`/`k`, `g`/`G`, PageUp/Down), filter via `/` (case-insensitive substring on id + name + description), refresh current tab via `r`, help overlay via `?`. Modal stack for confirmations: install (editable text input + live progress gauge), uninstall (y/N), enable/disable (y/N), update one, update all (sequential with per-item progress + cumulative log). Each subcommand opens the dashboard with the relevant tab focused and the matching modal pre-filled — `tedi ext install owner/repo` pops the install modal with the ref already typed, `tedi ext uninstall <id>` opens the confirm modal once the installed list lands, `tedi ext update <id>` checks just that id, etc. New module [src-tauri/src/modules/cli_ext_tui/](src-tauri/src/modules/cli_ext_tui/) (mod / app / ui / events / actions / input / theme). Panic-safe terminal restore via a `Drop` guard so a crash never strands the user's shell in raw mode / alternate screen.
+- **Granular install progress reporting.** New `InstallProgress` trait + `InstallPhase` enum in [src-tauri/src/modules/extensions/install.rs](src-tauri/src/modules/extensions/install.rs) lets callers observe `Downloading { bytes_done, bytes_total }` → `Verifying` → `Extracting` → `Finalizing` → `Done`, plus a per-file callback (`progress.file(index, total, path)`) for every entry the extractor writes. The TUI install modal renders a live gauge backed by these events; download phase shows MiB / total when content-length is known, extract phase shows `N / M files` with the current relative path. Existing `install_from_bytes` is kept as a thin wrapper over `install_from_bytes_with_progress` with a `NoopProgress` impl, so the GUI install path in [extensions/commands.rs:303](src-tauri/src/modules/extensions/commands.rs#L303) (`ext_install_from_zip`, `ext_install_from_github`) is byte-for-byte unchanged.
+- **Streaming HTTP download with progress callback.** [`http_get_bytes_with_progress`](src-tauri/src/modules/extensions/commands.rs) (sibling to the existing `http_get_bytes`) accumulates `reqwest::Response::chunk()` reads and fires a `FnMut(bytes_done, bytes_total)` closure on every chunk, with one initial `(0, total)` tick before the first byte lands so the TUI can render a meaningful "0 / N" before transfer begins. Same caps + timeouts as the non-streaming version (50 MiB hard cap, 15 s connect, 5 min total). Old `http_get_bytes` reduced to a one-line wrapper that passes a no-op closure, so every other caller in the extension pipeline is unchanged.
+- **`--plain` / `-p` flag on `tedi ext`.** Forces the legacy text output (v0.2.13 shape) even when stdout is a terminal. Useful when the user wants pipe-friendly output without redirecting (`tedi ext installed --plain | grep on`). Non-TTY auto-fallback still works the same — pipes, redirected stdout, and CI shells get the plain printer without needing the flag.
+
+### Changed
+
+- **`tedi ext list` interactive picker replaced by the TUI Registry tab.** The v0.2.13 `dialoguer::Select` arrow-key picker is gone (and the `dialoguer` crate dropped from `Cargo.toml`). TTY users land in the Registry tab and press `Enter` / `i` to install; non-TTY / `--plain` users get the OFFICIAL / UNOFFICIAL table dump + install hint that v0.2.13 already printed alongside the picker. No change to the install plumbing beneath either path.
+- **`cli_ext.rs` refactored into data fns + plain-mode printers.** The seven legacy `cmd_*` subcommand handlers no longer interleave logic with `println!`; pure-data fns (`load_installed_rows`, `check_updates_only`, `install_reference_with_progress`, `do_uninstall`, `do_set_enabled`, `install_github`) are now `pub(crate)` and consumed by both the plain printers and the TUI. New `InitialFocus` enum maps each subcommand + argv shape to the right TUI screen on launch.
+- **Top-level `tedi --help` mentions the TUI + `--plain` flag** so the dashboard is discoverable from the entry point.
+
+### Fixed
+
+- **`InstallOutcome` derives `Debug`** so it can travel through the TUI's channel-backed message bus (`AppMsg::InstallDone(Box<Result<InstallOutcome, String>>)`). GUI code never logged it, so this was a no-op for existing call sites. Boxed inside `AppMsg` to keep the enum's largest variant from dominating channel-slot size for every other (tiny) variant — caught by `clippy::large_enum_variant`.
+
 ## [0.2.16] - 22-05-2026
 
 ### Added

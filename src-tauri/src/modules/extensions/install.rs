@@ -29,6 +29,7 @@ const MAX_INSTALL_BYTES: u64 = 50 * 1024 * 1024;
 /// this is suspicious for the extensions we expect.
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
+#[derive(Debug)]
 pub struct InstallOutcome {
     pub manifest: Manifest,
     pub entry: ExtensionEntry,
@@ -39,13 +40,73 @@ pub struct InstallOutcome {
     pub replaced: bool,
 }
 
+/// High-level stage the install is in. Reported by the install pipeline
+/// to any caller that wants a progress UI (currently the `tedi ext` TUI).
+/// `Downloading` is emitted by the network layer *before* `install_from_bytes`
+/// runs, so the trait carries it too for a single channel of phase events.
+#[derive(Debug, Clone)]
+pub enum InstallPhase {
+    Downloading {
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    },
+    Verifying,
+    Extracting,
+    Finalizing,
+    Done,
+}
+
+/// Reporter the install pipeline calls into. Implementors translate the
+/// callbacks into whatever surface the caller wants — TUI gauge, log lines,
+/// nothing. All methods MUST be cheap and non-blocking; they run on the
+/// install thread.
+pub trait InstallProgress: Send + Sync {
+    fn phase(&self, phase: InstallPhase);
+    /// Per-file extraction tick. `index` is 0-based; `total` is the entry
+    /// count of the archive (includes directories). `path` is the
+    /// destination-relative path of the file just written.
+    fn file(&self, index: usize, total: usize, path: &str);
+}
+
+/// Drop-in no-op reporter for callers that don't care about progress.
+/// `install_from_bytes` (the legacy entry point) uses this so the GUI
+/// install path stays byte-for-byte identical.
+pub struct NoopProgress;
+
+impl InstallProgress for NoopProgress {
+    fn phase(&self, _phase: InstallPhase) {}
+    fn file(&self, _index: usize, _total: usize, _path: &str) {}
+}
+
 /// Run the install pipeline. `source` is recorded verbatim in the state file.
+///
+/// Thin wrapper over [`install_from_bytes_with_progress`] with [`NoopProgress`].
+/// All existing call sites (GUI commands, tests) keep working unchanged.
 pub fn install_from_bytes(
     extensions_root: &Path,
     state_path: &Path,
     zip_bytes: &[u8],
     source: &str,
 ) -> Result<InstallOutcome, String> {
+    install_from_bytes_with_progress(
+        extensions_root,
+        state_path,
+        zip_bytes,
+        source,
+        &NoopProgress,
+    )
+}
+
+/// Run the install pipeline, reporting phase + per-file progress through
+/// `progress`. Same guarantees as [`install_from_bytes`].
+pub fn install_from_bytes_with_progress(
+    extensions_root: &Path,
+    state_path: &Path,
+    zip_bytes: &[u8],
+    source: &str,
+    progress: &dyn InstallProgress,
+) -> Result<InstallOutcome, String> {
+    progress.phase(InstallPhase::Verifying);
     if zip_bytes.len() as u64 > MAX_INSTALL_BYTES {
         return Err(format!(
             "extension package too large ({} bytes, cap {} bytes)",
@@ -62,7 +123,8 @@ pub fn install_from_bytes(
     }
     fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
 
-    let extract_result = extract_into(zip_bytes, &staging);
+    progress.phase(InstallPhase::Extracting);
+    let extract_result = extract_into(zip_bytes, &staging, progress);
     if let Err(e) = extract_result {
         let _ = fs::remove_dir_all(&staging);
         return Err(e);
@@ -169,6 +231,7 @@ pub fn install_from_bytes(
         }
     }
 
+    progress.phase(InstallPhase::Finalizing);
     let fingerprint = hash_dir(&dest)?;
 
     let mut state = super::state::load(state_path);
@@ -191,6 +254,7 @@ pub fn install_from_bytes(
     state.entries.insert(manifest.id.clone(), entry.clone());
     save_state(state_path, &state)?;
 
+    progress.phase(InstallPhase::Done);
     Ok(InstallOutcome {
         manifest,
         entry,
@@ -202,18 +266,25 @@ pub fn install_from_bytes(
 /// via `enclosed_name()`. When every entry shares the same first segment and
 /// `<segment>/manifest.json` exists (e.g. GitHub release archives), that
 /// prefix is stripped on extract.
-fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
+///
+/// `progress.file(i, total, path)` is called for every successfully-written
+/// file (not directories). `total` is `archive.len()` so callers can derive
+/// a percentage even though directories don't tick the counter.
+fn extract_into(
+    zip_bytes: &[u8],
+    dest: &Path,
+    progress: &dyn InstallProgress,
+) -> Result<(), String> {
     let reader = io::Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
 
     // Pre-scan for an optional single-root unwrap.
     let strip_prefix = detect_single_root(&mut archive)?;
 
+    let total_entries = archive.len();
     let mut total_bytes: u64 = 0;
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| format!("entry {i}: {e}"))?;
+    for i in 0..total_entries {
+        let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
         let Some(raw_path) = entry.enclosed_name() else {
             return Err(format!(
                 "rejected zip entry (suspicious path): {}",
@@ -270,8 +341,8 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
             ));
         }
 
-        let mut out = fs::File::create(&target)
-            .map_err(|e| format!("create {}: {e}", target.display()))?;
+        let mut out =
+            fs::File::create(&target).map_err(|e| format!("create {}: {e}", target.display()))?;
         let mut buf = Vec::with_capacity(entry_size as usize);
         // Cap copy so a malicious zip header that claims a small size cannot
         // stream more bytes. `take` enforces the cap on the decompressor side.
@@ -287,6 +358,11 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
         }
         io::Write::write_all(&mut out, &buf)
             .map_err(|e| format!("write {}: {e}", target.display()))?;
+        // Per-file tick after a successful write. Directories don't fire this
+        // event, so a caller deriving a percentage from (index+1)/total may
+        // see jumps — that's intentional, the headline progress is "bytes
+        // committed so far", not "entries traversed".
+        progress.file(i, total_entries, &rel.to_string_lossy().replace('\\', "/"));
     }
     Ok(())
 }
@@ -294,7 +370,9 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
 /// Return the shared first path segment if every non-empty entry begins with
 /// it and `<segment>/manifest.json` is in the archive. Lets GitHub-style
 /// `repo-<sha>/...` archives flatten cleanly.
-fn detect_single_root(archive: &mut ZipArchive<io::Cursor<&[u8]>>) -> Result<Option<String>, String> {
+fn detect_single_root(
+    archive: &mut ZipArchive<io::Cursor<&[u8]>>,
+) -> Result<Option<String>, String> {
     let mut candidate: Option<String> = None;
     let mut saw_nested_manifest = false;
     for i in 0..archive.len() {
@@ -396,8 +474,7 @@ pub fn resolve_asset(root: &Path, rel: &str) -> Result<PathBuf, String> {
 /// `ERROR_FILE_NOT_FOUND` is fine; only real errors surface.
 #[cfg(target_os = "windows")]
 fn strip_motw_from_tree(root: &Path) -> Result<(), String> {
-    let entries = fs::read_dir(root)
-        .map_err(|e| format!("read {}: {e}", root.display()))?;
+    let entries = fs::read_dir(root).map_err(|e| format!("read {}: {e}", root.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let path = entry.path();
@@ -438,8 +515,8 @@ fn strip_motw_from_file(path: &Path) {
 #[cfg(unix)]
 fn make_sidecar_executable(sidecar_root: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    let entries = fs::read_dir(sidecar_root)
-        .map_err(|e| format!("read {}: {e}", sidecar_root.display()))?;
+    let entries =
+        fs::read_dir(sidecar_root).map_err(|e| format!("read {}: {e}", sidecar_root.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let path = entry.path();
@@ -516,9 +593,7 @@ fn read_entry(
         None => target_rel.to_string(),
     };
     for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| format!("entry {i}: {e}"))?;
+        let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
         let Some(raw_path) = entry.enclosed_name() else {
             continue;
         };

@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.16"
+version = "0.2.17"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -57,10 +57,13 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # fingerprint in the install-review dialog; not used as a trust anchor).
 sha2 = "0.10"
 hex = "0.4"
-# Arrow-key `Select` prompt for the `tedi ext list` interactive picker.
-# Default features bring `editor` / `history` / `password` / fuzzy which
-# we don't use; the bare Select widget is in the always-on base.
-dialoguer = { version = "0.11", default-features = false }
+# Full TUI for the `tedi ext` subcommands. `ratatui` is render only —
+# crossterm is added explicitly to opt into the `event-stream` feature
+# (async EventStream used by the TUI loop). Both crates short-circuit
+# before Tauri boots, so they add nothing to the GUI runtime path.
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # Verify-only minisign implementation. Same crate `tauri-plugin-updater`
 # uses internally — keeps the headless `tedi --update` path semantically
 # identical to the GUI updater. No signing dependencies pulled in.

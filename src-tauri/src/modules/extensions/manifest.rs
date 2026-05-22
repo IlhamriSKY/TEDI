@@ -25,8 +25,7 @@ pub fn validate_id(id: &str) -> Result<(), String> {
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
     {
         return Err(
-            "manifest.id may only contain lowercase letters, digits, dot, dash, underscore"
-                .into(),
+            "manifest.id may only contain lowercase letters, digits, dot, dash, underscore".into(),
         );
     }
     Ok(())

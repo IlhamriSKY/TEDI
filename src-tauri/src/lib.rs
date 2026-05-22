@@ -1,6 +1,8 @@
 mod modules;
 
-use modules::{cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh};
+use modules::{
+    cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh,
+};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 

@@ -30,8 +30,7 @@ use crate::modules::extensions::commands as ext_cmd;
 /// Update manifest URL. Mirrors `plugins.updater.endpoints[0]` in
 /// `tauri.conf.json`. Tauri normally fetches this from inside the app; we
 /// hit it directly with our shared HTTP helper.
-const ENDPOINT: &str =
-    "https://github.com/IlhamriSKY/TEDI/releases/latest/download/latest.json";
+const ENDPOINT: &str = "https://github.com/IlhamriSKY/TEDI/releases/latest/download/latest.json";
 
 /// Base64-encoded minisign public key. Mirrors `plugins.updater.pubkey`
 /// in `tauri.conf.json`. Updating one without the other splits the trust
@@ -105,8 +104,7 @@ fn run_update() -> Result<(), String> {
         .platforms
         .get(&key)
         .ok_or_else(|| {
-            let mut available: Vec<&str> =
-                manifest.platforms.keys().map(|s| s.as_str()).collect();
+            let mut available: Vec<&str> = manifest.platforms.keys().map(|s| s.as_str()).collect();
             available.sort();
             format!(
                 "no `{key}` entry in latest.json (available: {})",
@@ -199,18 +197,15 @@ fn verify_signature(data: &[u8], signature_b64: &str) -> Result<(), String> {
     let pk_bytes = base64::engine::general_purpose::STANDARD
         .decode(PUBKEY_B64.as_bytes())
         .map_err(|e| format!("decode pubkey base64: {e}"))?;
-    let pk_text = std::str::from_utf8(&pk_bytes)
-        .map_err(|e| format!("decode pubkey utf8: {e}"))?;
-    let pk = PublicKey::decode(pk_text.trim())
-        .map_err(|e| format!("decode pubkey: {e}"))?;
+    let pk_text = std::str::from_utf8(&pk_bytes).map_err(|e| format!("decode pubkey utf8: {e}"))?;
+    let pk = PublicKey::decode(pk_text.trim()).map_err(|e| format!("decode pubkey: {e}"))?;
 
     let sig_bytes = base64::engine::general_purpose::STANDARD
         .decode(signature_b64.trim().as_bytes())
         .map_err(|e| format!("decode signature base64: {e}"))?;
-    let sig_text = std::str::from_utf8(&sig_bytes)
-        .map_err(|e| format!("decode signature utf8: {e}"))?;
-    let sig = Signature::decode(sig_text.trim())
-        .map_err(|e| format!("decode signature: {e}"))?;
+    let sig_text =
+        std::str::from_utf8(&sig_bytes).map_err(|e| format!("decode signature utf8: {e}"))?;
+    let sig = Signature::decode(sig_text.trim()).map_err(|e| format!("decode signature: {e}"))?;
 
     // `allow_legacy = false` rejects pre-hashed signatures (we never produce them).
     pk.verify(data, &sig, false)
@@ -261,19 +256,16 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     let new_path = std::path::PathBuf::from(format!("{appimage_str}.new"));
     let old_path = std::path::PathBuf::from(format!("{appimage_str}.old"));
     let _ = std::fs::remove_file(&new_path);
-    std::fs::write(&new_path, bytes)
-        .map_err(|e| format!("write {}: {e}", new_path.display()))?;
+    std::fs::write(&new_path, bytes).map_err(|e| format!("write {}: {e}", new_path.display()))?;
     let mut perms = std::fs::metadata(&new_path)
         .map_err(|e| format!("stat new appimage: {e}"))?
         .permissions();
     perms.set_mode(0o755);
-    std::fs::set_permissions(&new_path, perms)
-        .map_err(|e| format!("chmod new appimage: {e}"))?;
+    std::fs::set_permissions(&new_path, perms).map_err(|e| format!("chmod new appimage: {e}"))?;
     // Atomic-ish swap: rename current aside, rename new into place, remove
     // the backup on success.
     let _ = std::fs::remove_file(&old_path);
-    std::fs::rename(&appimage, &old_path)
-        .map_err(|e| format!("backup current appimage: {e}"))?;
+    std::fs::rename(&appimage, &old_path).map_err(|e| format!("backup current appimage: {e}"))?;
     if let Err(e) = std::fs::rename(&new_path, &appimage) {
         // Best-effort rollback so the user is not left without TEDI.
         let _ = std::fs::rename(&old_path, &appimage);
@@ -318,8 +310,7 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
         .find(|p| p.is_dir() && p.extension().and_then(|s| s.to_str()) == Some("app"))
         .ok_or_else(|| "no .app/ inside extracted tarball".to_string())?;
 
-    let current_exe =
-        std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let current_app = find_app_root(&current_exe).ok_or_else(|| {
         format!(
             "could not locate the running .app bundle from {} \

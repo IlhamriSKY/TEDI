@@ -70,13 +70,15 @@ fn help_text() -> String {
         "                     the shell's cwd.\n",
         "\n",
         "EXTENSION SUBCOMMANDS (run `tedi ext help` for full reference):\n",
+        "    tedi ext                       Open the TUI dashboard\n",
         "    tedi ext install <path|owner/repo|registry-id>\n",
-        "    tedi ext list                  Browse registry (interactive picker on TTY)\n",
+        "    tedi ext list                  Browse registry (TUI on TTY, table on pipe)\n",
         "    tedi ext list --installed      Locally installed (alias: `tedi ext installed`)\n",
         "    tedi ext update [<ID>]         Check upstream for updates\n",
         "    tedi ext uninstall <ID>\n",
         "    tedi ext enable <ID>\n",
-        "    tedi ext disable <ID>",
+        "    tedi ext disable <ID>\n",
+        "    --plain (-p)                   Force plain text output (no TUI)",
     )
     .to_string()
 }
