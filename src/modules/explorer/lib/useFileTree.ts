@@ -8,6 +8,8 @@ export type DirEntry = {
   mtime: number;
 };
 
+export type SortMode = "default" | "name-asc" | "name-desc" | "modified-desc" | "modified-asc";
+
 type ChildrenState =
   | { status: "idle" }
   | { status: "loading" }
@@ -15,6 +17,39 @@ type ChildrenState =
   | { status: "error"; message: string };
 
 type TreeState = Record<string, ChildrenState>;
+
+function dirRank(k: DirEntry["kind"]): number {
+  // Mirrors the Rust default in fs/tree.rs so "default" mode is a no-op here.
+  return k === "dir" ? 0 : k === "symlink" ? 1 : 2;
+}
+
+function nameCmp(a: DirEntry, b: DirEntry): number {
+  return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+}
+
+function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
+  // Rust already returns dirs-first + name-asc, so skip the work on default.
+  if (mode === "default") return entries;
+  const out = entries.slice();
+  switch (mode) {
+    case "name-asc":
+      // Folders first, then by name. Same shape as Rust default — kept
+      // separate from "default" so the radio reads as an explicit pick.
+      out.sort((a, b) => dirRank(a.kind) - dirRank(b.kind) || nameCmp(a, b));
+      break;
+    case "name-desc":
+      out.sort((a, b) => dirRank(a.kind) - dirRank(b.kind) || -nameCmp(a, b));
+      break;
+    case "modified-desc":
+      // Pure mtime — folders and files mixed. Matches Finder's "Date Modified".
+      out.sort((a, b) => b.mtime - a.mtime || nameCmp(a, b));
+      break;
+    case "modified-asc":
+      out.sort((a, b) => a.mtime - b.mtime || nameCmp(a, b));
+      break;
+  }
+  return out;
+}
 
 /** Polling interval (ms) for silent re-reads while the window is focused.
  *  Picks up external file changes without a backend FS watcher. */
@@ -29,12 +64,7 @@ function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
   for (let i = 0; i < a.length; i++) {
     const x = a[i];
     const y = b[i];
-    if (
-      x.name !== y.name ||
-      x.kind !== y.kind ||
-      x.mtime !== y.mtime ||
-      x.size !== y.size
-    )
+    if (x.name !== y.name || x.kind !== y.kind || x.mtime !== y.mtime || x.size !== y.size)
       return false;
   }
   return true;
@@ -63,10 +93,14 @@ type Options = {
   onPathDeleted?: (path: string) => void;
   /** When true, dot-prefixed entries are returned. */
   includeHidden?: boolean;
+  /** Client-side sort applied on top of the Rust listing. Default: keep the
+   *  Rust order (folders first + name-asc). */
+  sortMode?: SortMode;
 };
 
 export function useFileTree(rootPath: string | null, options?: Options) {
-  const [nodes, setNodes] = useState<TreeState>({});
+  const sortMode = options?.sortMode ?? "default";
+  const [rawNodes, setRawNodes] = useState<TreeState>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -81,7 +115,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       fetchGen.current.set(path, gen);
       // Silent refresh keeps previous entries visible until new ones land.
       if (!opts.silent) {
-        setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+        setRawNodes((s) => ({ ...s, [path]: { status: "loading" } }));
       }
       try {
         const entries = await invoke<DirEntry[]>("fs_read_dir", {
@@ -89,7 +123,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           includeHidden,
         });
         if (fetchGen.current.get(path) !== gen) return;
-        setNodes((s) => {
+        setRawNodes((s) => {
           // Skip the state update when the listing is unchanged.
           if (opts.silent) {
             const prev = s[path];
@@ -103,7 +137,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         if (fetchGen.current.get(path) !== gen) return;
         // Silent failures keep cached entries; foreground fetches still error.
         if (!opts.silent) {
-          setNodes((s) => ({
+          setRawNodes((s) => ({
             ...s,
             [path]: { status: "error", message: String(e) },
           }));
@@ -119,24 +153,24 @@ export function useFileTree(rootPath: string | null, options?: Options) {
 
   /** Silently re-reads every loaded directory. Only changed rows repaint. */
   const refreshAllLoaded = useCallback(() => {
-    const dirs = Object.keys(nodes);
+    const dirs = Object.keys(rawNodes);
     for (const p of dirs) {
       void fetchChildrenRef.current(p, { silent: true });
     }
-  }, [nodes]);
+  }, [rawNodes]);
 
   const refreshAllLoadedRef = useRef(refreshAllLoaded);
   refreshAllLoadedRef.current = refreshAllLoaded;
 
   // Latest `nodes` ref for event handlers that shouldn't re-subscribe.
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
+  const nodesRef = useRef(rawNodes);
+  nodesRef.current = rawNodes;
 
   // Root change: reset state.
   useEffect(() => {
     fetchGen.current = new Map();
     if (!rootPath) {
-      setNodes({});
+      setRawNodes({});
       setExpanded(new Set());
       setPendingCreate(null);
       setRenaming(null);
@@ -145,7 +179,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     setPendingCreate(null);
     setRenaming(null);
     setExpanded(new Set());
-    setNodes({});
+    setRawNodes({});
     void fetchChildren(rootPath);
     // Exclude `fetchChildren` from deps: `includeHidden` toggles are handled
     // by the dedicated effect below so the user's expanded state survives.
@@ -156,11 +190,11 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // state stays.
   useEffect(() => {
     if (!rootPath) return;
-    const loaded = Object.keys(nodes);
+    const loaded = Object.keys(rawNodes);
     for (const p of loaded) {
       void fetchChildren(p);
     }
-    // Only run on flag change; depending on `nodes` would loop.
+    // Only run on flag change; depending on `rawNodes` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeHidden, rootPath]);
 
@@ -236,7 +270,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         else next.add(path);
         return next;
       });
-      setNodes((curr) => {
+      setRawNodes((curr) => {
         if (!curr[path] || curr[path].status === "error") {
           void fetchChildren(path);
         }
@@ -254,7 +288,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         next.add(path);
         return next;
       });
-      setNodes((curr) => {
+      setRawNodes((curr) => {
         if (!curr[path]) void fetchChildren(path);
         return curr;
       });
@@ -288,7 +322,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           return next;
         });
       }
-      setNodes((curr) => {
+      setRawNodes((curr) => {
         if (!curr[parentPath]) void fetchChildren(parentPath);
         return curr;
       });
@@ -363,6 +397,20 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     },
     [fetchChildren, options],
   );
+
+  // Apply the user's sort preference on top of the raw listing. Re-sorts
+  // every loaded directory whenever the mode flips, without refetching.
+  const nodes = useMemo<TreeState>(() => {
+    if (sortMode === "default") return rawNodes;
+    const out: TreeState = {};
+    for (const [path, state] of Object.entries(rawNodes)) {
+      out[path] =
+        state.status === "loaded"
+          ? { status: "loaded", entries: sortEntries(state.entries, sortMode) }
+          : state;
+    }
+    return out;
+  }, [rawNodes, sortMode]);
 
   // Memoize the return so memo()'d children don't invalidate on every parent
   // render. Only changed slices bump identity.

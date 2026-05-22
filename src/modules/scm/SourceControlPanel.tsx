@@ -492,7 +492,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
 
       {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
-      {status?.isRepo ? <Separator className="bg-border" /> : null}
+      <Separator className="bg-border" />
 
       {status?.isRepo ? (
         <div

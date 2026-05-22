@@ -16,7 +16,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Cancel01Icon, FolderEditIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, FolderEditIcon, Home02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { getExtensionWorkspaceBridge } from "../workspaceBridge";
@@ -104,16 +104,18 @@ function FolderTreeShell({
         </IconTooltip>
       ) : null}
       {pickedPath ? (
-        <IconTooltip label="Reset to workspace folder" side="bottom">
+        // Distinct icon (home) + non-destructive hover so it can't be confused
+        // with the close X next to it. Tooltip spells out what "home" means.
+        <IconTooltip label="Back to workspace folder" side="bottom">
           <Button
             type="button"
             size="icon"
             variant="ghost"
             onClick={handleReset}
-            aria-label="Reset to workspace folder"
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
+            aria-label="Back to workspace folder"
+            className="text-muted-foreground hover:text-foreground size-6"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+            <HugeiconsIcon icon={Home02Icon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}

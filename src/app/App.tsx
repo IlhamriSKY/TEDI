@@ -34,11 +34,7 @@ import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
-import {
-  RightPanelHost,
-  useExtensionsStore,
-  useRightPanelStore,
-} from "@/modules/extensions";
+import { RightPanelHost, useExtensionsStore, useRightPanelStore } from "@/modules/extensions";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -569,9 +565,7 @@ export default function App() {
   // uninstalled, so the slot doesn't show a dead header.
   useEffect(() => {
     if (!rightPanelActive) return;
-    const owner = extensionsList.find(
-      (e) => e.id === rightPanelActive.extensionId && e.enabled,
-    );
+    const owner = extensionsList.find((e) => e.id === rightPanelActive.extensionId && e.enabled);
     const hasPanel =
       owner?.manifest.contributes.panels?.some((p) => p.id === rightPanelActive.panelId) ?? false;
     if (!owner || !hasPanel) {
@@ -1386,11 +1380,23 @@ export default function App() {
     [tabs, disposeTab],
   );
 
-  const activeFilePath = useMemo(() => {
-    if (!activePaneTab) return null;
-    const leaf = activeLeaf(activePaneTab);
-    return leaf?.leafKind === "editor" ? leaf.path : null;
-  }, [activePaneTab]);
+  // Absolute local path of the file currently being viewed. Drives the
+  // status-bar breadcrumb and the file-explorer "reveal" behavior, so it
+  // must cover every tab kind that has a workspace file backing it:
+  // editor leaf, AI-proposed diff, and git diff. SSH editor leaves are
+  // excluded — their `path` is remote and would never match the local
+  // explorer root.
+  const activeFilePath = useMemo<string | null>(() => {
+    if (!activeTab) return null;
+    if (activeTab.kind === "ai-diff" || activeTab.kind === "git-diff") {
+      return activeTab.path;
+    }
+    if (activeTab.kind === "pane") {
+      const leaf = activeLeaf(activeTab);
+      if (leaf?.leafKind === "editor" && !leaf.sshSessionId) return leaf.path;
+    }
+    return null;
+  }, [activeTab]);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -2161,6 +2167,7 @@ export default function App() {
                             onAttachToAgent={handleAttachFileToAgent}
                             collapsed={localFilesCollapsed}
                             onToggleCollapsed={toggleLocalFiles}
+                            activeFilePath={activeFilePath}
                           />
                         </div>
                         {hasAnySshLeaf ? (
