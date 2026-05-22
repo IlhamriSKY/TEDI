@@ -90,9 +90,7 @@ function dirname(p: string): string {
   return i <= 0 ? "" : p.slice(0, i);
 }
 
-/** Translate the raw stderr from `git.exe` into something a user can act on.
- *  We keep the original text as a fallback so we never swallow an unfamiliar
- *  error - but the common cases get plain-language hints. */
+/** Map raw git stderr to actionable text. Common cases get plain-language hints; unknown errors fall through unchanged. */
 function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string {
   const raw = e instanceof Error ? e.message : String(e);
   const lower = raw.toLowerCase();
@@ -120,8 +118,7 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
     return "Authentication failed - check your remote credentials / SSH key.";
   }
   if (lower.includes("no upstream branch")) {
-    // Shouldn't surface - backend already retries with `-u origin <branch>` -
-    // but if it does, give the user a clear next step.
+    // Rare: backend retries with `-u origin <branch>`. Show next step anyway.
     return "No upstream configured. Run `git push -u origin <branch>` from a terminal.";
   }
   if (lower.includes("not a git repository")) {
@@ -147,9 +144,8 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
 
   const inFlightRef = useRef(false);
   const rootRef = useRef(rootPath);
-  // Tracks the last branch we saw for the current repo so we can fire a toast
-  // when an external action (terminal, another tool) switches HEAD. Reset on
-  // rootPath change so we don't false-fire across folders.
+  // Last branch seen for the current repo. Lets us toast on external HEAD
+  // switches. Reset on rootPath change to avoid false-firing across folders.
   const prevBranchRef = useRef<string | null>(null);
   useEffect(() => {
     rootRef.current = rootPath;
@@ -160,8 +156,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
     const cur = status?.branch ?? null;
     const prev = prevBranchRef.current;
     if (cur && prev && cur !== prev) {
-      // Preserve the in-progress commit message on purpose - switching
-      // branches shouldn't drop the user's draft.
+      // Keep the in-progress commit message. Switching branches shouldn't drop the draft.
       toast(`Switched to branch ${cur}`, { variant: "info" });
     }
     prevBranchRef.current = cur;
@@ -307,9 +302,8 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       toast("Enter a commit message first.", { variant: "warning" });
       return;
     }
-    // Capture identity at start of the async op - if the user opens a
-    // different folder mid-flight, we skip the state mutations that would
-    // otherwise leak into the new repo's UI (clearing draft, refresh, etc.).
+    // Capture repo identity before await. If the user opens a different
+    // folder mid-flight, skip state mutations so they don't leak.
     const startRoot = status.root;
     const startBranch = status.branch;
     setBusy("commit");
@@ -376,8 +370,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
       try {
         diff = await gitDiffFull(startRoot, DIFF_BYTE_CAP);
       } catch (e) {
-        // Diff read itself failed - fall back to a deterministic message so
-        // the user can still commit instead of being stuck.
+        // Diff read failed. Fall back to a deterministic message so the user can still commit.
         if (rootRef.current === startRoot) {
           setMessage(fallbackCommitMessage(sorted));
           toast(`Couldn't read diff: ${String(e)} - used a default message`, {
@@ -404,9 +397,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
         toast(`Generated with ${res.modelLabel}`, { variant: "success" });
       }
     } catch (e) {
-      // Belt-and-braces: generateCommitMessage is meant to never throw, but
-      // if a bug or future refactor lets one escape, surface it cleanly
-      // instead of crashing the panel.
+      // generateCommitMessage isn't supposed to throw, but catch anyway so the panel doesn't crash.
       if (rootRef.current === startRoot) {
         setMessage(fallbackCommitMessage(sorted));
         toast(`AI generation failed: ${String(e)} - used a default message`, {
@@ -681,7 +672,7 @@ type RowProps = {
 function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   const name = basename(change.relative);
   const dir = dirname(change.relative);
-  // pr-3 keeps content clear of the Radix ScrollArea's 10px scrollbar overlay.
+  // pr-3 clears the Radix ScrollArea's 10px scrollbar overlay.
   return (
     <li
       className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
@@ -725,10 +716,8 @@ function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   );
 }
 
-// Compact `+N −M` chip rendered to the right of the file name. Yields its
-// slot to the discard button on row hover (`group-hover:hidden`) so the row
-// never gets visually crowded. Binary entries show a muted "bin" tag instead
-// of misleading line counts; rows with no meaningful stats render nothing.
+// Compact `+N -M` chip after the file name. Hidden on hover so the discard
+// button has room. Binary entries show "bin"; rows with no stats render nothing.
 function DiffStats({ change }: { change: GitChange }) {
   if (change.binary) {
     return (

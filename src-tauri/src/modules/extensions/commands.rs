@@ -1,10 +1,9 @@
-//! Tauri commands surfaced to the frontend. Thin wrappers around
-//! [`install`]/[`state`] plus list/enable/disable/uninstall.
+//! Tauri commands for the frontend: thin wrappers around `install`/`state`
+//! plus list/enable/disable/uninstall.
 //!
-//! Path resolution: extensions live at
-//! `<app_data_dir>/extensions/<id>/`, state at
-//! `<app_data_dir>/extensions/state.json`. We pin the root once via
-//! `tauri::AppHandle::path()` so a missing dir is created on first call.
+//! Extensions live at `<app_data_dir>/extensions/<id>/`, state at
+//! `<app_data_dir>/extensions/state.json`. Root resolved once via
+//! `tauri::AppHandle::path()`; missing dirs are created on first call.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,9 +16,8 @@ use super::install::{install_from_bytes, resolve_asset};
 use super::manifest::Manifest;
 use super::state::{load as load_state, save as save_state, ExtensionEntry, ExtensionsStateFile};
 
-/// Per-app singleton holding nothing but a write-lock so concurrent
-/// install/uninstall calls don't race on the state file. Cheap to construct
-/// (one Mutex), fine for `tauri::State`.
+/// Per-app singleton holding a write-lock so concurrent install/uninstall
+/// calls do not race on the state file.
 #[derive(Default)]
 pub struct ExtensionsState {
     write_lock: Mutex<()>,
@@ -35,26 +33,24 @@ pub struct ListEntry {
     pub version: String,
     pub fingerprint: String,
     pub approved_permissions: Vec<String>,
-    /// Absolute path to the extension root. The frontend turns this into a
+    /// Absolute path to the extension root. Frontend turns this into a
     /// `convertFileSrc` URL for dynamic `import()`.
     pub root: String,
     /// Last upstream version observed by `ext_check_update`. `None` until
-    /// the user runs a check at least once on a GitHub-sourced extension.
+    /// the user runs a check on a GitHub-sourced extension.
     pub latest_version: Option<String>,
     pub last_checked_at_ms: Option<i64>,
 }
 
-/// Lightweight read-only preview of an extension package. The dialog
-/// shown before install calls `ext_peek_*` to populate icon + name +
-/// permissions without ever writing the package to disk. A separate
-/// `ext_install_from_*` call commits the install once the user clicks
-/// through.
+/// Read-only preview of an extension package. The pre-install dialog calls
+/// `ext_peek_*` to populate icon, name, and permissions without writing the
+/// package to disk. `ext_install_from_*` commits the install once the user
+/// confirms.
 #[derive(Debug, Serialize, Clone)]
 pub struct PeekResult {
     pub manifest: Manifest,
-    /// base64-encoded icon bytes if the manifest declares `icon` and the
-    /// file is present in the package. Front-end builds a `data:` URL
-    /// for the dialog `<img>`.
+    /// Base64-encoded icon bytes when the manifest declares `icon` and the
+    /// file is present. Frontend builds a `data:` URL for the dialog `<img>`.
     pub icon_base64: Option<String>,
     pub icon_rel_path: Option<String>,
     /// Same shape as `ListEntry.source` (`local:<path>` or `github:<o/r>`).
@@ -70,7 +66,7 @@ pub struct UpdateCheckResult {
     /// `true` when `latest_version` is strictly newer than `current_version`.
     pub has_update: bool,
     pub last_checked_at_ms: i64,
-    /// `None` for non-github sources (we can't auto-check those).
+    /// Empty for non-github sources, which cannot be auto-checked.
     pub source: String,
 }
 
@@ -83,10 +79,9 @@ fn extensions_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !root.exists() {
         fs::create_dir_all(&root).map_err(|e| format!("mkdir extensions root: {e}"))?;
     }
-    // Stale staging dirs from a crash-mid-install leave `.staging-<ts>`
-    // folders behind. The list code already filters them from the UI,
-    // but they cost disk forever - sweep any older than ~10 minutes on
-    // every list call so the directory eventually self-heals.
+    // Stale `.staging-<ts>` folders are left behind by crashes mid-install.
+    // List code filters them out, but they take disk forever. Sweep any
+    // older than ~10 minutes on every list call so the directory self-heals.
     sweep_stale_staging(&root);
     Ok(root)
 }
@@ -98,14 +93,14 @@ fn sweep_stale_staging(root: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name_str) = name.to_str() else { continue };
-        // `.staging-<ts>` - install crashed mid-extract.
-        // `.trash-<id>-<ts>` - update couldn't delete the previous
-        // copy (sidecar still holding a file open). Both are safe to
-        // sweep when they're older than 10 minutes.
+        // `.staging-<ts>`: install crashed mid-extract.
+        // `.trash-<id>-<ts>`: update could not delete the previous copy
+        // (sidecar still holding a file open). Both safe to sweep after
+        // 10 minutes.
         let ts_str = if let Some(s) = name_str.strip_prefix(".staging-") {
             s
         } else if let Some(s) = name_str.strip_prefix(".trash-") {
-            // Format: `.trash-<id>-<ts>` - take the trailing segment.
+            // Format: `.trash-<id>-<ts>`; take the trailing segment.
             s.rsplit_once('-').map(|(_, t)| t).unwrap_or("")
         } else {
             continue;
@@ -132,9 +127,8 @@ pub async fn ext_list(app: tauri::AppHandle) -> Result<Vec<ListEntry>, String> {
         if !path.is_dir() {
             continue;
         }
-        // Skip the staging / trash dirs the installer leaves behind
-        // on crash or replace; they're swept by `sweep_stale_staging`
-        // and aren't real extensions.
+        // Skip staging/trash dirs left behind on crash or replace. Swept by
+        // `sweep_stale_staging`; not real extensions.
         if path
             .file_name()
             .and_then(|n| n.to_str())
@@ -199,10 +193,10 @@ pub async fn ext_read_asset(
 }
 
 /// Binary sibling of [`ext_read_asset`] returning base64-encoded bytes.
-/// Used by the frontend to render manifest-declared icons (`manifest.icon`)
-/// as `data:` URLs. Path-traversal protection is the same `resolve_asset`
-/// helper - rel paths containing `..` or absolute paths are refused. A
-/// soft 5 MiB cap keeps a poorly-sized icon from blowing the IPC string.
+/// Used by the frontend to render manifest-declared icons as `data:` URLs.
+/// Path-traversal protection via `resolve_asset`; rel paths with `..` or
+/// absolute paths are refused. Soft 5 MiB cap keeps an oversized icon from
+/// blowing the IPC string.
 #[tauri::command]
 pub async fn ext_read_asset_bytes(
     app: tauri::AppHandle,
@@ -226,8 +220,8 @@ pub async fn ext_read_asset_bytes(
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
-/// 50 MiB - mirrors `install::MAX_INSTALL_BYTES`. Duplicated here so we can
-/// refuse a giant local file *before* allocating its contents into memory.
+/// 50 MiB; mirrors `install::MAX_INSTALL_BYTES`. Duplicated so we can refuse
+/// a giant local file before allocating its contents into memory.
 const MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
 
 #[tauri::command]
@@ -236,9 +230,9 @@ pub async fn ext_install_from_zip(
     app: tauri::AppHandle,
     zip_path: String,
 ) -> Result<ListEntry, String> {
-    // Stat first so a user accidentally pointing at a multi-GB ISO doesn't
-    // OOM the install path; `fs::read` would otherwise allocate the whole
-    // file before our in-memory cap fires.
+    // Stat first so accidentally pointing at a multi-GB ISO does not OOM
+    // the install path; `fs::read` would otherwise allocate the whole file
+    // before the cap fires.
     let meta = fs::metadata(&zip_path).map_err(|e| format!("stat {zip_path}: {e}"))?;
     if meta.len() > MAX_DOWNLOAD_BYTES {
         return Err(format!(
@@ -282,8 +276,7 @@ pub async fn ext_install_from_github(
     app: tauri::AppHandle,
     repo: String,
 ) -> Result<ListEntry, String> {
-    // Accept either "owner/repo" or a full URL like
-    // "https://github.com/owner/repo". Normalize to owner/repo.
+    // Accept "owner/repo" or a full URL like "https://github.com/owner/repo".
     let normalized = normalize_owner_repo(&repo)?;
     let api = format!("https://api.github.com/repos/{normalized}/releases/latest");
     let json = http_get_text(&api).await?;
@@ -299,8 +292,8 @@ async fn install_and_return(
     zip_bytes: &[u8],
     source: &str,
 ) -> Result<ListEntry, String> {
-    // Lock around install so two concurrent calls don't trample the state
-    // file. Held only across the install body; we drop it before returning.
+    // Lock around install so two concurrent calls do not trample the state
+    // file. Held only across the install body; dropped before returning.
     let _g = state
         .write_lock
         .lock()
@@ -325,12 +318,12 @@ async fn install_and_return(
 }
 
 /// Hit the GitHub release feed for an installed extension and record the
-/// latest version (and whether it's strictly newer than the installed one).
-/// Only works for sources of the form `github:<owner>/<repo>`; local zip
-/// installs return early with `has_update=false` and no latest version.
+/// latest version plus whether it is strictly newer. Only works for sources
+/// shaped `github:<owner>/<repo>`; local zip installs return early with
+/// `has_update=false` and no latest version.
 ///
-/// The result is also persisted into the extension state so the UI can
-/// show the badge across app restarts without re-checking.
+/// The result is persisted so the UI can show the badge across restarts
+/// without re-checking.
 #[tauri::command]
 pub async fn ext_check_update(
     state: tauri::State<'_, ExtensionsState>,
@@ -338,10 +331,9 @@ pub async fn ext_check_update(
     id: String,
 ) -> Result<UpdateCheckResult, String> {
     super::manifest::validate_id(&id)?;
-    // Snapshot the entry we need under the lock, then drop it before the
-    // network call. We re-acquire below to persist the result. Without the
-    // split, an unrelated install/uninstall would have to wait for the
-    // GitHub round-trip to finish.
+    // Snapshot the entry under the lock, then drop before the network call.
+    // Re-acquire below to persist. Without the split, unrelated install/
+    // uninstall would have to wait for the GitHub round-trip.
     let (current_version, source) = {
         let _g = state
             .write_lock
@@ -358,8 +350,8 @@ pub async fn ext_check_update(
     let owner_repo = match source.strip_prefix("github:") {
         Some(s) => s.to_string(),
         None => {
-            // Non-github source: surface "no update info" but still bump
-            // the last-checked timestamp so the UI doesn't keep nagging.
+            // Non-github source: report "no update info" but bump the
+            // last-checked timestamp so the UI stops nagging.
             let now = super::state::now_ms();
             let _g = state
                 .write_lock
@@ -419,12 +411,11 @@ pub(crate) fn strip_v_prefix(tag: &str) -> String {
     tag.trim_start_matches(['v', 'V']).to_string()
 }
 
-/// Tolerant version compare. Splits both sides on any non-digit, parses
-/// each segment as u32 (`0` on parse failure), and lexicographically
-/// compares. Trailing missing segments treated as `0`. Pre-release suffixes
-/// are ignored beyond what their digits contribute - `1.0.0` and
-/// `1.0.0-beta` compare equal, which is the safer fallback (no false
-/// "update available" on the same major-minor-patch).
+/// Lenient version compare. Splits both sides on any non-digit, parses each
+/// segment as u32 (`0` on parse failure), and compares lexicographically.
+/// Missing trailing segments count as `0`. Pre-release suffixes are ignored
+/// beyond their digits: `1.0.0` and `1.0.0-beta` compare equal, which
+/// avoids a false "update available" on the same major-minor-patch.
 pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     fn parts(s: &str) -> Vec<u32> {
         s.split(|c: char| !c.is_ascii_digit())
@@ -526,11 +517,10 @@ pub async fn ext_uninstall(
 // ---------- HTTP helpers ----------
 
 pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
-    // `connect_timeout` fails fast on unreachable hosts so a user without
-    // network gets an error in 15s instead of waiting on reqwest's default
-    // (which can stall for tens of seconds before erroring). `timeout`
-    // caps the whole request — long enough that a 50 MiB asset on a slow
-    // link still finishes, short enough that a stalled stream gives up.
+    // `connect_timeout` fails fast on unreachable hosts so an offline user
+    // gets an error in 15s instead of reqwest's default tens-of-seconds
+    // stall. `timeout` caps the whole request: long enough for a 50 MiB
+    // asset on a slow link, short enough that a stalled stream gives up.
     let client = reqwest::Client::builder()
         .user_agent("TEDI-Extensions/1.0")
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -546,9 +536,9 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
     if !resp.status().is_success() {
         return Err(format!("GET {url}: HTTP {}", resp.status()));
     }
-    // Honour an honest content-length first so we can bail early when the
-    // server advertises a multi-GB body. Servers that omit or lie still hit
-    // the running-total check below.
+    // Trust an honest content-length first so we bail early when the server
+    // advertises a multi-GB body. Servers that omit or lie still hit the
+    // running-total check below.
     if let Some(len) = resp.content_length() {
         if len > MAX_DOWNLOAD_BYTES {
             return Err(format!(
@@ -557,9 +547,8 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
             ));
         }
     }
-    // Stream chunks so a misreporting server can't push past the cap. We
-    // keep going until either the body ends or the running total tips
-    // over - whichever comes first.
+    // Stream chunks so a misreporting server cannot push past the cap.
+    // Stop when the body ends or the running total tips over.
     let mut bytes = Vec::with_capacity(64 * 1024);
     while let Some(chunk) = resp.chunk().await.map_err(|e| format!("read body: {e}"))? {
         if bytes.len() as u64 + chunk.len() as u64 > MAX_DOWNLOAD_BYTES {
@@ -574,7 +563,7 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
-    // Small JSON bodies — short total timeout is fine. Same connect cap
+    // Small JSON bodies, so a short total timeout is fine. Same connect cap
     // as `http_get_bytes` so a network outage surfaces consistently.
     let client = reqwest::Client::builder()
         .user_agent("TEDI-Extensions/1.0")
@@ -620,7 +609,7 @@ pub(crate) fn normalize_owner_repo(input: &str) -> Result<String, String> {
     Ok(format!("{owner}/{repo}"))
 }
 
-/// Walk the GitHub release JSON for the first `.zip` asset.
+/// Pick the first `.zip` asset from a GitHub release JSON.
 pub(crate) fn pick_release_zip(json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     let assets = v.get("assets")?.as_array()?;

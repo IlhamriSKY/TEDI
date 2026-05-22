@@ -64,9 +64,8 @@ export function isNewerVersion(remote: string, current: string): boolean {
   return false;
 }
 
-/** Linux uses a manual update flow: bundler can't apply deb/rpm in-place, so
- *  we surface the latest GitHub release and let the user install via their
- *  package manager. Returns null when already on the latest version. */
+/** Linux manual update flow. Bundler can't apply deb/rpm in-place, so we
+ *  surface the latest GitHub release. Returns null when on the latest. */
 export async function fetchLinuxRelease(): Promise<ManualUpdateInfo | null> {
   const [current, res] = await Promise.all([
     getVersion(),
@@ -95,8 +94,7 @@ export async function fetchLinuxRelease(): Promise<ManualUpdateInfo | null> {
 export function useUpdater() {
   const [state, setState] = useState<UpdaterState>({ kind: "idle" });
   const updateRef = useRef<Update | null>(null);
-  // Bumped whenever a `tedi --update` request lands (startup arg or
-  // single-instance forwarding). UpdaterPill watches this to open the dialog.
+  // Bumped on every `tedi --update` request. UpdaterPill watches this.
   const [forceOpenSeq, setForceOpenSeq] = useState(0);
 
   const reset = useCallback(() => {
@@ -187,12 +185,9 @@ export function useUpdater() {
   const stateKindRef = useRef(state.kind);
   stateKindRef.current = state.kind;
 
-  // First check 8s after mount so it doesn't compete with PTY spawns + AI
-  // hydration on cold start. One-shot - re-arming on state changes caused the
-  // updater dialog to flicker closed every 8s when sitting on an actionable
-  // state. Guard against `tedi --update` racing us: skip if we've already
-  // transitioned out of idle (the cli drain / trigger event fires first and
-  // would otherwise be clobbered).
+  // First check 8s after mount so it doesn't compete with PTY spawns and AI
+  // hydration. One-shot. Skip if we've already moved out of idle (cli drain
+  // or trigger event fired first).
   useEffect(() => {
     const first = window.setTimeout(() => {
       if (stateKindRef.current === "idle") {
@@ -202,9 +197,8 @@ export function useUpdater() {
     return () => window.clearTimeout(first);
   }, [checkForUpdate]);
 
-  // `tedi --update`: drain the startup flag once and re-fire on every
-  // single-instance forward. Both paths force the dialog open and short-circuit
-  // the 8s startup delay so the user gets immediate feedback.
+  // `tedi --update`: drain startup flag once and re-fire on single-instance forwards.
+  // Both paths force the dialog and skip the 8s delay.
   const updateFlagDrainedRef = useRef(false);
   useEffect(() => {
     if (updateFlagDrainedRef.current) return;

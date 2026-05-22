@@ -69,8 +69,7 @@ export function ModelsSection() {
   const sumopodModels = useSumopodModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
-  // Tracks which provider accordions are open. Reset when the dropdown opens
-  // so the user always starts with the current default provider expanded.
+  // Open provider accordions. Reset on dropdown open to start with the current default expanded.
   const [expandedProviders, setExpandedProviders] = useState<Set<ProviderId>>(new Set());
   const toggleProvider = (id: ProviderId) =>
     setExpandedProviders((prev) => {
@@ -113,10 +112,7 @@ export function ModelsSection() {
     return <div className="text-muted-foreground text-[12px]">Loading…</div>;
   }
 
-  // Resolve the default model's display info using the saved provider when
-  // present. Two providers (e.g. Anthropic + SumoPod) can ship the same
-  // model id, so an id-only lookup picks the first match and mislabels the
-  // trigger. The saved provider disambiguates.
+  // Resolve display info using the saved provider when present. Disambiguates ids shared across providers.
   const defaultModelInfo = (() => {
     if (defaultProvider) {
       const pool =
@@ -237,8 +233,7 @@ export function ModelsSection() {
                           ? "Detection failed - check key / URL"
                           : null
                       : null;
-                  // While searching, every provider with matches is expanded
-                  // so results are visible without manual toggling.
+                  // While searching, expand every provider with matches.
                   const isOpen = searching || expandedProviders.has(p.id);
                   return (
                     <div key={p.id} className="px-1 pt-1">
@@ -328,7 +323,7 @@ export function ModelsSection() {
             {configuredCount} of {gridProviders.length} configured
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {gridProviders.map((p) => (
             <ProviderKeyCard
               key={p.id}
@@ -603,7 +598,7 @@ function OpenAICompatibleBlock({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-[10px]">Base URL</span>
             <Input

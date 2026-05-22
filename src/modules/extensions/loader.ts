@@ -1,13 +1,10 @@
 /**
- * Boot loader: scan installed extensions, dynamic-import each enabled one,
- * call `activate(ctx)`, and track disposers so `deactivate(id)` can clean
- * up. Triggered once from the main webview during App boot.
- *
- * Module-loading strategy: extensions ship an ES module. We read the JS
- * text via the Rust `ext_read_asset` command (avoids needing webview
- * filesystem access) and instantiate via Blob URL `import()`. This works
- * inside Tauri's webview without exposing arbitrary disk paths to the JS
- * side. For pure-declarative packs (no `main`), activation is a no-op.
+ * Boot loader. Scans installed extensions, dynamic-imports each enabled one,
+ * calls `activate(ctx)`, and tracks disposers for `deactivate(id)`. Runs once
+ * during App boot.
+ * Extensions ship an ES module; the JS text is read via `ext_read_asset` and
+ * instantiated via Blob URL `import()`. Declarative-only packs (no `main`)
+ * skip activation.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -27,23 +24,14 @@ import {
 } from "./registries";
 
 /**
- * Seed every contribution registry from the manifest's declarative
- * `contributes.*` block. This runs **before** the extension's
- * `activate(ctx)` so the UI surface (settings toggles, slash-commands,
- * themes, panels, ...) is present even if the extension's JS throws
- * later. The runtime `ctx.contribute.*` calls inside activate() simply
- * overwrite the manifest's slice for that extension.
- *
- * Exported because the settings webview lives in a separate JS context
- * (each Tauri window is its own module instance) and never runs the
- * loader's activate path. The settings store calls this from its
- * own `init()` so the Extensions tab sees the same declarative
- * contributions main does.
+ * Seeds contribution registries from the manifest's `contributes.*` block.
+ * Runs before `activate(ctx)` so the UI surface stays visible even if
+ * activate throws. Runtime `ctx.contribute.*` calls overwrite this slice.
+ * Exported because the settings webview is a separate Tauri window and
+ * doesn't run the loader; its store calls this from `init()`.
  */
 export function seedManifestContributions(ext: InstalledExtension): void {
-  // `contributes` is already typed via the Zod manifest schema, so the
-  // optional category arrays line up with each registry's expected
-  // element type. No casting needed.
+  // Typed via the Zod manifest schema; no casting needed.
   const c = ext.manifest.contributes;
   if (c.settings) settingsRegistry.set(ext.id, c.settings);
   if (c.commands) commandsRegistry.set(ext.id, c.commands);
@@ -65,8 +53,7 @@ export type InstalledExtension = {
   fingerprint: string;
   approved_permissions: string[];
   root: string;
-  /** Last upstream version observed via `ext_check_update`. `null` until
-   *  the user has run an update check at least once. */
+  /** Last upstream version from `ext_check_update`. `null` until the first check. */
   latest_version: string | null;
   last_checked_at_ms: number | null;
 };
@@ -97,9 +84,9 @@ export type UpdateCheckResult = {
 type ActiveRecord = {
   context: ExtensionContext;
   dispose: () => Promise<void>;
-  /** Reference held only so the Blob URL stays alive until deactivate. */
+  /** Keeps the Blob URL alive until deactivate. */
   scriptUrl: string | null;
-  /** Optional deactivate hook supplied by the extension's module. */
+  /** Optional `deactivate` export from the extension module. */
   userDeactivate: (() => void | Promise<void>) | null;
 };
 
@@ -133,16 +120,13 @@ export async function listInstalled(): Promise<InstalledExtension[]> {
 
 export async function activate(ext: InstalledExtension): Promise<void> {
   if (active.has(ext.id)) return;
-  // Defensive: never activate a disabled extension even if a caller
-  // accidentally hands us a stale entry. The store flips `enabled` in
-  // Rust state before calling this, but a future caller might race.
+  // Skip disabled extensions even if a stale entry slips through.
   if (!ext.enabled) {
     console.warn(`[extensions] activate called on disabled ext ${ext.id} - ignoring`);
     return;
   }
-  // Seed declarative contributions before JS runs. If activate() throws
-  // we keep them so the user still sees the extension's controls in
-  // Settings -> Extensions and can disable / uninstall cleanly.
+  // Seed declarative contributions first. If activate() throws, they stay
+  // so the user can still disable/uninstall from Settings.
   seedManifestContributions(ext);
 
   const { context, dispose } = await buildContext({
@@ -177,22 +161,16 @@ export async function activate(ext: InstalledExtension): Promise<void> {
         await Promise.resolve(activateFn(context));
       } else {
         console.warn(
-          `[extensions] ${ext.id} has manifest.main but no activate() export - declarative-only contributions still applied`,
+          `[extensions] ${ext.id} has manifest.main but no activate() export. Declarative contributions still applied.`,
         );
       }
     } catch (err) {
-      // Activate failure path: tear down disposers (event listeners,
-      // app-context subscription, ...) but **keep** the manifest's
-      // declarative contributions intact. That way the user still has
-      // a working settings toggle / remove button instead of an empty
-      // card. The dynamic side (`registerCommandHandler`,
-      // `setItem`, ...) is gone because dispose() ran.
+      // Activate failure: tear down disposers but keep manifest
+      // contributions so the user still sees a working settings card.
       console.error(`[extensions] failed to activate ${ext.id}`, err);
       if (scriptUrl) URL.revokeObjectURL(scriptUrl);
       await dispose();
-      // Re-seed in case the JS partially called contribute.* and then
-      // threw - the partial state shouldn't override the manifest's
-      // canonical declaration.
+      // Re-seed in case the JS partially called contribute.* before throwing.
       seedManifestContributions(ext);
       throw err;
     }
@@ -215,8 +193,8 @@ export async function deactivate(id: string): Promise<void> {
   if (rec.scriptUrl) URL.revokeObjectURL(rec.scriptUrl);
 }
 
-/** Boot pipeline: list, then activate all enabled. Tolerant of per-ext
- *  failures - one broken extension shouldn't tank the entire app. */
+/** Lists installed extensions and activates the enabled ones. Per-ext
+ *  failures are logged, not thrown. */
 export async function bootAll(): Promise<InstalledExtension[]> {
   const installed = await listInstalled();
   for (const ext of installed) {

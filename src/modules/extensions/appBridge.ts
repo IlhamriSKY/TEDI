@@ -1,9 +1,6 @@
 /**
- * App context bridge: a tiny pub/sub that lets the main App push live
- * workspace state (cwd, active file, terminal count) into the extension
- * subsystem, so presence / status-style extensions don't need to reach
- * into core stores. The bridge is plain-vanilla so it can be imported
- * from both React code and the host factory without React state coupling.
+ * Pub/sub bridge that pushes workspace state (cwd, active file, terminal count)
+ * to extensions. Plain JS so React and the host factory can both import it.
  */
 
 import type { AppContextSnapshot } from "./host";
@@ -22,9 +19,7 @@ export function getAppContext(): AppContextSnapshot {
 }
 
 export function setAppContext(next: AppContextSnapshot): void {
-  // Cheap shallow-equality check - the App effect that calls this runs on
-  // every render, so we'd otherwise wake every extension on unrelated
-  // re-renders.
+  // Shallow equality check. The caller runs on every App render.
   if (
     next.workspaceCwd === snapshot.workspaceCwd &&
     next.activeFileName === snapshot.activeFileName &&
@@ -45,8 +40,7 @@ export function setAppContext(next: AppContextSnapshot): void {
 
 export function subscribeAppContext(cb: (ctx: AppContextSnapshot) => void): () => void {
   listeners.add(cb);
-  // Fire once on subscribe so callers see the current state without an
-  // extra `getContext()` round-trip.
+  // Fire once on subscribe so callers see the current state.
   try {
     cb(snapshot);
   } catch (err) {

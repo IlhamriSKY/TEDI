@@ -1,49 +1,46 @@
-//! Headless `tedi --update` / `tedi -u`. Sibling of `cli_ext.rs` — same
-//! short-circuit pattern, just for the updater. Runs on all three desktop
-//! OSes without booting Tauri:
+//! Headless `tedi --update` / `tedi -u`. Sibling of `cli_ext.rs`; same
+//! short-circuit pattern for the updater. Runs on all three desktop OSes
+//! without booting Tauri.
 //!
+//! Flow:
 //! 1. Fetch `latest.json` from the configured endpoint.
-//! 2. Compare versions (`compare_versions` from the extensions helper).
+//! 2. Compare versions via `compare_versions` from the extensions helper.
 //! 3. Prompt on a TTY, auto-accept on non-interactive shells.
-//! 4. Download the platform-matching bundle, verify its minisign
+//! 4. Download the platform-matching bundle and verify its minisign
 //!    signature against the pubkey baked into `tauri.conf.json`.
 //! 5. Install in place per platform:
-//!    - **Windows**: spawn the NSIS installer with `/PASSIVE /UPDATE`,
-//!      let it replace `TEDI.exe`. Same flags `tauri-plugin-updater`
-//!      uses when `installMode: "passive"` is set in the config.
-//!    - **Linux**: AppImage in-place swap via `$APPIMAGE`. `.deb`/`.rpm`
-//!      installs need the system package manager and aren't handled
-//!      here — we surface a clear message pointing the user at `apt` /
-//!      `dnf` instead of pretending to update something we can't.
-//!    - **macOS**: extract the `.app.tar.gz` via `tar -xzf`, rename the
-//!      current `.app` aside, move the new one into place. Re-run
-//!      `tedi` after the swap.
+//!    - Windows: spawn the NSIS installer with `/PASSIVE /UPDATE` so it
+//!      replaces `TEDI.exe`. Same flags as `tauri-plugin-updater` with
+//!      `installMode: "passive"`.
+//!    - Linux: AppImage in-place swap via `$APPIMAGE`. `.deb`/`.rpm`
+//!      installs go through the system package manager; we print a hint
+//!      pointing at `apt` / `dnf` instead of pretending to update.
+//!    - macOS: extract `.app.tar.gz` via `tar -xzf`, rename the current
+//!      `.app` aside, move the new one into place.
 //!
-//! Sync source-of-truth: `ENDPOINT` and `PUBKEY_B64` must match
-//! `plugins.updater.endpoints[0]` and `plugins.updater.pubkey` in
-//! `tauri.conf.json`. We embed them by hand because Tauri's
-//! `generate_context!` only exposes them inside the runtime (post-boot)
-//! and we short-circuit before that.
+//! `ENDPOINT` and `PUBKEY_B64` must match `plugins.updater.endpoints[0]`
+//! and `plugins.updater.pubkey` in `tauri.conf.json`. Embedded by hand
+//! because `generate_context!` only exposes them post-boot.
 
 use std::io::Write;
 
 use crate::modules::cli;
 use crate::modules::extensions::commands as ext_cmd;
 
-/// Where to GET the update manifest. Mirrors `plugins.updater.endpoints[0]`
-/// in `tauri.conf.json`. Tauri normally fetches this from inside the
-/// running app; we hit it directly with our shared HTTP helper.
+/// Update manifest URL. Mirrors `plugins.updater.endpoints[0]` in
+/// `tauri.conf.json`. Tauri normally fetches this from inside the app; we
+/// hit it directly with our shared HTTP helper.
 const ENDPOINT: &str =
     "https://github.com/IlhamriSKY/TEDI/releases/latest/download/latest.json";
 
 /// Base64-encoded minisign public key. Mirrors `plugins.updater.pubkey`
 /// in `tauri.conf.json`. Updating one without the other splits the trust
-/// roots between GUI and CLI — keep them in lock-step.
+/// roots between GUI and CLI; keep them in lock-step.
 const PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwODYyOTk4OTJBQ0VBRTUKUldUbDZxeVNtQ21HWUM2c3dKb0N1b3Q3ZE9oTjJNOG0vSzgvVThuMXFleFdDVUlXdzhHYkpuenEK";
 
 #[derive(serde::Deserialize, Debug)]
 struct Manifest {
-    /// Tag-name style — usually prefixed with `v`. We strip with
+    /// Tag-name style, usually prefixed with `v`. Stripped via
     /// `strip_v_prefix` before semver-compare.
     version: String,
     #[serde(default)]
@@ -55,18 +52,15 @@ struct Manifest {
 #[derive(serde::Deserialize, Debug, Clone)]
 struct PlatformEntry {
     /// Multi-line minisign signature blob, base64 inside its own framing.
-    /// The `minisign-verify::Signature::decode` helper parses the file
-    /// format directly.
+    /// `minisign-verify::Signature::decode` parses the file format directly.
     signature: String,
-    /// Bundle download URL. Hosted on the GitHub release the manifest
-    /// came from. `http_get_bytes` already follows redirects to the S3
-    /// asset host.
+    /// Bundle download URL. Hosted on the GitHub release the manifest came
+    /// from. `http_get_bytes` follows redirects to the S3 asset host.
     url: String,
 }
 
-/// Entry point. Returns immediately when `--update` / `-u` isn't in argv
-/// so the caller proceeds with normal GUI boot; otherwise runs the
-/// headless flow and `process::exit`s.
+/// Run the headless update flow and exit. Returns without acting when
+/// `--update` / `-u` is not in argv.
 pub fn handle_update_command_and_exit() {
     let args: Vec<String> = std::env::args().collect();
     if !args.iter().skip(1).any(|a| cli::is_update_flag(a)) {
@@ -87,7 +81,7 @@ pub fn handle_update_command_and_exit() {
 
 fn run_update() -> Result<(), String> {
     let current = env!("CARGO_PKG_VERSION");
-    println!("TEDI {current} — checking for updates…");
+    println!("TEDI {current}; checking for updates...");
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -124,7 +118,7 @@ fn run_update() -> Result<(), String> {
     if !manifest.notes.is_empty() {
         println!();
         println!("Release notes:");
-        // 30-line preview keeps the prompt visible even on long changelogs.
+        // 30-line cap keeps the prompt visible on long changelogs.
         for line in manifest.notes.lines().take(30) {
             println!("  {line}");
         }
@@ -135,8 +129,8 @@ fn run_update() -> Result<(), String> {
         println!();
     }
 
-    // Confirm on a TTY; in a non-interactive shell (CI / script), assume
-    // the caller meant it. Mirrors how `apt -y` behaves under automation.
+    // Confirm on a TTY; in a non-interactive shell, assume the caller
+    // meant it. Mirrors `apt -y` under automation.
     use std::io::IsTerminal;
     if std::io::stdin().is_terminal() {
         print!("Download and install v{latest}? (y/N): ");
@@ -150,26 +144,25 @@ fn run_update() -> Result<(), String> {
             return Ok(());
         }
     } else {
-        println!("Non-interactive shell — proceeding with download.");
+        println!("Non-interactive shell; proceeding with download.");
     }
 
     println!("Downloading {}", platform.url);
     let bytes = runtime.block_on(ext_cmd::http_get_bytes(&platform.url))?;
     println!("Downloaded {} bytes.", bytes.len());
 
-    println!("Verifying signature…");
+    println!("Verifying signature...");
     verify_signature(&bytes, &platform.signature)?;
     println!("Signature OK.");
 
-    println!("Installing…");
+    println!("Installing...");
     let outcome = install_bundle(&bytes, &platform.url)?;
     println!("{outcome}");
     Ok(())
 }
 
-/// Format used by Tauri's updater manifest: `<os>-<arch>` where `os` is
-/// `windows` / `darwin` / `linux` and `arch` is `x86_64` / `aarch64` /
-/// `i686`. Matches the keys `latest.json` publishes.
+/// Tauri updater manifest key for this build: `<os>-<arch>` where `os` is
+/// `windows` / `darwin` / `linux` and `arch` is `x86_64` / `aarch64` / `i686`.
 fn current_platform_key() -> Result<String, String> {
     let os = if cfg!(target_os = "windows") {
         "windows"
@@ -194,19 +187,11 @@ fn current_platform_key() -> Result<String, String> {
 
 /// Verify a Tauri-style minisign signature over `data`.
 ///
-/// Both inputs are wrapped one extra layer of base64 in Tauri's manifest
-/// + config format:
-///   * `PUBKEY_B64` is base64( `untrusted comment: …\nRWT…\n` ) — the
-///     standard minisign public-key file, base64-encoded for embedding
-///     in `tauri.conf.json`.
-///   * `signature_b64` (the `signature` field of `latest.json`) is
-///     base64( `untrusted comment: signature …\nRUT…\ntrusted comment: …\nR1Z…\n` )
-///     — the standard minisign signature file, base64-encoded for JSON
-///     transport.
-///
-/// We unwrap that outer base64 on each side, hand the resulting plain-
-/// text minisign-file content to `minisign_verify`, and verify the
-/// downloaded bytes against it.
+/// Both inputs carry an extra base64 layer in Tauri's manifest + config
+/// format. `PUBKEY_B64` is base64 of the standard minisign public-key
+/// file text; `signature_b64` is base64 of the standard minisign
+/// signature file text. We strip the outer base64 on each side and hand
+/// the plain-text minisign file contents to `minisign_verify`.
 fn verify_signature(data: &[u8], signature_b64: &str) -> Result<(), String> {
     use base64::Engine as _;
     use minisign_verify::{PublicKey, Signature};
@@ -227,16 +212,15 @@ fn verify_signature(data: &[u8], signature_b64: &str) -> Result<(), String> {
     let sig = Signature::decode(sig_text.trim())
         .map_err(|e| format!("decode signature: {e}"))?;
 
-    // `allow_legacy = false` rejects pre-hashed signatures we never produce.
+    // `allow_legacy = false` rejects pre-hashed signatures (we never produce them).
     pk.verify(data, &sig, false)
         .map_err(|e| format!("signature verification failed: {e}"))
 }
 
-/// Windows: write the bundle to `%TEMP%`, spawn the NSIS installer with
-/// `/PASSIVE /UPDATE`. Matches what `tauri-plugin-updater` does when
-/// `installMode: "passive"` is set in `tauri.conf.json`. The current
-/// process exits right after; NSIS holds no handles on the running EXE,
-/// so it can replace `TEDI.exe` cleanly.
+/// Windows: write the bundle to `%TEMP%` and spawn the NSIS installer with
+/// `/PASSIVE /UPDATE`. Matches `tauri-plugin-updater` with
+/// `installMode: "passive"`. The current process exits right after; NSIS
+/// holds no handles on the running EXE, so it can replace `TEDI.exe`.
 #[cfg(target_os = "windows")]
 fn install_bundle(bytes: &[u8], url: &str) -> Result<String, String> {
     let filename = url
@@ -247,7 +231,7 @@ fn install_bundle(bytes: &[u8], url: &str) -> Result<String, String> {
     std::fs::write(&path, bytes).map_err(|e| format!("write installer: {e}"))?;
     // `/PASSIVE` shows a non-interactive progress dialog; `/UPDATE` tells
     // the NSIS hook to skip the "already installed" check and overwrite.
-    // Both flags are the Tauri NSIS-template convention.
+    // Both flags come from the Tauri NSIS template.
     std::process::Command::new(&path)
         .args(["/PASSIVE", "/UPDATE"])
         .spawn()
@@ -257,10 +241,10 @@ fn install_bundle(bytes: &[u8], url: &str) -> Result<String, String> {
         .into())
 }
 
-/// Linux: AppImage in-place swap. Requires `$APPIMAGE` (the env var the
-/// AppImage runtime sets to the .AppImage file the user keeps around).
-/// `.deb`/`.rpm` installs need root and live behind the system package
-/// manager — we surface a clear message instead of pretending to update.
+/// Linux: AppImage in-place swap. Requires `$APPIMAGE` (set by the AppImage
+/// runtime to the .AppImage file the user keeps around). `.deb`/`.rpm`
+/// installs go through the system package manager; we print a hint instead
+/// of pretending to update.
 #[cfg(target_os = "linux")]
 fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     use std::os::unix::fs::PermissionsExt;
@@ -285,13 +269,13 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     perms.set_mode(0o755);
     std::fs::set_permissions(&new_path, perms)
         .map_err(|e| format!("chmod new appimage: {e}"))?;
-    // Atomic-ish swap: rename current aside, rename new into place,
-    // remove the backup on success.
+    // Atomic-ish swap: rename current aside, rename new into place, remove
+    // the backup on success.
     let _ = std::fs::remove_file(&old_path);
     std::fs::rename(&appimage, &old_path)
         .map_err(|e| format!("backup current appimage: {e}"))?;
     if let Err(e) = std::fs::rename(&new_path, &appimage) {
-        // Best-effort rollback so the user isn't left without TEDI.
+        // Best-effort rollback so the user is not left without TEDI.
         let _ = std::fs::rename(&old_path, &appimage);
         return Err(format!("swap in new appimage: {e}"));
     }
@@ -301,11 +285,11 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     ))
 }
 
-/// macOS: download is a `.app.tar.gz`. We unpack with the system `tar`
-/// (always present on macOS), find the extracted `.app` directory,
-/// rename the running `.app` to `<name>.app.old`, move the new one into
-/// place, and clean up. The process exits right after — exec'd dylibs
-/// are already in memory, so swapping the on-disk bundle is safe.
+/// macOS: bundle is a `.app.tar.gz`. Unpack with the system `tar` (always
+/// present), find the extracted `.app`, rename the running `.app` to
+/// `<name>.app.old`, move the new one into place, and clean up. The
+/// process exits right after; exec'd dylibs are already in memory, so
+/// swapping the on-disk bundle is safe.
 #[cfg(target_os = "macos")]
 fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     use std::process::Command;
@@ -339,7 +323,7 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
     let current_app = find_app_root(&current_exe).ok_or_else(|| {
         format!(
             "could not locate the running .app bundle from {} \
-             (run from an installed TEDI.app — `tedi --update` can't \
+             (run from an installed TEDI.app; `tedi --update` cannot \
              update a `cargo run` binary)",
             current_exe.display()
         )
@@ -347,9 +331,8 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
 
     let backup = std::path::PathBuf::from(format!("{}.old", current_app.display()));
     let _ = std::fs::remove_dir_all(&backup);
-    // `mv` handles cross-filesystem moves between /var/folders (staging)
-    // and /Applications (typical install location) where std::fs::rename
-    // would EXDEV.
+    // `mv` handles cross-filesystem moves between /var/folders (staging) and
+    // /Applications (typical install) where std::fs::rename would EXDEV.
     let st = Command::new("mv")
         .arg(&current_app)
         .arg(&backup)
@@ -364,7 +347,7 @@ fn install_bundle(bytes: &[u8], _url: &str) -> Result<String, String> {
         .status()
         .map_err(|e| format!("spawn mv install: {e}"))?;
     if !st.success() {
-        // Rollback so the user isn't left without TEDI.
+        // Rollback so the user is not left without TEDI.
         let _ = Command::new("mv").arg(&backup).arg(&current_app).status();
         return Err("mv new.app -> install failed".into());
     }
@@ -387,9 +370,8 @@ fn find_app_root(exe: &std::path::Path) -> Option<std::path::PathBuf> {
     }
 }
 
-// Catch-all so the file compiles on the niche targets the rest of the
-// crate already gates out (e.g. android / ios). `handle_update_command_and_exit`
-// reaches here only if argv had `--update` on such a target.
+// Catch-all so the file compiles on targets the rest of the crate gates out
+// (android / ios). Reached only when argv had `--update` on such a target.
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn install_bundle(_bytes: &[u8], _url: &str) -> Result<String, String> {
     Err("headless updater not implemented for this target".into())
@@ -401,7 +383,7 @@ mod tests {
 
     #[test]
     fn platform_key_for_current_target() {
-        // Whatever this test runs on must round-trip cleanly — no panic,
+        // Whatever this test runs on must round-trip cleanly: no panic,
         // result follows the `<os>-<arch>` shape.
         let key = current_platform_key().expect("platform key");
         let parts: Vec<&str> = key.split('-').collect();
@@ -441,9 +423,8 @@ mod tests {
 
     #[test]
     fn pubkey_constant_decodes() {
-        // Belt-and-braces: if someone edits the constant and forgets to
-        // re-encode, this test catches it before signature verification
-        // would silently break on every release.
+        // Catch any edit to the constant that forgot to re-encode, before
+        // signature verification would silently break on every release.
         use base64::Engine as _;
         let pk_bytes = base64::engine::general_purpose::STANDARD
             .decode(PUBKEY_B64.as_bytes())
@@ -456,12 +437,10 @@ mod tests {
         minisign_verify::PublicKey::decode(pk_text.trim()).expect("minisign decode");
     }
 
-    /// One-off diagnostic: print the raw signature blob for the current
-    /// platform from `latest.json`. Useful when the live verify test
-    /// fails because the manifest's signature framing differs from what
-    /// `minisign-verify::Signature::decode` expects (Tauri's manifest
-    /// historically ships the signature already base64-decoded — i.e.
-    /// the file-format text — but some pipelines double-encode it).
+    /// Diagnostic: print the raw signature blob for the current platform
+    /// from `latest.json`. Useful when the live verify test fails because
+    /// the manifest's signature framing differs from what
+    /// `minisign-verify::Signature::decode` expects.
     #[test]
     #[ignore]
     fn live_updater_dump_signature() {
@@ -485,10 +464,10 @@ mod tests {
         }
     }
 
-    /// Live smoke test: hit the configured endpoint, parse, and verify
-    /// the signature for whichever platform `latest.json` lists for the
-    /// current OS/arch. Marked `#[ignore]` because it hits the network
-    /// and downloads several MB. Run explicitly with
+    /// Live smoke test: hit the configured endpoint, parse, and verify the
+    /// signature for whichever platform `latest.json` lists for the current
+    /// OS/arch. `#[ignore]` because it hits the network and downloads
+    /// several MB. Run with
     /// `cargo test live_updater -- --ignored --nocapture`.
     #[test]
     #[ignore]

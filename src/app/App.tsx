@@ -33,6 +33,12 @@ import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
+import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
+import {
+  RightPanelHost,
+  useExtensionsStore,
+  useRightPanelStore,
+} from "@/modules/extensions";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -52,7 +58,11 @@ import {
   CONTENT_ZOOM_MIN,
   CONTENT_ZOOM_STEP,
 } from "@/modules/settings/store";
-import { useGlobalShortcuts, type ShortcutHandlers } from "@/modules/shortcuts";
+import {
+  useExtensionShortcuts,
+  useGlobalShortcuts,
+  type ShortcutHandlers,
+} from "@/modules/shortcuts";
 import { StatusBar } from "@/modules/statusbar";
 import {
   activeLeaf,
@@ -66,6 +76,7 @@ import {
 } from "@/modules/tabs";
 import {
   disposeSession,
+  ensureFsDragListener,
   findLeaf,
   hasLeaf,
   leafIds,
@@ -98,13 +109,11 @@ import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
-// Code-split: defer downloading these chunks until something actually opens
-// the corresponding UI. Cuts the eager main bundle (~1 MB → smaller) and
-// keeps cold-start cheap when the user is just running a terminal.
-//   - Source Control panel only mounts when `showSourceControl` is on
-//   - Diff stacks short-circuit to null when no relevant tab exists
-//   - Preview stack mounts when at least one preview tab is open
-//   - Dialogs only mount while their `open` flag is true
+// Code-split. Each chunk loads only when its UI is opened:
+//   - Source Control mounts when `showSourceControl` is on
+//   - Diff stacks render null until a relevant tab exists
+//   - Preview stack mounts once a preview tab exists
+//   - Dialogs mount only while `open` is true
 const SourceControlPanel = lazy(() =>
   import("@/modules/scm/SourceControlPanel").then((m) => ({ default: m.SourceControlPanel })),
 );
@@ -123,26 +132,24 @@ const PreviewStack = lazy(() =>
 const SshConnectionDialog = lazy(() =>
   import("@/modules/ssh/SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
 );
-// Defer the SFTP panel + the russh-sftp IPC wrappers it imports until the
-// user actually has a live SSH session. Local-only workflows pay nothing.
+// Lazy-load the SFTP panel and its russh-sftp wrappers. Local-only
+// workflows skip this code entirely.
 const SshFileExplorer = lazy(() =>
   import("@/modules/ssh/SshFileExplorer").then((m) => ({ default: m.SshFileExplorer })),
 );
 
-/** Context object the live-terminal helpers read. Mirrors a subset of
- *  `liveContextRef.current` - kept narrow so the helpers stay testable. */
+/** Narrow context for live-terminal helpers. Subset of `liveContextRef.current`. */
 type LiveTerminalCtx = {
   tabs: ReturnType<typeof useTabs>["tabs"];
   activeId: number;
 };
 
-/** Snapshot all terminal leaves in current tab order. The `ordinal` field
- *  surfaced to the AI is the leaf's stable FIFO `terminalOrdinal` — the
- *  same number rendered on the TabBar chip — so "terminal 3" from the user
- *  maps to the exact leaf they're pointing at, even after closes, drags,
- *  or workspace restarts. A positional fallback covers legacy saved state
- *  where the ordinal field is missing; `replaceAllTabs` backfills it on
- *  hydration so this path is rare in practice. */
+/**
+ * Snapshots all terminal leaves in tab order. `ordinal` is the leaf's
+ * FIFO `terminalOrdinal` (the number on the TabBar chip), so "terminal 3"
+ * maps to the same leaf across closes, drags, and restarts. Falls back to
+ * positional numbering if the saved field is missing.
+ */
 function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   const out: TerminalInfo[] = [];
   let fallback = 0;
@@ -164,8 +171,7 @@ function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   return out;
 }
 
-/** Resolve a TerminalTarget to a leaf id. Order: leafId > tabId > ordinal >
- *  title (substring, case-insensitive). Empty target → active terminal. */
+/** Resolves a TerminalTarget to a leaf id. Order: leafId, tabId, ordinal, title substring. Empty target picks the active terminal. */
 function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): number | null {
   const list = snapshotTerminals(ctx);
   if (list.length === 0) return null;
@@ -188,7 +194,7 @@ function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): numb
     const hit = list.find((r) => r.title.toLowerCase().includes(needle));
     return hit ? hit.leafId : null;
   }
-  // Empty target → active terminal if any.
+  // Fall back to the active terminal.
   const active = list.find((r) => r.isActive);
   return active ? active.leafId : null;
 }
@@ -236,13 +242,22 @@ export default function App() {
     reorderLeafInGroup,
   } = useTabs();
 
-  // Drag a file from the OS file manager onto a terminal pane → paste its
-  // shell-quoted path. Tauri captures OS drops globally, so the listener
-  // lives once at the app root and dispatches by hit-testing the cursor.
+  // Drop a file from the OS file manager onto a terminal pane to paste its
+  // shell-quoted path. Tauri captures OS drops globally, so one listener
+  // at the app root hit-tests the cursor.
   useTerminalFileDrop();
 
-  // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
-  // (e.g. cdInNewTab) read the latest pane state instead of a stale closure.
+  // HTML5 drags from `[data-fs-path]` elements (sidebar tree, extension
+  // panels via `ctx.ui.mountFolderTree`, etc.) populate dataTransfer at a
+  // document-level capture listener. Bypasses React's per-root delegation
+  // so drag sources from separate `createRoot` trees still work. Module
+  // guard prevents double-attach.
+  useEffect(() => {
+    ensureFsDragListener();
+  }, []);
+
+  // Mirror `tabs` into a ref so deferred callbacks (e.g. cdInNewTab) read
+  // the latest state instead of a stale closure.
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
@@ -251,31 +266,31 @@ export default function App() {
   const isTerminalLike = activeTab ? isTerminalLikeTab(activeTab) : false;
   const isEditorLike = activeTab ? isEditorLikeTab(activeTab) : false;
 
-  // Drive lazy-mount of the diff/preview stacks. The chunks aren't downloaded
-  // (and the components don't run) until at least one tab of that kind exists.
+  // Lazy-mount the diff/preview stacks. Chunks only load once a tab of
+  // that kind exists.
   const hasPreviewTab = useMemo(() => tabs.some((t) => t.kind === "preview"), [tabs]);
   const hasAiDiffTab = useMemo(() => tabs.some((t) => t.kind === "ai-diff"), [tabs]);
   const hasGitDiffTab = useMemo(() => tabs.some((t) => t.kind === "git-diff"), [tabs]);
 
-  // Active leaf is the single source of truth for "what's focused inside the
-  // current tab" - controls Search/AI selection/CWD wiring etc.
+  // Active leaf says what's focused in the current tab. Drives Search,
+  // AI selection, CWD wiring, etc.
   const activeLeafIdInTab = activePaneTab?.activeLeafId ?? null;
   const activeLeafKindCurrent = activeTab ? activeLeafKind(activeTab) : null;
 
   // -------- runtime handles & search/url state --------
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
-  // Per-leaf SSH status. Lives in React state so TabBar's dot + StatusBar's
-  // pill rerender on transitions. Keyed by leafId; entries are cleared by
-  // the same prune-effect that drops dead terminal handles below.
+  // Per-leaf SSH status. React state so TabBar dot and StatusBar pill
+  // rerender on transitions. Keyed by leafId; pruned with dead terminal
+  // handles below.
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
-  // Per-leaf AI CLI status (claude, codex, opencode, copilot, pi). Surfaces
-  // a dot on the tab + a toast/beep on transitions into "blocking". Same
-  // prune flow as `sshStatuses`.
+  // Per-leaf AI CLI status (claude, codex, opencode, copilot, pi). Drives
+  // the tab dot and the toast/beep on transition to "blocking". Pruned
+  // with `sshStatuses`.
   const [aiCliStatuses, setAiCliStatuses] = useState<Map<number, AiCliStatus>>(() => new Map());
   const [editingSshConn, setEditingSshConn] = useState<SshConnection | null>(null);
   const [sshEditorOpen, setSshEditorOpen] = useState(false);
-  // Latches the first time each lazy dialog is requested. Stays true after -
-  // see comments at the dialog mount sites.
+  // Latches the first time each lazy dialog opens. Stays true; see the
+  // dialog mount sites for why.
   const [sshEditorMounted, setSshEditorMounted] = useState(false);
   useEffect(() => {
     if (sshEditorOpen) setSshEditorMounted(true);
@@ -289,10 +304,9 @@ export default function App() {
   const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
   const [activeEditorHandle, setActiveEditorHandle] = useState<EditorPaneHandle | null>(null);
   /**
-   * Editor leaf ids currently rendered as a markdown-preview view instead of
-   * the source editor. Keyed by leaf id so split panes can be toggled
-   * independently. Cleaned up by `PaneStack`'s leaf-pruning effect - the IDs
-   * here for closed leaves are harmless (just a stale `Set` entry).
+   * Editor leaves currently shown as markdown preview instead of source.
+   * Keyed by leaf id so split panes toggle independently. Stale entries
+   * for closed leaves are harmless.
    */
   const [mdPreviewLeafIds, setMdPreviewLeafIds] = useState<ReadonlySet<number>>(() => new Set());
   const toggleMdPreviewForLeaf = useCallback((leafId: number) => {
@@ -312,14 +326,12 @@ export default function App() {
   }, []);
 
   // Accordion sub-panels inside the merged Files section. Each section
-  // collapses to its h-8 header strip via a plain flex layout (not via
-  // react-resizable-panels' collapse mechanism). The library distributes
-  // freed space proportionally to other panels' `defaultSize` weights — so
-  // collapsing both at once would force one back open because the other
-  // got a non-zero share of the freed space. Plain flex sidesteps that:
-  // each section is `flex-1` when open and `h-8 shrink-0` when collapsed,
-  // and the parent stays a single ResizablePanel so the user can still
-  // resize the whole Files section against SCM / Workspaces below.
+  // collapses to its h-8 header via flex layout, not react-resizable-panels'
+  // collapse. The library redistributes freed space by `defaultSize`
+  // weight, which would force one section back open if both collapsed.
+  // Plain flex avoids that: `flex-1` when open, `h-8 shrink-0` when
+  // collapsed. The parent stays a single ResizablePanel so the whole Files
+  // section can still resize against SCM / Workspaces below.
   const [localFilesCollapsed, setLocalFilesCollapsed] = useState(false);
   const [sshFilesCollapsed, setSshFilesCollapsed] = useState(false);
   const toggleLocalFiles = useCallback(() => {
@@ -367,26 +379,24 @@ export default function App() {
     try {
       localStorage.setItem("tedi.workspaceRoot", normalized);
     } catch {
-      // Storage may be unavailable (private mode etc.) - skip persistence.
+      // Storage unavailable (private mode etc.). Skip persistence.
     }
-    // Auto-open a terminal tab rooted at the picked folder so the user lands
-    // straight in a shell at the new workspace.
+    // Open a terminal tab rooted at the picked folder.
     newTab(normalized);
   }, [pickedRoot, activePaneTab, tabs, home, newTab]);
 
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
   useEffect(() => {
-    // Forward-slash form so explorerRoot stays equal across home → OSC 7.
+    // Forward slashes so explorerRoot matches across home and OSC 7.
     homeDir()
       .then((p) => setHome(p.replace(/\\/g, "/")))
       .catch(() => setHome(null));
   }, []);
 
-  // `tedi .` / `tedi <path>` handler. Drained from the Rust side on boot,
-  // and pushed live by the single-instance plugin when a second `tedi`
-  // invocation forwards its argv into this window. Folder → adopt as
-  // workspace root + open a fresh terminal there. File → adopt parent as
-  // root + open the file in an editor tab.
+  // Handles `tedi .` / `tedi <path>`. Drained from Rust on boot and pushed
+  // live by the single-instance plugin when a second `tedi` invocation
+  // forwards its argv. Folder: adopt as root and open a terminal there.
+  // File: adopt parent as root and open the file in an editor tab.
   const openCliTarget = useCallback(
     (
       target:
@@ -402,7 +412,7 @@ export default function App() {
       try {
         localStorage.setItem("tedi.workspaceRoot", root);
       } catch {
-        // Storage may be unavailable - skip persistence.
+        // Storage unavailable. Skip persistence.
       }
       if (target.kind === "folder") {
         newTab(target.path);
@@ -414,8 +424,8 @@ export default function App() {
     [newTab, openFileTab],
   );
 
-  // Drain the captured startup target exactly once. The Rust side clears
-  // its slot on read, so a webview reload won't replay this.
+  // Drain the captured startup target once. Rust clears its slot on read,
+  // so a webview reload won't replay it.
   const cliStartupRunRef = useRef(false);
   useEffect(() => {
     if (cliStartupRunRef.current) return;
@@ -427,8 +437,8 @@ export default function App() {
     });
   }, [openCliTarget]);
 
-  // Live forwarding from `tauri-plugin-single-instance` when the user runs
-  // `tedi <path>` while this window is already up.
+  // Live forwarding from `tauri-plugin-single-instance` when `tedi <path>`
+  // runs while this window is already up.
   useEffect(() => {
     const unlistenP = listen<
       { kind: "folder"; path: string } | { kind: "file"; path: string; parent: string }
@@ -466,7 +476,7 @@ export default function App() {
         if (!alive) return;
         setApiKeys(keys);
         setKeysLoaded(true);
-        // Auto-detect SumoPod models whenever the key arrives or changes.
+        // Refresh SumoPod models when the key arrives or changes.
         if (keys.sumopod) {
           void refreshSumopodModels(keys.sumopod);
         } else {
@@ -490,12 +500,11 @@ export default function App() {
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
-  // Expose the zoom factor as a CSS variable so the CodeMirror editor + diff
+  // Expose the zoom factor as a CSS variable so CodeMirror and diff
   // surfaces can scale via `calc(... * var(--content-zoom))`. The terminal
-  // pulls the factor directly from the prefs store and multiplies it into
-  // xterm's `fontSize` option - applying CSS `zoom` to a canvas/WebGL terminal
-  // breaks cursor + glyph positioning, so we deliberately *don't* touch
-  // anything outside the content surfaces.
+  // reads the factor from the prefs store and multiplies into xterm's
+  // `fontSize`. CSS `zoom` on a canvas/WebGL terminal breaks cursor and
+  // glyph positioning, so we do not touch surfaces outside content.
   useEffect(() => {
     document.documentElement.style.setProperty("--content-zoom", String(contentZoom));
   }, [contentZoom]);
@@ -512,37 +521,84 @@ export default function App() {
   useEffect(() => {
     void initPrefs();
   }, [initPrefs]);
-  // Boot the extension subsystem after prefs so any extension-contributed
-  // settings (themes, slash commands, AI tools) land before the UI renders
-  // its first frame. Idempotent - safe to call again from settings window.
+  // Boot extensions after prefs so extension-contributed settings (themes,
+  // slash commands, AI tools) land before first render. Idempotent.
   useEffect(() => {
-    void import("@/modules/extensions").then(({ useExtensionsStore }) =>
-      useExtensionsStore.getState().init(),
-    );
+    void useExtensionsStore.getState().init();
   }, []);
-  // One-shot boot restore: pick the last model the user actually used, fall
-  // back to the workspace default if it's gone (key removed, model deleted).
-  // Guarded by a ref so picking a different model in the dropdown later
-  // doesn't get overwritten by a delayed prefs/keys hydration.
+
+  // Right-panel and AI sidebar are mutually exclusive (both want the same
+  // ~22% slot). Opening one closes the other. Each effect reacts to one
+  // trigger and reads the other via `getState()`, avoiding ping-pong.
+  const rightPanelActive = useRightPanelStore((s) => s.active);
+  useEffect(() => {
+    if (rightPanelActive && useChatStore.getState().panelOpen) {
+      useChatStore.getState().closePanel();
+    }
+  }, [rightPanelActive]);
+  useEffect(() => {
+    if (panelOpen && useRightPanelStore.getState().active) {
+      useRightPanelStore.getState().close();
+    }
+  }, [panelOpen]);
+
+  // Honor manifest `defaultOpen` for right-surface panels once per session.
+  // Reads from the extensions store so this runs after `bootAll()` or when
+  // an extension is enabled. `markDefaultOpenHandled` stops us reopening a
+  // panel the user has closed.
+  const extensionsList = useExtensionsStore((s) => s.list);
+  const extensionsHydrated = useExtensionsStore((s) => s.hydrated);
+  useEffect(() => {
+    if (!extensionsHydrated) return;
+    const store = useRightPanelStore.getState();
+    for (const ext of extensionsList) {
+      if (!ext.enabled) continue;
+      const panels = ext.manifest.contributes.panels ?? [];
+      for (const panel of panels) {
+        if (panel.surface !== "right" || panel.defaultOpen !== true) continue;
+        if (store.markDefaultOpenHandled(ext.id, panel.id)) {
+          store.open(ext.id, panel.id);
+          // First defaultOpen wins. The user can toggle the rest.
+          return;
+        }
+      }
+    }
+  }, [extensionsHydrated, extensionsList]);
+
+  // Hide an active right-panel target whose extension is now disabled or
+  // uninstalled, so the slot doesn't show a dead header.
+  useEffect(() => {
+    if (!rightPanelActive) return;
+    const owner = extensionsList.find(
+      (e) => e.id === rightPanelActive.extensionId && e.enabled,
+    );
+    const hasPanel =
+      owner?.manifest.contributes.panels?.some((p) => p.id === rightPanelActive.panelId) ?? false;
+    if (!owner || !hasPanel) {
+      useRightPanelStore.getState().close();
+    }
+  }, [extensionsList, rightPanelActive]);
+  // One-shot boot restore. Picks the last-used model, falling back to the
+  // workspace default if it's gone (key removed, model deleted). The ref
+  // guards against late prefs/keys hydration clobbering a fresh user pick.
   const bootModelRestoredRef = useRef(false);
   useEffect(() => {
     if (bootModelRestoredRef.current) return;
     if (!prefsHydrated || !keysLoaded) return;
-    // Prefer the saved provider over re-deriving via tryGetModel - the model
-    // registry may still be hydrating on cold boot (openai-compatible /v1/models
-    // fetch hasn't returned yet) and we don't want that race to demote the
-    // user's last pick to the workspace default.
+    // Use the saved provider instead of re-deriving via tryGetModel. The
+    // registry may still be hydrating (openai-compatible /v1/models hasn't
+    // returned), and that race would demote the last pick to default.
     const savedProvider = prefLastProviderId as ProviderId | null;
     const savedHasKey =
       savedProvider != null && (providerNeedsKey(savedProvider) ? !!apiKeys[savedProvider] : true);
     if (prefLastModelId && savedProvider && savedHasKey) {
       setSelectedModelId(prefLastModelId, savedProvider);
     } else if (prefLastModelId && hasKeyForModel(prefLastModelId)) {
-      // No saved provider (pre-fix data) - fall back to registry lookup.
+      // Pre-fix data: no saved provider. Fall back to registry lookup.
       setSelectedModelId(prefLastModelId);
     } else if (prefDefaultProvider) {
-      // Settings default with explicit provider - immune to the same id/provider
-      // ambiguity that lastProviderId fixes for the active selection.
+      // Explicit default provider sidesteps the id/provider ambiguity that
+      // lastProviderId fixes for the active selection.
       setSelectedModelId(prefDefaultModel, prefDefaultProvider as ProviderId);
     } else {
       setSelectedModelId(prefDefaultModel);
@@ -557,10 +613,9 @@ export default function App() {
     prefDefaultProvider,
     setSelectedModelId,
   ]);
-  // Persist the active model + provider whenever they change (after the boot
-  // restore has settled). This is what makes the next launch land on the same
-  // model, with the same provider tag - avoiding the "registry race" that
-  // would otherwise mis-label the chip when a stale duplicate id existed.
+  // Persist the active model and provider on change (after boot restore
+  // settles). Lets the next launch land on the same model and provider,
+  // avoiding the registry race that would mislabel the chip.
   useEffect(() => {
     const unsub = useChatStore.subscribe((s, prev) => {
       if (!bootModelRestoredRef.current) return;
@@ -596,17 +651,16 @@ export default function App() {
   const wsRemove = useWorkspacesStore((s) => s.removeWorkspace);
   const wsSaveTabs = useWorkspacesStore((s) => s.saveWorkspaceTabs);
 
-  // When the active workspace is closed, the store reassigns activeId to a
-  // neighbor. We must skip the auto-snapshot effect for that transition so it
-  // doesn't overwrite the neighbor's saved tabs with the closing workspace's
-  // live tabs (which are still in `useTabs` until we rehydrate below).
+  // When the active workspace is closed, activeId is reassigned to a
+  // neighbor. Skip the auto-snapshot for that transition so it doesn't
+  // overwrite the neighbor's saved tabs with the closing workspace's
+  // live tabs (still in `useTabs` until we rehydrate below).
   const skipNextSnapshotRef = useRef(false);
 
-  // In-memory cache of each workspace's live Tab[] (including leaf ids) so
-  // that switching back restores the *same* terminal leaf ids - keeps the
-  // existing PTY/xterm sessions alive across workspace switches. The disk
-  // snapshot via `serializeTabs` is still done for crash/restart recovery,
-  // but live state takes precedence on switch.
+  // In-memory cache of each workspace's live Tab[] (with leaf ids) so a
+  // switch back restores the same terminal leaf ids and keeps PTY/xterm
+  // sessions alive. `serializeTabs` still writes to disk for crash
+  // recovery, but live state wins on switch.
   const liveTabsByWorkspace = useRef<Map<string, { tabs: Tab[]; activeId: number | null }>>(
     new Map(),
   );
@@ -615,9 +669,9 @@ export default function App() {
     void wsHydrate();
   }, [wsHydrate]);
 
-  // After the workspace store hydrates, load the active workspace's saved
-  // tabs into the live tabs state. Skip if there are no saved tabs (first run
-  // - the default `useTabs` initial state already covers it).
+  // Once the workspace store hydrates, load the active workspace's saved
+  // tabs into live state. Skip if there are none (first run already covered
+  // by the default `useTabs` state).
   const hydratedWorkspaceRef = useRef(false);
   useEffect(() => {
     if (!wsHydrated || hydratedWorkspaceRef.current) return;
@@ -660,9 +714,9 @@ export default function App() {
   const switchToWorkspace = useCallback(
     (workspaceId: string) => {
       if (workspaceId === wsActiveId) return;
-      // Snapshot current first so we don't lose state.
+      // Snapshot current first.
       if (wsActiveId) {
-        // Disk snapshot (for restart): drops live ids, keeps cwd/path.
+        // Disk snapshot for restart. Drops live ids, keeps cwd/path.
         const saved = serializeTabs(tabs);
         let savedIdx = 0;
         let i = -1;
@@ -674,17 +728,16 @@ export default function App() {
           }
         }
         wsSaveTabs(wsActiveId, saved, Math.max(0, savedIdx));
-        // Live snapshot (for in-session switches): keeps leaf ids so the
-        // existing PTY/xterm sessions stay attached when the user comes back.
+        // Live snapshot for in-session switches. Keeps leaf ids so the
+        // existing PTY/xterm sessions stay attached on return.
         liveTabsByWorkspace.current.set(wsActiveId, {
           tabs,
           activeId,
         });
       }
       wsSetActive(workspaceId);
-      // Prefer the live cache - restores the exact leaf ids that the running
-      // terminal sessions are keyed by, so the dispose effect doesn't kill
-      // them.
+      // Prefer the live cache so the leaf ids match the running terminal
+      // sessions and the dispose effect doesn't kill them.
       const cached = liveTabsByWorkspace.current.get(workspaceId);
       if (cached && cached.tabs.length > 0) {
         replaceAllTabs(cached.tabs, cached.activeId);
@@ -711,12 +764,12 @@ export default function App() {
   const closeWorkspace = useCallback(
     (workspaceId: string) => {
       const wasActive = workspaceId === wsActiveId;
-      // Closing the active workspace: skip the upcoming auto-snapshot so we
-      // don't clobber the neighbor's saved tabs with the closing workspace's
-      // still-live tabs.
+      // Closing the active workspace: skip the next auto-snapshot so the
+      // closing workspace's live tabs don't clobber the neighbor's saved
+      // tabs.
       if (wasActive) skipNextSnapshotRef.current = true;
-      // Drop the cached live tabs for the closed workspace so its leaves are
-      // no longer "live" - the next tabs-effect pass will dispose their PTYs.
+      // Drop the cached live tabs so the closed workspace's leaves stop
+      // being "live" and the next tabs-effect pass disposes their PTYs.
       liveTabsByWorkspace.current.delete(workspaceId);
       wsRemove(workspaceId);
       if (!wasActive) return;
@@ -764,11 +817,9 @@ export default function App() {
     pickedRoot,
   );
 
-  // Snapshot of "what is the user doing right now" pushed into the
-  // extension subsystem via `setAppContext`. Extensions that want a live
-  // view (presence integrations, productivity trackers, etc.) subscribe
-  // via `tedi.app.onContextChange`. Core code no longer carries
-  // integration-specific hooks - extensions own their own lifecycles.
+  // Snapshot of "what the user is doing now", pushed to extensions via
+  // `setAppContext`. Extensions subscribe via `tedi.app.onContextChange`.
+  // Core code stays free of integration-specific hooks.
   const activeFileName = useMemo(() => {
     if (!activePaneTab) return null;
     const leaf = activeLeaf(activePaneTab);
@@ -794,9 +845,8 @@ export default function App() {
       const leaf = activeLeaf(activeTab);
       if (!leaf) return null;
       if (leaf.leafKind === "editor") return "editor";
-      // SSH-backed terminal leaves declare it on the leaf itself
-      // (sshConnectionId set at create time). Connection status is a
-      // separate concern; the kind only mirrors how the leaf was opened.
+      // SSH leaves are marked by `sshConnectionId` at create time. The kind
+      // only reflects how the leaf was opened, not its current status.
       if (leaf.leafKind === "terminal") {
         return leaf.sshConnectionId ? "ssh" : "terminal";
       }
@@ -812,8 +862,8 @@ export default function App() {
     });
   }, [explorerRoot, activeFileName, terminalCount, activeTabKind]);
 
-  // When the active leaf changes (or the active tab changes), surface its
-  // search addon / editor handle / detected URL for the chrome bits.
+  // On active leaf or tab change, surface its search addon, editor handle,
+  // and detected URL to the chrome.
   useEffect(() => {
     setActiveSearchAddon(
       activeLeafIdInTab !== null && activeLeafKindCurrent === "terminal"
@@ -865,18 +915,13 @@ export default function App() {
     });
   }, []);
 
-  // Derive the SFTP panel's view: prefer the active leaf's session when it
-  // is an SSH leaf that's currently `connected`. Falls back to *any*
-  // connected SSH leaf so the panel stays useful while the user is staring
-  // at the local editor next to a remote shell. Recomputed cheaply from
-  // already-tracked state — no extra IPC.
+  // SFTP panel view: prefer the active leaf if it's a connected SSH leaf,
+  // else any connected SSH leaf so the panel stays useful while the user
+  // is in a local editor. Derived from tracked state, no extra IPC.
   const activeSshContext = useMemo<{
     sessionId: number | null;
     hostLabel: string | null;
-    /** The active SSH leaf's last-known cwd (OSC 7 from the remote
-     *  shell). When set, the SSH file tree roots itself here instead
-     *  of falling back to the user's home directory - matches how the
-     *  local file tree follows whichever terminal pane is focused. */
+    /** Active SSH leaf's last-known cwd from OSC 7. If set, the SSH file tree roots here instead of $HOME. */
     cwd: string | null;
   }>(() => {
     if (sshStatuses.size === 0) return { sessionId: null, hostLabel: null, cwd: null };
@@ -888,7 +933,7 @@ export default function App() {
     const hostLabelForTab = (tab: Tab | undefined): string | null =>
       tab && tab.kind === "pane" ? tab.title : null;
 
-    // 1) Active leaf, if it's connected.
+    // Active leaf if connected.
     if (activePaneTab) {
       const leaf = activeLeaf(activePaneTab);
       if (leaf && leaf.leafKind === "terminal" && leaf.sshConnectionId) {
@@ -902,9 +947,8 @@ export default function App() {
         }
       }
     }
-    // 2) First connected SSH leaf anywhere. We walk pane tabs (not just
-    //    activePaneTab) so a backgrounded SSH session still drives the
-    //    panel when the user has switched to a local editor tab.
+    // Else any connected SSH leaf. Walks all pane tabs so a backgrounded
+    // SSH session still drives the panel when the user is in a local tab.
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
@@ -917,9 +961,8 @@ export default function App() {
     return { sessionId: null, hostLabel: null, cwd: null };
   }, [sshStatuses, activePaneTab, tabs]);
 
-  // Render the SFTP panel only once any SSH leaf has been opened in this
-  // session. The lazy chunk for SshFileExplorer + sftp.ts then has to load
-  // exactly once, regardless of how the user reaches it.
+  // Render the SFTP panel only after the session opens any SSH leaf. The
+  // SshFileExplorer + sftp.ts chunk then loads once.
   const hasAnySshLeaf = useMemo(() => {
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
@@ -937,11 +980,10 @@ export default function App() {
         const sameTool = before?.tool === status?.tool;
         const sameState = before?.state === status?.state;
         if (sameTool && sameState) return prev;
-        // Toast + beep are gated by the user preference. The badge state on
-        // the tab updates regardless - the user opted out of *attention-
-        // grabbing* feedback, not the visual indicator.
+        // Toast and beep gated by user preference. Tab badge updates either
+        // way: the preference disables attention-grabbing feedback only.
         const notify = usePreferencesStore.getState().aiNotificationsEnabled;
-        // Fire toast/beep on transitions *into* blocking.
+        // Toast and beep on transition into blocking.
         if (notify && status && status.state === "blocking" && before?.state !== "blocking") {
           try {
             toast(`${toolDisplayName(status.tool)} needs your approval`, {
@@ -950,7 +992,7 @@ export default function App() {
             });
             playBlockingBeep();
           } catch {
-            // notification failures are non-critical
+            // Notification failures are non-critical.
           }
         } else if (
           notify &&
@@ -960,9 +1002,8 @@ export default function App() {
           status.tool === before.tool &&
           Date.now() - before.since >= 1500
         ) {
-          // Task completed - AI returned to idle after doing work. Skip the
-          // notif when working lasted <1.5s (avoids spam from brief
-          // spinner flickers or very short responses).
+          // AI returned to idle after working. Skip when working lasted
+          // under 1.5s to avoid spam from brief spinner flickers.
           try {
             toast(`${toolDisplayName(status.tool)} finished`, {
               variant: "success",
@@ -970,7 +1011,7 @@ export default function App() {
             });
             playCompletionBeep();
           } catch {
-            // notification failures are non-critical
+            // Notification failures are non-critical.
           }
         }
         const next = new Map(prev);
@@ -985,23 +1026,22 @@ export default function App() {
 
   const disposeTab = useCallback(
     (id: number) => {
-      // Per-leaf maps are pruned by the effect below when the tree shrinks;
-      // only the tab-id-keyed handles (preview) need explicit cleanup here.
+      // Per-leaf maps are pruned by the effect below. Only tab-id-keyed
+      // handles (preview) need explicit cleanup here.
       previewRefs.current.delete(id);
       closeTab(id);
     },
     [closeTab],
   );
 
-  // Drives session disposal off the pane tree, not React lifecycles - split/
-  // unsplit re-mount components but the leaf is still live.
+  // Disposes sessions by pane tree, not React lifecycle. Split and unsplit
+  // remount components but the leaf is still live.
   //
-  // Workspace switches also flow through here: when the active workspace
+  // Workspace switches flow through here too. When the active workspace
   // changes, `tabs` becomes the new workspace's tabs and the prior
-  // workspace's leaves would naively look "dead." To keep terminal sessions
-  // alive across switches we treat the cached workspaces' leaves as still
-  // live - only when a workspace is closed (its cache entry cleared) do its
-  // sessions actually get disposed.
+  // workspace's leaves would look dead. To keep their sessions alive, we
+  // treat cached workspaces' leaves as live. Only a closed workspace
+  // (cache entry cleared) disposes its sessions.
   const liveLeavesRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const liveTerm = new Set<number>();
@@ -1158,10 +1198,10 @@ export default function App() {
       return el?.closest<HTMLElement>("[data-pane-leaf]") ?? null;
     };
 
-    // Anchor the popup to the actual selection rect when possible, so it
-    // hovers right above the highlighted text instead of where the mouse
-    // happened to land. Falls back to the mouseup point for terminals where
-    // the DOM selection API doesn't surface xterm's internal selection.
+    // Anchor the popup to the selection rect when possible so it sits above
+    // the highlighted text, not the mouse. Falls back to the mouseup point
+    // for terminals where the DOM selection API doesn't expose xterm's
+    // selection.
     const anchorFromSelection = (
       pane: HTMLElement,
       fallbackX: number,
@@ -1185,7 +1225,7 @@ export default function App() {
           }
         }
       } catch {
-        // ignore - fall through to mouse coords
+        // Fall through to mouse coords.
       }
       return { x: fallbackX, y: fallbackY };
     };
@@ -1196,9 +1236,9 @@ export default function App() {
     };
     const onUp = (e: MouseEvent) => {
       if (isInsideAi(e.target)) return;
-      // Only consider mouseups that land inside a terminal/editor pane -
-      // otherwise a stale xterm selection could pop the button anywhere
-      // (status bar, sidebar, tab strip, etc.).
+      // Only handle mouseups inside a terminal/editor pane. A stale xterm
+      // selection could otherwise pop the button in the status bar,
+      // sidebar, or tab strip.
       const pane = paneLeafFor(e.target);
       if (!pane) {
         setAskPopup(null);
@@ -1229,31 +1269,29 @@ export default function App() {
   }, [askFromSelection]);
 
   const openNewTab = useCallback(() => {
-    // Ctrl+T lands the new shell in whatever the file explorer is rooted at,
-    // so a fresh tab always matches the folder the user is browsing.
+    // Ctrl+T opens the new shell in the explorer's root so the tab matches
+    // the folder being browsed.
     newTab(explorerRoot ?? inheritedCwdForNewTab());
   }, [newTab, inheritedCwdForNewTab, explorerRoot]);
 
   const sendCd = useCallback(
     (path: string) => {
-      // Treat a breadcrumb click as "open this folder": change the workspace
-      // root so the explorer, AI workspace context, and inherited cwd for
-      // new tabs all follow. Persist so it survives reloads.
+      // Breadcrumb click = open this folder. Updates the workspace root so
+      // the explorer, AI workspace context, and inherited cwd follow.
+      // Persisted across reloads.
       const normalized = path.replace(/\\/g, "/");
       setPickedRoot(normalized);
       try {
         localStorage.setItem("tedi.workspaceRoot", normalized);
       } catch {
-        // Storage may be unavailable - skip persistence.
+        // Storage unavailable. Skip persistence.
       }
-      // Additionally, if the active leaf is a terminal at a shell prompt,
-      // cd it so the running shell tracks the new workspace. Double-quote
-      // wrapping works across pwsh / bash / zsh / cmd for paths without
-      // shell metacharacters (which segmentsFromCwd outputs never contain).
-      // We optimistically update the leaf cwd in React state so the
-      // breadcrumb reflects the click immediately - shells that emit OSC 7
-      // reconcile after, shells without shell integration still show the
-      // intended target instead of being stuck at the prior cwd.
+      // If the active leaf is a terminal, cd it too so the shell tracks
+      // the new workspace. Double quotes work across pwsh/bash/zsh/cmd for
+      // paths without shell metacharacters (segmentsFromCwd outputs never
+      // contain any). React state updates the cwd optimistically so the
+      // breadcrumb reflects the click immediately. Shells with OSC 7
+      // reconcile after, shells without it still show the target.
       if (activeLeafIdInTab !== null && activeLeafKindCurrent === "terminal") {
         setLeafCwd(activeLeafIdInTab, normalized);
         const term = terminalRefs.current.get(activeLeafIdInTab);
@@ -1291,10 +1329,20 @@ export default function App() {
     [openFileTab],
   );
 
-  // SSH tree calls this when the user clicks a remote file. We pin the
-  // tab (pin=true) because preview-mode shares a single slot with local
-  // previews and would silently replace whichever local file was being
-  // previewed - confusing when the two sides have unrelated paths.
+  // Wire the extension workspace bridge to the live file-open handler.
+  // Extensions mounting `ctx.ui.mountFolderTree` route click-to-open
+  // through this bridge so they get the same behavior as the left
+  // explorer.
+  useEffect(() => {
+    setExtensionWorkspaceBridge({
+      openFile: (path, opts) => handleOpenFile(path, opts?.pin ?? false),
+    });
+    return () => setExtensionWorkspaceBridge(null);
+  }, [handleOpenFile]);
+
+  // SSH tree calls this when the user clicks a remote file. Pin the tab
+  // because preview-mode shares one slot with local previews and would
+  // silently replace whichever local file is in preview.
   const handleOpenRemoteFile = useCallback(
     (path: string, sessionId: number, hostLabel: string | null) => {
       openFileTab(path, true, {
@@ -1327,9 +1375,8 @@ export default function App() {
     (path: string) => {
       for (const t of tabs) {
         if (t.kind !== "pane") continue;
-        // If *any* editor leaf in this tab references the deleted path, drop
-        // the whole tab - simpler than surgically removing one leaf and
-        // matches the prior single-leaf behavior.
+        // If any editor leaf in this tab references the deleted path, drop
+        // the whole tab. Matches the prior single-leaf behavior.
         const affected = leaves(t.paneTree).some(
           (l) => l.leafKind === "editor" && (l.path === path || l.path.startsWith(`${path}/`)),
         );
@@ -1357,31 +1404,25 @@ export default function App() {
   );
 
   /**
-   * Ctrl+D / Ctrl+Shift+D: split the active pane within the active tab.
-   * Adds a new terminal leaf next to the focused pane in the requested
-   * direction:
-   * - "row"  → new pane on the right of the focused one (horizontal split).
-   * - "col"  → new pane below the focused one (vertical split).
-   *
-   * The new leaf becomes the active pane. Bounded by `MAX_PANES_PER_TAB`.
+   * Ctrl+D / Ctrl+Shift+D: splits the active pane in the active tab.
+   * "row" puts the new pane to the right, "col" puts it below. The new
+   * leaf becomes active. Capped at `MAX_PANES_PER_TAB`.
    */
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
       if (!t || t.kind !== "pane") return;
-      // Ctrl+D / Ctrl+Shift+D: new pane lands in the explorer's root path,
-      // matching the new-tab behavior so both flows are consistent.
+      // New pane uses the explorer's root, matching the new-tab flow.
       splitActivePane(activeId, dir, undefined, explorerRoot ?? undefined);
     },
     [activeId, splitActivePane, explorerRoot],
   );
 
   /**
-   * Move a leaf from its current tab into `targetTabId` as a horizontal
-   * split. Backed by `useTabs.moveLeafToTab` which preserves the leaf's id
-   * so its underlying PTY / editor session survives the relocation. We
-   * resolve the target's display title *before* the move so the toast can
-   * name it even when the source tab is the one getting dropped.
+   * Moves a leaf into `targetTabId` as a horizontal split. The leaf's id
+   * is preserved so its PTY / editor session survives. Resolves the
+   * target title before the move so the toast can name it if the source
+   * tab is dropped.
    */
   const moveLeafToGroup = useCallback(
     (leafId: number, targetTabId: number) => {
@@ -1418,8 +1459,8 @@ export default function App() {
       "tab.next": () => cycleTab(1),
       "tab.prev": () => cycleTab(-1),
       "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
-      // Ctrl+D → split horizontal (new tab beside the focused one).
-      // Ctrl+Shift+D → split vertical (new tab stacks below the focused one).
+      // Ctrl+D: horizontal split (new pane beside focus).
+      // Ctrl+Shift+D: vertical split (new pane below focus).
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
       "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
@@ -1454,26 +1495,25 @@ export default function App() {
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
-      // Ctrl+Shift+C - copy current terminal selection to clipboard. No-op
-      // when nothing is selected (the event is still preventDefault'd by
-      // useGlobalShortcuts so it never reaches xterm; `Ctrl+C` without
-      // Shift falls through to xterm and sends SIGINT as expected).
+      // Ctrl+Shift+C: copy terminal selection. No-op when nothing is
+      // selected. useGlobalShortcuts preventDefaults the event so xterm
+      // never sees it. Ctrl+C without Shift falls through to xterm and
+      // sends SIGINT.
       "terminal.copy": () => {
         if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
         const sel = term?.getSelection();
         if (!sel) return;
-        // navigator.clipboard works inside Tauri 2's webview without a
-        // permission prompt. Fire-and-forget; failure is silent because
-        // the only realistic cause is the document not being focused yet
-        // (e.g., during a window-switch race) and the user can retry.
+        // navigator.clipboard works in Tauri 2's webview without prompting.
+        // Fire-and-forget; the usual failure is the document not yet
+        // focused (window-switch race) and the user can retry.
         void navigator.clipboard.writeText(sel).catch((e) => {
           console.warn("terminal.copy: clipboard write failed:", e);
         });
       },
-      // Ctrl+Shift+V - paste clipboard into the active terminal via
-      // term.paste so the shell sees a bracketed paste (multi-line
-      // snippets don't execute line-by-line under bash/zsh).
+      // Ctrl+Shift+V: paste clipboard via term.paste so the shell gets a
+      // bracketed paste (multi-line snippets don't auto-execute line by
+      // line under bash/zsh).
       "terminal.paste": () => {
         if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
@@ -1487,9 +1527,9 @@ export default function App() {
             console.warn("terminal.paste: clipboard read failed:", e);
           });
       },
-      // Ctrl+Shift+X - close the focused terminal pane. Blocked when this
-      // is the last terminal in the workspace so the user is never left
-      // without a shell (mirrors the respawn rule in handleLeafExit).
+      // Ctrl+Shift+X: close the focused terminal pane. Blocked when it's
+      // the last terminal in the workspace, mirroring the respawn rule in
+      // handleLeafExit.
       "terminal.close": () => {
         if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         let terminalLeafCount = 0;
@@ -1520,6 +1560,11 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers);
+
+  // Generic dispatcher for extension-contributed keybindings. Walks
+  // `keybindingsRegistry` and `commandsRegistry` on each keydown and
+  // fires the matching command. No per-extension wiring here.
+  useExtensionShortcuts();
 
   const registerTerminalHandle = useCallback((leafId: number, h: TerminalPaneHandle | null) => {
     if (h) terminalRefs.current.set(leafId, h);
@@ -1568,8 +1613,8 @@ export default function App() {
         }
         return n;
       })();
-      // If this is the only terminal leaf left in the entire workspace,
-      // respawn it instead of dropping the user into an empty UI.
+      // Respawn if this is the only terminal leaf left, so the UI isn't
+      // empty.
       const targetLeaf = leaves(tab.paneTree).find((l) => l.id === leafId);
       const cwd = targetLeaf?.leafKind === "terminal" ? targetLeaf.cwd : undefined;
       if (terminalLeafCount === 1 && leafIds(tab.paneTree).length === 1) {
@@ -1588,14 +1633,13 @@ export default function App() {
     [openFileTab],
   );
 
-  // OSC 8889: shell (or a Laravel artisan command etc.) asks TEDI to open a
-  // new terminal tab rooted at `cwd` and auto-run `cmd`. Used by tools like
-  // Laravel's `php artisan dev:serve` to keep all dev processes inside TEDI
-  // instead of spawning external cmd.exe windows.
+  // OSC 8889: shell asks TEDI to open a new terminal tab at `cwd` and run
+  // `cmd`. Used by tools like Laravel's `php artisan dev:serve` to keep
+  // dev processes inside TEDI instead of spawning cmd.exe windows.
   //
-  // When `split` is set, split the most-recently-spawned pane in the same tab
-  // instead of opening a new tab - lets `dev:serve` cluster Vite/Reverb/Queue
-  // into one grouped tab with horizontal splits.
+  // If `split` is set, splits the last spawned pane in the same tab
+  // instead of opening a new tab. Lets `dev:serve` cluster
+  // Vite/Reverb/Queue into one tab with horizontal splits.
   const lastSpawnedTabIdRef = useRef<number | null>(null);
   const handleTediSpawnTab = useCallback(
     (_leafId: number, input: TediSpawnTabInput) => {
@@ -1612,7 +1656,7 @@ export default function App() {
         }, 120);
       };
 
-      // Split path: only valid if we have a previous spawned tab still alive.
+      // Split path requires a previous spawned tab still alive.
       if (input.split) {
         const lastTabId = lastSpawnedTabIdRef.current;
         const lastTab = lastTabId !== null ? tabsRef.current.find((x) => x.id === lastTabId) : null;
@@ -1622,14 +1666,14 @@ export default function App() {
             writeIntoLeaf(newLeafId);
             return;
           }
-          // Split refused (e.g. MAX_PANES_PER_TAB hit) - fall through to new tab.
+          // Split refused (e.g. MAX_PANES_PER_TAB). Fall through to new tab.
         }
       }
 
       const tabId = newTab(cwd);
       lastSpawnedTabIdRef.current = tabId;
       if (!cmd) return;
-      // Wait for the new pane's PTY to be ready, then inject the command.
+      // Wait for the new PTY to be ready before injecting the command.
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
         if (!tab || tab.kind !== "pane") return;
@@ -1651,7 +1695,7 @@ export default function App() {
 
   const handleEditorCloseLeaf = useCallback(
     (leafId: number) => {
-      // vim :q in a split pane should drop that pane, not the whole tab.
+      // `:q` in a split pane should close only that pane.
       const tab = tabsRef.current.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
       if (!tab || tab.kind !== "pane") return;
       if (leafIds(tab.paneTree).length > 1) {
@@ -1681,8 +1725,7 @@ export default function App() {
     return null;
   }, [isTerminalLike, isEditorLike, activeLeafIdInTab, activeSearchAddon, activeEditorHandle]);
 
-  /** Markdown-preview toggle exposed to the Header. Non-null only when the
-   *  active leaf is an editor pointed at a `.md`/`.markdown`/`.mdx` file. */
+  /** Markdown-preview toggle for the Header. Non-null only when the active leaf is an editor on a `.md`/`.markdown`/`.mdx` file. */
   const mdPreviewToggle = useMemo(() => {
     if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
       return null;
@@ -1697,8 +1740,7 @@ export default function App() {
     };
   }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, toggleMdPreviewForLeaf]);
 
-  /** Word-wrap toggle exposed to the Header. Non-null when the active leaf is
-   *  an editor (markdown preview hides the source, so suppress it then too). */
+  /** Word-wrap toggle for the Header. Non-null when the active leaf is an editor and not in markdown preview. */
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const lineWrapToggle = useMemo(() => {
     if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
@@ -1719,11 +1761,11 @@ export default function App() {
     return leaf?.leafKind === "terminal" ? (leaf.cwd ?? null) : null;
   }, [activePaneTab]);
 
-  // Mirror the values the `setLive` closures need into refs so the closures
-  // can stay stable. The chat store stores the live object and never
-  // resubscribes for re-renders (consumers read via getState() in event
-  // handlers), so refreshing the closures on every `tabs` mutation - which
-  // includes per-keystroke dirty-flag flips - is pure waste.
+  // Mirror values needed by `setLive` closures into refs so the closures
+  // stay stable. The chat store holds the live object and never
+  // resubscribes (consumers read via getState() in event handlers), so
+  // rebuilding the closures on every `tabs` mutation (including
+  // per-keystroke dirty flips) wastes work.
   const liveContextRef = useRef({
     tabs,
     activeId,
@@ -1819,9 +1861,8 @@ export default function App() {
         if (!leaf || leaf.leafKind !== "terminal") return false;
         const term = terminalRefs.current.get(leaf.id);
         if (!term) return false;
-        // Strip trailing newlines we may add ourselves, then submit with CR.
-        // Windows ConPTY + pwsh require \r, not \n - same convention as the
-        // sendCd / cdInNewTab helpers above.
+        // Strip trailing newlines, submit with CR. Windows ConPTY + pwsh
+        // require \r, not \n. Matches sendCd / cdInNewTab above.
         const trimmed = command.replace(/[\r\n]+$/, "");
         term.write(`${trimmed}\r`);
         term.focus();
@@ -1870,7 +1911,7 @@ export default function App() {
             return { ok: false, error: `tab ${targetTabId} is not a pane tab` };
           if (leafIds(target.paneTree).length >= MAX_PANES_PER_TAB)
             return { ok: false, error: `tab ${targetTabId} already has MAX_PANES_PER_TAB panes` };
-          // Focus the target tab so the splitter operates on it.
+          // Focus the target tab so the split operates on it.
           if (targetTabId !== activeId) setActiveId(targetTabId);
           const dir = opts.splitDir ?? "row";
           const cwdResolved =
@@ -1932,7 +1973,7 @@ export default function App() {
             };
           }
         }
-        // Focus the consolidated group so the user sees the result.
+        // Focus the consolidated group.
         setActiveId(targetTabId);
         return { ok: true, targetTabId, moved, alreadyInGroup };
       },
@@ -1951,9 +1992,8 @@ export default function App() {
     });
   }, [setLive]);
 
-  // Boot the schedule-trigger engine once. The bridge closures read live
-  // state through `liveContextRef` so they stay valid across re-renders -
-  // the scheduler outlives any single React commit.
+  // Boot the schedule-trigger engine once. Bridge closures read live
+  // state through `liveContextRef` and stay valid across re-renders.
   useEffect(() => {
     setSchedulerBridge({
       listTerminals: () => snapshotTerminals(liveContextRef.current),
@@ -1987,7 +2027,7 @@ export default function App() {
       },
     });
     void scheduler.boot();
-    // Prune fired/cancelled history every 5min so the persisted store stays small.
+    // Prune fired/cancelled history every 5min to keep the store small.
     const interval = window.setInterval(() => {
       void scheduler.pruneHistory();
     }, 5 * 60_000);
@@ -1996,11 +2036,10 @@ export default function App() {
     };
   }, []);
 
-  // Surface every open editor leaf to the AI input as a click-to-attach
-  // suggestion chip. De-dup by path so the same file shared across split
-  // panes only shows once. Runs on every `tabs` mutation, but the setter
-  // short-circuits when the resulting list is shape-equal, so most
-  // keystroke-driven re-runs are no-ops downstream.
+  // Surface every open editor leaf as a click-to-attach chip in the AI
+  // input. De-dup by path so split panes don't duplicate. The setter
+  // short-circuits on shape-equal lists, so most keystroke runs are
+  // no-ops downstream.
   useEffect(() => {
     const openFiles: { path: string; name: string }[] = [];
     const seenPaths = new Set<string>();
@@ -2020,10 +2059,9 @@ export default function App() {
     setOpenEditorFiles(openFiles);
   }, [setOpenEditorFiles, tabs]);
 
-  // Stable props for memoised footer / sidebar children so unrelated state
-  // churn in App (per-token AI streaming, per-tick PaneStack updates, etc.)
-  // doesn't re-render them. Inline arrows + per-render expressions would
-  // defeat the memo equality check.
+  // Stable props for memoised footer/sidebar children so unrelated state
+  // churn (AI streaming, PaneStack ticks) doesn't re-render them. Inline
+  // arrows or per-render expressions would defeat memo equality.
   const handleOpenDetectedPreview = useCallback(() => {
     if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
   }, [detectedPreviewUrl, openPreviewTab]);
@@ -2094,23 +2132,22 @@ export default function App() {
               >
                 <div className="border-border/60 bg-card flex h-full flex-col border-r">
                   <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-                    {/* Files section: one outer panel that hosts both the
-                        local tree (top) and, when an SSH leaf is connected,
-                        the remote tree (bottom). Each inner panel is
-                        collapsible so the user can accordion either tree
-                        down to its h-8 header for a compact sidebar. */}
+                    {/* Files section: outer panel hosts the local tree on
+                        top and, when an SSH leaf is connected, the remote
+                        tree below. Each inner panel collapses to its h-8
+                        header. */}
                     <ResizablePanel
                       id="sidebar-files"
                       defaultSize={hasAnySshLeaf ? "65%" : "40%"}
                       minSize="20%"
                     >
-                      {/* Plain flex stack — see the comment on
-                          `localFilesCollapsed` for why this is NOT a
-                          nested ResizablePanelGroup. Each section is
-                          `flex-1` when open and `h-8 shrink-0` when
-                          collapsed; both can be collapsed independently
-                          and the parent ResizablePanel keeps the
-                          drag-resize against SCM / Workspaces below. */}
+                      {/* Plain flex stack. See `localFilesCollapsed`
+                          comment for why this is not a nested
+                          ResizablePanelGroup. Each section is `flex-1`
+                          when open and `h-8 shrink-0` when collapsed.
+                          Both collapse independently; the parent
+                          ResizablePanel still drag-resizes against SCM
+                          and Workspaces below. */}
                       <div className="flex h-full min-h-0 flex-col">
                         <div
                           className={cn("min-h-0", localFilesCollapsed ? "h-8 shrink-0" : "flex-1")}
@@ -2255,11 +2292,19 @@ export default function App() {
                   </div>
                 </div>
               </ResizablePanel>
-              {keysLoaded && panelOpen ? (
+              {/* Right slot shared by the AI sidebar and extension right
+                  panels. Mutual exclusion is enforced by the coordinator
+                  effects above. This precedence covers the one-tick gap
+                  before the loser closes: a fresh `rightPanelActive`
+                  reflects the user's latest click, so render that and
+                  let the AI panel close in the background. */}
+              {rightPanelActive || (keysLoaded && panelOpen) ? (
                 <>
                   <ResizableHandle withHandle />
-                  <ResizablePanel id="ai-sidebar" defaultSize="22%" minSize="18%" maxSize="50%">
-                    {hasComposer ? (
+                  <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
+                    {rightPanelActive ? (
+                      <RightPanelHost />
+                    ) : hasComposer ? (
                       <AiSidebarPanel />
                     ) : (
                       <div className="border-border/60 bg-card/60 flex h-full flex-col border-l">
@@ -2299,9 +2344,9 @@ export default function App() {
             ) : null}
           </AnimatePresence>
 
-          {/* Mount-once: defer the chunk until the user first opens the dialog,
-              then keep it mounted so Radix's data-state exit animation plays
-              normally on close and re-opens don't pay the chunk-load cost again. */}
+          {/* Mount-once. Defers the chunk until first open, then stays
+              mounted so Radix's exit animation plays and reopens skip the
+              chunk-load cost. */}
           {newEditorMounted ? (
             <Suspense fallback={null}>
               <NewEditorDialog

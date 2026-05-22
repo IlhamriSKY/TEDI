@@ -16,7 +16,7 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
   if (!workspaceRoot) return null;
   const path = `${workspaceRoot.replace(/\/$/, "")}/TEDI.md`;
   const cached = projectMemoryCache.get(workspaceRoot);
-  // Cache for 30s - cheap re-read after that to pick up edits.
+  // Cache for 30s. Re-read after that to pick up edits.
   if (cached && Date.now() - cached.cachedAt < 30_000) return cached.content;
   try {
     const r = await native.readFile(path);
@@ -47,9 +47,8 @@ type LiveSnapshot = {
   cwd: string | null;
   workspaceRoot: string | null;
   activeFile: string | null;
-  /** Snapshot of every terminal in current tab order. Surfaced in the
-   *  per-turn <env> block so the AI can address terminals by ordinal/title
-   *  without first calling `list_terminals`. */
+  /** Every terminal in tab order. Surfaced in the per-turn <env> so the AI
+   *  can address terminals by ordinal/title without `list_terminals`. */
   terminals: TerminalInfo[];
 };
 
@@ -97,13 +96,13 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         abortSignal,
       });
       return result.toUIMessageStream({
-        // Provide originalMessages so the SDK can assign a stable response
-        // message ID for retry/edit flows in the Chat UI.
+        // originalMessages lets the SDK assign a stable response id for
+        // retry/edit flows in the Chat UI.
         originalMessages: messages,
       });
     },
     async reconnectToStream() {
-      // Direct in-process transport: nothing to reconnect to.
+      // In-process transport: nothing to reconnect to.
       return null;
     },
   };
@@ -125,20 +124,17 @@ function injectContext(messages: UIMessage[], live: LiveSnapshot): UIMessage[] {
   });
 }
 
-/** Minimal env block, prepended to the latest user message. Kept short so the
- *  cacheable conversation prefix stays as stable as possible across turns.
- *  Terminal scrollback is NOT auto-included - the agent should call
- *  `read_terminal` when it needs to see what the user is looking at. */
+/** Env block prepended to the latest user message. Short so the cacheable
+ *  prefix stays stable. Terminal scrollback is not included; the agent calls
+ *  `read_terminal` when needed. */
 function formatEnvBlock(live: LiveSnapshot): string | null {
   const lines: string[] = [];
   if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);
   if (live.cwd) lines.push(`active_terminal_cwd: ${live.cwd}`);
   if (live.activeFile) lines.push(`active_file: ${live.activeFile}`);
   if (live.terminals.length > 0) {
-    // Compact form: each terminal on one line as
-    //   `#<ord><*>  tab=<tabId> leaf=<leafId>  <title>  <cwd>`
-    // The asterisk marks the focused terminal. Shorter than key=value pairs
-    // and still gives the model every id it needs for targeting.
+    // One line per terminal: `#<ord><*> tab=<tabId> leaf=<leafId> <title> <cwd>`.
+    // The asterisk marks the focused terminal.
     lines.push("terminals:");
     for (const t of live.terminals) {
       const star = t.isActive ? "*" : " ";
@@ -157,8 +153,8 @@ function lastIndex<T>(arr: T[], pred: (x: T) => boolean): number {
   return -1;
 }
 
-/** Match both the new <env> block and the legacy <terminal-context> block so
- *  message-history rendering can strip them cleanly. */
+/** Matches the current <env> block and the legacy <terminal-context> so
+ *  history rendering can strip both. */
 export const CONTEXT_BLOCK_RE =
   /^(?:<env>[\s\S]*?<\/env>|<terminal-context[^>]*>[\s\S]*?<\/terminal-context>)\n*/;
 

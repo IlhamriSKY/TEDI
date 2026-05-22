@@ -64,8 +64,8 @@ export function GeneralSection() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
 
-  // Reconcile autostart pref with the actual OS state on mount - the user may
-  // have toggled it from System Settings.
+  // Reconcile autostart pref with actual OS state on mount; the user may have
+  // toggled it from System Settings.
   useEffect(() => {
     let alive = true;
     void isEnabled()

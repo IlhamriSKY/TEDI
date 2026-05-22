@@ -1,19 +1,18 @@
-//! Extension manifest schema (Rust side).
+//! Extension manifest schema, Rust side.
 //!
-//! Mirrors the zod schema on the frontend. Kept intentionally small for v1:
-//! id, name, version, optional metadata + permissions + contribution
-//! declarations. The frontend re-validates after `ext_read_manifest`
-//! because it has richer typing for `contributes.*`.
+//! Mirrors the zod schema on the frontend. Small for v1: id, name, version,
+//! optional metadata, permissions, and contribution declarations. The
+//! frontend re-validates after `ext_read_manifest` because it has richer
+//! typing for `contributes.*`.
 
 use serde::{Deserialize, Serialize};
 
-/// kebab-case / dotted id, scoped by publisher. Examples:
-///   - `acme.my-integration`
-///   - `ilhamrisky.dracula-theme`
+/// Validate an extension id (kebab-case / dotted, publisher-scoped). Examples:
+/// `acme.my-integration`, `ilhamrisky.dracula-theme`.
 ///
-/// Constraints enforced here: ASCII, lower, dot/dash/underscore, no
-/// leading dot, length 3-64. Validation runs on every install so a
-/// hostile zip can't escape `<root>/<id>/` via something like `../evil`.
+/// Rules: ASCII lower, dot/dash/underscore, no leading dot, length 3-64.
+/// Runs on every install so a hostile zip cannot escape `<root>/<id>/` via
+/// something like `../evil`.
 pub fn validate_id(id: &str) -> Result<(), String> {
     if id.len() < 3 || id.len() > 64 {
         return Err("manifest.id must be 3-64 chars".into());
@@ -44,14 +43,14 @@ pub struct Manifest {
     pub author: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
-    /// Path to the JS entry point, relative to the extension root. Optional
-    /// because some packs (themes, snippets) are pure-declarative.
+    /// Path to the JS entry point, relative to the extension root. Optional;
+    /// theme/snippet packs are pure-declarative.
     #[serde(default)]
     pub main: Option<String>,
-    /// Glob-style permission strings - validated at runtime by the host API.
+    /// Glob-style permission strings; validated at runtime by the host API.
     #[serde(default)]
     pub permissions: Vec<String>,
-    /// Free-form JSON; the frontend zod schema validates the inner shape.
+    /// Free-form JSON. Frontend zod schema validates the inner shape.
     #[serde(default)]
     pub contributes: serde_json::Value,
     #[serde(default)]
@@ -62,7 +61,7 @@ pub struct Manifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Engines {
-    /// Semver requirement, e.g. `">=0.2.6"`. Optional - missing means "any".
+    /// Semver requirement, e.g. `">=0.2.6"`. Missing means "any".
     #[serde(default)]
     pub tedi: Option<String>,
 }

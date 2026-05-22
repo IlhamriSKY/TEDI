@@ -2,12 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
 
-/// Saved SSH hosts live in their own LazyStore so the main settings file
-/// doesn't grow unbounded with one record per connection. Secrets
-/// (password / key passphrase / private key body) are kept in the OS
-/// keychain via the existing secrets_* IPC commands - the store only
-/// holds the non-sensitive metadata + flags indicating which secret
-/// fields exist.
+// Saved SSH hosts live in a separate LazyStore. Secrets (password, key
+// passphrase, private key) go in the OS keychain via secrets_* IPC. The
+// store only holds metadata and flags marking which secrets exist.
 
 const STORE_PATH = "tedi-ssh-connections.json";
 const STORE_KEY = "connections";
@@ -27,17 +24,17 @@ export type SshConnection = {
   port: number;
   user: string;
   authMode: SshAuthMode;
-  /** True if a password is stored in the keychain for this connection. */
+  /** Password stored in keychain. */
   hasPassword: boolean;
-  /** True if a private key body is stored in the keychain. */
+  /** Private key stored in keychain. */
   hasPrivateKey: boolean;
-  /** True if a passphrase is stored for the private key. */
+  /** Key passphrase stored in keychain. */
   hasKeyPassphrase: boolean;
-  /** Free-form note shown in the UI. */
+  /** UI note. */
   description?: string;
-  /** Unix ms of the most recent successful `Connected` handshake. */
+  /** Unix ms of last successful handshake. */
   lastConnectedAt?: number;
-  /** SHA256 fingerprint of the server key recorded on the last connect. */
+  /** SHA256 fingerprint from the last connect. */
   lastFingerprint?: string;
 };
 
@@ -60,8 +57,7 @@ async function persist(list: SshConnection[]): Promise<void> {
 }
 
 export function newConnectionId(): string {
-  // Random opaque id - the user-visible name lives in `name`. Keeps the
-  // keyring account stable across renames.
+  // Opaque id. Stays stable across renames so keyring accounts don't drift.
   return `c-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
@@ -73,8 +69,7 @@ export async function upsertConnection(
     keyPassphrase?: string | null;
   },
 ): Promise<void> {
-  // Reflect what's actually stored - flags must agree with the keyring
-  // after this call returns so the UI's "configured" pips are accurate.
+  // Flags must agree with what's now in the keyring so UI pips stay accurate.
   const next = { ...conn };
   next.hasPassword = await writeSecret(conn.id, PASSWORD_FIELD, secrets.password);
   next.hasPrivateKey = await writeSecret(conn.id, PRIVATE_KEY_FIELD, secrets.privateKey);
@@ -114,11 +109,7 @@ export function onConnectionsChanged(cb: () => void): Promise<UnlistenFn> {
   return listen(CHANGED_EVENT, () => cb());
 }
 
-/**
- * Record that a connection completed an SSH handshake. Writes back the
- * timestamp and the server-key fingerprint so the UI can show "last: 2h
- * ago" pips and the user can spot a key rotation across reconnects.
- */
+/** Marks a successful SSH handshake. Updates the timestamp and server fingerprint. */
 export async function markConnected(id: string, fingerprint: string): Promise<void> {
   const list = await listConnections();
   const idx = list.findIndex((c) => c.id === id);
@@ -132,11 +123,8 @@ export async function markConnected(id: string, fingerprint: string): Promise<vo
 }
 
 /**
- * Forget the recorded server-key fingerprint for a connection so the next
- * connect re-anchors via TOFU. Called from the edit dialog after the user
- * has verified out-of-band that a key rotation on the server is
- * legitimate; without this the pinned check would keep rejecting the new
- * key.
+ * Clears the saved server fingerprint so the next connect re-pins via TOFU.
+ * Use after the user has verified a legitimate server key rotation.
  */
 export async function clearFingerprint(id: string): Promise<void> {
   const list = await listConnections();
@@ -158,15 +146,15 @@ async function readSecret(id: string, field: string): Promise<string | null> {
   }
 }
 
-// Returns true if a value is now stored for this field (used to refresh the
-// "has password" / "has key" flags on the connection record).
+// Returns true if a value is now stored for this field. Used to refresh the
+// hasPassword / hasPrivateKey / hasKeyPassphrase flags.
 async function writeSecret(
   id: string,
   field: string,
   value: string | null | undefined,
 ): Promise<boolean> {
   if (value === undefined) {
-    // undefined = "no change requested" - read back the existing flag.
+    // undefined means no change. Read back the current flag.
     return (await readSecret(id, field)) !== null;
   }
   const trimmed = value?.trim() ?? "";
@@ -189,6 +177,6 @@ async function deleteSecret(id: string, field: string): Promise<void> {
       account: keyringAccount(id, field),
     });
   } catch {
-    // already absent - fine
+    // Already absent.
   }
 }

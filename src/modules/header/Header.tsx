@@ -38,65 +38,54 @@ import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 type Props = {
   tabs: Tab[];
   activeId: number;
-  /** Activate a pane entry (or standalone tab when leafId is null). */
+  /** Activate a pane entry, or standalone tab when leafId is null. */
   onSelectEntry: (tabId: number, leafId: number | null) => void;
   /** Close a pane entry or standalone tab. */
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   onNewTerminal: () => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
-  /** Promote a preview-editor leaf to persistent on double-click. */
+  /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
-  /** Reorder a tab in the tab strip (drag-and-drop). */
+  /** Drag-and-drop reorder of the tab strip. */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
-  /** Reorder a leaf within its split group (drag-and-drop inside a group tab). */
+  /** Drag-and-drop reorder inside a split group. */
   onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
   onToggleSidebar: () => void;
   onOpenFolder: () => void;
   onSplit: (dir: "row" | "col") => void;
-  /** Layout currently below per-tab pane cap (still has room for a split). */
+  /** True when the active tab still has room for another split. */
   canSplit: boolean;
   onOpenShortcuts: () => void;
   onOpenExtensions: () => void;
   onOpenSettings: () => void;
   /** Open a saved SSH host as a new terminal tab. */
   onConnectSsh: (conn: SshConnection) => void;
-  /**
-   * Move a leaf out of its current tab into `targetTabId` as a split. Used
-   * by the per-entry "Move to group" button on the tab strip. Caller toasts
-   * on full.
-   */
+  /** Move a leaf into `targetTabId` as a split. Caller toasts on full. */
   onMoveLeafToGroup: (leafId: number, targetTabId: number) => void;
-  /** Extract `leafId` from its current split into a brand-new top-level pane
-   *  tab — "leave group". Returns `"invalid"` if the leaf wasn't inside a
-   *  multi-leaf split. */
+  /** Pop `leafId` out into a new top-level tab. Returns "invalid" if not in a multi-leaf split. */
   onMoveLeafToNewTab: (leafId: number) => "ok" | "invalid";
-  /** Flip the orientation of the split node that directly contains `leafId`. */
+  /** Flip the orientation of the split that contains `leafId`. */
   onRotateLeafSplit: (leafId: number) => void;
-  /** Per-leaf SSH session status, forwarded to the tab strip for the dot. */
+  /** Per-leaf SSH status for the tab-strip dot. */
   sshStatuses?: Map<number, SshStatus>;
-  /** Per-leaf AI CLI status, forwarded to the tab strip for the dot. */
+  /** Per-leaf AI CLI status for the tab-strip dot. */
   aiCliStatuses?: Map<number, AiCliStatus>;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
-  /** Markdown-preview toggle for the active editor leaf. `null` hides the
-   *  button (active tab/leaf isn't a markdown editor). */
+  /** Markdown-preview toggle. `null` hides the button when not a markdown editor. */
   mdPreviewToggle: { active: boolean; toggle: () => void } | null;
-  /** Word-wrap toggle for the active editor leaf. `null` hides the button
-   *  (active tab/leaf isn't an editor, or markdown preview is showing). */
+  /** Word-wrap toggle. `null` hides the button when not an editor, or when previewing markdown. */
   lineWrapToggle: { active: boolean; toggle: () => void } | null;
 };
 
 const COMPACT_WIDTH = 720;
 
 /**
- * Manual window drag fallback. Tauri's automatic `data-tauri-drag-region`
- * detection is flaky on WebView2 (Windows) when the region wraps Radix
- * primitives + dnd-kit DOM - mousedown bubbles past the auto-listener for
- * reasons that aren't reproducible from JS. Calling `startDragging()`
- * directly from a React mousedown handler bypasses the auto-detection and
- * always works. Interactive elements + explicit `data-tauri-drag-region="false"`
- * children are excluded so clicks on buttons / tabs still behave normally.
+ * Manual window-drag fallback. Tauri's auto `data-tauri-drag-region` is flaky
+ * on WebView2 when the region wraps Radix + dnd-kit DOM. Calling `startDragging()`
+ * from a React mousedown handler works reliably. Interactive elements and
+ * `data-tauri-drag-region="false"` children are excluded.
  */
 const INTERACTIVE_SELECTOR =
   'button, a, input, textarea, select, [role="button"], [role="tab"], [role="menuitem"], [data-tauri-drag-region="false"]';
@@ -223,8 +212,7 @@ export function Header({
       ref={rootRef}
       className="border-border/60 bg-card flex shrink-0 flex-col border-b select-none"
     >
-      {/* Row 1 — Toolbar: window controls live here, traffic-light padding
-          and drag region scoped to this row only. */}
+      {/* Row 1: toolbar. Window controls and drag region scoped to this row. */}
       <div
         data-tauri-drag-region
         onMouseDown={onHeaderMouseDown}
@@ -300,9 +288,7 @@ export function Header({
           {!IS_MAC && extensionsButton}
         </div>
 
-        {/* Drag spacer between the left icon cluster and the right utility
-            cluster. Lets the user grab any blank area in the toolbar to
-            move the window. */}
+        {/* Drag spacer between the left and right icon clusters. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
 
         {mdPreviewToggle && (
@@ -349,8 +335,7 @@ export function Header({
 
         <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
 
-        {/* Vertical divider between the search bar and the trailing utility
-            cluster (shortcuts on macOS, SSH, settings, window controls). */}
+        {/* Divider before the trailing cluster. */}
         <span className="bg-border mx-1 h-5 w-px shrink-0" />
 
         {IS_MAC && (
@@ -369,11 +354,7 @@ export function Header({
           </>
         )}
 
-        {/* Note: extensions button sits next to keyboard shortcuts in the
-            left icon cluster (non-mac) / right cluster (mac, where it
-            follows the macOS-only `shortcutsButton`). The "left" placement
-            keeps it near the workspace-level affordances rather than the
-            trailing utility cluster. */}
+        {/* Extensions button: left cluster on non-mac, right cluster on mac. */}
 
         {USE_CUSTOM_WINDOW_CONTROLS && (
           <>
@@ -383,10 +364,7 @@ export function Header({
         )}
       </div>
 
-      {/* Row 2 — Tab strip gets the full window width. The container is
-          h-10 (40px) so the 28px tab triggers + the 10px horizontal
-          scrollbar TabBar reserves at its bottom fit without clipping.
-          A faint top border separates it from the toolbar row above. */}
+      {/* Row 2: tab strip across full width. h-10 (40px) fits the 28px triggers + 10px scrollbar. */}
       <div
         data-tauri-drag-region
         onMouseDown={onHeaderMouseDown}
@@ -410,8 +388,7 @@ export function Header({
           aiCliStatuses={aiCliStatuses}
           compact={compact}
         />
-        {/* Trailing drag region so empty space to the right of the tabs
-            still lets the user grab the window. */}
+        {/* Trailing drag region after the tabs. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
     </div>

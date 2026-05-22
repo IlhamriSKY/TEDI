@@ -94,7 +94,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, owns its ho
 | **updater/**    | In-app updater UI on top of `tauri-plugin-updater` — status-bar pill + dialog flow. Listens for the `tedi:trigger-update` event from the `--update` CLI shim. |
 | **extensions/** | Third-party extension system. Each extension is a `.zip` of `manifest.json` + `extension.js` + assets. Installs from a local file or `owner/repo` GitHub release (generic HTTPS-URL install was removed deliberately — see Extensions subsystem). `loader.ts` boot-scans `<app_data_dir>/extensions/`, dynamic-imports each enabled one, calls `activate(ctx)`. The `host.ts` factory produces the permission-gated `ExtensionContext` (`settings`, `secrets`, `invoke`, `events`, `app`, `contribute.*`, `registerCommandHandler`). Built-in TEDI surfaces read from contribution `registries.ts` so an extension can add a setting/theme/slash command/AI tool. Reference extensions are NOT bundled into the release binary — see Extensions subsystem below for the in-repo `extensions/` working-copy convention. |
 
-> **Note:** OSC event handling lives inside `terminal/lib/`, not a separate `shell-integration/` module. Only `settingsRegistry` + `statusItemsRegistry` in `extensions/registries.ts` are currently wired to TEDI surfaces; the other contribution registries (`aiTools`, `slashCommands`, `themes`, `editorThemes`, `commands`, `keybindings`, `panels`) accept input but have no consumer yet — treat them as reserved.
+> **Note:** OSC event handling lives inside `terminal/lib/`, not a separate `shell-integration/` module. Contribution registries in `extensions/registries.ts` that are wired to actual TEDI surfaces today: `settingsRegistry` (rendered in the Extensions card), `statusItemsRegistry` (icons in the status bar's right cluster, via `ExtensionStatusItems`), `shellTransformersRegistry` (rewrites AI shell tool commands), `panelsRegistry` for `surface: "right"` entries (auto-toggle button in status bar via `RightPanelToggleButtons` + slot via `RightPanelHost`), `commandsRegistry` + `keybindingsRegistry` (dispatched by `useExtensionShortcuts`, rebindable in *Settings → Shortcuts → Extensions*), and `panelRenderersRegistry` (runtime renderer for right-surface panels). The remaining registries (`aiTools`, `slashCommands`, `themes`, `editorThemes`, plus the legacy panel surfaces `sidebar-bottom`/`statusbar-right`) accept input but have no consumer yet — treat those as reserved.
 
 ### AI subsystem (`src/modules/ai/`)
 
@@ -288,7 +288,12 @@ Security guards in [install.rs](src-tauri/src/modules/extensions/install.rs): zi
 - `ctx.events.emit/on(name)` - tunneled through Tauri events as `ext://<id>/<name>`.
 - `ctx.app.getContext / onContextChange` - read-only view of `{workspaceCwd, activeFileName, terminalCount}` pushed by `App.tsx` via `setAppContext` (`extensions/appBridge.ts`).
 - `ctx.contribute.{settings,commands,keybindings,slashCommands,themes,editorThemes,panels,aiTools}` - declarative contributions; built-in code reads via `registries.ts`. Settings auto-render under each extension's card in Settings -> Extensions.
-- `ctx.registerCommandHandler / registerAiToolHandler` - runtime side-channel for handlers that can't live in the JSON contribution.
+- `ctx.registerCommandHandler / registerAiToolHandler / registerPanelRenderer` - runtime side-channel for handlers that can't live in the JSON contribution. Returned disposers auto-fire on deactivate.
+- `ctx.shell.registerCommandTransformer(fn)` - rewrite every shell command TEDI's AI tools issue (RTK pattern). Requires `shell:transform`.
+- `ctx.panel.{open,close,toggle}(panelId)` - imperative right-panel controls scoped to this extension's own panels. Wire a `keybindings`-bound command to this for a rebindable "toggle my panel" shortcut.
+- `ctx.ui.toast(message, opts?)` - status toast. Requires `ui:toast`.
+- `ctx.ui.mountFolderTree(container, options)` - mount TEDI's built-in `FileExplorer` React component into a vanilla-DOM container an extension owns. Useful for right-panel extensions that want a folder tree visually identical to the left sidebar (icons, indentation, expand/collapse, click-to-open routed through the workspace bridge). Options: `rootPath`, `onOpenFile?`, `showOpenFolder?`, `onClose?`. Returns `{ update, dispose }`.
+- `ctx.statusBar.setItem(item) / removeItem(id)` - runtime status-bar icons. Requires `statusbar:write`.
 
 **Permission strings** (`permissions.ts`): `settings:read|write`, `secrets:read|write`, `invoke:<cmd>` (globs allowed, e.g. `invoke:my_plugin_*`), `events:emit|listen`, `ui:toast`, `panels:register`, or `*` for power-user installs. The set declared in the manifest is recorded in `state.json` as `approved_permissions` on every install (re-install/update replaces it). The host API uses `approved_permissions` to gate every call; raw `@tauri-apps/api invoke` bypasses the gate by design (v1 trust model is install-time review — see `extensions/README.md`).
 
@@ -299,8 +304,13 @@ Security guards in [install.rs](src-tauri/src/modules/extensions/install.rs): zi
 | Reference extension | Repo | Install string |
 | --- | --- | --- |
 | Discord Rich Presence | [IlhamriSKY/TEDI.discord-rich-presence](https://github.com/IlhamriSKY/TEDI.discord-rich-presence) | `IlhamriSKY/TEDI.discord-rich-presence` |
+| Secondary Folder Tree | [IlhamriSKY/TEDI.secondary-folder-tree](https://github.com/IlhamriSKY/TEDI.secondary-folder-tree) | `IlhamriSKY/TEDI.secondary-folder-tree` |
 
-The Discord example demonstrates every host-API pattern an integration needs: `contribute.settings` (the "Publish presence" toggle), `settings.onChange`, `app.onContextChange`, permission-gated `invoke()`, idempotent `deactivate()`. **The codebase ships zero Discord code** (no Rust module, no crate dep, no toggle in core settings). The example handles a missing host backend gracefully — first `invoke()` returns "not found", a single warning toast fires, the retry loop short-circuits, and disable/uninstall still tear down cleanly. See [extensions/README.md](extensions/README.md) (the only file in `extensions/` that *is* committed) for the manifest schema, host-API reference, and a copy-pasteable release workflow.
+The Discord example demonstrates every host-API pattern an integration needs: `contribute.settings` (the "Publish presence" toggle), `settings.onChange`, `app.onContextChange`, permission-gated `invoke()`, idempotent `deactivate()`. **The codebase ships zero Discord code** (no Rust module, no crate dep, no toggle in core settings). The example handles a missing host backend gracefully — first `invoke()` returns "not found", a single warning toast fires, the retry loop short-circuits, and disable/uninstall still tear down cleanly.
+
+The Secondary Folder Tree example covers the right-panel surface: `contributes.panels[]` with `surface: "right"` + `hideHostHeader`, `contributes.commands` + `contributes.keybindings` for the `Mod+Shift+E` toggle (rebindable), `ctx.registerCommandHandler` wiring the command to `ctx.panel.toggle()`, and `ctx.ui.mountFolderTree` to embed the built-in file explorer instead of reimplementing the tree. **The codebase ships zero secondary-folder-tree code** — the right-panel slot, status-bar toggle button, shortcut dispatcher, and folder-tree mount API are all generic facilities that any extension can use.
+
+See [extensions/README.md](extensions/README.md) (the only file in `extensions/` that *is* committed) for the manifest schema, host-API reference, and a copy-pasteable release workflow.
 
 ## Known gotchas
 

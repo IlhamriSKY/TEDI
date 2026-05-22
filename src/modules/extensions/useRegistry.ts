@@ -1,7 +1,6 @@
 /**
- * `useSyncExternalStore` wrapper for the contribution registries so
- * React components stay in sync without prop-drilling. Registries live
- * outside React (see `registries.ts`); this hook is the bridge.
+ * `useSyncExternalStore` wrapper for contribution registries. Bridges
+ * the registries in `registries.ts` to React components.
  */
 import { useSyncExternalStore } from "react";
 

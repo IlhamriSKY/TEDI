@@ -9,14 +9,14 @@ export function UpdaterPill() {
   const updater = useUpdater();
   const [open, setOpen] = useState(false);
 
-  // `tedi --update` (and the single-instance forward of the same) bumps
-  // `forceOpenSeq`. Mirror that into our local open flag so the dialog pops.
+  // `tedi --update` (and its single-instance forward) bumps `forceOpenSeq`.
+  // Mirror into local open flag so the dialog pops.
   useEffect(() => {
     if (updater.forceOpenSeq > 0) setOpen(true);
   }, [updater.forceOpenSeq]);
 
-  // Errors used to silently hide the pill, which is exactly the state a user
-  // hits when the updater can't reach GitHub - surface it so they can see why.
+  // Errors previously hid the pill, hiding the GitHub-unreachable case.
+  // Now surface them so the user sees why.
   const visible =
     updater.state.kind === "available" ||
     updater.state.kind === "manual-available" ||
@@ -25,8 +25,7 @@ export function UpdaterPill() {
     updater.state.kind === "error";
 
   // Render only the dialog (no pill) for transient states so `tedi --update`
-  // can still pop a "Checking…" / "You're up to date" panel without leaving
-  // a permanent button in the status bar.
+  // can pop a status panel without leaving a permanent status-bar button.
   if (!visible) {
     return (
       <UpdaterDialog
@@ -70,8 +69,7 @@ export function UpdaterPill() {
       : updater.state.kind === "error"
         ? "Update check failed"
         : updater.state.kind === "downloading"
-          ? // Inline the % so the status-bar pill itself shows progress —
-            // tooltip is the long form; pill stays short enough to fit.
+          ? // Inline the % so the pill shows progress; tooltip has the long form.
             `Updating ${formatProgress(updater.state.received, updater.state.total)}`
           : "Update";
 

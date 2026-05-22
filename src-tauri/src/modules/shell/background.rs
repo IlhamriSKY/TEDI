@@ -16,8 +16,8 @@ use super::ringbuffer::BoundedRingBuffer;
 
 const RING_CAP: usize = 4 * 1024 * 1024;
 
-/// Suppress the auto-allocated console window Windows hands a console-subsystem
-/// child when its parent is a GUI process. Without this, every sidecar exe
+/// Suppress the auto-allocated console window Windows hands a
+/// console-subsystem child of a GUI parent. Without it, every sidecar exe
 /// (e.g. `tedi-discord-helper.exe`) flashes a black cmd window on spawn.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -32,7 +32,7 @@ pub struct BackgroundProc {
     pub exit_code: AtomicI32,
     pub exit_unknown: AtomicBool,
     // Windows: kill-on-close Job Object catches descendants when TEDI dies.
-    // Without it, a pwsh-wrapped `npm run dev` leaks its node grandchild.
+    // Without it a pwsh-wrapped `npm run dev` leaks its node grandchild.
     #[cfg(windows)]
     _job: Option<crate::modules::pty::job::PtyJob>,
 }
@@ -120,12 +120,11 @@ pub fn spawn(command: String, cwd: Option<String>) -> Result<Arc<BackgroundProc>
     track_spawned(&mut cmd, trimmed, cwd)
 }
 
-/// Direct-binary background spawn. Unlike [`spawn`], this never wraps
-/// the program in a shell - the tracked PID is the binary's own
-/// process, so `shell_bg_kill` actually terminates it. Use this for
-/// extension-bundled native sidecars where a leaked grandchild would
-/// keep talking to external systems (Discord IPC, etc.) after the
-/// parent thinks it's gone.
+/// Direct-binary background spawn. Unlike [`spawn`], this never wraps the
+/// program in a shell. The tracked PID is the binary's own process, so
+/// `shell_bg_kill` actually terminates it. Use this for extension-bundled
+/// native sidecars where a leaked grandchild would keep talking to
+/// external systems (Discord IPC, etc.) after the parent thinks it's gone.
 pub fn spawn_direct(
     program: String,
     args: Vec<String>,
@@ -144,8 +143,8 @@ pub fn spawn_direct(
     if let Some(ref dir) = cwd {
         cmd.current_dir(dir);
     }
-    // Display string for the supervisor's bookkeeping. Not parsed; only
-    // surfaced via `shell_bg_list` / debug output.
+    // Display string for the supervisor's bookkeeping. Not parsed; surfaced
+    // only via `shell_bg_list` and debug output.
     let display = if args.is_empty() {
         program.clone()
     } else {
@@ -154,10 +153,9 @@ pub fn spawn_direct(
     track_spawned(&mut cmd, display, cwd)
 }
 
-/// Shared spawn-and-track plumbing used by both [`spawn`] (shell-wrapped)
-/// and [`spawn_direct`] (no wrapper). Owns the stdin/out/err redirects,
-/// hands the child to `SharedChild`, and starts the three logging /
-/// wait threads.
+/// Shared spawn-and-track plumbing used by [`spawn`] (shell-wrapped) and
+/// [`spawn_direct`] (no wrapper). Sets up stdio redirects, hands the child
+/// to `SharedChild`, and starts the three logging and wait threads.
 fn track_spawned(
     cmd: &mut std::process::Command,
     display: String,

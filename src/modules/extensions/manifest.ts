@@ -1,16 +1,12 @@
 import { z } from "zod";
 
 /**
- * Manifest schema (TS/zod side).
- *
- * Mirrors the Rust struct in `src-tauri/src/modules/extensions/manifest.rs`
- * - Rust does the structural validation at install time; this schema is
- * used after `ext_list`/`ext_read_manifest` to (re-)narrow the type for
- * the host code and to validate the richer `contributes.*` shape that
- * Rust treats as opaque JSON.
- *
- * Adding a new contribution category? Extend `ContributesSchema` here and
- * teach `host.ts` how to forward it. Keep IDs kebab-case.
+ * Manifest schema (TS/Zod side). Mirrors the Rust struct in
+ * `src-tauri/src/modules/extensions/manifest.rs`. Rust validates at install
+ * time; this schema narrows the type after `ext_list`/`ext_read_manifest`
+ * and validates the `contributes.*` shape Rust treats as opaque.
+ * To add a contribution category, extend `ContributesSchema` and update
+ * `host.ts`. Keep IDs kebab-case.
  */
 
 const SemverIshSchema = z.string().regex(/^\d+\.\d+\.\d+([\-+].*)?$/);
@@ -49,8 +45,7 @@ const SlashCommandSchema = z
     name: z.string().min(1),
     label: z.string().min(1),
     description: z.string().optional(),
-    /** Static prompt template. `{{selection}}`, `{{cwd}}` placeholders are
-     *  resolved by the host before insertion. */
+    /** Prompt template. `{{selection}}` and `{{cwd}}` are resolved by the host. */
     template: z.string().min(1).optional(),
   })
   .strict();
@@ -60,8 +55,8 @@ const ThemeSchema = z
     id: z.string().min(1),
     label: z.string().min(1),
     type: z.enum(["light", "dark"]),
-    /** Map of CSS variable name (without `--` prefix) → value. Applied
-     *  by injecting a `:root[data-ext-theme="<id>"]` stylesheet. */
+    /** CSS variable name (without `--` prefix) to value. Applied via an
+     *  injected `:root[data-ext-theme="<id>"]` stylesheet. */
     tokens: z.record(z.string(), z.string()),
   })
   .strict();
@@ -79,8 +74,18 @@ const PanelSchema = z
   .object({
     id: z.string().min(1),
     title: z.string().min(1),
-    surface: z.enum(["sidebar-bottom", "statusbar-right"]),
+    // `right` is the slide-out slot next to the workspace, mutually
+    // exclusive with the AI sidebar. The other surfaces are reserved.
+    surface: z.enum(["sidebar-bottom", "statusbar-right", "right"]),
     icon: z.string().optional(),
+    /** Open this panel once per session on launch. User can override. */
+    defaultOpen: z.boolean().optional(),
+    /** Command id (also in `contributes.commands`) that toggles this panel.
+     *  Surfaces as a `<Kbd>` chip on the toggle button. */
+    toggleCommand: z.string().optional(),
+    /** Hide the host's title + close-X strip; the extension paints the whole
+     *  panel and must provide its own close via `ctx.panel.close(panelId)`. */
+    hideHostHeader: z.boolean().optional(),
   })
   .strict();
 
@@ -88,7 +93,7 @@ const AiToolSchema = z
   .object({
     name: z.string().min(1),
     description: z.string().min(1),
-    /** JSON Schema describing the args. Loose schema for v1. */
+    /** JSON Schema for the args. Loose in v1. */
     parameters: z.record(z.string(), z.unknown()),
     approval: z.enum(["auto", "needsApproval"]).default("auto"),
   })
@@ -122,19 +127,16 @@ export const ManifestSchema = z
       .regex(/^[a-z0-9][a-z0-9\-_.]*[a-z0-9]$/, "id must be lowercase kebab/dotted"),
     name: z.string().min(1),
     version: SemverIshSchema,
-    // `.nullish()` accepts both `null` and `undefined`. Rust serializes
-    // `Option::None` as JSON `null`, so plain `.optional()` (which only
-    // tolerates `undefined`) rejects every entry whose manifest doesn't
-    // declare these fields and tanks the whole install list.
+    // `.nullish()` accepts `null` and `undefined`. Rust serializes
+    // `Option::None` as JSON `null`, which `.optional()` would reject.
     description: z.string().nullish(),
     author: z.string().nullish(),
     homepage: z.string().nullish(),
     icon: z.string().nullish(),
     main: z.string().nullish(),
     permissions: z.array(z.string()).default([]),
-    // Rust serializes the default `serde_json::Value` as JSON `null` when the
-    // manifest omits `contributes`. `.default({})` only kicks in for
-    // `undefined`, so coerce `null` → `undefined` first.
+    // Rust emits JSON `null` when `contributes` is omitted. `.default({})`
+    // only fires on `undefined`, so coerce `null` to `undefined` first.
     contributes: z.preprocess(
       (v) => (v == null ? undefined : v),
       ContributesSchema.default({}),

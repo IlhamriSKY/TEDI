@@ -25,14 +25,11 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
 export type ConversationContentProps = ComponentProps<typeof StickToBottom.Content>;
 
 export const ConversationContent = ({ className, ...props }: ConversationContentProps) => (
-  // `use-stick-to-bottom` hardcodes `scrollbar-gutter: stable both-edges`
-  // on the scroller via inline style, which reserves 16px on BOTH sides
-  // (so the layout stays symmetric whether or not a scrollbar is shown)
-  // and leaves a visible gap around full-bleed children like the sticky
-  // last-message pin. Trailing `!` flag raises our class to `!important`
-  // so it beats the inline style - `auto` only allocates a gutter when a
-  // scrollbar actually appears, so empty / short chats render fully flush
-  // and longer ones still get a clean right-side scrollbar lane.
+  // `use-stick-to-bottom` hardcodes `scrollbar-gutter: stable both-edges` via
+  // inline style, which reserves 16px on both sides and creates a gap around
+  // full-bleed children like the sticky last-message pin. The trailing `!`
+  // raises this to `!important` to beat the inline style; `auto` only
+  // allocates a gutter when a scrollbar appears, so short chats render flush.
   <StickToBottom.Content
     scrollClassName="[scrollbar-gutter:auto]! overflow-x-hidden"
     className={cn("flex flex-col gap-5 p-4", className)}
@@ -103,9 +100,8 @@ export const ConversationScrollButton = ({
         >
           <Button
             className={cn(
-              // Same outline-pill style; just enough shadow to lift it off
-              // the chat, no halo ring. Text + arrow keeps the affordance
-              // obvious without needing a giant glow.
+              // Outline-pill with light shadow, no halo ring. Text and arrow
+              // signal the affordance without a heavy glow.
               "border-border/60 bg-background text-muted-foreground hover:border-foreground/30 hover:bg-accent hover:text-foreground dark:bg-background dark:hover:bg-muted pointer-events-auto h-7 gap-1.5 rounded-full border px-3 text-[11px] font-medium shadow-md backdrop-blur transition-colors active:scale-95",
               className,
             )}

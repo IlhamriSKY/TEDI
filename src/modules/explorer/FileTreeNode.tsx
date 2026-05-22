@@ -23,11 +23,8 @@ type Props = {
   rootPath: string;
   depth: number;
   tree: Tree;
-  /**
-   * Called whenever a file should be opened.
-   * `pin` signals persistent intent (e.g. context-menu "Open");
-   * omitting it means the caller decides the default (preview).
-   */
+  /** Open a file. `pin: true` is a persistent open (e.g. context menu Open);
+   *  omit to let the caller pick the default (preview). */
   onOpenFile: (path: string, pin?: boolean) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
@@ -69,8 +66,7 @@ function FileTreeNodeImpl({
   const pendingInThisDir =
     isDir && isExpanded && tree.pendingCreate?.parentPath === path ? tree.pendingCreate : null;
 
-  // Context menu placement: directory targets itself for new file/folder;
-  // a file targets its parent.
+  // New file/folder target: directories target themselves, files target parent.
   const createTarget = isDir ? path : parentPath;
 
   return (
@@ -98,6 +94,16 @@ function FileTreeNodeImpl({
             <button
               type="button"
               data-fs-path={path}
+              // No native `draggable` attribute on purpose. Tauri 2's default
+              // `dragDropEnabled: true` installs an OS-level drag-drop target
+              // that consumes HTML5 drag events before the WebView sees them,
+              // so a native drag here would just produce a "not allowed"
+              // cursor over every drop zone. Instead, drag handling is
+              // synthesized from `mousedown`/`mousemove`/`mouseup` by
+              // `useTerminalFileDrop.ts::ensureFsDragListener`, which hit-
+              // tests the source against `[data-fs-path]` and the target
+              // against `[data-terminal-leaf-id]`. See that file for the
+              // full rationale.
               onClick={handleClick}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(

@@ -4,28 +4,15 @@ import type { ProviderId } from "../config";
 /**
  * Provider-aware prompt-cache adapter.
  *
- * Why a registry: each provider has its own cache semantics.
+ * Anthropic uses explicit `cacheControl` markers (up to 4). OpenAI, xAI,
+ * DeepSeek, SumoPod, and OpenAI-compatible gateways use implicit prefix
+ * caching at >= 1024 tokens; the system prompt and per-turn <env> placement
+ * already keep the prefix byte-stable.
+ * Google's Gemini 2.5+ also has implicit caching; explicit `cachedContent`
+ * is skipped because it adds round-trip cost.
+ * Groq, Cerebras, and LM Studio have no prompt cache.
  *
- *   anthropic         Explicit markers. Up to 4 `cacheControl` breakpoints.
- *                     We place three (system, last user, last tool result);
- *                     see `applyAnthropicBreakpoints` for the rationale.
- *
- *   openai            Implicit prefix cache, kicks in at ≥1024 tokens. We
- *   xai               just need the prefix to be byte-stable. Already
- *   deepseek          handled - system prompt has no dynamic data, and
- *   sumopod           the per-turn <env> block lives on the LAST user
- *   openai-compatible message (after the cacheable prefix).
- *
- *   google            Implicit cache on Gemini 2.5+. Same prefix-stability
- *                     requirement; explicit `cachedContent` API exists but
- *                     adds round-trip cost - skip until we measure a win.
- *
- *   groq              No prompt cache (gateway is stateless). The local
- *   cerebras          autocomplete LRU does the equivalent job.
- *   lmstudio
- *
- * Anyone adding a provider only has to extend the switch in
- * `applyCacheBreakpoints` - every other call site stays untouched.
+ * Adding a provider only needs a new case in `applyCacheBreakpoints`.
  */
 export function applyCacheBreakpoints(
   messages: ModelMessage[],
@@ -36,8 +23,8 @@ export function applyCacheBreakpoints(
     case "anthropic":
       return applyAnthropicBreakpoints(messages);
     default:
-      // Implicit / unsupported: byte-stable prefix is the precondition,
-      // and `buildSystemPrompt` already guarantees it. Nothing to inject.
+      // Implicit or unsupported. `buildSystemPrompt` already keeps the
+      // prefix byte-stable, so nothing to inject.
       return messages;
   }
 }
@@ -45,24 +32,12 @@ export function applyCacheBreakpoints(
 function applyAnthropicBreakpoints(messages: ModelMessage[]): ModelMessage[] {
   const out = messages.slice();
 
-  // Anthropic allows up to 4 cache breakpoints per request. We use 3:
-  //
-  //   BP1  system message           - caches system + tool schemas across
-  //                                   the entire conversation (5-min TTL,
-  //                                   re-warmed each request).
-  //
-  //   BP2  last user message        - caches conversation prefix up to the
-  //                                   current user turn. Steps within the
-  //                                   tool loop all share this prefix, so
-  //                                   step 2+ pays only for new appended
-  //                                   tool calls / results.
-  //
-  //   BP3  last tool-result message - rolling write that moves forward each
-  //                                   step. Step N writes a cache entry at
-  //                                   the latest tool result; step N+1 hits
-  //                                   it and only pays for the new step's
-  //                                   delta. Compounding savings on long
-  //                                   tool loops.
+  // Anthropic allows 4 breakpoints; we use 3:
+  //   BP1 system - caches system + tool schemas (5-min TTL, re-warmed).
+  //   BP2 last user - caches prefix up to the current user turn; tool-loop
+  //       steps share it, so step 2+ pays only for appended deltas.
+  //   BP3 last tool result - rolling write. Step N writes, step N+1 hits it
+  //       and pays only the new delta. Compounds on long tool loops.
 
   const systemIdx = out.findIndex((m) => m.role === "system");
   if (systemIdx >= 0) out[systemIdx] = withAnthropicCacheMark(out[systemIdx]);

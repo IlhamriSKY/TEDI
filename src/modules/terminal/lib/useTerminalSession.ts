@@ -34,41 +34,26 @@ export type { TediOpenInput, TediSpawnTabInput };
 const BACKWARD_KILL_WORD = "\x17";
 const SHIFT_ENTER = "\x1b\r";
 
-// Floor for any size pushed to the PTY. xterm's FitAddon can briefly compute
-// 0×0 or 1×1 dimensions when the container collapses (drag, layout
-// transition, hidden tab), and TUIs respond to that with broken or hung
-// screens (nano shows a blank line; nvim panics out of room; btop draws
-// nothing). 2×2 is the smallest size every TUI we care about tolerates.
+// Floor for sizes pushed to the PTY. FitAddon can return 0x0 or 1x1 during
+// layout transitions; TUIs break at those sizes. 2x2 is the smallest size
+// every supported TUI tolerates.
 const MIN_PTY_DIM = 2;
 
 const LOCAL_URL_RE =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{1,5})?(?:\/[^\s\x1b]*)?/g;
 
-// If a freshly-spawned PTY exits within this window, treat it as a spawn-time
-// crash rather than a user-initiated `exit`. Why: workspace-restore opens
-// several PTYs concurrently and a transient ConPTY/profile-init failure used
-// to bubble up as `onExit` -> `handleLeafExit` -> `closePaneByLeaf`, which
-// silently dropped panes from the restored layout. We now hold the leaf in
-// place with a retry banner so the user can recover with Enter.
+// PTY exits within this window after spawn are treated as init crashes
+// (ConPTY race, profile script error) rather than user `exit`. Hold the
+// leaf with a retry banner instead of closing the pane.
 const SPAWN_GRACE_MS = 3_000;
 
-// Hard ceiling on how long we'll wait for `pty_open` to return a session id.
-// Why: workspace-restore on Windows occasionally lands in a state where the
-// `invoke("pty_open")` promise never settles - neither resolves nor rejects -
-// leaving the leaf with `pty=null` AND `lastPtyError=null`, so the keyboard
-// handler's Enter-to-retry path can't fire (it gates on `lastPtyError`). The
-// user sees a forever-black pane that refuses to accept input. After this
-// many ms we force the spawn into the retry-banner path so the leaf is
-// recoverable with Enter. Ordinary local spawns complete in <300 ms; tens of
-// seconds is well outside any legitimate slow-machine bound while still
-// covering pathological ConPTY contention.
+// Hard ceiling on `pty_open`. Workspace restore on Windows can wedge with the
+// promise never settling, leaving the leaf with `pty=null` AND `lastPtyError=null`
+// so Enter-to-retry can't fire. After this many ms we force the retry-banner
+// path. Local spawns normally complete in <300ms.
 const SPAWN_TIMEOUT_MS = 15_000;
 
-/**
- * Diagnostic toggle for the PTY lifecycle. Default-on so reports from users
- * include the lifecycle traces in their devtools console; set
- * `localStorage.TEDI_DEBUG_PTY = "0"` to silence.
- */
+/** PTY lifecycle debug toggle. Default on; set `localStorage.TEDI_DEBUG_PTY = "0"` to silence. */
 function isDebugPty(): boolean {
   try {
     return localStorage.getItem("TEDI_DEBUG_PTY") !== "0";
@@ -78,28 +63,17 @@ function isDebugPty(): boolean {
 }
 
 /**
- * After the PTY's `pty_open` resolves we treat any further silence as a
- * stall. A healthy shell writes its first prompt within tens of ms; if 5s
- * goes by with zero bytes flowing through `onData`, the user sees a
- * forever-blank pane that doesn't echo input. Surface that state as an
- * explicit banner + retry-able error so the leaf is recoverable with Enter.
+ * After `pty_open` resolves, no bytes within this window means the shell
+ * stalled. Surface as a retry-able error.
  */
 const NO_DATA_WATCHDOG_MS = 5_000;
 
 /**
- * Last-resort watchdog armed when the leaf's `useEffect` runs. Catches the
- * silent-blank failure mode where attachSession never gets reached at all
- * (container.current never settles even past the rAF+interval safety net,
- * OR ensureSession's `s.ready` promise stays pending forever): both
- * `s.lastPtyError` and `s.pty` stay `null`, `ptyOpening` stays `false`, and
- * Enter-to-retry doesn't fire because the keyboard handler gates on
- * `lastPtyError !== null`. Observed on workspace-restore when a tab opens
- * with two split panes - one ends up forever-blank with no input echo and
- * no banner. After this many ms with no live PTY and no pending error, we
- * force `retryPty` / `retrySsh` so the leaf is no longer dead. Tuned > the
- * 120-frame (~2s) container-settle budget but < `SPAWN_TIMEOUT_MS` (15s)
- * so we recover before a genuine slow spawn would have surfaced its own
- * error banner.
+ * Last-resort recovery for the silent-blank failure mode where attachSession
+ * never runs or `s.ready` stays pending. Both `lastPtyError` and `pty` stay
+ * null so Enter-to-retry can't fire. After this window with no live PTY and
+ * no pending error, force `retryPty` / `retrySsh`. Sits between the 2s
+ * container-settle budget and the 15s `SPAWN_TIMEOUT_MS`.
  */
 const STUCK_RECOVERY_MS = 8_000;
 
@@ -110,17 +84,17 @@ type Callbacks = {
   onDetectedLocalUrl?: (url: string) => void;
   onTediOpen?: (input: TediOpenInput) => void;
   onTediSpawnTab?: (input: TediSpawnTabInput) => void;
-  /** Emitted only for SSH-bound leaves. Drives the tab dot + status pill. */
+  /** Emitted for SSH-bound leaves. Drives the tab dot and status pill. */
   onSshStatus?: (status: SshStatus) => void;
-  /** Emitted when an AI CLI tool is detected/changes state in this leaf. */
+  /** Emitted on AI CLI detection/state change. */
   onAiCliStatus?: (status: AiCliStatus) => void;
 };
 
 const RECONNECT_BACKOFF_MS = [1_000, 3_000, 7_000] as const;
 const MAX_SSH_RECONNECT_ATTEMPTS = RECONNECT_BACKOFF_MS.length;
 
-// Lives outside React so split/unsplit re-parent the DOM without tearing
-// down the term or PTY. Real disposal: `disposeSession`.
+// Lives outside React so split/unsplit can re-parent the DOM without
+// disposing the term or PTY. Real disposal happens in `disposeSession`.
 type Session = {
   term: Terminal;
   fitAddon: FitAddon;
@@ -143,63 +117,34 @@ type Session = {
   ready: Promise<void>;
   disposed: boolean;
   initialCwd: string | undefined;
-  /** If set, this leaf is bound to a saved SSH connection. */
+  /** Bound saved SSH connection id, if any. */
   sshConnectionId: string | undefined;
   ptyOpening: boolean;
-  /**
-   * Last error message from a failed `openPtyForSession`. When set and
-   * `pty === null`, the custom key handler interprets Enter as a retry
-   * request. Cleared on successful spawn.
-   */
+  /** Last error from a failed `openPtyForSession`. Drives Enter-to-retry. */
   lastPtyError: string | null;
-  /**
-   * Wall-clock ms when the current PTY's `then` resolved successfully. Used
-   * by the exit handler to distinguish "shell crashed during init" (window
-   * defined by `SPAWN_GRACE_MS`) from a user-initiated `exit` later on.
-   * Reset to `null` whenever `pty` is cleared.
-   */
+  /** Wall-clock ms when the current PTY spawn resolved. Used with `SPAWN_GRACE_MS`. */
   ptySpawnedAt: number | null;
-  /**
-   * Monotonic counter bumped at the start of every `openPtyForSession`. The
-   * per-call exit handler captures the value at construction time so it can
-   * detect "this exit pertains to a pty that's already been replaced by a
-   * newer spawn" -- avoids the respawn race where late exit events for an
-   * old pty would otherwise clobber `s.pty` / fire spurious banners on the
-   * new one.
-   */
+  /** Monotonic counter bumped per spawn. Used to ignore exit events from superseded PTYs. */
   ptySpawnEpoch: number;
-  /**
-   * Watchdog timer armed when a local PTY's `pty_open` resolves. Cleared by
-   * the first incoming byte. If it fires, the shell is treated as
-   * unresponsive and the leaf gets a retry banner. Set to null when not armed.
-   */
+  /** Watchdog for the no-bytes-after-open case. Cleared by the first byte. */
   noDataTimer: ReturnType<typeof setTimeout> | null;
   /**
-   * Epoch number for which `onData` has already received at least one byte.
-   * Set in `onData`, read by `armNoDataWatchdog` to skip arming when bytes
-   * arrived between `invoke("pty_open")` issuing and its promise resolving
-   * (the channel's `onmessage` is wired up before the await, so the data
-   * event for the first byte CAN beat the resolution). Without this guard
-   * the watchdog would arm against a shell that already printed its prompt
-   * and is now idle, fire after 5s, close the PTY, and trigger the auto-
-   * close path via `onExit -> handleLeafExit -> closePaneByLeaf`.
+   * Spawn epoch that has already received its first byte. Prevents
+   * `armNoDataWatchdog` from arming against a shell that printed its prompt
+   * before `invoke("pty_open")` resolved.
    */
   firstByteEpoch: number;
-  // ---- SSH-only fields below. All ignored on local PTY leaves. ----
-  /** Latest emitted status. Source of truth for both UI surfaces. */
+  // SSH-only fields. Ignored on local PTY leaves.
+  /** Latest emitted SSH status. */
   sshStatus: SshStatus;
-  /**
-   * Set when the user (or a tab close) intentionally tore down the SSH
-   * session, so the exit/error handler can distinguish "they typed exit"
-   * from "the network blipped" and skip auto-reconnect in the first case.
-   */
+  /** Set when the user closed the SSH session, so auto-reconnect skips. */
   sshUserClose: boolean;
-  /** Current attempt number when in a reconnect schedule (1-based). */
+  /** Current reconnect attempt number (1-based). */
   sshReconnectAttempts: number;
-  /** Pending timer for the next reconnect attempt (cleared on dispose). */
+  /** Pending reconnect timer. */
   sshReconnectTimer: ReturnType<typeof setTimeout> | null;
-  // ---- AI CLI detection ----
-  /** Detector instance (per-session). Created in ensureSession's ready block. */
+  // AI CLI detection.
+  /** Detector instance. */
   aiCliDetector: AiCliDetector | null;
   /** Latest emitted AI CLI status. Replayed on re-attach. */
   aiCliStatus: AiCliStatus;
@@ -208,14 +153,9 @@ type Session = {
 const sessions = new Map<number, Session>();
 
 /**
- * Snapshot the visible content of an xterm Terminal's viewport as a single
- * newline-joined string (original case - the AI-CLI detector lowercases
- * as needed but also looks for case-sensitive Unicode markers like `❯`).
- *
- * Defensive: xterm's buffer / row APIs can throw or return null while the
- * terminal is mid-reflow (resize, theme swap). Any error returns "" so
- * the detector treats the screen as empty for that tick - safer than
- * letting an exception kill the detector loop.
+ * Snapshot the visible xterm viewport as newline-joined text in original
+ * case. Returns "" on any buffer API error so a mid-reflow throw doesn't
+ * kill the detector loop.
  */
 function readTerminalViewport(term: Terminal): string {
   try {
@@ -234,12 +174,9 @@ function readTerminalViewport(term: Terminal): string {
 }
 
 /**
- * Compose the terminal's base font size with the global content-zoom factor
- * (see `Preferences.contentZoom`), clamped to xterm's sane bounds. xterm
- * renders glyphs into a GPU/canvas grid keyed by `fontSize`, so scaling the
- * pref this way triggers xterm's internal recompute - far more reliable than
- * CSS `zoom`, which leaves the canvas at the old resolution and offsets the
- * cursor from the text.
+ * Compose base terminal font size with content-zoom, clamped to xterm bounds.
+ * Scaling via xterm's `fontSize` triggers its internal recompute; CSS `zoom`
+ * would leave the canvas at the old resolution.
  */
 function effectiveTerminalFontSize(base: number, zoom: number): number {
   const raw = Math.round(base * (Number.isFinite(zoom) ? zoom : 1));
@@ -262,9 +199,7 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     cursorBlink: true,
     cursorStyle: "bar",
     cursorInactiveStyle: "outline",
-    // 5k lines × 80 cols × ~16 B per cell ≈ 6 MB per leaf. 10k doubled
-    // that for output almost no one scrolls back to. Keep this knob in
-    // mind if/when we add a "scrollback" preference.
+    // 5k lines x 80 cols x ~16 B per cell ≈ 6 MB per leaf.
     scrollback: 5_000,
     allowProposedApi: true,
   });
@@ -314,18 +249,13 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
   sessions.set(leafId, session);
 
   term.attachCustomKeyEventHandler((event) => {
-    // IME composition: defer entirely to the browser/IME. Without this guard,
-    // a Ctrl+Backspace pressed mid-composition (Japanese candidate delete,
-    // Hangul jamo correction) would inject \x17 into the PTY and corrupt
-    // both the IME state and the on-screen buffer. `keyCode === 229` is the
-    // legacy signal some IMEs still emit; `isComposing` is the spec field.
+    // IME composition: let the browser/IME handle it. Otherwise Ctrl+Backspace
+    // mid-composition injects \x17 and corrupts both IME and screen state.
     if (event.isComposing || event.keyCode === 229) return true;
     const pty = session.pty;
     if (!pty) {
-      // No live shell. If we got here because of a prior open failure,
-      // treat Enter as "retry" so the user can recover without closing
-      // the tab. Applies to both local PTY spawn errors and SSH leaves
-      // that exhausted the auto-reconnect schedule.
+      // No live shell. Enter retries open after a prior failure (local PTY
+      // or SSH after auto-reconnect exhaustion).
       const enterToRetry =
         !session.ptyOpening &&
         event.type === "keydown" &&
@@ -363,9 +293,7 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     return true;
   });
 
-  // AI CLI detector. `readBuffer` gives it the live xterm viewport for
-  // screen-content classification; `isAltScreen` lets it auto-clear the
-  // active tool the moment the TUI exits back to the main shell buffer.
+  // AI CLI detector. `readBuffer` provides the viewport; `isAltScreen` auto-clears on TUI exit.
   const detector = createAiCliDetector({
     onStatus: (status) => {
       session.aiCliStatus = status;
@@ -386,25 +314,19 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
   session.aiCliDetector = detector;
   session.cleanups.push(() => detector.dispose());
 
-  // Route through session.pty so a respawn doesn't need to rebind.
+  // Route through session.pty so respawn doesn't rebind.
   term.onData((data) => {
     session.aiCliDetector?.pushInput(data);
     session.pty?.write(data);
   });
 
-  // PTY is opened lazily in attachSession after the first fit, so the shell
-  // starts with the real terminal size and never flushes a 80x24-sized
-  // prompt into scrollback.
+  // PTY opens lazily after the first fit so the shell starts at the real terminal size.
   session.ready = (async () => {
     await document.fonts.ready;
     if (session.disposed) return;
 
     const prompt = registerPromptTracker(term, () => {
-      // Shell printed its next prompt: any AI CLI that was active has
-      // exited back to the shell. The detector's primary auto-clear
-      // path (alt-screen toggle) misses tools that never enter the alt
-      // buffer (`claude --help`, `codex login`, `ollama run`, etc.),
-      // which would otherwise leave the tab badge stuck.
+      // New shell prompt means any active AI CLI exited. Covers tools that never enter the alt buffer.
       session.aiCliDetector?.notifyShellPrompt();
     });
     session.cleanups.push(prompt.dispose);
@@ -426,17 +348,9 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
 }
 
 /**
- * Push the current xterm dimensions to the live PTY, floored to MIN_PTY_DIM
- * and de-duplicated against `lastSentCols/Rows`. Returns true when an IPC
- * resize was actually issued - used by callers that need to know whether
- * the trip across the bridge happened.
- *
- * Keeping floor + compare + bookkeeping in one place means every callsite
- * (initial attach, mid-life ResizeObserver tick, font-size effect, retry,
- * respawn, SSH reconnect) gets identical behavior. Without this, a pane
- * collapsed to 1×1 during a layout animation could push `cols=1` to the
- * PTY and break the TUI on screen, then never recover because the compare
- * would say "already aligned" once the pane grew back.
+ * Push xterm dimensions to the live PTY, floored to MIN_PTY_DIM and
+ * deduplicated against `lastSentCols/Rows`. Returns true when an IPC resize
+ * was issued. Central to every callsite so behavior stays consistent.
  */
 function syncPtySize(s: Session): boolean {
   if (!s.pty || s.disposed) return false;
@@ -450,19 +364,14 @@ function syncPtySize(s: Session): boolean {
 }
 
 function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySession> {
-  // Capture the epoch this open belongs to. Late exit events for a
-  // superseded spawn will see `myEpoch !== s.ptySpawnEpoch` and bail out
-  // before touching session state owned by the newer spawn.
+  // Capture spawn epoch. Late exit events for a superseded spawn bail before mutating newer state.
   s.ptySpawnEpoch += 1;
   const myEpoch = s.ptySpawnEpoch;
 
-  // Fresh decoder per pty so a partial UTF-8 codepoint from a prior shell
-  // doesn't leak into the new one.
+  // Fresh decoder per pty so partial UTF-8 from a prior shell doesn't leak.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
 
-  // Diagnostic counters - surface when a leaf claims a live PTY but the
-  // user sees an empty pane. Toggle via TEDI_DEBUG_PTY=0 in localStorage if
-  // it ever gets noisy in production.
+  // Diagnostic counters for the live-PTY-but-empty-pane case. Toggle via TEDI_DEBUG_PTY.
   const debug = isDebugPty();
   let firstByteLogged = false;
   let totalBytes = 0;
@@ -477,12 +386,8 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
         )}ms (${bytes.length}B)`,
       );
     }
-    // First real bytes from the shell - record arrival on the session AND
-    // disarm any already-armed watchdog. Recording on the session matters
-    // when bytes beat the `invoke("pty_open")` resolution: the timer hasn't
-    // been armed yet (clearTimeout is a no-op), so `armNoDataWatchdog` will
-    // later check `firstByteEpoch` and refuse to arm against a shell that
-    // already spoke.
+    // First bytes from the shell. Disarm the watchdog and record the epoch
+    // so `armNoDataWatchdog` won't arm against a shell that already spoke.
     s.firstByteEpoch = myEpoch;
     if (s.noDataTimer !== null) {
       clearTimeout(s.noDataTimer);
@@ -509,17 +414,11 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
         `[tedi-pty] onExit epoch=${myEpoch} code=${code} totalBytes=${totalBytes} elapsed=${Math.round(performance.now() - spawnedAtForLog)}ms`,
       );
     }
-    // Late exit from a pty that's already been replaced -- ignore so we
-    // don't clobber the newer spawn's state.
+    // Late exit from a replaced pty. Ignore to avoid clobbering newer state.
     if (myEpoch !== s.ptySpawnEpoch) return;
 
-    // Spawn-time crash detection: if the PTY died within SPAWN_GRACE_MS of
-    // opening with a non-zero exit code, the shell almost certainly failed
-    // to initialise (bad ConPTY state, profile script error, transient race
-    // with workspace hydration disposing the wrong leaf, etc.). Hold the
-    // leaf in place with a retry banner instead of forwarding the exit to
-    // App.tsx -- which would close the pane and silently shrink the
-    // restored layout.
+    // Spawn-time crash detection. PTY death within SPAWN_GRACE_MS with non-zero
+    // exit means init failed. Hold the leaf with a retry banner instead of closing.
     const spawnedAt = s.ptySpawnedAt;
     const elapsed = spawnedAt !== null ? Date.now() - spawnedAt : Infinity;
     if (
@@ -543,10 +442,7 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
     else s.pendingExit = code;
   };
 
-  // Spawn at the floored dimensions for the same reason syncPtySize floors:
-  // a pane mid-collapse would otherwise hand the shell a 1×1 viewport and
-  // leave most TUIs (nvim/btop/nano) unrecoverable until a resize event
-  // happens to fire later.
+  // Spawn at floored dimensions so a mid-collapse pane doesn't hand the shell a 1x1 viewport.
   const spawnCols = Math.max(MIN_PTY_DIM, s.term.cols);
   const spawnRows = Math.max(MIN_PTY_DIM, s.term.rows);
 
@@ -559,11 +455,8 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
 
 /**
  * Rejects with a timeout error if `pty_open` doesn't settle within
- * `SPAWN_TIMEOUT_MS`. Funnels a hung spawn into the existing retry-banner
- * codepath so the leaf stays recoverable with Enter instead of staying a
- * forever-black pane with no input. The race is one-shot: if the underlying
- * promise resolves later (the spawn did eventually complete), we close the
- * stray PTY so Rust doesn't leak the session.
+ * `SPAWN_TIMEOUT_MS`. Funnels a hung spawn into the retry-banner path. If
+ * the promise resolves later, closes the stray PTY so Rust doesn't leak it.
  */
 function withSpawnTimeout(p: Promise<PtySession>): Promise<PtySession> {
   return new Promise<PtySession>((resolve, reject) => {
@@ -618,9 +511,7 @@ async function openSshForSession(
   onData: (bytes: Uint8Array) => void,
   onExit: (code: number) => void,
 ): Promise<PtySession> {
-  // Look up the saved connection metadata + secrets at open time so a
-  // password change in settings is picked up on the next reconnect
-  // without restarting the app.
+  // Look up connection metadata at open time so settings changes are picked up on the next reconnect.
   const list = await listConnections();
   const conn: SshConnection | undefined = list.find((c) => c.id === sshConnectionId);
   if (!conn) {
@@ -628,8 +519,7 @@ async function openSshForSession(
   }
   const secrets = await getConnectionSecrets(sshConnectionId);
 
-  // `sshReconnectAttempts` is bumped by `scheduleSshReconnect` before this
-  // runs; the first open (no reconnects yet) leaves it at 0 → attempt 1.
+  // `sshReconnectAttempts` is bumped by `scheduleSshReconnect`. 0 means first open.
   const attempt = Math.max(1, s.sshReconnectAttempts);
   emitSshStatus(s, { kind: "connecting", attempt });
   writeSshBanner(
@@ -637,19 +527,13 @@ async function openSshForSession(
     `\x1b[2m[tedi] connecting to ${conn.user}@${conn.host}:${conn.port}…\x1b[0m\r\n`,
   );
 
-  // Track whether we've already routed this attempt's terminal event into
-  // the reconnect scheduler - russh can fire both onExit and onError for
-  // the same drop, and the first one wins.
+  // Route the first of onExit/onError into the reconnect scheduler; russh can fire both.
   let terminated = false;
   const handleTerminal = (reason: string) => {
     if (terminated) return;
     terminated = true;
     if (s.disposed) return;
-    // SSH lost its end of the wire — whatever AI CLI was running on the
-    // remote shell is gone with it. Reset the detector so its `activeTool`
-    // doesn't ghost forward into the next reconnect; without this, the icon
-    // could stay tinted (or shell traffic could trigger false "working"
-    // detection through `isStreamingOutput`).
+    // SSH dropped. Reset the AI CLI detector so its state doesn't ghost into the next reconnect.
     s.aiCliDetector?.reset();
     if (s.sshUserClose) {
       emitSshStatus(s, {
@@ -660,20 +544,14 @@ async function openSshForSession(
       onExit(0);
       return;
     }
-    // Drop the live handle so attachSession / retrySsh treat the leaf as
-    // "needs spawn" and the Enter-to-retry path can fire.
+    // Drop the live handle so attachSession/retrySsh treat the leaf as "needs spawn".
     s.pty = null;
     s.ptySpawnedAt = null;
     scheduleSshReconnect(s, reason);
   };
 
-  // We need both the russh session id (known when `openSsh` resolves) AND
-  // the server fingerprint (known when `onConnected` fires) on the
-  // `connected` status. The two events aren't strictly ordered: the
-  // fingerprint event can land before OR after the open promise resolves.
-  // Track both, emit/re-emit as soon as the session id is known so the
-  // SFTP panel can wire up immediately, then patch with the fingerprint
-  // when (or if) it arrives.
+  // Need both russh session id (from openSsh) and server fingerprint (from onConnected).
+  // The two events can land in either order, so emit on session id and re-emit when fingerprint arrives.
   let pendingFingerprint: string | null = null;
   let resolvedSessionId: number | null = null;
   const emitConnectedIfReady = () => {
@@ -696,10 +574,7 @@ async function openSshForSession(
       privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
       privateKeyPassphrase:
         conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
-      // Pin against the fingerprint recorded by the last successful connect.
-      // First-ever connect on this host has no value here and falls through
-      // to TOFU; later connects compare and fail fast on mismatch so an
-      // attacker swapping the server key can't go unnoticed.
+      // Pin against the last recorded fingerprint. First connect is TOFU; later connects fail fast on mismatch.
       expectedFingerprint: conn.lastFingerprint || undefined,
       cols,
       rows,
@@ -708,8 +583,7 @@ async function openSshForSession(
       onConnected: (fp) => {
         writeSshBanner(s, `\x1b[2m[tedi] server key ${fp}\x1b[0m\r\n`);
         pendingFingerprint = fp;
-        // Fire-and-forget; failure to write the timestamp shouldn't take
-        // the live session down.
+        // Fire-and-forget. Timestamp write failure shouldn't break the session.
         void markConnected(sshConnectionId, fp).catch(() => {});
         emitConnectedIfReady();
       },
@@ -727,7 +601,7 @@ async function openSshForSession(
   resolvedSessionId = sshSession.id;
   emitConnectedIfReady();
 
-  // Adapter so the rest of useTerminalSession treats SSH like a PtySession.
+  // Adapter so SSH looks like a PtySession to the rest of the file.
   return {
     id: sshSession.id,
     write: (data) => sshSession.write(data),
@@ -794,20 +668,15 @@ async function runSshReconnect(s: Session): Promise<void> {
     }
     s.pty = pty;
     s.ptySpawnedAt = Date.now();
-    // Only sync once the ResizeObserver is wired (post attachSession);
-    // otherwise term.cols/rows still hold pre-fit defaults that would push
-    // the wrong size across the bridge before the first measure-pass runs.
+    // Only sync after the ResizeObserver is wired. Pre-fit defaults would push the wrong size.
     if (s.observer) syncPtySize(s);
   } catch (e) {
     s.ptyOpening = false;
     const msg = describeError(e);
     console.error("ssh reconnect failed:", e);
     if (isHostKeyMismatchError(e)) {
-      // Retrying a mismatch can never recover - it'll just fail the same
-      // way at the next backoff interval and add noise. Park the leaf in
-      // the explicit error state with `canRetry: true` so the user can
-      // edit the saved connection (clear lastFingerprint) and trigger a
-      // manual retry once they've confirmed the new key is legitimate.
+      // Fingerprint mismatches can't auto-recover. Park in error so the user can
+      // edit the saved connection (clear lastFingerprint) and retry manually.
       s.sshReconnectAttempts = 0;
       writeSshBanner(s, `\r\n\x1b[31m[tedi] ${msg}\x1b[0m\r\n`);
       emitSshStatus(s, { kind: "error", message: msg, canRetry: true });
@@ -817,11 +686,7 @@ async function runSshReconnect(s: Session): Promise<void> {
   }
 }
 
-/**
- * Manually re-arm an SSH leaf that was disconnected (auto-retries
- * exhausted, or user picked "Disconnect" from the status pill). Resets the
- * attempt counter so the user gets a fresh 3-attempt window.
- */
+/** Manually re-arm a disconnected SSH leaf. Resets the attempt counter for a fresh 3-attempt window. */
 async function retrySsh(s: Session): Promise<void> {
   if (s.disposed) return;
   if (!s.sshConnectionId) return;
@@ -838,11 +703,7 @@ async function retrySsh(s: Session): Promise<void> {
   await runSshReconnect(s);
 }
 
-/**
- * User-initiated SSH close. Sets the user-close flag so the exit handler
- * doesn't auto-reconnect, then closes the channel. Exposed so the status
- * bar's "Disconnect" menu item can drive it.
- */
+/** User-initiated SSH close. Sets the user-close flag so the exit handler skips auto-reconnect. */
 export async function disconnectSsh(leafId: number): Promise<void> {
   const s = sessions.get(leafId);
   if (!s) return;
@@ -867,7 +728,7 @@ export async function disconnectSsh(leafId: number): Promise<void> {
   );
 }
 
-/** External handle for the status pill's "Reconnect" button. */
+/** Status pill "Reconnect" handle. */
 export async function reconnectSsh(leafId: number): Promise<void> {
   const s = sessions.get(leafId);
   if (!s) return;
@@ -896,34 +757,27 @@ function writePtyError(s: Session, message: string): void {
 }
 
 /**
- * Arm the no-data watchdog. Called when a local PTY's open resolves; the
- * watchdog fires if the shell produces no output within `NO_DATA_WATCHDOG_MS`,
- * which happens when ConPTY/profile init silently wedges or the channel
- * delivers the spawn-success ack but no data events. Disarmed by the first
- * `onData` call.
+ * Arm the no-data watchdog after a local PTY's open resolves. Fires when
+ * the shell produces no output within `NO_DATA_WATCHDOG_MS`. Disarmed by
+ * the first `onData`.
  */
 function armNoDataWatchdog(s: Session, epoch: number): void {
   if (s.sshConnectionId) return; // SSH has its own status banner
-  // Bytes may have already arrived between `invoke("pty_open")` issuing and
-  // its promise resolving - the Tauri Channel's `onmessage` is wired up
-  // before the await, so the first data event CAN beat the spawn-result. If
-  // that happened for this epoch, the shell is healthy and we must NOT arm:
-  // the prompt is already printed and no further bytes are expected until
-  // the user types, so a 5s timer would fire on a perfectly working shell.
+  // First byte may have arrived before `pty_open` resolved (channel onmessage is
+  // wired before the await). Don't arm in that case; the shell is already healthy.
   if (s.firstByteEpoch === epoch) return;
   if (s.noDataTimer !== null) clearTimeout(s.noDataTimer);
   s.noDataTimer = setTimeout(() => {
     s.noDataTimer = null;
     if (s.disposed) return;
-    // Bail if a newer spawn has replaced this one - its own watchdog covers it.
+    // Bail if a newer spawn has replaced this one.
     if (epoch !== s.ptySpawnEpoch) return;
-    // Bail if data did arrive between the timer firing and this callback
-    // executing (rare but possible under heavy scheduling).
+    // Bail if bytes arrived between timer fire and callback.
     if (!s.pty) return;
     const dyingPty = s.pty;
     s.pty = null;
     s.ptySpawnedAt = null;
-    // Close the orphaned PTY so Rust isn't holding a dead shell forever.
+    // Close the orphaned PTY so Rust doesn't leak it.
     void dyingPty.close().catch(() => {});
     const msg = `shell did not emit any output within ${Math.round(
       NO_DATA_WATCHDOG_MS / 1000,
@@ -934,11 +788,7 @@ function armNoDataWatchdog(s: Session, epoch: number): void {
   }, NO_DATA_WATCHDOG_MS);
 }
 
-/**
- * Retry a PTY spawn after a prior failure. Wired to Enter via the custom
- * key handler in `ensureSession` so users can recover without closing the
- * tab. No-ops if already opening, already alive, or disposed.
- */
+/** Retry a PTY spawn. Wired to Enter for recovery. No-op if opening, alive, or disposed. */
 async function retryPty(s: Session): Promise<void> {
   if (s.disposed) return;
   if (s.pty) return;
@@ -948,17 +798,13 @@ async function retryPty(s: Session): Promise<void> {
   s.term.reset();
   s.term.options.disableStdin = false;
   s.term.write("\x1b[2m[tedi] retrying…\x1b[0m\r\n");
-  // Seed to the values openPtyForSession will actually spawn at (floored)
-  // so the post-spawn syncPtySize is a coherent no-op when nothing changed
-  // mid-await.
+  // Seed to the values openPtyForSession spawns at (floored) so post-spawn syncPtySize no-ops.
   s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
   s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
   let myEpoch = 0;
   try {
     const promise = openPtyForSession(s, s.initialCwd);
-    // Captured after openPtyForSession's synchronous epoch bump so a later
-    // recovery (or a duplicate retry) won't have its result overwritten by
-    // this awaiter when the older spawn finally lands.
+    // Captured after the synchronous epoch bump so a later recovery won't be overwritten.
     myEpoch = s.ptySpawnEpoch;
     const pty = await promise;
     if (s.disposed) {
@@ -975,8 +821,7 @@ async function retryPty(s: Session): Promise<void> {
     syncPtySize(s);
     armNoDataWatchdog(s, s.ptySpawnEpoch);
   } catch (e) {
-    // Drop stale failures (myEpoch === 0 means openPtyForSession threw
-    // synchronously before bumping the counter - treat as a real failure).
+    // Drop stale failures. myEpoch === 0 means synchronous throw before counter bump.
     if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
     s.ptyOpening = false;
     const msg = describeError(e);
@@ -986,11 +831,7 @@ async function retryPty(s: Session): Promise<void> {
   }
 }
 
-/**
- * Write raw bytes to a specific leaf's PTY without going through React state.
- * Used by the OS file-drop handler to paste paths into the terminal under
- * the cursor. Returns false if the leaf has no live PTY.
- */
+/** Write raw bytes to a leaf's PTY without React state. Returns false if no live PTY. */
 export function writeToLeaf(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
   if (!s || !s.pty) return false;
@@ -999,11 +840,7 @@ export function writeToLeaf(leafId: number, data: string): boolean {
   return true;
 }
 
-/**
- * Hit-test the DOM at a CSS-pixel point and return the enclosing terminal
- * leaf id, if any. Walks up from `elementFromPoint` looking for the
- * `data-terminal-leaf-id` attribute set by `TerminalPane`.
- */
+/** Hit-test at a CSS-pixel point and return the enclosing terminal leaf id, or null. */
 export function findLeafIdFromPoint(x: number, y: number): number | null {
   const el = document.elementFromPoint(x, y);
   if (!el) return null;
@@ -1027,7 +864,7 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   s.lastSentRows = 0;
   s.lastDetectedUrl = null;
   s.pendingExit = null;
-  // Hold the flag so attachSession can't open a second PTY while we await.
+  // Hold the flag so attachSession can't open a second PTY mid-await.
   s.ptyOpening = true;
   s.lastPtyError = null;
   let pty: PtySession;
@@ -1072,8 +909,7 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
     container.appendChild(s.term.element);
   }
 
-  // Sync fit before WebGL load and PTY open so the renderer measures the
-  // real container and the shell starts at the right cols/rows.
+  // Fit before WebGL and PTY open so renderer and shell start at the right size.
   s.fitAddon.fit();
   s.lastW = container.clientWidth;
   s.lastH = container.clientHeight;
@@ -1095,8 +931,7 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   if (!s.pty && !s.ptyOpening) {
     s.ptyOpening = true;
     s.lastPtyError = null;
-    // Same floor as openPtyForSession so post-spawn syncPtySize doesn't
-    // double-fire on the first attach when nothing changed mid-await.
+    // Same floor as openPtyForSession so post-spawn syncPtySize no-ops on first attach.
     s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
     s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
     const debug = isDebugPty();
@@ -1107,10 +942,7 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
       );
     }
     const myPromise = openPtyForSession(s, s.initialCwd);
-    // openPtyForSession bumps `s.ptySpawnEpoch` synchronously, so the value
-    // we read here belongs to this call. The stuck-recovery watchdog can
-    // later kick off a `retryPty`, bumping the epoch again; the guards
-    // below drop this stale spawn so it doesn't clobber the live state.
+    // Capture spawn epoch. Stuck-recovery may retry and bump it; guards below drop stale spawns.
     const myEpoch = s.ptySpawnEpoch;
     myPromise
       .then((pty) => {
@@ -1138,16 +970,10 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
         s.ptyOpening = false;
         const msg = describeError(e);
         console.error("openPty failed:", e);
-        // SSH-bound leaves stay live and run through the backoff scheduler
-        // so the user sees consistent reconnect UX whether the failure is
-        // a fresh open or a mid-session drop. Local PTY leaves keep the
-        // "Press Enter to retry" flow.
+        // SSH leaves use the backoff scheduler. Local PTY uses Enter-to-retry.
         if (s.sshConnectionId) {
           if (isHostKeyMismatchError(e)) {
-            // Same reasoning as in runSshReconnect: spinning the backoff
-            // loop on a mismatch never recovers. Park in `error` so the
-            // status pill can offer "Disconnect" and the user can fix the
-            // saved fingerprint before retrying.
+            // Fingerprint mismatch can't auto-recover. Park in error so the user can fix the saved fingerprint.
             s.sshReconnectAttempts = 0;
             writeSshBanner(s, `\r\n\x1b[31m[tedi] ${msg}\x1b[0m\r\n`);
             emitSshStatus(s, { kind: "error", message: msg, canRetry: true });
@@ -1176,27 +1002,15 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   }
 
   // Two-stage debounce:
-  //  - FIT runs frequently (~one frame) so xterm visually keeps up with
-  //    the window during drag. Local, no IPC.
-  //  - PTY_RESIZE (SIGWINCH) is throttled because shells / fancy prompts
-  //    (powerlevel10k, starship) redraw on every WINCH and that reads as
-  //    blinking. BUT the previous 256 ms trailing-only setting was too
-  //    long: during a split-handle drag the xterm viewport already paints
-  //    at the new cols while the shell is still writing at the old width,
-  //    causing visible overlap, mid-line wrap, and broken TUI panels
-  //    (nvim/btop/nano need WINCH to clear+redraw their alt-screen
-  //    buffer). Two thresholds now:
-  //      - NORMAL prompt buffer → 90 ms (still trailing): the shell's
-  //        edit line stays coherent and prompts don't strobe.
-  //      - ALT-screen buffer (TUI active) → leading + 40 ms trailing:
-  //        emit WINCH on the first frame so the TUI starts its redraw
-  //        immediately, then again on the last frame for the final size.
+  //  - FIT every frame; local, no IPC.
+  //  - PTY_RESIZE (SIGWINCH) throttled:
+  //      Normal buffer: 90ms trailing so prompts don't strobe.
+  //      Alt-screen (TUI active): leading + 40ms trailing so the TUI starts
+  //      redrawing on frame 1 and finishes at the final size.
   const FIT_DEBOUNCE_MS = 8;
   const PTY_RESIZE_DEBOUNCE_NORMAL_MS = 90;
   const PTY_RESIZE_DEBOUNCE_ALT_MS = 40;
-  // Min gap between leading-edge WINCH emits while a drag is in flight.
-  // Keeps a 60Hz ResizeObserver storm from flooding the shell with one
-  // SIGWINCH per frame.
+  // Min gap between leading-edge WINCH emits. Caps the SIGWINCH rate during drag.
   const PTY_RESIZE_ALT_LEADING_THROTTLE_MS = 80;
 
   const flushPtyResize = () => {
@@ -1224,9 +1038,7 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
       s.lastH = h;
       s.fitAddon.fit();
       const alt = isAltActive();
-      // Leading-edge SIGWINCH for TUIs: redraw starts on frame 1 instead
-      // of waiting for drag-end. Throttled so a stream of pixel-by-pixel
-      // ResizeObserver ticks doesn't spam the shell.
+      // Leading-edge SIGWINCH for TUIs so redraw starts on frame 1. Throttled.
       if (alt) {
         const now = performance.now();
         if (now - lastAltLeadingAt >= PTY_RESIZE_ALT_LEADING_THROTTLE_MS) {
@@ -1241,20 +1053,16 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   });
   s.observer.observe(container);
 
-  // Re-sync App state after re-attach (prior detach cleared callbacks).
+  // Re-sync App state after re-attach. Prior detach cleared callbacks.
   if (s.lastCwd !== null) callbacks.onCwd?.(s.lastCwd);
   if (s.lastDetectedUrl !== null) callbacks.onDetectedLocalUrl?.(s.lastDetectedUrl);
   callbacks.onSearchReady?.(s.searchAddon);
   if (s.sshConnectionId) {
-    // Re-emit the latest known status so the pill/dot redraw correctly after
-    // a split or workspace-switch reattaches the leaf to a fresh App tree.
+    // Re-emit status so pill/dot redraw after split or workspace-switch reattach.
     callbacks.onSshStatus?.(s.sshStatus);
   }
-  // Same idea for AI CLI status: replay so the tab dot survives reattach.
-  // Also replay when null - covers the "tool exited while detached" case
-  // (e.g. mid-split), where the App-level Map would otherwise stay stuck on
-  // the last "blocking" entry. The handler dedups so a null-then-null is
-  // a no-op when nothing changed.
+  // Same for AI CLI status. Replay even null so the App-level Map clears
+  // when a tool exited while detached.
   callbacks.onAiCliStatus?.(s.aiCliStatus);
   if (s.pendingExit !== null) {
     const code = s.pendingExit;
@@ -1304,7 +1112,7 @@ type Options = {
   visible: boolean;
   focused?: boolean;
   initialCwd?: string;
-  /** If set, the leaf will open an SSH session instead of a local PTY. */
+  /** When set, opens an SSH session instead of a local PTY. */
   sshConnectionId?: string;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
@@ -1312,9 +1120,9 @@ type Options = {
   onDetectedLocalUrl?: (url: string) => void;
   onTediOpen?: (input: TediOpenInput) => void;
   onTediSpawnTab?: (input: TediSpawnTabInput) => void;
-  /** Fires whenever an SSH leaf transitions between connection states. */
+  /** Fires on SSH connection state change. */
   onSshStatus?: (status: SshStatus) => void;
-  /** Fires when a known AI CLI tool starts / changes state / exits in this leaf. */
+  /** Fires when an AI CLI starts, changes state, or exits. */
   onAiCliStatus?: (status: AiCliStatus) => void;
 };
 
@@ -1361,8 +1169,7 @@ export function useTerminalSession({
     let attachIntervalId: ReturnType<typeof setInterval> | null = null;
     let stuckTimer: ReturnType<typeof setTimeout> | null = null;
     const s = ensureSession(leafId, initialCwd, sshConnectionId);
-    // If the leaf hasn't spawned its PTY yet, accept a fresher initialCwd
-    // from this render (e.g. explorerRoot resolved between mounts).
+    // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;
     }
@@ -1376,19 +1183,9 @@ export function useTerminalSession({
       onSshStatus: (status) => cbRef.current.onSshStatus?.(status),
       onAiCliStatus: (status) => cbRef.current.onAiCliStatus?.(status),
     };
-    // Wait for the container ref to be set. In normal mounts this is
-    // already truthy by the time s.ready resolves, but split/unsplit and
-    // strict-mode double-mount can briefly null it; retry a few frames
-    // before giving up so we don't end up with a tab that has no shell.
-    //
-    // Bumped from 30 to 120 frames (~2s) because workspace-restore mounts
-    // several panes through react-resizable-panels at once, and on slower
-    // machines the inner ResizablePanel's measure-pass ran past the old
-    // 30-frame budget for one of the leaves -- leaving that pane with a
-    // mounted xterm but no PTY (silent blank). After the rAF budget is
-    // exhausted, fall back to a 250ms poll until cleanup runs, so a
-    // genuinely-late mount still recovers instead of staying permanently
-    // blank.
+    // Wait for the container ref. Up to 120 rAF frames (~2s) covers
+    // react-resizable-panels measure-pass during workspace restore; after
+    // that, poll every 250ms until cleanup runs.
     const MAX_ATTACH_FRAMES = 120;
     const ATTACH_FALLBACK_INTERVAL_MS = 250;
     const tryAttach = (framesLeft: number) => {
@@ -1428,11 +1225,8 @@ export function useTerminalSession({
         tryAttach(MAX_ATTACH_FRAMES);
       })
       .catch((e) => {
-        // session.ready failed (font load rejected, OSC handler register
-        // threw, etc.). Surface to the user with a retry hint instead of
-        // leaving the tab silently empty. Still attach so the message is
-        // actually visible - writes to a detached xterm buffer in memory
-        // but the user can't see them.
+        // session.ready failed (font load, OSC register). Surface a retry hint.
+        // Still attach so the message is visible.
         if (cancelled) return;
         const msg = describeError(e);
         s.lastPtyError = msg;
@@ -1441,12 +1235,8 @@ export function useTerminalSession({
         tryAttach(MAX_ATTACH_FRAMES);
       });
 
-    // Stuck-recovery watchdog: see STUCK_RECOVERY_MS for the failure mode.
-    // Fires once; if the leaf is still healthy by then we no-op. If
-    // attachSession's spawn is mid-flight (ptyOpening=true, no error yet),
-    // we cancel the stale opening and force a fresh retry - the epoch
-    // guards in attachSession/retryPty drop the late stale result if it
-    // ever lands.
+    // Stuck-recovery watchdog. Fires once; no-ops if the leaf is healthy.
+    // See STUCK_RECOVERY_MS.
     stuckTimer = setTimeout(() => {
       stuckTimer = null;
       if (cancelled || s.disposed) return;
@@ -1455,12 +1245,10 @@ export function useTerminalSession({
       console.warn(
         `[tedi-pty] stuck-recovery: leaf=${leafId} pty=null lastPtyError=null ptyOpening=${s.ptyOpening} sshConn=${s.sshConnectionId ?? "-"} sshStatus=${s.sshStatus.kind} containerAttached=${s.term.element !== undefined} after ${STUCK_RECOVERY_MS}ms - forcing retry`,
       );
-      // Reset the opening flag so retryPty/retrySsh aren't blocked by a
-      // hung in-flight promise.
+      // Reset the opening flag so retry isn't blocked by a hung promise.
       s.ptyOpening = false;
       if (s.sshConnectionId) {
-        // SSH state machine drives its own reconnect; only intervene when
-        // we haven't even started a connect attempt yet (idle).
+        // SSH has its own reconnect. Only intervene from idle.
         if (s.sshStatus.kind === "idle") {
           void retrySsh(s);
         }
@@ -1490,8 +1278,7 @@ export function useTerminalSession({
     if (!s) return;
     if (s.term.options.fontSize === fontSize) return;
     s.term.options.fontSize = fontSize;
-    // WebGL renderer caches glyphs in a GPU texture atlas keyed by the old
-    // font metrics. Dispose and re-create so the new size renders correctly.
+    // WebGL caches glyphs keyed by old font metrics. Dispose and recreate after a font-size change.
     if (s.webglAddon && s.term.element) {
       s.webglAddon.dispose();
       s.webglAddon = null;
@@ -1542,11 +1329,8 @@ export function useTerminalSession({
     const s = sessions.get(leafId);
     if (!s) return;
     s.fitAddon.fit();
-    // Bridge the PTY size across the visibility flip. ResizeObserver only
-    // fires on dimension changes, and `visibility: hidden` -> `visible`
-    // preserves layout dimensions -- so without this, a session that fit
-    // at the wrong size while hidden would never push the corrected
-    // cols/rows to the shell on show.
+    // Push PTY size across the visibility flip. ResizeObserver doesn't fire on
+    // hidden->visible since dimensions don't change, so we sync explicitly.
     syncPtySize(s);
     if (focused) s.term.focus();
   }, [leafId, visible, focused]);
@@ -1580,14 +1364,9 @@ export function useTerminalSession({
   }, [leafId]);
 
   /**
-   * Hand a string to xterm as a paste rather than raw bytes. Going through
-   * `term.paste` instead of `pty.write` matters when the shell has bracketed
-   * paste mode on (most modern setups: zsh+zle, bash 4.4+ readline, fish,
-   * pwsh PSReadLine): xterm wraps the payload in `\e[200~ … \e[201~`, the
-   * shell treats it as one literal block, and editors/REPLs avoid
-   * interpreting embedded newlines as Enter-to-execute. Raw `pty.write`
-   * skips that wrapper and would, e.g., immediately run every line of a
-   * multi-line snippet pasted into bash.
+   * Paste via xterm so bracketed paste mode (zsh/bash/fish/pwsh) wraps the
+   * payload in `\e[200~ ... \e[201~`. Raw `pty.write` would skip the wrapper
+   * and run every line of a multi-line snippet on paste.
    */
   const paste = useCallback((data: string) => sessions.get(leafId)?.term.paste(data), [leafId]);
 

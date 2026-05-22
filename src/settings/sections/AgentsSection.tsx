@@ -48,8 +48,7 @@ export function AgentsSection() {
   const removeAgent = useAgentsStore((s) => s.remove);
   const resetBuiltin = useAgentsStore((s) => s.resetBuiltin);
   const hydrateAgents = useAgentsStore((s) => s.hydrate);
-  // Derive the merged list from the subscribed slices so re-renders fire when
-  // either built-in overrides or custom agents change.
+  // Merge from subscribed slices so re-renders fire on overrides or custom changes.
   const allAgents = useMemo(
     () => [
       ...BUILTIN_AGENTS.map((a) =>

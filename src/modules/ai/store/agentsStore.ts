@@ -19,19 +19,19 @@ type AgentsState = {
   customAgents: Agent[];
   builtinOverrides: BuiltinOverrides;
   activeId: string;
-  /** All agents: built-ins (with overrides applied) followed by custom. */
+  /** Built-ins (with overrides applied) followed by custom agents. */
   all: () => Agent[];
-  /** Built-ins with any user overrides applied. */
+  /** Built-ins with overrides applied. */
   builtins: () => Agent[];
   hydrate: () => Promise<void>;
   setActiveId: (id: string) => void;
-  /** Upsert any agent. Built-ins are stored as overrides; the rest go in customAgents. */
+  /** Upsert any agent. Built-ins become overrides; others go to customAgents. */
   upsert: (agent: Agent) => void;
   /** Remove a custom agent (no-op on built-ins). */
   remove: (id: string) => void;
-  /** Drop the override for a built-in agent, restoring the default. */
+  /** Drop a built-in's override, restoring the default. */
   resetBuiltin: (id: string) => void;
-  /** True if a built-in id has a saved override. */
+  /** True if a built-in has a saved override. */
   hasOverride: (id: string) => boolean;
 };
 

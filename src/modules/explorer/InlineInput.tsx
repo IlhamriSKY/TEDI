@@ -8,9 +8,8 @@ type Props = {
 };
 
 /**
- * Self-focusing single-line input for rename / create flows in the tree.
- * Enter commits, Escape cancels, blur commits (matches VSCode behavior -
- * dismissing the input is an implicit commit so a typed name isn't lost).
+ * Self-focusing single-line input for rename/create flows. Enter commits,
+ * Escape cancels, blur commits (matches VS Code).
  */
 export function InlineInput({ initial, placeholder, onCommit, onCancel }: Props) {
   const [value, setValue] = useState(initial);
@@ -21,11 +20,10 @@ export function InlineInput({ initial, placeholder, onCommit, onCancel }: Props)
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // Two-tick focus to win against parent click handlers and Radix portal
-    // restorations that can steal focus right after mount. Until the second
-    // tick lands we treat the input as "unsettled" - any blur during that
-    // window is the portal teardown stealing focus, not the user dismissing
-    // the input, so we refocus instead of committing an empty value.
+    // Two-tick focus to beat parent click handlers and Radix portal
+    // teardowns that steal focus on mount. The input is "unsettled" until
+    // the second tick lands; blur during that window refocuses instead of
+    // committing an empty value.
     const focus = () => {
       el.focus({ preventScroll: false });
       const dot = initial.lastIndexOf(".");

@@ -1,26 +1,21 @@
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 
 export type ToolContext = {
-  /** Active terminal tab cwd, used to resolve relative paths. Null = home. */
+  /** Active terminal cwd for resolving relative paths. Null means home. */
   getCwd: () => string | null;
-  /** Workspace root (explorer root). Used by tools that operate over the project. */
+  /** Workspace (explorer) root. */
   getWorkspaceRoot: () => string | null;
-  /** Last N lines (default 300) of the active terminal buffer, or null if
-   *  the active tab is not a terminal. Includes prompt, user input, and
-   *  command output as the user sees them. */
+  /** Last N lines (default 300) of the active terminal buffer, or null if the
+   *  active tab isn't a terminal. */
   getTerminalContext: (lines?: number) => string | null;
-  /**
-   * Type a string into the active terminal at the prompt - without executing.
-   * Returns false if there is no active terminal tab to inject into.
-   */
+  /** Type text into the active terminal without executing. Returns false when
+   *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;
-  /** Open a new preview tab (in-app iframe) at the given URL. */
+  /** Open an in-app preview tab at `url`. */
   openPreview: (url: string) => boolean;
-  /** Open a new terminal tab. Optional cwd overrides the inherited cwd
-   *  (workspace root). Returns true on success. */
+  /** Open a new terminal tab. Optional cwd overrides the inherited cwd. */
   openTerminal: (cwd?: string | null) => boolean;
-  /** Advanced terminal-open: tab vs split, target tab, split direction.
-   *  Returns a discriminated union so the tool can surface specific errors. */
+  /** Advanced terminal-open: tab vs split, target tab, split direction. */
   openTerminalAdvanced: (opts: {
     cwd?: string | null;
     mode?: "tab" | "split";
@@ -29,54 +24,40 @@ export type ToolContext = {
   }) =>
     | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
     | { ok: false; error: string };
-  /** Collect every open terminal leaf into a single tab (group). Refuses
-   *  cleanly when the total count exceeds the per-tab pane cap. */
+  /** Move every terminal leaf into one tab. Refuses if total exceeds the
+   *  per-tab pane cap. */
   consolidateTerminalsIntoGroup: (
     targetTabId: number,
   ) =>
     | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
     | { ok: false; error: string; movedBeforeFailure?: number };
-  /** Close a single terminal leaf. If it's the only leaf in its tab the
-   *  tab is dropped. Refuses to drop the very last tab. */
+  /** Close one terminal leaf; drops the tab if it was the only leaf. Refuses
+   *  the last tab. */
   closeTerminalLeaf: (
     leafId: number,
   ) => { ok: true; closedTab: boolean } | { ok: false; error: string };
-  /** Submit a command into the active visible terminal (with newline).
-   *  Output stays in the user's terminal tab - distinct from `bash_run`
-   *  which executes in a hidden agent shell. Returns false when there is
-   *  no active terminal tab. */
+  /** Submit a command (CR appended) into the active visible terminal. Output
+   *  stays in the user's terminal, unlike `bash_run` which uses a hidden shell. */
   runInActiveTerminal: (command: string) => boolean;
-  /** Snapshot of every terminal leaf in current tab order. Used by the
-   *  scheduler + targeted-injection tools so the AI can address a specific
-   *  terminal by ordinal/id/title. */
+  /** Snapshot every terminal leaf in tab order. */
   listTerminals: () => TerminalInfo[];
-  /** Type a string into a specific terminal at the prompt - without executing.
-   *  Resolution order: leafId > tabId > ordinal > title (substring, case-
-   *  insensitive). Returns false on no-match. */
+  /** Type into a specific terminal without executing. Resolves leafId, then
+   *  tabId, then ordinal, then title substring (case-insensitive). */
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
-  /** Type + submit (CR) into a specific terminal. Same resolution rules as
-   *  injectIntoTerminal. Returns false on no-match. */
+  /** Type and submit into a specific terminal. Same resolution as injectIntoTerminal. */
   runInTerminal: (target: TerminalTarget, command: string) => boolean;
-  /**
-   * Set of absolute paths the model has read this session via `read_file`.
-   * `edit`/`multi_edit` enforce read-before-edit by checking membership.
-   * Mutated as a side effect of successful read_file calls.
-   */
+  /** Absolute paths read this session via `read_file`. `edit`/`multi_edit`
+   *  enforce read-before-edit by checking membership. */
   readCache: Set<string>;
-  /** Active chat session id - used by tools that persist per-session state (todos). */
+  /** Active chat session id. Used by tools that persist per-session state. */
   getSessionId: () => string | null;
-  /** Abort signal that fires when the agent loop is cancelled (user clicked
-   *  Stop, session deleted, or upstream provider error). Tools should bail
-   *  out early when this fires to avoid lingering mutations / IPC.
-   *
-   *  When `undefined` (e.g. direct tool builder use outside `runAgentStream`)
-   *  treat as never-aborted. */
+  /** Fires when the agent loop is cancelled (Stop, session deleted, provider
+   *  error). Tools should bail early. Undefined means never-aborted. */
   abortSignal?: AbortSignal;
 };
 
-/** Throws an `AbortError`-shaped error if the signal has fired. Tools that
- *  do non-trivial work between IPC calls should use this so cancellation
- *  takes effect promptly. */
+/** Throws an AbortError-shaped error if the signal has fired. Call between
+ *  IPC steps so cancellation takes effect promptly. */
 export function throwIfAborted(ctx: ToolContext): void {
   if (ctx.abortSignal?.aborted) {
     const reason = ctx.abortSignal.reason ?? "aborted";
@@ -95,15 +76,11 @@ export function resolvePath(rawPath: string, cwd: string | null): string {
 }
 
 /**
- * Strip the user's home directory and workspace prefix from an error string so
- * tool failures don't leak local filesystem layout back into the LLM context.
- *
- *   `read failed: ENOENT 'D:\Users\Bob\Project\src\app.ts'`
- *   →
- *   `read failed: ENOENT '<workspace>/src/app.ts'`
- *
- * Best-effort only — if the workspace root isn't set we still mask the
- * Windows username segment via the canonical `C:\Users\<name>\` shape.
+ * Strip home and workspace prefixes from an error string so tool failures
+ * don't leak local filesystem layout back to the LLM.
+ *   read failed: ENOENT 'D:\Users\Bob\Project\src\app.ts'
+ *   -> read failed: ENOENT '<workspace>/src/app.ts'
+ * Falls back to masking `C:\Users\<name>\` when the workspace isn't set.
  */
 export function scrubErrorPath(e: unknown, ctx: ToolContext): string {
   let msg = e instanceof Error ? e.message : String(e);

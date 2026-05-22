@@ -4,12 +4,10 @@ type LoaderResult = Extension | { token: unknown };
 type LanguageLoader = () => Promise<LoaderResult>;
 
 /**
- * Extension → loader. Each loader is a dynamic import so language packs
+ * Extension to loader map. Each loader dynamic-imports so language packs
  * only enter the bundle when a matching file is opened.
- *
- * Loaders may return either a ready Extension (lang-* packages) or a raw
- * StreamParser (legacy-modes). `resolveLanguage` wraps the latter in
- * StreamLanguage before returning.
+ * Loaders return either an Extension (lang-* packages) or a raw StreamParser
+ * (legacy-modes); `resolveLanguage` wraps the latter in StreamLanguage.
  */
 const loaders: Record<string, LanguageLoader> = {
   // JavaScript / TypeScript family
@@ -199,7 +197,7 @@ const loaders: Record<string, LanguageLoader> = {
 
   // Misc niche
   d: () => import("@codemirror/legacy-modes/mode/d").then((m) => m.d),
-  // .zig and .nim have no upstream legacy parser - leave to plaintext.
+  // .zig and .nim have no upstream legacy parser; fall back to plaintext.
 };
 
 const filenameOverrides: Record<string, LanguageLoader> = {
@@ -207,7 +205,7 @@ const filenameOverrides: Record<string, LanguageLoader> = {
   "dockerfile.dev": loaders.dockerfile!,
   "dockerfile.prod": loaders.dockerfile!,
   containerfile: loaders.dockerfile!,
-  // GNU Make has no upstream legacy parser; CMake does.
+  // GNU Make has no legacy parser; CMake does.
   cmakelists: loaders.cmake!,
   "cmakelists.txt": loaders.cmake!,
   "go.mod": loaders.go!,

@@ -16,10 +16,7 @@ export type PromptTracker = {
 
 export function registerPromptTracker(
   term: Terminal,
-  /** Fires on every OSC 133;A (shell-prompt-start) emit. Used by the AI
-   *  CLI detector to recognise that a previously-active tool exited back
-   *  to the shell - critical for non-alt-screen tools (e.g. `claude
-   *  --help`, `codex login`) that the alt-screen auto-clear can't see. */
+  /** Fires on every OSC 133;A. The AI CLI detector uses this to clear non-alt-screen tools. */
   onPromptStart?: () => void,
 ): PromptTracker {
   let marker: IMarker | null = null;
@@ -61,8 +58,8 @@ export type TediSpawnTabInput = {
   cwd?: string;
   cmd?: string;
   title?: string;
-  // When set, split the previously-spawned pane instead of opening a new tab.
-  // "row" = horizontal split (new pane right), "col" = vertical (new pane below).
+  // When set, splits the previously spawned pane instead of opening a new tab.
+  // "row" = new pane right; "col" = new pane below.
   split?: "row" | "col";
 };
 
@@ -85,13 +82,13 @@ function parseOsc7(data: string): string | null {
   try {
     path = decodeURIComponent(path);
   } catch {}
-  // /C:/Users/foo -> C:/Users/foo so it's a valid Windows path.
+  // /C:/Users/foo -> C:/Users/foo for a valid Windows path.
   if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
   return path;
 }
 
 function parseTediOpen(data: string): TediOpenInput | null {
-  // Parse format: "file=/path/to/file"
+  // Format: "file=/path/to/file"
   const fileMatch = data.match(/file=([^;]+)/);
 
   if (!fileMatch) return null;
@@ -104,8 +101,8 @@ function parseTediOpen(data: string): TediOpenInput | null {
 }
 
 function parseTediSpawnTab(data: string): TediSpawnTabInput | null {
-  // Format: "cwd=/path;cmd=php artisan serve;title=Vite" - all fields optional
-  // but at least one must be present. Values are URL-encoded.
+  // Format: "cwd=/path;cmd=php artisan serve;title=Vite". All fields optional;
+  // at least one required. Values are URL-encoded.
   const decode = (s: string): string => {
     try {
       return decodeURIComponent(s);

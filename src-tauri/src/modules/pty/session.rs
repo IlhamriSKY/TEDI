@@ -13,13 +13,12 @@ use super::shell_init;
 
 const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 const READ_BUF: usize = 16 * 1024;
-// Cap on buffered-but-not-yet-flushed bytes. On overflow we discard the
-// entire pending buffer and emit an SGR-reset + notice in its place.
-// Dropping a partial prefix would slice a CSI sequence in half and corrupt
-// xterm's screen state. 4 MiB is ~1000 full 80x24 screens.
+// Cap on buffered-but-unflushed bytes. On overflow we discard the entire
+// pending buffer and emit an SGR-reset plus notice; dropping a partial
+// prefix would slice a CSI sequence in half and corrupt xterm's screen
+// state. 4 MiB is ~1000 full 80x24 screens.
 const MAX_PENDING: usize = 4 * 1024 * 1024;
-// Hard reset (ESC c) + dim notice. Written verbatim into the stream when
-// we're forced to discard backlog.
+// Hard reset (ESC c) + dim notice. Written verbatim when backlog is dropped.
 const OVERFLOW_NOTICE: &[u8] = b"\x1bc\x1b[2m[tedi: dropped output due to backpressure]\x1b[0m\r\n";
 
 #[derive(Serialize, Clone)]
@@ -30,17 +29,16 @@ pub enum PtyEvent {
 }
 
 pub struct Session {
-    // Field drop order is intentional. Rust drops fields top-to-bottom:
-    //   1. `_job` - on Windows, closing the Job HANDLE fires
-    //      KILL_ON_JOB_CLOSE, terminating the pwsh tree before the master
+    // Field drop order matters. Rust drops fields top-to-bottom:
+    //   1. `_job`: on Windows, closing the Job HANDLE fires
+    //      KILL_ON_JOB_CLOSE and terminates the pwsh tree before the master
     //      pipe drops. Without this, ClosePseudoConsole in `master`'s Drop
     //      can block waiting for conhost to drain pending output, freezing
-    //      the Tauri worker thread that triggered the close.
-    //   2. `killer` - best-effort kill (redundant on Windows once Job
-    //      closed, but harmless and required on Unix where there is no Job).
-    //   3. `writer` - closes the input side of the master pipe.
-    //   4. `master` - last; ClosePseudoConsole on Windows. By now the child
-    //      is dead and conhost has nothing left to drain.
+    //      the Tauri worker thread.
+    //   2. `killer`: best-effort kill (redundant on Windows once the Job
+    //      closed, required on Unix where there is no Job).
+    //   3. `writer`: closes the input side of the master pipe.
+    //   4. `master`: ClosePseudoConsole on Windows. The child is dead by now.
     #[cfg(windows)]
     _job: Option<super::job::PtyJob>,
     pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
@@ -50,10 +48,10 @@ pub struct Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // If the session Arc is dropped without an explicit pty_close (e.g.
-        // frontend disconnected, window crashed, dev HMR), the reader/flusher
-        // threads would otherwise stay alive forever holding the child. Kill
-        // the child here so the reader hits EOF and the threads unwind.
+        // If the session Arc is dropped without an explicit pty_close (frontend
+        // disconnected, window crashed, dev HMR), the reader/flusher threads
+        // would stay alive forever holding the child. Kill the child here so
+        // the reader hits EOF and the threads unwind.
         if let Ok(mut k) = self.killer.lock() {
             let _ = k.kill();
         }
@@ -129,7 +127,7 @@ pub fn spawn(
                         if g.len() + n > MAX_PENDING {
                             // Discard the whole backlog rather than slicing
                             // through escape sequences. Emit a hard reset so
-                            // xterm doesn't carry stale SGR/cursor state.
+                            // xterm does not carry stale SGR/cursor state.
                             dropped_bytes += g.len() as u64;
                             g.clear();
                             g.extend_from_slice(OVERFLOW_NOTICE);
@@ -138,8 +136,8 @@ pub fn spawn(
                     }
                     Err(e) => {
                         // Normal on child exit: the slave fd is closed and
-                        // read(2) returns EIO on some platforms. Kept at debug
-                        // to avoid noise in the common case.
+                        // read(2) returns EIO on some platforms. Logged at
+                        // debug to avoid noise in the common case.
                         log::debug!("pty reader ended: {e}");
                         break;
                     }
@@ -168,12 +166,11 @@ pub fn spawn(
                 }
                 std::mem::take(&mut *g)
             };
-            // NOTE on base64: Tauri v2 `Channel<T>` serializes via JSON;
-            // `Vec<u8>` would become a JSON int array (~3× worse than base64).
-            // A raw-bytes path via `InvokeResponseBody::Raw` exists but the
-            // data+exit multiplex through one channel is awkward. Base64's 33%
-            // overhead is trivial on local IPC - revisit if profiling says
-            // otherwise.
+            // base64 note: Tauri v2 `Channel<T>` serializes via JSON, so
+            // `Vec<u8>` becomes a JSON int array (~3x worse than base64). A
+            // raw-bytes path via `InvokeResponseBody::Raw` exists but the
+            // data+exit multiplex through one channel is awkward. Base64's
+            // 33% overhead is trivial on local IPC.
             let event = PtyEvent::Data {
                 data: B64.encode(&chunk),
             };
@@ -197,8 +194,8 @@ pub fn spawn(
                     -1
                 }
             };
-            // Wait for the reader to hit EOF before taking a final snapshot of
-            // `pending`, so the last line of output never races the Exit event.
+            // Wait for the reader to hit EOF before snapshotting `pending`,
+            // so the last line of output cannot race the Exit event.
             if let Err(e) = reader_thread.join() {
                 log::error!("pty reader thread panicked: {e:?}");
             }

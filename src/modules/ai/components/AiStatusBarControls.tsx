@@ -52,11 +52,10 @@ import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 
 /**
- * Pinned models are stored as `provider::modelId` strings so two models with
- * the same id (e.g. `mimo-v2.5-pro` proxied by both SumoPod and an
- * openai-compatible gateway) can coexist as independent pins. Unqualified
- * entries from before this fix are honoured for backwards compat but get
- * upgraded to the qualified form on the next toggle.
+ * Pinned models use `provider::modelId` so two models with the same id (e.g.
+ * `mimo-v2.5-pro` via both SumoPod and an openai-compatible gateway) pin
+ * independently. Legacy unqualified entries still work; they upgrade to the
+ * qualified form on the next toggle.
  */
 const PIN_SEP = "::";
 
@@ -70,9 +69,8 @@ function isPinnedFor(
   modelId: string,
 ): boolean {
   if (pinnedIds.includes(pinKey(providerId, modelId))) return true;
-  // Legacy unqualified entry - matches any provider, but only when no
-  // qualified pin exists for this same modelId (otherwise the legacy entry
-  // would double-mark every provider).
+  // Legacy unqualified entry matches any provider, but only if no qualified
+  // pin exists for this modelId (else it would double-mark every provider).
   if (pinnedIds.includes(modelId)) {
     const hasQualifiedSameId = pinnedIds.some((p) => {
       const idx = p.indexOf(PIN_SEP);
@@ -284,15 +282,10 @@ function ModelDropdown() {
   const oaiCompatModels = useOpenAICompatibleModels();
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
-  // Provider sections (and the synthetic "pinned" section) start expanded
-  // and the user can collapse any of them. State is component-local so it
-  // resets every time the dropdown reopens - lighter than persisting it
-  // and keeps the default "everything visible" experience.
+  // Sections start expanded; component-local state resets each open.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  // Static `getModel` would throw for runtime-detected ids that aren't in
-  // the MODELS const. Fall back to a synthetic ModelInfo using the user's
-  // selected provider so the trigger never mislabels a model whose dynamic
-  // registry entry hasn't been refreshed yet.
+  // `getModel` throws for runtime-detected ids missing from MODELS. Fall back
+  // to a synthetic ModelInfo so the trigger doesn't mislabel them.
   let current: ModelInfo;
   try {
     current = getModel(selected);
@@ -323,8 +316,8 @@ function ModelDropdown() {
       void setPinnedModelIds(pinned.filter((id) => id !== k));
       return;
     }
-    // If a legacy unqualified entry exists for this modelId, swap it for
-    // the qualified form so future toggles distinguish providers.
+    // Swap any legacy unqualified entry for the qualified form so future
+    // toggles distinguish providers.
     const withoutLegacy = pinned.filter((id) => id !== modelId);
     void setPinnedModelIds([k, ...withoutLegacy]);
   }, []);
@@ -340,7 +333,7 @@ function ModelDropdown() {
 
   const modelTooltip = currentProviderHasKey
     ? `Model: ${current.label}`
-    : `${current.label} - no key configured`;
+    : `${current.label}, no key configured`;
 
   const sections = useMemo(
     () =>
@@ -357,12 +350,9 @@ function ModelDropdown() {
     [query, sumopodModels.models, oaiCompatModels.models],
   );
 
-  // Resolve pinned ids to actual ModelInfo entries (with their provider).
-  // We build two lookups: qualified (provider::modelId) for new-style pins,
-  // and legacy (modelId only) for backward compat. The legacy lookup picks
-  // the FIRST encountered provider for a given modelId - the order is the
-  // PROVIDERS array, so this is deterministic. Stale ids that no longer
-  // resolve are dropped so ghost rows don't render.
+  // Resolve pinned ids to ModelInfo. Two lookups: qualified (provider::modelId)
+  // for new pins, legacy (modelId only) for back-compat. Legacy picks the first
+  // provider in PROVIDERS order. Unresolvable ids are dropped.
   const pinnedEntries = useMemo(() => {
     const qualified = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
     const legacy = new Map<string, { model: ModelInfo; provider: ProviderInfo }>();
@@ -426,8 +416,8 @@ function ModelDropdown() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              // Radix's DropdownMenu treats letter keys as type-ahead nav.
-              // Stop them at the input so typing doesn't jump focus to items.
+              // Radix DropdownMenu uses letter keys for type-ahead. Stop them
+              // here so typing doesn't jump focus to items.
               if (
                 e.key !== "Escape" &&
                 e.key !== "ArrowDown" &&
@@ -559,8 +549,7 @@ function ModelSection({
   onPick: (id: DynamicModelId, providerId: ProviderId) => void;
   onTogglePin: (providerId: ProviderId, modelId: string) => void;
 }) {
-  // Active queries force-expand the section so search hits aren't hidden
-  // behind a collapsed header.
+  // Active query force-expands the section so search hits aren't hidden.
   const showItems = !!query || !collapsed;
   return (
     <div className="px-1 pt-1.5 first:pt-1">

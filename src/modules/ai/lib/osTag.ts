@@ -1,8 +1,7 @@
 import { arch, platform, version as osVersion } from "@tauri-apps/plugin-os";
 
-/** Host OS identity, captured once at module load. Stable for the lifetime
- *  of the process - module-scoping keeps the system-prompt prefix byte-
- *  identical across turns so provider prompt caches stay warm. */
+/** Host OS identity, captured once at module load. Module-scoped so the
+ *  system-prompt prefix stays byte-identical across turns for prompt caching. */
 export const OS_TAG: string | null = (() => {
   try {
     const plat = platform();
@@ -21,9 +20,8 @@ export const OS_TAG: string | null = (() => {
   }
 })();
 
-/** Default shell name for the host OS. Best-effort - the user may have
- *  reconfigured their shell, but it's a fine hint for the agent's syntax
- *  choice (pwsh on Windows, POSIX elsewhere). */
+/** Default shell name for the host OS. Best-effort hint; the user may have
+ *  reconfigured. pwsh on Windows, POSIX elsewhere. */
 export const DEFAULT_SHELL: string | null = (() => {
   try {
     const plat = platform();
@@ -36,7 +34,7 @@ export const DEFAULT_SHELL: string | null = (() => {
   }
 })();
 
-/** One-line host tag for the system prompt prefix. Empty string = skip. */
+/** One-line host tag for the system-prompt prefix. Empty means skip. */
 export const HOST_PROMPT_LINE: string =
   OS_TAG && DEFAULT_SHELL
     ? `Host: ${OS_TAG} · shell: ${DEFAULT_SHELL}`

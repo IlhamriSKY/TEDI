@@ -26,7 +26,7 @@ type Props = {
   registerEditorHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
-  /** Editor-leaf ids that should render as rendered markdown instead of source. */
+  /** Editor leaf ids rendered as markdown preview instead of source. */
   mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
   onFocusLeaf: (tabId: number, leafId: number) => void;
@@ -50,16 +50,13 @@ export function PaneStack({
   mdPreviewLeafIds,
   onFocusLeaf,
 }: Props) {
-  // Memoize the filter so the prune effect below doesn't re-run every render
-  // — `tabs.filter` returns a fresh array identity each time, which would
-  // otherwise tear bundles unnecessarily.
+  // Memoize the filter so the prune effect below sees a stable identity.
   const paneTabs = useMemo(
     () => tabs.filter((t): t is PaneTab => t.kind === "pane"),
     [tabs],
   );
 
-  // Stable refs for all per-leaf callbacks - avoid re-creating bundles each
-  // render which would tear down PTY/editor state.
+  // Stable refs for per-leaf callbacks. Re-creating bundles would tear down PTY/editor state.
   const registerTerminalRef = useRef(registerTerminalHandle);
   const searchReadyRef = useRef(onSearchReady);
   const cwdRef = useRef(onCwd);
@@ -147,18 +144,11 @@ export function PaneStack({
         return (
           <div
             key={t.id}
-            // Hide inactive tabs at the wrapper level. The terminal/editor
-            // panes themselves stay mounted (so PTYs and editor state
-            // survive tab switches), but their DOM is hidden and ignores
-            // pointer events - otherwise resize handles from inactive tabs
-            // would leak into the visible workspace area.
-            //
-            // The active wrapper paints `bg-background` so it fully covers
-            // any inactive tab underneath. Without this, WebView2 can still
-            // composite `.xterm-viewport`'s native scrollbar from a hidden
-            // tab on top of the active tab - especially visible when the
-            // inactive tab is split, because its inter-pane scrollbar lands
-            // in the middle of the visible workspace.
+            // Hide inactive tabs at the wrapper. Panes stay mounted so PTY and
+            // editor state survive tab switches; hidden DOM ignores pointer
+            // events so resize handles from inactive tabs don't leak through.
+            // The active wrapper paints `bg-background` to cover WebView2's
+            // native xterm scrollbar from hidden tabs.
             className={
               tabVisible
                 ? "bg-background absolute inset-0"

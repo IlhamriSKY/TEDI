@@ -7,12 +7,12 @@ import {
 } from "../lib/todos";
 
 type TodosState = {
-  /** Map of sessionId -> todos. */
+  /** sessionId -> todos. */
   bySession: Record<string, Todo[]>;
-  /** Set of sessionIds whose todos were hydrated. */
+  /** sessionIds whose todos were hydrated. */
   hydrated: Set<string>;
-  /** Set of sessionIds where the user dismissed the TodoStrip. Resets
-   *  automatically when a new todo (unseen id) arrives via setTodos. */
+  /** sessionIds where the user dismissed the TodoStrip. Cleared when a new
+   *  todo (unseen id) arrives via setTodos. */
   hidden: Set<string>;
   hydrate: (sessionId: string) => Promise<void>;
   setTodos: (sessionId: string, todos: Todo[]) => void;
@@ -40,8 +40,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   },
 
   setTodos(sessionId, todos) {
-    // If the agent added a brand-new todo to a hidden session, surface the
-    // strip again - the user dismissed yesterday's list, not tomorrow's.
+    // A new todo on a hidden session re-shows the strip; the user dismissed
+    // the previous list, not the new one.
     const prev = get().bySession[sessionId] ?? [];
     const prevIds = new Set(prev.map((t) => t.id));
     const hasNew = todos.some((t) => !prevIds.has(t.id));

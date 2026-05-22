@@ -3,7 +3,7 @@ import type { PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
 import { leaves } from "@/modules/terminal/lib/panes";
 import type { SavedPaneNode, SavedTab } from "./store";
 
-// -------- live → saved --------
+// live -> saved
 
 function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
   if (leaf.leafKind === "terminal") {
@@ -52,7 +52,7 @@ export function serializeTabs(tabs: Tab[]): SavedTab[] {
   return out;
 }
 
-// -------- saved → live --------
+// saved -> live
 
 function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: number[]): PaneNode {
   if (node.kind === "leaf") {
@@ -110,10 +110,7 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   return tab;
 }
 
-/** Returns a default-seeded pane tab (one terminal leaf) for empty workspaces.
- *  `terminalOrdinal` is intentionally omitted — `useTabs.replaceAllTabs`
- *  backfills it at hydrate time so the very first terminal in the workspace
- *  picks up #1 regardless of which seed path produced it. */
+/** Default pane tab with one terminal leaf. `terminalOrdinal` is omitted; `useTabs.replaceAllTabs` backfills it. */
 export function defaultTabForEmptyWorkspace(allocId: () => number, cwd: string | undefined): Tab {
   const leafId = allocId();
   return {

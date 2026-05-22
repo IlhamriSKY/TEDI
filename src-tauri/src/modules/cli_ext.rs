@@ -1,24 +1,21 @@
-//! Headless CLI surface for `tedi ext <subcmd>` (and the
-//! `tedi --extension <subcmd>` alias). Short-circuits out of `lib::run`
-//! before Tauri boots so install / list / update / uninstall happen in
-//! the user's shell, against the same `<app_data_dir>/extensions/`
-//! directory and `state.json` the GUI manages.
+//! Headless CLI for `tedi ext <subcmd>` and the `tedi --extension <subcmd>`
+//! alias. Short-circuits out of `lib::run` before Tauri boots and runs
+//! install/list/update/uninstall against the same `<app_data_dir>/extensions/`
+//! directory and `state.json` the GUI uses.
 //!
 //! Subcommands:
-//!     tedi ext install <ref>       # path | owner/repo | github URL | registry id
-//!     tedi ext list                # registry picker (interactive on a TTY)
-//!     tedi ext list --installed    # locally installed (alias: `tedi ext installed`)
-//!     tedi ext update [<id>]       # one id or every github-sourced install
-//!     tedi ext uninstall <id>
-//!     tedi ext enable <id>
-//!     tedi ext disable <id>
-//!     tedi ext help
+//!   tedi ext install <ref>       # path | owner/repo | github URL | registry id
+//!   tedi ext list                # registry picker (interactive on a TTY)
+//!   tedi ext list --installed    # locally installed (alias: `tedi ext installed`)
+//!   tedi ext update [<id>]       # one id or every github-sourced install
+//!   tedi ext uninstall <id>
+//!   tedi ext enable <id>
+//!   tedi ext disable <id>
+//!   tedi ext help
 //!
-//! Concurrency note: `state.json` is also written by the running GUI. If
-//! the user installs from CLI while TEDI is open, the GUI keeps the
-//! pre-CLI view until it reloads (cheap reload restores parity). We don't
-//! file-lock — the worst case is the later writer wins, which is the same
-//! behaviour two GUI windows already accept.
+//! Concurrency: `state.json` is also written by the running GUI. There is
+//! no file lock; the later writer wins, matching the behaviour two GUI
+//! windows already accept. The GUI shows the pre-CLI view until it reloads.
 
 use std::fs;
 use std::io::Write;
@@ -33,9 +30,9 @@ use crate::modules::extensions::state::{
 };
 
 /// Bundle id from `tauri.conf.json`. Tauri 2's `app_data_dir` returns
-/// `<dirs::data_dir()>/<bundle_id>` on every desktop platform, so we
-/// can reproduce the path without an `AppHandle`. Keep in sync with
-/// `tauri.conf.json`'s `identifier` field.
+/// `<dirs::data_dir()>/<bundle_id>` on every desktop platform, so we can
+/// reproduce the path without an `AppHandle`. Keep in sync with the
+/// `identifier` field in `tauri.conf.json`.
 const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 
 /// Public extension registry. Shape:
@@ -64,9 +61,8 @@ struct RegistryEntry {
     license: String,
 }
 
-/// Entry point: scan argv for the `ext` subcommand or `--extension` flag,
-/// run it, then `process::exit`. No-op when neither form is present so
-/// the rest of `lib::run` proceeds with GUI boot.
+/// Scan argv for the `ext` subcommand or `--extension` flag, run it, then
+/// `process::exit`. Returns without acting when neither form is present.
 pub fn handle_extension_command_and_exit() {
     let args: Vec<String> = std::env::args().collect();
     let Some(sub_args) = extract_subcommand(&args) else {
@@ -85,10 +81,8 @@ pub fn handle_extension_command_and_exit() {
     std::process::exit(code);
 }
 
-/// Returns `Some(rest_after_action_keyword)` when argv selects the ext
-/// CLI. Two recognised forms:
-///   - `tedi ext <action> …`         (positional subcommand)
-///   - `tedi --extension <action> …` (flag alias)
+/// Returns the args after the action keyword when argv selects the ext CLI.
+/// Recognised forms: `tedi ext <action> ...` and `tedi --extension <action> ...`.
 fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
     if args.len() < 2 {
         return None;
@@ -140,9 +134,9 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
     let root = extensions_root()?;
     let state_path = root.join("state.json");
 
-    // 1) Local file. No extension check — `install_from_bytes` validates
-    //    zip magic bytes, so `tedi ext install ./build/my-ext` works if
-    //    the file is a real zip.
+    // 1) Local file. No extension check; `install_from_bytes` validates the
+    //    zip magic bytes, so `tedi ext install ./build/my-ext` works on any
+    //    real zip.
     let p = std::path::Path::new(reference);
     if p.is_file() {
         let bytes = fs::read(p).map_err(|e| format!("read {}: {e}", p.display()))?;
@@ -161,20 +155,18 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    // 2) Path-shaped input that didn't resolve — short-circuit with a
-    //    targeted error rather than burning a registry round-trip on what
-    //    is clearly a typo'd path. `./foo`, `../foo`, `/abs/foo`, `~/foo`,
-    //    `C:\foo`, or anything containing `\` lands here.
+    // 2) Path-shaped input that did not resolve. Fail fast rather than
+    //    burning a registry round-trip on a typo. Covers `./foo`, `../foo`,
+    //    `/abs/foo`, `~/foo`, `C:\foo`, and anything containing `\`.
     if looks_like_path(reference) {
         return Err(format!(
             "`{reference}` looks like a file path but no file was found at that location"
         ));
     }
 
-    // From here on we need network. Build the tokio runtime once and
-    // reuse it across both branches; the github branch fetches the
-    // release JSON + asset, the registry branch additionally fetches the
-    // index.
+    // Network from here on. Build the tokio runtime once and reuse it: the
+    // github branch fetches the release JSON + asset, the registry branch
+    // also fetches the index.
     let runtime = build_runtime()?;
 
     // 3) owner/repo or full GitHub URL.
@@ -195,9 +187,8 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
     install_github(&runtime, &normalized, &root, &state_path)
 }
 
-/// Build a "not in registry" error that lists the ids the user could have
-/// meant. Empty registry collapses to a plain "registry empty" hint so we
-/// don't dump a confusing `: ` suffix on the message.
+/// Build a "not in registry" error listing the ids the user could have meant.
+/// Empty registry falls back to a plain "registry empty" hint.
 fn registry_not_found_msg(reference: &str, doc: &RegistryDoc) -> String {
     let ids: Vec<&str> = doc
         .official
@@ -228,8 +219,8 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     let runtime = build_runtime()?;
     let doc = fetch_registry(&runtime)?;
 
-    // Flatten official + unofficial into a single ordered list so the
-    // picker (and the non-TTY printer) share one iteration order.
+    // Flatten official + unofficial into one ordered list so the picker
+    // and the non-TTY printer share iteration order.
     let mut items: Vec<(String, RegistryEntry)> = Vec::new();
     for e in &doc.official {
         items.push((registry_label(e, "official"), e.clone()));
@@ -242,8 +233,8 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    // Non-TTY: dump the full tabular view + install hint. Scriptable;
-    // pipes/CI can grep for ids.
+    // Non-TTY: dump the full tabular view + install hint so pipes/CI can
+    // grep for ids.
     use std::io::IsTerminal;
     let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     if !interactive {
@@ -253,8 +244,8 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    // TTY: skip the static table — the picker already shows every entry
-    // with its description, and printing twice just adds visual noise.
+    // TTY: skip the static table. The picker already shows every entry
+    // with its description; printing twice adds visual noise.
     let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
     let chosen = dialoguer::Select::new()
         .with_prompt("Pilih extension untuk diinstall (Esc untuk batal)")
@@ -371,8 +362,8 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
     let runtime = build_runtime()?;
     let initial = load_state(&state_path);
 
-    // Filter the working set up front so we don't hit GitHub for every
-    // installed extension when the user asked about just one.
+    // Filter up front so we do not hit GitHub for every installed extension
+    // when the user asked about just one.
     let mut targets: Vec<(String, String, String)> = Vec::new(); // (id, current_version, source)
     for (id, entry) in initial.entries.iter() {
         if let Some(ref f) = id_filter {
@@ -397,7 +388,7 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
     let now = now_ms();
     for (id, current_version, source) in targets {
         let Some(owner_repo) = source.strip_prefix("github:") else {
-            println!("[{id}] non-github source ({source}) — skip");
+            println!("[{id}] non-github source ({source}); skip");
             if let Some(e) = state_w.entries.get_mut(&id) {
                 e.last_checked_at_ms = Some(now);
             }
@@ -437,14 +428,13 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    // Non-TTY shell (CI, piped, redirected stdin) can't answer y/N, and
-    // we don't want to default to "yes" on a long-running pipeline. Print
-    // the action the user should run and stop.
+    // Non-TTY (CI, piped, redirected stdin) can't answer y/N, and defaulting
+    // to "yes" on a long-running pipeline is risky. Print the action and stop.
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
         println!();
         println!(
-            "Non-interactive shell — {} update(s) available but not applied.",
+            "Non-interactive shell; {} update(s) available but not applied.",
             to_apply.len()
         );
         println!("Run on a TTY, or re-run with explicit ids:");
@@ -461,18 +451,18 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
     let n = std::io::stdin()
         .read_line(&mut buf)
         .map_err(|e| format!("read stdin: {e}"))?;
-    // EOF (n == 0) or anything other than `y/Y` → safe default = skip.
+    // EOF (n == 0) or anything other than y/Y means skip.
     if n == 0 || !buf.trim().eq_ignore_ascii_case("y") {
         println!("Skipped.");
         return Ok(());
     }
 
-    // Apply best-effort: per-id failures print but don't abort the rest,
-    // so one flaky GitHub release doesn't strand the user's other updates.
+    // Best-effort apply: per-id failures print but do not abort the rest,
+    // so one flaky GitHub release does not strand the other updates.
     let mut failed = 0usize;
     for (id, _from, _to, owner_repo) in to_apply {
         println!();
-        println!("Updating {id} (github:{owner_repo})…");
+        println!("Updating {id} (github:{owner_repo})...");
         if let Err(e) = install_github(&runtime, &owner_repo, &root, &state_path) {
             failed += 1;
             eprintln!("[{id}] update failed: {e}");
@@ -495,8 +485,8 @@ fn cmd_uninstall(args: &[String]) -> Result<(), String> {
     let mut st = load_state(&state_path);
     let had_dir = dir.exists();
     let had_state = st.entries.contains_key(id);
-    // Refuse on typo — the GUI silently succeeds, but a CLI no-op feels
-    // like the command worked when the user got the id wrong. Surface it.
+    // Refuse on typo. The GUI silently succeeds, but a CLI no-op looks like
+    // success when the id is wrong, so surface the error.
     if !had_dir && !had_state {
         return Err(format!("extension not installed: {id}"));
     }
@@ -533,8 +523,8 @@ fn cmd_set_enabled(args: &[String], enabled: bool) -> Result<(), String> {
 
 // ---- helpers ------------------------------------------------------------
 
-/// `<dirs::data_dir()>/<BUNDLE_ID>/extensions`, created if missing. Matches
-/// the path Tauri 2 hands us via `app.path().app_data_dir().push("extensions")`.
+/// Returns `<dirs::data_dir()>/<BUNDLE_ID>/extensions`, creating it if
+/// missing. Matches `app.path().app_data_dir().push("extensions")`.
 fn extensions_root() -> Result<PathBuf, String> {
     let mut p = dirs::data_dir().ok_or_else(|| "could not determine data_dir".to_string())?;
     p.push(BUNDLE_ID);
@@ -580,18 +570,12 @@ fn install_github(
     Ok(())
 }
 
-/// True for inputs that should be parsed as a GitHub repo reference rather
-/// than a registry id. Accepts a full URL containing `github.com`, or an
-/// `owner/repo` pair with exactly one slash and id-safe segments on both
-/// sides. Anything else (a bare id like `discord-rich-presence`, or a real
-/// filesystem path) returns false so the caller can fall through to the
-/// registry lookup or the file branch.
-/// True for inputs that have an unambiguous filesystem-path shape: explicit
+/// True for inputs with an unambiguous filesystem-path shape: explicit
 /// dot-prefix, leading `/`, leading `~/`, Windows drive letter, or any
-/// backslash. The github-ref check covers single-slash `owner/repo` already,
-/// so this only catches inputs the user clearly meant as paths. Kept loose
-/// on purpose — we don't try to detect bare filenames without a separator
-/// because those collide with registry ids.
+/// backslash. The github-ref check already covers single-slash `owner/repo`,
+/// so this only catches inputs the user clearly meant as paths. Bare
+/// filenames without a separator are not matched because they collide with
+/// registry ids.
 fn looks_like_path(s: &str) -> bool {
     if s.contains('\\') {
         return true;
@@ -599,7 +583,7 @@ fn looks_like_path(s: &str) -> bool {
     if s.starts_with("./") || s.starts_with("../") || s.starts_with("~/") || s.starts_with('/') {
         return true;
     }
-    // `C:\…` already matched by the backslash check; this catches the
+    // `C:\...` already caught by the backslash check. This catches the
     // forward-slash variant (`C:/foo`) and the bare `C:` form.
     let bytes = s.as_bytes();
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
@@ -610,7 +594,7 @@ fn looks_like_path(s: &str) -> bool {
 
 fn looks_like_github_ref(s: &str) -> bool {
     if s.contains('\\') {
-        return false; // Windows path separator → real fs path
+        return false; // Windows path separator means real fs path
     }
     if s.contains("://") || s.starts_with("github.com/") {
         return true;
@@ -620,8 +604,7 @@ fn looks_like_github_ref(s: &str) -> bool {
         return false;
     }
     // GitHub usernames start with an alphanumeric, so a leading `.` on
-    // either segment is a path component (`./repo`, `../repo`, `.dotrepo`),
-    // not a github ref.
+    // either segment is a path component, not a github ref.
     if parts[0].starts_with('.') || parts[1].starts_with('.') {
         return false;
     }
@@ -635,7 +618,7 @@ fn looks_like_github_ref(s: &str) -> bool {
 
 fn print_registry_row(e: &RegistryEntry) {
     let license = if e.license.is_empty() {
-        "—"
+        "-"
     } else {
         e.license.as_str()
     };
@@ -652,7 +635,7 @@ fn registry_label(e: &RegistryEntry, group: &str) -> String {
     if e.description.is_empty() {
         format!("[{group}] {}", e.id)
     } else {
-        format!("[{group}] {} — {}", e.id, e.description)
+        format!("[{group}] {} - {}", e.id, e.description)
     }
 }
 
@@ -661,7 +644,7 @@ fn print_help() {
 }
 
 const HELP: &str = concat!(
-    "tedi ext — manage TEDI extensions\n",
+    "tedi ext - manage TEDI extensions\n",
     "\n",
     "USAGE:\n",
     "    tedi ext <SUBCOMMAND> [ARGS]\n",
@@ -742,9 +725,9 @@ mod tests {
         assert!(looks_like_path(r"C:\Users\me\ext.zip"));
         assert!(looks_like_path("C:/Users/me/ext.zip"));
         assert!(looks_like_path("D:"));
-        // GitHub refs and registry ids must NOT be classified as paths,
-        // otherwise the install pipeline degrades to "looks like a file
-        // but doesn't exist" errors on legal inputs.
+        // GitHub refs and registry ids must not be classified as paths,
+        // otherwise the install pipeline reports "looks like a file but
+        // does not exist" on legal inputs.
         assert!(!looks_like_path("owner/repo"));
         assert!(!looks_like_path("https://github.com/owner/repo"));
         assert!(!looks_like_path("github.com/owner/repo"));
@@ -780,14 +763,13 @@ mod tests {
         assert!(msg.contains("empty"));
     }
 
-    /// Live smoke test against the public registry. Marked `#[ignore]` so
-    /// `cargo test` stays offline-clean for the default run; explicit
-    /// invocation: `cargo test live_registry -- --ignored --nocapture`.
+    /// Live smoke test against the public registry. `#[ignore]` so `cargo
+    /// test` stays offline-clean; run with
+    /// `cargo test live_registry -- --ignored --nocapture`.
     ///
-    /// Exercises the full path the user hits: build runtime → reqwest GET
-    /// with our timeouts → JSON parse against `RegistryDoc` → semantic
-    /// check that each entry's repository normalizes to an `owner/repo`
-    /// pair the install pipeline accepts.
+    /// Exercises the full user path: build runtime, reqwest GET with our
+    /// timeouts, JSON parse into `RegistryDoc`, then check each entry's
+    /// repository normalizes to an `owner/repo` pair.
     #[test]
     #[ignore]
     fn live_registry_fetch_parses() {

@@ -14,16 +14,10 @@ import {
 } from "../store/chatStore";
 
 /**
- * Headless bridge that mirrors chat lifecycle into the store, so the status
- * pill / mini-window / panel can react without being inside the chat hook tree.
- *
- * Side effects:
- *  - Patches `agentMeta` on every status / approvals change.
- *  - Auto-opens the mini-window when an approval is pending - the user has
- *    to act on it; hiding it would be hostile.
- *  - For pending `write_file` calls, opens an AI diff tab in the editor area
- *    so the user can review the proposed change before approving.
- *  - Persists messages of the active session on every change.
+ * Mirrors chat lifecycle into the store so the status pill, mini-window, and
+ * panel can react outside the chat hook tree.
+ * Patches `agentMeta`, auto-opens the mini-window on pending approvals, opens
+ * AI diff tabs for pending file mutations, and persists messages on change.
  */
 
 type DiffOpenInput = {
@@ -39,10 +33,8 @@ type Props = {
   setAiDiffStatus: (approvalId: string, status: AiDiffStatus) => void;
 };
 
-// Memoised so unrelated parent re-renders (App.tsx state churn from tabs /
-// workspaces / live-bridge updates) don't re-render this bridge. Both props
-// are stable useCallback values originating from useTabs(), so the shallow
-// equality check skips re-render whenever only tabs state has changed.
+// Memoised so unrelated App.tsx re-renders (tabs/workspaces/live-bridge) don't
+// re-render this bridge. Props come from stable useCallback values in useTabs().
 export const AgentRunBridge = memo(function AgentRunBridge(props: Props) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   if (!sessionId) return null;
@@ -69,18 +61,16 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   const setApprovalResponder = useChatStore((s) => s.setApprovalResponder);
 
   // Expose the approval responder so the diff tab can resolve approvals.
-  // We keep it in a ref-stable closure so identity is stable per render.
   useEffect(() => {
     setApprovalResponder((id, approved) => addToolApprovalResponse({ id, approved }));
     return () => setApprovalResponder(null);
   }, [setApprovalResponder, addToolApprovalResponse]);
 
-  // Auto-approve based on approvalMode preference.
-  //   - "ask"  : every mutating tool needs the user (default, original)
-  //   - "semi" : shell auto-approves (when the command is plainly read-only);
-  //              file mutations still ask
-  //   - "yolo" : everything auto-approves
-  // We dedup by approvalId so re-renders don't fire the response twice.
+  // Auto-approve based on approvalMode:
+  //   ask  - every mutating tool needs the user
+  //   semi - shell auto-approves if plainly read-only; file mutations still ask
+  //   yolo - everything auto-approves
+  // Dedup by approvalId so re-renders don't fire twice.
   const approvalMode = usePreferencesStore((s) => s.approvalMode);
   const autoRespondedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -108,8 +98,8 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     persistMessages(sessionId, messages);
   }, [sessionId, messages, persistMessages]);
 
-  // Flush the debounced write whenever the chat goes idle (or errors),
-  // and on unmount, so a closed app or session-switch never loses the tail.
+  // Flush debounced writes on idle/error and on unmount so a closed app or
+  // session switch never loses the tail.
   useEffect(() => {
     if (status !== "submitted" && status !== "streaming") {
       flushPersist(sessionId);
@@ -119,10 +109,8 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     return () => flushPersist(sessionId);
   }, [sessionId]);
 
-  // Single-pass scan: approvalsPending + fileMutationFingerprint share the
-  // same message walk. Splitting them used to iterate every assistant part
-  // twice on every token during streaming; one pass cuts that in half on
-  // the hottest path of the agent UI.
+  // Single-pass scan: approvalsPending and fileMutationFingerprint share one
+  // message walk. Splitting them doubled the work on every streamed token.
   const messageStats = useMemo(() => {
     let approvals = 0;
     let mutationFp = "";
@@ -161,30 +149,24 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     if (approvalsPending > 0) openMini();
   }, [approvalsPending, openMini]);
 
-  // ---- AI diff tab management ----------------------------------------------
-  // We track which approvalIds have already opened a tab so re-renders don't
-  // open duplicates. Reset when the session changes.
+  // AI diff tab management. Track opened approvalIds so re-renders don't
+  // double-open. Reset on session change.
   const openedRef = useRef<Set<string>>(new Set());
   const fileMutationFingerprintRef = useRef<string>("");
   useEffect(() => {
     openedRef.current = new Set();
     fileMutationFingerprintRef.current = "";
-    // Prune the auto-approve dedup set on every session switch so it doesn't
-    // grow unboundedly across a long-running session-hop session.
+    // Prune the auto-approve dedup set on session switch.
     autoRespondedRef.current = new Set();
   }, [sessionId]);
 
-  // fileMutationFingerprint is derived from the same pass as approvalsPending
-  // above — see `messageStats`. The diff-tab effect short-circuits when the
-  // fingerprint hasn't changed, so this stays cheap on text-only tokens.
+  // fileMutationFingerprint comes from the same pass as approvalsPending (see
+  // `messageStats`). Short-circuits when unchanged so text-only tokens stay cheap.
   useEffect(() => {
     type Pending = {
       approvalId: string;
       path: string;
-      /**
-       * Either a literal proposed content (write_file), or a function that
-       * derives proposed content from the on-disk original (edit/multi_edit).
-       */
+      /** Literal content (write_file) or edits applied to the on-disk original. */
       derive: { kind: "literal"; content: string } | { kind: "edits"; edits: EditOp[] };
     };
     type StatusUpdate = { approvalId: string; status: AiDiffStatus };
@@ -209,9 +191,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
             pending.push({ approvalId, path, derive });
           }
         } else if (state === "approval-responded") {
-          // Response may carry an `approved` bit; if not present, leave the
-          // tab in pending - the next state transition (output-* below) will
-          // settle it.
+          // If `approved` is missing, leave it pending; the next output-* settles it.
           const approved = (part as { approval?: { approved?: boolean } }).approval?.approved;
           if (typeof approved === "boolean") {
             statusUpdates.push({
@@ -236,7 +216,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
       const cwd = useChatStore.getState().live.getCwd();
       for (const p of pending) {
         if (cancelled) return;
-        // Mark as opened up-front so a re-render mid-await doesn't double-open.
+        // Mark opened up-front so a re-render mid-await doesn't double-open.
         openedRef.current.add(p.approvalId);
         let abs: string;
         try {
@@ -252,8 +232,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
         } else {
           const r = applyEditsLocally(original.content, p.derive.edits);
           if (!r.ok) {
-            // Edit precondition failed (string not found / not unique).
-            // Skip opening the tab; the approval modal will surface the error.
+            // Edit failed (string not found or not unique). The approval modal surfaces the error.
             continue;
           }
           proposed = r.content;
@@ -370,9 +349,8 @@ function applyEditsLocally(
   return { ok: true, content };
 }
 
-/** Common, plainly read-only shell prefixes. Auto-approved in "semi" mode.
- *  Conservative on purpose - anything that pipes / chains / redirects is
- *  considered side-effectful and falls back to asking. */
+/** Read-only shell prefixes auto-approved in "semi" mode. Anything that pipes,
+ *  chains, or redirects falls back to asking. */
 const READ_ONLY_BASH_PREFIXES = [
   "ls",
   "pwd",
@@ -414,8 +392,7 @@ const READ_ONLY_BASH_PREFIXES = [
 function isReadOnlyBashCommand(cmd: string): boolean {
   const trimmed = cmd.trim();
   if (!trimmed) return false;
-  // Disallow any shell chaining / redirection / substitution. These can hide
-  // side-effecting commands behind a safe-looking prefix.
+  // Disallow chaining/redirection/substitution; these can hide side effects.
   if (/[;&|><`$()]/.test(trimmed)) return false;
   const lower = trimmed.toLowerCase();
   return READ_ONLY_BASH_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} `));
@@ -432,20 +409,18 @@ function shouldAutoApprove(
     const cmd = typeof input?.command === "string" ? input.command : "";
     return isReadOnlyBashCommand(cmd);
   }
-  // File mutations + bash_background still need explicit approval in semi.
+  // File mutations and bash_background still need explicit approval in semi.
   return false;
 }
 
 async function readOriginal(abs: string): Promise<{ content: string; isNewFile: boolean }> {
-  // The fs guard rejects sensitive paths even on read; mirror that here so
-  // the user sees an empty "before" rather than an error tab.
+  // Mirror the fs guard so sensitive paths show an empty "before" instead of erroring.
   const safety = checkReadable(abs);
   if (!safety.ok) return { content: "", isNewFile: false };
   try {
     const r = await native.readFile(abs);
     if (r.kind === "text") return { content: r.content, isNewFile: false };
-    // Binary or oversized - we can't render the original sensibly. Show the
-    // proposed content as a "new" view; the user can still cancel.
+    // Binary or oversized. Show proposed content as a "new" view; user can still cancel.
     return { content: "", isNewFile: false };
   } catch (e) {
     const msg = String(e).toLowerCase();

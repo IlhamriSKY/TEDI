@@ -8,22 +8,20 @@ export type ExtractedSelection = {
   lines: number;
 };
 
-/** Metadata the composer stamps onto outgoing user messages so the chat
- *  view can render the model + provider that was active at send-time.
- *  Not consumed by the LLM - UIMessage.metadata is a client-side bag. */
+/** Metadata stamped onto outgoing user messages so the chat view can render
+ *  the send-time model and provider. Client-side only; not sent to the LLM. */
 export type TediUserMetadata = {
   tediModel: string;
   tediModelLabel: string;
   /** The provider gateway id (e.g. "openai-compatible"). */
   tediProvider: ProviderId;
-  /** Raw `owned_by` from `/v1/models` if known (e.g. "xiaomi" for mimo).
-   *  Preferred over the gateway label in the chat chip so the model is
-   *  credited to its actual maker, not the proxy. */
+  /** Raw `owned_by` from `/v1/models` if known. Preferred over the gateway
+   *  label so the chip credits the model maker, not the proxy. */
   tediOwnedBy?: string;
   sentAt: number;
 };
 
-/** Type guard: returns the metadata bag if it looks like ours. */
+/** Returns the metadata bag if it looks like ours, else null. */
 export function getTediUserMetadata(message: UIMessage): TediUserMetadata | null {
   const m = message.metadata as { [k: string]: unknown } | undefined;
   if (!m) return null;
@@ -47,8 +45,8 @@ export type ExtractedMessage = {
   body: string;
 };
 
-/** Same content surface that the composer originally wrote into the message
- *  - used to rebuild composer state during history recall (ArrowUp/Down). */
+/** Same shape the composer originally embedded. Used to rebuild composer
+ *  state during history recall (ArrowUp/Down). */
 export type RecalledFile = {
   name: string;
   mediaType: string;
@@ -63,15 +61,13 @@ export type RecalledMessage = {
   commandName: string | null;
   files: RecalledFile[];
   selections: RecalledSelection[];
-  /** Snippet handles - resolve via the snippets store to get the full
-   *  Snippet record. */
+  /** Snippet handles. Resolve via the snippets store for the full record. */
   snippetHandles: string[];
 };
 
-/** Strip the `<file>`, `<selection>`, `<snippet>` blocks and any leading
- *  `<tedi-command />` marker that the composer embeds into every user
- *  message. Returns the surviving body plus a structured summary of each
- *  block for chip rendering. */
+/** Strip `<file>`, `<selection>`, `<snippet>`, and leading `<tedi-command />`
+ *  blocks from a user message. Returns the surviving body and a summary of
+ *  each block for chip rendering. */
 export function extractUserMessage(raw: string): ExtractedMessage {
   const cmdMatch = raw.match(TEDI_CMD_RE);
   const commandName = cmdMatch?.[1] ?? null;
@@ -102,8 +98,7 @@ export function extractUserMessage(raw: string): ExtractedMessage {
     snippets.push(name);
     return "";
   });
-  // Composer joins blocks with "\n\n"; collapse the orphan blank lines so
-  // the surviving body doesn't render with runaway top/bottom margin.
+  // Composer joins with "\n\n"; collapse orphan blank lines.
   body = body
     .replace(/^\s+/, "")
     .replace(/\s+$/, "")
@@ -112,9 +107,8 @@ export function extractUserMessage(raw: string): ExtractedMessage {
   return { files, selections, snippets, commandName, body };
 }
 
-/** Concatenate all text parts of a user `UIMessage` and return only the
- *  user-visible body (no markup, no embedded blocks). Empty string if the
- *  message has nothing but attachments. */
+/** Concatenate text parts of a user UIMessage and return the visible body
+ *  (no markup, no embedded blocks). Empty string if attachments-only. */
 export function getUserMessageBody(message: UIMessage): string {
   if (message.role !== "user") return "";
   const raw = message.parts
@@ -124,9 +118,8 @@ export function getUserMessageBody(message: UIMessage): string {
   return extractUserMessage(raw).body;
 }
 
-/** Full recall payload for a user message: same body+command+files+selections
- *  +snippets the composer originally embedded, with file/selection contents
- *  preserved so the input bar can put the attachments back as chips. */
+/** Full recall payload: body, command, files, selections, snippets. File and
+ *  selection contents are preserved so the input bar can restore chips. */
 export function recallUserMessage(message: UIMessage): RecalledMessage {
   if (message.role !== "user") {
     return {

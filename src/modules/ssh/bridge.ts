@@ -21,18 +21,13 @@ export type SshOpenInput = {
   password?: string;
   privateKey?: string;
   privateKeyPassphrase?: string;
-  /** SHA256 fingerprint recorded by a previous successful connect. When set,
-   *  the backend rejects the handshake with a `host key mismatch` error if
-   *  the server presents a different key - guards against silent MITM on
-   *  saved connections. */
+  /** SHA256 fingerprint from a previous connect. If set and the server key differs, the backend returns a `host key mismatch` error. */
   expectedFingerprint?: string;
   cols: number;
   rows: number;
 };
 
-/** Prefix the Rust side puts on host-key-mismatch errors. Callers detect
- *  this to offer a "trust new key" affordance instead of treating it as a
- *  generic transient failure that should auto-reconnect. */
+/** Prefix used by the Rust side for host-key-mismatch errors. Callers check for this to offer a "trust new key" prompt instead of auto-reconnecting. */
 export const HOST_KEY_MISMATCH_PREFIX = "ssh: host key mismatch:";
 
 export function isHostKeyMismatchError(err: unknown): boolean {
@@ -66,8 +61,7 @@ export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promi
         handlers.onData(decodeBase64(event.data));
         break;
       case "stderr":
-        // Surface stderr inline - server PTY usually multiplexes both
-        // streams onto channel 0 anyway, this is just a safety net.
+        // Surface stderr inline. The server PTY usually merges both streams already.
         handlers.onData(decodeBase64(event.data));
         break;
       case "exit":

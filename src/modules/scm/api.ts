@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { GitStatus } from "./types";
 
-/** Matches Rust `fs::file::ReadResult` - kept in sync by hand. */
+/** Mirrors Rust `fs::file::ReadResult`. Kept in sync manually. */
 export type FileReadResult =
   | { kind: "text"; content: string; size: number }
   | { kind: "image"; dataUrl: string; mime: string; size: number }

@@ -45,10 +45,7 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: DynamicModelId;
-  /** Provider that owns `defaultModelId`. Disambiguates models that share an
-   *  id across providers (e.g. `claude-sonnet-4-6` exists for both Anthropic
-   *  and SumoPod). Persisted so boot restore lands on the right provider
-   *  even if the dynamic registry hasn't hydrated yet. */
+  /** Provider for `defaultModelId`. Disambiguates ids shared across providers. Persisted for cold-boot restore. */
   defaultProviderId: ProviderId | null;
   editorTheme: EditorThemeId;
   customInstructions: string;
@@ -61,45 +58,47 @@ export type Preferences = {
   openaiCompatibleBaseURL: string;
   vimMode: boolean;
   lineWrap: boolean;
-  /** Show the minimap in the code editor. Default true. */
+  /** Show the code editor minimap. Default true. */
   showMinimap: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   showHiddenFiles: boolean;
-  /** Show the Source Control panel in the sidebar. Default true. */
+  /** Show the Source Control panel. Default true. */
   showSourceControl: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
-  /** Zoom factor applied to content surfaces only - terminal (xterm
-   *  `fontSize`), code editor + diff (CodeMirror via `--content-zoom` CSS
-   *  variable). 1.0 = 100%. Deliberately scoped: applying CSS `zoom` to the
-   *  whole window breaks xterm's canvas/WebGL glyph positioning (cursor
-   *  ends up offset from typed text). Driven by `view.zoomIn` /
-   *  `view.zoomOut` / `view.zoomReset` shortcuts. */
+  /**
+   * User overrides for extension keybindings. Keyed by command id from
+   * `contributes.keybindings[].command`. Empty array means cleared; absent
+   * entry means use the manifest default.
+   */
+  extensionShortcuts: Record<string, KeyBinding[]>;
+  /**
+   * Zoom for content surfaces only: terminal (xterm `fontSize`) and code
+   * editor/diff (CodeMirror via `--content-zoom`). 1.0 = 100%. Scoped this
+   * way because window-wide CSS `zoom` breaks xterm's glyph positioning.
+   * Driven by the `view.zoomIn` / `view.zoomOut` / `view.zoomReset` shortcuts.
+   */
   contentZoom: number;
-  /** Model ids pinned by the user; surfaced as a "Pinned" group at the top
-   *  of the AI model dropdown. Ordered by pin time (newest first). */
+  /** Pinned model ids. Shown as "Pinned" at the top of the AI model dropdown. Newest first. */
   pinnedModelIds: string[];
-  /** Approval mode for AI tool calls.
-   *  - "ask": every mutating tool needs user approval (default).
-   *  - "semi": file edits need approval; shell commands auto-approve.
-   *  - "yolo": all tools auto-approve ("full auto"). */
+  /**
+   * Approval mode for AI tool calls.
+   * "ask": every mutating tool needs approval (default).
+   * "semi": file edits need approval; shell commands auto-approve.
+   * "yolo": all tools auto-approve.
+   */
   approvalMode: ApprovalMode;
-  /** The model id the user last selected via the chat picker. Restored on
-   *  boot so the active model survives an app relaunch. Null until the
-   *  user makes their first pick - boot falls back to `defaultModelId`. */
+  /** Last model picked via the chat dropdown. Restored on boot. Null until first pick. */
   lastModelId: DynamicModelId | null;
-  /** Provider that owned `lastModelId` at pick time. Persisted alongside it
-   *  so restore is immune to a stale/empty model registry on cold boot. */
+  /** Provider for `lastModelId` at pick time. Persisted for cold-boot restore. */
   lastProviderId: string | null;
-  /** Toast + beep on AI CLI state transitions (idle/working → blocking,
-   *  working → idle completion). Default on. When off, the per-tab badge
-   *  (idle / working / blocking) still updates - only the toast and beep
-   *  are suppressed. */
+  /** Toast and beep on AI CLI state transitions. Default on. Per-tab badge still updates when off. */
   aiNotificationsEnabled: boolean;
-  /** Brand / primary accent color as a 6-digit hex (`#RRGGBB`). Drives
-   *  `--primary`, `--ring`, `--sidebar-primary`, `--sidebar-ring`, and a
-   *  derived `--accent` in both light and dark themes. Default
-   *  `#0057fe` (TEDI logo blue). */
+  /**
+   * Brand color as 6-digit hex (`#RRGGBB`). Drives `--primary`, `--ring`,
+   * `--sidebar-primary`, `--sidebar-ring`, and a derived `--accent`.
+   * Default `#0057fe` (TEDI logo blue).
+   */
   brandColor: string;
 };
 
@@ -110,7 +109,7 @@ export function normalizeBrandColor(value: string | undefined | null): string {
   if (!value) return BRAND_COLOR_DEFAULT;
   const trimmed = value.trim();
   if (HEX6_RE.test(trimmed)) return `#${trimmed.slice(1).toLowerCase()}`;
-  // Accept 3-digit hex (#abc -> #aabbcc) as a convenience.
+  // Accept 3-digit hex (#abc -> #aabbcc).
   const short = /^#([0-9a-f]{3})$/i.exec(trimmed);
   if (short) {
     const [r, g, b] = short[1].toLowerCase();
@@ -140,6 +139,7 @@ const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SHORTCUTS = "shortcuts";
+const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
 const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_LAST_MODEL = "lastModelId";
@@ -180,6 +180,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHiddenFiles: false,
   showSourceControl: true,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
+  extensionShortcuts: {} as Record<string, KeyBinding[]>,
   pinnedModelIds: [],
   approvalMode: "ask",
   lastModelId: null,
@@ -191,10 +192,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
-// LazyStore.onChange only fires within the writing process. The settings
-// page lives in a separate webview, so writes there never reach the main
-// window's subscribers. Mirror every setter through a Tauri event so any
-// window can listen.
+// LazyStore.onChange only fires in the writing process. The settings page is
+// a separate webview, so mirror every setter through a Tauri event for
+// cross-window listeners.
 const PREFS_CHANGED_EVENT = "tedi://prefs-changed";
 
 async function writePref<T>(key: string, value: T): Promise<void> {
@@ -204,8 +204,7 @@ async function writePref<T>(key: string, value: T): Promise<void> {
 }
 
 export async function loadPreferences(): Promise<Preferences> {
-  // Single IPC roundtrip - fetching keys individually fans out to one
-  // `plugin:store|get` per setting and is the dominant boot cost.
+  // Single IPC roundtrip. Per-key fetches were the dominant boot cost.
   const entries = await store.entries();
   const map = new Map<string, unknown>(entries);
   const get = <T>(k: string): T | undefined => map.get(k) as T | undefined;
@@ -240,6 +239,9 @@ export async function loadPreferences(): Promise<Preferences> {
       get<boolean>(KEY_SHOW_SOURCE_CONTROL) ?? DEFAULT_PREFERENCES.showSourceControl,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ?? DEFAULT_PREFERENCES.shortcuts,
+    extensionShortcuts:
+      get<Record<string, KeyBinding[]>>(KEY_EXTENSION_SHORTCUTS) ??
+      DEFAULT_PREFERENCES.extensionShortcuts,
     pinnedModelIds: get<string[]>(KEY_PINNED_MODELS) ?? DEFAULT_PREFERENCES.pinnedModelIds,
     approvalMode: get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
@@ -262,10 +264,9 @@ export async function setTheme(value: ThemePref): Promise<void> {
 
 export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
-  // Pair provider with id so boot restore lands on the right entry when two
-  // providers ship the same model id. Omit `provider` and we derive from
-  // the static registry; a runtime-detected id that the registry doesn't
-  // know yet stores `null` and falls back to chat.selectedProvider later.
+  // Pair provider with id so boot restore picks the right entry when two
+  // providers ship the same id. Falls back to the static registry, then null
+  // (then to chat.selectedProvider at restore).
   const resolved = provider ?? tryGetModel(value)?.provider ?? null;
   await writePref(KEY_DEFAULT_PROVIDER, resolved);
 }
@@ -345,6 +346,16 @@ export async function resetShortcuts(): Promise<void> {
   await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
 }
 
+export async function setExtensionShortcuts(
+  value: Record<string, KeyBinding[]> | {},
+): Promise<void> {
+  await writePref(KEY_EXTENSION_SHORTCUTS, value);
+}
+
+export async function resetExtensionShortcuts(): Promise<void> {
+  await writePref(KEY_EXTENSION_SHORTCUTS, DEFAULT_PREFERENCES.extensionShortcuts);
+}
+
 export async function setPinnedModelIds(value: string[]): Promise<void> {
   await writePref(KEY_PINNED_MODELS, value);
 }
@@ -374,15 +385,11 @@ export async function setBrandColor(value: string): Promise<void> {
 }
 
 /**
- * Escape hatch used by the extension host to persist contributed settings
- * keys that don't have a typed setter here. Built-in code should use the
- * typed setters above; extension-owned keys land here via the host API
- * (`tedi.settings.set`).
- *
- * The key is required to be namespaced as `ext:<extId>:<key>` so a hostile
- * extension can't quietly overwrite a built-in preference like `theme` or
- * `brandColor` via this path. Validation lives here (not in host.ts) so
- * the rule is enforced even if a future host bypasses the namespace.
+ * Escape hatch for the extension host. Persists keys without typed setters.
+ * Built-ins use the typed setters above; extension keys arrive here via
+ * `tedi.settings.set`. Keys must be `ext:<extId>:<key>` to prevent
+ * overwriting built-ins. Validation lives here so the rule holds even if a
+ * future host bypasses the namespace.
  */
 export async function _writeAny(key: string, value: unknown): Promise<void> {
   if (!key.startsWith("ext:")) {
@@ -393,8 +400,7 @@ export async function _writeAny(key: string, value: unknown): Promise<void> {
   await writePref(key, value);
 }
 
-/** Companion reader for ext-namespaced keys. The typed `loadPreferences()`
- *  ignores them; extensions use this for round-trip reads. */
+/** Reader for ext-namespaced keys. `loadPreferences()` ignores them. */
 export async function _readAny<T = unknown>(key: string): Promise<T | undefined> {
   if (!key.startsWith("ext:")) {
     throw new Error(
@@ -405,9 +411,7 @@ export async function _readAny<T = unknown>(key: string): Promise<T | undefined>
   return v ?? undefined;
 }
 
-/** Subscribe to changes of *any* key (typed or namespaced). Used by the
- *  extension host so `tedi.settings.onChange("foo")` works for keys the
- *  typed `onPreferencesChange` mapper doesn't know about. */
+/** Subscribe to changes of any key, typed or namespaced. Used by the extension host's `tedi.settings.onChange`. */
 export async function _onAnyChange(
   cb: (key: string, value: unknown) => void,
 ): Promise<UnlistenFn> {
@@ -438,7 +442,7 @@ export const APPROVAL_MODE_META: Record<ApprovalMode, { label: string; descripti
 
 export type PrefKey = keyof Preferences;
 
-/** Subscribe to changes from any window (settings → main). */
+/** Subscribe to changes from any window (settings to main). */
 export async function onPreferencesChange(
   cb: (key: PrefKey, value: unknown) => void,
 ): Promise<UnlistenFn> {
@@ -471,8 +475,7 @@ export async function onPreferencesChange(
     [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
     [KEY_BRAND_COLOR]: "brandColor",
   };
-  // Same-process writes still fire onChange immediately; cross-window writes
-  // arrive via the Tauri event emitted by writePref().
+  // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
   const unsubLocal = await store.onChange<unknown>((key, value) => {
     const mapped = map[key];
     if (mapped) cb(mapped, value);
@@ -487,8 +490,7 @@ export async function onPreferencesChange(
   };
 }
 
-// API key changes are stored in OS keychain (not the prefs store),
-// so we broadcast via a Tauri event for cross-window listeners.
+// API keys live in the OS keychain, not the prefs store. Broadcast via Tauri event for cross-window listeners.
 const KEYS_CHANGED_EVENT = "tedi://ai-keys-changed";
 
 export async function emitKeysChanged(): Promise<void> {

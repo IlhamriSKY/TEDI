@@ -9,9 +9,8 @@ import {
   type ProviderId,
 } from "../config";
 
-/** Treat unknown model ids as SumoPod - they only appear when the user
- *  picked a runtime-detected SumoPod model and the registry hasn't yet
- *  been re-hydrated (e.g. cold reload before /v1/models resolves). */
+/** Treat unknown model ids as SumoPod. They surface when the user picked a
+ *  runtime-detected SumoPod model and the registry hasn't re-hydrated yet. */
 function resolveProvider(modelId: DynamicModelId): ProviderId {
   return tryGetModel(modelId)?.provider ?? "sumopod";
 }
@@ -55,12 +54,10 @@ type Live = {
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
    *  Returns true if a new tab was created. */
   openTerminal: (cwd?: string | null) => boolean;
-  /** Open a new terminal with explicit placement options. `mode`:
-   *   - `"tab"`: a fresh top-level tab.
-   *   - `"split"`: split the focused leaf of `targetTabId` (or active tab if
-   *     omitted). `splitDir` is "row" (right) or "col" (down).
-   *  Returns a discriminated union so the tool layer can surface specific
-   *  errors (no-active-tab, target-not-found, MAX_PANES_PER_TAB reached). */
+  /** Open a new terminal with placement options. `mode="tab"` makes a fresh
+   *  top-level tab; `mode="split"` splits the focused leaf of `targetTabId`
+   *  (or the active tab) with `splitDir` "row" (right) or "col" (down).
+   *  Result variant surfaces specific errors to the tool layer. */
   openTerminalAdvanced: (opts: {
     cwd?: string | null;
     mode?: "tab" | "split";
@@ -69,25 +66,22 @@ type Live = {
   }) =>
     | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
     | { ok: false; error: string };
-  /** Move every terminal leaf into a single tab. Refuses if the total
-   *  exceeds the per-tab pane cap. */
+  /** Move every terminal leaf into one tab. Refuses if the total exceeds
+   *  the per-tab pane cap. */
   consolidateTerminalsIntoGroup: (
     targetTabId: number,
   ) =>
     | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
     | { ok: false; error: string; movedBeforeFailure?: number };
-  /** Close a single terminal leaf. Refuses the very last leaf so the app
-   *  always has at least one tab. */
+  /** Close one terminal leaf. Refuses the last leaf so at least one tab remains. */
   closeTerminalLeaf: (
     leafId: number,
   ) => { ok: true; closedTab: boolean } | { ok: false; error: string };
-  /** Inject `command` into the active terminal AND submit (CR). Returns
-   *  false if there is no active terminal tab to run in. Use this when
-   *  the user asked the AI to "run X in the terminal" - the command and
-   *  its output stay in the terminal the user is looking at, not the
-   *  hidden agent shell. */
+  /** Inject `command` into the active terminal and submit (CR). Returns
+   *  false when no active terminal exists. Used when the user asks the AI
+   *  to "run X in the terminal" so output stays in the visible terminal. */
   runInActiveTerminal: (command: string) => boolean;
-  /** Snapshot every terminal leaf (across all tabs) with ordinal/title/cwd. */
+  /** Snapshot every terminal leaf with ordinal/title/cwd. */
   listTerminals: () => TerminalInfo[];
   /** Inject text into a specific terminal (no Enter). */
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
@@ -97,20 +91,16 @@ type Live = {
 
 export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
 
-/** Cumulative token usage for the active session. Reset on session
- *  switch / clear. `cached` is the chunk of `input` that hit the
- *  provider's prompt cache - the higher the ratio, the cheaper the run. */
+/** Cumulative token usage for the active session. Reset on switch/clear.
+ *  `cached` is the slice of `input` that hit the provider's prompt cache. */
 export type SessionUsage = {
   input: number;
   output: number;
   cached: number;
 };
 
-/** Most-recent compaction event for the active session. Drives the brief
- *  pulse badge next to the context indicator + the breakdown line in its
- *  hover card. Includes Stage 1 (lossless dedup) so the indicator confirms
- *  EVERY compaction pass, even the silent-by-design ones that don't warrant
- *  a toast. Reset on session switch / clear. */
+/** Most-recent compaction event. Drives the pulse badge and hovercard line
+ *  next to the context indicator. Includes Stage 1 so every pass surfaces. */
 export type LastCompact = {
   at: number;
   stages: CompactStages;
@@ -147,9 +137,9 @@ export type PendingSelection = {
 };
 
 export type OpenEditorFile = {
-  /** Absolute path - used as the unique key and passed to attachFileByPath. */
+  /** Absolute path. Unique key and the arg to attachFileByPath. */
   path: string;
-  /** Display name (basename of the path). */
+  /** Display name (basename). */
   name: string;
 };
 
@@ -167,8 +157,8 @@ type StoreState = {
 
   /**
    * Set by AgentRunBridge each render. Lets surfaces outside the chat hook
-   * tree (e.g. the AI diff tab in the editor area) resolve a pending tool
-   * approval through the active session's `addToolApprovalResponse`.
+   * tree (e.g. the AI diff tab) resolve approvals via the active session's
+   * `addToolApprovalResponse`.
    */
   approvalResponder: ApprovalResponder | null;
   setApprovalResponder: (fn: ApprovalResponder | null) => void;
@@ -179,9 +169,8 @@ type StoreState = {
   setApiKey: (provider: ProviderId, key: string | null) => void;
 
   selectedModelId: DynamicModelId;
-  /** Provider the user picked alongside selectedModelId. Resolves the
-   *  "two providers detected the same model id" race - whichever the user
-   *  actually selected in the dropdown wins, regardless of refresh order. */
+  /** Provider picked alongside selectedModelId. Wins when two providers
+   *  detect the same model id, regardless of refresh order. */
   selectedProvider: ProviderId;
   setSelectedModelId: (id: DynamicModelId, provider?: ProviderId) => void;
 
@@ -204,15 +193,13 @@ type StoreState = {
   attachSelection: (text: string, source: "terminal" | "editor") => void;
   consumeSelections: () => PendingSelection[];
 
-  /** Files currently open in editor leaves. Mirrors `useTabs` state; updated
-   *  by App.tsx alongside `setLive`. Surfaced as suggestion chips above the
-   *  AI input - clicking one promotes it to an actual attachment. */
+  /** Files open in editor leaves. Surfaced as suggestion chips above the AI
+   *  input; clicking promotes to an attachment. */
   openEditorFiles: OpenEditorFile[];
   setOpenEditorFiles: (files: OpenEditorFile[]) => void;
 
-  /** Prompts queued via Ctrl/Cmd+Enter while the agent is busy. They fire
-   *  one-by-one as the agent returns to idle. Text-only - attachments and
-   *  snippets are bound to the active composer state at send time. */
+  /** Prompts queued via Ctrl/Cmd+Enter while the agent is busy. Fired
+   *  one-by-one on idle. Text-only; attachments bind at send time. */
   promptQueue: QueuedPrompt[];
   enqueuePrompt: (text: string) => void;
   removeQueuedPrompt: (id: string) => void;
@@ -256,10 +243,9 @@ const NOOP_LIVE: Live = {
   runInTerminal: () => false,
 };
 
-// Per-session Chat instances. Transport reads the keys map lazily, so a key
-// change does not require rebuilding chats. The map is bounded by `CHAT_LRU_CAP`
-// (least-recently-touched chats are hibernated: messages flushed to disk and
-// the Chat instance dropped; re-opening the session rebuilds from disk).
+// Per-session Chat instances. The transport reads keys lazily, so key changes
+// don't require rebuilds. Bounded by CHAT_LRU_CAP: LRU chats hibernate
+// (messages flush, Chat dropped); re-open rebuilds from disk.
 const chats = new Map<string, Chat<UIMessage>>();
 const CHAT_LRU_CAP = 10;
 
@@ -276,8 +262,7 @@ function hibernateOldestChat(): void {
     const oldest = chats.keys().next().value;
     if (oldest === undefined) return;
     const activeId = useChatStore.getState().activeSessionId;
-    // Never evict the active session. Move it to the tail and look at the
-    // next candidate.
+    // Never evict the active session. Move to tail and try next.
     if (oldest === activeId) {
       touchChatLRU(oldest);
       continue;
@@ -287,27 +272,25 @@ function hibernateOldestChat(): void {
       try {
         void victim.stop();
       } catch {
-        // already stopped — ignore
+        // already stopped
       }
-      // Snapshot the in-memory message list back to `seedMessages` so the
-      // next access through getOrCreateChat re-hydrates correctly. (The
-      // debounced persist may not have fired yet, so disk could be stale.)
+      // Snapshot the in-memory messages back to `seedMessages` so the next
+      // getOrCreateChat re-hydrates correctly. Disk could be stale if the
+      // debounced persist hasn't fired.
       seedMessages.set(oldest, victim.messages);
     }
     flushPersistEntry(oldest);
     chats.delete(oldest);
-    // `readCaches` are retained: they're tiny, and after rehydration the
-    // model's view of which files it has read this session is still valid.
+    // Retain readCaches: tiny, and still valid after rehydration.
   }
 }
-// Initial messages for a session, populated at hydration time and consumed
-// when the matching Chat is constructed.
+// Initial messages for a session, populated at hydration and consumed when
+// the matching Chat is constructed.
 const seedMessages = new Map<string, UIMessage[]>();
 
-// Trailing debounce for per-token message persistence. Streaming fires
-// `persistMessages` on every token; without this we'd JSON-serialize the
-// full message array and round-trip to the store plugin per token, which
-// stalls the UI. Flush on idle (status transition) via `flushPersist`.
+// Trailing debounce for per-token persistence. Without it we'd serialize the
+// full message array and round-trip to the store on every token. Flush on
+// idle via `flushPersist`.
 const PERSIST_DEBOUNCE_MS = 300;
 const pendingPersist = new Map<
   string,
@@ -330,19 +313,14 @@ export function flushPersist(id?: string): void {
   for (const key of Array.from(pendingPersist.keys())) flushPersistEntry(key);
 }
 
-// Throttle per-session so a chain of high-context turns doesn't fire a toast
-// per turn. We surface auto-compact at most once every 12 seconds — long
-// enough that the user reads the previous notice, short enough they still
-// see the next event in the same session.
+// Per-session throttle so a chain of high-context turns doesn't fire a toast
+// per turn. Auto-compact surfaces at most once per 12 seconds.
 const AUTO_COMPACT_TOAST_THROTTLE_MS = 12_000;
 const lastAutoCompactToastAt = new Map<string, number>();
 
-// Per-session read cache: paths the model has called `read_file` on.
-// `edit`/`multi_edit` enforce read-before-edit by checking membership.
-// Stored at module scope (keyed by sessionId) instead of inside makeChat's
-// closure so restore-checkpoint can clear it - after a restore, the
-// model's "I've read this file" knowledge is gone from history and the
-// cache must follow.
+// Per-session read cache. `edit`/`multi_edit` enforce read-before-edit via
+// membership. Module-scoped so restore-checkpoint can clear it: after a
+// restore, the model's read history is gone, the cache must follow.
 const readCaches = new Map<string, Set<string>>();
 
 function getReadCache(sessionId: string): Set<string> {
@@ -403,9 +381,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       useChatStore.getState().patchAgentMeta({ step });
     },
     onUsage: (delta) => {
-      // Accumulate per-step usage into the active session's running total.
-      // Lets the UI surface cache hit ratio (cached / input) so users can
-      // see provider prompt-cache savings without external tooling.
+      // Accumulate per-step usage so the UI can show cache hit ratio.
       useChatStore.setState((state) => ({
         agentMeta: {
           ...state.agentMeta,
@@ -419,12 +395,9 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
     onCompact: ({ stages }) => {
       const now = Date.now();
-      // Always reflect EVERY compaction pass (including Stage 1 lossless
-      // dedup) in agentMeta so the in-header pulse badge fires every time
-      // — that's the visible "compaction just ran" indicator.
+      // Reflect every pass in agentMeta so the pulse badge fires each time.
       useChatStore.getState().patchAgentMeta({ lastCompact: { at: now, stages } });
-      // Toast is the heavier signal: keep it for meaningful action only
-      // (Stage 2 elision or Stage 3 drop), and throttle across turns.
+      // Toast is heavier: only on Stage 2 elision or Stage 3 drop, throttled.
       if (stages.elided === 0 && stages.dropped === 0) return;
       const last = lastAutoCompactToastAt.get(sessionId) ?? 0;
       if (now - last < AUTO_COMPACT_TOAST_THROTTLE_MS) return;
@@ -443,9 +416,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       }
     },
     onFinishMeta: (info) => {
-      // Surface non-normal stop reasons so the user understands *why* the
-      // agent paused. Step-cap and tool-repetition are common failure
-      // modes — silently swallowing them looks like a bug.
+      // Surface non-normal stop reasons so the user sees why the agent paused.
       if (info.stopReason === "step-cap") {
         toast("Stopped after reaching the per-turn step limit. Reply to continue.", {
           variant: "warning",
@@ -502,15 +473,13 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const resolved =
       provider ??
       tryGetModel(id)?.provider ??
-      // Last resort: keep the current provider rather than guessing wrong.
+      // Fallback: keep current provider rather than guess.
       get().selectedProvider;
     set({ selectedModelId: id, selectedProvider: resolved });
   },
 
-  // `mini` was the floating mini-window state. The right sidebar replaces
-  // it, so these now alias the sidebar's open/close - kept under the old
-  // names because callers (AgentRunBridge auto-open on approval, AgentStatusPill
-  // click) still use them.
+  // `mini` was the floating window state. The sidebar replaced it; these
+  // alias the sidebar's open/close, kept under the old names for callers.
   mini: { open: false },
   openMini: () => set({ panelOpen: true, mini: { open: true } }),
   closeMini: () => set({ panelOpen: false, mini: { open: false } }),
@@ -576,9 +545,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   openEditorFiles: [],
   setOpenEditorFiles: (files) => {
-    // Only write when the (path, name) tuple actually changed - prevents
-    // re-renders on every tab keystroke since App.tsx runs the sync effect
-    // whenever the `tabs` array reference changes.
+    // Only write when (path, name) actually changed; the sync effect fires
+    // on every tabs array re-reference.
     const prev = get().openEditorFiles;
     if (prev.length === files.length) {
       let same = true;
@@ -605,9 +573,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (get().sessionsHydrated) return;
     const { sessions } = await loadAll();
 
-    // Reuse the most recent untitled "New chat" session if one exists from
-    // the previous run - no point stacking empty placeholder sessions every
-    // launch. Otherwise prepend a fresh one.
+    // Reuse the most recent untitled "New chat" if present; otherwise prepend a fresh one.
     const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
     let nextSessions: SessionMeta[];
     let freshId: string;
@@ -653,8 +619,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (get().activeSessionId === id) return;
     if (!get().sessions.some((s) => s.id === id)) return;
 
-    // Lazily seed the chat with persisted messages the first time we open
-    // this session. Subsequent switches reuse the cached Chat instance.
+    // Lazy-seed the chat with persisted messages on first open; subsequent
+    // switches reuse the cached Chat.
     const flip = () => {
       set({ activeSessionId: id, agentMeta: IDLE_META });
       void saveActiveId(id);
@@ -682,9 +648,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
     discardCheckpoint(id);
     readCaches.delete(id);
     lastAutoCompactToastAt.delete(id);
-    // Tear down the persistent Rust shell session (one per chat session)
-    // so the OS-side child process + IO pipes are released. Without this,
-    // each deleted chat leaves a zombie shell behind.
+    // Tear down the persistent Rust shell (one per chat) so the child process
+    // and IO pipes are released. Without this, deletes leak zombie shells.
     disposeSessionShell(id);
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
@@ -718,7 +683,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   persistMessages: (id, messages) => {
-    // Debounce the message-blob write so streaming doesn't pound the store.
+    // Debounce the message-blob write so streaming doesn't hammer the store.
     const existing = pendingPersist.get(id);
     if (existing) clearTimeout(existing.timer);
     const timer = setTimeout(() => {
@@ -729,9 +694,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }, PERSIST_DEBOUNCE_MS);
     pendingPersist.set(id, { latest: messages, timer });
 
-    // Update zustand session list only when the derived title actually
-    // changes - otherwise we'd rewrite the sessions array (and trigger
-    // re-renders + a store write) on every token.
+    // Update sessions only when the derived title actually changes.
     const sessions = get().sessions;
     const meta = sessions.find((s) => s.id === id);
     if (!meta) return;
@@ -789,14 +752,12 @@ export async function sendMessage(text: string): Promise<boolean> {
   if (!sessionId) return false;
   if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey())
     return false;
-  // Guard against the restore-in-progress race: if we appended a new user
-  // message while restore was mid `c.messages = trimmed`, that message
-  // would either be lost (trim drops it) or yield an inconsistent state.
+  // Restore-race guard: a new user message during `c.messages = trimmed`
+  // would either be lost or land in an inconsistent state.
   if (restoringSessions.has(sessionId)) return false;
   const c = getOrCreateChat(sessionId);
-  // Open a fresh restore checkpoint just before the user message is
-  // appended. Tools called by the agent will capture their pre-mutation
-  // file state into this checkpoint.
+  // Open a restore checkpoint just before appending the user message. Tools
+  // called by the agent capture pre-mutation file state into it.
   openCheckpoint(sessionId, c.messages.length);
   await c.sendMessage({ text });
   return true;
@@ -809,11 +770,9 @@ export function stop(): void {
 }
 
 /**
- * Open a restore checkpoint synchronously, intended for call sites that
- * dispatch `chat.sendMessage` directly (composer submit / queue drain).
- * Returns false if the session is in the middle of a restore - the caller
- * MUST then skip the send to avoid races. Otherwise opens a fresh
- * checkpoint and returns true.
+ * Synchronously open a restore checkpoint. For callers that dispatch
+ * `chat.sendMessage` directly (composer submit, queue drain). Returns false
+ * if a restore is in progress; the caller must then skip the send.
  */
 export function openSendCheckpoint(sessionId: string | null): boolean {
   if (!sessionId) return false;
@@ -825,20 +784,15 @@ export function openSendCheckpoint(sessionId: string | null): boolean {
 }
 
 /**
- * Sessions currently mid-restore. Consulted by `openSendCheckpoint` and
- * `sendMessage` so a quick "click Restore then quickly hit Send" can't
- * append a new user message during `c.messages = trimmed` and end up
- * either lost (trimmed away) or in an inconsistent state.
+ * Sessions mid-restore. Consulted by `openSendCheckpoint` and `sendMessage`
+ * so a fast "Restore then Send" can't append during `c.messages = trimmed`.
  */
 const restoringSessions = new Set<string>();
 
 /**
- * Roll the active session back to the last user-message checkpoint.
- * Reverts any files the agent mutated, trims chat history, stops a running
- * agent, and clears stale read-cache entries so the next turn doesn't
- * inherit the model's view of files that were just reverted.
- *
- * Returns `null` if there's nothing to restore.
+ * Roll back to the last user-message checkpoint. Reverts mutated files, trims
+ * history, stops a running agent, and clears the read cache so the next turn
+ * re-reads. Returns null if there's nothing to restore.
  */
 export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> {
   const sessionId = useChatStore.getState().activeSessionId;
@@ -853,28 +807,25 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
     try {
       await c.stop();
     } catch {
-      // already stopped - ignore
+      // already stopped
     }
 
     const outcome = await restoreCheckpoint(sessionId);
     if (!outcome) return null;
 
-    // Trim history back to the pre-user-turn baseline.
+    // Trim history to the pre-user-turn baseline.
     const trimmed = c.messages.slice(0, outcome.baselineMessageCount);
     c.messages = trimmed;
-    // Make sure the persisted store reflects the trim immediately - the
-    // debounced persist would catch this eventually but a session switch
-    // before then would lose the truncation.
+    // Persist now so a session switch before the debounced write doesn't
+    // lose the truncation.
     flushPersist(sessionId);
     void saveMessages(sessionId, trimmed);
 
-    // Clear read-before-edit knowledge. The trimmed history no longer
-    // contains the original read_file results, so the model's mental view
-    // of the file is gone too - the next turn must re-read before editing.
+    // Clear read-before-edit knowledge. Trimmed history no longer contains
+    // the read_file results, so the next turn must re-read.
     readCaches.get(sessionId)?.clear();
 
-    // Reset transient agent state. The agent loop is no longer running and
-    // any pending approval cards refer to messages we just removed.
+    // Reset transient agent state. Any pending approvals refer to removed messages.
     useChatStore.setState({ agentMeta: IDLE_META });
 
     return outcome;

@@ -18,7 +18,7 @@ type Props = {
   relative: string;
   repoPath: string;
   changeStatus: GitChangeStatusTab;
-  /** Bumps to force re-read of HEAD and working-tree content. */
+  /** Bump to force re-read of HEAD and working-tree content. */
   reloadKey: number;
 };
 
@@ -32,26 +32,21 @@ async function readFileFull(path: string): Promise<FileReadResult> {
   }
 }
 
-/** True when the entry can't be rendered as a text MergeView. */
+/** True when the entry isn't plain text. */
 function isNonText(r: FileReadResult): boolean {
   return r.kind !== "text";
 }
 
-// Match AiDiffPane's coloring so diff highlighting reads the same across the
-// app. MergeView height/scroll wiring (per-pane scroll, both axes) lives in
-// `globals.css` (.cm-mergeView). EditorView.theme selectors are scoped to
-// .cm-editor and can't reach the outer .cm-mergeView wrapper, so it has to
-// be plain stylesheet rules.
+// Match AiDiffPane's diff coloring. MergeView scroll wiring lives in
+// `globals.css` (.cm-mergeView); EditorView.theme can't reach the outer wrapper.
 const DIFF_THEME = EditorView.theme({
   ".cm-changedText": {
     background: "#88ff881a !important",
   },
 });
 
-// One tick on the overview ruler. `total` is the doc's total line count for
-// the pane that owns this mark — used to map the line range to a top% /
-// height% inside the ruler container. `jumpTo` scrolls the owning pane to
-// the start line (the merge view's scroll sync drags the other pane along).
+// One tick on the overview ruler. `total` is the owning pane's line count,
+// used to position the mark by percentage. `jumpTo` scrolls that pane to startLine.
 type RulerMark = {
   key: string;
   startLine: number;
@@ -107,10 +102,8 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Overview-ruler state. The marks are derived from the diff once the
-  // MergeView mounts; the pane refs + ruler widths drive the portal target
-  // and the absolute width matching the native scrollbar. All set together
-  // inside the MergeView effect and cleared on teardown.
+  // Overview ruler state. Marks derive from the diff after MergeView mounts;
+  // pane refs and ruler widths drive the portal target and ruler width.
   const [marksA, setMarksA] = useState<RulerMark[]>([]);
   const [marksB, setMarksB] = useState<RulerMark[]>([]);
   const [paneAEl, setPaneAEl] = useState<HTMLElement | null>(null);
@@ -118,7 +111,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   const [rulerWidthA, setRulerWidthA] = useState(0);
   const [rulerWidthB, setRulerWidthB] = useState(0);
 
-  // Load HEAD + working-tree content whenever the target or reloadKey changes.
+  // Load HEAD and working-tree content on target or reloadKey change.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -154,26 +147,22 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     return isNonText(content.orig) || isNonText(content.curr);
   }, [content]);
 
-  // Construct/refresh the MergeView when content or theme changes - but only
-  // when both sides are plain text. Image / binary blobs are rendered by
-  // <NonTextDiff/> instead and must NOT initialize the MergeView (CodeMirror
-  // would otherwise try to render a base64 blob as code).
+  // Refresh the MergeView on content or theme change, only for text on both
+  // sides. Image and binary blobs go to <NonTextDiff/>.
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !content || nonText) return;
     const origText = content.orig.kind === "text" ? content.orig.content : "";
     const currText = content.curr.kind === "text" ? content.curr.content : "";
 
-    // Tear down any previous instance - MergeView is imperative.
+    // Tear down any previous instance.
     mergeRef.current?.destroy();
     mergeRef.current = null;
     host.innerHTML = "";
 
-    // Diff view has its own scrollbars on both sides -- the minimap would only
-    // crowd the lane and never get clicked. Full file is rendered (no
-    // `collapseUnchanged`) so unchanged context is always visible.
-    // `lineNumbers()` goes before `...shared` so the fold-gutter chevron
-    // lands to the RIGHT of the line-number column, matching EditorPane.
+    // No minimap (both panes already scroll). Full file rendered so unchanged
+    // context is always visible. `lineNumbers()` before `...shared` puts the
+    // fold-gutter chevron to the right of line numbers, matching EditorPane.
     const shared = buildSharedExtensions({ showMinimap: false });
     const view = new MergeView({
       a: {
@@ -208,14 +197,9 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     });
     mergeRef.current = view;
 
-    // The merge package's default layout (outer .cm-mergeView scrolls; each
-    // pane has height: auto) hides the horizontal scrollbar below the viewport
-    // for any non-trivial file. globals.css flips this to per-pane scrolling,
-    // which means the two panes no longer share a scrollTop automatically.
-    // Reattach a 1:1 vertical sync here — we mirror scroll position rather
-    // than chunk-aligned positions because both editors render the full
-    // document (no `collapseUnchanged`), so equal pixel offsets keep matching
-    // lines side-by-side.
+    // globals.css uses per-pane scrolling, so the panes no longer share scrollTop.
+    // Reattach a 1:1 vertical sync. Since both panes render the full document,
+    // equal pixel offsets keep matching lines side-by-side.
     const scrollA = view.a.scrollDOM;
     const scrollB = view.b.scrollDOM;
     let syncing = false;
@@ -223,8 +207,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
       if (syncing) return;
       syncing = true;
       to.scrollTop = from.scrollTop;
-      // requestAnimationFrame avoids the recursive event ping-pong without
-      // dropping legitimate user scrolls on either pane.
+      // rAF clears the guard without dropping legitimate scroll events.
       requestAnimationFrame(() => {
         syncing = false;
       });
@@ -234,10 +217,8 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     scrollA.addEventListener("scroll", syncAB, { passive: true });
     scrollB.addEventListener("scroll", syncBA, { passive: true });
 
-    // Overview ruler data: compute mark ranges once per content load. We
-    // render them via React/portal below (not imperatively here) so each
-    // mark can use the styled <Tooltip/> component instead of the native
-    // browser `title=` popover.
+    // Compute mark ranges once per content load. Rendered via React/portal
+    // below so each mark can use the styled <Tooltip/>.
     const docA = view.a.state.doc;
     const docB = view.b.state.doc;
     const totalA = Math.max(docA.lines, 1);
@@ -285,19 +266,15 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     setMarksA(newMarksA);
     setMarksB(newMarksB);
 
-    // Mount points for the React-rendered ruler portals. They sit on the
-    // .cm-mergeViewEditor wrappers (anchored via position:relative in
-    // globals.css) so the absolute ruler lines up with the scrollbar.
+    // Portal mount points sit on .cm-mergeViewEditor wrappers (position:relative
+    // in globals.css) so the ruler lines up with the scrollbar.
     const wrapperA = view.a.dom.parentElement as HTMLElement | null;
     const wrapperB = view.b.dom.parentElement as HTMLElement | null;
     setPaneAEl(wrapperA);
     setPaneBEl(wrapperB);
 
-    // Track each pane's native scrollbar width. The ruler width follows it
-    // exactly (so the ticks live inside the scrollbar track like VSCode's
-    // overview ruler); width: 0 hides the ruler when there's no scrollbar.
-    // ResizeObserver keeps this synced as content grows/shrinks or chrome
-    // mode toggles between borderless (10px) and native (~14px).
+    // Ruler width follows the native scrollbar width so ticks sit inside the
+    // scrollbar track. ResizeObserver keeps it synced.
     const syncRulerWidth = () => {
       setRulerWidthA(scrollA.offsetWidth - scrollA.clientWidth);
       setRulerWidthB(scrollB.offsetWidth - scrollB.clientWidth);
@@ -307,7 +284,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     ro.observe(scrollA);
     ro.observe(scrollB);
 
-    // Resolve language asynchronously and reconfigure both sides.
+    // Resolve language and reconfigure both sides.
     let cancelled = false;
     resolveLanguage(path).then((ext) => {
       if (cancelled) return;
@@ -328,13 +305,6 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
       if (mergeRef.current === view) mergeRef.current = null;
     };
   }, [content, nonText, themeExt, path, langA, langB]);
-
-  const stats = useMemo(() => {
-    if (!content || nonText) return { added: 0, removed: 0 };
-    const a = content.orig.kind === "text" ? content.orig.content : "";
-    const b = content.curr.kind === "text" ? content.curr.content : "";
-    return computeLineStats(a, b);
-  }, [content, nonText]);
 
   const isNewFile = changeStatus === "added" || changeStatus === "untracked";
   const isDeleted = changeStatus === "deleted";
@@ -367,12 +337,6 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
             </TooltipTrigger>
             <TooltipContent side="bottom">{relative}</TooltipContent>
           </Tooltip>
-          {!loading && !error && !nonText ? (
-            <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
-              <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
-              <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
-            </span>
-          ) : null}
           {!loading && !error && nonText ? (
             <span className="text-muted-foreground shrink-0 text-[10.5px]">
               {content?.orig.kind === "image" || content?.curr.kind === "image"
@@ -412,11 +376,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   );
 }
 
-/** React-rendered overview ruler. Each mark is wrapped in the project's
- *  styled <Tooltip/> so hover labels look the same as every other tooltip
- *  in the app, instead of the native browser `title=` popover. The ruler
- *  itself sits absolute against `.cm-mergeViewEditor` (the portal target)
- *  with its width tracking the live scrollbar width. */
+/** Overview ruler. Marks use the styled <Tooltip/>; the ruler sits absolute against `.cm-mergeViewEditor` with width matching the scrollbar. */
 function DiffRuler({ width, marks }: { width: number; marks: RulerMark[] }) {
   if (width <= 0 || marks.length === 0) return null;
   return (
@@ -456,10 +416,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Side-by-side pane for files the MergeView can't render: images and binary
- *  blobs. Each half mirrors the HEAD/Working-tree split of the text diff so
- *  the layout reads the same. An empty `Text` blob (size 0) means "absent
- *  on this side" - we render a muted placeholder instead of a blank square. */
+/** Side-by-side pane for images and binary blobs. Empty text (size 0) means "absent on this side". */
 function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResult }) {
   return (
     <div className="grid h-full min-h-0 grid-cols-2 divide-x">
@@ -470,8 +427,7 @@ function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResul
 }
 
 function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: string }) {
-  // Empty `Text` is how we signal "this side doesn't exist" for added /
-  // deleted entries - show the placeholder instead of a blank pane.
+  // Empty text means "this side doesn't exist" (added/deleted entries).
   if (side.kind === "text" && side.size === 0) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-[11px]">
@@ -506,10 +462,8 @@ function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: s
       </div>
     );
   }
-  // Two cases land here:
-  //   - this side is binary (most common - paired with an image on the other)
-  //   - this side is non-empty text paired with a binary on the other side
-  //     (rare: a file flipped between text and binary across HEAD/working-tree)
+  // Either this side is binary (typically paired with an image), or it's
+  // non-empty text paired with a binary on the other side.
   const label = side.kind === "binary" ? "Binary file" : "Text (paired with binary)";
   return (
     <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-3 text-center text-[11px]">
@@ -519,26 +473,3 @@ function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: s
   );
 }
 
-function computeLineStats(original: string, proposed: string): { added: number; removed: number } {
-  const changes = presentableDiff(original, proposed);
-  let added = 0;
-  let removed = 0;
-  for (const c of changes) {
-    removed += countLines(original, c.fromA, c.toA);
-    added += countLines(proposed, c.fromB, c.toB);
-  }
-  return { added, removed };
-}
-
-function countLines(doc: string, from: number, to: number): number {
-  if (from === to) return 0;
-  const slice = doc.slice(from, to);
-  // A change spanning N newlines touches N+1 lines, but a trailing newline
-  // means the final segment is empty - don't count that as a touched line.
-  let n = 1;
-  for (let i = 0; i < slice.length; i++) {
-    if (slice.charCodeAt(i) === 10) n++;
-  }
-  if (slice.endsWith("\n")) n--;
-  return Math.max(n, 1);
-}

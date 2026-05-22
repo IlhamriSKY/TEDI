@@ -120,10 +120,8 @@ function UserMessageModelChip({
   };
 }) {
   // Prefer the model maker (e.g. "Xiaomi" for mimo) over the gateway label
-  // ("OpenAI Compatible") so the chip credits the actual brand. Exception:
-  // SumoPod proxies many makers and the user thinks of it as "via SumoPod"
-  // - so we always render the SumoPod gateway label regardless of any
-  // upstream owned_by that older messages might have stamped.
+  // so the chip credits the brand. Exception: SumoPod proxies many makers, so
+  // always render the SumoPod gateway label and ignore any upstream owned_by.
   const gatewayLabel =
     PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ?? meta.tediProvider;
   const showOwner = meta.tediProvider !== "sumopod" && !!meta.tediOwnedBy;
@@ -182,9 +180,8 @@ export function AiChatView({
   const streamingMessageId =
     status === "streaming" && lastMessage?.role === "assistant" ? lastMessage.id : null;
 
-  // The restore action only makes sense once the turn is done - we
-  // attribute it to the most recent user message in the chat. Hidden
-  // mid-stream to avoid the user yanking state from under a running agent.
+  // Restore only applies after the turn finishes; attach to the most recent
+  // user message and hide mid-stream to avoid yanking state from a running agent.
   const lastUserMessageId = useMemo(() => {
     if (isBusy) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -248,20 +245,17 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
   const { scrollRef } = useStickToBottomContext();
   const userMessages = useMemo(() => messages.filter((m) => m.role === "user"), [messages]);
 
-  // Stable key derived only from the set of user-message ids. We re-derive
-  // `userMessages` on every assistant token (since `messages` is a new array
-  // each delta), but the observers only need rewiring when a user message is
-  // actually added or removed - not on every streaming chunk.
+  // Stable key from user-message ids. `userMessages` re-derives on every
+  // assistant token, but observers only rewire when a user message is added or
+  // removed, not on every streaming chunk.
   const userIdsKey = useMemo(() => userMessages.map((m) => m.id).join("|"), [userMessages]);
 
-  // id → true when the message is currently scrolled above the viewport.
-  // We track every user message and surface the *most recent* one that's
-  // off-screen above, so scrolling deep into the history surfaces the
-  // matching prompt - not just the global "last user message".
+  // id -> true when scrolled above the viewport. Tracks every user message and
+  // surfaces the most recent off-screen one, so scrolling deep into history
+  // shows the matching prompt, not just the global last user message.
   const [aboveViewport, setAboveViewport] = useState<ReadonlyMap<string, boolean>>(() => new Map());
 
-  // Keep the latest snapshot accessible inside the effect closure without
-  // making it a dependency.
+  // Latest snapshot accessible inside the effect closure without becoming a dep.
   const userMessagesRef = useRef(userMessages);
   userMessagesRef.current = userMessages;
 
@@ -292,10 +286,9 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
       if (!target) return false;
       const io = new IntersectionObserver(
         ([entry]) => {
-          // "Above viewport" = not intersecting AND bounding box ends before
-          // the root's top edge. (boundingClientRect uses viewport coords
-          // and rootBounds is the scroller's viewport, so this is a direct
-          // y-comparison.)
+          // "Above viewport" means not intersecting and bounding box ends
+          // before the root's top edge. boundingClientRect and rootBounds
+          // share viewport coords, so this is a direct y-comparison.
           const rootTop = entry.rootBounds?.top ?? 0;
           const isAbove = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
           state.set(id, isAbove);
@@ -308,8 +301,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
       return true;
     };
 
-    // Some messages haven't rendered yet on the first pass; retry on the
-    // next frame to catch them.
+    // Some messages haven't rendered on the first pass; retry next frame.
     const pending: string[] = [];
     for (const m of currentUserMessages) {
       if (!wireOne(m.id)) pending.push(m.id);
@@ -328,10 +320,8 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
     };
   }, [userIdsKey, scrollRef]);
 
-  // Pick the latest user message that's currently above the viewport.
-  // If none are scrolled off (chat fits / user is at the top), the pin
-  // stays hidden - it should only appear when there's actually something
-  // to jump back to.
+  // Pick the latest user message currently above the viewport. If none are
+  // scrolled off, the pin stays hidden.
   const pinTarget = useMemo(() => {
     for (let i = userMessages.length - 1; i >= 0; i--) {
       if (aboveViewport.get(userMessages[i].id)) return userMessages[i];
@@ -363,10 +353,9 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           className={cn(
-            // Sticky inside the scroll container so wheel events on the chat
-            // still bubble to the scrollable ancestor. `-mx-4` cancels
-            // ConversationContent's `px-4` so the pin is flush with the chat's
-            // left + right edges - no floating-chip gutter.
+            // Sticky inside the scroll container so wheel events bubble to the
+            // scrollable ancestor. `-mx-4` cancels ConversationContent's `px-4`
+            // so the pin is flush with the chat's edges.
             "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
             "border-border/60 bg-background/95 border-b px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
             "text-foreground/85 hover:bg-accent hover:text-foreground transition-colors",
@@ -397,8 +386,8 @@ const RenderedMessage = memo(function RenderedMessage({
   streaming: boolean;
   isLastUser: boolean;
 }) {
-  // Only the trailing text part of an in-flight assistant message is live;
-  // earlier text parts (split by tool calls) are already finalized.
+  // Only the trailing text part of an in-flight assistant message streams;
+  // earlier text parts split by tool calls are finalized.
   let lastTextIdx = -1;
   for (let i = message.parts.length - 1; i >= 0; i -= 1) {
     if (message.parts[i]?.type === "text") {

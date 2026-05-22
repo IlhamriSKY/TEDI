@@ -78,9 +78,8 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
 }
 
 export const AiToolApproval = memo(AiToolApprovalImpl, (a, b) => {
-  // The approval card never changes content for a given approvalId - once
-  // the model has emitted the approval-requested part with its input, we
-  // don't want to re-render on every downstream token.
+  // Approval card content is fixed once approvalId is set; skip re-renders
+  // on downstream tokens.
   return (
     a.toolName === b.toolName &&
     a.part.approval.id === b.part.approval.id &&
@@ -104,10 +103,8 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
       </div>
     );
   }
-  // For file mutations we deliberately do NOT preview content here -
-  // streamed write/edit content thrashes the UI and the AI diff tab is the
-  // authoritative place to review the change. Show just the path + a
-  // one-line size hint so the user knows what's being touched.
+  // Skip content preview for file mutations; streaming thrashes the UI and the
+  // diff tab is where users review changes. Show path and a one-line size hint.
   if (toolName === "write_file") {
     const content = typeof input.content === "string" ? input.content : "";
     const lines = content ? content.split("\n").length : 0;

@@ -26,7 +26,7 @@ import { useEffect, useState } from "react";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Existing connection to edit, or `null` to create a new one. */
+  /** Connection to edit, or `null` to create a new one. */
   editing: SshConnection | null;
   onSaved?: (conn: SshConnection) => void;
 };
@@ -70,14 +70,12 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [imported, setImported] = useState<ImportState>({ kind: "idle" });
-  // Mirror of editing.lastFingerprint that the user can drop via the
-  // "Forget recorded key" affordance. Kept in local state so the in-dialog
-  // Test runs against the *current* pin (cleared or not) without needing
-  // a parent re-render to refresh the `editing` prop.
+  // Mirrors editing.lastFingerprint, but the user can clear it via "Forget".
+  // Local state so the in-dialog Test sees the current pin without waiting
+  // for a parent re-render.
   const [pinnedFingerprint, setPinnedFingerprint] = useState<string | null>(null);
 
-  // Reset/populate when the dialog opens. Secrets are fetched async; the
-  // form stays responsive in the meantime.
+  // Reset and populate when the dialog opens. Secrets load async.
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -114,8 +112,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     if (!editing) return;
     await clearFingerprint(editing.id);
     setPinnedFingerprint(null);
-    // Drop any stale "host key mismatch" test result that was anchored on
-    // the now-forgotten fingerprint.
+    // Stale "host key mismatch" result is no longer valid.
     setTest({ kind: "idle" });
   };
 
@@ -143,9 +140,8 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     const port = Number.parseInt(draft.port, 10);
     const started = performance.now();
     try {
-      // Open a probe session, wait for the Connected event, then close it
-      // immediately. We never write to the keychain - the test runs against
-      // whatever is in the form right now.
+      // Open a probe session, wait for Connected, then close. Never touches
+      // the keychain. Runs against the current form values.
       let resolved = false;
       const result = await new Promise<{ fingerprint: string }>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -162,13 +158,9 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             privateKey: draft.authMode === "key" ? draft.privateKey : undefined,
             privateKeyPassphrase:
               draft.authMode === "key" ? draft.keyPassphrase || undefined : undefined,
-            // Pin against the previously recorded fingerprint when editing
-            // an existing connection so a "Test connection" can't silently
-            // re-anchor on an attacker's key under a hijacked network.
-            // Brand-new connections (editing === null) leave this unset
-            // and go through TOFU on first contact. `pinnedFingerprint`
-            // mirrors `editing.lastFingerprint` plus any in-session
-            // "Forget recorded key" the user has clicked.
+            // Pin against the previously recorded fingerprint so Test cannot
+            // silently re-anchor on a different key. New connections leave
+            // this unset and use TOFU on first connect.
             expectedFingerprint: pinnedFingerprint || undefined,
             cols: 80,
             rows: 24,
@@ -196,11 +188,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           },
         )
           .then(async (sess) => {
-            // Close right away - we only care that the handshake worked.
+            // Close immediately. Only the handshake matters.
             try {
               await sess.close();
             } catch {
-              // ignore; the runtime will reap the dead session.
+              // Runtime will reap the dead session.
             }
           })
           .catch((err) => {
@@ -303,11 +295,10 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           </DialogDescription>
         </DialogHeader>
 
-        {/* DialogContent caps at calc(100dvh-2rem). Without min-h-0 the
-            inner gap-6 stack refuses to shrink and the top fields scroll
-            off-screen instead of the form scrolling inside the dialog.
-            -mr-2/pr-2 keeps the scrollbar from butting against the
-            content edge. */}
+        {/* DialogContent caps at calc(100dvh-2rem). min-h-0 lets the inner
+            stack shrink so the form scrolls inside the dialog instead of
+            top fields sliding off-screen. -mr-2/pr-2 keeps the scrollbar
+            off the content edge. */}
         <div className="-mr-2 flex min-h-0 flex-col gap-3 overflow-y-auto pr-2">
           <Field label="Name">
             <Input
@@ -465,7 +456,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         </div>
 
         {/* Override DialogFooter's flex-col-reverse so Cancel stays on the
-            left / on top regardless of viewport width. */}
+            left at any viewport width. */}
         <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
           <Button
             variant="outline"

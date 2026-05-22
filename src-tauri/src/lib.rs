@@ -4,11 +4,10 @@ use modules::{cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
-/// Windows 11 paints an 8 px DWM corner radius on every top-level window by
-/// default - even with `decorations: false` and `transparent: true`. The webview
-/// content underneath is square, so the OS-level rounding shows up as a tiny
-/// transparent halo at each corner. Force DWMWCP_DONOTROUND so the OS leaves
-/// the corners sharp and our CSS border is the sole frame the user sees.
+/// Force square corners on Windows 11. DWM paints an 8 px corner radius on
+/// every top-level window even with `decorations: false` and `transparent: true`,
+/// which leaves a transparent halo over our square webview. DWMWCP_DONOTROUND
+/// keeps the OS corners sharp so the CSS border is the only frame.
 #[cfg(target_os = "windows")]
 fn disable_windows_corner_rounding(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::Foundation::HWND;
@@ -19,8 +18,8 @@ fn disable_windows_corner_rounding(window: &tauri::WebviewWindow) {
     let Ok(hwnd) = window.hwnd() else { return };
     let hwnd = hwnd.0 as HWND;
     let pref: u32 = DWMWCP_DONOTROUND as u32;
-    // SAFETY: hwnd is a valid window handle owned by Tauri for the lifetime of
-    // this call; pref is a stack value passed by pointer with its correct size.
+    // SAFETY: hwnd is a valid window handle owned by Tauri for this call;
+    // pref is a stack value passed by pointer with its size.
     unsafe {
         let _ = DwmSetWindowAttribute(
             hwnd,
@@ -42,8 +41,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     };
 
     if let Some(window) = app.get_webview_window("settings") {
-        // Re-center over the main window's monitor so re-opening after the user
-        // moved the main window to another display follows it across.
+        // Re-center over the main window so reopening follows the user
+        // across displays.
         if let Some(main) = app.get_webview_window("main") {
             if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
                 main.outer_position(),
@@ -59,8 +58,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
-            // emit() serializes via JSON - no string-escape footgun, unlike
-            // eval() with format!(). Frontend listens via Tauri event API.
+            // emit() serializes via JSON, so no string-escape footgun.
+            // Frontend listens via Tauri event API.
             let _ = window.emit("tedi:settings-tab", t);
         }
         return Ok(());
@@ -68,16 +67,15 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 
     let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
         .title("Settings")
-        .inner_size(720.0, 520.0)
-        .min_inner_size(720.0, 520.0)
-        .max_inner_size(720.0, 520.0)
-        .resizable(false)
+        .inner_size(880.0, 620.0)
+        .min_inner_size(600.0, 480.0)
+        .resizable(true)
         .visible(false);
 
     // Owner-window relationship: keeps settings z-ordered above main without
-    // pinning it above other apps (#33), and on Windows the OS hides owned
-    // windows automatically when the owner minimizes - so settings follows
-    // main into the taskbar instead of floating on the desktop.
+    // pinning it above other apps (#33). On Windows the OS auto-hides owned
+    // windows when the owner minimizes, so settings follows main into the
+    // taskbar instead of floating on the desktop.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
@@ -87,25 +85,24 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    // On Linux/Windows we render our own titlebar, so drop native chrome
-    // and make the window transparent.
+    // Linux/Windows render our own titlebar, so drop native chrome and
+    // make the window transparent.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.decorations(false).transparent(true);
 
     let window = builder.build().map_err(|e| e.to_string())?;
 
     // Some Linux compositors (GNOME/Mutter with CSD-by-default) ignore the
-    // builder-time decorations flag - re-assert it after realize.
+    // builder-time decorations flag, so re-assert it after realize.
     #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
     }
     disable_windows_corner_rounding(&window);
 
-    // Tauri's default placement lands at the primary monitor's center even when
-    // the main window is on a secondary display, which makes the settings window
-    // appear to "jump screens". Re-center it over the main window so it follows
-    // wherever the user is actually working.
+    // Tauri's default placement lands at the primary monitor's center even
+    // when main is on a secondary display, which makes settings jump screens.
+    // Re-center over main so it follows the user.
     if let Some(main) = app.get_webview_window("main") {
         if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
             main.outer_position(),
@@ -121,11 +118,10 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     Ok(())
 }
 
-// WebKitGTK's DMA-BUF (hardware) renderer fails to create an EGL display on
-// wlroots compositors (#105), NVIDIA's proprietary driver, and minimal sessions
-// (#126). It's fine and faster on Mesa-backed GNOME/KDE/COSMIC, so only fall
-// back to the safe path where trouble is likely. Override:
-//   WEBKIT_DISABLE_DMABUF_RENDERER=1  force safe path   =0  force hardware path
+// WebKitGTK's DMA-BUF renderer fails to create an EGL display on wlroots
+// compositors (#105), NVIDIA's proprietary driver, and minimal sessions (#126).
+// It works on Mesa-backed GNOME/KDE/COSMIC, so only fall back where trouble is
+// likely. Override with WEBKIT_DISABLE_DMABUF_RENDERER=1 (safe) or =0 (hardware).
 #[cfg(target_os = "linux")]
 fn configure_linux_rendering() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some() {
@@ -190,24 +186,21 @@ fn has_nvidia_gpu() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Short-circuit `tedi --version` / `tedi --help` before anything else -
-    // we want these to be instant and never touch the GUI runtime.
+    // `tedi --version` / `tedi --help`: print and exit without GUI boot.
     cli::handle_version_help_and_exit();
 
-    // Short-circuit `tedi ext …` / `tedi --extension …` before GUI boot.
-    // Runs install / list / update / uninstall headlessly against the
-    // same `<app_data_dir>/extensions/` directory and exits.
+    // `tedi ext ...` / `tedi --extension ...`: run install/list/update/
+    // uninstall headlessly against the same `<app_data_dir>/extensions/`
+    // directory the GUI uses, then exit.
     cli_ext::handle_extension_command_and_exit();
 
-    // Short-circuit `tedi --update` / `-u` on Windows: fetch latest.json,
-    // verify the bundle's minisign signature against the embedded pubkey,
-    // spawn the NSIS installer in passive mode, exit. On non-Windows the
-    // call returns and the existing GUI updater dialog handles it via
-    // `INITIAL_UPDATE_REQUEST` (set below by `capture_startup`).
+    // `tedi --update` / `-u`: fetch latest.json, verify the bundle's minisign
+    // signature, install in place per platform, exit. Returns without acting
+    // when the flag is absent.
     cli_update::handle_update_command_and_exit();
 
     // Resolve `tedi .` / `tedi <path>` against the launch cwd before any
-    // other startup logic can shift the working directory.
+    // later code can shift the working directory.
     cli::capture_startup();
 
     #[cfg(target_os = "linux")]
@@ -215,11 +208,10 @@ pub fn run() {
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
 
-    // Second-invocation forwarding: when the user runs `tedi <path>` while an
-    // instance is already up, the new process exits early after handing off
-    // its argv. Desktop-only - the plugin doesn't build for android/ios.
-    // Skipped in debug builds so `pnpm tauri dev` can run alongside an
-    // installed release without the two fighting over the same identifier lock.
+    // Second-invocation forwarding: when `tedi <path>` runs while an instance
+    // is already up, the new process forwards its argv and exits. Desktop-only
+    // (the plugin does not build for android/ios). Skipped in debug builds so
+    // `pnpm tauri dev` can run alongside an installed release.
     #[cfg(all(desktop, not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let cwd_path = std::path::PathBuf::from(&cwd);
@@ -238,35 +230,34 @@ pub fn run() {
         }
     }));
 
-    // Custom URI scheme that proxies arbitrary http(s) URLs and strips
-    // X-Frame-Options / CSP frame-ancestors so the preview pane can embed
-    // public sites that would otherwise refuse to render in an iframe.
+    // Custom URI scheme that proxies http(s) URLs and strips X-Frame-Options
+    // / CSP frame-ancestors so the preview pane can embed sites that would
+    // otherwise refuse to render in an iframe.
     let builder = preview::register(builder);
 
-    // Updater is desktop-only (no mobile target wired in this fork either, but
-    // the plugin itself refuses to compile on android/ios).
+    // Updater is desktop-only; the plugin does not compile on android/ios.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     builder
         .setup(|app| {
-            // Strip Windows 11's DWM rounded corners from the main window so
-            // the app reads as fully square (matches the CSS).
+            // Strip Windows 11 DWM rounded corners so the app reads as square.
             if let Some(window) = app.get_webview_window("main") {
                 disable_windows_corner_rounding(&window);
             }
             // Heal a stale `~/.local/bin/tedi` shim after an update that moved
             // the binary (macOS .app relocation, AppImage filename change).
-            // No-op on Windows - the NSIS hook handles upgrades there.
+            // No-op on Windows; the NSIS hook handles upgrades there.
             cli::refresh_shim_if_present();
             Ok(())
         })
-        // Skip restoring VISIBLE - frontend calls window.show() after first
+        // Skip restoring VISIBLE; the frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .with_denylist(&["settings"])
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
@@ -353,22 +344,18 @@ pub fn run() {
             extensions::commands::ext_uninstall,
         ])
         .on_window_event(|window, event| {
-            // Mirror main-window visibility onto the settings child so it
-            // tracks main's minimize/restore and doesn't linger on the
-            // desktop when the user switches apps. Owner-window semantics
-            // (set via `.parent(&main)`) handle most of this for us on
-            // Windows, but the explicit mirroring below covers Linux/macOS
-            // and the decorationless-transparent-window edge cases where
-            // the OS auto-mirror doesn't fire reliably.
+            // Mirror main-window minimize/restore onto the settings child.
+            // Owner-window semantics handle this on Windows; the explicit
+            // mirroring below covers Linux/macOS and decoration-less
+            // transparent windows where the OS auto-mirror is unreliable.
             let label = window.label();
             if label != "main" && label != "settings" {
                 return;
             }
             let app = window.app_handle().clone();
             match event {
-                // On Windows, minimize is reported as a Resized event (no
-                // dedicated Minimized variant in Tauri 2). Sample the state
-                // and mirror it onto settings.
+                // On Windows, minimize arrives as a Resized event (Tauri 2 has
+                // no Minimized variant). Sample the state and mirror it.
                 tauri::WindowEvent::Resized(_) if label == "main" => {
                     let Some(main) = app.get_webview_window("main") else {
                         return;
@@ -382,46 +369,6 @@ pub fn run() {
                     } else if settings.is_minimized().unwrap_or(false) {
                         let _ = settings.unminimize();
                         let _ = settings.show();
-                    }
-                }
-                tauri::WindowEvent::Focused(focused) => {
-                    let Some(settings) = app.get_webview_window("settings") else {
-                        return;
-                    };
-                    if *focused {
-                        // Either window regained focus - bring settings back.
-                        if !settings.is_visible().unwrap_or(true) {
-                            let _ = settings.show();
-                        }
-                    } else {
-                        // Defer the check: when focus moves between our own
-                        // windows, Focused(false) on one fires before
-                        // Focused(true) on the other. Sample focus after the
-                        // event queue settles.
-                        let app = app.clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(120));
-                            let main_focused = app
-                                .get_webview_window("main")
-                                .and_then(|w| w.is_focused().ok())
-                                .unwrap_or(false);
-                            let settings_focused = app
-                                .get_webview_window("settings")
-                                .and_then(|w| w.is_focused().ok())
-                                .unwrap_or(false);
-                            // Only hide if main is still active in the
-                            // background (not minimized) - otherwise leave
-                            // the OS-driven minimize chain alone.
-                            let main_minimized = app
-                                .get_webview_window("main")
-                                .and_then(|w| w.is_minimized().ok())
-                                .unwrap_or(false);
-                            if !main_focused && !settings_focused && !main_minimized {
-                                if let Some(settings) = app.get_webview_window("settings") {
-                                    let _ = settings.hide();
-                                }
-                            }
-                        });
                     }
                 }
                 tauri::WindowEvent::CloseRequested { .. } if label == "main" => {

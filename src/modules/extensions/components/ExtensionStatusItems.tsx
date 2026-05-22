@@ -1,25 +1,8 @@
 /**
- * Status-bar slot for extension-contributed icons. Renders every
- * `StatusItem` currently sitting in `statusItemsRegistry`, ordered by
- * (extensionId, itemId) for stable visual layout across renders.
- *
- * Each item is a bare 16 px icon with a tooltip. 11 px (the size used
- * by the labeled pills next door) read as too small for a stand-alone
- * mark next to the "Open AI agent" / "Ctrl+I" affordances - 16 px is
- * the standard `size-4` utility, balanced with the surrounding text.
- * No frame chrome - icons read as marks, not buttons.
- * The icon resolves via `loadExtensionIcon` so its bytes are cached
- * across re-renders and across extensions sharing the same path.
- *
- * Tone tinting:
- *   - `success` → icon at full opacity, no extra badge (the live
- *     vs. dimmed state already conveys "connected").
- *   - `warning` → icon pulses (no corner badge). The pulse already
- *     conveys "transient / in-progress" for states like
- *     connecting / reconnecting, where a static attention dot felt
- *     too alarming.
- *   - `error` → tiny red dot in the top-right corner so the user
- *     notices something is actually broken.
+ * Status-bar slot for extension icons. Renders every `StatusItem` in
+ * `statusItemsRegistry`, sorted by (extensionId, itemId).
+ * Icons are 16 px (size-4), no frame. Bytes cached via `loadExtensionIcon`.
+ * Tone: `success` full opacity, `warning` pulses, `error` adds a red corner dot.
  */
 import { useEffect, useState } from "react";
 
@@ -33,8 +16,7 @@ import { useRegistry } from "../useRegistry";
 export function ExtensionStatusItems() {
   const items = useRegistry(statusItemsRegistry);
   if (items.length === 0) return null;
-  // Stable order: by extension id first, then by item id within. Avoids
-  // jitter when registries emit on unrelated updates.
+  // Sort by extension id then item id so the order is stable.
   const sorted = [...items].sort((a, b) => {
     const e = a.extensionId.localeCompare(b.extensionId);
     return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
@@ -50,23 +32,15 @@ export function ExtensionStatusItems() {
 
 function StatusItemView({ extensionId, item }: { extensionId: string; item: StatusItem }) {
   const iconUrl = useResolvedIcon(extensionId, item.icon);
-  // `<img>` ignores the parent's CSS `color`, so a `currentColor` SVG
-  // loaded that way always paints at whatever the SVG file declared
-  // (typically black). For theme-aware tinting we render the icon as a
-  // CSS mask instead - the `<span>` provides the colour via
-  // `background-color`, and only the SVG's opaque silhouette shows
-  // through. Works on every modern browser the Tauri webview targets.
-  //
-  // Detection: any data: SVG URL or a path ending in `.svg`. Raster
-  // formats (PNG / JPG / WEBP) fall back to a regular `<img>` with
-  // opacity + grayscale for the dimmed state.
+  // `<img>` ignores parent CSS `color`, so render SVGs as a CSS mask
+  // for theme-aware tinting. Detection: data: SVG URL or `.svg` path.
+  // Raster formats fall back to `<img>` with opacity + grayscale.
   const isLive = item.tone === "success";
   const isPulsing = item.tone === "warning";
   const isSvg =
     iconUrl !== null &&
     (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
-  // Only `error` gets a corner dot. `warning` (e.g. reconnecting) is
-  // signalled by pulsing the icon itself - see the docblock above.
+  // Only `error` gets a corner dot. `warning` pulses instead.
   const dot = item.tone === "error" ? "bg-red-500" : null;
   return (
     <IconTooltip label={item.tooltip} side="top">
@@ -79,11 +53,8 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
           isSvg ? (
             <span
               aria-hidden
-              // CSS mask paints the parent's `background-color` only
-              // where the SVG is opaque. The two state classes pick
-              // the host theme's `--foreground` (connected, full
-              // attention) vs the muted-foreground at 40% (clearly
-              // "off" without being invisible).
+              // CSS mask paints `background-color` where the SVG is opaque.
+              // Connected uses `--foreground`, off uses muted at 40%.
               style={{
                 WebkitMaskImage: `url("${iconUrl}")`,
                 maskImage: `url("${iconUrl}")`,
@@ -131,11 +102,9 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
 }
 
 /**
- * Hook that resolves the StatusItem `icon` field into a renderable URL:
- *   - `data:` URLs pass through unchanged.
- *   - Otherwise the value is treated as a path relative to the
- *     extension's install root and read via `loadExtensionIcon`
- *     (cached + deduped).
+ * Resolves a StatusItem `icon` field to a renderable URL. `data:` URLs
+ * pass through; other values are loaded via `loadExtensionIcon` relative
+ * to the extension's install root.
  */
 function useResolvedIcon(extensionId: string, icon: string): string | null {
   const [url, setUrl] = useState<string | null>(() => (icon.startsWith("data:") ? icon : null));

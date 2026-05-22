@@ -19,18 +19,15 @@ export function isLocalUrl(url: string): boolean {
 }
 
 function base64UrlEncode(input: string): string {
-  // btoa needs latin1; encodeURIComponent → unescape round-trips multi-byte
-  // chars safely. (`Uint8Array` + `Array.from` would also work but this keeps
-  // the line short and avoids the buffer alloc.)
+  // btoa needs latin1; encodeURIComponent + unescape round-trips multi-byte chars.
   const b64 = btoa(unescape(encodeURIComponent(input)));
   return b64.replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
 /**
- * Build the proxy URL that the iframe should load. `convertFileSrc` URL-encodes
- * its argument as a path component, so passing `?u=…` would become `%3Fu%3D…`
- * and the Rust handler would never see a real query string. Call it with `""`
- * just to get the platform-correct origin, then append the query manually.
+ * Build the proxy URL for the iframe. `convertFileSrc` URL-encodes its
+ * argument as a path component, so we pass "" to get the platform origin
+ * and append the query manually.
  */
 export function buildProxyUrl(targetUrl: string): string {
   const origin = convertFileSrc("", SCHEME);
@@ -38,9 +35,9 @@ export function buildProxyUrl(targetUrl: string): string {
 }
 
 /**
- * Resolve the URL the iframe should actually load. Local dev servers go
- * direct (proxying would just add latency + lose websockets). Remote URLs go
- * through the strip-XFO proxy unless the caller explicitly opts out.
+ * Resolves the iframe src. Local dev servers go direct (avoids latency and
+ * preserves websockets); remote URLs go through the strip-XFO proxy unless
+ * `bypassProxy` is set.
  */
 export function resolveIframeSrc(url: string, options: { bypassProxy?: boolean } = {}): string {
   if (!url) return url;

@@ -270,9 +270,7 @@ const RELEASE_DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
   hour12: false,
 });
 
-/** Tauri's updater emits dates like "2024-01-15 12:34:56.000 +00:00:00". Native
- *  Date can't parse that shape, so normalize to ISO first. Falls back to the
- *  raw string when parsing fails. */
+/** Tauri's updater emits dates like "2024-01-15 12:34:56.000 +00:00:00". Normalize to ISO first; falls back to raw on parse failure. */
 function formatReleaseDate(raw: string): string {
   const iso = raw
     .replace(" ", "T")

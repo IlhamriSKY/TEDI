@@ -52,11 +52,7 @@ type Pending = {
   preview: PendingPreview;
 };
 
-/**
- * Sniff a MIME type from the icon path declared in the manifest. Same
- * mapping `icon.ts` uses for already-installed extensions; replicated
- * locally so the preview dialog doesn't depend on the installed cache.
- */
+/** MIME type for the manifest icon path. Mirrors `icon.ts`; duplicated to keep the preview dialog standalone. */
 function mimeForIconPath(rel: string): string {
   const lower = rel.toLowerCase();
   if (lower.endsWith(".svg")) return "image/svg+xml";
@@ -108,11 +104,9 @@ export function ExtensionsSection() {
   }, [init]);
 
   const startReview = async (source: PendingSource, sourceLabel: string) => {
-    // Open the dialog immediately in a loading state so the user sees an
-    // affordance while the Rust peek round-trips. The peek call reads the
-    // package's manifest + icon into memory (no install side-effects),
-    // and we update `pending` once it returns. A failure switches to an
-    // error preview rather than just hiding the dialog.
+    // Open the dialog immediately in a loading state. The peek call reads
+    // the package manifest and icon with no install side effects; failures
+    // surface as an error preview rather than hiding the dialog.
     setInstallError(null);
     setPending({ source, preview: { status: "loading", sourceLabel } });
     try {
@@ -173,9 +167,8 @@ export function ExtensionsSection() {
     setBusy(true);
     setInstallError(null);
     try {
-      // Pass the id from peek so the store can deactivate the prior
-      // install before Rust replaces the folder (avoids "Access is
-      // denied" on Windows when an old sidecar still holds files).
+      // Pass the id from peek so the store can deactivate the prior install
+      // before Rust replaces the folder. Avoids Windows file lock errors.
       const expectedId =
         pending.preview.status === "ready" ? pending.preview.manifest.id : undefined;
       const ext = await install(pending.source, expectedId);
@@ -224,7 +217,7 @@ export function ExtensionsSection() {
     <div className="flex flex-col gap-6">
       <SectionHeader
         title="Extensions"
-        description="Install extensions to add themes, slash commands, AI tools, or custom integrations. Extensions run inside the app and can request permissions like settings access or Rust command invocation - review the manifest before installing."
+        description="Install extensions to add themes, slash commands, AI tools, or custom integrations. Extensions run inside the app and can request permissions like settings access or Rust command invocation. Review the manifest before installing."
       />
 
       <div className="flex flex-col gap-3">
@@ -366,8 +359,7 @@ function ExtensionCard({
   onCheckUpdate: () => void;
   onUpdate: () => void;
 }) {
-  // Live view of this extension's contributed settings - updates as soon
-  // as the extension calls `tedi.contribute.settings(...)` on activate.
+  // Live view of contributed settings. Updates when the extension calls `tedi.contribute.settings`.
   const all = useRegistry(settingsRegistry);
   const contributed = all
     .filter((entry) => entry.extensionId === ext.id)
@@ -387,9 +379,7 @@ function ExtensionCard({
       )}
       aria-busy={updating || undefined}
     >
-      {/* While an update is in flight, render a status banner across
-          the top edge of the card. Animated stripe keeps it obviously
-          live without taking focus away from the rest of the card. */}
+      {/* Animated stripe across the top while updating. */}
       {updating ? (
         <span
           aria-hidden
@@ -467,8 +457,7 @@ function ExtensionCard({
           >
             Remove
           </Button>
-          {/* Switch is the right-most affordance so the user's enable /
-              disable target is in a predictable spot across every card. */}
+          {/* Enable toggle stays rightmost across all cards. */}
           <Switch checked={ext.enabled} onCheckedChange={onToggle} disabled={updating} />
         </div>
       </div>
@@ -522,7 +511,7 @@ async function updateOne(
   }
 }
 
-/** Format a unix-ms timestamp as a short "X ago" string. */
+/** Format a unix-ms timestamp as "X ago". */
 function formatRelative(ms: number): string {
   const diff = Date.now() - ms;
   if (diff < 60_000) return "just now";
@@ -534,22 +523,14 @@ function formatRelative(ms: number): string {
   return `${days}d ago`;
 }
 
-/**
- * Renders the manifest-declared icon for an extension. Falls back to a
- * single-letter avatar derived from the extension name when the manifest
- * doesn't declare `icon`, when the asset is missing, or while the bytes
- * are in flight. The fallback also shows up if the icon load fails so
- * the layout never collapses.
- */
+/** Manifest icon for an extension. Falls back to a single-letter avatar when missing or still loading. */
 function ExtensionIcon({
   extId,
   iconPath,
   fallbackLabel,
 }: {
   extId: string;
-  // `null` shows up when the manifest declares `"icon": null` or when
-  // Rust serialized `Option::None`. Treated the same as `undefined`
-  // (falls back to the letter avatar).
+  // null and undefined both fall back to the letter avatar.
   iconPath: string | null | undefined;
   fallbackLabel: string;
 }) {
@@ -673,8 +654,7 @@ function InstallReviewDialog({
 }) {
   const open = pending !== null;
   const preview = pending?.preview;
-  // Disable Install whenever the peek hasn't finished, errored out, or
-  // the install itself is in flight.
+  // Disable Install while peek is loading/errored or install is in flight.
   const canInstall = preview?.status === "ready" && !busy;
 
   return (
@@ -773,10 +753,7 @@ function InstallReviewDialog({
   );
 }
 
-/** Permission rendered as a colour-coded monospace badge. The colour
- *  comes from `permissionRiskTier()` so users skim the risk profile
- *  without reading every entry: low = neutral, medium = amber,
- *  high = red. */
+/** Color-coded permission badge. Low = neutral, medium = amber, high = red. */
 function PermissionBadge({ permission }: { permission: string }) {
   const tier = permissionRiskTier(permission);
   const tone =
@@ -796,9 +773,7 @@ function PermissionBadge({ permission }: { permission: string }) {
   );
 }
 
-/** Icon slot used in the install dialog. Renders the preview image
- *  pulled in by `ext_peek_*`, a loading shimmer while the peek is in
- *  flight, or a letter avatar fallback for missing/errored packages. */
+/** Icon slot in the install dialog. Preview image, loading shimmer, or letter-avatar fallback. */
 function PreviewIconSlot({ preview }: { preview: PendingPreview }) {
   if (preview.status === "ready" && preview.iconUrl) {
     return (

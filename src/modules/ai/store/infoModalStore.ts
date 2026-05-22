@@ -1,13 +1,11 @@
 import { create } from "zustand";
 
-/** A single row inside an info-modal section. `kbd` renders monospaced
- *  (handy for command invocations like `/help`); `desc` is the explanation. */
+/** Row inside an info-modal section. `kbd` renders monospaced; `desc` is the explanation. */
 export type InfoRow = {
   kbd?: string;
   label: string;
   desc?: string;
-  /** Optional accent color: "ok" = green, "warn" = amber, "err" = red.
-   *  Defaults to neutral. */
+  /** Accent color: ok=green, warn=amber, err=red. Defaults to neutral. */
   tone?: "ok" | "warn" | "err";
 };
 
@@ -17,13 +15,12 @@ export type InfoSection = {
 };
 
 export type InfoModalPayload = {
-  /** Unique-ish id so consumers can replace an existing modal (e.g. /help
-   *  invoked twice should swap content, not stack). */
+  /** Id so consumers can swap an existing modal instead of stacking. */
   id: string;
   title: string;
   subtitle?: string;
   sections: InfoSection[];
-  /** Optional footer hint (rendered small, muted). */
+  /** Footer hint (rendered small and muted). */
   footer?: string;
 };
 

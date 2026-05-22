@@ -1,18 +1,14 @@
 /**
- * Cross-module bridge: any code path that mutates the filesystem can call
- * `dispatchFsRefresh(parentPath)` to ask the explorer to silently re-read
- * the affected directory. Decouples the explorer from the AI tool layer
- * (and any other future mutator) without an explicit dependency.
- *
- * Falls back gracefully — the explorer also polls on a short interval and
- * refreshes on window focus, so missing a dispatch isn't a correctness
- * problem, just a latency one.
+ * Bridge for FS mutators. Call `dispatchFsRefresh(parentPath)` to ask the
+ * explorer to re-read the directory. Decouples the explorer from the AI tool
+ * layer and any other mutator.
+ * Missing a dispatch is fine; the explorer also polls and refreshes on focus.
  */
 
 export const FS_REFRESH_EVENT = "tedi:refresh-fs";
 
-/** Notify any mounted file tree to re-read `path` (its parent directory).
- *  Omit `path` to refresh every currently-loaded directory. */
+/** Tells mounted file trees to re-read `path` (its parent directory). Omit
+ *  `path` to refresh every loaded directory. */
 export function dispatchFsRefresh(path?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -22,8 +18,7 @@ export function dispatchFsRefresh(path?: string): void {
   );
 }
 
-/** Convenience: derive `dirname(filePath)` and dispatch a refresh for it.
- *  Handles both `/` and `\` separators. */
+/** Derives `dirname(filePath)` and dispatches a refresh. Handles `/` and `\`. */
 export function dispatchFsRefreshForFile(filePath: string): void {
   const i = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
   if (i <= 0) return;

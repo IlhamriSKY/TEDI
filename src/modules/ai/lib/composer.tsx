@@ -17,7 +17,7 @@ export type FileAttachment = {
   url?: string;
   text?: string;
   size: number;
-  /** For kind === "selection": which surface it came from. */
+  /** For kind === "selection": source surface. */
   source?: "terminal" | "editor";
 };
 
@@ -37,14 +37,14 @@ type ComposerCtx = {
   setValue: React.Dispatch<React.SetStateAction<string>>;
   files: FileAttachment[];
   addFiles: (list: FileList | null) => Promise<void>;
-  /** Attach a file by absolute path - used by the file explorer's "Attach to Agent". */
+  /** Attach a file by absolute path. Used by the explorer's "Attach to Agent". */
   attachFileByPath: (path: string) => Promise<void>;
-  /** Attach a directory snapshot (one-level listing) by absolute path. Returns
-   *  false if the read failed (path missing, permission, sensitive root, …). */
+  /** Attach a one-level directory listing by absolute path. Returns false on
+   *  read failure (missing path, permission, sensitive root). */
   attachFolderByPath: (path: string) => Promise<boolean>;
   removeFile: (id: string) => void;
-  /** Replace the full attachment list. Used by ArrowUp/Down history recall
-   *  to swap in the attachments that were sent with a previous message. */
+  /** Replace the full attachment list. Used by history recall to restore
+   *  attachments from a previous message. */
   setAttachments: (files: FileAttachment[]) => void;
   pickedSnippets: Snippet[];
   addSnippet: (s: Snippet) => void;
@@ -55,10 +55,8 @@ type ComposerCtx = {
   addCommand: (c: SlashCommandMeta) => void;
   removeCommand: (name: string) => void;
   isBusy: boolean;
-  /** True whenever the agent is in any non-idle state (thinking, streaming,
-   *  awaiting an approval, or post-error). Drives the Stop button so the
-   *  user can always interrupt — including when a stuck approval card or a
-   *  post-error stream-handle is hiding the regular Send button. */
+  /** True whenever the agent is non-idle (thinking, streaming, awaiting
+   *  approval, post-error). Keeps the Stop button reachable. */
   isActive: boolean;
   submit: () => void;
   stop: () => void;
@@ -82,10 +80,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const sessionId = useChatStore((s) => s.activeSessionId);
   const status = useChatStore((s) => s.agentMeta.status);
   const isBusy = status === "thinking" || status === "streaming";
-  // Active = anything but `idle`. Includes `awaiting-approval` and `error`
-  // so the Stop button stays reachable when a hung approval card or post-
-  // error stream handle would otherwise leave the user with no way to
-  // cancel.
+  // Active = anything but `idle`. Includes awaiting-approval and error so
+  // Stop stays reachable when a hung approval or post-error handle blocks Send.
   const isActive = status !== "idle";
   const queueLen = useChatStore((s) => s.promptQueue.length);
   const consumeNextQueuedPrompt = useChatStore((s) => s.consumeNextQueuedPrompt);
@@ -96,11 +92,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const [pickedCommands, setPickedCommands] = useState<SlashCommandMeta[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset composer state whenever the active session changes (e.g. user ran
-  // `/new`, picked a different session in the history dialog, or switched
-  // sessions externally). Without this, attachments/snippets from the prior
-  // session linger and silently get sent with the next message in the new
-  // session — surprising and easy to miss.
+  // Reset composer state on session change (`/new`, history dialog pick, etc).
+  // Without this, prior-session attachments/snippets leak into the next send.
   const lastSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
     if (lastSessionIdRef.current === sessionId) return;
@@ -111,15 +104,12 @@ export function AiComposerProvider({ children }: ProviderProps) {
     setPickedCommands([]);
   }, [sessionId]);
 
-  // Auto-fire next queued prompt when the agent settles. Awaiting-approval
-  // counts as "busy" - we never bypass a pending approval just to drain the
-  // queue. Sending a queued message sets the chat busy again, which puts the
-  // effect back to sleep until the next idle window.
+  // Auto-fire the next queued prompt when the agent settles. Awaiting-approval
+  // counts as busy; we never bypass an approval to drain the queue.
   //
-  // `firingRef` is a latch: chat status updates lag a few ticks behind a
-  // `sendMessage` call, so without it the effect could re-fire on the
-  // queueLen change before isBusy flips to true and drain the whole queue
-  // in one render pass.
+  // `firingRef` is a latch: chat status updates lag a few ticks behind
+  // `sendMessage`, so without it the effect could drain the whole queue in
+  // one render pass before isBusy flips to true.
   const firingRef = useRef(false);
   useEffect(() => {
     if (isBusy) {
@@ -130,13 +120,11 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (firingRef.current) return;
     if (queueLen === 0) return;
     if (!sessionId) return;
-    // Open the checkpoint FIRST. If the session is mid-restore, leave the
-    // queued item in the queue so it survives across the restore window —
-    // consuming before the checkpoint passes would permanently drop the
-    // prompt on a transient race.
+    // Open the checkpoint first. If the session is mid-restore, leave the
+    // queued item in the queue; consuming before the checkpoint passes
+    // would permanently drop the prompt on a transient race.
     if (!openSendCheckpoint(sessionId)) {
-      // The effect will re-fire after `restoringSessions` clears (state
-      // changes trigger a re-render through the existing dependencies).
+      // Re-fires after `restoringSessions` clears via the existing deps.
       return;
     }
     const next = consumeNextQueuedPrompt();
@@ -235,7 +223,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         | { kind: "toolarge"; size: number; limit: number };
       const result = await invoke<ReadResult>("fs_read_file", { path });
       if (result.kind !== "text") {
-        // Binary/oversize files: skip (could surface a toast in future).
+        // Binary/oversize files: skip.
         console.warn("attachFileByPath: skipped non-text file", path, result);
         return;
       }
@@ -253,7 +241,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         };
         return [...prev, att];
       });
-      // Open the AI panel & focus the input so the user sees the chip.
+      // Open the AI panel and focus the input so the user sees the chip.
       useChatStore.getState().focusInput();
     } catch (e) {
       console.error("attachFileByPath failed:", e);
@@ -306,15 +294,13 @@ export function AiComposerProvider({ children }: ProviderProps) {
     // Slash-command interception.
     //
     // Two input shapes feed this:
-    //   - Raw text starting with `/cmd` or `#cmd` (user typed it)
-    //   - Hash chips from the # picker (`#init`, `#plan`) accumulated in
-    //     `pickedCommands`. Multiple chips can stack and ALL must fire.
+    //   - Raw text starting with `/cmd` or `#cmd` (user typed).
+    //   - Hash chips from the # picker accumulated in `pickedCommands`.
+    //     Multiple chips stack and all fire.
     //
-    // Each command source is either `handled` (a side effect like toggling
-    // plan mode) or `send-prompt` (rewrites the message body, e.g. `#init`).
-    // We fire every handled source, and use the first send-prompt source as
-    // the effective body — only one source can rewrite the prompt, the rest
-    // remain fire-and-forget.
+    // Each source resolves to `handled` (side effect) or `send-prompt`
+    // (rewrites the message body). Every handled source fires; the first
+    // send-prompt wins as the body. Later send-prompts are dropped.
     let effectiveText = trimmed;
     let commandMarker: string | null = null;
     let textConsumedByCommand = false;
@@ -346,8 +332,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         continue;
       }
       if (outcome.kind === "send-prompt") {
-        // First send-prompt wins as the body. Subsequent ones are dropped:
-        // the user can't `#init` twice in one message.
+        // First send-prompt wins; later ones are dropped.
         if (!sendPromptApplied) {
           sendPromptApplied = true;
           effectiveText = outcome.prompt;
@@ -358,10 +343,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       }
     }
 
-    // Everything was consumed by handled side effects (no body, no other
-    // attachments either) — nothing to actually send. Covers:
-    //   - user typed only `/clear` (textConsumedByCommand=true) with nothing else
-    //   - user has only `#plan` chip(s) and an empty textarea
+    // All side effects, nothing to send. Covers `/clear` alone and `#plan`-only chips.
     const anyCommandRan = textConsumedByCommand || pickedCommands.length > 0;
     if (
       anyCommandRan &&
@@ -425,19 +407,15 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (!sessionId) return;
     const chat = getOrCreateChat(sessionId);
     if (!openSendCheckpoint(sessionId)) {
-      // Restore in progress - silently drop this submit. The user can
-      // retry after restore finishes (button auto-disables, restore is
-      // sub-second for typical turns).
+      // Restore in progress; silently drop. Restore is sub-second on typical turns.
       return;
     }
     const { selectedModelId: modelId, selectedProvider: provider } = useChatStore.getState();
     const modelInfo = tryGetModel(modelId);
-    // `selectedProvider` is the source of truth for the gateway tag - it's
-    // set by the dropdown pick, so collisions in the model registry (e.g.
-    // SumoPod and OpenAI-Compatible both detecting the same id) can't mis-
-    // label the chip. tryGetModel is consulted for the display label and
-    // the raw `owned_by` (so a mimo proxied via xiaomimimo is credited
-    // to Xiaomi, not the generic "OpenAI Compatible" gateway).
+    // `selectedProvider` is the gateway tag (set by the dropdown), so colliding
+    // ids (SumoPod and OpenAI-Compatible both detecting the same model) can't
+    // mislabel the chip. tryGetModel supplies the display label and raw
+    // `owned_by` so mimo via xiaomimimo is credited to Xiaomi, not the gateway.
     const metadata: TediUserMetadata = {
       tediModel: modelId,
       tediModelLabel: modelInfo?.label ?? modelId,
@@ -457,8 +435,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const stop = () => {
     if (!sessionId) return;
     void getOrCreateChat(sessionId).stop();
-    // Reset transient agent meta — clears `error` / `step` so a hung error
-    // banner or stale step label doesn't linger after the user cancels.
+    // Reset transient agent meta so a stuck error or step label doesn't linger.
     useChatStore.getState().resetAgentMeta();
   };
 

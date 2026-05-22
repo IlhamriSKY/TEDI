@@ -7,17 +7,13 @@ import { getCheckpoint, getCheckpointsVersion, subscribeCheckpoints } from "../l
 import { restoreToLastCheckpoint, useChatStore } from "../store/chatStore";
 
 /**
- * Small inline action rendered next to the most recent user message.
- *
- * Visible only while a checkpoint exists for the active session. After the
- * user clicks: files mutated this turn are restored, the user message and
- * everything after it are removed from history, and the chat returns to
- * idle - ready to accept the next prompt.
+ * Inline action next to the most recent user message. Visible only while a
+ * checkpoint exists. Clicking restores files mutated this turn, drops the
+ * user message and everything after it, and returns the chat to idle.
  */
 export function RestoreCheckpointButton() {
   const sessionId = useChatStore((s) => s.activeSessionId);
-  // Re-render whenever any checkpoint state changes - opens, mutations,
-  // restores all bump the version counter.
+  // Re-render on any checkpoint change. Open/mutate/restore all bump the version.
   useSyncExternalStore(subscribeCheckpoints, getCheckpointsVersion, getCheckpointsVersion);
   const checkpoint = sessionId ? getCheckpoint(sessionId) : null;
   const [busy, setBusy] = useState(false);

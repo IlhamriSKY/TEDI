@@ -17,11 +17,9 @@ import { compactUiMessages } from "./compact";
 import { saveMessages } from "./sessions";
 
 /**
- * Outcome of intercepting a slash command from the composer.
- *
- * - `"handled"`: command ran; the composer should NOT send a chat message.
- * - `"send-prompt"`: replace the user's text with `prompt` and send normally.
- * - `"none"`: not a slash command; let the composer behave as usual.
+ * Outcome of intercepting a slash command.
+ * `handled`: ran; composer should not send. `send-prompt`: replace the
+ * user text with `prompt` and send. `none`: not a command, send as usual.
  */
 export type SlashOutcome =
   | { kind: "handled"; toast?: string; toastVariant?: "success" | "info" | "warning" | "error" }
@@ -46,15 +44,9 @@ export type SlashCommandMeta = {
   icon: typeof SparklesIcon;
   /** Optional argument hint, e.g. `[off]` for `#plan`. */
   argHint?: string;
-  /** When true, the command lives in the `#` picker (alongside snippets)
-   *  and NOT in the `/` picker. Reserved for commands that behave like
-   *  persistent "tags" on the conversation rather than one-shot actions —
-   *  currently `init` (writes a tedi-command marker into the user message
-   *  that re-renders as a chip in history) and `plan` (a session-wide mode
-   *  toggle).
-   *
-   *  Commands like `/help`, `/clear`, `/new`, etc. don't qualify — they are
-   *  ephemeral actions, so they live exclusively in the `/` picker. */
+  /** Show in the `#` picker only, not the `/` picker. For tag-like commands
+   *  (`init`, `plan`) that persist on a message or the session. Ephemeral
+   *  actions stay slash-only. */
   hashOnly?: boolean;
 };
 
@@ -185,26 +177,23 @@ function clearActiveChat(): SlashOutcome {
   if (chat) {
     // Optimistic clear so the UI feels instant.
     chat.messages = [];
-    // Abort any in-flight stream, then re-clear in case a chunk landed in
-    // the microsecond gap between the assignment above and the SDK
-    // honouring the abort signal. Matches the await-stop pattern used in
-    // restoreToLastCheckpoint, but kept fire-and-forget so this stays a
-    // synchronous slash outcome.
+    // Abort any in-flight stream then re-clear in case a chunk landed in the
+    // gap between the assignment above and the abort taking effect. Fire-and-
+    // forget so this stays a synchronous slash outcome.
     void chat
       .stop()
       .then(() => {
         if (chat.messages.length > 0) chat.messages = [];
       })
       .catch(() => {
-        // Already stopped — nothing to do.
+        // Already stopped.
       });
   }
-  // Drop any restore checkpoint pointing at the now-deleted messages. Without
-  // this, hitting Restore after `/clear` would still revert file mutations
-  // recorded against the cleared turns.
+  // Drop the restore checkpoint; without this, Restore after `/clear` would
+  // still revert mutations recorded against the cleared turns.
   discardCheckpoint(sessionId);
-  // Hard-replace the pending persist entry so the on-disk store sees `[]`
-  // even if the debounced timer was about to write a stale snapshot.
+  // Hard-flush so the on-disk store sees `[]` even if the debounced timer
+  // was about to write a stale snapshot.
   flushPersist(sessionId);
   void saveMessages(sessionId, []);
   state.resetAgentMeta();
@@ -219,30 +208,26 @@ function compactActiveChat(): SlashOutcome {
   if (!chat) return { kind: "handled", toast: "Chat not initialized yet" };
   const before = chat.messages.length;
   const contextLimit = getModelContextLimit(state.selectedModelId);
-  // Force mode: manual /compact always tries to act. Without `force` the auto
-  // 70%-context gate would make the slash command a silent no-op on most
-  // chats, which feels broken to the user.
+  // `force` so manual /compact always acts. The 70%-context gate would
+  // otherwise make the slash command a silent no-op on most chats.
   const { messages: trimmed, info } = compactUiMessages(chat.messages, {
     contextLimit,
     keepTail: 12,
     force: true,
   });
   if (info.dropped === 0) {
-    // The only legitimate zero-drop now is "tail already covers everything"
-    // — i.e. the chat is shorter than keepTail. Say so plainly.
+    // Zero-drop here means the chat is shorter than keepTail.
     return {
       kind: "handled",
-      toast: `Nothing to compact — only ${before} message${before === 1 ? "" : "s"}, all kept as recent context.`,
+      toast: `Nothing to compact: only ${before} message${before === 1 ? "" : "s"}, all kept as recent context.`,
     };
   }
-  // `chat.messages` is mutable on @ai-sdk/react Chat; assigning a fresh array
-  // triggers the underlying notifier so React re-renders.
+  // `chat.messages` is mutable on @ai-sdk/react Chat; assigning a fresh array notifies React.
   chat.messages = trimmed;
   flushPersist(sessionId);
   void saveMessages(sessionId, trimmed);
-  // Mirror auto-compact: stamp lastCompact so the context-indicator pulse
-  // fires for manual /compact too. We classify a slash-command drop as
-  // Stage-3 "dropped" since it removes whole UI messages from history.
+  // Stamp lastCompact so the context-indicator pulse fires for manual /compact.
+  // Classified as Stage-3 "dropped" since it removes whole UI messages.
   state.patchAgentMeta({
     lastCompact: {
       at: Date.now(),
@@ -262,8 +247,7 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
   if (lead !== "/" && lead !== "#") return { kind: "none" };
   const [headRaw, ...rest] = trimmed.slice(1).split(/\s+/);
   const head = headRaw.toLowerCase();
-  // Hash trigger only fires for registered commands — leaves `#tag` free
-  // for snippets / arbitrary text.
+  // Hash trigger only fires for registered commands; `#tag` stays free.
   if (lead === "#" && !SLASH_COMMANDS[head]) return { kind: "none" };
   const tail = rest.join(" ").trim();
 

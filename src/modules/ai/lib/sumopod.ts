@@ -5,8 +5,7 @@ type ModelsResponse = {
   data?: Array<{ id?: string; owned_by?: string }>;
 };
 
-/** Curated defaults shown immediately on SumoPod key entry - before the
- *  `/v1/models` fetch resolves and before any external network call. */
+/** Curated defaults shown right after key entry, before `/v1/models` resolves. */
 const SUMOPOD_DEFAULT_MODELS: ReadonlyArray<{
   id: string;
   label: string;
@@ -34,9 +33,8 @@ function defaultModelInfos(): ModelInfo[] {
   }));
 }
 
-/** Merge curated defaults with API-detected models, keyed by id. Defaults
- *  appear first (preserving their human-friendly labels); API entries that
- *  duplicate a default id are dropped. New API entries are appended. */
+/** Merge curated defaults with API-detected models by id. Defaults first;
+ *  API duplicates are dropped, new entries appended. */
 function mergeWithDefaults(detected: ModelInfo[]): ModelInfo[] {
   const out: ModelInfo[] = defaultModelInfos();
   const seen = new Set(out.map((m) => m.id));
@@ -63,9 +61,8 @@ const INITIAL: FetchState = {
   fetchedAt: null,
 };
 
-// Publish the curated defaults into the dynamic registry on module load so
-// they're resolvable by `tryGetModel()` immediately - even before a key is
-// entered. Cleared in `clearSumopodModels()` when the user removes the key.
+// Publish defaults into the registry on load so `tryGetModel()` resolves
+// them even before a key is entered. Cleared on key removal.
 setDetectedModels("sumopod", INITIAL.models);
 
 let state: FetchState = INITIAL;
@@ -87,9 +84,9 @@ export function subscribeSumopodModels(cb: (s: FetchState) => void): () => void 
   };
 }
 
-/** Friendly label for a raw SumoPod model id (e.g. "gpt-4o-mini" → "GPT-4o mini"). */
+/** Friendly label for a SumoPod model id (e.g. "gpt-4o-mini" -> "GPT-4o mini"). */
 function labelFor(id: string): string {
-  // Strip provider/path prefixes (e.g. "openai/gpt-4o" → "gpt-4o")
+  // Strip provider/path prefixes ("openai/gpt-4o" -> "gpt-4o").
   const tail = id.includes("/") ? id.slice(id.lastIndexOf("/") + 1) : id;
   return tail
     .replace(/[-_]/g, " ")
@@ -105,16 +102,13 @@ function labelFor(id: string): string {
 }
 
 function hintFor(_raw: { owned_by?: string }): string {
-  // SumoPod always returns `owned_by: "openai"` regardless of the actual
-  // model maker (mimo, MiniMax, Claude, …) - so the upstream value is
-  // misleading. Render every SumoPod-detected model as "via SumoPod" to
-  // match how the user thinks about it ("I'm using SumoPod, not OpenAI").
+  // SumoPod returns `owned_by: "openai"` regardless of the real maker, so the
+  // upstream value is misleading. Always show "via SumoPod".
   return "via SumoPod";
 }
 
-/** Fetch the SumoPod model catalogue with the given key, then publish into
- *  the dynamic model registry. Safe to call repeatedly - concurrent fetches
- *  are coalesced. Pass `signal` to cancel in flight. */
+/** Fetch the SumoPod model catalogue and publish into the dynamic registry.
+ *  Safe to call repeatedly. Pass `signal` to cancel. */
 export async function refreshSumopodModels(
   apiKey: string,
   signal?: AbortSignal,
@@ -144,13 +138,8 @@ export async function refreshSumopodModels(
       }
     }
 
-    // SumoPod proxies many upstream model makers (Anthropic, OpenAI, …),
-    // but for billing + routing purposes every call goes through SumoPod's
-    // gateway. We deliberately omit `ownedBy` so the chat chip always
-    // credits the request to SumoPod rather than the underlying maker - it
-    // matches how the user thinks about it ("I'm using SumoPod") and lines
-    // up with the upstream "via {owned_by}" hint already shown in the
-    // dropdown listing.
+    // Omit `ownedBy` so the chat chip credits SumoPod (the gateway) rather
+    // than the upstream maker. Matches the "via SumoPod" hint in the dropdown.
     const detected: ModelInfo[] = raws
       .map((raw) => ({
         id: raw.id,
@@ -160,7 +149,7 @@ export async function refreshSumopodModels(
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
 
-    // Defaults first, then any extra detected models the user has access to.
+    // Defaults first, then extra detected models.
     const models = mergeWithDefaults(detected);
     setDetectedModels("sumopod", models);
     state = {
@@ -173,7 +162,7 @@ export async function refreshSumopodModels(
     return models;
   } catch (e) {
     if ((e as { name?: string })?.name === "AbortError") {
-      // Don't clobber state on cancel.
+      // Cancelled; keep current state.
       return state.models;
     }
     state = {
@@ -186,9 +175,8 @@ export async function refreshSumopodModels(
   }
 }
 
-/** Reset SumoPod model state when the key is removed. Curated defaults
- *  stay in the registry (rendered as disabled items in the dropdown) so
- *  the user can still see what's on offer before pasting a key. */
+/** Reset SumoPod state on key removal. Curated defaults stay in the registry
+ *  (as disabled items) so users see what's available before pasting a key. */
 export function clearSumopodModels(): void {
   const defaults = defaultModelInfos();
   setDetectedModels("sumopod", defaults);
@@ -201,7 +189,7 @@ export function clearSumopodModels(): void {
   emit();
 }
 
-/** React hook - subscribes to the SumoPod fetch state. */
+/** React hook for the SumoPod fetch state. */
 export function useSumopodModels(): FetchState {
   const [snapshot, setSnapshot] = useState<FetchState>(state);
   useEffect(() => subscribeSumopodModels(setSnapshot), []);

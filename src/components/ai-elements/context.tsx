@@ -54,8 +54,7 @@ export const Context = ({ usedTokens, maxTokens, usage, modelId, ...props }: Con
 const ContextIcon = () => {
   const { usedTokens, maxTokens } = useContextValue();
   const circumference = 2 * Math.PI * ICON_RADIUS;
-  // Clamp the ring to [0,1] so a runaway context doesn't render past the
-  // circle and visually wrap around (which made the indicator misleading).
+  // Clamp the ring to [0,1] so overflow doesn't wrap around the circle.
   const usedPercent = Math.min(1, Math.max(0, usedTokens / maxTokens));
   const dashOffset = circumference * (1 - usedPercent);
 
@@ -94,10 +93,7 @@ const ContextIcon = () => {
   );
 };
 
-/** Format a context-usage ratio for the chip / header. Caps the displayed
- *  number at "100%+" once the real ratio exceeds the window, so a runaway
- *  conversation never shows e.g. "3,006.9%" (which is confusing and
- *  pointless — anything past 100% is just "over"). */
+/** Formats a context-usage ratio. Caps display at "100%+" once over the window. */
 function formatContextPercent(ratio: number): string {
   if (!isFinite(ratio) || ratio < 0) return "0%";
   if (ratio >= 1) return "100%+";
@@ -113,9 +109,8 @@ export const ContextTrigger = ({ children, className, ...props }: ContextTrigger
   const { usedTokens, maxTokens } = useContextValue();
   const usedPercent = usedTokens / maxTokens;
   const renderedPercent = formatContextPercent(usedPercent);
-  // Warn (amber) at 80%+, alert (red) at the window itself. The threshold
-  // matches Stage-2 elision so the chip turns colour around the same time
-  // the agent starts compacting under the hood.
+  // Amber at >=80%, red at >=100%. Matches Stage-2 elision so the chip
+  // turns colour around the time the agent starts compacting.
   const tone =
     usedPercent >= 1
       ? "text-red-600 dark:text-red-400"
@@ -157,8 +152,7 @@ export const ContextContentHeader = ({
   const total = new Intl.NumberFormat("en-US", {
     notation: "compact",
   }).format(maxTokens);
-  // Progress bar is clamped to [0, 100] so the fill never overflows the
-  // track; the textual "100%+" already signals the overrun.
+  // Clamp progress to [0,100]. The "100%+" label signals overflow.
   const progressValue = Math.min(PERCENT_MAX, Math.max(0, usedPercent * PERCENT_MAX));
 
   return (

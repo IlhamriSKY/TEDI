@@ -1,12 +1,11 @@
-//! SFTP-backed file operations over an existing SSH session.
+//! SFTP file operations over an existing SSH session.
 //!
-//! Reuses the russh `Handle` already held by `SshSession` to open a fresh
-//! `sftp` subsystem channel on demand, then forwards browse / read / write
-//! commands through it. The remote SSH user owns the channel, so every
-//! operation is naturally constrained by their unix permissions on the
-//! remote box -- there is no "TEDI admin override". A `permission denied`
-//! response from the server bubbles up as a structured error the frontend
-//! can render in-tree without crashing the panel.
+//! Reuses the russh `Handle` held by `SshSession` to open a fresh `sftp`
+//! subsystem channel on demand and forwards browse/read/write commands
+//! through it. The remote SSH user owns the channel, so every operation is
+//! constrained by their unix permissions on the remote box. A
+//! `permission denied` response bubbles up as a structured error the
+//! frontend renders in-tree without crashing the panel.
 
 use std::sync::Arc;
 
@@ -18,23 +17,22 @@ use serde::Serialize;
 use super::session::SshSession;
 use super::{ssh_runtime, SshState};
 
-/// One directory entry pushed to the frontend. Shape matches the local
+/// Directory entry pushed to the frontend. Shape matches the local
 /// `fs::DirEntry` so the frontend tree can reuse its renderer without
 /// branching on local vs remote.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SftpEntry {
     pub name: String,
-    /// `"file"`, `"dir"`, or `"symlink"`. Everything else (block / char /
-    /// fifo / unknown) collapses to `"file"` so the tree still renders
-    /// something instead of hiding it.
+    /// `"file"`, `"dir"`, or `"symlink"`. Everything else (block, char,
+    /// fifo, unknown) collapses to `"file"` so the tree still renders.
     pub kind: String,
     pub size: u64,
-    /// Unix seconds. `0` when the server didn't report mtime.
+    /// Unix seconds; `0` when the server did not report mtime.
     pub mtime: u64,
     /// `"rwxr-xr-x"` style permission summary, or empty when the server
-    /// didn't report a mode. Surfaced as a tooltip so users can see why a
-    /// directory is read-only before they try (and fail) to write.
+    /// did not report a mode. Surfaced as a tooltip so users see why a
+    /// directory is read-only before they try to write.
     pub permissions: String,
 }
 
@@ -47,8 +45,8 @@ pub struct SftpStat {
     pub permissions: String,
 }
 
-/// Look up an SSH session by id and clone its `Arc<SshSession>`. Kept short
-/// because every command needs the same prelude.
+/// Look up an SSH session by id and clone its `Arc<SshSession>`. Every
+/// command starts with this prelude.
 async fn get_session(
     state: &tauri::State<'_, SshState>,
     id: u32,
@@ -65,10 +63,10 @@ async fn get_session(
         })
 }
 
-/// Translate an SFTP error to a short, user-facing string that keeps the
-/// permission/no-such-file distinction visible so the explorer can render
-/// the right empty state. Anything else collapses to a generic message
-/// with the underlying display so we don't lose the diagnostic.
+/// Translate an SFTP error to a short user-facing string while preserving
+/// the permission/no-such-file distinction so the explorer renders the
+/// right empty state. Other errors collapse to a generic message with the
+/// underlying display.
 fn humanize(err: SftpError) -> String {
     match &err {
         SftpError::Status(s) => match s.status_code {
@@ -136,9 +134,9 @@ pub async fn ssh_sftp_read_dir(
                 }
             })
             .collect();
-        // Match fs::tree behaviour: directories first, then files, both
-        // alphabetical case-insensitively so the order is stable across
-        // sessions and matches what the local explorer shows.
+        // Match fs::tree: directories first, then files, both alphabetical
+        // case-insensitive. Stable across sessions and matches the local
+        // explorer.
         entries.sort_by(|a, b| {
             let ad = a.kind == "dir";
             let bd = b.kind == "dir";
@@ -190,8 +188,8 @@ pub async fn ssh_sftp_read_file(
         let sftp = session.ensure_sftp().await?;
         let bytes = sftp.read(path).await.map_err(humanize)?;
         // Mirror fs::file::fs_read_file: return UTF-8 text. Binary files
-        // would explode any editor pane anyway; rejecting them up front
-        // with a clear message beats handing junk to CodeMirror.
+        // explode any editor pane anyway; rejecting up front with a clear
+        // message beats handing junk to CodeMirror.
         String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8".to_string())
     })
     .await
@@ -210,9 +208,8 @@ pub async fn ssh_sftp_write_file(
     rt.spawn(async move {
         let sftp = session.ensure_sftp().await?;
         // CREATE | TRUNCATE | WRITE matches local fs_write_file's "rewrite
-        // in place" contract; the file is replaced atomically from the
-        // editor's perspective even if the underlying server doesn't
-        // implement atomic rename-into-place.
+        // in place" contract. The file is replaced atomically from the
+        // editor's view even when the server lacks atomic rename-into-place.
         let mut file = sftp
             .open_with_flags(
                 path,
@@ -243,8 +240,8 @@ pub async fn ssh_sftp_create_file(
     let rt = ssh_runtime();
     rt.spawn(async move {
         let sftp = session.ensure_sftp().await?;
-        // EXCL so we don't silently clobber an existing file the user
-        // didn't see (e.g. created moments ago by another process).
+        // EXCL so we do not silently clobber a file the user did not see
+        // (e.g. created moments ago by another process).
         let mut file = sftp
             .open_with_flags(
                 path,
@@ -305,11 +302,10 @@ pub async fn ssh_sftp_delete(
     let rt = ssh_runtime();
     rt.spawn(async move {
         let sftp = session.ensure_sftp().await?;
-        // SFTP needs separate calls for files vs dirs (rmdir is recursive-
-        // unsafe on most servers; it only succeeds on empty dirs). Stat
-        // once to pick the right call. Server permission errors surface
-        // through humanize() so the user sees `permission denied` instead
-        // of a generic failure.
+        // SFTP needs separate calls for files vs dirs. `rmdir` only
+        // succeeds on empty dirs on most servers. Stat once to pick the
+        // right call. Server permission errors surface through humanize()
+        // so the user sees `permission denied` instead of a generic failure.
         let metadata = sftp.metadata(path.clone()).await.map_err(humanize)?;
         if metadata.file_type().is_dir() {
             sftp.remove_dir(path).await.map_err(humanize)
@@ -321,9 +317,8 @@ pub async fn ssh_sftp_delete(
     .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
-/// Render `rwxr-xr-x`-style permissions from the SFTP metadata's mode bits.
-/// Empty string when the server didn't include permissions in the response
-/// (some non-OpenSSH servers omit them entirely).
+/// Render `rwxr-xr-x` permissions from the SFTP metadata's mode bits.
+/// Empty when the server omitted permissions (some non-OpenSSH servers do).
 fn format_permissions(metadata: &russh_sftp::protocol::FileAttributes) -> String {
     if metadata.permissions.is_none() {
         return String::new();
@@ -331,8 +326,8 @@ fn format_permissions(metadata: &russh_sftp::protocol::FileAttributes) -> String
     metadata.permissions().to_string()
 }
 
-/// Open SFTP subsystem if not already open. Exposed via SshSession so the
-/// mod.rs commands stay decoupled from the SSH handshake details.
+/// Open the SFTP subsystem if not already open. Exposed via SshSession so
+/// the mod.rs commands stay decoupled from the SSH handshake details.
 pub(super) async fn open_sftp_on_handle(session: &SshSession) -> Result<Arc<SftpSession>, String> {
     let handle_guard = session.handle.lock().await;
     let handle = handle_guard

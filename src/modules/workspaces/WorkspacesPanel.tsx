@@ -15,32 +15,17 @@ import { memo, useState } from "react";
 import { useWorkspacesStore } from "./store";
 
 type Props = {
-  /**
-   * Called when the user picks a different workspace. The caller is
-   * responsible for snapshotting the current workspace's live tabs into the
-   * store BEFORE invoking the switch, and for rehydrating the new one.
-   */
+  /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
   onSwitch: (workspaceId: string) => void;
-  /** Called when the user clicks "+". The caller seeds a new tab strip. */
+  /** Plus button. Caller seeds a new tab strip. */
   onCreate: () => void;
-  /**
-   * Called when the user closes a workspace. The caller is responsible for
-   * discarding the closed workspace's live tabs and rehydrating the neighbor
-   * that the store hands focus to.
-   */
+  /** Close a workspace. Caller discards its live tabs and rehydrates the neighbor. */
   onClose: (workspaceId: string) => void;
-  /**
-   * Live open-tab count for the *active* workspace. Inactive workspaces use
-   * their persisted `tabs.length` since their live state isn't mounted.
-   */
+  /** Live tab count for the active workspace. Inactive workspaces use their persisted `tabs.length`. */
   liveTabsCount?: number;
 };
 
-// Memoised so unrelated parent state churn (tabs mutation, OSC 7 cwd
-// updates, AI streaming) doesn't re-render the workspaces strip. Callback
-// props are useCallback-stable from App.tsx; liveTabsCount is a useMemo
-// primitive, so the shallow equality check skips render unless one of
-// those genuinely changed.
+// Memoized. Props are stable callbacks plus a primitive count, so shallow equality skips re-renders.
 function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);

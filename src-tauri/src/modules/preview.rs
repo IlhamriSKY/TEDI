@@ -1,19 +1,17 @@
-// `tedi-frame://localhost/?u=<base64url>` proxy. Lets the in-app preview iframe
-// load any public site by stripping X-Frame-Options / CSP frame-ancestors on
-// the way through. Uses Tauri 2's stable async URI-scheme protocol so we don't
-// open a localhost port and don't depend on the unstable `add_child` API.
-//
-// Frontend builds the URL with `convertFileSrc(`?u=${b64}`, "tedi-frame")` so
-// Windows (WebView2) gets `http://tedi-frame.localhost/?u=…` and macOS/Linux
-// get `tedi-frame://localhost/?u=…`.
-//
-// Why we also rewrite subresource URLs: stripping CSP/XFO on the *HTML*
-// response only lets the document render. Individual assets (images, CSS,
-// scripts, fonts) hit the upstream origin directly and many servers ship
-// `Cross-Origin-Resource-Policy: same-site` per asset, which the browser
-// enforces against the iframe's `tedi-frame://localhost` origin and blocks.
-// `lol_html` rewrites every asset reference in the document to flow through
-// us, so we get to strip those headers too.
+//! `tedi-frame://localhost/?u=<base64url>` proxy. Lets the in-app preview
+//! iframe load any public site by stripping X-Frame-Options / CSP
+//! frame-ancestors. Uses Tauri 2's async URI-scheme protocol so no localhost
+//! port is opened.
+//!
+//! Frontend builds the URL via `convertFileSrc(`?u=${b64}`, "tedi-frame")`.
+//! Windows (WebView2) sees `http://tedi-frame.localhost/?u=...`; macOS and
+//! Linux see `tedi-frame://localhost/?u=...`.
+//!
+//! Subresource rewrite: stripping CSP/XFO on the HTML response alone only
+//! lets the document render. Assets (images, CSS, scripts, fonts) go to the
+//! upstream origin and many ship `Cross-Origin-Resource-Policy: same-site`,
+//! which the browser enforces against the iframe origin. `lol_html`
+//! rewrites every asset reference through us so we can strip those headers too.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
@@ -31,32 +29,31 @@ const STRIPPED_HEADERS: &[&str] = &[
     "content-security-policy-report-only",
     "x-content-security-policy",
     "x-webkit-csp",
-    // Body is decompressed by reqwest and rewritten - lying about encoding
+    // Body is decompressed by reqwest and rewritten; advertising an encoding
     // would make the webview try to gunzip plain text.
     "content-encoding",
     "content-length",
     "transfer-encoding",
-    // Cross-origin policies that would re-introduce the same iframe block.
+    // Cross-origin policies that would re-introduce the iframe block.
     "cross-origin-opener-policy",
     "cross-origin-embedder-policy",
     "cross-origin-resource-policy",
-    // Don't let upstream pin HSTS / cookies on our scheme.
+    // Block upstream from pinning HSTS / cookies on our scheme.
     "set-cookie",
     "strict-transport-security",
 ];
 
-// Mimics desktop Chrome on Windows (same shape as the UA VSCode's Simple
-// Browser / Electron sends). Some sites gate content/CSS on UA - presenting as
-// a current desktop Chromium gets us the desktop layout instead of a stripped
-// mobile/legacy fallback.
+// Mimic desktop Chrome on Windows (same shape VSCode's Simple Browser /
+// Electron sends). Some sites gate content/CSS on UA; a current desktop
+// Chromium gets the desktop layout instead of a stripped mobile fallback.
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 
-// Shared proxy client — rebuilding per request defeated reqwest's connection
-// pool and re-paid TLS-handshake cost on every subresource (a single HTML page
-// can fan out to 50+ assets).
+// Shared proxy client. Rebuilding per request defeated reqwest's connection
+// pool and re-paid TLS handshake cost on every subresource (a single HTML
+// page can fan out to 50+ assets).
 static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn proxy_client() -> &'static reqwest::Client {
@@ -88,7 +85,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
 
     let mut rb = proxy_client().get(&target);
     // Pass through headers that affect content negotiation without leaking
-    // anything sensitive from our app origin.
+    // anything from our app origin.
     for name in ["range", "accept", "accept-language"] {
         if let Some(v) = req.headers().get(name) {
             rb = rb.header(name, v);
@@ -99,7 +96,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
 
-    // Stream the body so a malicious upstream can't OOM us before the cap
+    // Stream the body so a malicious upstream cannot OOM us before the cap
     // check fires. `bytes()` would buffer the entire response first.
     let mut body: Vec<u8> = Vec::with_capacity(
         headers
@@ -144,8 +141,8 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
         }
         builder = builder.header(name.as_str(), value.as_bytes());
     }
-    // The webview iframe will be a different origin from any resource it
-    // pulls in; broad CORS keeps fonts/XHR-on-static-files working.
+    // The webview iframe has a different origin from any resource it pulls
+    // in; broad CORS keeps fonts and XHR-on-static-files working.
     builder = builder.header("access-control-allow-origin", "*");
 
     builder
@@ -154,7 +151,7 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
 }
 
 /// Reconstruct the origin of the incoming request so the HTML rewriter can
-/// emit `tedi-frame://localhost/?u=…` (or `http://tedi-frame.localhost/?u=…`
+/// emit `tedi-frame://localhost/?u=...` (or `http://tedi-frame.localhost/?u=...`
 /// on Windows) without hard-coding the platform's scheme.
 fn derive_proxy_origin(req: &Request<Vec<u8>>) -> String {
     let uri = req.uri();
@@ -195,10 +192,10 @@ fn error_response(status: StatusCode, msg: &str) -> Response<Vec<u8>> {
         .expect("static response builds")
 }
 
-/// Encode `url` as the proxy URL the iframe should hit instead. Returns `None`
-/// if `raw` doesn't resolve to an http(s) URL against `base` (e.g. `mailto:`,
-/// `javascript:`, fragment-only links, `data:` blobs - those should pass
-/// through unchanged).
+/// Encode `url` as the proxy URL the iframe should hit. Returns `None` if
+/// `raw` does not resolve to an http(s) URL against `base` (e.g. `mailto:`,
+/// `javascript:`, fragment-only links, `data:` blobs; those pass through
+/// unchanged).
 fn proxify(raw: &str, base: &Url, origin: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -212,7 +209,7 @@ fn proxify(raw: &str, base: &Url, origin: &str) -> Option<String> {
     Some(format!("{}/?u={}", origin, b64))
 }
 
-/// Rewrite a `srcset` attribute (`"url 1x, url 2x"` / `"url 320w, url 640w"`)
+/// Rewrite a `srcset` attribute (`"url 1x, url 2x"` or `"url 320w, url 640w"`)
 /// by piping each candidate URL through `proxify` while preserving its
 /// descriptor.
 fn proxify_srcset(raw: &str, base: &Url, origin: &str) -> String {
@@ -239,9 +236,9 @@ fn proxify_srcset(raw: &str, base: &Url, origin: &str) -> String {
         .join(", ")
 }
 
-/// `<link rel>` values whose `href` points to a network-loaded subresource. Other
-/// rels (`alternate`, `canonical`, `dns-prefetch`, …) are descriptive metadata
-/// the browser doesn't fetch as a same-site asset, so we leave them alone.
+/// `<link rel>` values whose `href` points to a network-loaded subresource.
+/// Other rels (`alternate`, `canonical`, `dns-prefetch`, ...) are descriptive
+/// metadata the browser does not fetch as a same-site asset.
 const PROXIED_LINK_RELS: &[&str] = &[
     "stylesheet",
     "icon",
@@ -269,7 +266,7 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
     let head_injection = build_head_injection(target_url);
     let mut output: Vec<u8> = Vec::with_capacity(body.len());
 
-    // Each handler needs its own clone of the base URL + origin because
+    // Each handler needs its own clone of the base URL and origin because
     // lol_html stores them as `FnMut` and the closures outlive this scope.
     let t_head = target.clone();
     let o_head = proxy_origin.to_string();
@@ -284,7 +281,7 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
     let head_inject_clone = head_injection.clone();
 
     let element_content_handlers = vec![
-        // Inject base + click-proxy at the end of <head> so any inline scripts
+        // Inject base and click-proxy at the end of <head> so inline scripts
         // before us see the real document head.
         element!("head", move |el| {
             el.append(&head_inject_clone, ContentType::Html);
@@ -292,8 +289,8 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
             let _ = (&t_head, &o_head);
             Ok(())
         }),
-        // Strip CSP delivered via `<meta http-equiv>` (we already strip the
-        // header form, but some sites also ship a redundant meta).
+        // Strip CSP delivered via `<meta http-equiv>`. The header form is
+        // already stripped, but some sites also ship a redundant meta.
         element!("meta", |el| {
             if let Some(v) = el.get_attribute("http-equiv") {
                 let lower = v.to_ascii_lowercase();
@@ -320,10 +317,9 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
                 Ok(())
             }
         ),
-        // `<link>` is overloaded — only proxy rels that trigger a network
-        // fetch (stylesheet, icon, preload, …). `<a href>` stays direct so
-        // clicks open in a new tab via the injected click handler, not via
-        // the proxy.
+        // `<link>` is overloaded; only proxy rels that trigger a network
+        // fetch (stylesheet, icon, preload, ...). `<a href>` stays direct so
+        // clicks go through the injected click handler, not the proxy.
         element!("link[href]", move |el| {
             let rel = el
                 .get_attribute("rel")
@@ -371,7 +367,7 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
     }
 
     // Fallback for documents with no `<head>` element (rare but legal HTML5).
-    // Wrap in a synthetic head so the click-proxy + base injection still apply.
+    // Wrap in a synthetic head so the click-proxy and base injection apply.
     if !contains_head(&output) {
         let mut wrapped =
             format!("<!doctype html><html><head>{}</head><body>", head_injection).into_bytes();
@@ -384,7 +380,7 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
 }
 
 fn contains_head(bytes: &[u8]) -> bool {
-    // Cheap ASCII scan - we just need to know whether `<head` exists anywhere.
+    // Cheap ASCII scan; only need to know whether `<head` exists anywhere.
     let needle = b"<head";
     bytes
         .windows(needle.len())
@@ -392,10 +388,10 @@ fn contains_head(bytes: &[u8]) -> bool {
 }
 
 fn build_head_injection(target_url: &str) -> String {
-    // `<base>` covers anything the rewriter doesn't catch (CSS `url()` inside
-    // inline `<style>`, dynamically created elements). Those resources still
-    // go direct to the upstream origin and may hit CORP, but the rewriter
-    // handles the common cases (`<img>`, `<link>`, `<script>`, `<source>`).
+    // `<base>` covers what the rewriter does not catch (CSS `url()` inside
+    // inline `<style>`, dynamically created elements). Those go directly to
+    // the upstream origin and may hit CORP; the rewriter handles the common
+    // cases (`<img>`, `<link>`, `<script>`, `<source>`).
     format!(
         "<base href=\"{}\"><script>{}</script>",
         html_escape(target_url),
@@ -418,10 +414,10 @@ fn html_escape(s: &str) -> String {
     out
 }
 
-// Routes top-level link clicks and GET form submissions back through the proxy
-// so the user can browse without each navigation hitting X-Frame-Options
-// again. POST forms and JS-driven navigation (`location.href = ...`) are not
-// intercepted - that's where we trade depth for safety/simplicity.
+// Route top-level link clicks and GET form submissions back through the
+// proxy so the user can browse without each navigation hitting
+// X-Frame-Options again. POST forms and JS-driven navigation
+// (`location.href = ...`) are not intercepted.
 const CLICK_PROXY_SCRIPT: &str = r#"
 (function(){
   function b64(s){
@@ -455,8 +451,8 @@ const CLICK_PROXY_SCRIPT: &str = r#"
     if (e.defaultPrevented) return;
     var form = e.target;
     if (!form || form.tagName !== 'FORM') return;
-    // The proxy is GET-only; POST forms must fall through and will likely be
-    // blocked by XFO on the destination - acceptable trade-off for now.
+    // Proxy is GET-only; POST forms fall through and will likely be blocked
+    // by XFO on the destination.
     var method = (form.getAttribute('method') || 'get').toLowerCase();
     if (method !== 'get') return;
     var tgt = form.getAttribute('target');
@@ -469,8 +465,8 @@ const CLICK_PROXY_SCRIPT: &str = r#"
       data.forEach(function(v, k){
         if (typeof v === 'string') params.append(k, v);
       });
-      // Form-supplied params override any baked into the action URL, matching
-      // browser default form-submit behavior.
+      // Form-supplied params override any baked into the action URL,
+      // matching default browser form-submit behavior.
       url.search = '?' + params.toString();
       if (!/^https?:\/\//i.test(url.href)) return;
       var p = location.origin + '/?u=' + b64(url.href);

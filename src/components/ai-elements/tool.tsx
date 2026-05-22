@@ -45,8 +45,8 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
 
-// Small rounded status indicator shown to the left of the tool icon.
-// Becomes a filled green box on success, red on error, orange on deny.
+// Small rounded status indicator left of the tool icon: green on success,
+// red on error, orange on deny.
 const STATUS_DOT: Record<ToolPart["state"], string> = {
   "approval-requested": "bg-amber-500/80 border border-amber-500",
   "approval-responded": "bg-sky-500/80 border border-sky-500",
@@ -117,12 +117,10 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
   errorText?: string;
 };
 
-// Tools whose `input` carries large/streaming content (file bodies, sub-
-// agent prompts, todo lists). We hide the raw input body - the AI diff
-// tab is the canonical place for file changes, todos render in their own
-// strip, and the subagent prompt is only useful as a header summary.
-// Output is still rendered (final result, not per-token), with custom
-// renderers in `renderToolOutput`.
+// Tools whose `input` carries large or streaming content (file bodies, subagent
+// prompts, todo lists). Hides the raw input body; file changes show in the diff
+// tab, todos in their own strip, subagent prompts via header summary. Output
+// still renders via custom renderers in `renderToolOutput`.
 const HEAVY_INPUT_TOOLS = new Set([
   "write_file",
   "edit",
@@ -146,7 +144,7 @@ const ToolImpl = ({
   const label = meta?.label ?? toolName;
   const summary = deriveSummary(toolName, input);
   const isError = state === "output-error";
-  // Open by default on error OR when subagent has a summary worth reading.
+  // Open by default on error or when a subagent summary is present.
   const hasSubagentSummary =
     toolName === "run_subagent" &&
     output !== undefined &&
@@ -154,9 +152,8 @@ const ToolImpl = ({
     typeof (output as { summary?: unknown }).summary === "string";
   const open = defaultOpen ?? (isError || hasSubagentSummary);
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
-  // Hide streamed input body for heavy tools (file bodies, subagent
-  // prompts, todo lists). Output is always shown - it's the final
-  // result, not per-token streaming.
+  // Hide streamed input body for heavy tools; output always shows since it's
+  // the final result, not per-token streaming.
   const showInputBody = !heavyInput && Boolean(input);
   const showOutputBody = output !== undefined;
   const hasDetails = showInputBody || showOutputBody || Boolean(errorText);
@@ -224,9 +221,8 @@ const ToolImpl = ({
   );
 };
 
-// For heavy tools, the only thing that should trigger a re-render is a
-// state transition or the path summary changing - NOT every input-content
-// token. We compare the cheap derived summary instead of the input ref.
+// For heavy tools, re-render only on state transitions or summary changes,
+// not on every input-content token. Compare derived summary instead of input ref.
 export const Tool = memo(ToolImpl, (a, b) => {
   if (a.toolName !== b.toolName || a.state !== b.state) return false;
   if (a.errorText !== b.errorText) return false;
@@ -695,9 +691,8 @@ function formatDuration(ms: number): string {
 }
 
 function CodeBlockMini({ code }: { code: string; language: string }) {
-  // Tool input/output is debug-grade detail - JSON arrives pre-formatted and
-  // file content is shown in the editor diff tab. Highlighting here is not
-  // worth the parser hop.
+  // Debug-grade detail: JSON arrives pre-formatted and file content shows in
+  // the editor diff tab. Skip syntax highlighting.
   return (
     <pre className="bg-muted/40 text-foreground max-h-60 overflow-auto rounded p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
       {code}
@@ -705,9 +700,9 @@ function CodeBlockMini({ code }: { code: string; language: string }) {
   );
 }
 
-// Compatibility re-exports - the previous API exposed these subcomponents,
-// but the new compact <Tool /> takes everything via props. Kept as no-ops
-// to avoid breaking accidental imports.
+// Compatibility re-exports. The previous API exposed these subcomponents;
+// the new compact <Tool /> takes everything via props. No-ops to avoid
+// breaking accidental imports.
 export const ToolHeader = () => null;
 export const ToolContent = ({ children }: { children?: ReactNode }) => <>{children}</>;
 export { ToolInput, ToolOutput };

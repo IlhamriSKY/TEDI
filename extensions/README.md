@@ -16,21 +16,24 @@ the GitHub `releases/latest` endpoint to surface available versions.
 
 ---
 
-## Reference extension (lives in its own repo)
+## Reference extensions (live in their own repos)
 
 | Extension | Repository | Install string |
 | --- | --- | --- |
 | **Discord Rich Presence** | <https://github.com/IlhamriSKY/TEDI.discord-rich-presence> | `IlhamriSKY/TEDI.discord-rich-presence` |
+| **Secondary Folder Tree** | <https://github.com/IlhamriSKY/TEDI.secondary-folder-tree> | `IlhamriSKY/TEDI.secondary-folder-tree` |
 
-That repo has its own [release CI](https://github.com/IlhamriSKY/TEDI.discord-rich-presence/blob/main/.github/workflows/release.yml)
+Each repo has its own [release CI](https://github.com/IlhamriSKY/TEDI.discord-rich-presence/blob/main/.github/workflows/release.yml)
 that produces a `.zip` asset on every `vX.Y.Z` tag, exactly the shape
 TEDI's installer expects. Open *Settings → Extensions → From GitHub*,
 paste the install string above, click **Review → Install**.
 
-The Discord extension is also the canonical reference implementation
-for every host-API pattern (`contribute.settings`, `settings.onChange`,
-`app.onContextChange`, permission-gated `invoke`, idempotent
-`deactivate`). When in doubt, copy its layout.
+| Reference | Covers |
+| --- | --- |
+| Discord Rich Presence | `contribute.settings`, `settings.onChange`, `app.onContextChange`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binaries via `shell_bg_spawn_direct`. |
+| Secondary Folder Tree | `contribute.panels` (right surface), `contribute.commands` + `contribute.keybindings` for rebindable shortcut, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`, drag-from-tree → drop-on-terminal. |
+
+When in doubt, copy the layout that's closest to what you're building.
 
 ---
 
@@ -92,7 +95,14 @@ publisher-scoped prefix to avoid collisions
     "themes":        [ { "id": "dracula", "label": "Dracula", "type": "dark",
                           "tokens": { "primary": "#bd93f9" } } ],
     "editorThemes":  [ { "id": "dracula", "label": "Dracula", "css": "themes/dracula.css" } ],
-    "panels":        [ { "id": "logs", "title": "Logs", "surface": "sidebar-bottom" } ],
+    "panels":        [ {
+                          "id": "logs", "title": "Logs",
+                          "surface": "right",                  // only "right" is wired today
+                          "icon": "logo.svg",
+                          "defaultOpen": false,                // auto-open once per session
+                          "toggleCommand": "myext.toggleLogs", // links to contributes.commands
+                          "hideHostHeader": true               // hide host's title strip; ext owns chrome
+                        } ],
     "aiTools":       [ { "name": "lookup", "description": "…", "parameters": { } } ]
   },
   "engines": { "tedi": ">=0.2.6" }
@@ -172,6 +182,41 @@ type ExtensionContext = {
   };
   registerCommandHandler(commandId, handler);
   registerAiToolHandler(toolName, handler);
+  // Bind a mount function to a `panels[]` entry whose surface is
+  // "right". The host auto-renders a status-bar toggle button from
+  // the manifest; clicking it (or pressing the bound keybinding)
+  // shows a slide-out slot to the right of the workspace
+  // (mutual-exclusive with the AI sidebar). The host gives you a
+  // fresh <div> to paint into; return a cleanup callback so
+  // disable/uninstall tears the panel down cleanly.
+  registerPanelRenderer(panelId, (container) => {
+    container.appendChild(/* … */);
+    return () => container.replaceChildren();
+  });
+  // Imperative right-panel controls — useful inside a command
+  // handler so a keybinding can toggle your panel.
+  panel: {
+    open(panelId): void;
+    close(panelId?): void;     // only acts on this extension's panels
+    toggle(panelId): void;
+  };
+  ui: {
+    toast(message, opts?);
+    // Mount TEDI's built-in FileExplorer into a container you own.
+    // Visual parity with the left sidebar (icons, indent, expand,
+    // click-to-open). `onClose` adds an X icon to the header.
+    mountFolderTree(container, {
+      rootPath: string | null,
+      onOpenFile?(path, pin?),
+      showOpenFolder?: boolean,
+      onClose?(): void,
+    }): { update(opts), dispose() };
+  };
+  shell: {
+    // Rewrite every shell command AI tools run (RTK pattern).
+    // Requires `shell:transform` permission.
+    registerCommandTransformer((cmd, kind) => string): () => void;
+  };
   ui: { toast(message, opts?) };
   logger: { info(...), warn(...), error(...) };
   addDisposer(d): void;
@@ -195,7 +240,9 @@ resource the host can't see (a `setTimeout`, a third-party listener,
 | `invoke:<cmd>`         | medium | Call a specific Rust command. Use glob `invoke:foo_*` to allow a group. `invoke:fs_*`, `invoke:shell_*`, `invoke:secrets_*` are HIGH risk. |
 | `events:emit|listen`   | low    | Send / receive Tauri events on the `ext://<id>/*` channel.          |
 | `ui:toast`             | low    | Show a toast in the main window.                                    |
-| `panels:register`      | low    | Register sidebar / statusbar panels.                                |
+| `panels:register`      | low    | Declare panels in `contributes.panels[]` AND call `ctx.registerPanelRenderer`, `ctx.panel.{open,close,toggle}`. |
+| `statusbar:write`      | low    | Push runtime icons into the status bar via `ctx.statusBar.setItem`. |
+| `shell:transform`      | high   | Rewrite every shell command AI tools run via `ctx.shell.registerCommandTransformer`. |
 | `*`                    | high   | Everything (power-user only).                                       |
 
 `secrets_get_all` is **hard-denied** even with `*`.

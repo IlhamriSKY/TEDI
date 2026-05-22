@@ -14,7 +14,7 @@ pub enum ReadResult {
         content: String,
         size: u64,
     },
-    /// Decoded image - body is a `data:` URL ready for `<img src>`.
+    /// Decoded image. `data_url` is ready for `<img src>`.
     Image {
         #[serde(rename = "dataUrl")]
         data_url: String,
@@ -31,10 +31,10 @@ pub enum ReadResult {
     },
 }
 
-/// Sniff an image mime from path extension + magic bytes. Returns `None` if
-/// the file isn't a recognized image format.
+/// Sniff an image mime from path extension and magic bytes. Returns `None`
+/// for unrecognized formats.
 fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
-    // Magic-byte check first - authoritative when present.
+    // Magic-byte check first; authoritative when present.
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         return Some("image/png");
     }
@@ -55,7 +55,7 @@ fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
         return Some("image/x-icon");
     }
-    // SVG / other text-based formats - defer to extension.
+    // SVG and other text-based formats: defer to extension.
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -91,16 +91,16 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
     Ok(classify_bytes(&p, bytes))
 }
 
-/// Shared bytes→`ReadResult` classifier. `path` only drives extension-based
-/// MIME hints (SVG, AVIF) - callers reading a git blob can pass the repo-
-/// relative path. Size is `bytes.len()` since the blob has no on-disk size.
+/// Classify a byte buffer into a `ReadResult`. `path` only drives
+/// extension-based MIME hints (SVG, AVIF); callers reading a git blob can
+/// pass the repo-relative path. Size is `bytes.len()`.
 pub(crate) fn classify_bytes(path: &Path, bytes: Vec<u8>) -> ReadResult {
     let size = bytes.len() as u64;
 
-    // Image sniff before the null-byte check - PNG/JPEG/etc. contain nulls
+    // Image sniff before the null-byte check. PNG/JPEG/etc. contain nulls
     // and would otherwise be reported as plain binary.
     if let Some(mime) = sniff_image_mime(path, &bytes) {
-        // SVG is text - encode as UTF-8 in the data URL so it renders even
+        // SVG is text; encode as UTF-8 in the data URL so it renders even
         // if the file has odd whitespace.
         let data_url = if mime == "image/svg+xml" {
             match std::str::from_utf8(&bytes) {
@@ -117,8 +117,8 @@ pub(crate) fn classify_bytes(path: &Path, bytes: Vec<u8>) -> ReadResult {
         };
     }
 
-    // Null-byte sniff on the first chunk. Not perfect (misses UTF-16 BOM
-    // cases) but catches the common "this is a PNG" mistake cheaply.
+    // Null-byte sniff on the first chunk. Misses UTF-16 BOM cases but
+    // cheaply catches the common "this is a PNG" mistake.
     let sniff_len = bytes.len().min(BINARY_SNIFF_BYTES);
     if bytes[..sniff_len].contains(&0) {
         return ReadResult::Binary { size };
@@ -130,8 +130,8 @@ pub(crate) fn classify_bytes(path: &Path, bytes: Vec<u8>) -> ReadResult {
     }
 }
 
-/// Minimal percent-encoding for SVG embedded in a `data:` URL. We only escape
-/// characters that break the URL grammar - leaving the SVG mostly readable.
+/// Minimal percent-encoding for SVG embedded in a `data:` URL. Only escapes
+/// characters that break the URL grammar; leaves the SVG mostly readable.
 fn urlencode_svg(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -148,7 +148,7 @@ fn urlencode_svg(s: &str) -> String {
 }
 
 /// Result of a partial (offset/limit) file read. Only the requested line
-/// range crosses the IPC boundary, avoiding multi-MB payloads for the AI tool.
+/// range crosses the IPC boundary so the AI tool avoids multi-MB payloads.
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ReadPortionResult {
@@ -171,10 +171,9 @@ pub enum ReadPortionResult {
     },
 }
 
-/// Read only a slice of lines from a text file. The file is streamed through
-/// a `BufReader` so only the requested `[offset, offset+limit)` range is
-/// allocated as `String`s - the rest of the file is scanned byte-by-byte
-/// just to count newlines.
+/// Read a line range from a text file. Streamed through `BufReader` so only
+/// the requested `[offset, offset+limit)` range is allocated as `String`s;
+/// the rest is scanned byte-by-byte to count newlines.
 #[tauri::command]
 pub fn fs_read_file_portion(
     path: String,
@@ -215,13 +214,13 @@ pub fn fs_read_file_portion(
     }
 
     let start = offset.unwrap_or(0);
-    // Hard cap so a misbehaving caller can't ask for `usize::MAX` lines and
+    // Hard cap so a misbehaving caller cannot ask for `usize::MAX` lines and
     // overflow `start + lim` below (panic in debug, wrap in release).
     const MAX_LINE_LIMIT: usize = 10_000;
     let lim = limit.unwrap_or(2000).min(MAX_LINE_LIMIT);
     let end = start.saturating_add(lim);
 
-    // Stream lines: skip `start` lines, collect up to `lim`, then count the rest.
+    // Stream lines: skip `start`, collect up to `lim`, then count the rest.
     let mut line_buf = String::new();
     let mut total_lines: usize = 0;
     let mut collected: Vec<String> = Vec::with_capacity(lim.min(2048));
@@ -237,7 +236,7 @@ pub fn fs_read_file_portion(
         }
 
         if total_lines >= start && total_lines < end {
-            // Strip trailing \r\n so the output is equivalent to
+            // Strip trailing \r\n so output matches
             // `full_content.split("\n").slice(...)` on the frontend.
             let trimmed = line_buf.trim_end_matches(['\r', '\n']);
             collected.push(trimmed.to_string());
@@ -258,7 +257,7 @@ pub fn fs_read_file_portion(
 }
 
 /// Atomic write: stage into a sibling temp file, then rename over the target.
-/// Prevents partial writes from leaving a half-saved file on crash/power loss.
+/// Prevents a partial write from leaving a half-saved file on crash/power loss.
 #[tauri::command]
 pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
     let target = PathBuf::from(&path);

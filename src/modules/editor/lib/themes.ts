@@ -1,10 +1,9 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorThemeId } from "@/modules/settings/store";
 
-/** Per-theme dynamic loaders. Each `@uiw/codemirror-theme-*` package is
- *  ~10–25 KB minified; eagerly importing all 9 added ~100 KB to the editor
- *  bundle for code paths that only ever use one. The loader returns the
- *  CodeMirror `Extension` that we feed into `state.create({ extensions })`. */
+/** Per-theme dynamic loaders. Each `@uiw/codemirror-theme-*` is ~10-25 KB;
+ *  eagerly importing all 9 added ~100 KB. Returns the CodeMirror Extension
+ *  for `state.create({ extensions })`. */
 const LOADERS: Record<EditorThemeId, () => Promise<Extension>> = {
   atomone: () => import("@uiw/codemirror-theme-atomone").then((m) => m.atomone),
   aura: () => import("@uiw/codemirror-theme-aura").then((m) => m.aura),
@@ -19,8 +18,7 @@ const LOADERS: Record<EditorThemeId, () => Promise<Extension>> = {
 
 const themeCache = new Map<EditorThemeId, Extension>();
 
-/** Async theme loader. Result is cached so theme switches re-use the same
- *  Extension instance across editor panes. */
+/** Async theme loader. Result is cached so panes share one Extension. */
 export async function loadEditorTheme(id: EditorThemeId): Promise<Extension> {
   const hit = themeCache.get(id);
   if (hit) return hit;
@@ -29,9 +27,8 @@ export async function loadEditorTheme(id: EditorThemeId): Promise<Extension> {
   return ext;
 }
 
-/** Synchronous accessor - returns the loaded Extension if available, else
- *  null. Callers (e.g. EditorPane) use this for the cheap fast path on
- *  re-renders and fall back to `loadEditorTheme` when null. */
+/** Sync accessor. Returns the loaded Extension or null. Callers fall back
+ *  to `loadEditorTheme` when null. */
 export function tryEditorTheme(id: EditorThemeId): Extension | null {
   return themeCache.get(id) ?? null;
 }

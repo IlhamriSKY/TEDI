@@ -1,11 +1,10 @@
 import type { ModelMessage } from "ai";
 
 const KEEP_TAIL = 24;
-/** Elision marker that's deliberately "self-terminating" — the original
- *  wording ("see prior tool call in history") nudged some lite models into
- *  re-issuing the same tool call to recover the content. The two variants
- *  below tell the model bluntly *not* to retry, because either a fresher
- *  copy is downstream or the underlying file has been mutated. */
+/** Elision markers. Earlier wording ("see prior tool call in history") nudged
+ *  lite models into re-issuing the same call. These versions explicitly tell
+ *  the model not to retry, because either a fresher read is downstream or the
+ *  file has been mutated. */
 const ELISION_TEXT =
   "[elided — newer output for this call is already further down in the conversation. Do not retry.]";
 const ELISION_TEXT_MUTATED =
@@ -21,13 +20,9 @@ type ToolPart = {
 };
 
 /** Per-message byte cache. The React adapter's `replaceMessage` deep-clones
- *  via `structuredClone` on every state mutation (see
- *  `@ai-sdk/react/dist/index.mjs` — `this.snapshot = (v) => structuredClone(v)`),
- *  so a mutated message always lands in this map under a *new* reference.
- *  WeakMap key identity therefore matches "content-stable" — turns the
- *  inner loop inside Stage 2 (which used to re-run approxBytes over every
- *  message after every single elision) from O(N²) JSON.stringify into
- *  O(N) amortized. */
+ *  via `structuredClone` on every state mutation, so a mutated message lands
+ *  here under a new reference. WeakMap key identity = content-stable. Turns
+ *  Stage 2's inner loop from O(N^2) JSON.stringify into O(N) amortized. */
 const bytesCache = new WeakMap<ModelMessage & object, number>();
 
 function bytesForMessage(m: ModelMessage): number {
@@ -82,9 +77,8 @@ function pathOfInput(input: unknown): string | null {
   return typeof p === "string" && p.length > 0 ? p : null;
 }
 
-/** Stable key for a read_file invocation that distinguishes paged reads of
- *  the same path. Two reads of `foo.ts` with different `offset` are NOT
- *  redundant - they return different windows of content. */
+/** Key for a read_file call that distinguishes paged reads of the same path.
+ *  Two reads of `foo.ts` at different offsets return different windows. */
 function readKeyOfInput(input: unknown): string | null {
   const path = pathOfInput(input);
   if (!path) return null;
@@ -131,11 +125,9 @@ function collectLastReadIdxPerKey(messages: ModelMessage[]): Map<string, number>
   return lastIdx;
 }
 
-/** Replace stale read_file tool-results with an elision marker. A read is
- *  "stale" when there's a later read of the same path in the same session,
- *  or when the path has been mutated (edit/multi_edit/write_file/create_directory)
- *  since. Keeps the freshest read intact so the agent's working model of the
- *  file matches reality without re-paying for repeated bodies. */
+/** Replace stale read_file tool-results with an elision marker. Stale = there
+ *  is a later read of the same path, or the path has been mutated since.
+ *  Keeps the freshest read so the agent's view stays current. */
 function dropSupersededReads(messages: ModelMessage[]): {
   out: ModelMessage[];
   touched: boolean;
@@ -143,8 +135,7 @@ function dropSupersededReads(messages: ModelMessage[]): {
   const mutated = collectMutationPaths(messages);
   const lastReadKey = collectLastReadIdxPerKey(messages);
 
-  // Map a tool_call id to (path, readKey) so we can look up both the
-  // mutation set (by path) and the supersession set (by paged key).
+  // Map toolCallId to (path, readKey) for mutation (path) and supersession (paged key) lookups.
   const callIdxToRead = new Map<string, { path: string; key: string }>();
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
@@ -186,50 +177,38 @@ function dropSupersededReads(messages: ModelMessage[]): {
 }
 
 export type CompactStages = {
-  /** Stage 1: superseded read_file results elided. Lossless — never user-visible. */
+  /** Stage 1: superseded read_file results elided. Lossless. */
   lossless: number;
   /** Stage 2: older tool-result blocks elided to reclaim context. */
   elided: number;
-  /** Stage 3: oldest non-system messages hard-dropped. Information loss. */
+  /** Stage 3: oldest non-system messages hard-dropped. Loses information. */
   dropped: number;
 };
 
 export type CompactResult = {
   messages: ModelMessage[];
-  /** True when ANY stage touched messages — including Stage 1 dedup. Use
-   *  `stages` to decide whether to surface to the user. */
+  /** True when any stage touched messages, including Stage 1 dedup. */
   compacted: boolean;
-  /** Back-compat: sum of all stages. Prefer `stages` for accurate reporting. */
+  /** Sum of all stages. Prefer `stages` for accurate reporting. */
   droppedCount: number;
   stages: CompactStages;
 };
 
-/** Hard floor for tail preservation: we never hard-drop more than this many
- *  trailing messages even if everything still spills the window — better to
- *  send an over-budget request and let the provider error than to lose the
- *  user's most recent turn. */
+/** Minimum trailing messages preserved by Stage 3. Better to send over-budget
+ *  and let the provider error than to lose the user's most recent turn. */
 const MIN_TAIL = Math.min(KEEP_TAIL, 8);
 
-/** Three-stage compaction (per recent "Complexity Trap" research: masking
- *  observations beats LLM summarisation, both in tokens spent and quality):
+/** Three-stage compaction. Masking observations beats LLM summarisation
+ *  on tokens and quality.
  *
- *   1. ALWAYS: drop superseded read_file results (no information loss
- *      because the latest read / the mutation is still in history). This
- *      also doubles as anti-loop — even at 10% context, if the model
- *      re-read the same file twice we trim the older copy so it can't
- *      "see" the duplicate and decide to recurse on it.
- *   2. At 60% of context: elide older tool-result blocks, oldest first,
- *      until we're back under 50% - keeping the last KEEP_TAIL messages
- *      intact and never touching system messages.
- *   3. If still over 80% after Stage 2 (e.g. the conversation itself has
- *      blown past the window, not just tool noise): HARD-DROP oldest
- *      non-system messages until we are under 65%, while preserving the
- *      last KEEP_TAIL messages. This is the only path that loses
- *      information; it's the safety net that keeps a runaway context
- *      from indefinitely 4xx-ing the provider.
+ *  1. Always: elide superseded read_file results. Lossless and doubles as
+ *     anti-loop. The freshest read or the mutation is still in history.
+ *  2. At 60% of context: elide older tool-result blocks (oldest first)
+ *     until back under 50%. Preserves the last KEEP_TAIL and system messages.
+ *  3. Still over 80% after Stage 2: hard-drop oldest non-system messages
+ *     until under 65%, preserving the last KEEP_TAIL. Only path that loses info.
  *
- *  System / lite-model callers can pass smaller contextLimit values to
- *  trigger compaction sooner. */
+ *  Callers can pass a smaller contextLimit to trigger compaction sooner. */
 export function compactModelMessagesDetailed(
   messages: ModelMessage[],
   contextLimit: number,
@@ -237,8 +216,7 @@ export function compactModelMessagesDetailed(
   const stages: CompactStages = { lossless: 0, elided: 0, dropped: 0 };
   let working = messages;
 
-  // Stage 1: drop superseded reads (lossless). Runs every turn regardless
-  // of budget — anti-loop, not just budget management.
+  // Stage 1: elide superseded reads. Runs every turn (anti-loop, not just budget).
   {
     const r = dropSupersededReads(working);
     if (r.touched) {
@@ -248,8 +226,7 @@ export function compactModelMessagesDetailed(
   }
   let approxTokens = approxBytes(working) / 4;
 
-  // Stage 2: elide older tool-result blocks until back under 50% (or the
-  // KEEP_TAIL boundary is reached).
+  // Stage 2: elide older tool-result blocks until under 50% or KEEP_TAIL reached.
   if (approxTokens >= 0.6 * contextLimit) {
     const out = working.slice();
     const stopIdx = Math.max(0, out.length - KEEP_TAIL);
@@ -272,10 +249,8 @@ export function compactModelMessagesDetailed(
     approxTokens = approxBytes(working) / 4;
   }
 
-  // Stage 3: when conversation itself has exceeded the window (huge file
-  // pastes, runaway streaming, etc.), elision is not enough. Hard-drop the
-  // oldest non-system messages. We do this in pairs (user + assistant) when
-  // possible to avoid orphaning a tool-call from its tool-result.
+  // Stage 3: conversation itself exceeds the window (huge pastes, runaway
+  // streaming). Elision isn't enough; hard-drop oldest non-system messages.
   if (approxTokens >= 0.8 * contextLimit) {
     const systemPrefix: ModelMessage[] = [];
     const rest: ModelMessage[] = [];
@@ -283,9 +258,8 @@ export function compactModelMessagesDetailed(
       if (m.role === "system" && rest.length === 0) systemPrefix.push(m);
       else rest.push(m);
     }
-    // Number of trailing messages we MUST keep. Tighten when the context is
-    // dramatically over so we can actually fit; relax to KEEP_TAIL on minor
-    // overruns to retain conversational continuity.
+    // Trailing messages to keep. Tighten when context is hugely over so we
+    // can fit; relax to KEEP_TAIL on minor overruns.
     const tail =
       approxTokens >= 2 * contextLimit
         ? MIN_TAIL
@@ -314,12 +288,9 @@ export function compactModelMessagesDetailed(
   };
 }
 
-/** Hard-drop the oldest UI messages so the on-disk / SDK-side message list
- *  itself stays under a soft cap. Used by the `/compact` slash command to
- *  surface the same logic to users when the context indicator turns red.
- *
- *  Returns `null` if no compaction is needed. Mutating callers should write
- *  the returned array back into the Chat instance + persist it. */
+/** Hard-drop oldest UI messages so the persisted list stays under a soft cap.
+ *  Used by the `/compact` slash command. Callers should write the returned
+ *  array back into the Chat instance and persist it. */
 export type UICompactResult = { kept: number; dropped: number };
 
 export function compactUiMessages<
@@ -337,9 +308,8 @@ export function compactUiMessages<
   opts: {
     contextLimit: number;
     keepTail?: number;
-    /** When true, bypass the auto threshold gate. Manual /compact users want
-     *  visible action even at moderate context — we still preserve the
-     *  trailing `keepTail` messages so the active turn survives. */
+    /** Bypass the auto threshold gate. /compact wants visible action even at
+     *  moderate context; trailing `keepTail` messages are still preserved. */
     force?: boolean;
   },
 ): {
@@ -362,30 +332,26 @@ export function compactUiMessages<
   let total = messages.reduce((sum, m) => sum + tokensFor(m), 0);
   const stopIdx = Math.max(0, messages.length - keepTail);
 
-  // Auto path: do nothing comfortably under threshold. Manual (`force`) skips
-  // this gate so the slash command always tries to act.
+  // Auto path: no-op when comfortably under threshold. `force` skips this gate.
   if (!opts.force && total < 0.7 * opts.contextLimit) {
     return { messages, info: { kept: messages.length, dropped: 0 } };
   }
 
-  // Nothing to drop without violating the tail guarantee — surface as a
-  // zero-drop result so the caller can give clear feedback instead of an
-  // unexplained no-op.
+  // Nothing to drop without violating tail guarantee; surface as zero-drop.
   if (stopIdx === 0) {
     return { messages, info: { kept: messages.length, dropped: 0 } };
   }
 
   let cut = 0;
   if (total >= 0.7 * opts.contextLimit) {
-    // Over-threshold: drop oldest until we're back under 50% of the window.
+    // Over threshold: drop oldest until under 50% of the window.
     while (cut < stopIdx && total >= 0.5 * opts.contextLimit) {
       total -= tokensFor(messages[cut]);
       cut++;
     }
   } else {
-    // Force mode at moderate context: drop roughly the oldest quarter so the
-    // user sees real progress, but never less than one message (their whole
-    // point in running /compact).
+    // Force at moderate context: drop roughly the oldest quarter so /compact
+    // shows real progress, but never less than one message.
     cut = Math.max(1, Math.floor(stopIdx / 4));
   }
 

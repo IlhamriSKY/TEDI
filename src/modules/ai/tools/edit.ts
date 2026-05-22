@@ -108,9 +108,8 @@ async function applyEdits(
       });
     }
     await native.writeFile(abs, content);
-    // Edit doesn't add/remove an entry in the parent directory, but its
-    // mtime/size still change — refresh so any explorer mtime sorts /
-    // size columns stay accurate.
+    // Edit keeps the directory entry but bumps mtime/size. Refresh so the
+    // explorer's mtime and size columns stay accurate.
     dispatchFsRefreshForFile(abs);
     return {
       ok: true,

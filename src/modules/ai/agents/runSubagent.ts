@@ -18,10 +18,7 @@ type Args = {
   toolContext: ToolContext;
   lmstudioBaseURL?: string;
   openaiCompatibleBaseURL?: string;
-  /** Forwarded from the parent agent so a top-level Stop click also cancels
-   *  in-flight subagent HTTP fetches. Without this, subagents keep running
-   *  after the user has already abandoned the parent turn — wasted tokens
-   *  and perceived-cancel lag. */
+  /** Forwarded from parent so Stop also cancels in-flight subagent fetches. */
   abortSignal?: AbortSignal;
 };
 
@@ -44,8 +41,7 @@ export async function runSubagent({
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
 
-  // Subagents only get read-only tools. Build directly from the read-only
-  // builders to avoid pulling in mutating/recursive tools.
+  // Read-only tools only. Skip mutating/recursive builders.
   const readOnly: Record<string, unknown> = {
     ...buildFsTools(toolContext),
     ...buildSearchTools(toolContext),
@@ -55,9 +51,7 @@ export async function runSubagent({
     if (t in readOnly) filtered[t] = readOnly[t];
   }
 
-  // Unknown ids fall back to SumoPod (the only provider with runtime
-  // discovery via /v1/models). Same shape main agent uses - keeps
-  // behavior consistent when the user picks a freshly detected model.
+  // Unknown ids fall back to SumoPod (runtime discovery via /v1/models).
   const info: ModelInfo =
     tryGetModel(modelId) ??
     ({
@@ -72,18 +66,14 @@ export async function runSubagent({
     openaiCompatibleBaseURL,
   });
 
-  // Build explicit messages so we can attach provider-cache markers.
-  // The Experimental_Agent class hides this - generateText does not, and
-  // the tool-loop semantics (stopWhen) carry over.
+  // Explicit messages so we can attach provider-cache markers (Experimental_Agent hides this).
   const baseMessages: ModelMessage[] = [
     { role: "system", content: def.systemPrompt },
     { role: "user", content: prompt },
   ];
   const messages = applyCacheBreakpoints(baseMessages, info.provider);
 
-  // `tools` / `stopWhen` are casted because the SDK infers `never` for the
-  // tools generic when fed a dynamic record - same shape the original
-  // Experimental_Agent call site used.
+  // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
   const result = await generateText({
     model,

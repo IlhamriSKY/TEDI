@@ -1,8 +1,8 @@
 // Minimal Tauri runtime stub for vanilla-browser preview (vite dev).
-// When the real Tauri runtime injects __TAURI_INTERNALS__ first, this no-ops.
-// Backs @tauri-apps/plugin-store with localStorage so settings persist across reloads;
-// every other native command resolves to undefined/empty — UI renders but native
-// features (terminal, fs, scm, ssh, dialog, updater, opener) stay inert.
+// No-ops when the real Tauri runtime injects __TAURI_INTERNALS__ first.
+// Backs @tauri-apps/plugin-store with localStorage so settings persist across
+// reloads. Other native commands resolve to undefined or empty: UI renders
+// but native features (terminal, fs, scm, ssh, dialog, updater, opener) stay inert.
 
 declare global {
   interface Window {
@@ -42,7 +42,7 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
           ? "ios"
           : "linux";
 
-  // Backing storage for @tauri-apps/plugin-store. One bucket per store path,
+  // Backing storage for @tauri-apps/plugin-store: one bucket per store path,
   // serialized as JSON in localStorage.
   const STORE_PREFIX = "tedi:shim:store:";
   type StoreData = Record<string, unknown>;
@@ -57,12 +57,12 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
     try {
       localStorage.setItem(STORE_PREFIX + path, JSON.stringify(data));
     } catch {
-      // quota / private mode — ignore
+      // Ignore quota or private mode failures.
     }
   };
 
-  // transformCallback assigns unique IDs to async-result callbacks the Tauri
-  // bindings register for invoke completions and event subscriptions.
+  // Assigns unique IDs to async-result callbacks that Tauri bindings register
+  // for invoke completions and event subscriptions.
   const callbacks = new Map<number, (payload: unknown) => void>();
   let nextId = 1;
   const transformCallback = (cb?: (payload: unknown) => void, once = false): number => {
@@ -82,9 +82,8 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
     callbacks.delete(id);
   };
 
-  // Event bus for plugin:event|listen / emit so React effects that subscribe
-  // to internal events don't immediately reject. Events are in-process only —
-  // nothing crosses to Rust because Rust isn't running.
+  // Event bus for plugin:event|listen/emit so React effects subscribing to
+  // internal events don't reject. In-process only; Rust isn't running.
   const listeners = new Map<string, Set<{ id: number; cb: Listener }>>();
 
   const isPluginEvent = (cmd: string, op: string): boolean => cmd === `plugin:event|${op}`;
@@ -174,7 +173,7 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
           try {
             cb({ event, id, payload: a.payload });
           } catch {
-            // listener threw — keep dispatching
+            // Listener threw; keep dispatching.
           }
         }
       }
@@ -207,11 +206,10 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
   };
 
   const invoke = async (cmd: string, args?: InvokeArgs): Promise<unknown> => {
-    // Tauri uses cmd format "plugin:<name>|<op>" for plugin commands and
-    // bare command names for app-defined IPC. Stub the plugins we know are
-    // imported during startup so React effects don't reject; everything else
-    // resolves to null and lets the caller fall back gracefully (or fail at
-    // the call site, where the warning above tells the dev what's missing).
+    // Tauri uses "plugin:<name>|<op>" for plugin commands and bare names for
+    // app-defined IPC. Stub plugins imported during startup so React effects
+    // don't reject; everything else returns null so callers fall back or fail
+    // at the call site where the warning above explains what's missing.
     if (cmd.startsWith("plugin:store|")) {
       return handleStore(cmd.slice("plugin:store|".length), args);
     }
@@ -222,7 +220,7 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
       return handleOs(cmd.slice("plugin:os|".length));
     }
     if (cmd.startsWith("plugin:window|") || cmd.startsWith("plugin:webview|")) {
-      // show/hide/focus/setSize/etc. on the (nonexistent) Tauri window
+      // show/hide/focus/setSize on the nonexistent Tauri window.
       return null;
     }
     if (cmd.startsWith("plugin:process|")) {
@@ -232,7 +230,7 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
       return null;
     }
     if (cmd.startsWith("plugin:dialog|")) {
-      // open() / save() / message() / ask() — return null so callers treat as cancelled
+      // open/save/message/ask; null so callers treat as cancelled.
       return null;
     }
     if (cmd.startsWith("plugin:opener|")) {
@@ -247,7 +245,7 @@ if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
     if (cmd.startsWith("plugin:window-state|")) {
       return null;
     }
-    // App-defined IPC commands (Rust #[tauri::command]) — no Rust to call.
+    // App-defined IPC commands (Rust #[tauri::command]); no Rust to call.
     return null;
   };
 

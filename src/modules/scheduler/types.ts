@@ -1,13 +1,9 @@
 /**
- * Selector for picking a target terminal. The engine resolves the first
- * field present in order: `leafId` > `tabId` > `ordinal` > `title`.
- *
- * - `ordinal` is the leaf's stable FIFO `terminalOrdinal` — the same 1-based
- *   number rendered on the TabBar chip. Assigned at creation and preserved
- *   across closes, drags, and workspace restarts (so "terminal 3" maps to
- *   the chip the user sees, not to the leaf's current position).
- * - `title` does a case-insensitive substring match against the tab title.
- * - All fields optional; an empty target falls back to the active terminal.
+ * Selector for a target terminal. Resolved in order: `leafId`, `tabId`,
+ * `ordinal`, `title`. `ordinal` is the 1-based FIFO `terminalOrdinal` shown
+ * on the TabBar chip and preserved across closes, drags, and restarts.
+ * `title` is case-insensitive substring match. Empty target falls back to
+ * the active terminal.
  */
 export type TerminalTarget = {
   leafId?: number;

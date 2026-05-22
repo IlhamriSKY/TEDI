@@ -12,21 +12,17 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ProviderKeys } from "@/modules/ai/lib/keyring";
 import type { GitChange, GitChangeStatus } from "./types";
 
-/** Hard cap on diff bytes shipped to the model. Anything past this is
- *  truncated by the Tauri host (see git_diff_full). Roughly ~20K tokens. */
+/** Max diff bytes sent to the model (~20K tokens). Host truncates past this. */
 const DIFF_BYTE_CAP = 80_000;
 
-/** Upper bound on the model's response length. Commit subject lines are
- *  short, but reasoning models (mimo, o1/o3, deepseek-reasoner, …) count
- *  their thinking trace against this cap and emit visible text only after
- *  reasoning settles — a 200-token ceiling left them with zero budget for
- *  the answer, returning an empty `text`. We keep `sanitize()` to clamp the
- *  final line to 72 chars regardless, so the extra headroom only matters
- *  when reasoning eats tokens; non-reasoning models still finish in <50. */
+/**
+ * Output token cap. Generous so reasoning models (o1/o3, deepseek-reasoner)
+ * have budget left for the answer after their thinking trace. `sanitize()`
+ * still clamps the final line to 72 chars.
+ */
 const MAX_OUTPUT_TOKENS = 4096;
 
-/** Hard timeout for the model call. Some providers can hang on network
- *  faults - we'd rather show the deterministic fallback than spin forever. */
+/** Model call timeout. Falls back to a deterministic message rather than hang. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const SYSTEM_PROMPT = `You write a single Conventional Commit message for the diff provided by the user.
@@ -51,9 +47,7 @@ OUTPUT RULES (must follow exactly):
 
 Respond with the commit message text and NOTHING else.`;
 
-/** Deterministic fallback when the model call fails or the diff is empty.
- *  Picks a Conventional-Commit type from the change mix so the result still
- *  looks intentional instead of "update code". */
+/** Deterministic fallback when the model fails or the diff is empty. Picks a Conventional Commit type from the change mix. */
 export function fallbackCommitMessage(changes: GitChange[]): string {
   if (changes.length === 0) return "chore: update project";
   const counts = changes.reduce<Record<GitChangeStatus, number>>(
@@ -90,17 +84,11 @@ export function fallbackCommitMessage(changes: GitChange[]): string {
   return `chore: update project (${fileLabel})`;
 }
 
-/** Conventional-Commit shape: `<type>(<optional scope>)?: <subject>`. Used to
- *  pluck the actual commit line out of a reasoning trace when a reasoning
- *  model (mimo, deepseek-reasoner, …) emits its answer inside
- *  `reasoning_content` and leaves the regular `text` field empty. */
+/** Conventional Commit shape. Used to pull the commit line out of a reasoning trace when `text` is empty. */
 const COMMIT_LINE_RE =
   /^\s*(feat|fix|refactor|add|remove|docs|style|test|chore|perf|build|ci)(\([^)]+\))?:\s+.+$/im;
 
-/** Last-ditch extraction: scan reasoning text bottom-up for a line that
- *  matches the Conventional Commit shape. Reasoning traces typically end
- *  with the model's final answer, so the LAST matching line is the safest
- *  pick. Returns the matched line trimmed, or an empty string. */
+/** Scan reasoning text bottom-up for a Conventional Commit line. The last match is the safest pick. */
 function salvageFromReasoning(reasoning: string): string {
   if (!reasoning) return "";
   const lines = reasoning.split(/\r?\n/);
@@ -111,9 +99,7 @@ function salvageFromReasoning(reasoning: string): string {
   return "";
 }
 
-/** Strip stray markdown/quoting and clamp to 72 chars. Models sometimes wrap
- *  the line in backticks or add a leading "Commit message:" preface despite
- *  the system prompt. */
+/** Strip stray markdown and quoting; clamp to 72 chars. */
 function sanitize(text: string): string {
   let s = text.trim();
   // Take first non-empty line.
@@ -134,14 +120,11 @@ function sanitize(text: string): string {
 
 export type GenerateCommitMessageResult = {
   message: string;
-  /** True when we couldn't reach the model and returned a deterministic
-   *  fallback. The caller should surface a non-error toast so the user
-   *  understands the message isn't AI-generated. */
+  /** True when the deterministic fallback was used. */
   fallback: boolean;
-  /** Reason for falling back (network, no-key, no-diff, truncated, etc). */
+  /** Reason for falling back: network, no-key, no-diff, truncated, etc. */
   reason?: string;
-  /** Human-friendly label of the model we tried to use. Surfaced in the
-   *  success/warning toast so the user can verify which model ran. */
+  /** Label of the model attempted. Surfaced in toasts. */
   modelLabel?: string;
 };
 
@@ -151,11 +134,7 @@ type ResolvedModel = {
   label: string;
 };
 
-/** Resolve the display label for an (id, provider) pair. When both are
- *  given we trust the provider explicitly - this matters for ids that
- *  exist under multiple providers (e.g. `claude-sonnet-4-6` is shipped
- *  by both Anthropic and SumoPod). When provider is unknown, fall back
- *  to id-only registry lookup. */
+/** Display label for an (id, provider) pair. Trusts an explicit provider when supplied (some ids exist under multiple providers). */
 function labelFor(id: string, provider: ProviderId | null): string {
   const info = tryGetModel(id);
   if (provider && info?.provider === provider) return info.label;
@@ -166,22 +145,17 @@ function labelFor(id: string, provider: ProviderId | null): string {
   return info?.label ?? id;
 }
 
-/** Check if the given provider has a usable key (or doesn't need one). */
+/** True when the provider has a key, or doesn't need one. */
 function isProviderUsable(provider: ProviderId, apiKeys: ProviderKeys): boolean {
   if (!providerNeedsKey(provider)) return true;
   return !!apiKeys[provider];
 }
 
-/** Build the prioritized list of (id, provider) candidates to try for
- *  commit-message generation. The Settings default wins because that's
- *  what the user explicitly chose as "the model" - the chat picker's
- *  last pick is a secondary fallback when the default isn't usable
- *  (no key, provider stripped, etc.). Hardcoded DEFAULT_MODEL_ID is
- *  the final safety net so the function always returns at least one
- *  candidate.
- *
- *  De-duped while preserving order - the same (id, provider) pair only
- *  needs to be tried once even if multiple sources point at it. */
+/**
+ * Prioritized (id, provider) candidates. Order: Settings default, chat picker's
+ * last pick, in-memory chat selection, `DEFAULT_MODEL_ID` as safety net.
+ * De-duped while preserving order.
+ */
 function resolveModelCandidates(): ResolvedModel[] {
   const prefs = usePreferencesStore.getState();
   const chat = useChatStore.getState();
@@ -204,31 +178,28 @@ function resolveModelCandidates(): ResolvedModel[] {
     });
   };
 
-  // 1. Settings default - the user's explicit "use this for commit AI".
+  // Settings default.
   push(prefs.defaultModelId, prefs.defaultProviderId);
-  // 2. Last chat-picker selection - what the rest of the app is using.
+  // Last chat-picker selection.
   push(prefs.lastModelId, prefs.lastProviderId);
-  // 3. In-memory chat selection (mirrors prefs after boot).
+  // In-memory chat selection.
   push(chat.selectedModelId, chat.selectedProvider);
-  // 4. Hardcoded final safety net.
+  // Hardcoded fallback.
   push(DEFAULT_MODEL_ID, tryGetModel(DEFAULT_MODEL_ID)?.provider ?? "openai");
   return out;
 }
 
-/** Pick the first candidate whose provider has a usable key. If none do,
- *  return the first candidate anyway so the caller can surface a meaningful
- *  "no key configured" error pointing at the *intended* model. */
+/** First candidate with a usable key. Falls back to the first candidate so the caller can surface a clear "no key" error. */
 function pickUsableModel(apiKeys: ProviderKeys): ResolvedModel {
   const candidates = resolveModelCandidates();
   const usable = candidates.find((c) => isProviderUsable(c.provider, apiKeys));
   return usable ?? candidates[0];
 }
 
-/** Loads the staged + working-tree diff via Tauri, asks the active model
- *  to summarise it as a Conventional Commit, and returns a one-line message.
- *  Never throws - failures resolve with `fallback: true` and a deterministic
- *  message derived from the change list so the UI can still populate the
- *  input field. */
+/**
+ * Asks the active model to summarize the diff as a one-line Conventional Commit.
+ * Never throws; failures resolve with `fallback: true` and a deterministic message.
+ */
 export async function generateCommitMessage(input: {
   repoPath: string;
   diff: string;
@@ -248,9 +219,7 @@ export async function generateCommitMessage(input: {
     };
   }
 
-  // Surface a clear, actionable message when the picked model's provider
-  // has no key. Without this the error bubbles up as a generic
-  // `buildLanguageModel` throw and the toast looks like a network fault.
+  // Surface a clear "no key" message instead of a generic build error.
   if (!isProviderUsable(resolved.provider, apiKeys)) {
     return {
       message: fallbackCommitMessage(changes),
@@ -267,10 +236,8 @@ export async function generateCommitMessage(input: {
       lmstudioBaseURL: prefs.lmstudioBaseURL,
       openaiCompatibleBaseURL: prefs.openaiCompatibleBaseURL,
     });
-    // Deliberately omit `temperature` - some providers (notably OpenAI's
-    // reasoning models o1/o3 and a few openai-compatible backends) reject
-    // sampling params with a 400. The strict system prompt + sanitize()
-    // give us deterministic-enough output without it.
+    // Omit `temperature`. OpenAI reasoning models and some compatible
+    // backends reject sampling params with a 400.
     const result = await generateText({
       model,
       system: SYSTEM_PROMPT,
@@ -280,9 +247,7 @@ export async function generateCommitMessage(input: {
     });
     let cleaned = sanitize(result.text);
     if (!cleaned) {
-      // Reasoning models (e.g. mimo via SumoPod) sometimes emit the final
-      // answer inside `reasoning_content` and leave `text` empty - dig the
-      // commit line out of the reasoning trace before giving up.
+      // Some reasoning models put the answer in `reasoning_content` and leave `text` empty.
       const reasoning = (result as { reasoningText?: string }).reasoningText ?? "";
       cleaned = sanitize(salvageFromReasoning(reasoning));
     }

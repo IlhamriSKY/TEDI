@@ -1,16 +1,14 @@
-//! Install pipeline: read a .zip (from disk, bytes, or URL), validate it,
-//! extract into `<extensions_dir>/<id>/` after wiping any existing folder
-//! for that id, then write/update the persisted state entry.
+//! Install pipeline for extensions.
 //!
-//! Security guards:
-//!   - `enclosed_name()` rejects any zip entry that resolves outside the
-//!     destination root. Symlinks created by zip entries are not honoured -
-//!     `zip` crate writes them as data files unless explicitly enabled.
-//!   - Total uncompressed size capped at `MAX_INSTALL_BYTES` to defeat
-//!     decompression bombs.
-//!   - Per-entry size capped at `MAX_FILE_BYTES`.
-//!   - Manifest is parsed *before* committing the new folder so a malformed
-//!     drop never replaces a known-good install.
+//! Reads a .zip from disk, bytes, or URL, validates it, extracts into
+//! `<extensions_dir>/<id>/`, then updates the persisted state entry. Any
+//! existing folder for the same id is wiped first.
+//!
+//! Guards: `enclosed_name()` rejects zip entries that resolve outside the
+//! destination root. Symlinks are written as data files (not followed).
+//! Total uncompressed size capped at `MAX_INSTALL_BYTES`; per-entry at
+//! `MAX_FILE_BYTES`. Manifest is parsed before committing so a malformed
+//! package never replaces a working install.
 
 use std::fs;
 use std::io::{self, Read};
@@ -24,26 +22,24 @@ use super::commands::PeekResult;
 use super::manifest::Manifest;
 use super::state::{now_ms, save as save_state, ExtensionEntry};
 
-/// 50 MiB - generous for a JS bundle + theme assets, snug enough that a
-/// runaway/garbage archive doesn't fill the user's disk before we notice.
+/// 50 MiB cap on the whole package. Fits a JS bundle plus theme assets
+/// without letting a runaway archive fill the user's disk.
 const MAX_INSTALL_BYTES: u64 = 50 * 1024 * 1024;
-/// 10 MiB per file - a single inlined font is normally <500 KiB; a single
-/// asset above this is suspicious for the kinds of extensions we expect.
+/// 10 MiB per file. Inlined fonts are normally <500 KiB; anything above
+/// this is suspicious for the extensions we expect.
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 pub struct InstallOutcome {
     pub manifest: Manifest,
     pub entry: ExtensionEntry,
-    /// `true` when the installed id replaced an existing entry. The UI
-    /// uses this to decide whether to surface "updated" vs "installed".
-    /// Wired through to the frontend via the `replaced` field on the
-    /// JSON returned by `ext_install_from_*` once the install UI grows
-    /// a distinct "updated" toast.
+    /// `true` when the install replaced an existing entry. UI uses this to
+    /// pick "updated" vs "installed" copy. Surfaced through `ext_install_from_*`
+    /// once the UI grows a distinct "updated" toast.
     #[allow(dead_code)]
     pub replaced: bool,
 }
 
-/// Top-level pipeline. `source` is recorded verbatim in the state file.
+/// Run the install pipeline. `source` is recorded verbatim in the state file.
 pub fn install_from_bytes(
     extensions_root: &Path,
     state_path: &Path,
@@ -58,7 +54,7 @@ pub fn install_from_bytes(
         ));
     }
 
-    // Stage to a temp dir under the extensions root so the swap is atomic-ish.
+    // Stage to a temp dir under the extensions root for an atomic-ish swap.
     fs::create_dir_all(extensions_root).map_err(|e| format!("mkdir root: {e}"))?;
     let staging = extensions_root.join(format!(".staging-{}", now_ms()));
     if staging.exists() {
@@ -88,8 +84,8 @@ pub fn install_from_bytes(
         }
     };
 
-    // Validate `main` if declared - rejecting here keeps a broken extension
-    // out of the activation path.
+    // Validate `main` if declared so a broken extension does not reach
+    // the activation path.
     if let Some(main) = manifest.main.as_deref() {
         let resolved = resolve_inside_root(&staging, main)
             .ok_or_else(|| "manifest.main path escapes extension root".to_string())?;
@@ -99,17 +95,16 @@ pub fn install_from_bytes(
         }
     }
 
-    // Commit: move staging to <root>/<id>. Replace any existing folder
-    // for the same id; the user already approved the install/update.
+    // Commit: move staging to <root>/<id>, replacing any existing folder
+    // for the same id.
     //
-    // On Windows, a running sidecar binary inside the old folder
-    // locks every file under it and turns `fs::remove_dir_all` into
-    // "Access is denied (os error 5)". Renaming the *directory* is
-    // allowed even when files inside are in use (NTFS tracks files
-    // by handle, not path), so we rename the old install out of the
-    // way and let a background thread delete the trash. The new
-    // install can land at `dest` immediately. Stale `.trash-*` dirs
-    // are reaped by `sweep_stale_staging` on the next list call.
+    // On Windows, a running sidecar binary inside the old folder locks
+    // every file under it and turns `fs::remove_dir_all` into "Access is
+    // denied (os error 5)". Renaming the directory works even when files
+    // inside are in use (NTFS tracks files by handle, not path), so we
+    // rename the old install aside and let a background thread delete the
+    // trash. The new install lands at `dest` immediately. Stale `.trash-*`
+    // dirs are reaped by `sweep_stale_staging` on the next list call.
     let dest = extensions_root.join(&manifest.id);
     let replaced = dest.exists();
     if replaced {
@@ -122,14 +117,14 @@ pub fn install_from_bytes(
                 });
             }
             Err(rename_err) => {
-                // Fallback: try direct remove (works on Linux/macOS
-                // because Unix file handles survive unlink). On
-                // Windows this is the original failure path - surface
-                // both errors so the cause is clear.
+                // Fallback: direct remove. Works on Linux/macOS because Unix
+                // file handles survive unlink. On Windows this is the
+                // original failure path; surface both errors so the cause
+                // is clear.
                 fs::remove_dir_all(&dest).map_err(|e| {
                     format!(
                         "remove old: {e} (rename also failed: {rename_err}). \
-                         The extension's sidecar may still be holding files open - \
+                         The extension's sidecar may still be holding files open; \
                          disable the extension first, then retry."
                     )
                 })?;
@@ -142,19 +137,18 @@ pub fn install_from_bytes(
         format!("commit install: {e}")
     })?;
 
-    // Unix only: extensions that ship a sidecar binary under `sidecar/`
-    // need it executable. Zips can't carry POSIX mode bits reliably
-    // across packagers, so we set 0o755 ourselves. Scoped to the
-    // `sidecar/` subtree so we don't surprise authors by chmoding their
-    // JS / JSON / asset files. No-op on Windows.
+    // Unix only: chmod 0o755 over `sidecar/` so bundled binaries are
+    // executable. Zips do not carry POSIX mode bits reliably across
+    // packagers. Scoped to `sidecar/` so we do not touch JS / JSON /
+    // asset files. No-op on Windows.
     #[cfg(unix)]
     {
         let sidecar_root = dest.join("sidecar");
         if sidecar_root.exists() {
             if let Err(err) = make_sidecar_executable(&sidecar_root) {
-                // Best-effort: surface as a soft error in the log but
-                // don't abort the install. The extension can still try
-                // to spawn and report a clearer failure to the user.
+                // Best-effort: log as a soft error but do not abort the
+                // install. The extension can still try to spawn and report
+                // a clearer failure.
                 eprintln!("[extensions] chmod sidecar failed: {err}");
             }
         }
@@ -162,10 +156,9 @@ pub fn install_from_bytes(
 
     // Windows only: strip the Mark-of-the-Web alternate data stream
     // (`Zone.Identifier`) from every file under `sidecar/`. Tauri's
-    // `reqwest`-based download attaches MOTW to anything we write,
-    // which makes SmartScreen / Defender refuse to execute the binary
-    // silently when an extension tries to launch it via shell_bg_spawn.
-    // Same effect as PowerShell's `Unblock-File`, just done in Rust.
+    // `reqwest` download attaches MOTW to everything we write, which makes
+    // SmartScreen / Defender silently refuse to launch the binary via
+    // shell_bg_spawn. Same effect as PowerShell's `Unblock-File`.
     #[cfg(target_os = "windows")]
     {
         let sidecar_root = dest.join("sidecar");
@@ -190,9 +183,8 @@ pub fn install_from_bytes(
         version: manifest.version.clone(),
         fingerprint,
         approved_permissions: manifest.permissions.clone(),
-        // Install resets the "latest_version" hint - the new install IS
-        // the latest the user has seen. The next manual update check
-        // re-populates it.
+        // Install resets the "latest_version" hint; the new install IS the
+        // latest the user has seen. The next manual update check repopulates it.
         latest_version: None,
         last_checked_at_ms: None,
     };
@@ -207,15 +199,14 @@ pub fn install_from_bytes(
 }
 
 /// Walk the zip and write each entry into `dest`. Path traversal is rejected
-/// via `enclosed_name()`. Some zips wrap their content in a single root
-/// folder (e.g. GitHub release archives); we unwrap that automatically when
-/// every entry shares the same first segment AND `manifest.json` sits at
-/// `<segment>/manifest.json`.
+/// via `enclosed_name()`. When every entry shares the same first segment and
+/// `<segment>/manifest.json` exists (e.g. GitHub release archives), that
+/// prefix is stripped on extract.
 fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
     let reader = io::Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(reader).map_err(|e| format!("open zip: {e}"))?;
 
-    // Pre-scan for the optional single-root unwrap.
+    // Pre-scan for an optional single-root unwrap.
     let strip_prefix = detect_single_root(&mut archive)?;
 
     let mut total_bytes: u64 = 0;
@@ -247,8 +238,8 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
         }
 
         let target = dest.join(&rel);
-        // Re-check that the target stays under `dest` (defence in depth -
-        // `enclosed_name` already filters but cheap to assert again).
+        // Re-check that the target stays under `dest`. Defence in depth;
+        // `enclosed_name` already filters but the assert is cheap.
         if !target.starts_with(dest) {
             return Err(format!("zip entry escapes root: {}", rel.display()));
         }
@@ -282,9 +273,8 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
         let mut out = fs::File::create(&target)
             .map_err(|e| format!("create {}: {e}", target.display()))?;
         let mut buf = Vec::with_capacity(entry_size as usize);
-        // Cap copy to prevent a malicious zip header from claiming a small
-        // size but streaming more bytes. `take` enforces the same cap on the
-        // decompressor side.
+        // Cap copy so a malicious zip header that claims a small size cannot
+        // stream more bytes. `take` enforces the cap on the decompressor side.
         let mut limited = entry.by_ref().take(MAX_FILE_BYTES + 1);
         limited
             .read_to_end(&mut buf)
@@ -301,10 +291,9 @@ fn extract_into(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// If every non-empty entry begins with the same first path segment and
-/// `<segment>/manifest.json` is inside the archive, return that segment so
-/// we can strip it during extraction (so GitHub-style `repo-<sha>/...`
-/// archives flatten cleanly).
+/// Return the shared first path segment if every non-empty entry begins with
+/// it and `<segment>/manifest.json` is in the archive. Lets GitHub-style
+/// `repo-<sha>/...` archives flatten cleanly.
 fn detect_single_root(archive: &mut ZipArchive<io::Cursor<&[u8]>>) -> Result<Option<String>, String> {
     let mut candidate: Option<String> = None;
     let mut saw_nested_manifest = false;
@@ -340,7 +329,7 @@ fn detect_single_root(archive: &mut ZipArchive<io::Cursor<&[u8]>>) -> Result<Opt
 }
 
 fn resolve_inside_root(root: &Path, rel: &str) -> Option<PathBuf> {
-    // Reject absolute / parent-traversal inputs outright.
+    // Reject absolute or parent-traversal inputs.
     if rel.contains("..") || rel.starts_with('/') || rel.starts_with('\\') {
         return None;
     }
@@ -352,8 +341,8 @@ fn resolve_inside_root(root: &Path, rel: &str) -> Option<PathBuf> {
     }
 }
 
-/// Stable fingerprint of an extension directory: sorted (rel-path, sha256(file))
-/// pairs, then hashed. Independent of timestamp.
+/// Stable fingerprint of an extension directory. Sorts (rel-path,
+/// sha256(file)) pairs, then hashes them. Independent of timestamps.
 fn hash_dir(root: &Path) -> Result<String, String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     walk(root, root, &mut entries)?;
@@ -398,14 +387,13 @@ pub fn resolve_asset(root: &Path, rel: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("asset path escapes extension root: {rel}"))
 }
 
-/// Windows: remove the `Zone.Identifier` NTFS alternate data stream
-/// from every file under `root`. This is the on-disk equivalent of
-/// PowerShell's `Unblock-File` and lets SmartScreen / Defender run an
-/// extension's bundled binary without prompting (or, more commonly,
-/// silently refusing to launch via shell_bg_spawn).
+/// Windows: remove the `Zone.Identifier` NTFS alternate data stream from
+/// every file under `root`. Same effect as PowerShell's `Unblock-File`; lets
+/// SmartScreen / Defender run a bundled binary instead of silently refusing
+/// to launch via shell_bg_spawn.
 ///
-/// We strip via `DeleteFileW` on the `<path>:Zone.Identifier` stream
-/// name. `ERROR_FILE_NOT_FOUND` is fine; only real errors are surfaced.
+/// Strips via `DeleteFileW` on the `<path>:Zone.Identifier` stream name.
+/// `ERROR_FILE_NOT_FOUND` is fine; only real errors surface.
 #[cfg(target_os = "windows")]
 fn strip_motw_from_tree(root: &Path) -> Result<(), String> {
     let entries = fs::read_dir(root)
@@ -436,17 +424,17 @@ fn strip_motw_from_file(path: &Path) {
         .encode_wide()
         .chain(std::iter::once(0u16))
         .collect();
-    // SAFETY: `wide` is a null-terminated UTF-16 buffer that lives for
-    // the duration of the call; DeleteFileW only reads it.
+    // SAFETY: `wide` is a null-terminated UTF-16 buffer that lives for the
+    // call. DeleteFileW only reads it.
     unsafe {
         let _ = DeleteFileW(wide.as_ptr());
     }
 }
 
-/// Recursive `chmod 0o755` of every file under `sidecar_root`. Used
-/// post-install so extensions that ship a native sidecar binary don't
-/// require each end user to `chmod +x` by hand. Directories keep their
-/// default mode (`fs::create_dir_all` already gives them 0o755).
+/// Recursive `chmod 0o755` of every file under `sidecar_root`. Run after
+/// install so extensions that ship a native sidecar binary do not require
+/// each user to `chmod +x` by hand. Directories keep their default mode
+/// (`fs::create_dir_all` already gives 0o755).
 #[cfg(unix)]
 fn make_sidecar_executable(sidecar_root: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
@@ -468,9 +456,9 @@ fn make_sidecar_executable(sidecar_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Read-only inspection of a zip. Same single-root unwrap + size caps as
+/// Read-only inspection of a zip. Same single-root unwrap and size caps as
 /// the install pipeline, but never writes to disk. Used by the install
-/// dialog to render icon + manifest preview before the user confirms.
+/// dialog to render icon and manifest preview before the user confirms.
 pub fn peek_bytes(zip_bytes: &[u8], source: &str) -> Result<PeekResult, String> {
     if zip_bytes.len() as u64 > MAX_INSTALL_BYTES {
         return Err(format!(
@@ -489,7 +477,7 @@ pub fn peek_bytes(zip_bytes: &[u8], source: &str) -> Result<PeekResult, String> 
         .map_err(|e| format!("manifest.json is not valid UTF-8: {e}"))?;
     let manifest = Manifest::parse(&manifest_text)?;
 
-    // Best-effort icon read. A missing/broken icon is not fatal: the
+    // Best-effort icon read. A missing or broken icon is not fatal; the
     // dialog falls back to the letter avatar.
     let (icon_base64, icon_rel_path) = match manifest.icon.as_deref() {
         Some(icon_rel) if !icon_rel.is_empty() => {
@@ -512,10 +500,10 @@ pub fn peek_bytes(zip_bytes: &[u8], source: &str) -> Result<PeekResult, String> 
     })
 }
 
-/// Read one logical entry from the archive by relative path, accounting
-/// for an optional single-root prefix the same way `extract_into` does.
-/// Returns `Ok(None)` when the entry doesn't exist. Per-entry size is
-/// still capped at `MAX_FILE_BYTES`.
+/// Read one logical entry from the archive by relative path. Accounts for
+/// an optional single-root prefix the same way `extract_into` does. Returns
+/// `Ok(None)` when the entry is missing. Per-entry size capped at
+/// `MAX_FILE_BYTES`.
 fn read_entry(
     archive: &mut ZipArchive<io::Cursor<&[u8]>>,
     strip_prefix: Option<&str>,

@@ -1,7 +1,5 @@
-// Unified pane tree. A leaf can be either a terminal or an editor - the
-// host renders the appropriate component per leaf. `kind: "leaf"` is kept
-// for back-compat with all the existing terminal-only call sites; the new
-// discriminator is `leafKind`.
+// Unified pane tree. Leaves are terminal or editor. `kind: "leaf"` stays
+// for back-compat; the new discriminator is `leafKind`.
 
 export type PaneId = number;
 
@@ -11,39 +9,29 @@ export type TerminalLeafState = {
   leafKind: "terminal";
   cwd?: string;
   /**
-   * If set, this terminal leaf connects to a saved SSH host instead of
-   * spawning a local PTY. The string is the connection id from the SSH
-   * connections store; `cwd` is ignored when this is set (the remote
-   * shell decides the working dir).
+   * Saved SSH connection id. When set, connects to that host instead of
+   * spawning a local PTY; `cwd` is ignored.
    */
   sshConnectionId?: string;
   /**
-   * Stable FIFO creation index — the 1-based number rendered on the tab
-   * chip and surfaced to the AI in the per-turn `<env>` block. Assigned
-   * once when the leaf is created and travels with the leaf across split
-   * moves, tab reorders, workspace serialisation, and app restarts. Drag
-   * does NOT renumber. Optional only to keep the type backward-compatible
-   * with saved state from older builds; live code always populates it.
+   * FIFO creation index. 1-based, shown on the tab chip and surfaced to the
+   * AI in `<env>`. Set at creation, preserved across split/drag/restart.
+   * Optional for back-compat with older saved state.
    */
   terminalOrdinal?: number;
 };
 
 export type EditorLeafState = {
   leafKind: "editor";
-  /** Absolute (forward-slash) path of the file open in this leaf. */
+  /** Absolute forward-slash path of the open file. */
   path: string;
-  /** Mirrors the unsaved-edits state of the underlying CodeMirror buffer. */
+  /** Unsaved-edits state of the CodeMirror buffer. */
   dirty: boolean;
-  /** VSCode-style preview tab indicator (italic title). */
+  /** VSCode-style preview indicator (italic title). */
   preview: boolean;
-  /** When set, this leaf edits a remote file via the matching russh
-   *  session. The editor pane branches to SFTP read/write instead of the
-   *  local FS Tauri commands. `path` is still the (forward-slash) absolute
-   *  path on the remote side. */
+  /** When set, edits a remote file via the matching russh session (SFTP). */
   sshSessionId?: number;
-  /** `user@host:port` for the remote host - shown in the tab tooltip /
-   *  status bar so the user can tell a remote tab apart from a local one
-   *  at a glance. Only meaningful when `sshSessionId` is set. */
+  /** `user@host:port` for the remote host. Only set when `sshSessionId` is set. */
   sshHostLabel?: string;
 };
 
@@ -92,7 +80,7 @@ export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
   return findLeaf(tree, id) !== null;
 }
 
-/** Update a terminal leaf's cwd. No-op for editor leaves or non-matching ids. */
+/** Update a terminal leaf's cwd. No-op for editor leaves or mismatched ids. */
 export function setLeafCwd(n: PaneNode, id: PaneId, cwd: string): PaneNode {
   if (isLeaf(n)) {
     if (n.id !== id || n.leafKind !== "terminal") return n;
@@ -117,10 +105,7 @@ export function updateEditorLeaf(
   };
 }
 
-/**
- * Insert a new leaf next to `targetId` in direction `dir`. If the target's
- * enclosing split already runs in `dir`, the new leaf joins as a sibling.
- */
+/** Insert a new leaf next to `targetId` in `dir`. Joins as a sibling if the enclosing split already runs that way. */
 export function splitLeaf(
   tree: PaneNode,
   targetId: PaneId,
@@ -205,20 +190,10 @@ export function siblingLeafOf(tree: PaneNode, leafId: PaneId): PaneId | null {
 }
 
 /**
- * Pair `leafId` with its **immediate sibling** in the parent split and
- * wrap the pair in a new sub-split with the opposite direction. The pair
- * is the leaf to the right when possible, falling back to the left when
- * the leaf is the last child. Other siblings of the parent split are
- * **not** touched.
- *
- * For a flat 2-leaf split this collapses to "flip the parent's dir" - the
- * single resulting sub-split is unwrapped because it would otherwise be
- * an only-child wrapper. For 3+ leaves it produces a nested layout where
- * just the clicked pair rotates and the others keep their position.
- *
- * Returns `null` if nothing changed (leaf not found, leaf is a sole child
- * of its parent split, or tree is a bare leaf). Caller supplies
- * `newSplitId` for the wrapping sub-split.
+ * Pair `leafId` with its immediate sibling and wrap them in a sub-split with
+ * opposite direction. Prefers the right neighbor, falls back to left. Other
+ * siblings of the parent split are untouched. For a flat 2-leaf split, this
+ * collapses to flipping the parent's direction. Returns null on no-op.
  */
 export function rotateLeafWithNeighbor(
   tree: PaneNode,
@@ -228,7 +203,7 @@ export function rotateLeafWithNeighbor(
   if (isLeaf(tree)) return null;
   const idx = tree.children.findIndex((c) => isLeaf(c) && c.id === leafId);
   if (idx >= 0) {
-    // Prefer right neighbor; fall back to left when at the tail.
+    // Prefer right neighbor. Fall back to left when at the tail.
     const neighborIdx = idx + 1 < tree.children.length ? idx + 1 : idx - 1;
     if (neighborIdx < 0) return null;
     const lo = Math.min(idx, neighborIdx);
@@ -241,13 +216,11 @@ export function rotateLeafWithNeighbor(
     };
     const newChildren = [...tree.children];
     newChildren.splice(lo, 2, pair);
-    // Outer wrapper became a one-child split (only happens when the
-    // parent had exactly 2 leaves originally) - unwrap it so the tree
-    // stays canonical.
+    // One-child wrapper after a 2-leaf collapse. Unwrap to keep the tree canonical.
     if (newChildren.length === 1) return newChildren[0];
     return { ...tree, children: newChildren };
   }
-  // Leaf lives deeper - recurse and rebuild on the path that found it.
+  // Leaf is deeper. Recurse and rebuild only on the matching path.
   let changed = false;
   const newChildren = tree.children.map((c) => {
     const r = rotateLeafWithNeighbor(c, leafId, newSplitId);
@@ -262,13 +235,9 @@ export function rotateLeafWithNeighbor(
 }
 
 /**
- * Reorder `leafId` within its **immediate split parent** so that it lands
- * just before `beforeLeafId` (or at the end of the parent's children when
- * `beforeLeafId === null`). No-op when the two leaves aren't direct siblings
- * of the same split — drag-to-reorder in the tab strip only shuffles within
- * one split level, it does not warp leaves across nested splits. Returns the
- * same tree by reference when nothing changes so callers can cheaply detect
- * no-ops.
+ * Reorder `leafId` within its immediate split parent. Lands before
+ * `beforeLeafId`, or at the end when null. No-op when the two leaves aren't
+ * direct siblings. Returns the same tree by reference on no-op.
  */
 export function reorderLeafInTree(
   tree: PaneNode,
@@ -310,11 +279,9 @@ export function reorderLeafInTree(
 }
 
 /**
- * Canonicalise a pane tree: flatten any nested split whose direction
- * matches its parent's, and unwrap any split that ends up with a single
- * child. Used after rotations so successive toggles on the same leaf
- * round-trip the tree back to its original shape instead of accumulating
- * redundant nesting like `split(row, [A, split(row, [B, C])])`.
+ * Canonicalize the tree. Flattens nested splits matching the parent's
+ * direction and unwraps single-child splits. Used after rotations so
+ * successive toggles round-trip the tree.
  */
 export function normalizePaneTree(node: PaneNode): PaneNode {
   if (isLeaf(node)) return node;
@@ -331,7 +298,7 @@ export function normalizePaneTree(node: PaneNode): PaneNode {
   return { ...node, children: flattened };
 }
 
-/** First leaf of a given kind (used to find a default editor target etc.). */
+/** First leaf of a given kind. */
 export function firstLeafOfKind(tree: PaneNode, kind: LeafState["leafKind"]): PaneLeaf | null {
   for (const l of leaves(tree)) {
     if (l.leafKind === kind) return l;

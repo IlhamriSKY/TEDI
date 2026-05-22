@@ -2,8 +2,8 @@ import { memo } from "react";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
-import { StatusBarContextIndicator, useChatStore } from "@/modules/ai";
-import { ExtensionStatusItems } from "@/modules/extensions";
+import { useChatStore } from "@/modules/ai";
+import { ExtensionStatusItems, RightPanelToggleButtons } from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { UpdaterPill } from "@/modules/updater";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
@@ -18,17 +18,15 @@ type Props = {
   home: string | null;
   onCd: (path: string) => void;
   onOpenMini: () => void;
-  /** Only rendered when the AI panel is open and a key is loaded. */
+  /** True when the AI panel is open and a key is loaded. */
   hasComposer: boolean;
-  /** When set, render a one-click "Open preview" chip pointing at this URL. */
+  /** When set, shows a one-click "Open preview" chip pointing at this URL. */
   detectedPreviewUrl?: string | null;
   onOpenPreview?: () => void;
 };
 
-// Memoised: callers pass useCallback-stable callbacks + primitive cwd / file
-// path / detectedPreviewUrl, so the shallow equality check skips render
-// whenever only unrelated parent state churned (tab open/close, OSC 7
-// updates, AI streaming).
+// Memoized. Callbacks are stable and props are primitives, so shallow equality
+// skips re-render on unrelated parent updates.
 function StatusBarInner({
   cwd,
   filePath,
@@ -49,9 +47,7 @@ function StatusBarInner({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {/* Extension-contributed status icons, leftmost in the status
-            cluster so they don't fight the AI / updater pills for
-            primary attention. */}
+        {/* Extension-contributed status icons, leftmost. */}
         <ExtensionStatusItems />
         <ZoomIndicator />
         <SchedulerStatusPill />
@@ -77,8 +73,10 @@ function StatusBarInner({
             </button>
           </IconTooltip>
         ) : null}
-        <StatusBarContextIndicator />
         <AgentStatusPill onClick={onOpenMini} />
+        {/* Extension-contributed right-panel toggles from the `panels`
+            contribution (surface="right"). */}
+        <RightPanelToggleButtons />
         {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
       </div>
     </footer>

@@ -6,13 +6,13 @@ export type VimHandlers = { save: () => void; close: () => void };
 
 const handlers = new WeakMap<EditorView, VimHandlers>();
 
-/** A CodeMirror extension that binds :w / :q handlers to this view. */
+/** CodeMirror extension binding :w / :q handlers to this view. */
 export function vimHandlersExtension(getHandlers: () => VimHandlers): Extension {
   return ViewPlugin.define((view) => {
     handlers.set(view, getHandlers());
     return {
       update() {
-        // Keep handlers fresh in case the closure captured stale refs.
+        // Refresh handlers so closures don't hold stale refs.
         handlers.set(view, getHandlers());
       },
       destroy() {
@@ -57,9 +57,9 @@ export function initVimGlobals(): void {
     h?.close();
   });
 
-  // Arrow keys are forwarded by the plugin to the editor scope handlers,
-  // which breaks operator-pending (d<Up>) and counts (15<Up>). Remap to
-  // hjkl so they stay inside the vim state machine.
+  // Arrow keys would forward to editor-scope handlers, breaking
+  // operator-pending (d<Up>) and counts (15<Up>). Remap to hjkl so
+  // they stay inside the vim state machine.
   Vim.map("<Up>", "k", "normal");
   Vim.map("<Down>", "j", "normal");
   Vim.map("<Left>", "h", "normal");

@@ -30,33 +30,23 @@ import { useEffect, useState } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
 
-/// Sibling-panel SSH explorer. Visible only when there is at least one
-/// connected SSH leaf; tracks whichever SSH session was last connected so
-/// switching between SSH tabs swaps the tree to the right host without
-/// remounting the panel (and without dropping the local explorer next to
-/// it).
-///
-/// Security stance: every command is invoked against the remote SSH user's
-/// channel. There's no path filtering / sandboxing on the TEDI side — the
-/// kernel enforces permissions and surfaces `permission denied` to the
-/// branch the user tried to expand, leaving sibling subtrees untouched.
+// SSH explorer panel. Shown only when at least one SSH leaf is connected.
+// Swaps to whichever SSH session was last connected, so switching tabs
+// updates the tree without remounting.
+//
+// All operations run as the remote SSH user. The remote kernel enforces
+// permissions and returns `permission denied` per-branch.
 
 type Props = {
-  /** Russh session id; null = no live SSH session, render empty state. */
+  /** Russh session id. Null renders the empty state. */
   sessionId: number | null;
-  /** `user@host:port` style label for the panel header. */
+  /** `user@host:port` label for the header. */
   hostLabel: string | null;
-  /** Last-known cwd of the active SSH terminal leaf (OSC 7). When set,
-   *  the tree roots at this path instead of the SFTP-canonicalised
-   *  home directory, mirroring how the local file tree follows
-   *  whichever terminal pane is focused. */
+  /** Last-known cwd of the active SSH terminal leaf (from OSC 7). If set, roots the tree here instead of the SFTP home. */
   currentCwd?: string | null;
-  /** Open a remote file in an editor leaf. Called with the full remote
-   *  path; the caller is expected to thread `sessionId` + `hostLabel`
-   *  into the new leaf so reads/writes go through SFTP. */
+  /** Opens a remote file in an editor leaf. Caller must thread `sessionId` + `hostLabel` so reads/writes use SFTP. */
   onOpenFile?: (path: string, sessionId: number, hostLabel: string | null) => void;
-  /** Accordion mode: when set, the header becomes a chevron toggle and the
-   *  body is hidden while `collapsed` is true. */
+  /** Accordion mode: header becomes a toggle and the body hides when `collapsed`. */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 };
@@ -80,11 +70,8 @@ export function SshFileExplorer({
   const [homePath, setHomePath] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
 
-  // Resolve the remote home directory once per session as a fallback.
-  // SFTP `canonicalize(".")` lands the user wherever sshd points
-  // sftp-server at start (typically `$HOME`) — used when the active
-  // terminal leaf hasn't reported a cwd yet (e.g. the shell hasn't
-  // emitted OSC 7).
+  // Resolve the remote home once per session. Used as fallback when the
+  // active terminal leaf has not yet reported a cwd via OSC 7.
   useEffect(() => {
     if (sessionId === null) {
       setHomePath(null);
@@ -100,8 +87,8 @@ export function SshFileExplorer({
       })
       .catch((e: unknown) => {
         if (cancelled) return;
-        // Fall back to root so the user still sees *something* rather than
-        // a stuck empty panel; the read_dir call will surface its own error.
+        // Fall back to "/" so the user sees something. read_dir surfaces
+        // its own error if that also fails.
         setHomePath("/");
         setRootError(String(e));
       });
@@ -110,9 +97,8 @@ export function SshFileExplorer({
     };
   }, [sessionId]);
 
-  // Prefer the active terminal's cwd, fall back to the SFTP home.
-  // Empty string from cwd is treated as "not yet known" so we don't
-  // null-out the tree mid-session.
+  // Prefer the terminal cwd, else the SFTP home. Empty cwd means "unknown",
+  // not "null", to avoid blanking the tree mid-session.
   const rootPath = currentCwd && currentCwd.length > 0 ? currentCwd : homePath;
   const tree = useSshFileTree(sessionId, rootPath, { includeHidden: showHiddenFiles });
 
@@ -122,9 +108,8 @@ export function SshFileExplorer({
   const root = rootPath ? tree.nodes[rootPath] : undefined;
   const pendingAtRoot =
     rootPath && tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
-  // Tree shapes are structurally identical between local and SSH — we cast
-  // at this boundary so the existing recursive renderer can be reused
-  // without a parameterised refactor.
+  // Local and SSH tree shapes match, so cast here to reuse the recursive
+  // renderer without parameterising it.
   const treeForNode = tree as unknown as ReturnType<typeof useFileTree>;
 
   const titleNode = (
@@ -137,12 +122,9 @@ export function SshFileExplorer({
           className="text-muted-foreground shrink-0"
         />
       ) : null}
-      {/* Mirror the local FileExplorer header layout: a single
-          remote-server icon, then just the current directory's
-          basename. The full path + host live in the tooltip,
-          so the header stays a compact h-8 strip that doesn't
-          cut off whichever piece (host or cwd basename) the
-          user actually wants to read. */}
+      {/* Mirrors the local FileExplorer header: one server icon plus the
+          cwd basename. Full path and host go in the tooltip so the header
+          stays a compact h-8 strip. */}
       <HugeiconsIcon
         icon={CloudServerIcon}
         size={13}

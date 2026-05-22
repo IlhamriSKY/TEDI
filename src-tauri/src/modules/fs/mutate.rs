@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-/// Creates a new empty file. Fails if the file already exists.
+/// Create an empty file. Fails if it already exists.
 #[tauri::command]
 pub fn fs_create_file(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -13,9 +13,9 @@ pub fn fs_create_file(path: String) -> Result<(), String> {
     })
 }
 
-/// Creates a new directory. Fails if the directory already exists.
-/// Parents are created as needed - matches the common "new folder" UX
-/// where typing "a/b/c" creates the full chain.
+/// Create a directory, creating parents as needed. Fails if the path
+/// already exists. Matches the "new folder" UX where typing "a/b/c"
+/// creates the full chain.
 #[tauri::command]
 pub fn fs_create_dir(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -28,7 +28,7 @@ pub fn fs_create_dir(path: String) -> Result<(), String> {
     })
 }
 
-/// Renames (or moves) a path. Refuses to overwrite an existing target.
+/// Rename or move a path. Refuses to overwrite an existing target.
 #[tauri::command]
 pub fn fs_rename(from: String, to: String) -> Result<(), String> {
     let from_p = PathBuf::from(&from);
@@ -49,8 +49,8 @@ pub fn fs_rename(from: String, to: String) -> Result<(), String> {
     })
 }
 
-/// Deletes a file or directory (recursively for dirs). Callers are
-/// responsible for confirming destructive operations with the user.
+/// Delete a file or directory (recursive for dirs). Callers confirm
+/// destructive operations with the user.
 #[tauri::command]
 pub fn fs_delete(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);

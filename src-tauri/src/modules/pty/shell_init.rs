@@ -108,8 +108,8 @@ mod unix {
                         log::warn!("zsh shell integration disabled: {e}");
                     }
                 }
-                // Login shell so /etc/zprofile runs path_helper on macOS - without
-                // this, GUI-launched apps get a minimal PATH missing Homebrew.
+                // Login shell so /etc/zprofile runs path_helper on macOS.
+                // Without -l, GUI-launched apps get a minimal PATH missing Homebrew.
                 cmd.arg("-l");
             }
             Shell::Bash => {
@@ -123,7 +123,7 @@ mod unix {
                     }
                 }
                 // bash ignores --rcfile under -l, so we use -i and source
-                // /etc/profile from inside our rcfile to emulate login init.
+                // /etc/profile from inside the rcfile to emulate login init.
                 cmd.arg("-i");
             }
             Shell::Fish => {
@@ -192,7 +192,7 @@ mod unix {
                 return Ok(());
             }
         }
-        // Atomic replace: a parallel shell startup must never source a half-written file.
+        // Atomic replace so a parallel shell startup never sources a half-written file.
         let mut tmp: OsString = path.as_os_str().to_owned();
         tmp.push(".__tedi_tmp__");
         let tmp = PathBuf::from(tmp);

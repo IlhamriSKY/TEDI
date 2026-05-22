@@ -9,11 +9,9 @@ import { cn } from "@/lib/utils";
 import { useInfoModalStore } from "../store/infoModalStore";
 
 /**
- * Generic info dialog rendered globally (always mounted by AiInputBar). Used
- * by slash commands that need to surface persistent content (e.g. `/help`,
- * `/model` list, `/agents` list, `/cost`) — those produce information the
- * user wants to read, not a transient acknowledgement, so they cannot be
- * surfaced via toast (which auto-dismisses after a few seconds).
+ * Generic info dialog mounted globally by AiInputBar. Used by slash commands
+ * (`/help`, `/model`, `/agents`, `/cost`) that need persistent content rather
+ * than a transient toast.
  */
 export function InfoModal() {
   const current = useInfoModalStore((s) => s.current);

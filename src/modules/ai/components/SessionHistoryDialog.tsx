@@ -14,12 +14,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useChatStore } from "../store/chatStore";
 
 /**
- * Modal session-history picker. Triggered by `/history`, by clicking the
- * "Chat history" entry in the slash command picker, or via the title bar.
- *
- * Mirrors what the SessionPicker dropdown shows but in a full dialog so it's
- * keyboard-friendly and easier to scan — slash commands need a target that
- * doesn't depend on the title bar being visible.
+ * Modal session-history picker. Triggered by `/history`, the slash picker,
+ * or the title bar. Same data as SessionPicker, but a full dialog so slash
+ * commands can target it without depending on the title bar.
  */
 export function SessionHistoryDialog() {
   const open = useChatStore((s) => s.showHistoryPicker);

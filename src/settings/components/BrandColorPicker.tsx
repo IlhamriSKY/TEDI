@@ -5,8 +5,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BRAND_COLOR_DEFAULT, normalizeBrandColor, setBrandColor } from "@/modules/settings/store";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Color in HSV space, the natural shape for a saturation/value plane + hue
- *  slider picker. We round-trip via hex on commit. */
+/** Color in HSV. Round-trips via hex on commit. */
 type HSV = { h: number; s: number; v: number };
 
 function clamp01(n: number): number {
@@ -73,8 +72,7 @@ function SVPlane({ hsv, onChange }: { hsv: HSV; onChange: (next: HSV) => void })
       onPointerMove={(e) => {
         if (e.buttons === 1) handle(e);
       }}
-      // Hue base, then a left-to-right white -> transparent (saturation), then
-      // a bottom-to-top transparent -> black (value). Standard HSV plane.
+      // Standard HSV plane: hue base, left-to-right saturation, bottom-to-top value.
       className="relative h-40 w-full cursor-crosshair touch-none select-none"
       style={{
         backgroundColor: `hsl(${hsv.h} 100% 50%)`,
@@ -131,9 +129,7 @@ export function BrandColorPicker() {
   const brandColor = usePreferencesStore((s) => s.brandColor);
   const [hsv, setHsv] = useState<HSV>(() => hexToHsv(brandColor));
   const [draftHex, setDraftHex] = useState(brandColor);
-  // Track the last value we committed/echoed, so external pref updates
-  // (e.g. set from a second window) re-seed local state without an
-  // infinite loop with `commit` below.
+  // Last committed value. Lets external pref updates re-seed local state without looping.
   const lastSync = useRef(brandColor);
 
   // Re-seed local HSV/draft when the persisted color changes externally.

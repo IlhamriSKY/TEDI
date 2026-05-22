@@ -1,24 +1,16 @@
 /**
  * Permission gate for the extension host API.
  *
- * Permissions are simple kebab-case strings declared in the manifest and
- * approved by the user at install time. Format examples:
+ * Permissions are kebab-case strings declared in the manifest and approved
+ * at install time. Examples:
+ *   `settings:read`, `settings:write`
+ *   `secrets:read`, `secrets:write`
+ *   `invoke:my_command_*` (glob), `invoke:fs_read_file` (exact)
+ *   `events:emit`, `events:listen`
+ *   `ui:toast`, `ui:openTab`
+ *   `panels:register`
  *
- *   - `settings:read`               — read any preference
- *   - `settings:write`              — write any preference (own or built-in)
- *   - `secrets:read`                — read OS keychain entries
- *   - `secrets:write`               — write OS keychain entries
- *   - `invoke:my_command_*`         — call a Rust command matching the glob
- *   - `invoke:fs_read_file`         — call one exact Rust command
- *   - `events:emit`                 — emit (namespaced) Tauri events
- *   - `events:listen`               — listen on (namespaced) Tauri events
- *   - `ui:toast`                    — show toast notifications
- *   - `ui:openTab`                  — open new tabs in the main window
- *   - `panels:register`             — register sidebar/statusbar panels
- *
- * Anything not declared is denied at call time. The host throws a tagged
- * error so the extension can react gracefully instead of silently
- * misbehaving.
+ * Anything undeclared is denied; the host throws `PermissionDeniedError`.
  */
 
 export class PermissionDeniedError extends Error {
@@ -32,15 +24,12 @@ export class PermissionDeniedError extends Error {
 }
 
 const HARD_DENY_INVOKE: ReadonlySet<string> = new Set([
-  // Even with `invoke:*`, never let extensions read the entire keychain.
-  // Force them through the per-key `tedi.secrets.get(name)` path which
-  // makes the intended namespace obvious in the manifest review.
+  // Block keychain dump even with `invoke:*`. Use `tedi.secrets.get(name)`.
   "secrets_get_all",
 ]);
 
 export function checkPermission(declared: readonly string[], required: string): boolean {
-  // Wildcard - manifests can declare `*` for power-user installs, but we
-  // still show an extra-loud warning in the install dialog.
+  // Wildcard. Manifests can declare `*`; the install dialog warns loudly.
   if (declared.includes("*")) return true;
   for (const p of declared) {
     if (p === required) return true;
@@ -48,7 +37,7 @@ export function checkPermission(declared: readonly string[], required: string): 
       const prefix = p.slice(0, -1); // keep colon
       if (required.startsWith(prefix)) return true;
     }
-    // Glob form `invoke:foo_*` matches `invoke:foo_bar`.
+    // `invoke:foo_*` matches `invoke:foo_bar`.
     if (p.includes("*")) {
       const re = new RegExp("^" + p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
       if (re.test(required)) return true;
@@ -75,11 +64,11 @@ export function requirePermission(
   }
 }
 
-/** Human-readable risk label for the install dialog. Lower is safer. */
+/** Risk label for the install dialog. Lower is safer. */
 export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p === "*") return "high";
   if (p.startsWith("invoke:")) {
-    // Plain-data invokes are low; anything that touches FS/shell/secrets is high.
+    // FS/shell/secrets invokes are high; others medium.
     if (p.startsWith("invoke:fs_") || p.startsWith("invoke:shell_") || p.startsWith("invoke:secrets_"))
       return "high";
     return "medium";
@@ -91,10 +80,8 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p.startsWith("ui:")) return "low";
   if (p.startsWith("panels:")) return "low";
   if (p.startsWith("statusbar:")) return "low";
-  // `shell:transform` lets an extension rewrite every shell command the
-  // AI agent issues. That's strictly more power than reading the
-  // command — the extension chooses what actually runs. Surface that
-  // clearly at install time.
+  // `shell:transform` lets an extension rewrite every AI shell command;
+  // mark high so the install dialog flags it.
   if (p === "shell:transform") return "high";
   return "medium";
 }

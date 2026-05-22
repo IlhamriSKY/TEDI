@@ -7,7 +7,7 @@ import { EditorView } from "@codemirror/view";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { colorDecorations, colorLinesField } from "./colorDecorations";
 
-// Compartments allow runtime reconfiguration without rebuilding state.
+// Compartments for runtime reconfigure without rebuilding state.
 export const languageCompartment = new Compartment();
 export const readOnlyCompartment = new Compartment();
 export const wrapCompartment = new Compartment();
@@ -18,8 +18,8 @@ export function buildMinimapExtension(): Extension {
   return minimapExtension();
 }
 
-// VSCode-style fold gutter: chevrons stay hidden until the gutter is hovered;
-// folded regions keep their marker visible so collapsed sections are obvious.
+// VS Code-style fold gutter. Chevrons hide until hover; folded markers
+// stay visible so collapsed sections are obvious.
 function makeFoldMarker(open: boolean): HTMLElement {
   const span = document.createElement("span");
   span.className = "cm-foldMarker" + (open ? " cm-foldMarker-open" : "");
@@ -30,18 +30,15 @@ function makeFoldMarker(open: boolean): HTMLElement {
 }
 
 function minimapExtension(): Extension {
-  // Deps:
-  // - "doc"      → re-parse on edits + pick up new color decorations.
-  // - language   → recompute once our async `resolveLanguage` reconfigures
-  //                the language compartment, otherwise the first paint runs
-  //                before the parser arrives and the minimap stays uncolored
-  //                until the next keystroke.
+  // Deps: "doc" re-parses on edits; "language" recomputes after async
+  // `resolveLanguage` reconfigures the compartment, so the first paint
+  // isn't stuck uncolored until the next keystroke.
   return showMinimap.compute(["doc", language], (state) => {
     const colorLines = state.field(colorLinesField, false) ?? {};
     return {
       create: () => {
         const dom = document.createElement("div");
-        // Match the editor surface so the minimap blends with the gutter.
+        // Match editor surface so the minimap blends with the gutter.
         dom.style.background = "transparent";
         return { dom };
       },
@@ -53,7 +50,7 @@ function minimapExtension(): Extension {
 }
 
 export function buildSharedExtensions(opts?: {
-  /** When false, the minimap compartment starts empty. Default true. */
+  /** When false the minimap compartment starts empty. Default true. */
   showMinimap?: boolean;
 }): Extension[] {
   const minimapOn = opts?.showMinimap !== false;
@@ -72,19 +69,15 @@ export function buildSharedExtensions(opts?: {
         backgroundColor: "transparent !important",
         color: "var(--foreground)",
         outline: "none",
-        // Drop padding on the right + bottom so the native vertical scrollbar
-        // (and the minimap immediately to its left) and the horizontal
-        // scrollbar all sit flush with the pane edges - otherwise an 8px
-        // empty strip appears between each scrollbar and the border. Left +
-        // top keep their 8px breathing room so the gutter and first line
-        // don't crowd the pane edge.
+        // Drop right + bottom padding so the scrollbars and minimap sit
+        // flush with the pane edges. Left + top keep 8px so the gutter
+        // and first line don't crowd the edge.
         padding: "8px 0 0 8px",
       },
       ".cm-scroller": {
         fontFamily: detectMonoFontFamily(),
-        // Scale with the content-zoom CSS variable (set by App.tsx from the
-        // `contentZoom` preference). Fallback `1` keeps the editor at its
-        // base size before prefs hydrate.
+        // Scales with `--content-zoom` set by App.tsx. Fallback `1` for
+        // before prefs hydrate.
         fontSize: "calc(13px * var(--content-zoom, 1))",
         lineHeight: "1.55",
         backgroundColor: "transparent !important",
@@ -95,10 +88,8 @@ export function buildSharedExtensions(opts?: {
         paddingLeft: "0",
         marginLeft: "0",
       },
-      // Solid background + sticky/elevated z so horizontally scrolled code
-      // never bleeds through the line-number column. CodeMirror already
-      // pins .cm-gutters with `position: sticky; left: 0; z-index: 200`,
-      // so the opaque bg is what was actually missing.
+      // Solid bg + elevated z so horizontally scrolled code doesn't bleed
+      // through the line-number column.
       ".cm-gutters": {
         backgroundColor: "var(--background) !important",
         color: "var(--muted-foreground)",
@@ -141,12 +132,12 @@ export function buildSharedExtensions(opts?: {
         opacity: "0",
         transition: "opacity 120ms ease, color 120ms ease",
       },
-      // Folded marker (chevron right) stays visible so collapsed regions are obvious.
+      // Folded chevron stays visible so collapsed regions are obvious.
       ".cm-foldGutter .cm-foldMarker:not(.cm-foldMarker-open)": {
         opacity: "1",
         color: "var(--foreground)",
       },
-      // Reveal the open chevrons when the gutter is hovered.
+      // Reveal open chevrons on gutter hover.
       "&:hover .cm-foldGutter .cm-foldMarker-open": {
         opacity: "0.55",
       },
@@ -154,7 +145,7 @@ export function buildSharedExtensions(opts?: {
         opacity: "1",
         color: "var(--foreground)",
       },
-      // Inline placeholder shown where a region is folded.
+      // Inline placeholder for folded regions.
       ".cm-foldPlaceholder": {
         backgroundColor: "color-mix(in srgb, var(--foreground) 10%, transparent)",
         color: "var(--muted-foreground)",
@@ -175,7 +166,7 @@ export function buildSharedExtensions(opts?: {
       ".cm-cursor, .cm-dropCursor": {
         borderLeftColor: "var(--foreground)",
       },
-      // Vim normal-mode block cursor - translucent foreground, no rose hue.
+      // Vim normal-mode block cursor: translucent foreground, no rose hue.
       ".cm-fat-cursor": {
         background: "color-mix(in srgb, var(--foreground) 35%, transparent) !important",
         outline: "1px solid color-mix(in srgb, var(--foreground) 55%, transparent) !important",
@@ -193,10 +184,8 @@ export function buildSharedExtensions(opts?: {
         color: "var(--popover-foreground)",
         borderColor: "var(--border)",
       },
-      // The minimap gets the .cm-gutters class so it picks up the
-      // background-color rule above - but the right-side border looks wrong
-      // (it sits to the right of the gutter, against the panel edge).
-      // Move the divider to the left edge of the minimap instead.
+      // Minimap inherits `.cm-gutters`, but its right border lands against
+      // the panel edge. Move the divider to the minimap's left edge.
       ".cm-minimap-gutter": {
         borderRight: "0 !important",
         borderLeft: "1px solid var(--border) !important",

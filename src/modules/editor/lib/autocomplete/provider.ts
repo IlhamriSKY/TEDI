@@ -11,15 +11,14 @@ import { buildUserPrompt, COMPLETION_SYSTEM_PROMPT, type CompletionRequest } fro
 export type CompletionDeps = {
   provider: AutocompleteProviderId;
   modelId: string;
-  /** API key for the configured provider, or null for keyless (LM Studio). */
+  /** Provider API key, or null for keyless (LM Studio). */
   apiKey: string | null;
   lmstudioBaseURL: string;
 };
 
 const MAX_OUTPUT_TOKENS_DEFAULT = 128;
-// Reasoning models burn output tokens on internal thought before producing
-// any visible content; with a tight cap they finish_reason="length" with
-// empty text. The trim step still caps visible output at MAX_LINES.
+// Reasoning models burn output tokens on internal thought; a tight cap
+// finishes with empty text. Trim step still caps visible output at MAX_LINES.
 const MAX_OUTPUT_TOKENS_REASONING = 1024;
 
 export async function requestCompletion(

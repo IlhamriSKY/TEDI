@@ -3,10 +3,9 @@
 //! Mirrors the local PTY module's command shape (`ssh_open`/`ssh_write`/
 //! `ssh_resize`/`ssh_close`) so the frontend can swap a local PTY for a
 //! remote shell with minimal plumbing. Auth supports password or private
-//! key; host-key handling is currently trust-on-first-use with an
-//! accept-any policy because TEDI does not yet persist a known_hosts file.
-//! We log the server key fingerprint on connect so the user has *some*
-//! audit trail until a known_hosts UI lands.
+//! key. Host-key handling is trust-on-first-use with an accept-any policy;
+//! TEDI does not yet persist a known_hosts file. The server key fingerprint
+//! is logged on connect until a known_hosts UI lands.
 
 mod session;
 pub mod sftp;
@@ -22,9 +21,9 @@ use tokio::runtime::Runtime;
 pub use session::SshEvent;
 use session::SshSession;
 
-/// One shared tokio runtime for every SSH session. russh is async-first and
-/// driving it from per-session ad-hoc executors would mean lots of duplicate
-/// thread pools. A single multi-thread runtime keeps overhead flat.
+/// Shared tokio runtime for every SSH session. russh is async-first; driving
+/// it from per-session executors would duplicate thread pools. A single
+/// multi-thread runtime keeps overhead flat.
 fn ssh_runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
     RT.get_or_init(|| {
@@ -39,7 +38,7 @@ fn ssh_runtime() -> &'static Runtime {
 
 pub struct SshState {
     /// `pub(crate)` so the sibling `sftp` module can look up an existing
-    /// session by id to issue file-system commands against it.
+    /// session by id to issue file-system commands.
     pub(crate) sessions: tokio::sync::RwLock<HashMap<u32, Arc<SshSession>>>,
     next_id: AtomicU32,
 }
@@ -65,11 +64,11 @@ pub struct SshOpenInput {
     /// in `private_key_passphrase`.
     pub private_key: Option<String>,
     pub private_key_passphrase: Option<String>,
-    /// SHA256 fingerprint of the server key recorded by a previous
-    /// successful connect ("SHA256:..."). When set, the handshake fails
-    /// fast if the server presents a different key - blocks the
-    /// silent-MITM path on saved connections. None on first connect
-    /// (TOFU) and on dialog-time test connections for brand-new hosts.
+    /// SHA256 fingerprint ("SHA256:...") of the server key recorded by a
+    /// previous successful connect. When set, the handshake fails fast if
+    /// the server presents a different key, blocking silent MITM on saved
+    /// connections. `None` on first connect (TOFU) and on dialog-time
+    /// test connections for brand-new hosts.
     pub expected_fingerprint: Option<String>,
     pub cols: u16,
     pub rows: u16,

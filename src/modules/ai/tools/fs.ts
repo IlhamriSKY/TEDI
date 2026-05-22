@@ -10,8 +10,7 @@ import { flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
 const DEFAULT_LINE_LIMIT = 2000;
-/** Files larger than this won't be snapshotted for undo — the IPC cost of
- *  transferring multi-MB content just for a checkpoint isn't worth it. */
+/** Skip undo snapshot above this size; IPC cost outweighs the value. */
 const SNAPSHOT_SIZE_CAP = 1_000_000;
 
 export function buildFsTools(ctx: ToolContext) {
@@ -36,8 +35,8 @@ export function buildFsTools(ctx: ToolContext) {
           const startLine = offset ?? 0;
           const lineLimit = limit ?? DEFAULT_LINE_LIMIT;
 
-          // Read only the requested line range on the Rust side via BufReader
-          // so only the sliced content crosses the IPC boundary.
+          // Read the requested range on the Rust side via BufReader so only
+          // the slice crosses IPC.
           const r = await native.readFilePortion(abs, startLine, lineLimit);
           if (r.kind === "binary") return { error: "binary file refused", path: abs, size: r.size };
           if (r.kind === "toolarge") {
@@ -53,9 +52,8 @@ export function buildFsTools(ctx: ToolContext) {
           let actualEnd = r.endLine;
           let byteTruncated = false;
 
-          // Byte cap is a final safety net against pathological lines. Trim
-          // to the last complete line so the output stays parseable and
-          // `actualEnd` reflects how many full lines were included.
+          // Byte cap against pathological lines. Trim to the last full line
+          // so `actualEnd` reflects how many full lines are included.
           if (content.length > AI_READ_CAP) {
             content = content.slice(0, AI_READ_CAP);
             byteTruncated = true;
@@ -128,17 +126,16 @@ export function buildFsTools(ctx: ToolContext) {
           let original = "";
           let isNewFile = false;
           try {
-            // Use readFilePortion as a lightweight size probe — only reads
-            // 1 line but returns the full file `size`. Full read only if the
-            // file is small enough to snapshot.
+            // readFilePortion as a size probe (reads 1 line but returns full
+            // file size). Full read only if small enough to snapshot.
             const probe = await native.readFilePortion(abs, 0, 1);
             if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
               const r = await native.readFile(abs);
               if (r.kind === "text") original = r.content;
             } else if (probe.kind === "text") {
-              // Large text file — plan review will show proposed content only.
+              // Large text file: plan review shows proposed content only.
             } else {
-              // binary / toolarge
+              // binary or too large
             }
           } catch {
             isNewFile = true;
@@ -158,16 +155,13 @@ export function buildFsTools(ctx: ToolContext) {
           };
         }
 
-        // Snapshot for restore-checkpoint. Capture original text content
-        // if the file existed and was text; mark as create-file for a
-        // brand-new path. Binary / oversized existing files are NOT
-        // snapshotted - we can't safely round-trip them through a text
-        // restore, so a future restore will leave them alone.
+        // Snapshot for restore-checkpoint. Capture original text if the file
+        // existed and was text; mark create-file for new paths. Binary or
+        // oversized existing files are skipped (can't round-trip safely).
         const sessionId = ctx.getSessionId();
         if (sessionId) {
           try {
-            // Probe size first to avoid reading multi-MB files over IPC
-            // just for an undo checkpoint.
+            // Probe size first to avoid reading multi-MB files for undo.
             const probe = await native.readFilePortion(abs, 0, 1);
             if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
               const r = await native.readFile(abs);
@@ -179,9 +173,9 @@ export function buildFsTools(ctx: ToolContext) {
                 });
               }
             }
-            // binary / toolarge / oversized: skip recording. Restore won't touch it.
+            // binary or oversized: skip recording; restore won't touch it.
           } catch {
-            // ENOENT - fresh file.
+            // ENOENT, fresh file.
             recordFileMutation(sessionId, abs, {
               kind: "create-file",
               writtenContent: content,
@@ -223,9 +217,8 @@ export function buildFsTools(ctx: ToolContext) {
           });
           return { path: abs, queued_for_plan_review: true, ok: true };
         }
-        // Snapshot for restore-checkpoint. Only record if the directory
-        // didn't already exist - otherwise restore would delete a dir the
-        // agent didn't create (and possibly its prior contents).
+        // Record only if the directory didn't already exist; otherwise
+        // restore would delete a pre-existing user dir.
         const sessionId = ctx.getSessionId();
         if (sessionId) {
           let alreadyExists = false;
@@ -233,7 +226,7 @@ export function buildFsTools(ctx: ToolContext) {
             await native.readDir(abs);
             alreadyExists = true;
           } catch {
-            // doesn't exist - safe to record
+            // doesn't exist; safe to record
           }
           if (!alreadyExists) {
             recordFileMutation(sessionId, abs, { kind: "create-dir" });
@@ -243,8 +236,7 @@ export function buildFsTools(ctx: ToolContext) {
         try {
           await native.createDir(abs);
           dispatchFsRefreshForFile(abs);
-          // Also refresh the new dir itself in case the user has the
-          // parent expanded and immediately drills into it.
+          // Refresh the new dir so an immediately-expanded parent sees it.
           dispatchFsRefresh(abs);
           return { path: abs, ok: true };
         } catch (e) {

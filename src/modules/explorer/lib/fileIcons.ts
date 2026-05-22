@@ -1,7 +1,4 @@
-/**
- * Default file icon associations
- * Keys are icon file basenames
- */
+/** File icon associations. Keys are icon file basenames. */
 
 type FileIcons = Record<
   string,

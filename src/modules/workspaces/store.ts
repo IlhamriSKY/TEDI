@@ -5,24 +5,16 @@ const STORE_PATH = "tedi-workspaces.json";
 const KEY_LIST = "workspaces";
 const KEY_ACTIVE = "activeId";
 
-// ---- Saved (on-disk) shape ----
-//
-// We only persist what's needed to reconstruct tabs on next launch. Live
-// runtime state (dirty buffers, PTY ids, focus state) is not saved - terminal
-// panes are respawned at their saved cwd; editor panes reopen the file path.
+// Saved on-disk shape. Persists only what's needed to reconstruct tabs on
+// next launch. Terminals respawn at their saved cwd; editors reopen the path.
 
 export type SavedTerminalLeaf = {
   kind: "leaf";
   leafKind: "terminal";
   cwd?: string;
-  /** Persists SSH-bound leaves across workspace switches and restarts. */
+  /** SSH connection id for SSH-bound leaves. */
   sshConnectionId?: string;
-  /**
-   * Stable FIFO chip number assigned at leaf creation. Persists so the
-   * "Terminal 3" the user pinned in their head before quitting stays
-   * "Terminal 3" on next launch. Absent on older saved state — see the
-   * load-time backfill in `useTabs.ts`.
-   */
+  /** FIFO chip number. Persisted so "Terminal 3" stays the same after restart. Backfilled by `useTabs.ts` for older state. */
   terminalOrdinal?: number;
 };
 
@@ -56,7 +48,7 @@ export type SavedPreviewTab = {
 };
 
 export type SavedTab = SavedPaneTab | SavedPreviewTab;
-// ai-diff tabs are session-only - never persisted.
+// ai-diff tabs are session-only. Never persisted.
 
 export type Workspace = {
   id: string;
@@ -75,14 +67,11 @@ type Actions = {
   hydrate: () => Promise<void>;
   setWorkspaces: (workspaces: Workspace[]) => void;
   setActiveId: (id: string | null) => void;
-  /**
-   * Create a fresh empty workspace. The caller is expected to call setActiveId
-   * to switch to it after preserving the prior workspace's tabs.
-   */
+  /** Create an empty workspace. Caller must save prior tabs and call setActiveId to switch. */
   createWorkspace: (name: string) => Workspace;
   renameWorkspace: (id: string, name: string) => void;
   removeWorkspace: (id: string) => void;
-  /** Replace a workspace's saved tabs (used to snapshot before switching). */
+  /** Replace a workspace's saved tabs. Used before a switch. */
   saveWorkspaceTabs: (id: string, tabs: SavedTab[], activeTabIndex: number) => void;
 };
 
@@ -104,7 +93,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     async hydrate() {
       const list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
       const active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
-      // Seed a default workspace if none - keeps first-run sane.
+      // Seed a default workspace on first run.
       if (list.length === 0) {
         const ws: Workspace = {
           id: newWorkspaceId(),
@@ -156,8 +145,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       const before = get();
       const removedIdx = before.workspaces.findIndex((w) => w.id === id);
       const next = before.workspaces.filter((w) => w.id !== id);
-      // Always keep at least one workspace around - collapse-to-default if
-      // the user deletes the last one.
+      // Always keep at least one workspace. Collapse to a default on last-delete.
       if (next.length === 0) {
         const ws: Workspace = {
           id: newWorkspaceId(),
@@ -167,8 +155,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
         };
         set({ workspaces: [ws], activeId: ws.id });
       } else {
-        // When closing the active workspace, hand focus to the neighbor -
-        // prefer the one below (same index after filter), fall back to above.
+        // Closing the active workspace hands focus to a neighbor (below if available, else above).
         const neighborIdx = removedIdx >= next.length ? next.length - 1 : removedIdx;
         const newActive = before.activeId === id ? next[neighborIdx].id : before.activeId;
         set({ workspaces: next, activeId: newActive });

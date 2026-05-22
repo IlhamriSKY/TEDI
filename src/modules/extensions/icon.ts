@@ -1,14 +1,8 @@
 /**
- * Resolve `manifest.icon` (a relative path inside the extension folder)
- * to a `data:` URL the renderer can drop straight into an `<img>` tag.
- *
- * Round-trips bytes through Rust's `ext_read_asset_bytes` (base64) instead
- * of `convertFileSrc`, so we don't need to widen the Tauri asset-protocol
- * scope to include `<app_data_dir>/extensions/**` (one less attack
- * surface). 5 MiB cap is enforced on the Rust side.
- *
- * Cached by `${extId}:${relPath}` so re-renders don't re-fetch. The
- * cache lives at module scope - cleared implicitly when the page reloads.
+ * Resolves `manifest.icon` (relative path) to a `data:` URL for `<img>`.
+ * Reads bytes through Rust's `ext_read_asset_bytes` (base64) to avoid
+ * widening the Tauri asset-protocol scope. 5 MiB cap enforced in Rust.
+ * Cached by `${extId}:${relPath}` at module scope; cleared on page reload.
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -23,8 +17,7 @@ function mimeForRelPath(rel: string): string {
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".gif")) return "image/gif";
   if (lower.endsWith(".ico")) return "image/x-icon";
-  // Fallback: let the browser sniff. Most renderers tolerate a generic
-  // `image/*` data URL.
+  // Fallback: let the browser sniff.
   return "application/octet-stream";
 }
 
@@ -58,8 +51,7 @@ export async function loadExtensionIcon(
   return promise;
 }
 
-/** Drop a single entry - used by reload/uninstall flows so a re-installed
- *  extension picks up its new icon. */
+/** Evicts cache entries for one extension so reinstalls pick up new icons. */
 export function evictExtensionIcon(extId: string): void {
   for (const key of [...cache.keys()]) {
     if (key.startsWith(`${extId}:`)) cache.delete(key);

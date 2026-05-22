@@ -7,13 +7,12 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 
-// Hex (#rgb, #rgba, #rrggbb, #rrggbbaa) plus functional rgb/rgba/hsl/hsla.
-// `\b` on the hex variant prevents matching the middle of an identifier
-// like `#abc123def` past 8 chars; the functional forms are unambiguous.
+// Hex (#rgb, #rgba, #rrggbb, #rrggbbaa) plus rgb/rgba/hsl/hsla.
+// `\b` on the hex variant avoids matching `#abc123def` past 8 chars.
 const COLOR_RE =
   /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b|(?:rgb|hsl)a?\([^)\n]*\)/g;
 
-// Cache parsed colors so we don't hit the browser parser on every keystroke.
+// Cache parsed colors to skip the browser parser on every keystroke.
 const colorCache = new Map<string, { css: string; fg: string } | null>();
 
 const probe = typeof document !== "undefined" ? document.createElement("div") : null;
@@ -48,15 +47,14 @@ function parseColor(raw: string): { css: string; fg: string } | null {
   return result;
 }
 
-// Scan limit so a 200k-line minified file doesn't stall the UI thread.
+// Scan limit so a 200k-line minified file doesn't stall the UI.
 const MAX_LINES_FOR_GUTTER = 5000;
 
 export type LineColorMap = Record<number, string>;
 
 /**
- * Tracks the first color literal on each line of the document. Drives the
- * minimap gutter so colored regions are visible at a glance, even when the
- * lines themselves are outside the editor viewport.
+ * Tracks the first color literal per line. Drives the minimap gutter so
+ * colored regions stay visible outside the editor viewport.
  */
 export const colorLinesField = StateField.define<LineColorMap>({
   create() {
@@ -122,9 +120,8 @@ const colorMarkPlugin = ViewPlugin.fromClass(
 );
 
 /**
- * Bundle: a state field tracking per-line colors (consumed by the minimap
- * gutter) plus a viewport-scoped ViewPlugin that paints the colored
- * background swatches behind the literals themselves.
+ * Per-line color state field (for the minimap gutter) plus a viewport
+ * ViewPlugin that paints background swatches behind color literals.
  */
 export function colorDecorations(): Extension {
   return [colorLinesField, colorMarkPlugin];

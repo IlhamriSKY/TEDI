@@ -6,11 +6,9 @@ import { checkShellCommand } from "../lib/security";
 import type { ToolContext } from "./context";
 
 /**
- * Some providers (OpenAI fn-calling, several OpenAI-compatible gateways) serialize
- * nested arg objects as JSON strings. Other models stringify numbers ("180" instead
- * of 180). Tools defined here see both shapes, so each preprocess block coerces
- * the value back to the expected type before zod validates - otherwise the SDK
- * surfaces a validation error to the model and it has to retry, burning tokens.
+ * Some providers serialize nested arg objects as JSON strings or stringify
+ * numbers. These coercers normalize each value before zod validates so the
+ * model doesn't waste a retry on a validation error.
  */
 function coerceJsonObject(v: unknown): unknown {
   if (v === null) return undefined;
@@ -57,9 +55,8 @@ function coerceBool(v: unknown): unknown {
   return v;
 }
 
-/** Optional int field tolerant of stringified numbers and explicit `null`.
- *  Output type is `number | undefined` (null is coerced to undefined in
- *  preprocess so downstream code doesn't need to handle three states). */
+/** Optional int that tolerates stringified numbers and explicit null.
+ *  Output is `number | undefined`. */
 export function flexIntOpt(opts: { min?: number; max?: number } = {}) {
   let inner = z.number().int();
   if (opts.min !== undefined) inner = inner.min(opts.min);
@@ -75,25 +72,22 @@ export function flexIntReq(opts: { min?: number; max?: number } = {}) {
   return z.preprocess(coerceInt, inner);
 }
 
-/** Optional boolean tolerant of "true"/"false"/"1"/"0" strings and null.
- *  Output type is `boolean | undefined`. */
+/** Optional boolean. Accepts "true"/"false"/"1"/"0" and null. */
 export function flexBoolOpt() {
   return z.preprocess(coerceBool, z.boolean().optional());
 }
 
-/** Wrap an array schema so a JSON-stringified array is parsed before
- *  validation. Some providers serialize array tool args as strings. Required
- *  variant - field must be present. */
+/** Array schema that parses JSON-stringified input first. Required variant. */
 export function flexArrayReq<T extends z.ZodTypeAny>(item: T) {
   return z.preprocess(coerceJsonObject, z.array(item));
 }
 
-/** Optional flex array. `null` → `undefined`, JSON-string → parsed array. */
+/** Optional array. null -> undefined, JSON string -> parsed array. */
 export function flexArrayOpt<T extends z.ZodTypeAny>(item: T) {
   return z.preprocess(coerceJsonObject, z.array(item).optional());
 }
 
-/** Wrap an object schema so a JSON-stringified object is parsed first. */
+/** Object schema that parses JSON-stringified input first. */
 export function flexObjectOpt<T extends z.ZodRawShape>(shape: T) {
   return z.preprocess(coerceJsonObject, z.object(shape).optional());
 }
@@ -107,7 +101,7 @@ const targetObjectSchema = z
   })
   .strict();
 
-/** Target accepted as either an object or a JSON-stringified object. */
+/** Accepts an object or a JSON-stringified object. */
 const targetSchema = z
   .preprocess(coerceJsonObject, targetObjectSchema.optional())
   .describe(
@@ -274,6 +268,6 @@ export function buildScheduleTools(ctx: ToolContext) {
   } as const;
 }
 
-/** Exposed so other tool files (close_terminal etc.) reuse the same coercion. */
+/** Exposed so other tool files reuse the same coercion. */
 export const SHARED_TARGET_SCHEMA = targetSchema;
 export const normalizeTargetExternal = normalizeTarget;

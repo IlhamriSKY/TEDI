@@ -1,7 +1,5 @@
-/// Small two-tone Web Audio beep used when an AI CLI transitions into
-/// the "blocking" state (waiting for user approval). No external asset -
-/// keeps the bundle lean and lets the user hear it before any media
-/// permission prompt would fire.
+// Two-tone Web Audio beep for AI CLI transitions into "blocking" (waiting
+// for approval). No external asset, no media permission prompt.
 
 let ctx: AudioContext | null = null;
 
@@ -40,7 +38,7 @@ function playToneSequence(freqs: Array<[number, number]>, gain = 0.15): void {
   }
 }
 
-/** Rising two-tone: "hey, look at this" - used when AI blocks for approval. */
+/** Rising two-tone. Plays when AI blocks for approval. */
 export function playBlockingBeep(): void {
   playToneSequence([
     [880, 0.12],
@@ -48,7 +46,7 @@ export function playBlockingBeep(): void {
   ]);
 }
 
-/** Falling two-tone: "task complete" - softer than the blocking beep. */
+/** Falling two-tone for task complete. Softer than the blocking beep. */
 export function playCompletionBeep(): void {
   playToneSequence(
     [

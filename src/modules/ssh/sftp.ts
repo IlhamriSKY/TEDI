@@ -1,18 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/// SFTP IPC wrappers. Each call routes to the russh-sftp client riding on
-/// the live SSH session identified by `sessionId` (the russh handle
-/// returned by `ssh_open`). The remote SSH user owns the channel, so any
-/// `permission denied` error here means the kernel rejected the syscall —
-/// we surface it as-is to the explorer instead of papering over it.
+// SFTP IPC wrappers. Each call uses the russh-sftp client on the SSH session
+// returned by `ssh_open`. Permission errors come straight from the remote
+// kernel and are passed through to the explorer.
 
 export type SftpDirEntry = {
   name: string;
   kind: "file" | "dir" | "symlink";
   size: number;
-  /** Unix seconds. Zero when the server didn't report mtime. */
+  /** Unix seconds. Zero if the server did not report mtime. */
   mtime: number;
-  /** `"rwxr-xr-x"` or empty when permissions weren't reported. */
+  /** Like `"rwxr-xr-x"`, or empty if not reported. */
   permissions: string;
 };
 

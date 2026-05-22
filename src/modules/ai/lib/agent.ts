@@ -59,17 +59,15 @@ function ellipsize(s: string, max: number): string {
 export type BuildModelOptions = {
   /** Override the model id (used by autocomplete with custom LM Studio model). */
   modelIdOverride?: string;
-  /** Override LM Studio base URL. Defaults to `LMSTUDIO_DEFAULT_BASE_URL`. */
+  /** LM Studio base URL. Defaults to `LMSTUDIO_DEFAULT_BASE_URL`. */
   lmstudioBaseURL?: string;
-  /** Base URL for the user-configurable OpenAI-compatible provider. */
+  /** Base URL for the user-configured OpenAI-compatible provider. */
   openaiCompatibleBaseURL?: string;
 };
 
-// Memoize built models. Provider clients are not free to construct - they
-// register middleware and parse keys - and we'd otherwise rebuild one per
-// `sendMessages` call. Keyed on the full identity that affects the result.
-// Capped via simple LRU so rotating keys / switching base URLs doesn't grow
-// the cache forever (each entry holds a fully-wired provider client).
+// Memoize built models. Provider clients register middleware and parse keys,
+// so rebuilding per `sendMessages` is wasteful. LRU-capped so rotating keys
+// or base URLs doesn't grow the cache forever.
 const MODEL_CACHE_LIMIT = 16;
 const modelCache = new Map<string, LanguageModel>();
 
@@ -88,7 +86,6 @@ export async function buildLanguageModel(
   const cacheKey = `${provider}|${key}|${resolvedModelId}|${baseURL}|${oaiCompatBase}`;
   const hit = modelCache.get(cacheKey);
   if (hit) {
-    // Refresh LRU position by re-inserting at the tail.
     modelCache.delete(cacheKey);
     modelCache.set(cacheKey, hit);
     return hit;
@@ -169,8 +166,6 @@ export async function buildLanguageModel(
       throw new Error(`Unsupported provider: ${_exhaustive as ProviderId}`);
     }
   }
-  // Maintain LRU eviction: drop the oldest entry once we exceed the cap.
-  // `Map` preserves insertion order, so the first key is the LRU.
   if (modelCache.size >= MODEL_CACHE_LIMIT) {
     const oldest = modelCache.keys().next().value;
     if (oldest !== undefined) modelCache.delete(oldest);
@@ -181,21 +176,18 @@ export async function buildLanguageModel(
 
 const PLAN_MODE_PROMPT = `\n\n## PLAN MODE - ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
 
-/** Stable fingerprint for a tool invocation: name + JSON-stringified args
- *  with sorted keys so semantically-equal inputs hash to the same string. */
+/** Fingerprint for a tool call. Sorts arg keys so equivalent inputs match. */
 function toolCallFingerprint(toolName: string, input: unknown): string {
   if (!input || typeof input !== "object") return `${toolName}::${JSON.stringify(input)}`;
   const sortedKeys = Object.keys(input as Record<string, unknown>).sort();
   return `${toolName}::${JSON.stringify(input, sortedKeys)}`;
 }
 
-/** Stop when the last `maxRepeats` steps each called the SAME tool with the
- *  SAME input. Targets the hot-loop pattern "read_file X → read_file X →
- *  read_file X" that runs up token spend without progress.
- *
- *  Conservative threshold (3) — multi-step agents legitimately call e.g.
- *  `bash_logs(handle)` twice in a row to wait for output, but never three
- *  times with identical args. */
+/**
+ * Stops when the last `maxRepeats` steps used the same tool with the same
+ * input. Default 3 because some tools (e.g. `bash_logs`) repeat twice
+ * legitimately.
+ */
 function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
   return ({ steps }) => {
     if (steps.length < maxRepeats) return false;
@@ -210,10 +202,8 @@ function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
   };
 }
 
-/** Stop when the last `maxIdle` steps produced no tool calls at all. The
- *  agent is supposed to act; a streak of text-only steps means it's stalled
- *  ("ngoceh" without progress). 2 is enough — a single legit text turn
- *  finishes naturally on its own, never chains another empty step. */
+/** Stops after `maxIdle` consecutive text-only steps. A real text turn ends
+ *  on its own and never chains another empty step. */
 function noProgressStop<T extends ToolSet>(maxIdle = 2): StopCondition<T> {
   return ({ steps }) => {
     if (steps.length < maxIdle) return false;
@@ -221,10 +211,8 @@ function noProgressStop<T extends ToolSet>(maxIdle = 2): StopCondition<T> {
   };
 }
 
-/** Per-step usage delta - handler is responsible for accumulating
- *  cumulative totals if it wants them. Cached tokens come from the
- *  provider's prompt-cache hit counter; 0 when the provider doesn't
- *  report it or the prefix didn't hit. */
+/** Per-step usage delta. The handler accumulates totals. `cachedInputTokens`
+ *  is 0 when the provider doesn't report it or the prefix didn't hit. */
 export type AgentUsageDelta = {
   inputTokens: number;
   outputTokens: number;
@@ -243,9 +231,7 @@ export type RunAgentOptions = {
   onFinishMeta?: (info: {
     hitStepCap: boolean;
     finishReason: string;
-    /** Which guard tripped the agent loop (if any). Surfaces to the UI so
-     *  the user knows *why* the agent paused — running out of step budget,
-     *  hot-looping a tool, or stalling on text-only output. */
+    /** Which guard stopped the loop. Surfaced in the UI so the user sees why. */
     stopReason: "step-cap" | "tool-repetition" | "no-progress" | "normal";
   }) => void;
   lmstudioBaseURL?: string;
@@ -256,10 +242,8 @@ export type RunAgentOptions = {
   abortSignal?: AbortSignal;
 };
 
-/** Build the full system message text. Stable per session - does NOT carry
- *  any dynamic data (cwd, terminal output, etc.). That keeps the prefix
- *  byte-stable across turns, which is the precondition for prompt caching
- *  on every provider that supports it. */
+/** Build the full system message. Carries no dynamic data (cwd, terminal
+ *  output) so the prefix is byte-stable across turns for prompt caching. */
 function buildSystemPrompt(opts: {
   modelId: string;
   customInstructions?: string;
@@ -268,9 +252,8 @@ function buildSystemPrompt(opts: {
   planMode?: boolean;
 }): string {
   const base = getSystemPrompt(opts.modelId);
-  // Host tag is module-scoped (captured once at boot) so prepending it
-  // keeps the prefix byte-stable across turns - the precondition for
-  // every provider's prompt cache.
+  // Host tag is captured once at boot; prepending it keeps the prefix
+  // byte-stable across turns for prompt caching.
   const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
   const personaBlock = opts.agentPersona?.instructions.trim()
     ? `\n\n## ACTIVE AGENT - ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
@@ -286,9 +269,8 @@ function buildSystemPrompt(opts: {
   return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
 }
 
-/** Run one streaming agent step. Used by the in-process Chat transport.
- *  Returns a streamText result whose `.toUIMessageStream()` plugs straight
- *  into `@ai-sdk/react`'s Chat. */
+/** Runs one streaming agent step. Returns a `streamText` result whose
+ *  `.toUIMessageStream()` plugs into `@ai-sdk/react`'s Chat. */
 export async function runAgentStream(opts: RunAgentOptions) {
   const modelInfo: ModelInfo =
     tryGetModel(opts.modelId ?? DEFAULT_MODEL_ID) ??
@@ -325,24 +307,19 @@ export async function runAgentStream(opts: RunAgentOptions) {
   ];
   const finalMessages = applyCacheBreakpoints(baseMessages, provider);
 
-  // Thread the agent-level abort signal into the ToolContext so individual
-  // tools can fast-fail on cancellation (Stop button, session delete, etc.)
-  // — Vercel AI SDK only abort the HTTP fetch by default, leaving in-flight
-  // tool IPC running until completion otherwise.
+  // Thread the abort signal into the ToolContext so tools can fast-fail on
+  // Stop/session-delete. The SDK only aborts the HTTP fetch by default.
   const toolContextWithAbort: ToolContext = {
     ...opts.toolContext,
     abortSignal: opts.abortSignal,
   };
 
   let stepsSeen = 0;
-  // Three stop predicates (any one trips → agent loop ends):
-  //   1. Step cap (industry baseline)
-  //   2. Identical tool+input 3x in a row (anti hot-loop)
-  //   3. Two consecutive text-only steps (anti stalled chatter)
-  //
-  // We wrap each predicate so the first one to return true records WHICH
-  // guard tripped — surfaces to the UI as a stopReason so users know why
-  // the agent paused.
+  // Three stop predicates (any trip ends the loop):
+  //   1. Step cap.
+  //   2. Identical tool+input 3x in a row.
+  //   3. Two consecutive text-only steps.
+  // Each wrapper records which guard tripped so the UI can show a stopReason.
   let trippedReason: "step-cap" | "tool-repetition" | "no-progress" | null = null;
   const capPred = stepCountIs(MAX_AGENT_STEPS);
   const repeatPred = noToolRepetition<ToolSet>(3);
@@ -374,9 +351,9 @@ export async function runAgentStream(opts: RunAgentOptions) {
     model,
     messages: finalMessages,
     tools: buildTools(toolContextWithAbort),
-    // The SDK infers a specific ToolSet shape from `tools` and refuses our
-    // generic `StopCondition<ToolSet>[]`. Predicates only touch the common
-    // `toolCalls[].toolName`/`.input` shape, so a structural cast is safe.
+    // SDK infers a specific ToolSet from `tools` and refuses our generic
+    // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
+    // a structural cast is safe.
     stopWhen: trackingStopWhen as never,
     abortSignal: opts.abortSignal,
     onStepFinish: (step) => {

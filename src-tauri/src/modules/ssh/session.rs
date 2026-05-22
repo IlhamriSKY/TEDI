@@ -20,29 +20,27 @@ const KEEPALIVE: Duration = Duration::from_secs(30);
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SshEvent {
-    /// Auth/connect handshake completed - frontend can show "connected".
+    /// Auth/connect handshake completed; frontend can show "connected".
     Connected { fingerprint: String },
     /// Base64-encoded stdout chunk from the remote shell.
     Data { data: String },
-    /// Base64-encoded stderr chunk - rare for an interactive shell but
-    /// possible with explicit `2>&1` suppression server-side.
+    /// Base64-encoded stderr chunk. Rare for an interactive shell but
+    /// possible with server-side `2>&1` suppression.
     Stderr { data: String },
     /// Remote process exited with this status. Mirrors PtyEvent::Exit so the
-    /// frontend can reuse its existing handler shape.
+    /// frontend can reuse its handler shape.
     Exit { code: i32 },
 }
 
-/// Server-key check. When the caller passed `expected_fingerprint`, the
-/// presented key must match it exactly - any mismatch is recorded for
-/// the caller to surface as a "host key changed" error and aborts the
-/// handshake. When no expected fingerprint is supplied (first connect /
-/// dialog test on a new host), we fall back to trust-on-first-use:
-/// accept the key, record its fingerprint so the caller can persist it,
-/// and rely on later connects to compare against the saved value.
+/// Server-key check. With `expected_fingerprint`, the presented key must
+/// match exactly; any mismatch is recorded for the caller to surface as a
+/// "host key changed" error and aborts the handshake. Without one (first
+/// connect or dialog test on a new host), falls back to trust-on-first-use:
+/// accept the key, record its fingerprint for the caller to persist, and
+/// rely on later connects to compare against the saved value.
 ///
-/// `pub(super)` only so the parameterised `Handle<HostKeyVerifier>`
-/// field on `SshSession` can in turn be exposed to the sibling `sftp`
-/// module.
+/// `pub(super)` so the parameterised `Handle<HostKeyVerifier>` field on
+/// `SshSession` can be exposed to the sibling `sftp` module.
 pub(super) struct HostKeyVerifier {
     expected: Option<String>,
     report: Arc<Mutex<HostKeyReport>>,
@@ -53,9 +51,9 @@ pub(super) struct HostKeyReport {
     /// Fingerprint of the key the server actually presented, regardless
     /// of whether it matched the expected one.
     seen: Option<String>,
-    /// (expected, seen) pair when the server's key didn't match the
-    /// pinned fingerprint. Surfaced verbatim in the error message so
-    /// the user can compare both values before deciding to trust.
+    /// (expected, seen) pair when the server's key did not match the
+    /// pinned fingerprint. Surfaced verbatim in the error so the user
+    /// can compare both values before deciding to trust.
     mismatch: Option<(String, String)>,
 }
 
@@ -73,9 +71,9 @@ impl Handler for HostKeyVerifier {
             if expected != &fp {
                 log::warn!("ssh: host key mismatch expected={expected} got={fp}");
                 report.mismatch = Some((expected.clone(), fp));
-                // Rejecting here makes russh fail the handshake; the
-                // caller inspects `report.mismatch` to turn that into a
-                // specific error string rather than a generic disconnect.
+                // Returning false makes russh fail the handshake. The caller
+                // inspects `report.mismatch` to turn that into a specific
+                // error string rather than a generic disconnect.
                 return Ok(false);
             }
             log::info!("ssh: host key pinned ok fingerprint={fp}");
@@ -87,20 +85,20 @@ impl Handler for HostKeyVerifier {
 }
 
 pub struct SshSession {
-    /// Write half of the SSH channel - methods take `&self`, so writes
-    /// from concurrent commands proceed without locking against the read
-    /// pump. (Earlier versions shared the whole Channel<Msg> behind a
-    /// Mutex, which deadlocked: the pump holds the lock across
-    /// `wait().await` while idle, blocking every keystroke.)
+    /// Write half of the SSH channel. Methods take `&self`, so writes from
+    /// concurrent commands proceed without locking against the read pump.
+    /// Earlier versions shared the whole Channel<Msg> behind a Mutex, which
+    /// deadlocked: the pump held the lock across `wait().await` while idle,
+    /// blocking every keystroke.
     write_half: ChannelWriteHalf<Msg>,
     /// Background task draining channel messages to the IPC channel.
     pump: Mutex<Option<JoinHandle<()>>>,
-    /// Underlying client handle - kept alive so the TCP connection stays
-    /// up. Dropping this drops the entire SSH session. `pub(super)` so the
-    /// sibling `sftp` module can open new subsystem channels on it.
+    /// Underlying client handle. Kept alive so the TCP connection stays up;
+    /// dropping it drops the SSH session. `pub(super)` so the sibling `sftp`
+    /// module can open new subsystem channels on it.
     pub(super) handle: Mutex<Option<Handle<HostKeyVerifier>>>,
-    /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops
-    /// don't pay the channel-open + handshake roundtrip every time.
+    /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops do
+    /// not pay the channel-open + handshake roundtrip each time.
     sftp: Mutex<Option<Arc<SftpSession>>>,
 }
 
@@ -119,8 +117,8 @@ impl SshSession {
     pub async fn close(self: Arc<Self>) {
         let _ = self.write_half.eof().await;
         let _ = self.write_half.close().await;
-        // Drop the SFTP session first so its background reader can shut
-        // down before we tear the underlying connection out from under it.
+        // Drop the SFTP session first so its background reader shuts down
+        // before the underlying connection goes away.
         if let Some(sftp) = self.sftp.lock().await.take() {
             let _ = sftp.close().await;
         }
@@ -134,10 +132,9 @@ impl SshSession {
         }
     }
 
-    /// Return the cached SFTP session, opening a fresh subsystem channel
-    /// on the underlying SSH handle if this is the first request. Cheap
-    /// after the first call; opens cost one channel round-trip + SFTP
-    /// version handshake.
+    /// Return the cached SFTP session, opening a fresh subsystem channel on
+    /// the SSH handle on first request. Cheap after the first call; the
+    /// initial open costs one channel round-trip plus SFTP handshake.
     pub async fn ensure_sftp(&self) -> Result<Arc<SftpSession>, String> {
         let mut guard = self.sftp.lock().await;
         if let Some(existing) = guard.as_ref() {
@@ -151,8 +148,8 @@ impl SshSession {
 
 impl Drop for SshSession {
     fn drop(&mut self) {
-        // Last-resort cleanup if the frontend hung up without calling
-        // ssh_close - aborts the pump so its tokio task can unwind.
+        // Last-resort cleanup when the frontend hung up without calling
+        // ssh_close. Abort the pump so its tokio task can unwind.
         if let Ok(mut g) = self.pump.try_lock() {
             if let Some(j) = g.take() {
                 j.abort();
@@ -189,9 +186,9 @@ pub async fn connect(
     let mut handle = match connect_result {
         Ok(h) => h,
         Err(e) => {
-            // russh rejected the handshake. If our verifier flagged a host
-            // key mismatch on the way, that's the actual cause - surface
-            // it as a structured message the frontend recognises.
+            // russh rejected the handshake. If the verifier flagged a host
+            // key mismatch, that is the real cause; surface it as a
+            // structured message the frontend recognises.
             if let Some((expected, seen)) = report.lock().await.mismatch.clone() {
                 return Err(format!(
                     "ssh: host key mismatch: expected={expected} server={seen}. \
@@ -224,13 +221,12 @@ pub async fn connect(
         if first.success() {
             true
         } else {
-            // Plenty of PAM-backed servers refuse the `password` method
-            // entirely and only offer `keyboard-interactive` (FreeIPA,
-            // Duo-only, certain sshd hardening profiles). Try KBI as a
-            // fallback, feeding the saved password as the first prompt's
-            // answer; for 2FA-multi-prompt setups we'll surface a clear
-            // "keyboard-interactive: more prompts than we can answer
-            // non-interactively" error instead of hanging.
+            // Plenty of PAM-backed servers refuse the `password` method and
+            // only offer `keyboard-interactive` (FreeIPA, Duo-only, certain
+            // sshd hardening profiles). Try KBI as a fallback, feeding the
+            // saved password as the first prompt's answer. 2FA multi-prompt
+            // setups will fail with a clear "too many prompts" error
+            // instead of hanging.
             try_keyboard_interactive(&mut handle, &input.user, password).await?
         }
     };
@@ -263,23 +259,21 @@ pub async fn connect(
         .map_err(|e| format!("ssh: request shell failed: {e}"))?;
 
     // Bootstrap: turn on OSC 7 cwd reporting on the remote shell. Stock
-    // bash/zsh on most distros don't emit OSC 7 by default, which left
-    // the SFTP file tree stuck at the SFTP-canonicalised home no matter
-    // where the user `cd`-ed. We inject a tiny `precmd` / PROMPT_COMMAND
-    // hook so every new prompt prints the path the local OSC 7 handler
-    // already knows how to parse. Errors from non-bash/zsh shells (fish,
-    // dash, csh) are silenced so the worst case is "tree stays on home"
-    // rather than a syntax-error splash. Leading space keeps it out of
-    // bash history when HISTCONTROL=ignorespace. Trailing `clear` wipes
-    // the snippet's echo from the screen at the cost of also wiping
-    // the motd - acceptable trade for a clean prompt.
+    // bash/zsh on most distros do not emit OSC 7 by default, leaving the
+    // SFTP file tree stuck at the SFTP-canonicalised home regardless of
+    // `cd`. Inject a tiny `precmd` / PROMPT_COMMAND hook so every prompt
+    // prints the path the local OSC 7 handler parses. Errors from non-
+    // bash/zsh shells (fish, dash, csh) are silenced; worst case the tree
+    // stays on home. Leading space keeps it out of bash history when
+    // HISTCONTROL=ignorespace. Trailing `clear` wipes the snippet's echo
+    // and the motd, which is acceptable for a clean prompt.
     const OSC7_BOOTSTRAP: &[u8] = b" { if [ -n \"$ZSH_VERSION\" ]; then __tedi_o7(){ printf '\\e]7;file://%s%s\\e\\\\' \"${HOST:-$HOSTNAME}\" \"$PWD\"; }; typeset -ag precmd_functions; precmd_functions+=(__tedi_o7); elif [ -n \"$BASH_VERSION\" ]; then __tedi_o7(){ printf '\\e]7;file://%s%s\\e\\\\' \"$HOSTNAME\" \"$PWD\"; }; case \":${PROMPT_COMMAND:-}:\" in *\":__tedi_o7:\"*) ;; *) PROMPT_COMMAND=\"__tedi_o7${PROMPT_COMMAND:+;$PROMPT_COMMAND}\";; esac; fi; __tedi_o7 2>/dev/null; } 2>/dev/null; { clear 2>/dev/null || printf '\\033c'; }\r";
     let _ = channel.data(OSC7_BOOTSTRAP).await;
 
     let fingerprint = report.lock().await.seen.clone().unwrap_or_default();
     let _ = on_event.send(SshEvent::Connected { fingerprint });
 
-    // Split now so the pump task owns the read half exclusively and
+    // Split so the pump task owns the read half exclusively and the
     // SshSession owns the write half. No shared lock, no deadlock.
     let (mut read_half, write_half) = channel.split();
     let on_event_pump = on_event.clone();
@@ -309,7 +303,7 @@ pub async fn connect(
                 _ => {}
             }
         }
-        // wait() returned None: peer closed without sending exit-status.
+        // wait() returned None; peer closed without sending exit-status.
         let _ = on_event_pump.send(SshEvent::Exit { code: 0 });
     });
 
@@ -321,20 +315,18 @@ pub async fn connect(
     }))
 }
 
-/// Run an `ssh-userauth` keyboard-interactive exchange to completion using
-/// the saved password as the response to the first prompt of the first
-/// `InfoRequest`. Returns Ok(true) on `Success`, Ok(false) on the server's
-/// final `Failure`, and Err(..) for any transport-level error.
+/// Run an `ssh-userauth` keyboard-interactive exchange using the saved
+/// password as the response to the first prompt of the first `InfoRequest`.
+/// Returns `Ok(true)` on `Success`, `Ok(false)` on the server's final
+/// `Failure`, and `Err(..)` for transport-level errors.
 ///
-/// We answer additional prompts (or subsequent rounds) with empty strings:
-/// for plain PAM password setups this is all the server asks for; for
-/// 2FA-style setups requiring an OTP we have no way to prompt the user
-/// non-interactively from this entry point, so the server will fail us and
-/// the caller surfaces a generic "authentication rejected" error. A
-/// dedicated 2FA prompt UI would slot in here by replacing the `responses`
-/// vector with values sourced from a frontend round-trip.
+/// Additional prompts and subsequent rounds get empty strings. Plain PAM
+/// password setups are happy with that; 2FA-style setups requiring an OTP
+/// fail and surface as "authentication rejected". A dedicated 2FA prompt
+/// UI would slot in by replacing `responses` with values from a frontend
+/// round-trip.
 ///
-/// `MAX_KBI_ROUNDS` caps the loop so a hostile server can't keep us in an
+/// `MAX_KBI_ROUNDS` caps the loop so a hostile server cannot keep us in an
 /// endless prompt cycle.
 async fn try_keyboard_interactive(
     handle: &mut Handle<HostKeyVerifier>,

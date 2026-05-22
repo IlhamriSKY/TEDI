@@ -46,7 +46,7 @@ const HIGHLIGHT_CLASS = "bg-amber-400/30 text-foreground rounded-[2px] px-[1px]"
 
 const MAX_LINE_CHARS = 240;
 
-/** Escape user input so it's treated as a literal substring, not regex. */
+/** Escapes user input so it matches as a literal substring, not regex. */
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -175,7 +175,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
   );
 
   const { rows, hitCount, fileCount, allCollapsed } = useMemo(() => {
-    // Group by file (rel path). Keep file insertion order from backend.
+    // Group by rel path; preserve backend insertion order.
     const groups = new Map<string, { path: string; hits: GrepHit[] }>();
     for (const h of hits) {
       const g = groups.get(h.rel);

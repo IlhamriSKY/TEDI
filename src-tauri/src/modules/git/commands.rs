@@ -10,8 +10,8 @@ use crate::modules::fs::file::{classify_bytes, ReadResult};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-/// CREATE_NO_WINDOW flag - prevents a console window from flashing on Windows
-/// when we shell out to `git.exe`.
+/// CREATE_NO_WINDOW flag. Prevents a console window from flashing on Windows
+/// when shelling out to `git.exe`.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -45,13 +45,13 @@ pub struct GitChange {
     pub relative: String,
     /// One of "modified", "added", "deleted", "renamed", "untracked", "conflicted".
     pub status: String,
-    /// True if the entry is staged (index differs from HEAD).
+    /// True when the entry is staged (index differs from HEAD).
     pub staged: bool,
-    /// Lines added relative to HEAD. 0 when not applicable / unknown / binary.
+    /// Lines added relative to HEAD. 0 when unknown or binary.
     pub added: u32,
-    /// Lines removed relative to HEAD. 0 when not applicable / unknown / binary.
+    /// Lines removed relative to HEAD. 0 when unknown or binary.
     pub removed: u32,
-    /// True when git reported this entry as binary (line counts not meaningful).
+    /// True when git reported the entry as binary (line counts meaningless).
     pub binary: bool,
 }
 
@@ -61,11 +61,11 @@ pub struct GitStatus {
     pub is_repo: bool,
     pub root: Option<String>,
     pub branch: Option<String>,
-    /// Tracking branch in the form "origin/main", or None when no upstream is set.
+    /// Tracking branch like "origin/main", or `None` when no upstream is set.
     pub upstream: Option<String>,
-    /// Commits ahead of upstream (HEAD has but upstream doesn't).
+    /// Commits ahead of upstream (HEAD has but upstream lacks).
     pub ahead: u32,
-    /// Commits behind upstream (upstream has but HEAD doesn't).
+    /// Commits behind upstream (upstream has but HEAD lacks).
     pub behind: u32,
     pub changes: Vec<GitChange>,
 }
@@ -116,7 +116,7 @@ fn current_branch(repo: &Path) -> Option<String> {
     }
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s == "HEAD" {
-        // detached HEAD - show the short SHA instead
+        // detached HEAD: show the short SHA instead
         let mut sha = git(repo);
         sha.arg("rev-parse").arg("--short").arg("HEAD");
         let o = sha.output().ok()?;
@@ -165,8 +165,8 @@ fn upstream_and_counts(repo: &Path) -> (Option<String>, u32, u32) {
 
 fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
     // Porcelain v1 with -z uses NUL as the entry separator and a second NUL
-    // after the source path of a rename, so we cannot just split on '\n'.
-    // Each entry is "XY <path>" (and "<src>" for renames).
+    // after the source path of a rename. Each entry is "XY <path>" plus
+    // "<src>" for renames.
     let mut out: Vec<GitChange> = Vec::new();
     let mut tokens = raw.split('\0').filter(|s| !s.is_empty()).peekable();
     while let Some(token) = tokens.next() {
@@ -179,7 +179,7 @@ fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
         // bytes[2] is the space
         let path = &token[3..];
         let is_rename = x == b'R' || y == b'R' || x == b'C' || y == b'C';
-        // Renames are emitted as "R  new\0old" - consume the source path.
+        // Renames are emitted as "R  new\0old"; consume the source path.
         if is_rename {
             let _src = tokens.next();
         }
@@ -207,9 +207,9 @@ struct NumstatEntry {
 }
 
 /// Parse `git diff --numstat HEAD` output. Each non-empty line is
-/// `<added>\t<removed>\t<path>` - binary files show "-" for both counts.
-/// Renames appear as either "old => new" or the compact "dir/{old => new}/file"
-/// form; we normalize to the new path so it matches the porcelain status output.
+/// `<added>\t<removed>\t<path>`; binary files show "-" for both counts.
+/// Renames appear as "old => new" or the compact "dir/{old => new}/file";
+/// normalized to the new path so it matches the porcelain status output.
 fn parse_numstat(raw: &str) -> HashMap<String, NumstatEntry> {
     let mut out: HashMap<String, NumstatEntry> = HashMap::new();
     for line in raw.lines() {
@@ -234,7 +234,7 @@ fn parse_numstat(raw: &str) -> HashMap<String, NumstatEntry> {
 }
 
 fn rename_new_side(p: &str) -> String {
-    // Compact form: "prefix/{old => new}/suffix" → "prefix/new/suffix"
+    // Compact form: "prefix/{old => new}/suffix" becomes "prefix/new/suffix"
     if let Some(brace) = p.find('{') {
         let prefix = &p[..brace];
         let rest = &p[brace + 1..];
@@ -254,18 +254,18 @@ fn rename_new_side(p: &str) -> String {
     p.to_string()
 }
 
-/// Count newlines in a working-tree file for an untracked entry. Caps at a
-/// modest size so we don't read multi-megabyte logs/blobs just to render a
-/// `+N` chip. Returns `None` for binary or oversize files.
+/// Count newlines in a working-tree file for an untracked entry. Capped so
+/// we do not read multi-megabyte logs just to render a `+N` chip. Returns
+/// `None` for binary or oversize files.
 fn count_file_lines(path: &str) -> Option<u32> {
     let meta = std::fs::metadata(path).ok()?;
-    // Skip anything larger than 512KB - counting lines in a giant log doesn't
-    // tell the user anything useful and reading it stalls the refresh.
+    // Skip anything larger than 512KB. Counting lines in a giant log tells
+    // the user nothing useful and stalls the refresh.
     if meta.len() > 512 * 1024 {
         return None;
     }
     let bytes = std::fs::read(path).ok()?;
-    // Quick binary sniff: a NUL byte in the first 8KB ≈ not text.
+    // Quick binary sniff: a NUL byte in the first 8KB means not text.
     let sniff_len = bytes.len().min(8192);
     if bytes[..sniff_len].contains(&0u8) {
         return None;
@@ -293,10 +293,10 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
         });
     };
 
-    // Fan out the four independent git subprocesses. Each spawn on Windows
-    // costs ~10ms, so running them serially added ~40ms to every refresh
-    // (the panel auto-polls). Joining here keeps the API sync — Tauri runs
-    // each `#[tauri::command]` on its worker pool, so we're free to block.
+    // Fan out four independent git subprocesses. Each spawn on Windows costs
+    // ~10ms; serial runs added ~40ms per refresh (the panel auto-polls).
+    // Joining here keeps the API sync. Tauri runs each `#[tauri::command]`
+    // on its worker pool, so blocking is fine.
     let status_handle = {
         let root = root.clone();
         thread::spawn(move || {
@@ -365,11 +365,11 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     })
 }
 
-/// Returns the HEAD blob for a working-tree path, classified the same way as
+/// Return the HEAD blob for a working-tree path, classified like
 /// `fs_read_file` (text / image / binary). Newly added or untracked files
-/// have no HEAD blob → returns an empty `Text` so the diff side stays empty.
-/// Raw stdout bytes are preserved so PNG/JPEG blobs survive the trip across
-/// the Tauri boundary instead of being mangled by lossy UTF-8 decoding.
+/// have no HEAD blob and get an empty `Text` so the diff side stays empty.
+/// Raw stdout bytes are preserved so PNG/JPEG blobs survive the Tauri
+/// boundary without lossy UTF-8 decoding.
 #[tauri::command]
 pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, String> {
     let start = PathBuf::from(&repo_path);
@@ -386,11 +386,11 @@ pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, 
         });
     }
     // `classify_bytes` only uses the path for extension-based MIME hints
-    // (SVG/AVIF) - the repo-relative path is enough.
+    // (SVG/AVIF); the repo-relative path is enough.
     Ok(classify_bytes(Path::new(&relative), out.stdout))
 }
 
-/// Discards working-tree changes for a single file. Untracked files are
+/// Discard working-tree changes for a single file. Untracked files are
 /// removed from disk; tracked files are restored to their HEAD content.
 #[tauri::command]
 pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), String> {
@@ -407,17 +407,17 @@ pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), Strin
     let tracked = probe.output().map(|o| o.status.success()).unwrap_or(false);
 
     if tracked {
-        // Unstage any staged hunks AND restore working tree to HEAD.
+        // Unstage staged hunks and restore working tree to HEAD.
         let mut cmd = git(&root);
         cmd.args(["checkout", "HEAD", "--", relative.as_str()]);
         run(cmd)?;
-        // `checkout HEAD --` leaves the index/staged copy intact when the
-        // file was staged-only-deleted; force a reset of the index too.
+        // `checkout HEAD --` leaves the index copy intact when the file was
+        // staged-only-deleted; reset the index too.
         let mut reset = git(&root);
         reset.args(["reset", "HEAD", "--", relative.as_str()]);
         let _ = reset.output();
     } else {
-        // Untracked - delete from disk.
+        // Untracked: delete from disk.
         let abs = root.join(&relative);
         if abs.exists() {
             let meta = std::fs::symlink_metadata(&abs).map_err(|e| e.to_string())?;
@@ -431,7 +431,7 @@ pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), Strin
     Ok(())
 }
 
-/// Discards every working-tree change AND removes untracked files.
+/// Discard every working-tree change and remove untracked files.
 /// Equivalent to `git reset --hard HEAD && git clean -fd`.
 #[tauri::command]
 pub fn git_discard_all(repo_path: String) -> Result<(), String> {
@@ -450,8 +450,8 @@ pub fn git_discard_all(repo_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Stages every working-tree change (tracked + untracked) and creates a commit
-/// with the given message. Mirrors the all-or-nothing model of the panel UI.
+/// Stage every working-tree change (tracked + untracked) and commit with
+/// the given message. Mirrors the all-or-nothing panel UI.
 #[tauri::command]
 pub fn git_commit(repo_path: String, message: String) -> Result<(), String> {
     let start = PathBuf::from(&repo_path);
@@ -471,10 +471,10 @@ pub fn git_commit(repo_path: String, message: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Returns the combined diff (staged + working tree) plus a list of
-/// untracked file paths, capped at `max_bytes`. Used by the AI commit-message
-/// generator. We cap aggressively here so callers don't blow the model's
-/// context window on a giant tree.
+/// Return the combined diff (staged + working tree) plus a list of untracked
+/// paths, capped at `max_bytes`. Used by the AI commit-message generator.
+/// Capped aggressively so callers do not blow the model's context window
+/// on a giant tree.
 #[tauri::command]
 pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
     let cap = max_bytes.unwrap_or(80_000);
@@ -529,7 +529,7 @@ pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<Stri
     Ok(out)
 }
 
-/// Pushes the current branch to its upstream. If no upstream is configured,
+/// Push the current branch to its upstream. With no upstream configured,
 /// falls back to `git push -u origin <branch>` to publish the branch.
 #[tauri::command]
 pub fn git_push(repo_path: String) -> Result<String, String> {

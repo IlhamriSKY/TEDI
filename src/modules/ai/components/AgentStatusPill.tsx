@@ -12,9 +12,8 @@ type Props = {
 export function AgentStatusPill({ onClick }: Props) {
   const meta = useChatStore((s) => s.agentMeta);
 
-  // Only surface critical states in the status bar: pending approval +
-  // hard errors. Routine "thinking/streaming" is already visible inside
-  // the chat panel itself, so duplicating it here adds noise.
+  // Surface only approval-pending and error in the status bar; thinking/streaming
+  // already shows in the chat panel.
   const isCritical = meta.status === "awaiting-approval" || meta.status === "error";
   if (!isCritical) return null;
 
@@ -58,7 +57,7 @@ function describe(meta: AgentMeta): {
         meta.approvalsPending > 1 ? `${meta.approvalsPending} approvals needed` : "Approval needed",
     };
   }
-  // Only "error" reaches here (caller filters out thinking/streaming/idle).
+  // Only "error" reaches here; caller filters out thinking/streaming/idle.
   return {
     tone: "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
     icon: <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />,

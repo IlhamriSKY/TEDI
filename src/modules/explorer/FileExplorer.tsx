@@ -40,11 +40,16 @@ type Props = {
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
-  /** Accordion mode: when set, the header becomes a chevron toggle and the
-   *  body is hidden while `collapsed` is true. Callers pair this with a
-   *  collapsible ResizablePanel to drop the body off the layout entirely. */
+  /** Accordion mode. Header becomes a chevron toggle; body hides while
+   *  `collapsed` is true. Pair with a collapsible ResizablePanel. */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  /** Hide the New file / New folder buttons. For read-only panels. */
+  hideCreateActions?: boolean;
+  /** Hide the grep button when only filename search is needed. */
+  hideGrep?: boolean;
+  /** Extra buttons appended after Refresh + Collapse. */
+  headerExtras?: React.ReactNode;
 };
 
 function basename(path: string): string {
@@ -61,6 +66,9 @@ export function FileExplorer({
   onAttachToAgent,
   collapsed = false,
   onToggleCollapsed,
+  hideCreateActions = false,
+  hideGrep = false,
+  headerExtras,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const tree = useFileTree(rootPath, {
@@ -275,43 +283,49 @@ export function FileExplorer({
           </Button>
         </IconTooltip>
 
-        <IconTooltip label="Search in files" side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={() => {
-              setIsSearchOpen(false);
-              setIsGrepOpen((v) => !v);
-            }}
-            aria-label="Search in files"
-          >
-            <HugeiconsIcon icon={FileSearchIcon} size={13} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
+        {hideGrep ? null : (
+          <IconTooltip label="Search in files" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+              onClick={() => {
+                setIsSearchOpen(false);
+                setIsGrepOpen((v) => !v);
+              }}
+              aria-label="Search in files"
+            >
+              <HugeiconsIcon icon={FileSearchIcon} size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        )}
 
-        <IconTooltip label="New file" side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={() => tree.beginCreate(rootPath, "file")}
-            aria-label="New file"
-          >
-            <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
-        <IconTooltip label="New folder" side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={() => tree.beginCreate(rootPath, "dir")}
-            aria-label="New folder"
-          >
-            <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
+        {hideCreateActions ? null : (
+          <>
+            <IconTooltip label="New file" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground size-6"
+                onClick={() => tree.beginCreate(rootPath, "file")}
+                aria-label="New file"
+              >
+                <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="New folder" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground size-6"
+                onClick={() => tree.beginCreate(rootPath, "dir")}
+                aria-label="New folder"
+              >
+                <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          </>
+        )}
         <IconTooltip label="Refresh" side="bottom">
           <Button
             variant="ghost"
@@ -335,6 +349,7 @@ export function FileExplorer({
             <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        {headerExtras}
         </>
         )}
       </div>

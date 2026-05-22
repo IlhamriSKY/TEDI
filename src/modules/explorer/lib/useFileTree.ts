@@ -16,15 +16,12 @@ type ChildrenState =
 
 type TreeState = Record<string, ChildrenState>;
 
-/** Polling interval for silently re-reading every loaded directory while the
- *  window is focused & visible. Picks up files created externally (terminal,
- *  another editor, AI shell tools) without a backend FS watcher. */
+/** Polling interval (ms) for silent re-reads while the window is focused.
+ *  Picks up external file changes without a backend FS watcher. */
 const AUTO_REFRESH_MS = 4000;
 
-/** Global event other modules can dispatch to ask the explorer to refresh
- *  a specific directory immediately — e.g. after an AI write/create/delete.
- *  Detail `{ path }` refreshes that exact directory; omitting `path`
- *  refreshes every loaded directory. */
+/** Event for cross-module refresh requests. Detail `{ path }` refreshes one
+ *  directory; omitting `path` refreshes every loaded directory. */
 export const FS_REFRESH_EVENT = "tedi:refresh-fs";
 
 function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
@@ -54,9 +51,8 @@ export function joinPath(parent: string, name: string): string {
 }
 
 export function dirname(path: string): string {
-  // Tab cwds are canonical forward-slash, but Rust fs calls may surface
-  // backslash paths on Windows — accept both so the file tree doesn't
-  // collapse to root after an in-place rename / delete on Windows.
+  // Accept `/` and `\` so the tree doesn't collapse to root after a
+  // rename/delete on Windows (Rust may return backslash paths).
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   if (i <= 0) return "/";
   return path.slice(0, i);
@@ -65,7 +61,7 @@ export function dirname(path: string): string {
 type Options = {
   onPathRenamed?: (from: string, to: string) => void;
   onPathDeleted?: (path: string) => void;
-  /** When true, dot-prefixed entries are returned from the backend. */
+  /** When true, dot-prefixed entries are returned. */
   includeHidden?: boolean;
 };
 
@@ -76,18 +72,14 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const includeHidden = options?.includeHidden ?? false;
 
-  // Per-path fetch generation. When a directory has multiple in-flight
-  // fetches (e.g. user rapidly toggles `showHiddenFiles`), only the
-  // latest-issued one is allowed to commit its result. Prevents stale
-  // listings from overwriting fresh ones.
+  // Per-path generation counter so only the latest in-flight fetch commits.
   const fetchGen = useRef<Map<string, number>>(new Map());
 
   const fetchChildren = useCallback(
     async (path: string, opts: { silent?: boolean } = {}) => {
       const gen = (fetchGen.current.get(path) ?? 0) + 1;
       fetchGen.current.set(path, gen);
-      // Silent refresh keeps the previous entries on screen until the new
-      // response lands - avoids a "Loading…" flash during background polling.
+      // Silent refresh keeps previous entries visible until new ones land.
       if (!opts.silent) {
         setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
       }
@@ -98,9 +90,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         });
         if (fetchGen.current.get(path) !== gen) return;
         setNodes((s) => {
-          // Background poll: if the listing is identical (same names,
-          // mtimes, sizes), skip the state update entirely. Avoids
-          // re-rendering the whole tree every poll tick.
+          // Skip the state update when the listing is unchanged.
           if (opts.silent) {
             const prev = s[path];
             if (prev?.status === "loaded" && sameEntries(prev.entries, entries)) {
@@ -111,9 +101,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         });
       } catch (e) {
         if (fetchGen.current.get(path) !== gen) return;
-        // Silent refresh failures (file deleted under us, permissions
-        // changed, etc.) shouldn't blow away the cached entries the user
-        // is looking at. Foreground fetches still surface the error.
+        // Silent failures keep cached entries; foreground fetches still error.
         if (!opts.silent) {
           setNodes((s) => ({
             ...s,
@@ -125,15 +113,11 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     [includeHidden],
   );
 
-  // Hold the latest fetchChildren in a ref so the polling effect doesn't
-  // need to re-subscribe every time `includeHidden` flips (which would
-  // tear down + recreate the interval).
+  // Ref so the polling effect doesn't re-subscribe when `includeHidden` flips.
   const fetchChildrenRef = useRef(fetchChildren);
   fetchChildrenRef.current = fetchChildren;
 
-  /** Re-read every directory currently loaded in the tree. Silent: keeps
-   *  the existing UI on screen and only repaints rows that actually
-   *  changed. Used by the focus/visibility/interval auto-refresh. */
+  /** Silently re-reads every loaded directory. Only changed rows repaint. */
   const refreshAllLoaded = useCallback(() => {
     const dirs = Object.keys(nodes);
     for (const p of dirs) {
@@ -144,12 +128,11 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const refreshAllLoadedRef = useRef(refreshAllLoaded);
   refreshAllLoadedRef.current = refreshAllLoaded;
 
-  // Latest `nodes` snapshot for use inside event handlers that we don't
-  // want to re-subscribe on every tree change.
+  // Latest `nodes` ref for event handlers that shouldn't re-subscribe.
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
-  // Root change → reset state.
+  // Root change: reset state.
   useEffect(() => {
     fetchGen.current = new Map();
     if (!rootPath) {
@@ -164,33 +147,26 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     setExpanded(new Set());
     setNodes({});
     void fetchChildren(rootPath);
-    // Intentionally exclude `fetchChildren` here: it captures `includeHidden`
-    // and toggling that flag is handled by the dedicated effect below so we
-    // don't blow away the user's expanded state.
+    // Exclude `fetchChildren` from deps: `includeHidden` toggles are handled
+    // by the dedicated effect below so the user's expanded state survives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath]);
 
-  // includeHidden flip → re-fetch every already-loaded directory in place
-  // so the tree stays expanded but updated.
+  // `includeHidden` flip: re-fetch every loaded directory in place; expansion
+  // state stays.
   useEffect(() => {
     if (!rootPath) return;
     const loaded = Object.keys(nodes);
     for (const p of loaded) {
       void fetchChildren(p);
     }
-    // We only want this to fire on the flag change, not on every node
-    // mutation - including `nodes` would create a refetch loop.
+    // Only run on flag change; depending on `nodes` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeHidden, rootPath]);
 
-  // Auto-refresh: keep the tree in sync with external mutations (terminal
-  // commands creating files, another editor saving, AI shell tools, etc.)
-  // without a backend FS watcher. Three triggers:
-  //  - window focus / visibility-visible → immediate silent refresh
-  //  - polling interval while focused → silent refresh of every loaded dir
-  //  - FS_REFRESH_EVENT broadcast → targeted (or full) silent refresh
-  // Stops polling on blur / hidden so a backgrounded window doesn't burn
-  // CPU for nothing.
+  // Auto-refresh to track external mutations without a backend FS watcher.
+  // Triggers: window focus/visibility (immediate), interval while focused,
+  // FS_REFRESH_EVENT (targeted or full). Polling pauses on blur/hidden.
   useEffect(() => {
     if (!rootPath) return;
 
@@ -225,7 +201,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     const onRefreshEvent = (ev: Event) => {
       const detail = (ev as CustomEvent<{ path?: string } | undefined>).detail;
       if (detail?.path) {
-        // Targeted refresh — only the specific dir whose contents changed.
+        // Refresh only the named directory.
         const p = detail.path;
         if (fetchGen.current.has(p) || nodesRef.current[p]) {
           void fetchChildrenRef.current(p, { silent: true });
@@ -247,10 +223,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
     };
-    // `nodes` is only read inside `onRefreshEvent` to validate the path,
-    // so depending on it would tear down + recreate the listeners on every
-    // tree change. We intentionally skip it - the ref-based access pattern
-    // sees the latest tree state without re-subscription.
+    // Skip `nodes` from deps: `onRefreshEvent` reads it via ref, so
+    // depending on it would re-subscribe listeners on every tree change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath]);
 
@@ -305,7 +279,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     (parentPath: string, kind: "file" | "dir") => {
       setRenaming(null);
       setPendingCreate({ parentPath, kind });
-      // Ensure the parent is expanded so the input row is visible.
+      // Expand the parent so the input row is visible.
       if (rootPath && parentPath !== rootPath) {
         setExpanded((curr) => {
           if (curr.has(parentPath)) return curr;
@@ -390,10 +364,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     [fetchChildren, options],
   );
 
-  // Memoise the return tuple so consumers can pass it as a single `tree` prop
-  // to `memo()`'d children (e.g. FileTreeNode) without invalidating the shallow
-  // prop compare on every parent render. Only the slices that actually changed
-  // bump the object identity.
+  // Memoize the return so memo()'d children don't invalidate on every parent
+  // render. Only changed slices bump identity.
   return useMemo(
     () => ({
       nodes,

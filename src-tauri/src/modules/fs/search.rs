@@ -16,18 +16,17 @@ pub struct SearchHit {
     /// File name only.
     pub name: String,
     pub is_dir: bool,
-    /// Ranking score (higher = better). Useful for client-side sorting.
+    /// Ranking score (higher is better). Drives client-side sorting.
     pub score: i32,
-    /// Byte indices in `name` that matched the fuzzy query.
-    /// Empty if matched only on the path (not the name).
+    /// Byte indices in `name` that matched the fuzzy query. Empty when the
+    /// match was only on the path, not the name.
     pub name_match: Vec<u32>,
 }
 
-/// Walks `root` honoring `.gitignore` / `.ignore` rules. With `include_hidden`
-/// set, dot-prefixed names are still considered. Matches are ranked using a
-/// fuzzy subsequence score (filename hits + contiguity + word-boundary bonus
-/// + shorter path tiebreak). An empty query returns nothing - callers
-/// short-circuit before invoking.
+/// Walk `root` honoring `.gitignore` / `.ignore` rules. With `include_hidden`,
+/// dot-prefixed names are also considered. Matches ranked by a fuzzy
+/// subsequence score (filename hits, contiguity, word-boundary bonus, shorter
+/// path tiebreak). Empty query returns nothing.
 #[tauri::command]
 pub fn fs_search(
     root: String,
@@ -47,9 +46,9 @@ pub fn fs_search(
     }
     let show_hidden = include_hidden.unwrap_or(false);
 
-    // Walk in parallel — `ignore::WalkBuilder` is already pulled in for the
-    // grep path, and on a large monorepo the single-threaded walk + scoring
-    // pass was the bottleneck for the fuzzy file picker.
+    // Walk in parallel. `ignore::WalkBuilder` is already pulled in for grep,
+    // and on a large monorepo the single-threaded walk + scoring pass was
+    // the bottleneck for the fuzzy file picker.
     let walker = WalkBuilder::new(&root_path)
         .hidden(!show_hidden)
         .git_ignore(true)
@@ -63,7 +62,7 @@ pub fn fs_search(
     let worker_bufs: Arc<Mutex<Vec<Vec<SearchHit>>>> = Arc::new(Mutex::new(Vec::new()));
     let collected = Arc::new(AtomicUsize::new(0));
     let stop = Arc::new(AtomicBool::new(false));
-    // Walk a few times the requested cap so ranking has options to pick from.
+    // Walk past the requested cap so ranking has options to pick from.
     let walk_cap = cap.saturating_mul(4);
 
     struct WorkerBuf {
@@ -160,19 +159,16 @@ pub fn fs_search(
 }
 
 /// Returns `(score, matched_byte_indices)`. Score is 0 when no subsequence
-/// match exists. Higher scores reward:
-///  - Exact substring match
-///  - Contiguous runs
-///  - Matches at word boundaries (start, after `_`, `-`, `/`, `.`, `\`,
-///    space, or before uppercase camel transitions)
-///  - Matches near the start of the haystack
+/// match exists. Higher scores reward exact substring matches, contiguous
+/// runs, matches at word boundaries (start, after `_`, `-`, `/`, `.`, `\`,
+/// space, or before camel-case uppercase), and matches near the start.
 fn score_fuzzy(haystack: &str, needle: &[char]) -> (i32, Vec<usize>) {
     if needle.is_empty() {
         return (0, Vec::new());
     }
     let lower: Vec<char> = haystack.chars().flat_map(|c| c.to_lowercase()).collect();
-    // Byte indices for each char so the returned positions are usable
-    // against the original string.
+    // Byte indices per char so the returned positions are usable against
+    // the original string.
     let mut char_byte_idx: Vec<usize> = Vec::with_capacity(haystack.len());
     for (i, _) in haystack.char_indices() {
         char_byte_idx.push(i);

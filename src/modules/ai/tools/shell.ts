@@ -7,20 +7,13 @@ import { scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
 import { flexIntOpt, flexIntReq } from "./schedule";
 
 /**
- * Run every registered extension transformer over a command before it
- * hits the shell. Empty chain (no extension installed, or all disabled)
- * is a pure passthrough so the historical zero-overhead path is
- * preserved. `safety` is checked against the *user-authored* command
- * before transforming so transformers can never sneak past the denylist.
+ * Run registered extension transformers over a command before it hits the
+ * shell. Empty chain is a pure passthrough. Safety checks run against the
+ * user-authored command so transformers can't bypass the denylist.
  *
- * Exported so `terminal.ts` (`run_in_terminal`, `suggest_command`) can
- * thread the same chain as `bash_run` / `bash_background`. One source
- * of truth keeps the user experience consistent across every AI shell
- * path.
+ * Exported so terminal.ts uses the same chain as bash_run / bash_background.
  *
- * Example: with the `tedi.rtk-bridge` extension installed and active,
- * `git status` becomes `rtk git status`. With the extension removed,
- * the chain is empty and the command flows through unchanged.
+ * Example: with `tedi.rtk-bridge` active, `git status` becomes `rtk git status`.
  */
 export function applyShellTransformers(
   command: string,
@@ -29,10 +22,8 @@ export function applyShellTransformers(
   return shellTransformersRegistry.applyAll(command, kind);
 }
 
-/**
- * Per-session lazy shell-session id. The agent gets one persistent shell per
- * chat session, so cwd survives across tool calls (cd, mkdir+cd, etc).
- */
+/** Per-session lazy shell id. One persistent shell per chat session so cwd
+ *  survives across tool calls. */
 const sessionShells = new Map<string, Promise<number>>();
 
 async function getSessionShell(sessionId: string, cwd: string | null): Promise<number> {
@@ -45,10 +36,8 @@ async function getSessionShell(sessionId: string, cwd: string | null): Promise<n
 }
 
 /**
- * Tear down the Rust-side shell session for `sessionId`. Called by the chat
- * store when a chat session is deleted so the long-lived shell handle does
- * not leak (each handle holds a child process + IO pipes on the Rust side).
- * Idempotent — extra calls are no-ops.
+ * Tear down the Rust-side shell session for `sessionId`. Idempotent. Called
+ * on chat-session delete so the child process and IO pipes don't leak.
  */
 export function disposeSessionShell(sessionId: string): void {
   const p = sessionShells.get(sessionId);
@@ -57,7 +46,7 @@ export function disposeSessionShell(sessionId: string): void {
   void p
     .then((id) => native.shellSessionClose(id))
     .catch(() => {
-      // Already closed / never opened — nothing to do.
+      // Already closed or never opened.
     });
 }
 

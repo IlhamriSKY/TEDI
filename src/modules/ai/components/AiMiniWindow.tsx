@@ -1,11 +1,3 @@
-import {
-  Context,
-  ContextContent,
-  ContextContentBody,
-  ContextContentFooter,
-  ContextContentHeader,
-  ContextTrigger,
-} from "@/components/ai-elements/context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,12 +18,10 @@ import {
   Cancel01Icon,
   Delete02Icon,
   FilterIcon,
-  Minimize02Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useEffect, useMemo, useState } from "react";
-import { getModel, getModelContextLimit } from "../config";
+import { memo, useEffect, useMemo } from "react";
 import type { SessionMeta } from "../lib/sessions";
 import { useAgentsStore } from "../store/agentsStore";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
@@ -62,10 +52,8 @@ const SUGGESTIONS = [
   },
 ];
 
-// Memoised so unrelated parent re-renders (tab open/close, OSC 7 cwd
-// updates, ResizeObserver ticks in TabBar) don't re-render the entire AI
-// sidebar tree. The component takes zero props, so the default shallow
-// equality check always short-circuits to "skip".
+// Memoised so unrelated parent re-renders (tab open/close, OSC 7 cwd updates,
+// ResizeObserver ticks in TabBar) don't re-render the AI sidebar tree.
 export const AiSidebarPanel = memo(function AiSidebarPanel() {
   const closePanel = useChatStore((s) => s.closePanel);
   const sessionId = useChatStore((s) => s.activeSessionId);
@@ -105,7 +93,7 @@ export const AiSidebarPanel = memo(function AiSidebarPanel() {
   );
 });
 
-// Back-compat alias - older imports still reference `AiMiniWindow`.
+// Back-compat alias for older imports.
 export { AiSidebarPanel as AiMiniWindow };
 
 function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
@@ -222,203 +210,6 @@ function Header({
   );
 }
 
-function estimateTokens(messages: UIMessage[]): number {
-  let chars = 0;
-  for (const m of messages) {
-    for (const p of m.parts) {
-      if (p.type === "text") {
-        chars += (p as { text?: string }).text?.length ?? 0;
-      } else if (p.type === "reasoning") {
-        chars += (p as { text?: string }).text?.length ?? 0;
-      } else if (typeof p.type === "string" && p.type.startsWith("tool-")) {
-        const tp = p as unknown as { input?: unknown; output?: unknown };
-        if (tp.input) chars += JSON.stringify(tp.input).length;
-        if (tp.output) chars += JSON.stringify(tp.output).length;
-      }
-    }
-  }
-  return Math.ceil(chars / 4);
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
-
-/** Visual proof that compaction just happened. The badge appears for
- *  COMPACT_BADGE_MS next to the context indicator and disappears on its own.
- *  We deliberately surface even Stage 1 (lossless dedup) here so the user can
- *  literally see EVERY compaction pass — silent dedup would otherwise leave
- *  the impression that "auto-compact isn't running." */
-const COMPACT_BADGE_MS = 6000;
-
-function CompactPulseBadge() {
-  const lastCompact = useChatStore((s) => s.agentMeta.lastCompact);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!lastCompact) return;
-    setVisible(true);
-    const t = setTimeout(() => setVisible(false), COMPACT_BADGE_MS);
-    return () => clearTimeout(t);
-  }, [lastCompact]);
-  if (!visible || !lastCompact) return null;
-  const { dropped, elided, lossless } = lastCompact.stages;
-  // Tone matches severity: drop = warning, elide = info, lossless = subtle.
-  const tone =
-    dropped > 0
-      ? "border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300"
-      : elided > 0
-        ? "border-sky-500/60 bg-sky-500/15 text-sky-700 dark:text-sky-300"
-        : "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  const detail =
-    dropped > 0 ? `−${dropped}` : elided > 0 ? `~${elided}` : lossless > 0 ? "tidy" : "";
-  const tip =
-    dropped > 0
-      ? `Compacted: dropped ${dropped} old message${dropped === 1 ? "" : "s"}`
-      : elided > 0
-        ? `Compacted: elided ${elided} old tool result${elided === 1 ? "" : "s"}`
-        : "Compacted: deduplicated stale read results";
-  return (
-    <IconTooltip label={tip} side="top">
-      <span
-        aria-label={tip}
-        className={cn(
-          "flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 font-mono text-[10px] leading-none",
-          "animate-in fade-in zoom-in-95 duration-200",
-          tone,
-        )}
-      >
-        <span className="size-1.5 animate-pulse rounded-full bg-current/80" />
-        <HugeiconsIcon icon={Minimize02Icon} size={10} strokeWidth={2} />
-        {detail ? <span>{detail}</span> : null}
-      </span>
-    </IconTooltip>
-  );
-}
-
-function formatRelativeAge(ms: number): string {
-  if (ms < 1000) return "just now";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ago`;
-}
-
-function LastCompactLine() {
-  const lastCompact = useChatStore((s) => s.agentMeta.lastCompact);
-  // Re-tick once a second so the relative age stays fresh while the hover
-  // card is open. Cheap: only mounts inside the popover, only runs while open.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!lastCompact) return;
-    const i = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(i);
-  }, [lastCompact]);
-  if (!lastCompact) return null;
-  const age = formatRelativeAge(Date.now() - lastCompact.at);
-  const { dropped, elided, lossless } = lastCompact.stages;
-  const parts: string[] = [];
-  if (dropped > 0) parts.push(`dropped ${dropped}`);
-  if (elided > 0) parts.push(`elided ${elided}`);
-  if (lossless > 0) parts.push("dedup");
-  const detail = parts.length > 0 ? parts.join(" · ") : "no-op";
-  return (
-    <div className="text-muted-foreground mt-1 flex items-center justify-between">
-      <span>Last compacted</span>
-      <span className="text-foreground font-mono">
-        {age} <span className="text-muted-foreground/80">({detail})</span>
-      </span>
-    </div>
-  );
-}
-
-export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
-  const modelId = useChatStore((s) => s.selectedModelId);
-  const usage = useChatStore((s) => s.agentMeta.usage);
-  const used = useMemo(() => estimateTokens(messages), [messages]);
-  const max = getModelContextLimit(modelId);
-  const modelLabel = useMemo(() => {
-    try {
-      return getModel(modelId).label;
-    } catch {
-      return modelId;
-    }
-  }, [modelId]);
-
-  // Cache hit ratio. Only meaningful once the session has accumulated at
-  // least one round-trip - show "-" until then so users don't see 0% on
-  // a fresh chat and assume it's broken.
-  const hasReportedUsage = usage.input > 0;
-  const cacheRatio = hasReportedUsage ? usage.cached / usage.input : 0;
-  const cacheRatioPct = Math.round(cacheRatio * 100);
-
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <CompactPulseBadge />
-      <Context usedTokens={used} maxTokens={max} modelId={modelId}>
-        <ContextTrigger className="h-6 gap-1 px-0 text-[10.5px]" />
-        <ContextContent className="w-72 text-[11px]">
-          <ContextContentHeader />
-          <ContextContentBody>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Model</span>
-              <span className="text-foreground font-mono">{modelLabel}</span>
-            </div>
-            <div className="text-muted-foreground mt-1 flex items-center justify-between">
-              <span>Estimated used</span>
-              <span className="text-foreground font-mono">{formatTokens(used)}</span>
-            </div>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Window</span>
-              <span className="text-foreground font-mono">{formatTokens(max)}</span>
-            </div>
-            <LastCompactLine />
-
-            <div className="border-border/40 my-2 border-t" />
-
-            <div className="text-muted-foreground/70 text-[10px] font-medium tracking-wider uppercase">
-              Session usage
-            </div>
-            <div className="text-muted-foreground mt-1 flex items-center justify-between">
-              <span>Input</span>
-              <span className="text-foreground font-mono">
-                {hasReportedUsage ? formatTokens(usage.input) : "-"}
-              </span>
-            </div>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Output</span>
-              <span className="text-foreground font-mono">
-                {hasReportedUsage ? formatTokens(usage.output) : "-"}
-              </span>
-            </div>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Cached (prompt cache hit)</span>
-              <span
-                className={cn(
-                  "font-mono",
-                  hasReportedUsage && cacheRatioPct >= 50
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-foreground",
-                )}
-              >
-                {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "-"}
-              </span>
-            </div>
-          </ContextContentBody>
-          <ContextContentFooter>
-            <span className="text-muted-foreground text-[10px] italic">
-              Used = local estimate (chars/4). Session = reported by provider.
-            </span>
-          </ContextContentFooter>
-        </ContextContent>
-      </Context>
-    </div>
-  );
-}
-
 function SessionPicker() {
   const sessions = useChatStore((s) => s.sessions);
   const activeId = useChatStore((s) => s.activeSessionId);
@@ -497,7 +288,7 @@ function SessionRow({
   return (
     <DropdownMenuItem
       onSelect={(e) => {
-        // Don't dismiss if user clicked the trash icon - handle below.
+        // Skip dismiss if the trash icon was clicked; handled below.
         const target = e.target as HTMLElement | null;
         if (target?.closest("[data-session-delete]")) {
           e.preventDefault();
@@ -536,7 +327,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       <div className="space-y-1.5">
         <p className="text-[14px] font-semibold tracking-tight">Ask TEDI anything</p>
         <p className="text-muted-foreground max-w-[18rem] text-[11.5px] leading-relaxed">
-          TEDI sees the active terminal - cwd, recent commands, and output.
+          TEDI sees the active terminal: cwd, recent commands, and output.
         </p>
       </div>
       <div className="flex w-full flex-col gap-2.5">

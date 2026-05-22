@@ -1,8 +1,6 @@
 import { IS_MAC, MOD_PROP } from "@/lib/platform";
 
-/**
- * Single source of truth for keyboard shortcuts.
- */
+/** Keyboard shortcut catalog. */
 
 export type ShortcutId =
   | "tab.new"
@@ -58,9 +56,8 @@ export type Shortcut = {
   label: string;
   group: ShortcutGroup;
   defaultBindings: KeyBinding[];
-  /** Show in the settings list but disable the recorder + clear/reset
-   *  buttons. Used for keys that are hardcoded in a component handler
-   *  (e.g. textarea Enter) and only listed here as documentation. */
+  /** List in settings but disable recorder + reset. For component-hardcoded
+   *  keys (e.g. textarea Enter) shown for documentation. */
   readOnly?: boolean;
 };
 
@@ -102,14 +99,14 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "w" }],
   },
   {
-    // Triggers a horizontal split (new tab beside the focused one).
+    // Horizontal split: new tab beside the focused one.
     id: "pane.splitRight",
     label: "Split pane horizontally",
     group: "Panes",
     defaultBindings: [{ [MOD_PROP]: true, key: "d" }],
   },
   {
-    // Triggers a vertical split (new tab stacked below the focused one).
+    // Vertical split: new tab stacked below the focused one.
     id: "pane.splitDown",
     label: "Split pane vertically",
     group: "Panes",
@@ -203,8 +200,8 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "b" }],
   },
   {
-    // `=` is the unshifted "+" on a US layout. Matches VS Code / browser
-    // convention so Cmd/Ctrl + "+" (with or without Shift) feels natural.
+    // `=` is the unshifted "+" on US layouts. Matches VS Code and browsers,
+    // so Cmd/Ctrl + "+" works with or without Shift.
     id: "view.zoomIn",
     label: "Zoom in",
     group: "View",
@@ -232,26 +229,24 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ alt: true, key: "z" }],
   },
   {
-    // Cross-platform terminal convention: Ctrl+C in the active shell is
-    // reserved for SIGINT, so the copy binding moves to Ctrl+Shift+C
-    // (matches GNOME Terminal, Konsole, Windows Terminal, VS Code). macOS
-    // users who prefer Cmd+C can rebind in Settings → Shortcuts → Terminal.
+    // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C. Matches GNOME
+    // Terminal, Konsole, Windows Terminal, VS Code. macOS users can rebind
+    // to Cmd+C in Settings, Shortcuts, Terminal.
     id: "terminal.copy",
     label: "Copy selection",
     group: "Terminal",
     defaultBindings: [{ ctrl: true, shift: true, key: "c" }],
   },
   {
-    // Paste from system clipboard. Goes through xterm's bracketed-paste
-    // path so multi-line snippets aren't executed line-by-line by bash/zsh.
+    // Uses xterm's bracketed-paste so multi-line snippets aren't executed
+    // line-by-line.
     id: "terminal.paste",
     label: "Paste from clipboard",
     group: "Terminal",
     defaultBindings: [{ ctrl: true, shift: true, key: "v" }],
   },
   {
-    // Close the focused terminal pane. No-op when it's the last terminal
-    // left in the workspace so the user never lands in an empty UI.
+    // Closes the focused terminal pane. No-op for the last terminal.
     id: "terminal.close",
     label: "Close focused terminal",
     group: "Terminal",
@@ -271,55 +266,37 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
 ];
 
 /**
- * Layout-independent canonical key form. We prefer `KeyboardEvent.code` for
- * the physical letter/digit positions on the keyboard because `e.key` is
- * derived from the active layout + active modifier, and two real-world
- * cases trip a naive `e.key`-only match:
- *
- *  1. macOS Option-modifier dead chars. With Option held, the layout
- *     emits a composed glyph: `Option+Z` → `key: "Ω"`, `Option+E` → `key:
- *     "´"` (combining acute), and so on. A binding stored as
- *     `{ alt: true, key: "z" }` (which is what the user wanted to record
- *     by pressing Option+Z) would never match because "Ω".toLowerCase()
- *     !== "z".
- *  2. Non-Latin layouts (Cyrillic, Greek, Arabic, Devanagari…). Pressing
- *     the same physical "T" key on a Russian layout fires `key: "т"`.
- *     Default bindings ship Latin letters, so the non-Latin user would
- *     have no working shortcuts at all.
- *
- * `e.code` is identical across layouts and modifier states ("KeyT" /
- * "Digit5" / "BracketLeft"), so for the keys it covers we use it directly.
- * For everything else (punctuation, function keys, navigation, named keys
- * like "Enter"/"Tab"/"Escape") we fall back to `e.key`. That hybrid is
- * what every shortcut-driven app (VS Code, Codemirror, Chrome DevTools)
- * does too.
+ * Layout-independent key canonicalization. Uses `e.code` for letters/digits
+ * because `e.key` varies with layout and modifiers:
+ *   - macOS Option produces composed glyphs (`Option+Z` -> "Omega"), so a
+ *     binding `{ alt: true, key: "z" }` would never match.
+ *   - Non-Latin layouts (Cyrillic, Greek, Arabic) emit non-Latin `key`
+ *     values, breaking Latin-letter defaults.
+ * `e.code` is stable across layouts (`KeyT`, `Digit5`, `BracketLeft`).
+ * For everything else (punctuation, function/navigation/named keys) fall
+ * back to `e.key`. Same hybrid VS Code and CodeMirror use.
  */
 function canonicalKey(e: KeyboardEvent): string {
   const code = e.code;
-  // KeyA..KeyZ → "a".."z"
+  // KeyA..KeyZ -> "a".."z"
   if (code.length === 4 && code.startsWith("Key")) {
     return code.slice(3).toLowerCase();
   }
-  // Digit0..Digit9 → "0".."9". Note: numpad digits arrive as "Numpad0"
-  // etc. - we deliberately don't map those so a user who recorded a
-  // top-row digit shortcut isn't unexpectedly triggered by NumLock input.
+  // Digit0..Digit9 -> "0".."9". Skip Numpad0..9 so a top-row digit binding
+  // doesn't fire from numpad input.
   if (code.length === 6 && code.startsWith("Digit")) {
     return code.slice(5);
   }
   return e.key.toLowerCase();
 }
 
-/**
- * Matching logic: checks if a KeyboardEvent matches a KeyBinding.
- */
+/** Returns true if the KeyboardEvent matches the KeyBinding. */
 export function matchBinding(e: KeyboardEvent, binding: KeyBinding, id?: ShortcutId): boolean {
   const eventKey = canonicalKey(e);
   const bindingKey = binding.key.toLowerCase();
 
-  // Special case for Jump to Tab 1-9. We match against the canonical key
-  // (which uses e.code for digits) so the shortcut still fires on layouts
-  // where Shift+digit produces a different glyph or where altKey changes
-  // the printable char.
+  // Jump-to-tab matches via canonical key (e.code for digits) so the shortcut
+  // works on layouts where Shift+digit or Alt changes the printable char.
   if (id === "tab.selectByIndex") {
     if (!/^[1-9]$/.test(eventKey)) return false;
   } else if (eventKey !== bindingKey) {
@@ -335,17 +312,76 @@ export function matchBinding(e: KeyboardEvent, binding: KeyBinding, id?: Shortcu
 }
 
 /**
- * Recorder-side counterpart. Stores the canonical form so a binding
- * recorded on a Mac with Option held or on a non-Latin layout still
- * matches when replayed. Used by the settings recorder.
+ * Recorder counterpart. Returns the canonical key so bindings recorded with
+ * Option held or on non-Latin layouts still match on replay.
  */
 export function canonicalKeyFromEvent(e: KeyboardEvent): string {
   return canonicalKey(e);
 }
 
 /**
- * Display helpers
+ * Parses an extension's `contributes.keybindings[].key` string
+ * (e.g. "Mod+Shift+E", "Ctrl+K", "Alt+Shift+ArrowLeft") into a `KeyBinding`.
+ * VS Code grammar:
+ *   `Mod` is `meta` on macOS, `ctrl` elsewhere (matches `MOD_PROP`).
+ *   Modifiers (case-insensitive): ctrl/control, shift, alt/option/opt,
+ *   meta/cmd/command/win/super, mod. Separated by `+`. Trailing token is the key.
+ *   Single chars are lowercased; named keys pass through.
+ * Returns `null` when input is empty or has no key token. Unknown modifiers
+ * are skipped silently.
  */
+export function parseKeybindingString(input: string): KeyBinding | null {
+  if (typeof input !== "string") return null;
+  const parts = input
+    .split("+")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) return null;
+  const binding: KeyBinding = { key: "" };
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i];
+    const isLast = i === parts.length - 1;
+    const lower = token.toLowerCase();
+    if (!isLast) {
+      switch (lower) {
+        case "ctrl":
+        case "control":
+          binding.ctrl = true;
+          break;
+        case "shift":
+          binding.shift = true;
+          break;
+        case "alt":
+        case "option":
+        case "opt":
+          binding.alt = true;
+          break;
+        case "meta":
+        case "cmd":
+        case "command":
+        case "win":
+        case "super":
+          binding.meta = true;
+          break;
+        case "mod":
+          // VS Code alias: Cmd on Mac, Ctrl elsewhere. Aligns with `MOD_PROP`.
+          binding[MOD_PROP] = true;
+          break;
+        default:
+          // Unknown modifier: drop it so a single typo doesn't kill the binding.
+          break;
+      }
+      continue;
+    }
+    // Last token is the key. Lowercase single chars so `matchBinding`'s
+    // canonical comparison matches regardless of manifest casing.
+    binding.key = token.length === 1 ? token.toLowerCase() : token;
+  }
+  if (!binding.key) return null;
+  return binding;
+}
+
+/** Display tokens for a binding (platform-specific glyphs on macOS). */
 export function getBindingTokens(binding?: KeyBinding): string[] {
   if (!binding) return [];
   const tokens: string[] = [];

@@ -31,10 +31,8 @@ export function newTodoId(): string {
 }
 
 /**
- * Validate a candidate todo list:
- *  - At most one item with status `in_progress` (anti-drift invariant).
- *  - Titles must be non-empty.
- * Returns null on valid, otherwise an error string.
+ * Validate a todo list. At most one `in_progress`, titles non-empty.
+ * Returns null when valid, else an error message.
  */
 export function validateTodos(todos: Todo[]): string | null {
   let inProgress = 0;

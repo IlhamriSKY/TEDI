@@ -66,21 +66,20 @@ import type { ReactNode } from "react";
 import type { Tab } from "./lib/useTabs";
 
 /**
- * The tab strip lists entries - one per **pane** for pane tabs (so each
- * terminal/editor leaf shows up as its own clickable entry), and one per
- * tab for preview / ai-diff. Clicking a pane entry focuses that pane in
- * its owning tab; clicking a preview/ai-diff entry activates that tab.
+ * Tab strip entries: one per pane for pane tabs, one per tab for preview
+ * and ai-diff. Clicking a pane entry focuses that pane; clicking a
+ * preview/ai-diff entry activates that tab.
  */
 type EntryBase = {
-  /** Stable composite key (e.g. "tab-3", "leaf-7"). */
+  /** Composite key like "tab-3" or "leaf-7". */
   key: string;
-  /** Which tab this entry belongs to. */
+  /** Owning tab id. */
   tabId: number;
   /** Display label. */
   label: string;
   /** Italic for preview/transient. */
   italic?: boolean;
-  /** Yellow dot for unsaved-edit indicator. */
+  /** Yellow dot for unsaved edits. */
   dirty?: boolean;
 };
 
@@ -88,26 +87,15 @@ type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
   leafKind: "terminal" | "editor";
-  /**
-   * 1-based number stamped on every terminal leaf in current tab order.
-   * Surfaces as a small badge in the TabBar AND is the same identifier the
-   * AI sees via `<env>`. So "terminal 3" in the user's prompt matches the
-   * badge directly.
-   */
+  /** 1-based FIFO badge number. Same identifier the AI sees in `<env>`. */
   terminalOrdinal?: number;
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
-  /** Latest known status for SSH leaves, drives the colored dot. */
+  /** Latest SSH session status. Drives the colored dot. */
   sshStatus?: SshStatus;
-  /**
-   * Latest known AI CLI status for local terminal leaves. When the user
-   * runs `claude`, `codex`, `opencode`, etc., the detector in
-   * `useTerminalSession` populates this; null when no AI CLI is active.
-   */
+  /** Latest AI CLI status for terminal leaves. Null when no AI CLI is active. */
   aiCliStatus?: AiCliStatus;
-  /** Set on editor leaves backed by an SFTP read/write on this host label.
-   *  Used to flip the file icon into a "remote" cloud variant so the user
-   *  can tell at a glance they're editing a file that lives on a server. */
+  /** Set on editor leaves backed by SFTP. Flips the file icon to a remote variant. */
   remoteHost?: string;
 };
 
@@ -118,21 +106,11 @@ type StandaloneEntry = EntryBase & {
 type Entry = PaneEntry | StandaloneEntry;
 
 /**
- * Per-type background colour for the accent stripe on the left edge of the
- * active tab. Each tab kind gets its own colour so users can tell at a
- * glance what kind of thing is focused - emerald for a local shell, sky
- * for SSH, brand-blue for a file editor, cyan for an in-app browser
- * preview, violet for an AI diff, amber for a git diff.
- *
- * The stripe is rendered as a real `<span>` child of the tab trigger (see
- * the JSX below) - *not* via `::after` - because the underlying primitive
- * `TabsTrigger` already wires up its own `::after` for a different purpose
- * with `group-data-horizontal/tabs:` variants that have equal CSS
- * specificity to ours. That collision made the stripe blink in/out
- * depending on tab count / split layout (the only thing that shifted CSS
- * source order). A separate element sidesteps the fight entirely.
- *
- * Keep the strings as full literals so Tailwind's JIT can see them.
+ * Background color for the per-tab accent stripe. Emerald for local shell,
+ * sky for SSH, brand blue for editor, cyan for preview, violet for AI diff,
+ * amber for git diff. Rendered as a `<span>` (not `::after`) because the
+ * primitive `TabsTrigger` already uses `::after` with equal specificity.
+ * Keep strings as full literals for Tailwind's JIT.
  */
 function tabAccentClass(e: Entry): string {
   if (e.kind === "pane-leaf") {
@@ -159,10 +137,7 @@ function entryLabel(
   sshHosts: Map<string, SshConnection>,
 ): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  // SSH leaves: show "ssh:<host>" so the destination is visible at a
-  // glance, especially after a split where the tab title falls back to
-  // a generic label. Falls back to bare "ssh" if the connection was
-  // deleted from the keychain while the leaf is still open.
+  // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
     const host = sshHosts.get(leaf.sshConnectionId);
     return host ? `ssh:${host.host}` : "ssh";
@@ -190,11 +165,9 @@ function buildEntries(
       for (const leaf of leaves(t.paneTree)) {
         const label = entryLabel(leaf, t.cwd, sshHosts);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
-        // Stable FIFO ordinal — assigned at leaf creation, preserved through
-        // drag/reorder/move-to-group and across app restarts via workspace
-        // serialisation. The same number is surfaced to the AI in the
-        // per-turn `<env>` block so "terminal 3" maps to the chip the user
-        // sees, even after the tab strip has been rearranged.
+        // FIFO ordinal assigned at leaf creation. Preserved through drag,
+        // reorder, move-to-group, and workspace restarts. Same number the AI
+        // sees in the per-turn `<env>` block.
         const ord =
           leaf.leafKind === "terminal" && typeof leaf.terminalOrdinal === "number"
             ? leaf.terminalOrdinal
@@ -218,10 +191,7 @@ function buildEntries(
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
           sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
-          // Surface AI CLI status for SSH leaves too — the detector runs
-          // on the byte stream regardless of whether the PTY is local or
-          // remote, so a remote `claude` / `codex` session lights up the
-          // tab icon the same way as a local one.
+          // AI CLI status on SSH leaves too. Detector runs on the byte stream regardless of PTY locality.
           aiCliStatus:
             leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
           remoteHost,
@@ -261,74 +231,33 @@ function buildEntries(
 type Props = {
   tabs: Tab[];
   activeId: number;
-  /**
-   * Activate a pane entry. `leafId` is null for standalone (preview / ai-diff)
-   * entries - caller should just activate the tab.
-   */
+  /** Activate a pane entry. `leafId` is null for standalone tabs. */
   onSelectEntry: (tabId: number, leafId: number | null) => void;
-  /**
-   * Close a pane leaf or a standalone tab. `leafId` is null for standalone.
-   */
+  /** Close a pane leaf or standalone tab. `leafId` is null for standalone. */
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   onNewTerminal: () => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
-  /** Promote a preview-editor leaf to persistent on double-click. */
+  /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
-  /**
-   * Drag-and-drop reorder among *tabs* (top-level tab strip order).
-   * `beforeTabId` of null means drop at end.
-   */
+  /** Reorder tabs. `beforeTabId` null appends. */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
-  /**
-   * Drag-and-drop reorder *within* a split group — repositions a pane leaf
-   * among its sibling leaves in the same split, without changing the tab's
-   * position in the outer strip. `beforeLeafId` of null appends to the end
-   * of the parent split's children. Caller ignores cross-group drops; use
-   * `onMoveLeafToGroup` for that.
-   */
+  /** Reorder a leaf within its split group. `beforeLeafId` null appends. Cross-group drops are ignored; use `onMoveLeafToGroup`. */
   onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
-  /**
-   * Move a leaf out of its current tab and graft it as a split into
-   * `targetTabId`. Drives the per-entry "Move to group" button (left of the
-   * close X). Caller enforces `MAX_PANES_PER_TAB` and surfaces a toast on
-   * full / invalid.
-   */
+  /** Move a leaf into `targetTabId` as a split. Caller enforces `MAX_PANES_PER_TAB` and toasts on full/invalid. */
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
-  /**
-   * Extract a leaf from its current split into a brand-new top-level pane
-   * tab — "leave group". Only meaningful for leaves that sit inside a
-   * multi-leaf split. Returns `"invalid"` for single-leaf tabs.
-   */
+  /** Extract a leaf into a new top-level pane tab. Returns `"invalid"` for single-leaf tabs. */
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
-  /**
-   * Flip the orientation (row ↔ col) of the split node that **directly**
-   * contains `leafId`. The icon only renders on entries that belong to a
-   * split group (single-pane tabs have nothing to rotate); clicks affect
-   * only that leaf's surrounding split, leaving any sibling splits in the
-   * tab untouched.
-   */
+  /** Flip the orientation of the split containing `leafId`. Rendered only on entries inside a split. */
   onRotateLeafSplit?: (leafId: number) => void;
-  /**
-   * Optional map keyed by leafId carrying the latest SSH session status.
-   * Drives the colored dot on the SSH entry icon and the status line in
-   * the tab tooltip. Untracked leaves render as "Connecting…".
-   */
+  /** Map of leafId to SSH session status. Drives the colored dot and tooltip. */
   sshStatuses?: Map<number, SshStatus>;
-  /**
-   * Optional map keyed by leafId carrying the latest AI CLI status (claude,
-   * codex, opencode, copilot, pi). Drives the dot overlay on the terminal
-   * icon + the tooltip line on the tab.
-   */
+  /** Map of leafId to AI CLI status. Drives the icon dot and tooltip. */
   aiCliStatuses?: Map<number, AiCliStatus>;
   compact?: boolean;
 };
 
-/**
- * Snappy-but-soft drop animation. The default ease-out + 250ms felt sluggish
- * after release; 180ms with an ease-out-quint curve lands the tab faster
- * without losing the "ease in to rest" feeling.
- */
+/** Drop animation. 180ms ease-out-quint lands the tab quickly without losing the rest feel. */
 const DROP_ANIMATION: DropAnimation = {
   duration: 180,
   easing: "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -338,13 +267,9 @@ const DROP_ANIMATION: DropAnimation = {
 };
 
 /**
- * Constrain collision detection to droppables of the same *kind* as the
- * dragged item — tab drags only see other tabs, leaf drags only see other
- * leaves. Without this filter, dragging a tab past the last entry can flicker
- * onto a leaf inside someone else's split group (because closestCenter looks
- * at every registered droppable across every SortableContext), which makes
- * the snap-back position unstable when there's no tab "behind" the drag.
- * Filtering by prefix keeps the over target predictable end-to-end.
+ * Scope collision detection by kind. Tab drags only see tabs; leaf drags only
+ * see leaves. Without this filter, dragging a tab past the last entry can
+ * flicker onto a leaf in another group's split.
  */
 function makeScopedCollisionDetection(): CollisionDetection {
   return (args) => {
@@ -360,13 +285,7 @@ function makeScopedCollisionDetection(): CollisionDetection {
   };
 }
 
-/**
- * Pin the DragOverlay so the pointer stays at the horizontal centre of the
- * dragged tab and the chip never leaves the tab strip's y-line. The tab
- * strip sits inside its own dedicated h-10 header row - without locking y,
- * the overlay drifts up/down toward whichever border is closer to the
- * cursor and visually "snaps to a line" instead of sitting centred.
- */
+/** Pin the DragOverlay to the horizontal center of the tab and lock y to the tab strip. */
 const snapCenterAndLockY: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
   if (!draggingNodeRect || !activatorEvent) return transform;
   const ev = activatorEvent as PointerEvent;
@@ -374,8 +293,7 @@ const snapCenterAndLockY: Modifier = ({ activatorEvent, draggingNodeRect, transf
   return {
     ...transform,
     x: transform.x + offsetX - draggingNodeRect.width / 2,
-    // y: 0 keeps the overlay glued to the dragged node's original row
-    // (the tab strip line). Cursor can drift vertically; the chip won't.
+    // y: 0 glues the overlay to the original row.
     y: 0,
   };
 };
@@ -399,12 +317,9 @@ export function TabBar({
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Composite drag id from dnd-kit — `tab:<n>` for whole-group drags or
-  // `leaf:<n>` for in-group leaf reorders. Both kinds share the same outer
-  // DndContext; the prefix tells `handleDragEnd` which reducer to dispatch.
+  // dnd-kit drag id. `tab:<n>` for whole-group, `leaf:<n>` for in-group reorder. Prefix routes `handleDragEnd`.
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  // Load saved SSH hosts once + on change, so we can resolve a leaf's
-  // `sshConnectionId` to its `user@host:port` for the tab tooltip.
+  // Load SSH hosts on mount and on change so leaf `sshConnectionId` resolves for the tooltip.
   const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(() => new Map());
   useEffect(() => {
     const load = () =>
@@ -421,13 +336,7 @@ export function TabBar({
     [tabs, sshHosts, sshStatuses, aiCliStatuses],
   );
 
-  /**
-   * Snapshot of every pane tab keyed by id, used by the per-entry "Move to
-   * group" button to enumerate possible targets and tell the user which ones
-   * are at the per-tab pane cap. Includes the full ones (rendered disabled)
-   * so the menu's contents stay stable - the user can still see what's
-   * there, just can't pick it.
-   */
+  /** Snapshot of pane tabs for the Move to Group menu. Full tabs are listed but disabled so the menu stays stable. */
   const paneGroupsForMove = useMemo(
     () =>
       tabs.flatMap((t) =>
@@ -445,10 +354,7 @@ export function TabBar({
     [tabs],
   );
 
-  // Group entries by their owning top-level tab. A tab with split panes
-  // contributes multiple consecutive entries (one per leaf); a single-pane
-  // tab contributes exactly one. We render each group as a bordered cluster
-  // so the user can see which entries belong to the same split.
+  // Group entries by owning tab. Split tabs contribute multiple consecutive entries.
   const entryGroups = useMemo(() => {
     const groups: { tabId: number; entries: Entry[] }[] = [];
     for (const entry of entries) {
@@ -479,13 +385,10 @@ export function TabBar({
     return null;
   }, [entries, activeDragId]);
 
-  // The very last entry in the strip is the one nothing can be "closed to
-  // the right of" - used to hide the menu item rather than show a no-op.
+  // The last entry has no "close to the right" target, so the menu item is hidden.
   const lastEntryKey = entries.length > 0 ? entries[entries.length - 1].key : null;
 
-  // Close every entry visually to the right of `entry` in the strip. Each
-  // call routes through the same `onCloseEntry` the X button uses, so the
-  // dirty-editor confirmation flow still fires when applicable.
+  // Close every entry to the right of `entry`. Routes through `onCloseEntry` so dirty-editor confirms still fire.
   const closeEntriesAfter = (entry: Entry) => {
     const idx = entries.findIndex((e) => e.key === entry.key);
     if (idx < 0) return;
@@ -495,8 +398,7 @@ export function TabBar({
     }
   };
 
-  // Determine which entry is "active". For pane tabs, follow tab.activeLeafId;
-  // for standalone tabs, the single entry IS active when tab matches activeId.
+  // Active entry: pane tab follows `activeLeafId`; standalone tab is active when its id matches.
   const activeKey = useMemo<string | null>(() => {
     const active = tabs.find((t) => t.id === activeId);
     if (!active) return null;
@@ -526,8 +428,7 @@ export function TabBar({
     target?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, entries.length]);
 
-  // Track scroll position so the left/right nav arrows can enable / disable
-  // and hide entirely when the tab strip has no overflow at all.
+  // Track scroll position so the nav arrows enable, disable, or hide.
   const [overflow, setOverflow] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -538,16 +439,14 @@ export function TabBar({
       const ovr = el.scrollWidth > el.clientWidth + 1;
       setOverflow(ovr);
       setCanScrollLeft(ovr && el.scrollLeft > 0);
-      // Sub-pixel rounding: leave a 1px tolerance so the right arrow stops
-      // flickering at maximum scroll.
+      // 1px tolerance prevents flicker at max scroll.
       setCanScrollRight(ovr && el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
     };
     update();
     el.addEventListener("scroll", update, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    // Also watch the inner content - tabs added/removed/relabeled change
-    // scrollWidth without firing on the container itself.
+    // Watch the inner content too. Tab add/remove/relabel changes scrollWidth without firing on the container.
     const content = el.firstElementChild as HTMLElement | null;
     if (content) ro.observe(content);
     return () => {
@@ -562,17 +461,13 @@ export function TabBar({
     el.scrollBy({ left: dx, behavior: "smooth" });
   };
 
-  // Pointer-based DnD via dnd-kit. 5px activation distance prevents
-  // accidental drags from interfering with click-to-select.
+  // Pointer DnD via dnd-kit. 5px activation distance prevents click-to-select drags.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // Memoised so the DndContext doesn't see a fresh fn reference per render
-  // (which would force its internal effects to re-subscribe).
+  // Memoize so DndContext keeps a stable reference.
   const collisionDetection = useMemo(() => makeScopedCollisionDetection(), []);
 
-  // Outer SortableContext: one item per top-level tab. IDs are stringly typed
-  // so they can coexist with the inner `leaf:<n>` items inside each split
-  // group without colliding numerically.
+  // Outer SortableContext: one item per top-level tab. String ids coexist with inner `leaf:<n>` ids.
   const sortableIds = useMemo(() => tabs.map((t) => `tab:${t.id}`), [tabs]);
 
   const handleDragEnd = (ev: DragEndEvent) => {
@@ -586,9 +481,7 @@ export function TabBar({
       if (!onReorderLeafInGroup) return;
       const fromLeaf = Number(activeId.slice(5));
       const overLeaf = Number(overId.slice(5));
-      // Constrain to siblings of the same tab — the inner SortableContext
-      // already prevents this in practice, but a defensive check keeps the
-      // reducer total even if dnd-kit's collision picks a cross-context drop.
+      // Restrict to siblings of the same tab. The inner SortableContext usually prevents this, but check anyway.
       const fromTabId = entries.find(
         (e): e is PaneEntry => e.kind === "pane-leaf" && e.leafId === fromLeaf,
       )?.tabId;
@@ -602,8 +495,7 @@ export function TabBar({
       const fromIdx = groupLeaves.findIndex((e) => e.leafId === fromLeaf);
       const overIdx = groupLeaves.findIndex((e) => e.leafId === overLeaf);
       if (fromIdx < 0 || overIdx < 0) return;
-      // Match the tab-reorder semantics: dropping past the target means
-      // "land after it", dropping before means "land before".
+      // Dragging forward lands after the target; backward lands before.
       const beforeLeafId =
         fromIdx < overIdx ? (groupLeaves[overIdx + 1]?.leafId ?? null) : overLeaf;
       onReorderLeafInGroup(fromLeaf, beforeLeafId);
@@ -617,8 +509,7 @@ export function TabBar({
       const fromIdx = tabs.findIndex((t) => t.id === fromId);
       const overIdx = tabs.findIndex((t) => t.id === overTab);
       if (fromIdx < 0 || overIdx < 0) return;
-      // Drop AFTER when dragging forward, BEFORE when dragging backward —
-      // matches what the user sees as siblings shift around the dragged tab.
+      // Drop after when dragging forward, before when dragging backward.
       const beforeTabId = fromIdx < overIdx ? (tabs[overIdx + 1]?.id ?? null) : overTab;
       onReorderTabs(fromId, beforeTabId);
     }
@@ -629,11 +520,7 @@ export function TabBar({
       data-tauri-drag-region="false"
       className="flex h-full min-w-0 shrink items-center"
     >
-      {/* Left/right scroll arrows. Only rendered when the tab strip
-          overflows - keeps the toolbar visually clean when every tab fits.
-          Each arrow is disabled when the strip is already at that bound.
-          Wheel scroll, drag-to-reorder and keyboard navigation still work
-          regardless. */}
+      {/* Scroll arrows. Shown only when the strip overflows. */}
       {overflow && (
         <div
           data-tauri-drag-region="false"
@@ -646,10 +533,7 @@ export function TabBar({
                 aria-label="Scroll tabs left"
                 onClick={() => scrollByDelta(-200)}
                 disabled={!canScrollLeft}
-                // Sized to match the tab triggers (`h-7` = 28px) and styled
-                // with the same border / muted background as the split-tab
-                // cluster wrapper, so the arrows visually belong to the
-                // tab strip rather than the toolbar.
+                // h-7 (28px) to match the tab triggers.
                 className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80"
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
@@ -676,14 +560,10 @@ export function TabBar({
 
       <div
         ref={scrollRef}
-        // Opt out of the Tauri drag region. Without this, mousedown on any
-        // empty pixel inside the strip bubbles up to the header's drag
-        // handler and starts dragging the window.
+        // Opt out of the Tauri drag region. Otherwise mousedown on empty strip pixels would drag the window.
         data-tauri-drag-region="false"
-        // `.no-scrollbar` (defined in globals.css) hides the horizontal
-        // scrollbar — navigation is now driven by the arrow buttons above
-        // plus wheel-scroll. The strip still uses `overflow-x-auto` so
-        // `scrollIntoView` on active-tab change continues to work.
+        // `.no-scrollbar` hides the scrollbar; arrows and wheel scroll handle nav.
+        // `overflow-x-auto` stays so `scrollIntoView` keeps working.
         className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
       >
         <div data-tauri-drag-region="false" className="flex w-max items-center gap-0.5">
@@ -701,11 +581,7 @@ export function TabBar({
         >
           <DndContext
             sensors={sensors}
-            // Scoped `closestCenter` (see `makeScopedCollisionDetection` for
-            // rationale). Filters droppables by kind first so tab drags can't
-            // accidentally snap onto leaves in another group's inner sortable
-            // context — that was the source of the wobbly snap-back when
-            // dragging past the last tab into empty strip space.
+            // Scoped `closestCenter`. See `makeScopedCollisionDetection`.
             collisionDetection={collisionDetection}
             onDragStart={(ev) => setActiveDragId(String(ev.active.id))}
             onDragEnd={handleDragEnd}
@@ -807,68 +683,41 @@ type PaneGroupForMove = {
 
 type SortableTabGroupProps = {
   tabId: number;
-  /**
-   * Consecutive entries that all belong to the same top-level tab. A length
-   * of >1 means the tab has split panes; we render those entries as a
-   * bordered cluster so it's visible which entries belong to one split.
-   */
+  /** Consecutive entries belonging to one tab. Length > 1 means split panes; rendered as a bordered cluster. */
   entries: Entry[];
-  /** Total entries across all groups - drives "can close" gating. */
+  /** Total entries across all groups. Drives can-close gating. */
   totalEntries: number;
-  /**
-   * The currently active entry's composite key. Used to render the per-
-   * type coloured accent stripe - we compare entry.key against this rather
-   * than relying on `data-state="active"` from Radix, because Tailwind
-   * variant collisions with the primitive `TabsTrigger`'s built-in
-   * `::after` rules made CSS-only detection flaky in multi-tab layouts.
-   */
+  /** Active entry's composite key. Compared in JS instead of via CSS to avoid Tailwind variant collisions with Radix's `::after`. */
   activeKey: string | null;
-  /**
-   * Key of the visually last entry in the strip. Drives the right-click
-   * "Close tabs to the right" item - when an entry IS the last one, the
-   * item is hidden because there's nothing to its right to close.
-   */
+  /** Composite key of the last entry. Drives the "Close tabs to the right" menu item. */
   lastEntryKey: string | null;
   compact?: boolean;
   sortable: boolean;
-  /** True when per-leaf reorder within a split group is wired up. Drives
-   *  whether the inner SortableContext is mounted at all. */
+  /** True when per-leaf reorder is wired up. Drives whether the inner SortableContext mounts. */
   leafSortable: boolean;
-  /** True while ANY group is being dragged. */
+  /** True while any group is being dragged. */
   groupDragging: boolean;
-  /** True when THIS group is the one being dragged. */
+  /** True when this group is being dragged. */
   isDragging: boolean;
   onPinLeaf: (tabId: number, leafId: number) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
-  /**
-   * Close every entry to the right of `entry` in the strip. Implemented in
-   * TabBar so it sees the full flattened entries list across all groups.
-   */
+  /** Close every entry to the right of `entry`. Lives in TabBar for the flattened entry list. */
   onCloseEntriesAfter: (entry: Entry) => void;
-  /** Resolves a leaf's SSH connection id to its host metadata for tooltip. */
+  /** Resolves SSH connection id to host metadata for tooltips. */
   sshHosts: Map<string, SshConnection>;
-  /**
-   * Move-to-group support. When `onMoveLeafToGroup` is provided AND there's
-   * another pane tab to move into, each pane-leaf entry renders a small
-   * layers icon next to its close X. `paneGroupsForMove` lists every pane
-   * tab (including this one - the renderer filters out self).
-   */
+  /** Move a leaf into another pane tab. */
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
-  /** Extract the entry's leaf into a new top-level pane tab — "leave group".
-   *  Shown only on entries inside a split (single-leaf tabs have nothing to leave). */
+  /** Extract a leaf into a new top-level pane tab. */
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
-  /** Flip the orientation of the split that directly contains the entry's
-   *  leaf (row ↔ col). Shown only on entries inside a split group. */
+  /** Flip the orientation of the split containing this leaf. */
   onRotateLeafSplit?: (leafId: number) => void;
   paneGroupsForMove: PaneGroupForMove[];
 };
 
 /**
- * A group renders all entries belonging to one top-level tab. For single-leaf
- * tabs the entry itself is the drag handle and reorders the strip. For split
- * groups the handle moves onto a dedicated grip on the left of the bordered
- * cluster, freeing the entries to act as per-leaf drag handles that sort
- * within the group via an inner `SortableContext`.
+ * Renders all entries of one tab. Single-leaf tabs use the entry as the drag
+ * handle. Split groups put the handle on a dedicated grip so the entries can
+ * drive per-leaf reorder via an inner `SortableContext`.
  */
 function SortableTabGroup({
   tabId,
@@ -891,12 +740,9 @@ function SortableTabGroup({
   paneGroupsForMove,
 }: SortableTabGroupProps) {
   const isSplit = entries.length > 1;
-  // Group-level drag is wired on *both* split and non-split tabs. For
-  // single-leaf tabs the first entry serves as the drag handle (existing
-  // behavior). For split groups the cluster grows a dedicated grip on its
-  // left edge — the entries inside keep their own leaf-sortable listeners
-  // for in-group reorder, while the grip claims the pointer for whole-group
-  // moves. This keeps both gestures available without ambiguity.
+  // Group-level drag is wired on every tab. Single-leaf tabs use the first
+  // entry as the drag handle. Split groups get a dedicated grip; the inner
+  // entries handle per-leaf reorder.
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: `tab:${tabId}`,
     disabled: !sortable,
@@ -913,10 +759,7 @@ function SortableTabGroup({
 
   const canClose = totalEntries > 1;
 
-  // Inner sortable items: leaf entries in this split group. Only consulted
-  // when `isSplit && leafSortable` is true — single-leaf tabs and standalone
-  // tabs (preview / ai-diff / git-diff) skip the inner SortableContext
-  // entirely, so we never pay the cost on tabs that don't need leaf reorder.
+  // Inner sortable items. Only consulted when `isSplit && leafSortable`; other tabs skip the inner SortableContext.
   const leafItems = useMemo(
     () =>
       entries
@@ -926,10 +769,8 @@ function SortableTabGroup({
   );
 
   const renderedEntries = entries.map((e, idx) => {
-    // Within a split group, each leaf entry carries its own drag handle so
-    // it can shuffle siblings on its own. Outside a split (single-leaf tab),
-    // the first entry inherits the group-level drag listeners so dragging
-    // it reorders the whole tab strip — preserving existing behavior.
+    // Split group: each leaf carries its own drag handle. Single-leaf tab:
+    // the first entry inherits the group-level drag listeners.
     if (isSplit && leafSortable && e.kind === "pane-leaf") {
       return (
         <SortableLeafEntry
@@ -953,10 +794,8 @@ function SortableTabGroup({
         />
       );
     }
-    // Non-split tabs reuse the group's drag handlers on their sole entry —
-    // it doubles as the tab itself, so click-to-select and click-to-drag
-    // share the same element. Split groups defer dragging to the dedicated
-    // grip rendered above, so we omit drag handlers here even on idx 0.
+    // Single-leaf tabs reuse the group's drag handlers on the sole entry.
+    // Split groups defer to the dedicated grip, so no drag handlers here.
     const isGroupDragHandle = !isSplit && idx === 0;
     return renderEntryBody({
       entry: e,
@@ -983,15 +822,14 @@ function SortableTabGroup({
   return (
     <div
       ref={setNodeRef}
-      // dnd-kit drives transform/transition per-frame - must stay inline.
+      // dnd-kit drives transform/transition per frame. Must stay inline.
       // eslint-disable-next-line react/forbid-dom-props
       style={style}
       data-tab-id={tabId}
       data-tauri-drag-region="false"
       className={cn(
         "flex h-7 shrink-0 items-center transition-[border-color,background-color,opacity] duration-150",
-        // Split tabs get a bordered cluster so the entries inside are
-        // visibly one group. Single-pane tabs stay "naked" - no border.
+        // Split tabs get a bordered cluster. Single-pane tabs stay borderless.
         isSplit ? "border-border/70 bg-muted/20 gap-0 overflow-hidden rounded-md border p-0" : "",
         isSplit && groupDragging && !isThisDragging && "border-border",
         isSplit && isThisDragging && "border-primary/70 bg-accent/30",
@@ -1000,13 +838,8 @@ function SortableTabGroup({
       )}
     >
       {isSplit && sortable && (
-        // Dedicated drag-handle grip for whole-group reorder. Sits inside the
-        // bordered cluster so it visually belongs to the group, but carries
-        // the *group* sortable's attributes/listeners — pointerdown here
-        // moves the entire split through the outer SortableContext, while
-        // pointerdown on the leaves below triggers the inner per-leaf
-        // sortable instead. Without this, isSplit clusters would have no
-        // accessible drag source after we handed entry-drag to the leaves.
+        // Grip for whole-group drag. Sits inside the cluster but carries the
+        // group sortable's listeners. Leaf entries below use the inner per-leaf sortable.
         <Tooltip>
           <TooltipTrigger asChild>
             <span
@@ -1036,8 +869,7 @@ function SortableTabGroup({
   );
 }
 
-/** Shared shape for render args — kept as a single object to keep the call
- *  sites tidy and to avoid 15-arg fn signatures. */
+/** Shared render args. Kept as one object to avoid 15-arg signatures. */
 type RenderEntryArgs = {
   entry: Entry;
   idx: number;
@@ -1047,15 +879,13 @@ type RenderEntryArgs = {
   lastEntryKey: string | null;
   compact?: boolean;
   canClose: boolean;
-  /** dnd-kit attributes for the trigger (drag handle source). */
+  /** dnd-kit attributes for the trigger as drag handle. */
   dragAttrs?: ReturnType<typeof useSortable>["attributes"];
   dragListeners?: ReturnType<typeof useSortable>["listeners"];
-  /** Per-leaf sortable: ref + transform-style applied to the trigger so the
-   *  leaf animates as siblings shift around it. Group-level drag uses the
-   *  outer wrapper's ref/style instead and leaves these undefined. */
+  /** Per-leaf sortable ref and style. Undefined for group-level drag (uses the outer wrapper). */
   dragRef?: (node: HTMLElement | null) => void;
   dragStyle?: React.CSSProperties;
-  /** True when THIS entry is the one being dragged — drives ghost opacity. */
+  /** True when this entry is being dragged. Drives ghost opacity. */
   selfDragging?: boolean;
   onPinLeaf: (tabId: number, leafId: number) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
@@ -1067,12 +897,7 @@ type RenderEntryArgs = {
   paneGroupsForMove: PaneGroupForMove[];
 };
 
-/**
- * Render one entry (TabsTrigger + tooltip + context menu wrappers). Extracted
- * out of the group's `entries.map()` body so the same code drives the two
- * drag flavours: group-level drag (single-leaf tabs) and leaf-level drag
- * (entries inside a split group), without duplicating ~100 lines of JSX.
- */
+/** Render one entry. Extracted so both group-level and leaf-level drag share the same JSX. */
 function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const {
     entry: e,
@@ -1112,54 +937,32 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
           onPinLeaf(e.tabId, e.leafId);
         }
       }}
-      // Drag attributes/listeners are supplied by the caller — group-level
-      // on the sole entry of a non-split tab, per-leaf on each entry inside
-      // a split group, and absent otherwise. The nullish spreads keep the
-      // trigger's default click semantics when no drag is wired up.
+      // Drag attrs/listeners supplied by caller. Nullish spreads preserve default click semantics when absent.
       {...(dragAttrs ?? {})}
       {...(dragListeners ?? {})}
-      // Inline style is set by per-leaf sortables so a leaf animates as its
-      // siblings shift around it. Empty (undefined) for non-leaf paths where
-      // the wrapper carries the transform instead.
+      // Inline style set by per-leaf sortables. Undefined for non-leaf paths (wrapper carries the transform).
       // eslint-disable-next-line react/forbid-dom-props
       style={dragStyle}
       className={cn(
-        // Active state: tab adopts the brand-tinted --accent surface
-        // (light blue in light mode, deep blue in dark mode) so the
-        // per-kind stripe on the left can carry the categorical hue
-        // without colliding with the background. `h-full!` overrides
-        // the primitive's `h-[calc(100%-1px)]` so trigger height is
-        // an even integer (28 or 26px) - keeps the stripe's centered
-        // position pixel-perfect across split/non-split contexts.
+        // Active state uses the brand --accent surface. `h-full!` overrides
+        // the primitive's calc so trigger height stays an even integer.
         "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full! shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
         "data-[state=active]:bg-accent data-[state=active]:text-foreground data-[state=active]:font-semibold",
-        // Inside a split cluster, entries are flat (no rounded corners,
-        // no own bg); outside, they keep the original pill look.
+        // Inside a split cluster, entries are flat; outside they keep the pill look.
         isSplit ? "rounded-none" : "rounded-md",
         compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!",
-        // Intra-group divider on every entry except the first.
+        // Divider on every entry except the first in a split group.
         isSplit &&
           idx > 0 &&
           "before:bg-border/70 before:absolute before:top-1 before:bottom-1 before:left-0 before:w-px before:content-[''] data-[state=active]:before:opacity-0",
-        // Drag ghost — the entry being dragged fades so the overlay
-        // chip reads as the "real" thing in motion.
+        // Fade the dragged entry so the overlay chip reads as the real thing.
         selfDragging && "opacity-30",
-        // Grab cursor on leaf entries inside a split group, since each
-        // carries its own drag handle. Non-split tabs inherit cursor
-        // styling from the cluster wrapper instead.
+        // Grab cursor on leaves in a split group; non-split tabs inherit it from the wrapper.
         dragListeners && isSplit && "cursor-grab active:cursor-grabbing",
       )}
     >
-      {/* 2.5px accent stripe on the left edge - only painted on the
-          active entry. We compute activeness in JS (e.key === activeKey)
-          instead of relying on a CSS group variant: the primitive
-          `TabsTrigger` already attaches its own `::after` with
-          `group-data-horizontal/tabs:` variants that share specificity
-          with anything we'd write, and tailwind-merge can reorder our
-          rule below theirs depending on what other classes are present
-          (which is why a 2nd tab silently broke the stripe). Doing the
-          conditional in JS is bulletproof - no class wins/loses based
-          on Tailwind's emitted CSS order. */}
+      {/* Accent stripe, painted only on the active entry. Computed in JS to
+          avoid Tailwind variant collisions with the primitive's `::after`. */}
       {e.key === activeKey && (
         <span
           aria-hidden
@@ -1171,10 +974,8 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
       )}
       <span
         className={cn(
-          // No `truncate` here — its `overflow:hidden` used to clip
-          // the corner-overlay ordinal badge that protrudes past the
-          // icon's bounding box. `min-w-0` keeps flex-shrink working
-          // so the label can still ellipsize via its own `truncate`.
+          // No `truncate` here; its `overflow:hidden` would clip the ordinal
+          // badge. `min-w-0` keeps flex-shrink so the inner label can ellipsize.
           "flex min-w-0 items-center gap-1.5",
           compact ? "max-w-48" : "max-w-80",
         )}
@@ -1184,11 +985,8 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
           className={cn(
             "truncate",
             e.italic && "italic",
-            // SSH leaves wear their connection status on the label
-            // text — connecting/reconnecting pulse yellow, connected
-            // turns emerald, disconnected/error turns red. The cloud
-            // icon stays neutral sky so the colour cue belongs to
-            // the title, not the glyph.
+            // SSH status colors the label text: pulse yellow while connecting,
+            // emerald when connected, red on disconnect/error. Icon stays sky.
             e.kind === "pane-leaf" && e.sshConnectionId
               ? statusLabelClass(e.sshStatus)
               : null,
@@ -1203,9 +1001,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
           />
         ) : null}
       </span>
-      {/* Trailing icon: close. Rotate-split and move-to-group used to
-          live here as inline buttons; both now live in the right-click
-          context menu (built below) so the strip stays uncluttered. */}
+      {/* Trailing close button. Rotate-split and move-to-group are in the right-click menu. */}
       <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
         {canClose && (
           <TrailingIconButton
@@ -1219,12 +1015,8 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
     </TabsTrigger>
   );
 
-  // Right-click actions: rotate the split this leaf sits in, leave the
-  // group (extract into a new tab), move the leaf into another pane
-  // group, and close every entry to the right. Rotate / leave-group
-  // are pane-leaf-inside-split only; move-to-group needs another tab
-  // to exist; close-tabs-to-right works for any entry as long as
-  // something is actually to its right.
+  // Right-click actions: rotate split, leave group, join group, close right.
+  // Rotate/leave-group only for leaves inside a split. Move-to-group needs another tab.
   const isPaneLeaf = e.kind === "pane-leaf";
   const moveTargets =
     isPaneLeaf && onMoveLeafToGroup ? paneGroupsForMove.filter((g) => g.id !== e.tabId) : [];
@@ -1240,15 +1032,9 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
       ? "ai"
       : null;
 
-  // Build innermost-out: TabsTrigger must be the DOM child of every
-  // asChild trigger so Radix' Slot can merge handlers (onContextMenu,
-  // onPointerEnter, …) into the actual element. The previous version
-  // wrapped TabsTrigger in <Tooltip> first, then handed that block to
-  // ContextMenuTrigger asChild — but Tooltip is a Provider, not a DOM
-  // element, so asChild silently dropped the context-menu handler on
-  // SSH tabs (right-click did nothing). Stacking the two `asChild`
-  // triggers around the same TabsTrigger fixes the SSH path while
-  // leaving non-SSH tabs unchanged.
+  // Build innermost-out. TabsTrigger must be the DOM child of every asChild
+  // trigger so Radix' Slot can merge handlers. Tooltip is a Provider, not a
+  // DOM element, so wrapping it first would drop the context-menu handler.
   let inner: ReactNode = trigger;
   if (tooltipMode) inner = <TooltipTrigger asChild>{inner}</TooltipTrigger>;
   if (hasContextActions) inner = <ContextMenuTrigger asChild>{inner}</ContextMenuTrigger>;
@@ -1338,11 +1124,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
   return <Fragment key={e.key}>{wrapped}</Fragment>;
 }
 
-/** Per-leaf sortable wrapper. Lives inside a split group's inner
- *  `SortableContext` so each leaf carries its own drag handle for in-group
- *  reorder, while the outer (whole-tab) context keeps owning the strip
- *  positioning. The bulk of the rendering goes through `renderEntryBody` so
- *  this is just the dnd-kit plumbing. */
+/** Per-leaf sortable wrapper. Inside a split group's inner SortableContext; renders via `renderEntryBody`. */
 type SortableLeafEntryProps = Omit<
   RenderEntryArgs,
   "dragAttrs" | "dragListeners" | "dragRef" | "dragStyle" | "selfDragging"
@@ -1374,13 +1156,7 @@ function SortableLeafEntry(props: SortableLeafEntryProps) {
   });
 }
 
-/**
- * Shared styling for the small icon button(s) on the trailing edge of each
- * tab entry. Only "close" lives here now - rotate-split and move-to-group
- * moved into the right-click context menu (see `SortableTabGroup`).
- * Keeping the container square at a fixed size makes the hover background
- * a tidy 1:1 pill. `TRAILING_ICON_SIZE` is tuned for ~2-3px padding.
- */
+/** Trailing icon button styling. Only close lives here; rotate and move are in the right-click menu. */
 const TRAILING_BTN_BASE =
   "inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-60";
 
@@ -1408,8 +1184,7 @@ function TrailingIconButton({
         <span
           role="button"
           aria-label={label}
-          // Stop propagation so the TabsTrigger doesn't treat the click as a
-          // tab activation and dnd-kit doesn't start a drag.
+          // Stop propagation so click doesn't activate the tab or start a drag.
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={(ev) => {
             ev.stopPropagation();
@@ -1426,15 +1201,9 @@ function TrailingIconButton({
 }
 
 /**
- * Inline pill badge stamped next to terminal entries. The same ordinal is
- * surfaced to the AI in the per-turn `<env>` block, so users can say "send
- * to terminal 3" and the AI maps it directly to this badge.
- *
- * Colors are intentionally neutral muted — the emerald/yellow/red palette is
- * reserved for the AI CLI icon tint (`aiCliIconClass`). Keeping the ordinal
- * chip uncolored means a tab with no running CLI shows ZERO status hues:
- * the user sees a plain ordinal next to a plain icon, not an "idle" green
- * pill that could be mistaken for an AI status.
+ * Pill badge stamped next to terminal entries. Same ordinal the AI sees in
+ * `<env>`. Colors stay muted; the emerald/yellow/red palette is reserved
+ * for the AI CLI icon tint.
  */
 function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
   return (
@@ -1454,13 +1223,8 @@ function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
     if (entry.leafKind === "editor") {
       const url = fileIconUrl(entry.label);
-      // Remote files keep the file-type icon's shape but get recolored to
-      // the same sky-blue as the SSH terminal accent, so the user can tell
-      // remote vs local at a glance without a badge. `<img>` ignores CSS
-      // color, so we paint the SVG via `mask-image` over a solid sky span
-      // (mirrors how the status icons get themed). Trade-off: we lose the
-      // file-type colour cues (PHP purple, JS yellow, etc.) in exchange
-      // for a uniform "this lives on a server" hint.
+      // Remote files reuse the file-type icon shape but get recolored sky-blue
+      // via `mask-image`. Trade-off: loses per-language color cues.
       if (entry.remoteHost) {
         if (!url) return null;
         return (
@@ -1482,14 +1246,8 @@ function EntryIcon({ entry }: { entry: Entry }) {
       }
       return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
     }
-    // Terminal leaf — pick the right icon, then optionally tint it for AI
-    // CLI state. SSH connection status lives on the title text (see the
-    // outer label render), so the icon is reserved for AI CLI state on
-    // both local and remote terminals: emerald=idle, yellow=working,
-    // red=blocking (the last two pulse to draw the eye). When no AI CLI
-    // is running, both icons inherit the tab's default foreground — local
-    // and SSH read identically at rest, the only differentiator is the
-    // glyph (terminal vs cloud).
+    // Terminal leaf. Pick the icon, then tint by AI CLI status. SSH status
+    // colors the title text; the icon shows AI CLI state on both local and remote.
     const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
     const terminalIcon = entry.sshConnectionId ? (
       <HugeiconsIcon

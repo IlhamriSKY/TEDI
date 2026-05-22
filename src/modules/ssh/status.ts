@@ -1,6 +1,6 @@
-/// Lifecycle status of a single SSH leaf. Owned by `useTerminalSession`
-/// and surfaced to React via `onSshStatus` so the tab bar (dot) and the
-/// status bar (chip) can render without driving their own polling.
+// Lifecycle status of one SSH leaf. Owned by `useTerminalSession` and
+// pushed to React via `onSshStatus` so the tab bar and status bar render
+// without polling.
 
 export type SshStatus =
   | { kind: "idle" }
@@ -10,9 +10,8 @@ export type SshStatus =
       fingerprint: string;
       since: number;
       /**
-       * Russh session id returned by `ssh_open` — addresses the live shell
-       * channel AND any SFTP channels opened on the same handle. Only set
-       * while connected; reconnects produce a fresh id.
+       * Russh session id from `ssh_open`. Identifies the shell channel
+       * and any SFTP channels on the same handle. Reconnects mint a new id.
        */
       sessionId: number;
     }
@@ -42,7 +41,7 @@ export function statusTone(s: SshStatus): SshStatusDotTone {
   }
 }
 
-/** Tailwind class for a small status dot. Reused by TabBar and StatusBar. */
+/** Tailwind class for the status dot. Used by TabBar and StatusBar. */
 export function statusDotClass(s: SshStatus): string {
   switch (statusTone(s)) {
     case "neutral":
@@ -56,10 +55,9 @@ export function statusDotClass(s: SshStatus): string {
   }
 }
 
-/** Tailwind `text-*` class for the SSH icon itself. Used on the cloud icon
- *  in the tab bar so the icon's colour carries the connection status — no
- *  separate dot overlay needed. Sky is the resting tint when there's no
- *  status yet (icon is rendered before the session settles). */
+/** Tailwind `text-*` class for the SSH cloud icon. Colour carries the
+ *  connection status so no extra dot overlay is needed. Sky is the resting
+ *  tint before the session settles. */
 export function statusIconClass(s: SshStatus | undefined): string {
   if (!s) return "text-sky-600 dark:text-sky-400";
   switch (statusTone(s)) {
@@ -74,13 +72,10 @@ export function statusIconClass(s: SshStatus | undefined): string {
   }
 }
 
-/** Tailwind `text-*` class for the SSH tab's TITLE text — carries the
- *  connection status on the label itself rather than tinting the cloud
- *  icon. `connecting` / `reconnecting` pulse so the user notices the
- *  transient state at a glance. Empty string when the status is the
- *  resting "idle" or unknown — let the label inherit the tab's default
- *  foreground colour so it doesn't read as a colored chip when nothing
- *  is happening. */
+/** Tailwind `text-*` class for the SSH tab title text. Carries the status
+ *  on the label. `connecting` / `reconnecting` pulse for visibility.
+ *  Returns "" for idle/unknown so the label inherits the tab's default
+ *  colour. */
 export function statusLabelClass(s: SshStatus | undefined): string {
   if (!s) return "";
   switch (statusTone(s)) {

@@ -2,16 +2,15 @@ use std::collections::VecDeque;
 
 /// Byte-oriented bounded ring buffer with monotonic offsets.
 ///
-/// Callers tail the buffer using `since_offset`: each `push` advances
-/// `next_offset` by the number of bytes appended, even when older bytes are
-/// dropped to fit the cap. `read_from(since)` returns the slice of bytes from
-/// the requested offset (clamped to whatever is still resident) plus the new
-/// offset for the next call.
+/// Callers tail the buffer with `since_offset`. Each `push` advances
+/// `next_offset` by the bytes appended, even when older bytes are dropped to
+/// fit the cap. `read_from(since)` returns the slice from the requested
+/// offset (clamped to what is still resident) plus the new offset.
 pub struct BoundedRingBuffer {
     buf: VecDeque<u8>,
     cap: usize,
     next_offset: u64,
-    /// Bytes that were dropped to keep the buffer ≤ cap. Helps the caller
+    /// Bytes dropped to keep the buffer at or under cap. Lets the caller
     /// detect overflow ("you missed N bytes").
     dropped: u64,
 }
@@ -48,9 +47,9 @@ impl BoundedRingBuffer {
         self.buf.extend(data);
     }
 
-    /// Return bytes available since `since`, plus the new offset.
-    /// If `since` is older than the resident window, the returned bytes start
-    /// from the oldest available offset (which is `next_offset - buf.len()`).
+    /// Return bytes available since `since`, plus the new offset. When
+    /// `since` is older than the resident window, the returned bytes start
+    /// from the oldest available offset (`next_offset - buf.len()`).
     pub fn read_from(&self, since: u64) -> (Vec<u8>, u64, u64) {
         let oldest = self.next_offset.saturating_sub(self.buf.len() as u64);
         let start = since.max(oldest);

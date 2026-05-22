@@ -1,70 +1,55 @@
 import { native } from "./native";
 
 /**
- * Per-session "restore-to-last-checkpoint" support.
+ * Per-session restore-to-last-checkpoint.
  *
- * Semantics: ONE checkpoint per session, always pointing at the most recent
- * user turn. When the user sends a new message, the previous checkpoint is
- * discarded (only "undo my last command" is supported - not arbitrary
- * history travel). Mutating tools (`edit`, `multi_edit`, `write_file`,
- * `create_directory`) record file originals into the active checkpoint
- * before the on-disk write happens. On restore we replay those originals
- * and trim chat history back to before the user's last message.
+ * One checkpoint per session, pointing at the most recent user turn. Sending
+ * a new message drops the previous checkpoint; only the last turn is undoable.
+ * Mutating tools (`edit`, `multi_edit`, `write_file`, `create_directory`)
+ * record file originals before the on-disk write. Restore replays those
+ * originals and trims chat history to before the user's last message.
  *
- * Memory: snapshots live in-process only. They're bounded by the # of files
- * touched in the current turn (typically ≤10), with full original content
- * for each (capped by the read-file 200KB safety net). A new turn drops the
- * old checkpoint immediately - no growth over a long session.
- *
- * Not persisted to disk: checkpoints are intentionally ephemeral. Restoring
- * across app restarts would require an on-disk content store with its own
- * GC story; the user-visible feature is "undo the agent's last turn", which
- * is satisfied with in-memory.
+ * Snapshots live in-process only. They're bounded by files touched this turn
+ * (typically <= 10), each capped by the read-file 200KB limit. Not persisted
+ * across app restarts.
  */
 
 export type FileSnapshot =
   | {
       /** File existed before the agent touched it. Restore writes
-       *  `originalContent` back, but ONLY if the on-disk content still
-       *  matches `writtenContent` - i.e. the user hasn't manually edited
-       *  the file since the agent last wrote to it. */
+       *  `originalContent` back, but only if on-disk still matches
+       *  `writtenContent` (no manual edits since the agent's last write). */
       kind: "modify";
       originalContent: string;
       writtenContent: string;
     }
   | {
-      /** File didn't exist before the agent created it via write_file.
-       *  Restore deletes it, but only if the on-disk content still matches
-       *  `writtenContent` - preserves manual user edits made afterwards. */
+      /** File created by write_file. Restore deletes it only if on-disk
+       *  still matches `writtenContent`; preserves manual edits made after. */
       kind: "create-file";
       writtenContent: string;
     }
   | {
-      /** Directory created by the agent. Restore deletes it ONLY if it's
-       *  empty at restore time - preserves anything the user (or another
-       *  process) put into it afterwards. */
+      /** Directory created by the agent. Restore deletes it only if empty
+       *  at restore time; preserves anything dropped into it afterwards. */
       kind: "create-dir";
     };
 
 export type Checkpoint = {
-  /** Message count just BEFORE the user's message was appended. Restoring
-   *  trims `messages.slice(0, baselineMessageCount)` - everything from the
-   *  user turn onwards (user msg + assistant streams + tool results) is
-   *  dropped together. */
+  /** Message count just before the user's message was appended. Restore
+   *  trims `messages.slice(0, baselineMessageCount)`. */
   baselineMessageCount: number;
   createdAt: number;
   /** Files mutated since this checkpoint opened. `originalContent` is
-   *  captured on the FIRST touch and never updated; `writtenContent` is
-   *  refreshed on every subsequent mutation so user-modify detection
-   *  compares against the agent's latest write. */
+   *  captured on the first touch; `writtenContent` is refreshed on every
+   *  subsequent mutation so user-modify detection compares the latest write. */
   files: Map<string, FileSnapshot>;
 };
 
 const checkpoints = new Map<string, Checkpoint>();
 
-// Minimal external-store contract for `useSyncExternalStore`. Each mutation
-// bumps `version` and notifies subscribers - the UI re-reads via the
-// getters below.
+// External-store contract for `useSyncExternalStore`. Each mutation bumps
+// `version` and notifies subscribers; UI re-reads via the getters below.
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -85,7 +70,7 @@ export function getCheckpointsVersion(): number {
 }
 
 export function openCheckpoint(sessionId: string, baselineMessageCount: number): void {
-  // Drop any prior checkpoint outright - only the LAST is retained.
+  // Drop any prior checkpoint; only the latest is retained.
   checkpoints.set(sessionId, {
     baselineMessageCount,
     createdAt: Date.now(),
@@ -107,10 +92,8 @@ export function recordFileMutation(sessionId: string, path: string, snapshot: Fi
     notify();
     return;
   }
-  // Path already tracked: preserve `originalContent` from the FIRST touch
-  // (so restore reverts all the way back), but refresh `writtenContent` so
-  // the user-modify check at restore-time compares against what the agent
-  // most recently wrote.
+  // Already tracked: keep `originalContent` from the first touch but refresh
+  // `writtenContent` so user-modify detection compares the latest agent write.
   if (existing.kind === "modify" && snapshot.kind === "modify") {
     existing.writtenContent = snapshot.writtenContent;
     notify();
@@ -121,8 +104,7 @@ export function recordFileMutation(sessionId: string, path: string, snapshot: Fi
     notify();
     return;
   }
-  // Kind mismatch (e.g. agent created a dir then wrote inside it as a
-  // separate path) - keep the earliest snapshot, don't transition.
+  // Kind mismatch (e.g. created a dir then wrote inside): keep the earliest.
 }
 
 export function getCheckpoint(sessionId: string): Checkpoint | null {
@@ -133,22 +115,16 @@ export type RestoreOutcome = {
   baselineMessageCount: number;
   /** Files where the recorded change was successfully reverted. */
   restoredCount: number;
-  /** Files left alone because the user (or another process) had modified
-   *  them since the agent wrote - preserving manual edits is more important
-   *  than full revert. Paths are surfaced so the UI can hint at them. */
+  /** Files left alone because they were modified since the agent wrote.
+   *  Preserving manual edits beats full revert. */
   skipped: { path: string; reason: "user-modified" | "dir-non-empty" }[];
   failures: { path: string; error: string }[];
 };
 
-/** Replay the recorded originals and return the trim point. The checkpoint
- *  is consumed (deleted) regardless of partial failures - leaving a stale
- *  one around would record further mutations into a checkpoint the UI no
- *  longer surfaces.
- *
- *  Files are reverted ONLY if their on-disk content still matches what the
- *  agent last wrote. If the user has manually edited a file in the
- *  meantime, that file is skipped (their changes win). This applies
- *  per-path - other files in the checkpoint are still reverted. */
+/** Replay recorded originals and return the trim point. The checkpoint is
+ *  consumed regardless of partial failures.
+ *  Files revert only if on-disk still matches the agent's last write; user
+ *  edits since are preserved per-path. Other files still revert. */
 export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutcome | null> {
   const cp = checkpoints.get(sessionId);
   if (!cp) return null;
@@ -162,9 +138,8 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
       if (snap.kind === "modify") {
         const cur = await native.readFile(path);
         if (cur.kind !== "text") {
-          // Either deleted, became binary, or grew past the read cap.
-          // Any of those means the file diverged from what the agent
-          // wrote; skip to preserve the user's intent.
+          // Deleted, became binary, or exceeded the read cap. File diverged;
+          // skip to preserve the user's state.
           skipped.push({ path, reason: "user-modified" });
           continue;
         }
@@ -182,13 +157,13 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
         try {
           const cur = await native.readFile(path);
           if (cur.kind !== "text" || cur.content !== snap.writtenContent) {
-            // User has overwritten or replaced the file - preserve.
+            // User overwrote or replaced the file; preserve.
             skipped.push({ path, reason: "user-modified" });
             continue;
           }
           needsDelete = true;
         } catch {
-          // File already missing - state matches the restore goal.
+          // File already missing; matches the restore goal.
         }
         if (needsDelete) {
           try {
@@ -202,8 +177,7 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
         continue;
       }
 
-      // create-dir: only delete if it's still empty. Anything the user
-      // put inside should be preserved.
+      // create-dir: delete only if still empty. Anything inside is preserved.
       try {
         const entries = await native.readDir(path);
         if (entries.length > 0) {
@@ -212,7 +186,7 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
         }
         await native.deletePath(path);
       } catch {
-        // Directory already gone - nothing to undo.
+        // Directory already gone; nothing to undo.
       }
       restoredCount++;
     } catch (e) {

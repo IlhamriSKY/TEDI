@@ -1,30 +1,27 @@
 //! Secret storage with platform-appropriate backends.
 //!
-//! - macOS: macOS Keychain (via `keyring` crate). No relevant size limit.
-//! - Windows: a DPAPI-encrypted file in the app's local data dir.
-//!   Earlier builds used the Credential Manager (via `keyring`), but its
-//!   CredentialBlob is capped at 2560 bytes - too small to hold an RSA
-//!   private key body, which made SSH "Create" fail after a successful
-//!   "Test connection". DPAPI's `CryptProtectData` is bound to the
-//!   current user's logon (the same trust model the Credential Manager
-//!   would have given us) and has no relevant size limit. Pre-existing
-//!   entries left behind in the Credential Manager are read as a
-//!   fallback so password-only connections keep working without forced
-//!   migration.
-//! - Linux: a file in the app's local data dir, mode 0600. The default
+//! - macOS: Keychain via the `keyring` crate. No relevant size limit.
+//! - Windows: DPAPI-encrypted file in the app's local data dir. Earlier
+//!   builds used the Credential Manager via `keyring`, but its CredentialBlob
+//!   is capped at 2560 bytes; too small for an RSA private key body, which
+//!   made SSH "Create" fail after "Test connection". DPAPI's
+//!   `CryptProtectData` is bound to the current user's logon (same trust
+//!   model) and has no relevant size limit. Pre-existing Credential Manager
+//!   entries are read as a fallback so password-only connections keep
+//!   working without forced migration.
+//! - Linux: file in the app's local data dir, mode 0600. The default
 //!   `keyring` backend on Linux is the Secret Service over D-Bus, which
-//!   silently fails on systems without gnome-keyring/kwallet (and on the
-//!   "login" collection not being created). For an open-source desktop
-//!   app shipped via AppImage/deb/rpm, we cannot assume a keyring daemon
-//!   exists. The file backend is the same approach Brave/Chromium fall
-//!   back to in that scenario; user-only file permissions provide the
-//!   isolation the secret-service collection would have otherwise.
+//!   silently fails on systems without gnome-keyring/kwallet (and when the
+//!   "login" collection is not created). For an app shipped via
+//!   AppImage/deb/rpm we cannot assume a keyring daemon exists. The file
+//!   backend is what Brave/Chromium fall back to; mode 0600 provides the
+//!   isolation the secret-service collection would have.
 //!
-//! The frontend talks to `secrets_get`, `secrets_set`, `secrets_delete`,
-//! and `secrets_get_all` - no platform branching in JS.
+//! The frontend talks to `secrets_get`, `secrets_set`, `secrets_delete`, and
+//! `secrets_get_all` with no platform branching in JS.
 //!
-//! All commands take `&AppHandle` so we can resolve the data directory
-//! once via Tauri's path API.
+//! All commands take `&AppHandle` so the data directory is resolved once via
+//! Tauri's path API.
 
 use std::sync::Mutex;
 
@@ -115,9 +112,9 @@ fn dpapi_protect(plain: &[u8]) -> Result<Vec<u8>, String> {
         pbData: std::ptr::null_mut(),
     };
 
-    // SAFETY: input.pbData covers plain.len() bytes for the duration of
-    // the call. CryptProtectData allocates a fresh output buffer that we
-    // own and free with LocalFree below.
+    // SAFETY: input.pbData covers plain.len() bytes for the call.
+    // CryptProtectData allocates a fresh output buffer we free with
+    // LocalFree below.
     let ok = unsafe {
         CryptProtectData(
             &input,
@@ -221,10 +218,10 @@ fn entry(service: &str, account: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(service, account).map_err(|e| e.to_string())
 }
 
-// Backward compat: earlier Windows builds wrote secrets to the Credential
-// Manager via `keyring`. Read them as a fallback so existing password-auth
-// connections keep working without forced migration; clear them out on
-// `set`/`delete` so the file store stays the single source of truth.
+// Backward compat: earlier Windows builds wrote to the Credential Manager
+// via `keyring`. Read those entries as a fallback so existing password-auth
+// connections keep working without migration. Clear them on `set`/`delete`
+// so the file store wins.
 #[cfg(target_os = "windows")]
 fn legacy_keyring_get(service: &str, account: &str) -> Option<String> {
     keyring::Entry::new(service, account)
@@ -285,8 +282,8 @@ pub async fn secrets_set(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let k = key(&service, &account);
-        // Mutate and snapshot under a single lock acquisition so a concurrent
-        // writer can't slip an update in between, which would leave the on-disk
+        // Mutate and snapshot under one lock acquisition so a concurrent
+        // writer cannot slip an update between, which would leave the on-disk
         // file lagging the in-memory cache (lost-update race).
         let snapshot = with_store(&app, &state, |m| {
             m.insert(k, password);
@@ -296,7 +293,7 @@ pub async fn secrets_set(
         #[cfg(target_os = "windows")]
         {
             // Stale Credential Manager entry from an earlier build would
-            // shadow updates on read - kill it so the file store wins.
+            // shadow updates on read; delete it so the file store wins.
             legacy_keyring_delete(&service, &account);
         }
         Ok(())
@@ -341,7 +338,7 @@ pub async fn secrets_delete(
     }
 }
 
-/// Batch read - single IPC roundtrip for the cold-boot fan-out.
+/// Batch read for the cold-boot fan-out (one IPC roundtrip).
 #[tauri::command]
 pub async fn secrets_get_all(
     app: AppHandle,

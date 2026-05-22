@@ -14,8 +14,7 @@ type Props = {
   activeIndex: number;
   onPick: (item: PickerItem) => void;
   onHover: (index: number) => void;
-  /** Empty-state copy. Lets callers swap the message based on which sigil
-   *  triggered the picker (slash → "no commands match", hash → "no snippets…"). */
+  /** Empty-state copy. Callers swap based on the triggering sigil. */
   emptyText?: string;
 };
 
@@ -24,8 +23,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
   const snippets = items.filter((it) => it.kind === "snippet");
   let cursor = -1;
 
-  // Refs to each rendered row so ArrowUp/Down can scroll the highlighted
-  // entry back into view inside the popover's scroll container.
+  // Row refs so ArrowUp/Down can scroll the highlighted entry into view.
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   itemRefs.current.length = items.length;
   useEffect(() => {

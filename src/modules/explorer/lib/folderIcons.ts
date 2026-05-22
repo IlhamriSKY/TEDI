@@ -1,7 +1,4 @@
-/**
- * Default folder icon associations
- * Keys are icon file basenames (without folder_ prefix)
- */
+/** Folder icon associations. Keys are basenames without the `folder_` prefix. */
 
 type FolderIcons = Record<
   string,

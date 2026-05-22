@@ -36,10 +36,10 @@ pub struct CommandOutput {
     pub truncated: bool,
 }
 
-/// Runs a one-shot command via the user's login shell. Output is capped and
-/// the process is force-killed on timeout. We deliberately do NOT pipe into
-/// the user's interactive PTY - that would fight their input. AI tool calls
-/// are presented in chat as their own structured result.
+/// Run a one-shot command via the user's login shell. Output is capped and
+/// the process is force-killed on timeout. Output does not flow into the
+/// user's interactive PTY (that would fight their input); AI tool calls
+/// surface in chat as a structured result.
 #[tauri::command]
 pub async fn shell_run_command(
     command: String,
@@ -67,10 +67,10 @@ pub async fn shell_run_command(
             .clamp(1, MAX_TIMEOUT_SECS),
     );
 
-    // The blocking spawn + wait runs on Tokio's dedicated blocking pool via
-    // Tauri's wrapper. Previously we hand-rolled a `thread::spawn` + `rx.recv()`,
-    // which DID move the work off-thread but then re-blocked the async fn's
-    // future on the channel — defeating the runtime entirely.
+    // Blocking spawn + wait on Tokio's dedicated blocking pool via Tauri's
+    // wrapper. The earlier hand-rolled `thread::spawn` + `rx.recv()` moved
+    // work off-thread but then blocked the async future on the channel,
+    // defeating the runtime.
     tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur))
         .await
         .map_err(|e| format!("join error: {e}"))?
@@ -107,7 +107,7 @@ fn run_blocking(
     let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
     let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
 
-    // Drain stdout/stderr on background threads so a full pipe buffer can't
+    // Drain stdout/stderr on background threads so a full pipe buffer cannot
     // deadlock the child.
     let stdout_handle = thread::spawn(move || drain(&mut stdout_pipe));
     let stderr_handle = thread::spawn(move || drain(&mut stderr_pipe));
@@ -227,12 +227,11 @@ pub fn shell_bg_spawn(
     Ok(id)
 }
 
-/// Background spawn that bypasses the host shell entirely - the tracked
-/// PID is the binary itself, so `shell_bg_kill` actually terminates the
-/// program (not just a `pwsh` / `bash` wrapper that leaks the real
-/// child). Use this for extension sidecars where a leaked grandchild
-/// would keep an external connection alive (e.g. Discord IPC) after the
-/// user thinks they disabled the extension.
+/// Background spawn that bypasses the host shell. The tracked PID is the
+/// binary itself, so `shell_bg_kill` actually terminates the program rather
+/// than a `pwsh` / `bash` wrapper that leaks the real child. Use this for
+/// extension sidecars where a leaked grandchild would keep an external
+/// connection alive (e.g. Discord IPC) after the extension is disabled.
 #[tauri::command]
 pub fn shell_bg_spawn_direct(
     state: tauri::State<ShellState>,

@@ -1,14 +1,6 @@
 /**
- * Host API factory.
- *
- * `buildContext(extension)` returns the `ExtensionContext` object that we
- * pass to each extension's `activate(ctx)`. Everything here is
- * permission-gated against the manifest's `permissions` array. The raw
- * Tauri `invoke`/event APIs remain reachable via globals - we cannot
- * sandbox a full JS environment from itself - but the extension code is
- * loaded into a Function scope that we control, so well-behaved
- * extensions stick to the host API. Hostile extensions are the trust
- * model's problem (see `permissions.ts` + the install-review dialog).
+ * Builds the `ExtensionContext` passed to each extension's `activate(ctx)`.
+ * Calls are gated against `manifest.permissions`. See `permissions.ts`.
  */
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
@@ -30,34 +22,38 @@ import {
   isInvokeAllowed,
   requirePermission,
 } from "./permissions";
+import { useRightPanelStore } from "./rightPanelStore";
+import {
+  mountFolderTree,
+  type MountedFolderTree,
+  type MountFolderTreeOptions,
+} from "./components/mountFolderTree";
 import {
   aiToolsRegistry,
   commandsRegistry,
   editorThemesRegistry,
   keybindingsRegistry,
+  panelRenderersRegistry,
   panelsRegistry,
   settingsRegistry,
   shellTransformersRegistry,
   slashCommandsRegistry,
   statusItemsRegistry,
   themesRegistry,
+  type PanelRenderer,
   type ShellCommandTransformer,
   type StatusItem,
 } from "./registries";
 
 export type ExtensionRuntime = {
   id: string;
-  /** Absolute filesystem path of the extension's install folder. Used by
-   *  extensions that ship platform-specific sidecar binaries: they
-   *  build the binary path via `ctx.installPath` + a relative path, then
-   *  spawn through `shell_bg_spawn` (with the matching permission). */
+  /** Absolute path of the extension's install folder. Used to build sidecar
+   *  binary paths before spawning via `shell_bg_spawn`. */
   root: string;
   manifest: { permissions: string[] };
 };
 
-/** OS detection snapshot exposed to extensions via `ctx.os`. Resolved
- *  once at module load through `@tauri-apps/plugin-os` so individual
- *  extensions don't each pay the plugin-init cost. */
+/** OS snapshot exposed via `ctx.os`. Resolved once at module load. */
 export type ExtensionOs = {
   platform: "windows" | "macos" | "linux" | "ios" | "android" | "unknown";
   arch: "x86_64" | "aarch64" | "x86" | "arm" | "unknown";
@@ -90,36 +86,30 @@ async function detectOs(): Promise<ExtensionOs> {
 
 type Disposer = () => void;
 
-/** Snapshot of app state exposed to extensions. Kept intentionally small -
- *  add fields here when a new extension needs them, not preemptively. */
+/** App-state snapshot exposed to extensions. Add fields when needed. */
 export type AppContextSnapshot = {
   workspaceCwd: string | null;
   activeFileName: string | null;
   terminalCount: number;
-  /** Kind of the currently focused tab. `null` when no tab is active. */
+  /** Kind of the focused tab. `null` when no tab is active. */
   activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | null;
 };
 
 export type ExtensionContext = {
   id: string;
-  /** Absolute path of the extension's install folder. Extensions ship a
-   *  sidecar binary under `sidecar/<platform>/...` should join this with
-   *  the binary path before calling `shell_bg_spawn`. */
+  /** Absolute path of the extension's install folder. Join with the sidecar
+   *  binary path before calling `shell_bg_spawn`. */
   installPath: string;
-  /** Static OS info (platform + arch) snapshot. Resolved once at module
-   *  load - cheaper than calling the os plugin on every read. */
+  /** Static OS info (platform + arch). Resolved once at module load. */
   os: ExtensionOs;
-  /** Read/write extension-scoped storage via `tauri-plugin-store`. Backed by
-   *  a single JSON file `tedi-ext-<id>.json`. */
+  /** Per-extension storage backed by `tauri-plugin-store`. JSON file
+   *  `tedi-ext-<id>.json`. */
   storage: {
     get<T>(key: string): Promise<T | null>;
     set<T>(key: string, value: T): Promise<void>;
     delete(key: string): Promise<void>;
   };
-  /** Read-only view of app state (workspace folder, active file name, open
-   *  terminal count). Presence/integration extensions consume this to
-   *  derive their own payloads. The host is the single source of truth -
-   *  see `appBridge.ts`. */
+  /** Read-only view of app state. See `appBridge.ts`. */
   app: {
     getContext(): AppContextSnapshot;
     onContextChange(cb: (ctx: AppContextSnapshot) => void): Disposer;
@@ -130,54 +120,61 @@ export type ExtensionContext = {
     set<T>(key: string, value: T): Promise<void>;
     onChange(key: string, cb: (value: unknown) => void): Disposer;
   };
-  /** Invoke a Rust command. Each command id must be allowed by an
-   *  `invoke:` permission entry. */
+  /** Invoke a Rust command. Each command id needs an `invoke:` permission. */
   invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
   /** OS-keychain bridge. Both branches gated. */
   secrets: {
     get(name: string): Promise<string | null>;
     set(name: string, value: string): Promise<void>;
   };
-  /** Event bus, automatically namespaced as `ext://<id>/<name>` so two
-   *  extensions can't collide on event names. */
+  /** Event bus namespaced as `ext://<id>/<name>` to prevent name collisions. */
   events: {
     emit(name: string, payload?: unknown): Promise<void>;
     on(name: string, cb: (payload: unknown) => void): Promise<Disposer>;
   };
-  /** Toast / open tab / log. */
+  /** Toast / mount helpers. */
   ui: {
     toast(
       message: string,
       opts?: { variant?: "default" | "success" | "info" | "warning" | "error" },
     ): void;
+    /** Mount TEDI's built-in folder explorer into a container the extension
+     *  owns. No permission required: read-only render, click-to-open routes
+     *  through the same workspace bridge as the built-in explorer. */
+    mountFolderTree(container: HTMLElement, options: MountFolderTreeOptions): MountedFolderTree;
   };
-  /** Runtime status-bar icons shown in the bottom-right. Multiple items
-   *  per extension allowed; each is keyed by `id` within the extension's
-   *  namespace. Items disappear automatically on `deactivate`. */
+  /** Status-bar icons in the bottom-right. Multiple items per extension;
+   *  keyed by `id`. Removed automatically on `deactivate`. */
   statusBar: {
     setItem(item: StatusItem): void;
     removeItem(itemId: string): void;
   };
-  /** AI shell hook. Extensions that want to rewrite commands before
-   *  TEDI's built-in AI tools (`bash_run`, `bash_background`,
-   *  `run_in_terminal`, `suggest_command`) execute them register a
-   *  synchronous transformer here. The transformer receives the user-
-   *  authored command and a `kind` discriminator and returns the
-   *  rewritten string. Returning the original command is a passthrough.
-   *
-   *  Multiple extensions can register transformers; they compose in
-   *  insertion order. Each call is wrapped in try/catch by the host so
-   *  a throwing extension can't break the AI shell tools.
-   *
-   *  The returned `Disposer` clears this extension's registration. The
-   *  host also auto-disposes on `deactivate`, so most extensions don't
-   *  need to capture it. Requires the `shell:transform` permission. */
+  /** AI shell hook. Registers a synchronous transformer that rewrites
+   *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
+   *  `suggest_command` execute. Receives the command and a `kind`
+   *  discriminator; return the rewritten string (or the original to pass
+   *  through). Transformers compose in insertion order; each call is wrapped
+   *  in try/catch. The returned `Disposer` clears this extension's
+   *  registration; the host also disposes on `deactivate`.
+   *  Requires `shell:transform`. */
   shell: {
     registerCommandTransformer(transformer: ShellCommandTransformer): Disposer;
   };
+  /** Mounts a right-panel renderer. Pair with a `panels[]` manifest entry
+   *  whose `surface` is `"right"`. The renderer gets a fresh `<div>`; return
+   *  a cleanup callback. Requires `panels:register`. Auto-disposed on
+   *  `deactivate`. */
+  registerPanelRenderer(panelId: string, renderer: PanelRenderer): Disposer;
+  /** Imperative right-panel controls scoped to this extension.
+   *  `close()` and `toggle()` only act on a panel this extension owns.
+   *  Requires `panels:register`. */
+  panel: {
+    open(panelId: string): void;
+    close(panelId?: string): void;
+    toggle(panelId: string): void;
+  };
   /** Contribution helpers. Each call replaces the previous declaration for
-   *  that category; pass `[]` to clear. The activate function would
-   *  normally call these once. */
+   *  that category; pass `[]` to clear. */
   contribute: {
     settings(items: ContributedSetting[]): void;
     commands(items: ContributedCommand[]): void;
@@ -188,11 +185,11 @@ export type ExtensionContext = {
     panels(items: ContributedPanel[]): void;
     aiTools(items: ContributedAiTool[]): void;
   };
-  /** Bind a JS handler to a contributed command id. The command must
-   *  appear in the contributed-commands list first. */
+  /** Binds a JS handler to a contributed command id. The command must be
+   *  declared in `contribute.commands` first. */
   registerCommandHandler(commandId: string, handler: (...args: unknown[]) => unknown): void;
-  /** Bind a handler to a contributed AI tool name. The host packages the
-   *  result so the AI SDK can consume it. */
+  /** Binds a handler to a contributed AI tool. The host packages the result
+   *  for the AI SDK. */
   registerAiToolHandler(
     toolName: string,
     handler: (args: Record<string, unknown>) => Promise<unknown> | unknown,
@@ -203,18 +200,16 @@ export type ExtensionContext = {
     warn(...args: unknown[]): void;
     error(...args: unknown[]): void;
   };
-  /** Tracker for disposers the host should run on deactivate. Most callers
-   *  don't touch this directly - the wrappers above register themselves
-   *  automatically. */
+  /** Registers a disposer to run on deactivate. The wrappers above already
+   *  call this; most callers don't need it. */
   addDisposer(d: Disposer): void;
 };
 
 const STORAGE_FILE = (id: string) => `tedi-ext-${id}.json`;
 
 /**
- * Build the per-extension storage facade. Lazy-imported so the
- * `tauri-plugin-store` LazyStore isn't constructed until the extension
- * actually touches storage.
+ * Builds the per-extension storage facade. Lazy-imports `tauri-plugin-store`
+ * so the LazyStore is only created on first use.
  */
 async function buildStorage(id: string): Promise<ExtensionContext["storage"]> {
   const { LazyStore } = await import("@tauri-apps/plugin-store");
@@ -271,11 +266,8 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       async get<T = unknown>(key: string): Promise<T | undefined> {
         requirePermission(ext.id, declared, "settings:read");
         const mod = await import("@/modules/settings/store");
-        // Auto-namespace under the extension id. Extensions reading
-        // built-in settings is intentionally not supported via this API -
-        // those are off-limits to keep blast-radius small. If a future
-        // extension needs to read the system theme it should request a
-        // dedicated permission like `settings:read-builtin`.
+        // Namespaced under the extension id. Built-in settings are off-limits
+        // here; a future `settings:read-builtin` permission could open them.
         const ns = `ext:${ext.id}:${key}`;
         return (await mod._readAny<T>(ns)) ?? undefined;
       },
@@ -290,10 +282,8 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         const ns = `ext:${ext.id}:${key}`;
         let unsub: (() => void) | null = null;
         let disposed = false;
-        // Subscribe asynchronously - the promise resolves to the
-        // unlisten fn. If the caller disposes before we land, swallow
-        // the unlisten immediately on resolve so we never leak a
-        // listener past `deactivate`.
+        // Async subscribe. If the caller disposes before the unlisten fn
+        // lands, drop it on resolve so nothing leaks past `deactivate`.
         void import("@/modules/settings/store").then(({ _onAnyChange }) =>
           _onAnyChange((k, v) => {
             if (disposed || k !== ns) return;
@@ -324,8 +314,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     secrets: {
       async get(name: string) {
         requirePermission(ext.id, declared, "secrets:read");
-        // Namespace under the extension id so two extensions can't read
-        // each other's keys via a guessed name.
+        // Namespaced so extensions can't guess each other's keys.
         const ns = `ext:${ext.id}:${name}`;
         return tauriInvoke<string | null>("secrets_get", { name: ns });
       },
@@ -344,8 +333,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         requirePermission(ext.id, declared, "events:listen");
         let unsub: UnlistenFn | null = null;
         let disposed = false;
-        // Namespaced channel - per-extension scoping prevents two
-        // extensions colliding on the same logical event name.
+        // Per-extension channel prevents event-name collisions.
         void tauriListen(`ext://${ext.id}/${name}`, (event) => cb(event.payload)).then(
           (fn) => {
             if (disposed) {
@@ -372,6 +360,12 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         requirePermission(ext.id, declared, "ui:toast");
         toast(message, { variant: opts?.variant ?? "default" });
       },
+      mountFolderTree(container: HTMLElement, options: MountFolderTreeOptions): MountedFolderTree {
+        const mounted = mountFolderTree(container, options);
+        // Auto-dispose on deactivate so React roots don't leak.
+        disposers.push(() => mounted.dispose());
+        return mounted;
+      },
     },
     statusBar: {
       setItem(item: StatusItem) {
@@ -379,9 +373,8 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         statusItemsRegistry.setItem(ext.id, item);
       },
       removeItem(itemId: string) {
-        // No permission check on remove: an extension can always tear
-        // down its own item, even if the user has revoked permission
-        // post-install (e.g. via a future permission-revoke UI).
+        // No permission check: an extension can always remove its own item,
+        // even after a revoke.
         statusItemsRegistry.removeItem(ext.id, itemId);
       },
     },
@@ -390,11 +383,33 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         requirePermission(ext.id, declared, "shell:transform");
         shellTransformersRegistry.set(ext.id, transformer);
         const dispose = (): void => shellTransformersRegistry.clear(ext.id);
-        // Register with the host so disable/uninstall tears the
-        // transform chain back to passthrough without the extension
-        // having to remember anything.
+        // Host disposes on disable/uninstall so the chain falls back to passthrough.
         disposers.push(dispose);
         return dispose;
+      },
+    },
+    registerPanelRenderer(panelId: string, renderer: PanelRenderer): Disposer {
+      requirePermission(ext.id, declared, "panels:register");
+      panelRenderersRegistry.set(ext.id, panelId, renderer);
+      const dispose = (): void => panelRenderersRegistry.remove(ext.id, panelId);
+      disposers.push(dispose);
+      return dispose;
+    },
+    panel: {
+      open(panelId: string) {
+        requirePermission(ext.id, declared, "panels:register");
+        useRightPanelStore.getState().open(ext.id, panelId);
+      },
+      close(panelId?: string) {
+        const store = useRightPanelStore.getState();
+        const active = store.active;
+        if (!active || active.extensionId !== ext.id) return;
+        if (panelId !== undefined && active.panelId !== panelId) return;
+        store.close();
+      },
+      toggle(panelId: string) {
+        requirePermission(ext.id, declared, "panels:register");
+        useRightPanelStore.getState().toggle(ext.id, panelId);
       },
     },
     contribute: {
@@ -439,7 +454,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   };
 
   const dispose = async (): Promise<void> => {
-    // Run in reverse so resources released last-acquired-first.
+    // Reverse order: release last-acquired first.
     for (const d of disposers.reverse()) {
       try {
         d();

@@ -1,8 +1,7 @@
 /**
  * Read/write helpers for extension-namespaced settings (`ext:<id>:<key>`).
- * Built-in TEDI code uses these to render contributed setting forms in
- * the Extensions tab. Extension JS uses the matching `tedi.settings.*`
- * surface in [host.ts](./host.ts); both go through the same store keys.
+ * Used by the Extensions tab UI; extension JS hits the same store keys via
+ * `tedi.settings.*` in host.ts.
  */
 import { useEffect, useState } from "react";
 import { _onAnyChange, _readAny, _writeAny } from "@/modules/settings/store";
@@ -13,10 +12,9 @@ function nsKey(extId: string, key: string): string {
 }
 
 /**
- * Subscribe to an extension setting, returning `[value, setValue]` with
- * the typed default from the manifest applied on first hydration. The
- * write goes through the same namespaced store key the extension uses
- * via `tedi.settings.set`.
+ * Subscribes to an extension setting. Returns `[value, setValue]` with the
+ * manifest default applied on first hydration. Writes go through the same
+ * namespaced key as `tedi.settings.set`.
  */
 export function useExtSetting<T = unknown>(
   extId: string,

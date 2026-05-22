@@ -2,18 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { sftpCreateDir, sftpCreateFile, sftpDelete, sftpReadDir, sftpRename } from "./sftp";
 
-/// SFTP-backed file tree. Mirrors `useFileTree`'s shape so the existing
-/// `FileTreeNode` renderer can be reused verbatim. The big differences
-/// vs the local hook:
-///
-/// - All IO routes through the russh SFTP subsystem on a specific session.
-///   The remote SSH user owns that channel, so the kernel enforces
-///   permissions — a `permission denied` for one subtree never leaks
-///   sibling access. Errors are surfaced inline in the tree.
-/// - Session changes (different leaf focused / SSH reconnected with a new
-///   id) wipe the tree state to avoid pointing at stale handles.
-/// - Paths are always POSIX (forward slash); the remote box is unix-y
-///   regardless of what the local OS does.
+// SFTP-backed file tree. Same shape as `useFileTree` so `FileTreeNode` can
+// render it unchanged. Differences from the local hook:
+//
+// - All IO goes through the russh SFTP subsystem on a specific session.
+//   Permission errors come from the remote kernel and are shown inline.
+// - Session change (different leaf or reconnect with new id) wipes tree
+//   state so we don't point at a stale handle.
+// - Paths are POSIX, regardless of the local OS.
 
 export type SshDirEntry = {
   name: string;
@@ -47,7 +43,7 @@ function dirname(path: string): string {
 }
 
 type Options = {
-  /** When true, dot-prefixed entries are returned from the backend. */
+  /** Include dot-prefixed entries. */
   includeHidden?: boolean;
 };
 
@@ -62,9 +58,8 @@ export function useSshFileTree(
   const [renaming, setRenaming] = useState<string | null>(null);
   const includeHidden = options?.includeHidden ?? false;
 
-  // Per-path fetch generation. Reconnects produce a fresh sessionId, so we
-  // also reset the map on that change; this counter only guards races
-  // within a single live session.
+  // Per-path fetch generation. Guards against race conditions within a
+  // session. Reset on session change.
   const fetchGen = useRef<Map<string, number>>(new Map());
 
   const fetchChildren = useCallback(
@@ -88,9 +83,8 @@ export function useSshFileTree(
     [sessionId, includeHidden],
   );
 
-  // Root or session change → reset state. A reconnect that brings up a
-  // brand-new sessionId would otherwise replay stale tree state against a
-  // handle that points at a different process on the server.
+  // Root or session change: reset state. A new sessionId from a reconnect
+  // would otherwise replay stale tree state against a different handle.
   useEffect(() => {
     fetchGen.current = new Map();
     if (!rootPath || sessionId === null) {

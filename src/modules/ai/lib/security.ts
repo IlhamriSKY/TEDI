@@ -1,22 +1,17 @@
 /**
  * Path-safety guards for AI tool calls.
  *
- * Goals:
- *  - Block reads of files that almost always contain secrets (.env*, *.pem,
- *    id_rsa*, .aws/credentials, .ssh/, .git/, kube/azure config, etc.).
- *  - Block writes/exec into the same set, plus a few directories where
- *    automated mutation is dangerous (system dirs, home dotfiles you didn't
- *    explicitly target).
+ * Blocks reads of common secret files (.env*, *.pem, id_rsa*, .aws/credentials,
+ * .ssh/, .git/, kube/azure config) and writes/exec into the same set plus a
+ * few high-risk directories.
  *
- * This is a *defense layer*, not a sandbox. The model may still be coaxed
- * into doing something silly within allowed paths - the user-confirmation
- * UI for write/exec is the real safety net. These checks just ensure that
- * read tools (which auto-approve) can never silently exfiltrate obvious
- * secrets, and that a single bad approval can't blow up the system.
+ * A defense layer, not a sandbox. The user-confirmation UI is the primary
+ * safety net; these checks stop read tools (which auto-approve) from
+ * silently exfiltrating obvious secrets.
  */
 
 const SECRET_BASENAME_PATTERNS: RegExp[] = [
-  /^\.env(\..+)?$/i, // .env, .env.local, .env.production, etc.
+  /^\.env(\..+)?$/i, // .env, .env.local, .env.production
   /^.*\.pem$/i,
   /^.*\.key$/i, // private keys
   /^.*\.p12$/i,
@@ -26,7 +21,7 @@ const SECRET_BASENAME_PATTERNS: RegExp[] = [
   /^authorized_keys$/i,
   /^htpasswd$/i,
   /^\.netrc$/i,
-  /^credentials$/i, // .aws/credentials, gcloud, etc.
+  /^credentials$/i, // .aws/credentials, gcloud
   /^\.pgpass$/i,
   /^\.npmrc$/i,
   /^\.pypirc$/i,
@@ -42,7 +37,7 @@ const SECRET_PATH_SEGMENTS = [
   "/.docker/",
   "/.config/gh/",
   "/.config/git/",
-  "/.git/", // git internals - refusing avoids tools mutating refs/objects
+  "/.git/", // refuse to avoid mutating refs/objects
 ];
 
 const FORBIDDEN_PREFIXES = [
@@ -62,7 +57,6 @@ function basename(p: string): string {
 }
 
 function normalize(p: string): string {
-  // Lowercase only the comparison surface, not the original path.
   return p.replace(/\\/g, "/");
 }
 
@@ -92,7 +86,7 @@ export function checkReadable(path: string): SafetyResult {
 }
 
 export function checkWritable(path: string): SafetyResult {
-  // Writes inherit all read restrictions, plus system-directory blocks.
+  // Writes inherit read restrictions plus system-directory blocks.
   const r = checkReadable(path);
   if (!r.ok) return r;
 
@@ -109,14 +103,12 @@ export function checkWritable(path: string): SafetyResult {
 }
 
 /**
- * Lightweight heuristic for blocking obviously destructive shell commands
- * even after the user has approved them. The approval UI shows the command
- * verbatim, so the user is the primary gate; this just catches a couple of
- * patterns that almost certainly indicate the model went off the rails.
+ * Heuristic block for destructive shell commands even after user approval.
+ * The approval UI is the primary gate; this catches obvious model mistakes.
  */
 export function checkShellCommand(cmd: string): SafetyResult {
   const c = cmd.trim();
-  // rm -rf / (and variants with quoted /, --no-preserve-root, etc.)
+  // rm -rf / (and quoted/flag variants)
   if (
     /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|--recursive\s+--force|--force\s+--recursive)\s+(['"]?\/['"]?\s*($|;|&|\|))/.test(
       c,

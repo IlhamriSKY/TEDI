@@ -1,9 +1,9 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-// Shared HTTP client. Rebuilding per `http_ping` defeated reqwest's connection
-// pool — the preview pill polls this on a short interval, so each call would
-// pay TLS-handshake cost.
+// Shared HTTP client. Rebuilding per `http_ping` defeats reqwest's connection
+// pool; the preview pill polls on a short interval, so each call would pay
+// the TLS handshake cost.
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn client() -> &'static reqwest::Client {

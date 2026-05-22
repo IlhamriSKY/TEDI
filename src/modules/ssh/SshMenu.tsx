@@ -39,15 +39,13 @@ import {
 } from "./connections";
 import { formatRelative } from "./components/SshStatusPill";
 
-// Heavy module (keyring round-trip, multi-step form). Defer until the user
-// actually opens the add/edit modal so it doesn't ride along on every SSH
-// menu open.
+// Heavy module. Lazy-load until the user opens the add/edit modal.
 const SshConnectionDialog = lazy(() =>
   import("./SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
 );
 
 type Props = {
-  /** Open a saved host as a new terminal tab in the main window. */
+  /** Opens a saved host as a new terminal tab. */
   onConnect: (conn: SshConnection) => void;
 };
 
@@ -55,9 +53,8 @@ export function SshMenu({ onConnect }: Props) {
   const [conns, setConns] = useState<SshConnection[] | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
-  // Latches the first time the editor dialog is opened. Keeps the (lazy)
-  // dialog mounted afterwards so Radix's exit animation can play normally on
-  // close - see the matching latch in App.tsx.
+  // Latches once the editor opens. Keeps the lazy dialog mounted so Radix's
+  // close animation can play. Mirrors the latch in App.tsx.
   const [editorMounted, setEditorMounted] = useState(false);
   useEffect(() => {
     if (editorOpen) setEditorMounted(true);
@@ -143,12 +140,10 @@ export function SshMenu({ onConnect }: Props) {
               <DropdownMenuItem
                 key={c.id}
                 onSelect={() => onPick(c)}
-                // Override Radix' default `focus:bg-accent focus:text-accent-foreground`
-                // (blue highlight) with a neutral muted hover so the row reads
-                // as a regular list entry, not a "selected primary action".
-                // `**:text-current!` neutralises the parent's
-                // `**:text-accent-foreground` cascade that was repainting
-                // every descendant (including delete/edit icons).
+                // Override Radix's blue focus styling with a muted hover so
+                // the row reads as a list entry, not a primary action.
+                // `**:text-current!` blocks the parent cascade from
+                // recolouring child icons.
                 className="group focus:bg-muted! focus:text-foreground! flex items-center justify-between gap-2 pr-1 text-[12px] focus:**:text-current!"
               >
                 <span className="flex min-w-0 flex-col">
@@ -158,11 +153,10 @@ export function SshMenu({ onConnect }: Props) {
                     {c.lastConnectedAt ? ` · last ${formatRelative(c.lastConnectedAt)}` : ""}
                   </span>
                 </span>
-                {/* Action buttons. preventDefault on click stops Radix'
-                    DropdownMenuItem from firing its row-level onSelect
-                    (which would also fire "connect"). stopPropagation on
-                    pointerDown keeps the menu's focus heuristics from
-                    treating the click as a row select. */}
+                {/* Action buttons. preventDefault on click blocks the row's
+                    onSelect (which would also trigger connect).
+                    stopPropagation on pointerDown stops the menu treating
+                    the click as a row select. */}
                 <span className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <RowIconButton
                     label={`Duplicate ${c.name}`}
@@ -246,18 +240,16 @@ function RowIconButton({
     <button
       type="button"
       aria-label={label}
-      // Fire on mousedown so the action runs *before* Radix' DropdownMenuItem
-      // can react to pointerup and flash the row as highlighted/selected.
-      // preventDefault keeps focus from shifting to this button (which would
-      // also paint the row blue via Radix' :focus styling on parent).
+      // Run on mousedown, before the row's pointerup fires and highlights it.
+      // preventDefault stops focus shifting here (which would also blue-paint
+      // the parent row via Radix focus styling).
       onMouseDown={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onClick();
       }}
-      // Block pointer/click propagation entirely so the parent DropdownMenuItem
-      // never sees these and never fires its `onSelect` (which would also
-      // trigger the row's connect action).
+      // Block propagation so the parent DropdownMenuItem never fires its
+      // onSelect (the row's connect action).
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.preventDefault();

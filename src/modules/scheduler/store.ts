@@ -2,7 +2,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { scheduler } from "./lib/engine";
 import type { Schedule } from "./types";
 
-/** Live list of all schedules (pending + recent history). */
+/** Live list of all schedules: pending plus recent history. */
 export function useSchedules(): Schedule[] {
   return useSyncExternalStore(
     (cb) => scheduler.subscribe(cb),
@@ -11,9 +11,7 @@ export function useSchedules(): Schedule[] {
   );
 }
 
-/** Pending-only convenience selector. Derived via useMemo to avoid breaking
- *  `useSyncExternalStore`'s referential-equality contract (filter creates a
- *  fresh array each call). */
+/** Pending-only selector. Memoized so the filter result stays stable for `useSyncExternalStore`. */
 export function usePendingSchedules(): Schedule[] {
   const all = useSchedules();
   return useMemo(() => all.filter((s) => s.status === "pending"), [all]);

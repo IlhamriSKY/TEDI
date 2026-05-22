@@ -8,7 +8,7 @@ import {
 
 type State = Preferences & {
   hydrated: boolean;
-  /** Subscribe & hydrate. Idempotent - safe to call from multiple windows. */
+  /** Subscribe and hydrate. Idempotent; safe to call from multiple windows. */
   init: () => Promise<void>;
 };
 

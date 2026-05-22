@@ -1,14 +1,8 @@
 /**
- * Contribution registries.
- *
- * These are the "hooking points" extensions plug into. Each registry stores
- * one map per extension id; deactivate clears that extension's slice
- * without touching anyone else's contributions. Built-in code reads the
- * flattened view via `list*()`.
- *
- * Every registry is a tiny event emitter so React hooks can subscribe.
- * Keeping these vanilla (no zustand here) avoids circular deps with
- * `store.ts` which depends on extension state.
+ * Contribution registries. Each stores one map per extension id; deactivate
+ * clears that extension's slice. Built-in code reads via `list*()`.
+ * Each registry is a small event emitter for React hooks. Vanilla (no
+ * zustand) to avoid a circular dep with `store.ts`.
  */
 
 import type {
@@ -25,41 +19,32 @@ import type {
 type Listener = () => void;
 
 /**
- * Status-bar status item. Unlike the contribute.* registries (which take
- * a declarative snapshot of an entire category at activate time), status
- * items live on a runtime-only registry: extensions set / remove
- * individual items as their internal state changes (connected, busy,
- * has-error, ...). The host renders all visible items as small icons in
- * the bottom-right of the StatusBar.
- *
- * The icon field is resolved by the host:
- *   - "ext-asset:<relPath>" reads the binary at <ext-root>/<relPath>
- *     via ext_read_asset_bytes (same pipeline as the install card).
- *   - "data:image/...;base64,..." is rendered straight as a data URL.
+ * Status-bar item. Unlike `contribute.*` registries (declarative snapshot
+ * per category), status items are runtime-only; extensions set/remove them
+ * as their state changes. Rendered in the bottom-right of the StatusBar.
+ * Icon resolution:
+ *   `ext-asset:<relPath>` reads `<ext-root>/<relPath>` via `ext_read_asset_bytes`.
+ *   `data:image/...;base64,...` renders as a data URL.
  */
 export type StatusItem = {
   id: string;
   icon: string;
   tooltip: string;
-  /** Optional badge dot for "active / warning / error" tinting. */
+  /** Tone for active / warning / error tinting. */
   tone?: "default" | "success" | "warning" | "error";
 };
 
 class Registry<T> {
-  /** Map<extensionId, items contributed by that extension>. */
+  /** Items contributed per extension. */
   private readonly byExt = new Map<string, T[]>();
-  /** Map<extensionId, Map<itemKey, runtimeHandler>>. Runtime side-channel
-   *  for things that can't live in the JSON declaration (event callbacks,
-   *  React components). */
+  /** Runtime handlers (event callbacks, React components) that can't live
+   *  in the JSON declaration. */
   private readonly runtime = new Map<string, Map<string, unknown>>();
   private readonly listeners = new Set<Listener>();
   /**
-   * Cached flattened view of `byExt`. Rebuilt lazily on first `list()`
-   * call after a `set`/`clear` invalidation. React's
-   * `useSyncExternalStore` compares snapshots via `Object.is`, so
-   * returning a fresh array on every call triggers an infinite render
-   * loop ("The result of getSnapshot should be cached to avoid an
-   * infinite loop"). Caching by reference makes the contract honest.
+   * Cached `list()` snapshot. `useSyncExternalStore` compares via
+   * `Object.is`, so returning a fresh array each call loops forever.
+   * Invalidated on `set`/`clear`.
    */
   private cachedList: { extensionId: string; item: T }[] | null = null;
 
@@ -76,9 +61,8 @@ class Registry<T> {
       this.runtime.set(extensionId, map);
     }
     map.set(key, value);
-    // Runtime side-channel doesn't appear in `list()` output, so the
-    // cached snapshot is still valid. Notify subscribers in case they
-    // care about runtime-only state via a different path.
+    // Runtime entries don't appear in `list()`; cache stays valid.
+    // Still notify in case a subscriber tracks runtime state.
     this.emit();
   }
 
@@ -86,8 +70,7 @@ class Registry<T> {
     return this.runtime.get(extensionId)?.get(key);
   }
 
-  /** Find runtime handler regardless of which extension owns it. Used by
-   *  command dispatch where the caller only knows the command id. */
+  /** Finds a runtime handler across all extensions. Used by command dispatch. */
   findRuntime(key: string): { extensionId: string; value: unknown } | null {
     for (const [extId, map] of this.runtime) {
       const v = map.get(key);
@@ -141,13 +124,9 @@ export const panelsRegistry = new Registry<ContributedPanel>();
 export const aiToolsRegistry = new Registry<ContributedAiTool>();
 
 /**
- * Runtime-only status item registry. Extensions push items in via
- * `ctx.statusBar.setItem(id, item)` and the StatusBar component
- * subscribes via `useRegistry`.
- *
- * Stored as a per-extension Map<itemId, StatusItem> rather than a flat
- * array because mutations are by id (set/remove single items) not
- * batches.
+ * Runtime-only status item registry. Extensions push items via
+ * `ctx.statusBar.setItem(id, item)`; StatusBar subscribes via `useRegistry`.
+ * Stored as Map<itemId, StatusItem> per extension since mutations are by id.
  */
 class StatusItemRegistry {
   private readonly byExt = new Map<string, Map<string, StatusItem>>();
@@ -213,41 +192,23 @@ class StatusItemRegistry {
 export const statusItemsRegistry = new StatusItemRegistry();
 
 /**
- * Shell-command transformer registry.
- *
- * Hook for extensions that need to rewrite shell commands before TEDI's
- * built-in AI tools execute them — typically prefix wrappers like RTK
- * (Rust Token Killer) that route every `git status` through `rtk git
- * status`, or compression/instrumentation shims that wrap commands in
- * `time …`, `nice -n 19 …`, etc.
- *
- * Each registered transformer receives the command + kind hint
- * ("bash" for hidden agent shells used by `bash_run`/`bash_background`,
- * "terminal" for visible user PTY injections via `suggest_command` /
- * `run_in_terminal`) and returns the rewritten string. `applyAll`
- * threads the result through every registered extension in insertion
- * order so multiple wrappers compose (RTK on top of Caveman, etc.).
- *
- * Sync API by design: command-transform sits in the AI tool hot path
- * and an async hop per call would add roundtrip latency for every
- * command the agent issues. Extensions that need async state (e.g.
- * "is RTK installed?") cache it themselves and answer synchronously.
- *
- * Defensive execution: each transformer is wrapped in try/catch, and
- * non-string returns are dropped. A hostile or buggy extension can't
- * brick the AI shell tools — worst case its transform is skipped and
- * the next one in the chain runs against the previous result.
- *
- * Plug-and-play guarantee: when an extension is disabled or
- * uninstalled the host runs its disposers, which clears the
- * extension's entry here. Future shell calls find an empty (or
- * smaller) chain and route as if the extension was never installed.
+ * Shell-command transformer registry. Lets extensions rewrite shell commands
+ * before the built-in AI tools execute them (e.g. RTK prefixing `git status`
+ * as `rtk git status`).
+ * Each transformer receives the command and a `kind` hint (`bash` for hidden
+ * agent shells via `bash_run`/`bash_background`, `terminal` for visible PTY
+ * injections via `suggest_command`/`run_in_terminal`) and returns the
+ * rewritten string. `applyAll` chains transformers in insertion order.
+ * Sync API: command-transform is on the AI hot path; extensions needing async
+ * state should cache it.
+ * Each transformer is wrapped in try/catch; non-string returns are dropped.
+ * Disable/uninstall clears the extension's entry.
  */
 export type ShellCommandKind = "bash" | "terminal";
 export type ShellCommandTransformer = (command: string, kind: ShellCommandKind) => string;
 
 class ShellTransformerRegistry {
-  /** Insertion-ordered map so the apply chain is deterministic. */
+  /** Insertion-ordered so `applyAll` is deterministic. */
   private readonly byExt = new Map<string, ShellCommandTransformer>();
 
   set(extensionId: string, transformer: ShellCommandTransformer): void {
@@ -286,6 +247,71 @@ class ShellTransformerRegistry {
 
 export const shellTransformersRegistry = new ShellTransformerRegistry();
 
+/**
+ * Panel renderer registry. Right-panel extensions declare panels in
+ * `contributes.panels[]` (surface `"right"`) and bind a mount function via
+ * `ctx.registerPanelRenderer(panelId, fn)`. The host calls it with a fresh
+ * `<div>`; the extension paints into it and returns a cleanup callback.
+ * Manifest carries id/title/icon for toggle button + header; the registry
+ * carries the mount function.
+ * Per-extension Map allows multiple panels per extension.
+ * `clearExtensionContributions` drops the slice on deactivate.
+ */
+export type PanelRenderer = (container: HTMLElement) => (() => void) | void;
+
+class PanelRendererRegistry {
+  private readonly byExt = new Map<string, Map<string, PanelRenderer>>();
+  private readonly listeners = new Set<Listener>();
+
+  set(extensionId: string, panelId: string, renderer: PanelRenderer): void {
+    let map = this.byExt.get(extensionId);
+    if (!map) {
+      map = new Map();
+      this.byExt.set(extensionId, map);
+    }
+    map.set(panelId, renderer);
+    this.emit();
+  }
+
+  remove(extensionId: string, panelId: string): void {
+    const map = this.byExt.get(extensionId);
+    if (!map) return;
+    if (map.delete(panelId)) {
+      if (map.size === 0) this.byExt.delete(extensionId);
+      this.emit();
+    }
+  }
+
+  clear(extensionId: string): void {
+    if (!this.byExt.has(extensionId)) return;
+    this.byExt.delete(extensionId);
+    this.emit();
+  }
+
+  get(extensionId: string, panelId: string): PanelRenderer | null {
+    return this.byExt.get(extensionId)?.get(panelId) ?? null;
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emit(): void {
+    for (const l of this.listeners) {
+      try {
+        l();
+      } catch (err) {
+        console.error("[extensions] panel renderer listener threw", err);
+      }
+    }
+  }
+}
+
+export const panelRenderersRegistry = new PanelRendererRegistry();
+
 export function clearExtensionContributions(extensionId: string): void {
   settingsRegistry.clear(extensionId);
   commandsRegistry.clear(extensionId);
@@ -294,6 +320,7 @@ export function clearExtensionContributions(extensionId: string): void {
   themesRegistry.clear(extensionId);
   editorThemesRegistry.clear(extensionId);
   panelsRegistry.clear(extensionId);
+  panelRenderersRegistry.clear(extensionId);
   aiToolsRegistry.clear(extensionId);
   statusItemsRegistry.clear(extensionId);
   shellTransformersRegistry.clear(extensionId);

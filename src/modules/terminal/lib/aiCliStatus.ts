@@ -1,7 +1,5 @@
-/// Runtime status of a known AI CLI tool running inside a terminal leaf.
-/// Owned by `useTerminalSession` and surfaced to React via `onAiCliStatus`
-/// so the tab bar (text chip + toast + beep) can render without driving
-/// its own polling. Mirrors the `SshStatus` shape used for SSH tabs.
+// Runtime status of an AI CLI tool in a terminal leaf. Owned by
+// `useTerminalSession`, surfaced via `onAiCliStatus`. Mirrors `SshStatus`.
 
 export type AiCliKind =
   | "claude"
@@ -22,7 +20,7 @@ export type AiCliState = "idle" | "working" | "blocking";
 export type AiCliStatus = {
   tool: AiCliKind;
   state: AiCliState;
-  /** Wall-clock ms of last state transition - used for toast de-dup. */
+  /** Wall-clock ms of last transition. Used for toast de-dup. */
   since: number;
 } | null;
 
@@ -38,18 +36,12 @@ export function aiCliLabel(s: NonNullable<AiCliStatus>): string {
   }
 }
 
-/** Short state word rendered inline next to the tab title. */
+/** Short state word for inline display. */
 export function aiCliStateWord(s: NonNullable<AiCliStatus>): string {
   return s.state;
 }
 
-/** Tailwind classes for the inline state pill next to the tab title.
- *  Subtle tinted background + matching text - sits next to the tab label
- *  without overpowering it.
- *
- *  idle = green (tool is alive, waiting on nothing),
- *  working = yellow (actively processing),
- *  blocking = red blink (needs the user's answer / approval). */
+/** Tailwind classes for the inline state pill. Idle green, working yellow, blocking red pulse. */
 export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
   switch (s.state) {
     case "idle":
@@ -61,13 +53,7 @@ export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
   }
 }
 
-/** Tailwind `text-*` class for the terminal-leaf icon when a known AI CLI
- *  is active. Drives the icon tint directly — TabBar no longer renders a
- *  separate "idle/working/blocking" chip, so the icon's colour IS the
- *  status indicator. `working` and `blocking` pulse to draw the eye. The
- *  detector is what clears the state cleanly when the CLI exits (alt-
- *  screen toggle, OSC 133;A, or SSH disconnect reset); the icon is just a
- *  mirror of that state. */
+/** Tailwind text color for the terminal-leaf icon when an AI CLI is active. Working and blocking pulse. */
 export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
   switch (s.state) {
     case "idle":

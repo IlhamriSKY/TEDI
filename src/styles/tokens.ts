@@ -1,13 +1,11 @@
 /**
- * Runtime resolution of shadcn CSS custom properties into concrete rgb strings.
+ * Resolves shadcn CSS custom properties to rgb strings.
  *
- * globals.css declares tokens in oklch(), which xterm.js (WebGL) and
- * CodeMirror's static theme builder can't consume directly. We resolve each
- * token through the browser: setting `color: var(--x)` on a detached element
- * forces computation into rgb form, which both consumers accept.
+ * globals.css uses oklch(), which xterm.js (WebGL) and CodeMirror's static
+ * theme builder can't read. Setting `color: var(--x)` on a probe element
+ * forces computed `color` into rgb form, which both consumers accept.
  *
- * Tokens are read once per call. Callers that need to react to theme changes
- * (light/dark toggle) should re-invoke and rebuild their theme object.
+ * Tokens are read on each call. Re-invoke after a theme change.
  */
 
 type TokenName =

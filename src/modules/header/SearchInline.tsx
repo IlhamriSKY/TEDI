@@ -35,7 +35,7 @@ export type SearchInlineHandle = { focus: () => void };
 
 type Props = {
   target: SearchTarget;
-  /** When true, collapse to an icon-only button until the user opens it. */
+  /** Collapse to an icon-only button until opened. */
   compact?: boolean;
 };
 
@@ -44,8 +44,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
   ref,
 ) {
   const [q, setQ] = useState("");
-  // In compact mode the field is hidden behind an icon until activated.
-  // In normal mode the field is always present.
+  // Compact mode hides the field behind an icon until activated.
   const [openInCompact, setOpenInCompact] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingFocusRef = useRef(false);
@@ -97,7 +96,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
     target.focus();
   }, [target]);
 
-  // Target switched (terminal ↔ editor) or removed → drop highlights.
+  // Drop highlights when target switches or is removed.
   useEffect(() => clearTarget, [clearTarget]);
 
   const applyIncremental = (next: string) => {

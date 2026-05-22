@@ -21,20 +21,16 @@ import {
   type TerminalLeafState,
 } from "@/modules/terminal/lib/panes";
 
-// Browsers cap WebGL contexts at ~16; one xterm renderer per terminal leaf.
-// 6 panes per tab is the product cap; raise carefully to stay below ~16
-// across multiple tabs.
+// Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
+// 6 panes per tab leaves headroom for multiple tabs.
 export const MAX_PANES_PER_TAB = 6;
 
 /**
- * A pane tab holds a tmux-style pane tree of mixed leaves (terminal or
- * editor). Splitting (Ctrl+D / Ctrl+Shift+D) adds a new leaf adjacent to
- * the focused one in the requested direction; layout can mix horizontal
- * and vertical orientations within the same tree.
- *
- * `title` / `cwd` / `path` / `dirty` / `preview` are derived from the active
- * leaf and resynced whenever the tree or active leaf changes - call sites
- * that read these top-level fields keep working as before.
+ * A pane tab holds a tmux-style pane tree of terminal or editor leaves.
+ * Splitting (Ctrl+D / Ctrl+Shift+D) adds a new leaf next to the focused one.
+ * Trees can mix horizontal and vertical orientations.
+ * `title` / `cwd` / `path` / `dirty` / `preview` mirror the active leaf and
+ * resync whenever the tree or active leaf changes.
  */
 export type PaneTab = {
   id: number;
@@ -42,7 +38,7 @@ export type PaneTab = {
   title: string;
   paneTree: PaneNode;
   activeLeafId: number;
-  // Mirrors of the active leaf - populated by `syncPaneMirror`.
+  // Mirrors of the active leaf, populated by `syncPaneMirror`.
   cwd?: string;
   path?: string;
   dirty?: boolean;
@@ -91,7 +87,7 @@ export type GitDiffTab = {
   /** Absolute repo root. */
   repoPath: string;
   changeStatus: GitChangeStatusTab;
-  /** Bumps on every "Refresh" so the pane re-reads HEAD + working tree. */
+  /** Bumps on Refresh so the pane re-reads HEAD and working tree. */
   reloadKey: number;
 };
 
@@ -122,10 +118,9 @@ function titleFromUrl(url: string): string {
 /** Derive a tab title from its active leaf. */
 function titleFromLeaf(leaf: PaneLeaf): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  // SSH leaves: caller sets a human-readable title via updateTab right
-  // after newSshTab; this fallback shows until that lands.
+  // SSH leaves get a real title via updateTab after newSshTab. This is the interim fallback.
   if (leaf.sshConnectionId) return "ssh";
-  // Terminal: prefer the cwd basename, fall back to "shell".
+  // Terminal: cwd basename, falling back to "shell".
   if (leaf.cwd) {
     const b = basename(leaf.cwd);
     if (b) return b;
@@ -155,10 +150,7 @@ function syncPaneMirror(tab: PaneTab): PaneTab {
   return next;
 }
 
-/**
- * Helpers for callers that want to discriminate on the **active leaf** kind
- * (the natural replacement for the old `t.kind === "terminal"` check).
- */
+/** Helpers for discriminating on the active leaf kind. */
 export function activeLeaf(tab: Tab): PaneLeaf | null {
   if (tab.kind !== "pane") return null;
   return findLeaf(tab.paneTree, tab.activeLeafId);
@@ -200,14 +192,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   });
   const [activeId, setActiveId] = useState(1);
   const nextIdRef = useRef(3);
-  // Monotonic counter for the FIFO chip number on terminal leaves. Stays in
-  // sync with `maxTerminalOrdinal(tabs)` so a freshly created terminal —
-  // whether spawned via newTab, newSshTab, splitInActive, or hydrated from
-  // saved state — picks up the next unused integer. Dragging tabs around
-  // does NOT bump this; ordinals belong to the leaf, not its position.
+  // Monotonic FIFO counter for the terminal chip number. New terminals from
+  // any path pick the next unused integer. Drag/reorder doesn't bump this;
+  // the ordinal belongs to the leaf, not its position.
   const nextOrdinalRef = useRef(2);
 
-  /** Returns the highest `terminalOrdinal` currently in use across all tabs. */
+  /** Highest `terminalOrdinal` currently in use. */
   const peekMaxOrdinal = useCallback((curr: Tab[]): number => {
     let max = 0;
     for (const t of curr) {
@@ -221,8 +211,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     return max;
   }, []);
 
-  /** Allocates the next ordinal and advances the counter. Called inside
-   *  setTabs updaters where `curr` is the latest tabs snapshot. */
+  /** Returns the next ordinal and advances the counter. */
   const allocOrdinal = useCallback(
     (curr: Tab[]): number => {
       const max = Math.max(nextOrdinalRef.current - 1, peekMaxOrdinal(curr));
@@ -262,11 +251,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [allocOrdinal],
   );
 
-  /**
-   * Open a new tab whose initial terminal leaf is bound to a saved SSH
-   * connection. `useTerminalSession` reads `leaf.sshConnectionId` and
-   * routes through `ssh_open` instead of `pty_open`.
-   */
+  /** Open a tab whose initial terminal leaf is bound to a saved SSH connection. Routes through `ssh_open`. */
   const newSshTab = useCallback(
     (sshConnectionId: string, title: string) => {
       const tabId = nextIdRef.current++;
@@ -296,11 +281,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [allocOrdinal],
   );
 
-  /**
-   * Find a pane tab that has any editor leaf matching `predicate`. Used by
-   * openFileTab to dedup across split-with-editor tabs as well as the simple
-   * single-leaf case.
-   */
+  /** Find a pane tab with an editor leaf matching `predicate`. Used by openFileTab for dedup. */
   const findEditorLeafIn = useCallback(
     (
       curr: Tab[],
@@ -313,8 +294,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         for (const l of leaves(t.paneTree)) {
           if (l.leafKind !== "editor") continue;
           if (l.path !== path) continue;
-          // Same path on different sessions (or local vs remote) is a
-          // different file - only dedup when the session identity matches.
+          // Same path on different sessions (or local vs remote) is a different file. Only dedup when session matches.
           if ((l.sshSessionId ?? null) !== (sshSessionId ?? null)) continue;
           if (!predicate(l)) continue;
           return { tab: t, leaf: l };
@@ -327,11 +307,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
 
   /**
    * Opens a file in an editor leaf.
-   *
-   * - `pin = true` - persistent open. Re-uses an existing editor leaf for
-   *   the path (promoting it out of preview if needed), or creates a new
-   *   editor tab.
-   * - `pin = false` - VSCode-style preview slot.
+   * `pin = true`: persistent. Reuses an existing leaf (promoting from preview if needed) or creates a new tab.
+   * `pin = false`: VSCode-style preview slot.
    */
   const openFileTab = useCallback(
     (
@@ -461,7 +438,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [findEditorLeafIn],
   );
 
-  /** Promote the active leaf of `id` out of preview mode. */
+  /** Promote the active leaf of `id` out of preview. */
   const pinTab = useCallback((id: number) => {
     setTabs((curr) =>
       curr.map((t) => {
@@ -537,8 +514,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             t.kind === "git-diff" && t.relative === input.relative && t.repoPath === input.repoPath,
         );
         if (existing) {
-          // Bump reloadKey so the pane re-reads HEAD + working tree content
-          // (useful when user changed the file between two diff views).
+          // Bump reloadKey so the pane re-reads HEAD and working tree.
           targetId = existing.id;
           return curr.map((t) =>
             t.id === existing.id && t.kind === "git-diff"
@@ -618,7 +594,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             ...(patch.path !== undefined && { path: patch.path }),
           };
         }
-        // pane tab - patches apply to the active leaf where relevant.
+        // pane tab: patches apply to the active leaf.
         const leaf = findLeaf(x.paneTree, x.activeLeafId);
         if (!leaf) return x;
         let tree = x.paneTree;
@@ -654,7 +630,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [tabs],
   );
 
-  /** Update a terminal leaf's cwd. Mirrors to the tab when leaf is active. */
+  /** Update a terminal leaf's cwd. Mirrors to the tab when the leaf is active. */
   const setLeafCwd = useCallback((leafId: number, cwd: string) => {
     setTabs((curr) =>
       curr.map((t) => {
@@ -717,20 +693,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Split the active leaf of `tabId` along `dir`, inserting a new leaf.
-   *
-   * Rules:
-   * - terminal ↔ terminal: allowed.
-   * - terminal ↔ editor (and vice versa): allowed (via `newKind` or via the
-   *   per-tab "Move to group" affordance).
-   * - editor ↔ editor: allowed when explicitly requested with
-   *   `newKind === "editor"`, or via the per-tab "Move to group" affordance.
-   *
-   * Default new-leaf kind is **terminal** regardless of the active leaf - the
-   * Ctrl+D / Ctrl+Shift+D shortcuts always land a fresh shell so users hitting
-   * the binding from an editor still get a terminal. Pass `newKind = "editor"`
-   * to force an editor (used by callers that explicitly want a side-by-side
-   * code view).
+   * Split the active leaf of `tabId` along `dir`. New leaf defaults to a
+   * terminal regardless of the active leaf, so Ctrl+D from an editor still
+   * spawns a shell. Pass `newKind = "editor"` for side-by-side code.
+   * All combinations (terminal/editor, editor/editor) are allowed.
    */
   const splitActivePane = useCallback(
     (
@@ -747,8 +713,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           const active = findLeaf(t.paneTree, t.activeLeafId);
           if (!active) return t;
 
-          // Always default to a terminal so Ctrl+D from an editor still
-          // produces a shell. Editor-side-by-side is opt-in via `newKind`.
+          // Default to terminal so Ctrl+D from an editor still produces a shell.
           const kind: "terminal" | "editor" = newKind ?? "terminal";
 
           const splitId = nextIdRef.current++;
@@ -756,9 +721,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           newLeafId = leafId;
           let state: LeafState;
           if (kind === "terminal") {
-            // Caller-supplied cwd wins (e.g. Ctrl+D should land in the
-            // explorer's root, not the focused leaf's cwd if they diverge).
-            // Falls back to the focused terminal's cwd, then the tab mirror.
+            // Caller-supplied cwd wins; falls back to focused terminal's cwd, then tab mirror.
             const cwd = cwdOverride ?? (active.leafKind === "terminal" ? active.cwd : t.cwd);
             const ts: TerminalLeafState = {
               leafKind: "terminal",
@@ -767,9 +730,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             };
             state = ts;
           } else {
-            // Duplicate the active editor's path if there is one; otherwise
-            // fall back to any editor leaf in the tab. With no editor at all
-            // we can't synthesise a path, so the split is a no-op.
+            // Duplicate the active editor's path; fall back to any editor in the tab.
+            // No editor in the tab means no path to clone, so the split is a no-op.
             const sourcePath =
               active.leafKind === "editor"
                 ? active.path
@@ -857,12 +819,9 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Workspaces switch - replace the full tab list + active id atomically.
-   * Also rebases `nextIdRef` so new ids never collide with the incoming set,
-   * and backfills `terminalOrdinal` on any saved leaf that pre-dates the
-   * ordinal field. Backfill walks tabs left→right + leaves in tree order so
-   * older state gets the same numbering it'd have if it were created fresh
-   * — first opened wins #1, etc.
+   * Workspace switch. Replaces the tab list and active id atomically,
+   * rebases `nextIdRef`, and backfills `terminalOrdinal` on legacy leaves
+   * in tab/tree order so older state numbers like a fresh creation.
    */
   const replaceAllTabs = useCallback((nextTabs: Tab[], nextActiveId: number | null) => {
     let maxId = 0;
@@ -897,28 +856,21 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     nextOrdinalRef.current = nextOrdinal;
   }, []);
 
-  /** Allocate a fresh id from the same counter that drives tabs/leaves. */
+  /** Allocate a fresh id from the same counter as tabs and leaves. */
   const allocId = useCallback(() => nextIdRef.current++, []);
 
   /**
-   * Move a single leaf out of its current pane tab and graft it into
-   * `targetTabId` as a horizontal split, preserving the leaf's id (so its
-   * live PTY / xterm session stays attached - no respawn). If the source
-   * tab is emptied by the move, the tab itself is dropped.
-   *
-   * Returns:
-   * - `"ok"` - moved.
-   * - `"full"` - target tab is already at `MAX_PANES_PER_TAB`.
-   * - `"invalid"` - leaf not found, source = target, or target isn't a pane
-   *   tab. Caller treats this as a no-op.
+   * Move a leaf into `targetTabId` as a horizontal split. Preserves the
+   * leaf id so PTY/editor session stays attached. Drops the source tab if
+   * it ends up empty.
+   * Returns `"ok"`, `"full"` (target at `MAX_PANES_PER_TAB`), or
+   * `"invalid"` (not found, source = target, target isn't a pane tab).
    */
   const moveLeafToTab = useCallback(
     (leafId: number, targetTabId: number): "ok" | "full" | "invalid" => {
       type MoveResult = "ok" | "full" | "invalid";
-      // Explicit cast so TS doesn't narrow `result` to the literal `"invalid"`
-      // and then flag every later comparison as unreachable. The callback
-      // passed to `setTabs` mutates this through the closure - CFA can't
-      // see those branches at the type level.
+      // Cast so TS doesn't narrow `result` to literal `"invalid"`. The setTabs
+      // callback mutates it via closure, which CFA can't see.
       let result = "invalid" as MoveResult;
       setTabs((curr) => {
         const source = curr.find(
@@ -934,11 +886,9 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
         const leaf = findLeaf(source.paneTree, leafId);
         if (!leaf) return curr;
-        // Reuse the moving leaf's state verbatim so cwd / sshConnectionId /
-        // terminalOrdinal / dirty / preview travel with it. The leaf id
-        // stays the same so the underlying session keeps its mapping in
-        // App.tsx's per-leaf refs, and the ordinal travels too so dragging
-        // doesn't renumber the chip.
+        // Reuse the leaf's state verbatim so cwd, sshConnectionId, ordinal,
+        // dirty, and preview travel with it. Leaf id is preserved so App.tsx's
+        // per-leaf refs keep their mapping.
         const state: LeafState =
           leaf.leafKind === "terminal"
             ? {
@@ -973,7 +923,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             continue;
           }
           if (t.id === source.id) {
-            // Source emptied: drop the tab. activeId is patched below.
+            // Source emptied: drop the tab.
             if (newSourceTree === null) continue;
             const remaining = leafIds(newSourceTree);
             let newActive = t.activeLeafId;
@@ -1004,8 +954,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
         return next;
       });
-      // Focus the destination so the user sees their just-moved leaf land
-      // exactly where they pointed it.
+      // Focus the destination so the moved leaf lands in view.
       if (result === "ok") setActiveId(targetTabId);
       return result;
     },
@@ -1013,12 +962,9 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   );
 
   /**
-   * Extract a leaf from its current tab's split into a brand-new top-level
-   * pane tab — "leave group". Leaf id and state (terminal cwd/SSH binding or
-   * editor path/dirty/preview) are preserved verbatim so the underlying PTY
-   * or editor session survives the relocation. Returns `"invalid"` when
-   * `leafId` isn't inside a multi-leaf split (single-leaf tabs have nothing
-   * to leave) and `"ok"` on success.
+   * Extract a leaf into a new top-level pane tab. Preserves leaf id and
+   * state so the underlying session survives. Returns `"invalid"` when
+   * `leafId` isn't inside a multi-leaf split, `"ok"` on success.
    */
   const moveLeafToNewTab = useCallback((leafId: number): "ok" | "invalid" => {
     type MoveResult = "ok" | "invalid";
@@ -1029,8 +975,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         (t): t is PaneTab => t.kind === "pane" && hasLeaf(t.paneTree, leafId),
       );
       if (!source) return curr;
-      // Only meaningful for split tabs — extracting from a single-leaf tab
-      // would just rename the tab and waste a fresh id.
+      // Only meaningful for split tabs. Single-leaf extract would just rename and waste an id.
       const sourceLeafIds = leafIds(source.paneTree);
       if (sourceLeafIds.length < 2) return curr;
       const leaf = findLeaf(source.paneTree, leafId);
@@ -1052,8 +997,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               sshHostLabel: leaf.sshHostLabel,
             };
       const newSourceTree = removeLeaf(source.paneTree, leafId);
-      // Source has ≥2 leaves so removing one always leaves something behind;
-      // `newSourceTree === null` should not happen but guard anyway.
+      // Source has 2+ leaves so removing one leaves something. Guard anyway.
       if (newSourceTree === null) return curr;
       const tabId = nextIdRef.current++;
       const newLeaf: PaneLeaf = {
@@ -1078,8 +1022,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             paneTree: newSourceTree,
             activeLeafId: sourceActive,
           });
-          // Insert the new tab right after the source so the user's eye
-          // tracks the leaf to its new home without scanning the strip.
+          // Insert the new tab right after the source so the user can track the move.
           next.push(
             syncPaneMirror({
               id: tabId,
@@ -1098,14 +1041,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Rotate `leafId` by pairing it with its immediate sibling in a sub-
-   * split of the opposite direction. Other siblings in the parent split
-   * are not touched - this is what makes "click rotate on leaf B in a
-   * 3-pane [A, B, C]" affect only B (and its neighbor C), not A.
-   *
-   * The tree is normalised after the operation so a second click on the
-   * same leaf undoes the change cleanly (no stale `split(row, split(row,
-   * ...))` nesting builds up).
+   * Rotate `leafId` by pairing it with its immediate sibling in a sub-split
+   * of the opposite direction. Other siblings stay put, so rotating B in
+   * `[A, B, C]` affects only B and C. The tree is normalized afterwards
+   * so a second click cleanly undoes the change.
    */
   const rotateLeafSplit = useCallback((leafId: number) => {
     setTabs((curr) =>
@@ -1124,12 +1063,9 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Drag-and-drop reorder of a leaf within its **own** split group: places
-   * `leafId` immediately before `beforeLeafId` among its sibling leaves, or at
-   * the end of the parent split when `beforeLeafId === null`. No-op when the
-   * two leaves aren't direct siblings of the same split — cross-split warping
-   * isn't supported here (use right-click → Move to New Tab / Join Group for
-   * cross-group moves).
+   * Reorder a leaf within its own split group. Places `leafId` before
+   * `beforeLeafId`, or at the end when null. No-op when the two leaves
+   * aren't direct siblings. Use Move to New Tab / Join Group for cross-group.
    */
   const reorderLeafInGroup = useCallback(
     (leafId: number, beforeLeafId: number | null) => {
@@ -1146,7 +1082,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [],
   );
 
-  /** Drag-and-drop reorder: `fromTabId` is moved before `beforeTabId` (null = append). */
+  /** Reorder tabs: move `fromTabId` before `beforeTabId`, or append when null. */
   const reorderTabs = useCallback((fromTabId: number, beforeTabId: number | null) => {
     setTabs((curr) => {
       const from = curr.find((t) => t.id === fromTabId);

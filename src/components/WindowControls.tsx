@@ -7,7 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 
 type Props = {
-  /** Render only the close button (used by the settings window). */
+  /** Render only the close button. Used by the settings window. */
   closeOnly?: boolean;
 };
 

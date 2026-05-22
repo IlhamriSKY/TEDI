@@ -20,8 +20,8 @@ pub struct DirEntry {
     pub mtime: u64,
 }
 
-/// Lists immediate children of `path`. Dirs first, then files, each sorted
-/// case-insensitively. Hidden (dot-prefix) entries are filtered unless
+/// List immediate children of `path`. Dirs first, then files, each sorted
+/// case-insensitively. Hidden (dot-prefix) entries filtered unless
 /// `include_hidden` is true.
 #[tauri::command]
 pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<DirEntry>, String> {
@@ -40,10 +40,9 @@ pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<Dir
                 return None;
             }
 
-            // `metadata()` follows symlinks → it returns the target's stat in
-            // one syscall (file_type + size + mtime all derived from it). We
-            // fall back to `symlink_metadata` for broken symlinks so we don't
-            // silently drop them from the listing.
+            // `metadata()` follows symlinks and returns the target's stat in
+            // one syscall. Fall back to `symlink_metadata` for broken
+            // symlinks so we do not silently drop them from the listing.
             let (meta, was_symlink) = match std::fs::metadata(entry.path()) {
                 Ok(m) => (Some(m), false),
                 Err(_) => (entry.metadata().ok(), true),
@@ -89,10 +88,10 @@ pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<Dir
     Ok(entries)
 }
 
-/// Lists immediate subdirectories of `path`. Kept for the CwdBreadcrumb.
+/// List immediate subdirectories of `path`. Used by CwdBreadcrumb.
 ///
 /// Symlinks to directories are included (matches shell `cd` semantics).
-/// Hidden entries are filtered by dot-prefix only.
+/// Hidden entries filtered by dot-prefix only.
 #[tauri::command]
 pub fn list_subdirs(path: String) -> Result<Vec<String>, String> {
     let root = PathBuf::from(&path);

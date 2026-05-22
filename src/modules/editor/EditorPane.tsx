@@ -33,7 +33,7 @@ export type EditorPaneHandle = {
   focus: () => void;
   getSelection: () => string | null;
   getPath: () => string;
-  /** Re-read the file from disk. Skips silently if the buffer is dirty. */
+  /** Re-reads the file from disk. No-op if the buffer is dirty. */
   reload: () => boolean;
 };
 
@@ -42,12 +42,10 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
   onClose?: () => void;
-  /** When true and the file is markdown, render a rendered MD view instead
-   *  of the CodeMirror editor. Ignored for non-markdown files. */
+  /** Render markdown as preview instead of CodeMirror. Ignored for non-md. */
   mdPreview?: boolean;
-  /** When set, this pane edits a remote file over SFTP on the matching
-   *  russh session id. Threaded straight through to `useDocument` so
-   *  reads/writes branch to the SSH backend. */
+  /** Edits a remote file over SFTP on the matching russh session id.
+   *  Forwarded to `useDocument` so reads/writes hit the SSH backend. */
   sshSessionId?: number;
 };
 
@@ -57,9 +55,9 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Resolve a document position to a y-coordinate in the scroller's scrollable
- * content space (same coordinate as `scrollTop`). Falls back to a geometric
- * estimate when `coordsAtPos` returns null (position outside viewport). */
+/** Returns the y-coordinate of `pos` in the scroller's scrollable content
+ *  space (same axis as `scrollTop`). Falls back to a geometric estimate
+ *  when `coordsAtPos` returns null. */
 function scrollYFor(view: EditorView, pos: number, edge: "top" | "bottom"): number {
   const scroller = view.scrollDOM;
   const coords = view.coordsAtPos(pos);
@@ -73,9 +71,8 @@ function scrollYFor(view: EditorView, pos: number, edge: "top" | "bottom"): numb
   return contentTop + (edge === "top" ? block.top : block.bottom);
 }
 
-/** Compute the marker overlay's geometry: the bar's top/height relative to
- * the outer container, plus where to paint the cursor tick and (optionally)
- * the selection band. Returns null if the editor hasn't laid out yet. */
+/** Marker overlay geometry: bar top/height relative to the outer container,
+ *  plus cursor tick y and selection band. Returns null before layout. */
 function computeMarkers(
   view: EditorView,
   outer: HTMLElement | null,
@@ -93,14 +90,12 @@ function computeMarkers(
   if (clientH <= 0) return null;
 
   const scrollH = scroller.scrollHeight;
-  // Two regimes unified by Math.max: if the doc fits the viewport, markers
-  // track 1:1 with on-screen y; if it overflows, they compress proportionally.
+  // If the doc fits, markers track 1:1; otherwise they compress proportionally.
   const denom = Math.max(scrollH, clientH, 1);
 
   const sel = view.state.selection.main;
   const cursorScrollY = scrollYFor(view, sel.head, "top");
-  // Center the 2px tick on the resolved y rather than using its top edge -
-  // otherwise the marker drifts ~1px below where the caret visually sits.
+  // Center the 2px tick on y; using the top edge drifts the marker 1px low.
   const cursorY = Math.min(
     Math.max(0, (cursorScrollY / denom) * clientH - 1),
     Math.max(0, clientH - 2),
@@ -174,8 +169,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       unsubPrefs();
     };
   }, []);
-  // Themes are dynamically imported (~10–25 KB each). Show the cached
-  // extension immediately if loaded; otherwise unstyled until ready.
+  // Themes are dynamic imports (~10-25 KB). Show cached immediately;
+  // otherwise unstyled until ready.
   const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(editorThemeId));
   useEffect(() => {
     let cancelled = false;
@@ -194,9 +189,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
     };
   }, [editorThemeId]);
 
-  // Stabilize save + onSaved via refs so the extensions array never changes
-  // identity - a new identity makes @uiw/react-codemirror reconfigure the
-  // whole state, wiping the language compartment.
+  // Stable refs so the extensions array keeps its identity; a new identity
+  // makes @uiw/react-codemirror reconfigure and wipes the language compartment.
   const saveRef = useRef(save);
   saveRef.current = save;
   const onSavedRef = useRef(onSaved);
@@ -209,8 +203,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
 
   const extensions = useMemo(
     () => [
-      // basicSetup is added before user extensions by @uiw/react-codemirror,
-      // so we must elevate vim's precedence to win the keymap.
+      // basicSetup loads before user extensions, so vim needs Prec.highest
+      // to win the keymap.
       vimCompartment.of(usePreferencesStore.getState().vimMode ? Prec.highest(vim()) : []),
       vimHandlersExtension(() => ({
         save: () => {
@@ -253,10 +247,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
           },
         },
       ]),
-      // Update the scrollbar marker overlay state whenever selection,
-      // document, viewport, or geometry changes. Closes over `setMarkerState`
-      // and `outerRef` - both have stable identities so capturing once via
-      // the empty-deps useMemo above is fine.
+      // Refresh marker overlay on selection/doc/viewport/geometry changes.
+      // `setMarkerState` and `outerRef` are stable; captured once.
       EditorView.updateListener.of((u) => {
         if (u.selectionSet || u.docChanged || u.geometryChanged || u.viewportChanged) {
           setMarkerState(computeMarkers(u.view, outerRef.current));
@@ -307,10 +299,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
     };
   }, [path, doc.status]);
 
-  // Marker overlay positioning - refresh on scroll + size changes. The
-  // `EditorView.updateListener` in the extensions array covers selection /
-  // doc / viewport changes; this effect handles scroll-without-edit and
-  // pane resizes where CodeMirror itself doesn't fire an update.
+  // Marker overlay: refresh on scroll + resize. The updateListener handles
+  // selection/doc/viewport; this effect handles scroll-without-edit and
+  // pane resizes where CodeMirror doesn't fire an update.
   useEffect(() => {
     const view = cmRef.current?.view;
     if (!view) return;
@@ -319,7 +310,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       if (!v) return;
       setMarkerState(computeMarkers(v, outerRef.current));
     };
-    // Initial paint after the view has laid out.
+    // Initial paint after layout.
     update();
     const onScroll = () => update();
     view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
@@ -422,9 +413,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
   const isMd = /\.(md|markdown|mdx)$/i.test(path);
   const showMdPreview = !!mdPreview && isMd;
 
-  // Keep CodeMirror mounted even while previewing markdown - unmounting
-  // discards the language compartment, so flipping back to source would
-  // lose syntax highlighting until the path changed.
+  // Keep CodeMirror mounted during markdown preview; unmounting drops the
+  // language compartment and loses highlighting until path changes.
   return (
     <div ref={outerRef} className="relative flex h-full min-h-0 flex-col">
       <div
@@ -456,11 +446,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
           }}
         />
       </div>
-      {/* Scrollbar marker overlay - paints the caret position and selection
-            range over the native vertical scrollbar. Lives outside CodeMirror
-            so it doesn't depend on CodeMirror's ViewPlugin lifecycle; state is
-            kept fresh by the `EditorView.updateListener` in `extensions` plus
-            a scroll/resize-watching useEffect. */}
+      {/* Scrollbar marker overlay: paints caret + selection over the native
+          scrollbar. Outside CodeMirror's ViewPlugin lifecycle; refreshed by
+          the updateListener plus the scroll/resize effect above. */}
       {!showMdPreview && markerState && (
         <div
           className="pointer-events-none absolute"

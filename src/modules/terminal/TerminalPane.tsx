@@ -14,20 +14,19 @@ export type TerminalPaneHandle = {
   focus: () => void;
   getBuffer: (maxLines?: number) => string | null;
   getSelection: () => string | null;
-  /** Bracketed-paste-aware insert. Use this for clipboard paste paths so
-   *  multi-line snippets don't execute line-by-line under bash/zsh. */
+  /** Bracketed-paste-aware insert. Prevents multi-line snippets from auto-executing under bash/zsh. */
   paste: (data: string) => void;
 };
 
 type Props = {
-  /** Stable identifier for this leaf (passed back through callbacks). */
+  /** Leaf identifier passed back through callbacks. */
   leafId: number;
   /** Tab containing this pane is on screen. */
   visible: boolean;
-  /** This leaf is the active pane within its tab - receives auto-focus. */
+  /** Active pane within its tab. Receives auto-focus. */
   focused?: boolean;
   initialCwd?: string;
-  /** If set, the leaf opens an SSH session instead of a local PTY. */
+  /** When set, opens an SSH session instead of a local PTY. */
   sshConnectionId?: string;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
@@ -78,7 +77,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
   });
 
   useEffect(() => {
-    // Defer one frame so CSS-variable token resolution sees the new class.
+    // Defer one frame so CSS variable tokens see the new class.
     const id = requestAnimationFrame(() => session.applyTheme());
     return () => cancelAnimationFrame(id);
   }, [resolvedTheme, session]);
@@ -100,6 +99,13 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
       ref={containerRef}
       className="h-full w-full"
       data-terminal-leaf-id={leafId}
+      // Internal drag-drops (file explorer rows → terminal) are
+      // synthesized from mouse events by `ensureFsDragListener`
+      // (HTML5 drag-drop is unreliable under Tauri's default
+      // `dragDropEnabled: true`). The listener hit-tests
+      // `closest("[data-terminal-leaf-id]")` and writes a
+      // shell-quoted path to the matching PTY. The Tauri OS-level
+      // drop path is separate and lives in `useTerminalFileDrop`.
       style={{
         visibility: visible ? "visible" : "hidden",
         pointerEvents: visible ? "auto" : "none",

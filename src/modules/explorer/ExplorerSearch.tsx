@@ -16,7 +16,7 @@ type SearchHit = {
   name: string;
   is_dir: boolean;
   score: number;
-  /** Byte indices in `name` that matched the fuzzy query. */
+  /** UTF-8 byte indices in `name` matched by the fuzzy query. */
   name_match: number[];
 };
 
@@ -37,13 +37,9 @@ const HIGHLIGHT_CLASS =
   "text-foreground font-semibold underline decoration-foreground/40 underline-offset-2";
 
 /**
- * Renders `text` with the byte-offset positions in `matches` (from the Rust
- * backend's UTF-8 fuzzy scorer) wrapped in a highlighted span. Walks the
- * source codepoint-by-codepoint so multi-byte characters (e.g. emoji,
- * accents) and surrogate pairs land on the right UTF-16 indices.
- *
- * The output coalesces adjacent matched codepoints into a single span to
- * keep the DOM lean for typical short filenames.
+ * Renders `text` with matched UTF-8 byte positions highlighted. Walks
+ * codepoint-by-codepoint so multi-byte chars and surrogate pairs land on
+ * the correct UTF-16 indices. Adjacent hits coalesce into one span.
  */
 function Highlighted({
   text,
@@ -57,16 +53,15 @@ function Highlighted({
   if (matches.length > 0) {
     const encoder = new TextEncoder();
     const matchedBytes = new Set(matches);
-    // Each entry: { ch: rendered substring (handles surrogate pairs), hit }.
+    // Each cell holds one codepoint (1 or 2 UTF-16 units) and a hit flag.
     const cells: { ch: string; hit: boolean }[] = [];
     let byteIdx = 0;
     for (const cp of text) {
-      // cp is a single Unicode codepoint; on the JS side it may be 1 or 2
-      // UTF-16 code units (surrogate pair). Render it as-is.
+      // cp is one codepoint; render as-is (handles surrogate pairs).
       cells.push({ ch: cp, hit: matchedBytes.has(byteIdx) });
       byteIdx += encoder.encode(cp).length;
     }
-    // Coalesce runs of same `hit` into one span each.
+    // Coalesce runs with the same `hit` into a single span.
     const out: React.ReactNode[] = [];
     let i = 0;
     while (i < cells.length) {
@@ -91,8 +86,7 @@ function Highlighted({
     return <>{out}</>;
   }
 
-  // Fallback: case-insensitive substring highlight for the path column when
-  // the backend's per-name match indices don't apply.
+  // Fallback: case-insensitive substring highlight for the path column.
   const q = fallbackQuery.trim().toLowerCase();
   if (!q) return <>{text}</>;
   const lower = text.toLowerCase();
@@ -193,7 +187,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
     return Math.min(activeIdx, results.length - 1);
   }, [activeIdx, results.length]);
 
-  // Keep the active row in view when navigating with arrow keys.
+  // Scroll the active row into view while navigating.
   useEffect(() => {
     if (results.length === 0) return;
     const el = listRef.current?.querySelector<HTMLElement>(`[data-result-idx="${clampedActive}"]`);

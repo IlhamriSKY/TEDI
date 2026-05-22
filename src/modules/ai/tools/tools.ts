@@ -14,21 +14,13 @@ export { resolvePath, type ToolContext } from "./context";
 /**
  * AI tool definitions.
  *
- * Approval policy:
- *  - Read-only tools (`read_file`, `list_directory`, `grep`, `glob`)
- *    auto-execute, but go through the security guard which refuses obvious
- *    secret paths (.env*, .ssh/, credentials, etc.).
- *  - Mutating tools (`write_file`, `edit`, `multi_edit`, `create_directory`,
- *    `run_command`) require explicit user approval - the AI SDK pauses on
- *    tool-call and surfaces a `tool-approval-request` part that the UI
- *    renders as a confirmation card.
- *  - `edit` / `multi_edit` additionally enforce a read-before-edit invariant
- *    (the model must have called read_file on the path earlier in the
- *    session).
+ * Read-only tools (`read_file`, `list_directory`, `grep`, `glob`) auto-execute
+ * through the security guard. Mutating tools (`write_file`, `edit`,
+ * `multi_edit`, `create_directory`, `run_command`) require approval; the SDK
+ * surfaces a tool-approval-request that the UI renders as a card.
+ * `edit` and `multi_edit` also require a prior `read_file` on the path.
  *
- * The model sees absolute paths only after they are resolved against the
- * active terminal's cwd (provided via `getCwd`); it should not invent paths
- * outside that.
+ * Paths are resolved against the active terminal cwd via `getCwd`.
  */
 function buildToolsRaw(ctx: ToolContext) {
   return {
@@ -45,11 +37,9 @@ function buildToolsRaw(ctx: ToolContext) {
 
 export type ChatTools = ReturnType<typeof buildToolsRaw>;
 
-// Tool definitions are pure functions of `ctx`: they capture it once and
-// read mutable state (preferences, stores) lazily inside `execute`. So
-// per-context memoization is safe and skips recreating ~12 zod schemas
-// on every user turn. WeakMap keys by context identity - a fresh chat
-// session gets a fresh ctx and a fresh tools build.
+// Tools are pure functions of `ctx`; mutable state is read lazily inside
+// `execute`. Per-ctx memoization avoids rebuilding ~12 zod schemas per turn.
+// A fresh session gets a fresh ctx and a fresh build.
 const toolsCache = new WeakMap<ToolContext, ChatTools>();
 
 export function buildTools(ctx: ToolContext): ChatTools {

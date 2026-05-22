@@ -32,7 +32,7 @@ type Props = {
   activeLeafId: number;
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
-  /** Set of editor-leaf ids currently rendered in markdown-preview mode. */
+  /** Editor leaf ids currently rendered in markdown preview. */
   mdPreviewLeafIds: ReadonlySet<number>;
 };
 

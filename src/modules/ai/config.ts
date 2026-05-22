@@ -104,9 +104,8 @@ export type ModelInfo = {
   provider: ProviderId;
   label: string;
   hint: string;
-  /** Raw `owned_by` from `/v1/models` if the gateway returned it. Surfaces
-   *  the actual model maker (e.g. "xiaomi" for mimo via xiaomimimo) so the
-   *  chat chip can credit the right brand instead of the gateway. */
+  /** Raw `owned_by` from `/v1/models` when the gateway returns it. Lets the
+   *  chip credit the maker (e.g. "xiaomi" for mimo) instead of the gateway. */
   ownedBy?: string;
 };
 
@@ -225,12 +224,10 @@ export const MODELS = [
 
 export type ModelId = (typeof MODELS)[number]["id"];
 
-/** Runtime model id - accepts both static `ModelId`s and SumoPod-detected
- *  model strings discovered via `/v1/models`. */
+/** Runtime model id. Accepts static `ModelId`s plus models detected via `/v1/models`. */
 export type DynamicModelId = ModelId | (string & {});
 
-/** Module-scoped registry for runtime-detected models (currently SumoPod).
- *  Mutated by `setDetectedModels()`; read by `getModel()` and UI surfaces. */
+/** Module-scoped registry for runtime-detected models. Mutated by `setDetectedModels()`. */
 const dynamicModels = new Map<string, ModelInfo>();
 
 export function setDetectedModels(provider: ProviderId, models: ModelInfo[]): void {
@@ -260,9 +257,7 @@ export function tryGetModel(id: DynamicModelId): ModelInfo | undefined {
 
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
-/** Approximate context window (in tokens) per model. Used for the
- *  context-usage indicator in the AI mini-window header. Conservative
- *  estimates - actual provider limits may shift. */
+/** Approximate context window (tokens) per model. Drives the context-usage indicator. */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-5.4-mini": 400_000,
   "gpt-5.5": 1_050_000,
@@ -283,12 +278,9 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "lmstudio-local": 32_000,
 };
 
-/** Fallback context window for unknown / runtime-detected models. Bumped
- *  from 128k to 256k because most modern providers ship at least 256k
- *  these days — guessing too low fires the compaction toast prematurely
- *  and hides headroom the user actually has. Models with a known hard
- *  cap (e.g. `gpt-oss-*` at 128k) stay accurate via their explicit
- *  entry in `MODEL_CONTEXT_LIMITS`. */
+/** Fallback context window for unknown/runtime-detected models. 256k since most
+ *  providers now ship at least that; lower estimates fire compaction prematurely.
+ *  Hard-capped models (e.g. `gpt-oss-*` at 128k) stay accurate via `MODEL_CONTEXT_LIMITS`. */
 const FALLBACK_CONTEXT_LIMIT = 256_000;
 
 export function getModelContextLimit(modelId: string | undefined): number {
@@ -321,11 +313,8 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
-/** Per-turn cap on agent tool-call steps. 24 was generous compared to
- *  industry baselines (Claude Code ~15, Cursor ~12, subagent here is 12)
- *  and gave runway for tool-call loops to accumulate huge contexts. 15 keeps
- *  legitimate multi-step tasks intact while shortening the rope a misbehaving
- *  model can hang itself on. */
+/** Per-turn cap on agent tool-call steps. 15 (was 24) matches industry
+ *  baselines (Claude Code ~15, Cursor ~12). Shorter rope for runaway loops. */
 export const MAX_AGENT_STEPS = 15;
 export const TERMINAL_BUFFER_LINES = 300;
 
@@ -409,19 +398,15 @@ const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
   "grok-4.20-non-reasoning",
 ]);
 
-/** Heuristics that classify a model id as "lite" without a registry entry -
- *  catches runtime-detected SumoPod models, custom OpenAI-compatible
- *  endpoints, and future provider models we haven't enumerated. Conservative
- *  on purpose: a false positive only loses some prompt detail, while a
- *  false negative just costs a few hundred tokens. */
+/** Heuristic that classifies a model id as "lite" without a registry entry.
+ *  Catches runtime-detected SumoPod models, custom OpenAI-compatible endpoints,
+ *  and unknown providers. False positives only trim prompt detail. */
 const LITE_MODEL_PATTERN =
   /\b(mini|nano|flash|haiku|lite|small|tiny|gemma|gpt-oss|qwen2?\.5-coder|coder-(?:1\.5|3|7)b|[1-9]b)\b/i;
 
-/** Pick the lite variant for small/fast/cheap models to keep their per-turn
- *  token cost down. The big-model variant is ~3kB; lite is ~1kB. Anthropic
- *  caches the system message so lite vs full only matters on the first turn
- *  (and cross-session); for cache-less providers (Groq/Cerebras) it matters
- *  every turn. */
+/** Pick the lite system prompt for small/fast/cheap models. Full is ~3kB,
+ *  lite is ~1kB. Anthropic caches the system message so it only matters on
+ *  the first turn there; cache-less providers (Groq/Cerebras) feel it every turn. */
 export function getSystemPrompt(modelId: string | undefined): string {
   if (!modelId) return SYSTEM_PROMPT;
   if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return SYSTEM_PROMPT_LITE;

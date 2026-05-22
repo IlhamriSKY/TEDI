@@ -40,9 +40,9 @@ export function AboutSection() {
   const [name, setName] = useState("TEDI");
   const [build, setBuild] = useState("");
   const [checkState, setCheckState] = useState<CheckState>({ kind: "idle" });
-  // Update is intentionally outside React state - it's a non-serialisable
-  // handle bound to the plugin's native side; storing it in state would force
-  // structuredClone on every render and break the download callback.
+  // Held in a ref, not state. The Update handle is non-serialisable and bound
+  // to the plugin's native side; putting it in state would trigger structuredClone
+  // on every render and break the download callback.
   const updateRef = useRef<Update | null>(null);
 
   useEffect(() => {

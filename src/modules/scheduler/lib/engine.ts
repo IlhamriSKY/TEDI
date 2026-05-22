@@ -7,19 +7,17 @@ import type {
 } from "../types";
 
 /**
- * Glue the engine needs from the running app. Set once at startup by App.tsx
- * via `setSchedulerBridge`. Default impls return empty/false so importing the
- * tool doesn't crash before the bridge wires up.
+ * App glue the engine needs. App.tsx wires it once via `setSchedulerBridge`.
+ * Defaults are no-ops so importing before wiring is safe.
  */
 export type SchedulerBridge = {
-  /** Snapshot of terminal leaves in current tab order. */
+  /** Snapshot of terminal leaves in tab order. */
   listTerminals: () => TerminalInfo[];
-  /** Type `text` into a specific terminal (no Enter). Returns false if the
-   *  target couldn't be resolved or the PTY isn't mounted. */
+  /** Type `text` into a terminal without Enter. Returns false on failure. */
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
-  /** Type + submit (CR) into a specific terminal. Returns false on failure. */
+  /** Type and submit (CR) into a terminal. Returns false on failure. */
   runInTerminal: (target: TerminalTarget, command: string) => boolean;
-  /** Push a short user-visible note (toast / status update). */
+  /** Short user-visible toast or status update. */
   notify: (message: string, level: "info" | "success" | "warning" | "error") => void;
 };
 
@@ -34,15 +32,10 @@ type Listener = (schedules: Schedule[]) => void;
 
 class SchedulerEngine {
   private schedules: Schedule[] = [];
-  // Cached defensive copy of `schedules`. Rebuilt only when the underlying
-  // array reference changes — every mutator reassigns `this.schedules = [new]`,
-  // so identity comparison is enough to detect change without dirty-flag plumbing.
-  //
-  // `useSyncExternalStore` calls `getSnapshot` on every render and uses
-  // `Object.is` to decide whether to re-render; returning a fresh array each
-  // call would cause infinite re-renders. We must hand back a stable reference
-  // until state actually mutates, but also not leak the live internal array
-  // (callers could `push()` and corrupt engine state).
+  // Cached copy of `schedules`. Mutators reassign the array, so identity
+  // comparison detects change. `useSyncExternalStore` needs a stable reference
+  // between renders; returning a fresh array would loop. Don't expose the live
+  // array directly so callers can't mutate engine state.
   private snapshotFor: Schedule[] | null = null;
   private snapshotCache: Schedule[] = [];
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -78,7 +71,7 @@ class SchedulerEngine {
     return this.snapshotCache;
   }
 
-  /** Idempotent boot: load persisted schedules, arm timers, fire past-due. */
+  /** Idempotent boot. Loads persisted schedules, arms timers, fires past-due. */
   async boot(): Promise<void> {
     if (this.booted) return;
     this.booted = true;
@@ -87,16 +80,15 @@ class SchedulerEngine {
     const now = Date.now();
     for (const s of loaded) {
       if (s.status !== "pending") continue;
-      // Past-due schedules fire after a short delay so terminals can mount
-      // (React 19 strict-mode double-mounts at startup); the delay also
-      // bunches multiple stale schedules so they don't all hit at once.
+      // Past-due schedules wait 1.5s so terminals can mount and to bunch
+      // multiple stale schedules.
       const delay = Math.max(0, s.fireAt - now);
       this.arm(s.id, delay > 0 ? delay : 1500);
     }
     this.emit();
   }
 
-  /** Schedule a deferred command. Returns the new schedule. */
+  /** Schedules a deferred command. */
   async create(input: {
     fireAt: number;
     command: string;
@@ -141,7 +133,7 @@ class SchedulerEngine {
     return true;
   }
 
-  /** Drop completed/cancelled rows older than `maxAgeMs`. */
+  /** Drops completed/cancelled rows older than `maxAgeMs`. */
   async pruneHistory(maxAgeMs = 30 * 60_000): Promise<void> {
     const now = Date.now();
     const next = this.schedules.filter((s) => {
@@ -158,8 +150,7 @@ class SchedulerEngine {
   private arm(id: string, delayMs: number): void {
     const existing = this.timers.get(id);
     if (existing) clearTimeout(existing);
-    // setTimeout has a ~24.8 day cap (i32 ms). Past that the spec coerces to
-    // 1ms which would mis-fire. Clamp + re-arm on long delays.
+    // setTimeout caps at ~24.8 days (i32 ms); longer values coerce to 1ms. Clamp and re-arm.
     const MAX_DELAY = 2_147_000_000;
     if (delayMs > MAX_DELAY) {
       const t = setTimeout(() => this.arm(id, delayMs - MAX_DELAY), MAX_DELAY);
@@ -226,7 +217,7 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
-/** Module-singleton — one engine per process. */
+/** One engine per process. */
 export const scheduler = new SchedulerEngine();
 
 export function setSchedulerBridge(bridge: SchedulerBridge): void {

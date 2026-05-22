@@ -3,6 +3,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
+import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AiScanIcon,
@@ -63,8 +64,7 @@ function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";
   const url = new URL(window.location.href);
   const t = url.searchParams.get("tab");
-  // Back-compat: legacy "ai" / "connections" → "models". The SSH manager
-  // now lives in the main toolbar; the settings tab is gone.
+  // Back-compat: legacy "ai" / "connections" map to "models". The SSH manager moved to the toolbar.
   if (t === "ai" || t === "connections") return "models";
   if (t && (VALID_TABS as string[]).includes(t)) return t as SettingsTab;
   return "general";
@@ -78,6 +78,13 @@ export function SettingsApp() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Seed extension contribution registries so the Extensions and Shortcuts
+  // tabs can render every installed extension's declarations. The Settings
+  // window doesn't activate extensions; `init()` handles non-main-window mode.
+  useEffect(() => {
+    void useExtensionsStore.getState().init();
+  }, []);
 
   useEffect(() => {
     const apply = (detail: string) => {
@@ -99,14 +106,8 @@ export function SettingsApp() {
 
   return (
     <TooltipProvider>
-      {/* The primary-tinted border + rounded corners are painted on the
-          outer `#settings-root` by globals.css (see the
-          `html[data-chrome="borderless"] #settings-root` rule). Doing it
-          there - instead of on this inner React root - avoids a 2px
-          height overshoot (h-screen + inner border would clip its own
-          bottom under the outer's `overflow: hidden`). On macOS, where
-          `data-chrome=borderless` isn't set, the window keeps the native
-          chrome and no extra border is needed. */}
+      {/* Outer border lives on `#settings-root` via globals.css; doing it on
+          the inner root would clip 2px under `h-screen`. macOS keeps native chrome. */}
       <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden select-none">
         <header
           data-tauri-drag-region
@@ -147,7 +148,7 @@ export function SettingsApp() {
         </header>
 
         <main className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-6 pb-7">
-          <div className="mx-auto w-full max-w-160">
+          <div className="mx-auto w-full max-w-3xl">
             <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
           </div>
         </main>

@@ -1,15 +1,11 @@
 /**
- * Zustand store fronting the extension subsystem. The settings UI reads
- * from here; mutations (install, enable/disable, uninstall) are funneled
- * through these actions so the in-memory list and the activated set stay
- * consistent with the Rust state file.
- *
- * Window split: only the "main" window activates extensions. The
- * settings window just lists/installs/uninstalls them and emits a
- * `tedi:ext-changed` Tauri event so main can `loader.reload(id)`.
- * Without this gate, two webviews each call `activate()` and any
- * singleton-ish extension (presence integrations, sidecars, ...)
- * double-fires.
+ * Zustand store for the extension subsystem. Settings UI reads from here;
+ * mutations route through actions so the in-memory list and activated set
+ * stay consistent with the Rust state file.
+ * Only the "main" window activates extensions. The settings window
+ * lists/installs/uninstalls and emits `tedi://ext-changed` so main can
+ * `loader.reload(id)`. Without the gate, both webviews call `activate()`
+ * and singleton extensions double-fire.
  */
 
 import { create } from "zustand";
@@ -31,7 +27,7 @@ function isMainWindow(): boolean {
   try {
     return getCurrentWindow().label === "main";
   } catch {
-    // Outside Tauri (storybook, vitest) - behave like main.
+    // Outside Tauri (storybook, vitest): behave like main.
     return true;
   }
 }
@@ -47,12 +43,11 @@ async function announce(payload: ExtChangedPayload): Promise<void> {
 type State = {
   hydrated: boolean;
   list: InstalledExtension[];
-  /** Most-recent error from an install/enable/uninstall attempt - cleared
-   *  on next attempt. The UI surfaces these in the dialog. */
+  /** Most-recent install/enable/uninstall error. Cleared on next attempt;
+   *  surfaced in the dialog. */
   lastError: string | null;
-  /** IDs currently mid-update so the card can show a spinner overlay.
-   *  Multiple updates may be in flight (bulk Check + Update) so a Set
-   *  is the right shape, not a single boolean. */
+  /** Ids currently mid-update; the card shows a spinner overlay. Bulk
+   *  Check + Update can run several in parallel. */
   updatingIds: Set<string>;
 };
 
@@ -63,27 +58,23 @@ type Actions = {
     source:
       | { kind: "zip"; path: string }
       | { kind: "github"; repo: string },
-    /** Manifest id learned from a prior `ext_peek_*` call. When set, the
-     *  store deactivates any existing extension with this id before the
-     *  Rust install pipeline runs - on Windows this releases the file
-     *  handles a running sidecar would otherwise hold on the old folder,
-     *  preventing "Access is denied" during the replace step. */
+    /** Manifest id from a prior `ext_peek_*` call. When set, deactivates any
+     *  existing extension with this id before Rust runs the install pipeline,
+     *  releasing Windows file handles so the replace step doesn't hit
+     *  "Access is denied". */
     expectedId?: string,
   ): Promise<InstalledExtension>;
   setEnabled(id: string, enabled: boolean): Promise<void>;
   uninstall(id: string): Promise<void>;
   reload(id: string): Promise<void>;
-  /** Hit GitHub for the latest tag of a single extension. No-op for
-   *  non-github sources (still bumps `last_checked_at_ms` so the UI
-   *  reflects the attempt). */
+  /** Fetches the latest GitHub tag for one extension. No-op for non-github
+   *  sources; still bumps `last_checked_at_ms`. */
   checkUpdate(id: string): Promise<UpdateCheckResult>;
-  /** Run `checkUpdate` for every github-sourced extension in parallel.
-   *  Resolves once all checks settle (errors are logged, not thrown). */
+  /** Runs `checkUpdate` for every github-sourced extension in parallel.
+   *  Errors are logged, not thrown. */
   checkAllUpdates(): Promise<void>;
-  /** Re-install the github-sourced extension at its newest release. The
-   *  upstream zip is fetched anew via `ext_install_from_github` so the
-   *  install pipeline (manifest validation, permission diff, etc.) runs
-   *  end-to-end - mirrors the manual install path. */
+  /** Re-installs the github-sourced extension at its newest release. Runs
+   *  the full install pipeline (manifest validation, permission diff). */
   updateExtension(id: string): Promise<InstalledExtension>;
 };
 
@@ -98,20 +89,16 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
     if (booting) return booting;
     booting = (async () => {
       try {
-        // Only the main window activates extensions. Non-main windows
-        // (settings) just refresh the list. Cross-window sync happens
-        // via the `tedi://ext-changed` event below.
+        // Only main activates. Other windows refresh the list and sync
+        // via `tedi://ext-changed`.
         const list = isMainWindow() ? await loader.bootAll() : await loader.listInstalled();
-        // Settings webview is a separate JS context; its registries
-        // start empty because the loader's activate path never runs
-        // there. Seed manifest contributions so the Extensions tab
-        // can render toggles / themes / etc. for every installed ext.
+        // Settings webview is a separate JS context with empty registries;
+        // seed manifest contributions so the Extensions tab can render.
         if (!isMainWindow()) {
           for (const ext of list) loader.seedManifestContributions(ext);
         }
         set({ list, hydrated: true });
-        // Listen for changes triggered by other windows (e.g. user
-        // installs an extension in the settings window -> main reloads).
+        // Cross-window sync: settings installs an ext, main reloads.
         const unlisten = await listen<ExtChangedPayload>(EXT_CHANGED_EVENT, async (e) => {
           const payload = e.payload;
           if (isMainWindow()) {
@@ -125,17 +112,16 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
               console.error(`[extensions] sync ${payload.kind} ${payload.id} failed`, err);
             }
           }
-          // Refresh local list view in every window.
+          // Refresh list in every window.
           const list = await loader.listInstalled();
-          // Re-seed manifest contributions on non-main windows so
-          // newly installed / updated extensions render their toggles
-          // in the Extensions tab without needing a webview reload.
+          // Re-seed on non-main so the Extensions tab renders toggles
+          // for newly installed/updated extensions without a webview reload.
           if (!isMainWindow()) {
             for (const ext of list) loader.seedManifestContributions(ext);
           }
           set({ list });
         });
-        // Stash the unlisten on a non-stateful global so HMR cleans up.
+        // Stash unlisten on a global for HMR cleanup.
         if (typeof window !== "undefined") {
           const w = window as unknown as { __tediExtUnlisten?: () => void };
           w.__tediExtUnlisten?.();
@@ -156,12 +142,9 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
   install: async (source, expectedId) => {
     set({ lastError: null });
     try {
-      // Belt and suspenders: tear down the prior copy of this
-      // extension (if any) before the Rust install runs. Rust has a
-      // rename-to-trash fallback for the "files in use" case, but
-      // deactivating first means the helper process releases its
-      // handles cleanly and the trash gets removed immediately
-      // rather than waiting for the sweep.
+      // Tear down the prior copy before Rust installs. Rust has a
+      // rename-to-trash fallback for files-in-use, but deactivating first
+      // releases handles cleanly and removes the trash immediately.
       if (expectedId && isMainWindow()) {
         await loader.deactivate(expectedId);
       }
@@ -175,14 +158,12 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
           repo: source.repo,
         })) as InstalledExtension;
       }
-      // In the main window we activate immediately; in others we let
-      // the broadcast wake the main window's loader. Either way refresh
-      // the local list so the settings card shows up right away.
+      // Main activates immediately; others wait for the broadcast.
+      // Refresh the local list so the settings card appears now.
       if (isMainWindow()) {
         await loader.reload(entry.id, entry);
       }
-      // Re-install may have shipped a different icon; clear the cache so
-      // the card re-fetches.
+      // Clear icon cache so the card re-fetches if the icon changed.
       evictExtensionIcon(entry.id);
       await announce({ kind: "installed", id: entry.id });
       const list = await loader.listInstalled();
@@ -234,8 +215,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
   },
   checkUpdate: async (id) => {
     const result = (await invoke("ext_check_update", { id })) as UpdateCheckResult;
-    // Refresh local list to pull the new `latest_version` /
-    // `last_checked_at_ms` Rust just persisted.
+    // Refresh list to pull the new `latest_version` and `last_checked_at_ms`.
     const list = await loader.listInstalled();
     set({ list });
     return result;
@@ -255,9 +235,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
   },
   updateExtension: async (id) => {
     set({ lastError: null });
-    // Mark this id as "currently updating" so the card can render a
-    // spinner overlay. Cleared in the `finally` below regardless of
-    // success / failure.
+    // Mark id as updating so the card shows a spinner. Cleared in finally.
     const updating = new Set(get().updatingIds);
     updating.add(id);
     set({ updatingIds: updating });
@@ -269,13 +247,11 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
         : null;
       if (!repo) {
         throw new Error(
-          "Extensions installed from a local .zip can't auto-update — re-install with the new .zip from Settings → Extensions → From file.",
+          "Extensions installed from a local .zip can't auto-update. Re-install via Settings, Extensions, From file.",
         );
       }
-      // Deactivate the current copy before the Rust install replaces
-      // its folder. See `install()` above for the Windows file-lock
-      // rationale; updates always hit the same id so the deactivate
-      // target is always known up front.
+      // Deactivate before Rust replaces the folder. See `install()` for
+      // the Windows file-lock rationale.
       if (isMainWindow()) {
         await loader.deactivate(id);
       }

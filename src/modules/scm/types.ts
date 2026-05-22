@@ -13,11 +13,11 @@ export type GitChange = {
   relative: string;
   status: GitChangeStatus;
   staged: boolean;
-  /** Lines added relative to HEAD. 0 when not applicable / binary. */
+  /** Lines added vs HEAD. 0 for binary or not applicable. */
   added: number;
-  /** Lines removed relative to HEAD. 0 when not applicable / binary. */
+  /** Lines removed vs HEAD. 0 for binary or not applicable. */
   removed: number;
-  /** True when git reported this entry as binary (line counts not meaningful). */
+  /** True when git reports the entry as binary. */
   binary: boolean;
 };
 

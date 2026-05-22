@@ -10,11 +10,11 @@ export type MentionItem =
       kind: "file";
       /** Absolute path. */
       path: string;
-      /** Path relative to workspace root (display). */
+      /** Path relative to workspace root, for display. */
       rel: string;
       /** Basename. */
       name: string;
-      /** True if this came from the open editor tabs (boosted to top). */
+      /** True if open in an editor tab; boosted to top. */
       open: boolean;
     }
   | {
@@ -26,7 +26,7 @@ export type MentionItem =
   | {
       kind: "selection";
       source: "editor" | "terminal";
-      /** Preview of the selection (single-line truncated). */
+      /** Single-line truncated preview. */
       preview: string;
       lineCount: number;
       text: string;
@@ -49,9 +49,8 @@ export function MentionPickerContent({
   loading,
   query,
 }: Props) {
-  // Group display: selections → open files → other files → folders. The
-  // caller is expected to already pre-sort `items` in this section order
-  // so `absIndex` (used by keyboard nav) lines up with the visual order.
+  // Sections in order: selections, open files, other files, folders. Caller
+  // must pre-sort `items` in this order so `absIndex` matches visual order.
   const sections: {
     label: string;
     items: { item: MentionItem; absIndex: number }[];
@@ -66,9 +65,7 @@ export function MentionPickerContent({
   if (otherFiles.length) sections.push({ label: "Workspace files", items: otherFiles });
   if (folders.length) sections.push({ label: "Folders", items: folders });
 
-  // Refs to each rendered item, indexed by absIndex, so ArrowUp/Down can
-  // scroll the highlighted row back into view when it leaves the visible
-  // area of the popover.
+  // Item refs by absIndex so ArrowUp/Down can scroll the highlighted row into view.
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   itemRefs.current.length = items.length;
   useEffect(() => {
@@ -149,7 +146,7 @@ function ItemIcon({ item }: { item: MentionItem }) {
       <img src={folderIconUrl(item.name, false)} alt="" aria-hidden className="size-3.5 shrink-0" />
     );
   }
-  // Fallback icon name when we don't have a great extension hit.
+  // Fallback icon when the extension doesn't map cleanly.
   return <img src={fileIconUrl(item.name)} alt="" aria-hidden className="size-3.5 shrink-0" />;
 }
 

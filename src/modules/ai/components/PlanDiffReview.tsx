@@ -167,17 +167,16 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
 }
 
 function UnifiedDiffPreview({ original, proposed }: { original: string; proposed: string }) {
-  // Coarse line-level diff (LCS-lite via set membership). For real diffs
-  // we'd reach for a library; this is good enough for at-a-glance review.
+  // Coarse line-level diff via set membership; sufficient for at-a-glance review.
   const a = original.split("\n");
   const b = proposed.split("\n");
   const setA = new Set(a);
   const setB = new Set(b);
 
   const lines: Array<{ kind: "add" | "del" | "ctx"; text: string }> = [];
-  // First pass: removed (in a, not in b).
+  // Removed: in a but not b.
   for (const l of a) if (!setB.has(l)) lines.push({ kind: "del", text: l });
-  // Then: added (in b, not in a).
+  // Added: in b but not a.
   for (const l of b) if (!setA.has(l)) lines.push({ kind: "add", text: l });
 
   if (lines.length === 0) {

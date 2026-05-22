@@ -17,7 +17,7 @@ import { Shimmer } from "./shimmer";
 import { highlight, isHighlightable, type HighlightedNode } from "./chat-code-lezer";
 
 // Shell langs that get the CommandCard UI (prompt prefix + Run button).
-// These are still highlightable — the card delegates to HighlightedPre.
+// Still highlightable; the card delegates to HighlightedPre.
 const POSIX_SHELL = new Set(["bash", "sh", "zsh", "shell", "console", "shellscript"]);
 const WINDOWS_SHELL = new Set(["powershell", "pwsh", "ps1", "ps", "cmd", "bat", "batch"]);
 const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);

@@ -27,6 +27,7 @@ import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiStatusBarControls } from "./AiStatusBarControls";
+import { ContextIndicator } from "./ContextIndicator";
 import { InfoModal } from "./InfoModal";
 import { MentionPickerContent, type MentionItem } from "./MentionPicker";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
@@ -36,16 +37,12 @@ type PickerTrigger = {
   start: number;
   end: number;
   query: string;
-  /** Which sigil triggered the picker.
-   *  - `slash`: commands-only (Claude Code / Cursor convention).
-   *  - `hash`: legacy snippets + commands.
-   *  - `mention`: file / folder picker. */
+  /** Sigil that triggered the picker. `slash` is commands-only, `hash` is snippets plus commands, `mention` is file/folder. */
   kind: "slash" | "hash" | "mention";
 };
 
-/** Mention scanner — allows path chars (`/`, `.`, `_`, `-`) inside the query
- *  so users can type `@src/foo/bar`. Scans backwards looking for `@`; if it
- *  hits any other sigil or whitespace first, no mention. */
+/** Mention scanner. Allows path chars (`/`, `.`, `_`, `-`) so `@src/foo/bar` works.
+ *  Scans backward for `@`; bails on other sigils or whitespace. */
 function detectMentionTrigger(value: string, caret: number): PickerTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
@@ -61,9 +58,8 @@ function detectMentionTrigger(value: string, caret: number): PickerTrigger | nul
   return null;
 }
 
-/** Command scanner — `/` or `#` followed by `[a-z0-9-]*`. Returns null as
- *  soon as it sees any non-command char (including `.` or `/`) so it never
- *  fights with the mention scanner on path-like input. */
+/** Command scanner. `/` or `#` followed by `[a-z0-9-]*`. Returns null on any
+ *  non-command char so it never collides with the mention scanner. */
 function detectCommandTrigger(value: string, caret: number): PickerTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
@@ -86,9 +82,7 @@ function detectCommandTrigger(value: string, caret: number): PickerTrigger | nul
 }
 
 function detectPickerTrigger(value: string, caret: number): PickerTrigger | null {
-  // Mention takes priority: `@src/foo` has both `@` and `/` in scope, but the
-  // user clearly meant the mention. If no mention is open, fall back to the
-  // command detector.
+  // Mention wins over command on `@src/foo` (both `@` and `/` in scope).
   return detectMentionTrigger(value, caret) ?? detectCommandTrigger(value, caret);
 }
 
@@ -116,17 +110,14 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const [trigger, setTrigger] = useState<PickerTrigger | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Shell-style ArrowUp/Down navigation through previously sent user messages.
-  // `histIndex` is the position in `history` (0 = most recent, increasing =
-  // older). `null` means we're not navigating - typing or sending exits the
-  // mode and the user's draft is restored when stepping past the newest entry.
+  // Shell-style ArrowUp/Down through sent user messages. `histIndex` is the
+  // position in `history` (0 = newest). `null` means not navigating; stepping
+  // past the newest restores the user's draft.
   //
-  // Per-message parse cache. User messages aren't re-cloned after their
-  // initial pushMessage (only the streaming assistant message is replaced
-  // each token, see @ai-sdk/react ReactChatState.replaceMessage), so the
-  // user-message references in `messages` stay stable across the whole
-  // session — a WeakMap keyed on the message itself avoids re-parsing
-  // every <file>/<selection> block on every assistant token.
+  // Per-message parse cache. User messages aren't re-cloned after pushMessage
+  // (only the streaming assistant message is replaced each token), so the user
+  // refs in `messages` stay stable across the session. WeakMap keyed on the
+  // message avoids re-parsing <file>/<selection> blocks on every token.
   const recallCacheRef = useRef<WeakMap<UIMessage, RecalledMessage>>(new WeakMap());
   const history = useMemo<RecalledMessage[]>(() => {
     if (!messages) return [];
@@ -160,8 +151,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   }>({ value: "", files: [], snippets: [] });
   const messageCount = messages?.length ?? 0;
   useEffect(() => {
-    // A new message just landed (or the conversation was reset): forget the
-    // current nav cursor so the next ArrowUp starts fresh from the newest.
+    // New message or reset: clear nav cursor so the next ArrowUp starts at the newest.
     setHistIndex(null);
   }, [messageCount]);
 
@@ -191,10 +181,9 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const filteredItems = useMemo<PickerItem[]>(() => {
     if (!trigger || trigger.kind === "mention") return [];
     const q = trigger.query.toLowerCase();
-    //   `/` → every command (Claude Code / Cursor convention)
-    //   `#` → snippets + tag-style commands (currently `init`, `plan`) only,
-    //         because those two behave like persistent session tags rather
-    //         than one-shot actions. Other commands stay slash-only.
+    //   `/` -> every command
+    //   `#` -> snippets plus tag-style commands (`init`, `plan`); they behave
+    //          like persistent session tags, not one-shot actions.
     if (trigger.kind === "slash") {
       return VISIBLE_SLASH_COMMANDS.filter(
         (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
@@ -216,8 +205,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     return [...hashCmds, ...snipItems];
   }, [trigger, snippets]);
 
-  /** Length of the currently navigable list — drives ArrowUp/Down/Tab/Enter
-   *  regardless of which picker is open. */
+  /** Length of the navigable list. Drives ArrowUp/Down/Tab/Enter for any picker. */
   const navLength = isMention ? mention.items.length : filteredItems.length;
 
   useEffect(() => {
@@ -236,10 +224,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       insert = `#${item.snippet.handle}${needsSpace ? " " : ""}`;
       c.addSnippet(item.snippet);
     } else if (trigger.kind === "slash") {
-      // `/cmd ` — let the user type args (when applicable) and hit Enter,
-      // or hit Enter immediately for no-arg commands. We deliberately leave
-      // the text in the textarea rather than auto-executing on pick so the
-      // user has a chance to back out.
+      // `/cmd ` lets the user type args and hit Enter, or hit Enter for no-arg
+      // commands. Leaves text in the textarea so the user can back out.
       insert = `/${item.command.name} `;
     } else {
       c.addCommand(item.command);
@@ -262,10 +248,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     if (!trigger) return;
     const before = c.value.slice(0, trigger.start);
     const afterRaw = c.value.slice(trigger.end);
-    // Drop the `@query` from the textarea and rely on the chip strip below
-    // to surface the attachment. Industry convention is to either leave a
-    // visual token (`@filename`) or to strip the trigger entirely; we strip
-    // because chips already represent the attachment unambiguously.
+    // Drop the `@query` from the textarea; chips below already represent the attachment.
     const after = afterRaw.replace(/^\s+/, "");
     const sep = before && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
     c.setValue(`${before}${sep}${after}`);
@@ -298,9 +281,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     return !after.includes("\n");
   };
 
-  /** Apply a history entry to the composer (textarea + chips), or restore
-   *  the draft snapshot when `entry === null`. Attachments are rebuilt from
-   *  the recalled `<file>`/`<selection>` content so chips reappear; snippet
+  /** Apply a history entry to the composer, or restore the draft when `entry === null`.
+   *  Rebuilds attachments from recalled `<file>`/`<selection>` blocks; snippet
    *  handles are looked up in the snippets store. */
   const applyEntry = (entry: RecalledMessage | null) => {
     if (entry === null) {
@@ -361,7 +343,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     }
     if (dir === "older") {
       const next = Math.min(histIndex + 1, history.length - 1);
-      if (next === histIndex) return true; // already at oldest, swallow key
+      if (next === histIndex) return true; // at oldest; swallow key
       setHistIndex(next);
       applyEntry(history[next]);
       return true;
@@ -433,9 +415,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                 ref={c.textareaRef}
                 value={c.value}
                 onChange={(e) => {
-                  // Any edit that doesn't match the historical text exits
-                  // history-nav mode so subsequent ArrowUp starts fresh from
-                  // the newest entry next time the textarea is empty/aligned.
+                  // Editing away from the historical text exits history-nav mode.
                   if (histIndex !== null && e.target.value !== history[histIndex].body) {
                     setHistIndex(null);
                   }
@@ -462,9 +442,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                         pickActive();
                         return;
                       }
-                      // Picker is open but still loading / empty — swallow
-                      // Enter so it doesn't accidentally submit the half-typed
-                      // `@query` to the LLM.
+                      // Picker open but empty/loading; swallow Enter so the
+                      // half-typed `@query` doesn't reach the LLM.
                       if (isMention) {
                         e.preventDefault();
                         return;
@@ -476,10 +455,9 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                       return;
                     }
                   }
-                  // Shell-style history nav. Only fires when the picker is
-                  // closed and the caret is on the matching edge (top line
-                  // for ArrowUp, bottom line for ArrowDown) so multi-line
-                  // editing still works as expected.
+                  // Shell-style history nav. Fires only when the picker is
+                  // closed and the caret is on the matching edge so multi-line
+                  // editing still works.
                   if (
                     e.key === "ArrowUp" &&
                     !e.shiftKey &&
@@ -519,8 +497,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                     setHistIndex(null);
                     if (c.isBusy) {
                       // Busy: only Ctrl/Cmd+Enter queues. Plain Enter is a
-                      // no-op so accidental key-mashing during streaming
-                      // doesn't silently drop the user's draft.
+                      // no-op so key-mashing during streaming doesn't drop the draft.
                       if (isModEnter) {
                         const text = c.value.trim();
                         if (text) {
@@ -537,8 +514,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                 placeholder={
                   c.isBusy
                     ? "AI is responding · Ctrl+Enter to queue"
-                    : // Short enough to fit the narrow panel without truncating.
-                      // The full /-@-# hint lives in /help.
+                    : // Short enough for the narrow panel. Full hint lives in /help.
                       "Ask TEDI · / @ #"
                 }
                 rows={1}
@@ -597,14 +573,17 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           )}
         </AnimatePresence>
 
-        {/* Bottom toolbar: wraps at the GROUP level — when the panel
-            gets narrower than the sum of (meta group) + (action group),
-            the action group drops to a fresh row. Wrapping individual
-            buttons was the old approach and produced a 4-row cascade in
-            narrow panels (see screenshot 2026-05-20 195933). */}
+        {/* Bottom toolbar wraps at the group level: when narrower than
+            (meta) + (action), the action group drops to a new row.
+            Per-button wrapping used to cascade into 4 rows. */}
         <div className="border-border/40 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
           <div className="flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
+            {/* Hide the percent label from `ContextTrigger` so the chip stays
+                compact. The ring shows usage; the hovercard has exact numbers. */}
+            <div className="shrink-0 [&_button>span:first-child]:hidden">
+              <ContextIndicator messages={messages ?? []} />
+            </div>
           </div>
           <AiStatusBarControls />
         </div>
