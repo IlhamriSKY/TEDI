@@ -67,6 +67,17 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build the `tedi-cli` console-subsystem companion binary on Windows
+      # so the NSIS bundler (driven by `tauri-action` below) can resource it
+      # via `tauri.windows.conf.json: bundle.resources`. `tauri-action`
+      # otherwise only builds the main `tedi` bin. Cargo's incremental
+      # cache means the subsequent main build is a no-op for tedi-cli.
+      - name: Build tedi-cli console binary (Windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        working-directory: src-tauri
+        run: cargo build --release --bin tedi-cli
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

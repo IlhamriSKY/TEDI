@@ -1,6 +1,6 @@
 [package]
 name = "tedi"
-version = "0.2.17"
+version = "0.2.18"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
@@ -13,6 +13,15 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "tedi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Console-subsystem companion to the main GUI binary. Built on every
+# platform, but only ship on Windows (see `tauri.windows.conf.json` resources)
+# where `TEDI.exe` runs as `windows_subsystem = "windows"` and cannot
+# reliably own stdin for the `tedi ext` TUI. On macOS / Linux the main `tedi`
+# binary inherits stdin natively and this companion stays unused.
+[[bin]]
+name = "tedi-cli"
+path = "src/bin/tedi-cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

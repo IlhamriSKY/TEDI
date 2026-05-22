@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.18] - 22-05-2026
+
+### Fixed
+
+- **`tedi ext` TUI now actually responds to keyboard input on Windows.** v0.2.17 shipped the dashboard but `TEDI.exe` is built with `windows_subsystem = "windows"` (so a `tedi .` from Explorer doesn't pop a console window). PowerShell waits for the GUI binary to exit, but the binary has no console attached for stdin — `AttachConsole(ATTACH_PARENT_PROCESS)` re-establishes stdout (good enough for the v0.2.13 `println!`-only CLI) but does NOT cleanly hand crossterm's `EventStream` a stdin handle it can poll. Result: TUI rendered, keys did nothing. New `tedi-cli.exe` console-subsystem companion (built from [src-tauri/src/bin/tedi-cli.rs](src-tauri/src/bin/tedi-cli.rs)) takes over for `ext`, `--extension`, `--update`, `--version`, `--help` and owns stdin cleanly. `TEDI.exe` detects those argv shapes at the top of `lib::run` and re-execs the sibling with inherited stdio (`delegate_cli_to_console_binary` in [src-tauri/src/lib.rs](src-tauri/src/lib.rs)). The `tedi.cmd` NSIS shim has the same delegation as a belt-and-suspenders for `tedi.cmd ext` direct invocations. Bundled via `bundle.resources` in [tauri.windows.conf.json](src-tauri/tauri.windows.conf.json); the release workflow now runs `cargo build --release --bin tedi-cli` before `tauri-action` so the binary exists at bundle time.
+- **Dropped `EnableMouseCapture` from the TUI setup.** Some Windows console hosts (legacy conhost, older Windows Terminal builds) interleave mouse-tracking escape sequences with arrow-key input in ways crossterm's `EventStream` parses inconsistently, swallowing navigation keypresses. Navigation is keyboard-only anyway, so the capture provided zero value and one real footgun. Restore path drops `DisableMouseCapture` to match.
+
+### Notes
+
+- macOS / Linux are unaffected by both fixes. The main `tedi` binary on those OSes inherits stdin natively (no subsystem split), so it runs the TUI directly without the console-companion hop. The `tedi-cli` bin still compiles cross-platform but is only bundled into the Windows installer.
+- Older Windows installs (≤ v0.2.17) that auto-update to v0.2.18 will receive `tedi-cli.exe` next to `TEDI.exe` via the NSIS installer's normal file-overwrite step. No manual action required.
+
 ## [0.2.17] - 22-05-2026
 
 ### Added

@@ -22,7 +22,7 @@ mod ui;
 use std::io::{self, Stdout};
 use std::time::Duration;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind};
+use crossterm::event::{Event, EventStream, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -42,7 +42,7 @@ type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 /// Entry point called from `cli_ext::handle_extension_command_and_exit`.
 /// Owns stdin/stdout for the duration of the TUI session.
-pub fn run(initial: InitialFocus) -> Result<(), String> {
+pub(crate) fn run(initial: InitialFocus) -> Result<(), String> {
     let runtime = crate::modules::cli_ext::build_runtime()?;
     runtime.block_on(async move {
         let mut terminal = setup_terminal()?;
@@ -110,19 +110,18 @@ pub fn run(initial: InitialFocus) -> Result<(), String> {
 fn setup_terminal() -> Result<TuiTerminal, String> {
     enable_raw_mode().map_err(|e| format!("enable_raw_mode: {e}"))?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-        .map_err(|e| format!("enter alt screen: {e}"))?;
+    // Deliberately NO `EnableMouseCapture`. Mouse-tracking escape sequences
+    // confuse some Windows console hosts (legacy conhost, older Windows
+    // Terminal builds) and have been observed to swallow arrow keys.
+    // Navigation is keyboard-only anyway.
+    execute!(stdout, EnterAlternateScreen).map_err(|e| format!("enter alt screen: {e}"))?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend).map_err(|e| format!("ratatui terminal: {e}"))
 }
 
 fn restore_terminal(terminal: &mut TuiTerminal) -> Result<(), String> {
     let _ = disable_raw_mode();
-    let _ = execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    );
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
     let _ = terminal.show_cursor();
     Ok(())
 }
@@ -136,7 +135,7 @@ struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
         // Re-show the cursor — `Terminal::show_cursor` writes a CSI
         // sequence, which we can replicate directly.
         let _ = execute!(io::stdout(), crossterm::cursor::Show);
