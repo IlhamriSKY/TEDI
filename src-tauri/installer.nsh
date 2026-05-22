@@ -54,25 +54,6 @@ ${StrStr}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; --- install tedi-cli.exe (console-subsystem companion) -----------------
-  ; TEDI.exe is `windows_subsystem = "windows"` so its stdin is detached
-  ; from the parent terminal and the `tedi ext` ratatui TUI cannot read
-  ; keystrokes. tedi-cli.exe is a console-subsystem twin built from
-  ; src/bin/tedi-cli.rs. The release workflow builds it via an explicit
-  ; `cargo build --release --bin tedi-cli` step (see
-  ; .github/workflows/release.yml), so by the time NSIS runs the file is
-  ; present at <src-tauri>/target/release/tedi-cli.exe. Path is relative
-  ; to the generated installer.nsi at
-  ; <src-tauri>/target/release/bundle/nsis/<lang>/, i.e. three dirs up
-  ; gets us back to target/release.
-  ;
-  ; /nonfatal lets dev builds and `tauri dev` (which do not run this hook,
-  ; but a future iteration of the bundler might) survive a missing file
-  ; without aborting the whole install. Missing tedi-cli.exe only loses
-  ; the TUI — plain CLI mode in TEDI.exe still works.
-  SetOutPath "$INSTDIR"
-  File /nonfatal "/oname=tedi-cli.exe" "..\..\..\tedi-cli.exe"
-
   ; --- write the shim ------------------------------------------------------
   ; Belt-and-suspenders for `--version` / `--help`: default Windows PATHEXT
   ; resolves `.EXE` before `.CMD`, so plain `tedi` lands on `tedi.exe`, not
@@ -98,17 +79,11 @@ ${StrStr}
     FileWrite $0 "$\r$\n"
     FileWrite $0 ":tedi_passthrough$\r$\n"
     FileWrite $0 "rem `start` detaches the child from this console so the GUI launch above$\r$\n"
-    FileWrite $0 "rem doesn't pin the shell. The CLI subcommands are the opposite: they run$\r$\n"
-    FileWrite $0 "rem to completion, draw a ratatui TUI on the user's terminal, and exit.$\r$\n"
-    FileWrite $0 "rem TEDI.exe is GUI subsystem (windows_subsystem = $\"windows$\") so it has$\r$\n"
-    FileWrite $0 "rem no console attached for stdin — the TUI cannot read keystrokes from it.$\r$\n"
-    FileWrite $0 "rem tedi-cli.exe is the console-subsystem companion that inherits the$\r$\n"
-    FileWrite $0 "rem caller's stdin/stdout cleanly. Invoked synchronously here.$\r$\n"
-    FileWrite $0 "if exist $\"%~dp0tedi-cli.exe$\" ($\r$\n"
-    FileWrite $0 "    $\"%~dp0tedi-cli.exe$\" %*$\r$\n"
-    FileWrite $0 ") else ($\r$\n"
-    FileWrite $0 "    $\"%~dp0TEDI.exe$\" %*$\r$\n"
-    FileWrite $0 ")$\r$\n"
+    FileWrite $0 "rem doesn't pin the shell. The `ext` CLI is the opposite: it runs to$\r$\n"
+    FileWrite $0 "rem completion, prints to the user's terminal (via AttachConsole on the$\r$\n"
+    FileWrite $0 "rem EXE side), and exits. Invoke TEDI.exe synchronously so its stdout is$\r$\n"
+    FileWrite $0 "rem visible to the user when the shim is reached via `tedi.cmd` explicitly.$\r$\n"
+    FileWrite $0 "$\"%~dp0TEDI.exe$\" %*$\r$\n"
     FileWrite $0 "exit /b %ERRORLEVEL%$\r$\n"
     FileWrite $0 "$\r$\n"
     FileWrite $0 ":tedi_version$\r$\n"
@@ -191,5 +166,4 @@ ${StrStr}
 
 !macro NSIS_HOOK_PREUNINSTALL
   Delete "$INSTDIR\tedi.cmd"
-  Delete "$INSTDIR\tedi-cli.exe"
 !macroend

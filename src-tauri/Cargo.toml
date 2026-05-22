@@ -1,14 +1,9 @@
 [package]
 name = "tedi"
-version = "0.2.18"
+version = "0.2.19"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
-# Multiple [[bin]] targets (`tedi` + `tedi-cli`); Tauri's bundler invokes
-# `cargo build` without a `--bin` flag and needs a default to know which
-# binary to package as `TEDI.exe` / `tedi.app` / `tedi`. The console-only
-# `tedi-cli` is a sibling, never the primary entry point.
-default-run = "tedi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,15 +13,6 @@ default-run = "tedi"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "tedi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
-
-# Console-subsystem companion to the main GUI binary. Built on every
-# platform, but only ship on Windows (see `tauri.windows.conf.json` resources)
-# where `TEDI.exe` runs as `windows_subsystem = "windows"` and cannot
-# reliably own stdin for the `tedi ext` TUI. On macOS / Linux the main `tedi`
-# binary inherits stdin natively and this companion stays unused.
-[[bin]]
-name = "tedi-cli"
-path = "src/bin/tedi-cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -71,13 +57,14 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # fingerprint in the install-review dialog; not used as a trust anchor).
 sha2 = "0.10"
 hex = "0.4"
-# Full TUI for the `tedi ext` subcommands. `ratatui` is render only —
-# crossterm is added explicitly to opt into the `event-stream` feature
-# (async EventStream used by the TUI loop). Both crates short-circuit
-# before Tauri boots, so they add nothing to the GUI runtime path.
-ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
-crossterm = { version = "0.28", features = ["event-stream"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Arrow-key `Select` prompt for interactive `tedi ext` subcommands when
+# the user omits the target argument. Default features bring `editor` /
+# `history` / `password` / fuzzy which we don't use; the bare Select widget
+# is in the always-on base. Picked over `ratatui` deliberately: dialoguer
+# stays inline (no alternate screen, no raw-mode contention with the
+# parent shell), which works reliably across every Windows console host
+# we ship to without needing a separate console-subsystem companion binary.
+dialoguer = { version = "0.11", default-features = false }
 # Verify-only minisign implementation. Same crate `tauri-plugin-updater`
 # uses internally — keeps the headless `tedi --update` path semantically
 # identical to the GUI updater. No signing dependencies pulled in.

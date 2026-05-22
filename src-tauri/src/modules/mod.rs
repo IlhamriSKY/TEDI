@@ -1,6 +1,5 @@
 pub mod cli;
 pub mod cli_ext;
-pub mod cli_ext_tui;
 pub mod cli_update;
 pub mod extensions;
 pub mod fs;

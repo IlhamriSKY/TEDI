@@ -3,36 +3,33 @@
 //! install/list/update/uninstall against the same `<app_data_dir>/extensions/`
 //! directory and `state.json` the GUI uses.
 //!
-//! Two presentation modes:
-//!   - **TUI (default on a TTY)**: ratatui dashboard with Installed /
-//!     Registry / Updates tabs. Action subcommands open the dashboard with
-//!     the relevant modal pre-filled. Lives in [`crate::modules::cli_ext_tui`].
-//!   - **Plain (`--plain` flag or non-TTY)**: `println!`-based output and
-//!     stdin prompts. Same shape as v0.2.x for scripts, pipes, and CI.
+//! Interactive mode (on a TTY) uses `dialoguer::Select` for arrow-key
+//! navigation. No alternate-screen TUI, no raw-mode contention with the
+//! parent shell — output flows inline like a normal command.
 //!
 //! Subcommands:
-//!   tedi ext install <ref>       # path | owner/repo | github URL | registry id
-//!   tedi ext list                # registry (TUI picker on TTY; table on pipe)
+//!   tedi ext                     # menu: pick an action
+//!   tedi ext install <ref>       # ref = path | owner/repo | github URL | registry id
+//!   tedi ext install             # arrow-pick from registry (TTY only)
+//!   tedi ext list                # registry browser (interactive picker on a TTY)
 //!   tedi ext list --installed    # locally installed (alias: `tedi ext installed`)
 //!   tedi ext update [<id>]       # one id or every github-sourced install
-//!   tedi ext uninstall <id>
-//!   tedi ext enable <id>
-//!   tedi ext disable <id>
-//!   tedi ext help
+//!   tedi ext uninstall [<id>]    # arrow-pick when id omitted
+//!   tedi ext enable [<id>]
+//!   tedi ext disable [<id>]
 //!
 //! Concurrency: `state.json` is also written by the running GUI. There is
 //! no file lock; the later writer wins, matching the behaviour two GUI
 //! windows already accept. The GUI shows the pre-CLI view until it reloads.
 
 use std::fs;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 use crate::modules::cli;
-use crate::modules::cli_ext_tui;
 use crate::modules::extensions::commands as ext_cmd;
 use crate::modules::extensions::install::{
-    install_from_bytes_with_progress, InstallOutcome, InstallProgress, NoopProgress,
+    install_from_bytes_with_progress, InstallOutcome, InstallPhase, InstallProgress, NoopProgress,
 };
 use crate::modules::extensions::manifest::{validate_id, Manifest};
 use crate::modules::extensions::state::{load as load_state, now_ms, save as save_state};
@@ -45,105 +42,50 @@ const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 
 /// Public extension registry. Shape:
 /// `{ official: [{id,name,publisher,description,repository,icon,license}], unofficial: [...] }`.
-pub(crate) const REGISTRY_URL: &str = "https://tedi.ilhamriski.com/extensions/";
+const REGISTRY_URL: &str = "https://tedi.ilhamriski.com/extensions/";
 
-#[derive(serde::Deserialize, Debug, Clone)]
-pub(crate) struct RegistryDoc {
+#[derive(serde::Deserialize)]
+struct RegistryDoc {
     #[serde(default)]
-    pub official: Vec<RegistryEntry>,
+    official: Vec<RegistryEntry>,
     #[serde(default)]
-    pub unofficial: Vec<RegistryEntry>,
+    unofficial: Vec<RegistryEntry>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
-pub(crate) struct RegistryEntry {
-    pub id: String,
+#[derive(serde::Deserialize, Clone)]
+struct RegistryEntry {
+    id: String,
     #[allow(dead_code)]
+    name: String,
     #[serde(default)]
-    pub name: String,
+    publisher: String,
     #[serde(default)]
-    pub publisher: String,
+    description: String,
+    repository: String,
     #[serde(default)]
-    pub description: String,
-    pub repository: String,
-    #[serde(default)]
-    pub license: String,
+    license: String,
 }
 
 /// One row of the Installed list, joining manifest + state. Sorted by name
-/// at construction time so TUI/CLI don't have to re-sort.
-#[derive(Debug, Clone)]
-pub(crate) struct InstalledRow {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub enabled: bool,
-    pub source: String,
-    pub latest: Option<String>,
-}
-
-impl InstalledRow {
-    pub fn has_update(&self) -> bool {
-        match &self.latest {
-            Some(v) => ext_cmd::compare_versions(&self.version, v) == std::cmp::Ordering::Less,
-            None => false,
-        }
-    }
-}
-
-/// One row of the per-extension update check. `has_update` reflects the
-/// strict-greater comparison; `message` carries non-applicable reasons
-/// (e.g. local source) so callers don't have to re-derive them.
-#[derive(Debug, Clone)]
-pub(crate) struct UpdateRow {
-    pub id: String,
-    pub current_version: String,
-    pub latest_version: Option<String>,
-    pub has_update: bool,
-    /// Echoed `state.source`. Empty when the entry vanished mid-check.
-    pub source: String,
-    /// Human-readable status. `None` when the row is a normal result.
-    /// Used by the TUI/plain renderer to differentiate "non-github source",
-    /// "up to date", "check failed: …", etc.
-    pub message: Option<String>,
-}
-
-/// What the TUI should open when a subcommand is given. The dashboard opens
-/// to the relevant tab; install/uninstall/enable/disable land in a confirm
-/// modal pre-filled with the argument.
-#[derive(Debug, Clone)]
-pub(crate) enum InitialFocus {
-    Dashboard,
-    Installed,
-    Registry,
-    InstallPrompt { reference: String },
-    Updates { filter: Option<String> },
-    UninstallConfirm { id: String },
-    SetEnabled { id: String, on: bool },
+/// at construction time so picker / printer share order.
+struct InstalledRow {
+    id: String,
+    name: String,
+    version: String,
+    enabled: bool,
+    source: String,
+    latest: Option<String>,
 }
 
 /// Scan argv for the `ext` subcommand or `--extension` flag, run it, then
 /// `process::exit`. Returns without acting when neither form is present.
 pub fn handle_extension_command_and_exit() {
     let args: Vec<String> = std::env::args().collect();
-    let Some(mut sub_args) = extract_subcommand(&args) else {
+    let Some(sub_args) = extract_subcommand(&args) else {
         return;
     };
     cli::attach_parent_console();
-
-    let plain = extract_plain_flag(&mut sub_args);
-    let interactive = is_interactive_tty();
-
-    let result = if plain || !interactive {
-        run_plain(&sub_args)
-    } else {
-        // TUI claims stdin/stdout for its alternate screen. The focus tells
-        // it which tab/modal to open; plain dispatch arg parsing is reused
-        // there for consistency.
-        cli_ext_tui::run(focus_for_subcommand(&sub_args))
-    };
-
-    let code = match result {
+    let code = match run_subcommand(&sub_args) {
         Ok(()) => 0,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "tedi ext: {e}");
@@ -153,11 +95,6 @@ pub fn handle_extension_command_and_exit() {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     std::process::exit(code);
-}
-
-fn is_interactive_tty() -> bool {
-    use std::io::IsTerminal;
-    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 /// Returns the args after the action keyword when argv selects the ext CLI.
@@ -178,69 +115,10 @@ fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
     None
 }
 
-/// Strip a global `--plain` / `-p` flag from anywhere in `args`. Returns
-/// true when it was present. Both forms are removed in place so the rest
-/// of the dispatcher does not have to re-filter.
-fn extract_plain_flag(args: &mut Vec<String>) -> bool {
-    let mut hit = false;
-    args.retain(|a| {
-        let is_plain = a == "--plain" || a == "-p";
-        if is_plain {
-            hit = true;
-        }
-        !is_plain
-    });
-    hit
-}
-
-/// Map a parsed subcommand to the TUI's initial focus. Unknown / `help`
-/// subcommands open the dashboard.
-pub(crate) fn focus_for_subcommand(args: &[String]) -> InitialFocus {
-    let Some((action, rest)) = args.split_first() else {
-        return InitialFocus::Dashboard;
-    };
-    match action.as_str() {
-        "list" if rest.iter().any(|a| a == "--installed") => InitialFocus::Installed,
-        "list" => InitialFocus::Registry,
-        "installed" => InitialFocus::Installed,
-        "install" => match rest.first() {
-            Some(r) => InitialFocus::InstallPrompt {
-                reference: r.clone(),
-            },
-            None => InitialFocus::Registry,
-        },
-        "update" => InitialFocus::Updates {
-            filter: rest.iter().find(|a| !a.starts_with("--")).cloned(),
-        },
-        "uninstall" => match rest.first() {
-            Some(id) => InitialFocus::UninstallConfirm { id: id.clone() },
-            None => InitialFocus::Installed,
-        },
-        "enable" => match rest.first() {
-            Some(id) => InitialFocus::SetEnabled {
-                id: id.clone(),
-                on: true,
-            },
-            None => InitialFocus::Installed,
-        },
-        "disable" => match rest.first() {
-            Some(id) => InitialFocus::SetEnabled {
-                id: id.clone(),
-                on: false,
-            },
-            None => InitialFocus::Installed,
-        },
-        _ => InitialFocus::Dashboard,
-    }
-}
-
-fn run_plain(args: &[String]) -> Result<(), String> {
+fn run_subcommand(args: &[String]) -> Result<(), String> {
     let (action, rest) = match args.split_first() {
         Some((a, r)) => (a.as_str(), r),
-        None => {
-            print_help();
-            return Ok(());
-        }
+        None => return cmd_menu(),
     };
     match action {
         "install" => cmd_install(rest),
@@ -260,19 +138,152 @@ fn run_plain(args: &[String]) -> Result<(), String> {
     }
 }
 
-// ---- plain-mode subcommands -------------------------------------------
+// ---- subcommands --------------------------------------------------------
+
+/// `tedi ext` with no subcommand: arrow-pick an action on a TTY, print help
+/// on non-TTY (CI / pipes shouldn't get stuck on a picker with no input).
+fn cmd_menu() -> Result<(), String> {
+    if !interactive() {
+        print_help();
+        return Ok(());
+    }
+    let actions = [
+        ("List installed extensions", "installed"),
+        ("Browse registry & install", "list"),
+        ("Install by reference", "install"),
+        ("Check for updates", "update"),
+        ("Enable an extension", "enable"),
+        ("Disable an extension", "disable"),
+        ("Uninstall an extension", "uninstall"),
+        ("Quit", "quit"),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(l, _)| *l).collect();
+    let chosen = dialoguer::Select::new()
+        .with_prompt("tedi ext")
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .map_err(|e| format!("picker: {e}"))?;
+    let Some(idx) = chosen else {
+        return Ok(());
+    };
+    match actions[idx].1 {
+        "installed" => cmd_list_installed(),
+        "list" => cmd_list(&[]),
+        "install" => cmd_install(&[]),
+        "update" => cmd_update(&[]),
+        "enable" => cmd_set_enabled(&[], true),
+        "disable" => cmd_set_enabled(&[], false),
+        "uninstall" => cmd_uninstall(&[]),
+        _ => Ok(()),
+    }
+}
 
 fn cmd_install(args: &[String]) -> Result<(), String> {
-    let reference = args.first().ok_or_else(|| {
-        "missing argument: tedi ext install <path|owner/repo|registry-id>".to_string()
-    })?;
     let runtime = build_runtime()?;
-    let outcome = install_reference_with_progress(reference, &runtime, &NoopProgress)?;
-    println!(
-        "Installed {} v{}",
-        outcome.manifest.id, outcome.manifest.version
-    );
-    Ok(())
+    let root = extensions_root()?;
+    let state_path = root.join("state.json");
+
+    let reference = match args.first() {
+        Some(r) => r.clone(),
+        None => prompt_install_reference(&runtime)?,
+    };
+
+    let p = std::path::Path::new(&reference);
+    if p.is_file() {
+        let bytes = fs::read(p).map_err(|e| format!("read {}: {e}", p.display()))?;
+        let outcome = install_with_progress(
+            &root,
+            &state_path,
+            &bytes,
+            &format!("local:{}", p.display()),
+        )?;
+        println!(
+            "Installed {} v{} (from local:{})",
+            outcome.manifest.id,
+            outcome.manifest.version,
+            p.display()
+        );
+        return Ok(());
+    }
+
+    if looks_like_path(&reference) {
+        return Err(format!(
+            "`{reference}` looks like a file path but no file was found at that location"
+        ));
+    }
+
+    if looks_like_github_ref(&reference) {
+        let normalized = ext_cmd::normalize_owner_repo(&reference)?;
+        return install_github(&runtime, &normalized, &root, &state_path);
+    }
+
+    let doc = fetch_registry(&runtime)?;
+    let entry = doc
+        .official
+        .iter()
+        .chain(doc.unofficial.iter())
+        .find(|e| e.id == reference)
+        .ok_or_else(|| registry_not_found_msg(&reference, &doc))?;
+    let normalized = ext_cmd::normalize_owner_repo(&entry.repository)?;
+    install_github(&runtime, &normalized, &root, &state_path)
+}
+
+/// Interactive variant: present a registry picker when the user invoked
+/// `tedi ext install` without a target ref. Falls back to a typed-input
+/// prompt if registry fetch fails so the flow still completes.
+fn prompt_install_reference(runtime: &tokio::runtime::Runtime) -> Result<String, String> {
+    if !interactive() {
+        return Err("missing argument: tedi ext install <path|owner/repo|registry-id>".into());
+    }
+    let doc = fetch_registry(runtime).ok();
+    let entries: Vec<RegistryEntry> = doc
+        .into_iter()
+        .flat_map(|d| d.official.into_iter().chain(d.unofficial))
+        .collect();
+    if entries.is_empty() {
+        return prompt_typed_reference();
+    }
+    let mut labels: Vec<String> = entries
+        .iter()
+        .map(|e| {
+            if e.description.is_empty() {
+                e.id.clone()
+            } else {
+                format!("{} - {}", e.id, e.description)
+            }
+        })
+        .collect();
+    labels.push("(type a custom ref)".to_string());
+    let chosen = dialoguer::Select::new()
+        .with_prompt("Install from registry")
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .map_err(|e| format!("picker: {e}"))?;
+    let Some(idx) = chosen else {
+        return Err("cancelled".into());
+    };
+    if idx == labels.len() - 1 {
+        return prompt_typed_reference();
+    }
+    Ok(entries[idx].repository.clone())
+}
+
+fn prompt_typed_reference() -> Result<String, String> {
+    use std::io::BufRead;
+    print!("Enter path / owner-repo / registry-id: ");
+    let _ = std::io::stdout().flush();
+    let mut buf = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut buf)
+        .map_err(|e| format!("read stdin: {e}"))?;
+    let trimmed = buf.trim();
+    if trimmed.is_empty() {
+        return Err("no reference given".into());
+    }
+    Ok(trimmed.to_string())
 }
 
 fn cmd_list(args: &[String]) -> Result<(), String> {
@@ -281,14 +292,41 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     }
     let runtime = build_runtime()?;
     let doc = fetch_registry(&runtime)?;
-    if doc.official.is_empty() && doc.unofficial.is_empty() {
+    let mut entries: Vec<(String, RegistryEntry)> = Vec::new();
+    for e in &doc.official {
+        entries.push((registry_label(e, "official"), e.clone()));
+    }
+    for e in &doc.unofficial {
+        entries.push((registry_label(e, "unofficial"), e.clone()));
+    }
+    if entries.is_empty() {
         println!("(registry empty)");
         return Ok(());
     }
-    print_registry_groups(&doc);
-    println!();
-    println!("Install: tedi ext install <id>");
-    Ok(())
+
+    if !interactive() {
+        print_registry_groups(&doc);
+        println!();
+        println!("Install: tedi ext install <id>");
+        return Ok(());
+    }
+
+    let labels: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
+    let chosen = dialoguer::Select::new()
+        .with_prompt("Pilih extension untuk diinstall (Esc untuk batal)")
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .map_err(|e| format!("picker: {e}"))?;
+    let Some(idx) = chosen else {
+        println!("Dibatalkan.");
+        return Ok(());
+    };
+    let pick = entries[idx].1.clone();
+    let root = extensions_root()?;
+    let state_path = root.join("state.json");
+    let normalized = ext_cmd::normalize_owner_repo(&pick.repository)?;
+    install_github(&runtime, &normalized, &root, &state_path)
 }
 
 fn cmd_list_installed() -> Result<(), String> {
@@ -315,9 +353,21 @@ fn cmd_list_installed() -> Result<(), String> {
 
 fn cmd_update(args: &[String]) -> Result<(), String> {
     let id_filter = args.iter().find(|a| !a.starts_with("--")).cloned();
+    let root = extensions_root()?;
+    let state_path = root.join("state.json");
     let runtime = build_runtime()?;
-    let rows = check_updates_only(id_filter.as_deref(), &runtime)?;
-    if rows.is_empty() {
+    let initial = load_state(&state_path);
+
+    let mut targets: Vec<(String, String, String)> = Vec::new();
+    for (id, entry) in initial.entries.iter() {
+        if let Some(ref f) = id_filter {
+            if id != f {
+                continue;
+            }
+        }
+        targets.push((id.clone(), entry.version.clone(), entry.source.clone()));
+    }
+    if targets.is_empty() {
         return match id_filter {
             Some(f) => Err(format!("extension not installed: {f}")),
             None => {
@@ -327,20 +377,44 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
         };
     }
 
-    let mut to_apply: Vec<(String, String)> = Vec::new();
-    for r in &rows {
-        match (&r.message, r.has_update, &r.latest_version) {
-            (Some(m), _, _) => println!("[{}] {m}", r.id),
-            (None, true, Some(latest)) => {
-                println!(
-                    "[{}] v{} -> v{latest} (update available)",
-                    r.id, r.current_version
-                );
-                to_apply.push((r.id.clone(), r.source.clone()));
+    let mut to_apply: Vec<(String, String, String, String)> = Vec::new();
+    let mut state_w = initial;
+    let now = now_ms();
+    for (id, current_version, source) in targets {
+        let Some(owner_repo) = source.strip_prefix("github:") else {
+            println!("[{id}] non-github source ({source}); skip");
+            if let Some(e) = state_w.entries.get_mut(&id) {
+                e.last_checked_at_ms = Some(now);
             }
-            _ => println!("[{}] v{} (up to date)", r.id, r.current_version),
+            continue;
+        };
+        let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
+        let json = match runtime.block_on(ext_cmd::http_get_text(&api)) {
+            Ok(j) => j,
+            Err(e) => {
+                println!("[{id}] check failed: {e}");
+                continue;
+            }
+        };
+        let Some(tag) = ext_cmd::pick_release_tag(&json) else {
+            println!("[{id}] no tag_name in release JSON");
+            continue;
+        };
+        let latest = ext_cmd::strip_v_prefix(&tag);
+        let has_update =
+            ext_cmd::compare_versions(&current_version, &latest) == std::cmp::Ordering::Less;
+        if let Some(e) = state_w.entries.get_mut(&id) {
+            e.latest_version = Some(latest.clone());
+            e.last_checked_at_ms = Some(now);
+        }
+        if has_update {
+            println!("[{id}] v{current_version} -> v{latest} (update available)");
+            to_apply.push((id, current_version, latest, owner_repo.to_string()));
+        } else {
+            println!("[{id}] v{current_version} (up to date)");
         }
     }
+    save_state(&state_path, &state_w)?;
 
     if to_apply.is_empty() {
         println!();
@@ -348,15 +422,14 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() {
+    if !interactive() {
         println!();
         println!(
             "Non-interactive shell; {} update(s) available but not applied.",
             to_apply.len()
         );
         println!("Run on a TTY, or re-run with explicit ids:");
-        for (id, _) in &to_apply {
+        for (id, _, _, _) in &to_apply {
             println!("    tedi ext install {id}");
         }
         return Ok(());
@@ -374,17 +447,11 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    let root = extensions_root()?;
-    let state_path = root.join("state.json");
     let mut failed = 0usize;
-    for (id, source) in to_apply {
+    for (id, _from, _to, owner_repo) in to_apply {
         println!();
-        println!("Updating {id} ({source})...");
-        let Some(owner_repo) = source.strip_prefix("github:") else {
-            println!("[{id}] skipped (non-github source)");
-            continue;
-        };
-        if let Err(e) = install_github(&runtime, owner_repo, &root, &state_path, &NoopProgress) {
+        println!("Updating {id} (github:{owner_repo})...");
+        if let Err(e) = install_github(&runtime, &owner_repo, &root, &state_path) {
             failed += 1;
             eprintln!("[{id}] update failed: {e}");
         }
@@ -396,79 +463,96 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
 }
 
 fn cmd_uninstall(args: &[String]) -> Result<(), String> {
-    let id = args
-        .first()
-        .ok_or_else(|| "missing argument: tedi ext uninstall <id>".to_string())?;
-    do_uninstall(id)?;
+    let id = match args.first() {
+        Some(id) => id.clone(),
+        None => prompt_installed_id("Uninstall which extension?")?,
+    };
+    validate_id(&id)?;
+    let root = extensions_root()?;
+    let dir = root.join(&id);
+    let state_path = root.join("state.json");
+    let mut st = load_state(&state_path);
+    let had_dir = dir.exists();
+    let had_state = st.entries.contains_key(&id);
+    if !had_dir && !had_state {
+        return Err(format!("extension not installed: {id}"));
+    }
+    if had_dir {
+        fs::remove_dir_all(&dir).map_err(|e| format!("remove {id}: {e}"))?;
+    }
+    st.entries.remove(&id);
+    save_state(&state_path, &st)?;
     println!("Uninstalled {id}.");
     Ok(())
 }
 
 fn cmd_set_enabled(args: &[String], enabled: bool) -> Result<(), String> {
     let action_name = if enabled { "enable" } else { "disable" };
-    let id = args
-        .first()
-        .ok_or_else(|| format!("missing argument: tedi ext {action_name} <id>"))?;
-    do_set_enabled(id, enabled)?;
+    let id = match args.first() {
+        Some(id) => id.clone(),
+        None => prompt_installed_id(&format!("{} which extension?", capitalize(action_name)))?,
+    };
+    validate_id(&id)?;
+    let root = extensions_root()?;
+    let state_path = root.join("state.json");
+    let mut st = load_state(&state_path);
+    let entry = st
+        .entries
+        .get_mut(&id)
+        .ok_or_else(|| format!("extension not installed: {id}"))?;
+    entry.enabled = enabled;
+    save_state(&state_path, &st)?;
     println!("{} {id}.", if enabled { "Enabled" } else { "Disabled" });
     Ok(())
 }
 
-// ---- pure data fns (shared by plain mode + TUI) -----------------------
-
-/// Install an extension by reference (path / owner-repo / registry id),
-/// streaming progress through `progress`. This is the single seam both
-/// the plain CLI and the TUI go through.
-pub(crate) fn install_reference_with_progress(
-    reference: &str,
-    runtime: &tokio::runtime::Runtime,
-    progress: &dyn InstallProgress,
-) -> Result<InstallOutcome, String> {
-    let root = extensions_root()?;
-    let state_path = root.join("state.json");
-
-    // 1) Local file. No extension check; `install_from_bytes` validates
-    //    the zip magic bytes, so `tedi ext install ./build/my-ext` works
-    //    on any real zip.
-    let p = std::path::Path::new(reference);
-    if p.is_file() {
-        let bytes = fs::read(p).map_err(|e| format!("read {}: {e}", p.display()))?;
-        return install_from_bytes_with_progress(
-            &root,
-            &state_path,
-            &bytes,
-            &format!("local:{}", p.display()),
-            progress,
-        );
+/// Arrow-pick from the installed list. Errors when nothing is installed
+/// or the user cancels — the caller bubbles those up.
+fn prompt_installed_id(prompt: &str) -> Result<String, String> {
+    if !interactive() {
+        return Err("missing argument: id required on a non-interactive shell".into());
     }
-
-    if looks_like_path(reference) {
-        return Err(format!(
-            "`{reference}` looks like a file path but no file was found at that location"
-        ));
+    let rows = load_installed_rows()?;
+    if rows.is_empty() {
+        return Err("No extensions installed.".into());
     }
-
-    if looks_like_github_ref(reference) {
-        let normalized = ext_cmd::normalize_owner_repo(reference)?;
-        return install_github(runtime, &normalized, &root, &state_path, progress);
-    }
-
-    // Bare registry id: fetch index, find entry, install its repository.
-    let doc = fetch_registry(runtime)?;
-    let entry = doc
-        .official
+    let labels: Vec<String> = rows
         .iter()
-        .chain(doc.unofficial.iter())
-        .find(|e| e.id == *reference)
-        .ok_or_else(|| registry_not_found_msg(reference, &doc))?;
-    let normalized = ext_cmd::normalize_owner_repo(&entry.repository)?;
-    install_github(runtime, &normalized, &root, &state_path, progress)
+        .map(|r| {
+            let badge = if r.enabled { "[on] " } else { "[off]" };
+            format!("{badge} {} (id: {})  v{}", r.name, r.id, r.version)
+        })
+        .collect();
+    let chosen = dialoguer::Select::new()
+        .with_prompt(prompt)
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .map_err(|e| format!("picker: {e}"))?;
+    let Some(idx) = chosen else {
+        return Err("cancelled".into());
+    };
+    Ok(rows[idx].id.clone())
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+// ---- helpers ------------------------------------------------------------
+
+fn interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 /// Walk `<extensions_root>/` + `state.json` and build a sorted-by-name list
 /// of installed extensions. Skips staging/trash directories and entries
 /// whose manifest fails to parse.
-pub(crate) fn load_installed_rows() -> Result<Vec<InstalledRow>, String> {
+fn load_installed_rows() -> Result<Vec<InstalledRow>, String> {
     let root = extensions_root()?;
     let state_path = root.join("state.json");
     let state = load_state(&state_path);
@@ -514,126 +598,7 @@ pub(crate) fn load_installed_rows() -> Result<Vec<InstalledRow>, String> {
     Ok(rows)
 }
 
-/// Check upstream for newer releases. Persists `latest_version` +
-/// `last_checked_at_ms` for every row inspected. Does NOT apply updates —
-/// returns one [`UpdateRow`] per inspected extension so the caller can
-/// render and prompt independently. Pure data: no print, no read_line.
-pub(crate) fn check_updates_only(
-    filter: Option<&str>,
-    runtime: &tokio::runtime::Runtime,
-) -> Result<Vec<UpdateRow>, String> {
-    let root = extensions_root()?;
-    let state_path = root.join("state.json");
-    let initial = load_state(&state_path);
-
-    let targets: Vec<(String, String, String)> = initial
-        .entries
-        .iter()
-        .filter(|(id, _)| filter.map(|f| id.as_str() == f).unwrap_or(true))
-        .map(|(id, e)| (id.clone(), e.version.clone(), e.source.clone()))
-        .collect();
-
-    let mut state_w = initial;
-    let now = now_ms();
-    let mut rows: Vec<UpdateRow> = Vec::new();
-    for (id, current_version, source) in targets {
-        let Some(owner_repo) = source.strip_prefix("github:").map(|s| s.to_string()) else {
-            if let Some(e) = state_w.entries.get_mut(&id) {
-                e.last_checked_at_ms = Some(now);
-            }
-            let msg = format!("non-github source ({source}); skip");
-            rows.push(UpdateRow {
-                id,
-                current_version,
-                latest_version: None,
-                has_update: false,
-                source,
-                message: Some(msg),
-            });
-            continue;
-        };
-        let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-        let json = match runtime.block_on(ext_cmd::http_get_text(&api)) {
-            Ok(j) => j,
-            Err(e) => {
-                let msg = format!("check failed: {e}");
-                rows.push(UpdateRow {
-                    id,
-                    current_version,
-                    latest_version: None,
-                    has_update: false,
-                    source,
-                    message: Some(msg),
-                });
-                continue;
-            }
-        };
-        let Some(tag) = ext_cmd::pick_release_tag(&json) else {
-            rows.push(UpdateRow {
-                id,
-                current_version,
-                latest_version: None,
-                has_update: false,
-                source,
-                message: Some("no tag_name in release JSON".into()),
-            });
-            continue;
-        };
-        let latest = ext_cmd::strip_v_prefix(&tag);
-        let has_update =
-            ext_cmd::compare_versions(&current_version, &latest) == std::cmp::Ordering::Less;
-        if let Some(e) = state_w.entries.get_mut(&id) {
-            e.latest_version = Some(latest.clone());
-            e.last_checked_at_ms = Some(now);
-        }
-        rows.push(UpdateRow {
-            id,
-            current_version,
-            latest_version: Some(latest),
-            has_update,
-            source,
-            message: None,
-        });
-    }
-    save_state(&state_path, &state_w)?;
-    Ok(rows)
-}
-
-pub(crate) fn do_uninstall(id: &str) -> Result<(), String> {
-    validate_id(id)?;
-    let root = extensions_root()?;
-    let dir = root.join(id);
-    let state_path = root.join("state.json");
-    let mut st = load_state(&state_path);
-    let had_dir = dir.exists();
-    let had_state = st.entries.contains_key(id);
-    if !had_dir && !had_state {
-        return Err(format!("extension not installed: {id}"));
-    }
-    if had_dir {
-        fs::remove_dir_all(&dir).map_err(|e| format!("remove {id}: {e}"))?;
-    }
-    st.entries.remove(id);
-    save_state(&state_path, &st)?;
-    Ok(())
-}
-
-pub(crate) fn do_set_enabled(id: &str, enabled: bool) -> Result<(), String> {
-    validate_id(id)?;
-    let root = extensions_root()?;
-    let state_path = root.join("state.json");
-    let mut st = load_state(&state_path);
-    let entry = st
-        .entries
-        .get_mut(id)
-        .ok_or_else(|| format!("extension not installed: {id}"))?;
-    entry.enabled = enabled;
-    save_state(&state_path, &st)?;
-    Ok(())
-}
-
 /// Build a "not in registry" error listing the ids the user could have meant.
-/// Empty registry falls back to a plain "registry empty" hint.
 fn registry_not_found_msg(reference: &str, doc: &RegistryDoc) -> String {
     let ids: Vec<&str> = doc
         .official
@@ -686,11 +651,15 @@ fn print_registry_row(e: &RegistryEntry) {
     }
 }
 
-// ---- helpers ------------------------------------------------------------
+fn registry_label(e: &RegistryEntry, group: &str) -> String {
+    if e.description.is_empty() {
+        format!("[{group}] {}", e.id)
+    } else {
+        format!("[{group}] {} - {}", e.id, e.description)
+    }
+}
 
-/// Returns `<dirs::data_dir()>/<BUNDLE_ID>/extensions`, creating it if
-/// missing. Matches `app.path().app_data_dir().push("extensions")`.
-pub(crate) fn extensions_root() -> Result<PathBuf, String> {
+fn extensions_root() -> Result<PathBuf, String> {
     let mut p = dirs::data_dir().ok_or_else(|| "could not determine data_dir".to_string())?;
     p.push(BUNDLE_ID);
     p.push("extensions");
@@ -698,36 +667,143 @@ pub(crate) fn extensions_root() -> Result<PathBuf, String> {
     Ok(p)
 }
 
-pub(crate) fn build_runtime() -> Result<tokio::runtime::Runtime, String> {
+fn build_runtime() -> Result<tokio::runtime::Runtime, String> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("tokio runtime: {e}"))
 }
 
-pub(crate) fn fetch_registry(runtime: &tokio::runtime::Runtime) -> Result<RegistryDoc, String> {
+fn fetch_registry(runtime: &tokio::runtime::Runtime) -> Result<RegistryDoc, String> {
     let json = runtime.block_on(ext_cmd::http_get_text(REGISTRY_URL))?;
     serde_json::from_str(&json).map_err(|e| format!("parse registry JSON: {e}"))
 }
 
-/// Download `owner_repo`'s latest release zip and install it, reporting
-/// progress through `progress`. Used by plain CLI (NoopProgress) and TUI.
-pub(crate) fn install_github(
+/// Plain-mode progress reporter: prints one human-readable line per phase
+/// and overwrites the extract progress on a single line so the terminal
+/// doesn't get spammed. Falls back to plain println on Windows console
+/// hosts that don't honour `\r`.
+struct CliProgress {
+    last_was_progress: std::sync::Mutex<bool>,
+}
+
+impl CliProgress {
+    fn new() -> Self {
+        Self {
+            last_was_progress: std::sync::Mutex::new(false),
+        }
+    }
+}
+
+impl InstallProgress for CliProgress {
+    fn phase(&self, phase: InstallPhase) {
+        let (line, sticky) = match phase {
+            InstallPhase::Downloading {
+                bytes_done,
+                bytes_total,
+            } => (
+                match bytes_total {
+                    Some(t) if t > 0 => {
+                        format!("Downloading: {} / {}", fmt_bytes(bytes_done), fmt_bytes(t))
+                    }
+                    _ => format!("Downloading: {}", fmt_bytes(bytes_done)),
+                },
+                true,
+            ),
+            InstallPhase::Verifying => ("Verifying...".into(), false),
+            InstallPhase::Extracting => ("Extracting...".into(), false),
+            InstallPhase::Finalizing => ("Finalizing...".into(), false),
+            InstallPhase::Done => ("Done.".into(), false),
+        };
+        let mut stdout = std::io::stdout();
+        let mut last = self
+            .last_was_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if *last && !sticky {
+            let _ = writeln!(stdout);
+        }
+        if sticky {
+            let _ = write!(stdout, "\r\x1b[2K{line}");
+        } else {
+            let _ = writeln!(stdout, "{line}");
+        }
+        let _ = stdout.flush();
+        *last = sticky;
+    }
+
+    fn file(&self, index: usize, total: usize, _path: &str) {
+        if total == 0 {
+            return;
+        }
+        let step = (total / 10).max(1);
+        if !index.is_multiple_of(step) && index + 1 != total {
+            return;
+        }
+        let pct = ((index as f64 + 1.0) / total as f64 * 100.0).round() as u32;
+        let mut stdout = std::io::stdout();
+        let _ = write!(
+            stdout,
+            "\r\x1b[2KExtracting: {}/{} files ({pct}%)",
+            index + 1,
+            total
+        );
+        let _ = stdout.flush();
+        let mut last = self
+            .last_was_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if index + 1 == total {
+            let _ = writeln!(stdout);
+            *last = false;
+        } else {
+            *last = true;
+        }
+    }
+}
+
+fn fmt_bytes(b: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    if b >= MB {
+        format!("{:.1} MiB", b as f64 / MB as f64)
+    } else if b >= KB {
+        format!("{:.1} KiB", b as f64 / KB as f64)
+    } else {
+        format!("{b} B")
+    }
+}
+
+fn install_with_progress(
+    root: &std::path::Path,
+    state_path: &std::path::Path,
+    bytes: &[u8],
+    source: &str,
+) -> Result<InstallOutcome, String> {
+    let progress: Box<dyn InstallProgress> = if interactive() {
+        Box::new(CliProgress::new())
+    } else {
+        Box::new(NoopProgress)
+    };
+    install_from_bytes_with_progress(root, state_path, bytes, source, progress.as_ref())
+}
+
+fn install_github(
     runtime: &tokio::runtime::Runtime,
     owner_repo: &str,
     root: &std::path::Path,
     state_path: &std::path::Path,
-    progress: &dyn InstallProgress,
-) -> Result<InstallOutcome, String> {
-    use crate::modules::extensions::install::InstallPhase;
+) -> Result<(), String> {
     let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-    progress.phase(InstallPhase::Downloading {
-        bytes_done: 0,
-        bytes_total: None,
-    });
     let json = runtime.block_on(ext_cmd::http_get_text(&api))?;
     let zip_url = ext_cmd::pick_release_zip(&json)
         .ok_or_else(|| format!("no .zip asset in latest release of {owner_repo}"))?;
+    println!("Downloading {zip_url}");
+    let progress: Box<dyn InstallProgress> = if interactive() {
+        Box::new(CliProgress::new())
+    } else {
+        Box::new(NoopProgress)
+    };
     let bytes = runtime.block_on(ext_cmd::http_get_bytes_with_progress(
         &zip_url,
         |done, total| {
@@ -742,18 +818,16 @@ pub(crate) fn install_github(
         state_path,
         &bytes,
         &format!("github:{owner_repo}"),
-        progress,
+        progress.as_ref(),
     )?;
-    Ok(outcome)
+    println!(
+        "Installed {} v{} (from github:{owner_repo})",
+        outcome.manifest.id, outcome.manifest.version
+    );
+    Ok(())
 }
 
-/// True for inputs with an unambiguous filesystem-path shape: explicit
-/// dot-prefix, leading `/`, leading `~/`, Windows drive letter, or any
-/// backslash. The github-ref check already covers single-slash `owner/repo`,
-/// so this only catches inputs the user clearly meant as paths. Bare
-/// filenames without a separator are not matched because they collide with
-/// registry ids.
-pub(crate) fn looks_like_path(s: &str) -> bool {
+fn looks_like_path(s: &str) -> bool {
     if s.contains('\\') {
         return true;
     }
@@ -767,7 +841,7 @@ pub(crate) fn looks_like_path(s: &str) -> bool {
     false
 }
 
-pub(crate) fn looks_like_github_ref(s: &str) -> bool {
+fn looks_like_github_ref(s: &str) -> bool {
     if s.contains('\\') {
         return false;
     }
@@ -789,40 +863,38 @@ pub(crate) fn looks_like_github_ref(s: &str) -> bool {
     id_safe(parts[0]) && id_safe(parts[1])
 }
 
-#[allow(dead_code)]
 fn print_help() {
     print!("{}", HELP);
 }
 
-#[allow(dead_code)]
-pub(crate) const HELP: &str = concat!(
+const HELP: &str = concat!(
     "tedi ext - manage TEDI extensions\n",
     "\n",
     "USAGE:\n",
-    "    tedi ext [SUBCOMMAND] [ARGS] [--plain]\n",
-    "    tedi --extension [SUBCOMMAND] [ARGS] [--plain]    (alias)\n",
+    "    tedi ext [SUBCOMMAND] [ARGS]\n",
+    "    tedi --extension [SUBCOMMAND] [ARGS]    (alias)\n",
     "\n",
-    "On a TTY the dashboard TUI opens automatically. Pass `--plain` (or\n",
-    "redirect stdout) to force the legacy text output for scripts and CI.\n",
+    "Run `tedi ext` with no subcommand to open an arrow-key menu. Each\n",
+    "subcommand also accepts an interactive picker when its target arg is\n",
+    "omitted (TTY only). Non-TTY shells (CI, pipes) fall back to printing\n",
+    "a hint instead of stalling on the picker.\n",
     "\n",
     "SUBCOMMANDS:\n",
-    "    install <REF>           Install an extension. <REF> can be:\n",
+    "    install [<REF>]         Install an extension. <REF> can be:\n",
     "                              - path to a local .zip file\n",
     "                              - owner/repo (e.g. IlhamriSKY/TEDI.discord-rich-presence)\n",
     "                              - full GitHub URL\n",
     "                              - registry id (e.g. discord-rich-presence)\n",
-    "    list                    Browse the public registry; pick one to install (TUI on TTY).\n",
+    "                            Omit <REF> for an interactive registry picker.\n",
+    "    list                    Browse the public registry; pick one to install (interactive on a TTY).\n",
     "    list --installed        Show extensions currently installed locally.\n",
     "    installed               Alias for `list --installed`.\n",
     "    update [<ID>]           Check upstream for newer releases. Without <ID>,\n",
     "                            checks every github-sourced extension. Prompts before applying.\n",
-    "    uninstall <ID>          Remove an installed extension.\n",
-    "    enable <ID>             Enable an installed extension.\n",
-    "    disable <ID>            Disable an installed extension.\n",
+    "    uninstall [<ID>]        Remove an installed extension. Picker on a TTY.\n",
+    "    enable [<ID>]           Enable an installed extension. Picker on a TTY.\n",
+    "    disable [<ID>]          Disable an installed extension. Picker on a TTY.\n",
     "    help                    Print this help.\n",
-    "\n",
-    "FLAGS:\n",
-    "    --plain, -p             Force text output (no TUI), even on a TTY.\n",
     "\n",
     "Registry: https://tedi.ilhamriski.com/extensions/\n",
 );
@@ -857,62 +929,6 @@ mod tests {
         assert!(extract_subcommand(&args).is_none());
         let args = vec!["tedi".into(), "--version".into()];
         assert!(extract_subcommand(&args).is_none());
-    }
-
-    #[test]
-    fn plain_flag_strips_anywhere() {
-        let mut args = vec!["install".into(), "--plain".into(), "owner/repo".into()];
-        assert!(extract_plain_flag(&mut args));
-        assert_eq!(args, vec!["install".to_string(), "owner/repo".to_string()]);
-
-        let mut args = vec!["list".into(), "-p".into()];
-        assert!(extract_plain_flag(&mut args));
-        assert_eq!(args, vec!["list".to_string()]);
-
-        let mut args = vec!["update".into()];
-        assert!(!extract_plain_flag(&mut args));
-        assert_eq!(args, vec!["update".to_string()]);
-    }
-
-    #[test]
-    fn focus_dispatch_per_subcommand() {
-        let s = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(matches!(
-            focus_for_subcommand(&s(&[])),
-            InitialFocus::Dashboard
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["installed"])),
-            InitialFocus::Installed
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["list", "--installed"])),
-            InitialFocus::Installed
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["list"])),
-            InitialFocus::Registry
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["install", "owner/repo"])),
-            InitialFocus::InstallPrompt { .. }
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["update"])),
-            InitialFocus::Updates { .. }
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["uninstall", "foo"])),
-            InitialFocus::UninstallConfirm { .. }
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["enable", "foo"])),
-            InitialFocus::SetEnabled { on: true, .. }
-        ));
-        assert!(matches!(
-            focus_for_subcommand(&s(&["disable", "foo"])),
-            InitialFocus::SetEnabled { on: false, .. }
-        ));
     }
 
     #[test]
@@ -971,9 +987,14 @@ mod tests {
     }
 
     #[test]
+    fn capitalize_first_letter() {
+        assert_eq!(capitalize("enable"), "Enable");
+        assert_eq!(capitalize("x"), "X");
+        assert_eq!(capitalize(""), "");
+    }
+
+    #[test]
     fn noop_progress_is_no_op() {
-        // Compile-time check: NoopProgress must implement InstallProgress
-        // and accept all phase variants without panicking.
         use crate::modules::extensions::install::{InstallPhase, NoopProgress};
         let n = NoopProgress;
         n.phase(InstallPhase::Downloading {

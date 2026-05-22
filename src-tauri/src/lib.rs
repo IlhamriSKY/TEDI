@@ -1,4 +1,4 @@
-pub mod modules;
+mod modules;
 
 use modules::{
     cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh,
@@ -186,71 +186,8 @@ fn has_nvidia_gpu() -> bool {
         )
 }
 
-/// Argv entries that should be handled by the console-subsystem
-/// `tedi-cli.exe` rather than the GUI `TEDI.exe`. Anything else (paths,
-/// no args, single-instance forwarding) stays in the GUI binary.
-#[cfg(target_os = "windows")]
-fn args_indicate_cli(args: &[String]) -> bool {
-    args.iter().skip(1).any(|a| {
-        matches!(
-            a.as_str(),
-            "ext" | "--extension" | "--update" | "-u" | "--version" | "-V" | "-v" | "--help" | "-h"
-        )
-    })
-}
-
-/// Re-exec `tedi-cli.exe` next to us with the current argv, inherit our
-/// stdio, wait for it, then exit with its code. Falls through silently
-/// when the sibling binary isn't present (older installs, dev runs of
-/// `cargo run` before `cargo build --bin tedi-cli`).
-#[cfg(target_os = "windows")]
-fn delegate_cli_to_console_binary() {
-    let args: Vec<String> = std::env::args().collect();
-    if !args_indicate_cli(&args) {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let Some(dir) = exe.parent() else { return };
-    let cli_path = dir.join("tedi-cli.exe");
-    if !cli_path.exists() {
-        return;
-    }
-    // AttachConsole gives the child real stdin/stdout to inherit. The
-    // console-subsystem child would otherwise spawn its own console window
-    // (parent has no console, no STD_HANDLE to inherit).
-    cli::attach_parent_console();
-    let status = std::process::Command::new(&cli_path)
-        .args(&args[1..])
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status();
-    match status {
-        Ok(s) => std::process::exit(s.code().unwrap_or(0)),
-        Err(_) => {
-            // Spawn failed — fall back to in-process handlers below. The
-            // user sees the legacy plain-text behaviour instead of a TUI,
-            // which is degraded but not broken.
-        }
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Windows-only: TEDI.exe is `windows_subsystem = "windows"`, so stdin
-    // is detached from the parent terminal and the `tedi ext` TUI can't
-    // read keystrokes. If the user passed a CLI subcommand, hand off to
-    // the sibling console-subsystem `tedi-cli.exe` (built from
-    // src/bin/tedi-cli.rs, bundled by `tauri.windows.conf.json` as a
-    // resource). The child inherits our AttachConsole'd handles, runs to
-    // completion, and we propagate its exit code. Falls through silently
-    // if the sibling can't be found or fails to spawn — the in-process
-    // handlers below still work for plain text output.
-    #[cfg(target_os = "windows")]
-    delegate_cli_to_console_binary();
-
     // `tedi --version` / `tedi --help`: print and exit without GUI boot.
     cli::handle_version_help_and_exit();
 

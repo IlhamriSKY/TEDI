@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.19] - 22-05-2026
+
+### Changed
+
+- **`tedi ext` ratatui TUI removed; interactive picker is back to `dialoguer`.** The v0.2.17 fullscreen dashboard could not reliably read keystrokes on Windows even with the v0.2.18 `tedi-cli.exe` console-companion workaround — alt-screen contention with the parent shell varied by terminal host. Reverted to inline output + arrow-key `dialoguer::Select` pickers, the same approach v0.2.13 shipped, extended so every subcommand whose target arg is omitted opens an interactive picker on a TTY:
+  - `tedi ext` (no subcommand) → action menu
+  - `tedi ext install` (no ref) → registry picker (or typed input as last item)
+  - `tedi ext uninstall` / `enable` / `disable` (no id) → installed-list picker
+  - All other subcommands behave exactly like v0.2.13
+  - Non-TTY (CI, pipes) still prints the legacy plain table + a hint instead of stalling on the picker
+- **Install pipeline keeps its granular progress reporting from v0.2.17.** `InstallProgress` trait and `install_from_bytes_with_progress` remain; the CLI now drives them with a single-line overwrite (`\r\x1b[2K`) so download MiB and extract file-counts update in place instead of scrolling. GUI install path still uses `NoopProgress` — unchanged.
+- **`tedi-cli.exe` console-subsystem companion removed.** No longer needed once the alt-screen TUI is gone. `installer.nsh` reverted to the v0.2.16 shape, release workflow drops the dedicated `cargo build --bin tedi-cli` step. `windows_subsystem = "windows"` on the main binary is harmless for the dialoguer-based picker because it never enters raw mode — `AttachConsole` is enough for inline `println!` + arrow keys.
+
+### Removed
+
+- `src/modules/cli_ext_tui/` (and its seven sub-files), `src/bin/tedi-cli.rs`, the `delegate_cli_to_console_binary` plumbing in [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), and the `ratatui` / `crossterm` / `futures-util` Cargo dependencies. The TUI plus its console-companion added 1 800 lines and a second binary without delivering a working Windows experience.
+
 ## [0.2.18] - 22-05-2026
 
 ### Fixed
