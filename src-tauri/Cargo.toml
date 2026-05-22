@@ -4,6 +4,11 @@ version = "0.2.18"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
+# Multiple [[bin]] targets (`tedi` + `tedi-cli`); Tauri's bundler invokes
+# `cargo build` without a `--bin` flag and needs a default to know which
+# binary to package as `TEDI.exe` / `tedi.app` / `tedi`. The console-only
+# `tedi-cli` is a sibling, never the primary entry point.
+default-run = "tedi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
