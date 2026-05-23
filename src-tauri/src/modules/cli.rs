@@ -42,7 +42,7 @@ pub fn is_update_flag(s: &str) -> bool {
     matches!(s, "--update" | "-u")
 }
 
-fn help_text() -> String {
+pub fn help_text() -> String {
     // Hand-laid out: `concat!` keeps every line literal so the 21-space
     // indent under "Folder to open" survives (backslash-continuation would
     // eat the leading whitespace).

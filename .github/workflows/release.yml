@@ -67,6 +67,19 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build the `tedi` console-subsystem launcher (Windows only). The
+      # NSIS hook in `installer.nsh` `File`s the resulting binary from
+      # `src-tauri/target/release/tedi.exe` into the install dir alongside
+      # the GUI `TEDIApp.exe`. `tauri-action` below only builds the main
+      # binary (the one named by `default-run`), so the stub needs an
+      # explicit step. Cargo's incremental cache means the subsequent main
+      # build reuses everything compiled here.
+      - name: Build tedi console launcher (Windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        working-directory: src-tauri
+        run: cargo build --release --bin tedi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,7 @@
-mod modules;
+// `pub` so the `tedi` console-subsystem binary (src/bin/tedi-cli.rs) can
+// reach `cli::help_text()` and the version constants — keeps the help text
+// single-sourced between the GUI binary and the stub.
+pub mod modules;
 
 use modules::{
     cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh,

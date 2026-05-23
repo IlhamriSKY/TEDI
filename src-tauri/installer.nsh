@@ -1,12 +1,27 @@
-; Tauri NSIS hooks for the `tedi` CLI shim + user-data safety net.
+; Tauri NSIS hooks for the `tedi` CLI launcher + user-data safety net.
+;
+; Binary layout in $INSTDIR after install:
+;   TEDIApp.exe   GUI subsystem — the actual app. Named so PATHEXT does NOT
+;                 resolve `tedi` to it; the user-facing entry point is the
+;                 console stub below.
+;   tedi.exe      console subsystem — built from src/bin/tedi-cli.rs. This is
+;                 what PowerShell / cmd invoke when the user types `tedi`.
+;                 Dispatches `--help` / `--version` inline, runs `--update`
+;                 and `ext` synchronously with inherited stdio, detaches
+;                 GUI launches. Fixes the long-standing PowerShell-doesn't-
+;                 wait-for-GUI ordering bug where `tedi --help` printed
+;                 below the next prompt and left the cursor garbled.
 ;
 ; On install:
 ;   * Snapshot the user's app-data dir (history, settings, sessions,
 ;     extensions, ...) to %TEMP% before the rest of the installer (or the
 ;     previous uninstaller, which auto-update invokes in passive mode) gets
 ;     a chance to touch it. PREINSTALL runs before any file deletion.
-;   * Write `tedi.cmd` next to `TEDI.exe` so terminals can call `tedi .`
-;     regardless of casing.
+;   * Drop `tedi.exe` (console stub) next to `TEDIApp.exe` via NSIS File
+;     directive. Path is relative to the generated installer.nsi at
+;     `<src-tauri>/target/release/bundle/nsis/<lang>/`.
+;   * Sweep any legacy `tedi.cmd` shim from older installs (<=0.2.19); the
+;     console stub replaces it entirely.
 ;   * Append the install dir to the user's PATH (HKCU\Environment) if not
 ;     already present, then broadcast WM_SETTINGCHANGE so freshly-spawned
 ;     shells pick it up without a logout.
@@ -14,7 +29,8 @@
 ;     install. Belt-and-suspenders against Tauri NSIS template variants
 ;     that wipe app data on upgrade.
 ;
-; On uninstall we delete the shim but deliberately leave the PATH entry
+; On uninstall we delete both binaries-as-data we wrote (`tedi.exe`,
+; `tedi.cmd` for legacy installs) but deliberately leave the PATH entry
 ; alone. Stripping it cleanly from a `;`-delimited string in NSIS needs a
 ; full string-replace helper and is easy to get wrong - a stale entry to a
 ; non-existent dir is harmless (Windows skips it during PATH lookup), while
@@ -54,74 +70,34 @@ ${StrStr}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; --- write the shim ------------------------------------------------------
-  ; Belt-and-suspenders for `--version` / `--help`: default Windows PATHEXT
-  ; resolves `.EXE` before `.CMD`, so plain `tedi` lands on `tedi.exe`, not
-  ; this shim. The EXE itself now calls AttachConsole(ATTACH_PARENT_PROCESS)
-  ; and prints (see modules::cli::handle_version_help_and_exit). This .cmd
-  ; still runs if the user explicitly invokes `tedi.cmd` or if some future
-  ; PATHEXT override flips the priority. ${VERSION} is baked in from NSIS
-  ; and refreshed every install/update so both paths stay in sync.
-  FileOpen $0 "$INSTDIR\tedi.cmd" w
-  ${If} $0 != ""
-    FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 "setlocal$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"--version$\" goto :tedi_version$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"-V$\" goto :tedi_version$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"--help$\" goto :tedi_help$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"-h$\" goto :tedi_help$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"--update$\" goto :tedi_passthrough$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"-u$\" goto :tedi_passthrough$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"ext$\" goto :tedi_passthrough$\r$\n"
-    FileWrite $0 "if /i $\"%~1$\"==$\"--extension$\" goto :tedi_passthrough$\r$\n"
-    FileWrite $0 "start $\"$\" $\"%~dp0TEDI.exe$\" %*$\r$\n"
-    FileWrite $0 "exit /b 0$\r$\n"
-    FileWrite $0 "$\r$\n"
-    FileWrite $0 ":tedi_passthrough$\r$\n"
-    FileWrite $0 "rem `start` detaches the child from this console so the GUI launch above$\r$\n"
-    FileWrite $0 "rem doesn't pin the shell. The `ext` CLI is the opposite: it runs to$\r$\n"
-    FileWrite $0 "rem completion, prints to the user's terminal (via AttachConsole on the$\r$\n"
-    FileWrite $0 "rem EXE side), and exits. Invoke TEDI.exe synchronously so its stdout is$\r$\n"
-    FileWrite $0 "rem visible to the user when the shim is reached via `tedi.cmd` explicitly.$\r$\n"
-    FileWrite $0 "$\"%~dp0TEDI.exe$\" %*$\r$\n"
-    FileWrite $0 "exit /b %ERRORLEVEL%$\r$\n"
-    FileWrite $0 "$\r$\n"
-    FileWrite $0 ":tedi_version$\r$\n"
-    FileWrite $0 "echo TEDI ${VERSION}$\r$\n"
-    FileWrite $0 "exit /b 0$\r$\n"
-    FileWrite $0 "$\r$\n"
-    FileWrite $0 ":tedi_help$\r$\n"
-    FileWrite $0 "echo TEDI ${VERSION} - Terminal Environment ^& Development Infrastructure$\r$\n"
-    FileWrite $0 "echo.$\r$\n"
-    FileWrite $0 "echo USAGE:$\r$\n"
-    FileWrite $0 "echo     tedi [PATH]$\r$\n"
-    FileWrite $0 "echo     tedi [FLAG]$\r$\n"
-    FileWrite $0 "echo     tedi ext ^<SUBCOMMAND^> [ARGS]    (manage extensions, headless)$\r$\n"
-    FileWrite $0 "echo.$\r$\n"
-    FileWrite $0 "echo If TEDI is already running, the request is forwarded to that window$\r$\n"
-    FileWrite $0 "echo (a second window is not opened).$\r$\n"
-    FileWrite $0 "echo.$\r$\n"
-    FileWrite $0 "echo FLAGS:$\r$\n"
-    FileWrite $0 "echo     -h, --help           Print this help and exit$\r$\n"
-    FileWrite $0 "echo     -v, -V, --version    Print version and exit$\r$\n"
-    FileWrite $0 "echo     -u, --update         Check for updates and install in place (headless)$\r$\n"
-    FileWrite $0 "echo.$\r$\n"
-    FileWrite $0 "echo ARGS:$\r$\n"
-    FileWrite $0 "echo     PATH             Folder to open, or file to edit. Use . for the$\r$\n"
-    FileWrite $0 "echo                      current directory. Relative paths resolve against$\r$\n"
-    FileWrite $0 "echo                      the shell's cwd.$\r$\n"
-    FileWrite $0 "echo.$\r$\n"
-    FileWrite $0 "echo EXTENSION SUBCOMMANDS (run `tedi ext help` for full reference):$\r$\n"
-    FileWrite $0 "echo     tedi ext install ^<path^|owner/repo^|registry-id^>$\r$\n"
-    FileWrite $0 "echo     tedi ext list                  Browse registry (interactive picker)$\r$\n"
-    FileWrite $0 "echo     tedi ext list --installed      Locally installed (alias: tedi ext installed)$\r$\n"
-    FileWrite $0 "echo     tedi ext update [^<ID^>]         Check upstream for updates$\r$\n"
-    FileWrite $0 "echo     tedi ext uninstall ^<ID^>$\r$\n"
-    FileWrite $0 "echo     tedi ext enable ^<ID^>$\r$\n"
-    FileWrite $0 "echo     tedi ext disable ^<ID^>$\r$\n"
-    FileWrite $0 "exit /b 0$\r$\n"
-    FileClose $0
-  ${EndIf}
+  ; --- install tedi.exe (console-subsystem launcher) -----------------------
+  ; TEDIApp.exe is `windows_subsystem = "windows"`; PowerShell does not
+  ; synchronously wait for GUI-subsystem children, so `tedi --help` output
+  ; lands after the next prompt and the cursor ends up mid-line. tedi.exe
+  ; is a console-subsystem twin from src/bin/tedi-cli.rs that PowerShell
+  ; waits for properly. PATHEXT then resolves the user's `tedi` to this
+  ; binary instead of the GUI (the GUI is renamed TEDIApp.exe specifically
+  ; to keep it off PATHEXT's `tedi.exe` lookup).
+  ;
+  ; The release workflow builds the stub via an explicit
+  ; `cargo build --release --bin tedi` step (see
+  ; .github/workflows/release.yml), so by the time NSIS runs the file is at
+  ; <src-tauri>/target/release/tedi.exe. Path is relative to the generated
+  ; installer.nsi at <src-tauri>/target/release/bundle/nsis/<lang>/, i.e.
+  ; three dirs up gets us back to target/release.
+  ;
+  ; /nonfatal lets future bundler variants survive a missing file without
+  ; aborting the whole install; missing tedi.exe leaves the user with only
+  ; the GUI binary which they'd invoke via the Start Menu shortcut.
+  SetOutPath "$INSTDIR"
+  File /nonfatal "/oname=tedi.exe" "..\..\..\tedi.exe"
+
+  ; --- remove any legacy tedi.cmd shim ------------------------------------
+  ; v0.2.0 .. v0.2.19 wrote a `tedi.cmd` here that handled --help / --version
+  ; natively and delegated other subcommands to TEDI.exe. The new tedi.exe
+  ; supersedes it — leave nothing on disk that could confuse PATHEXT (cmd
+  ; runs AFTER exe so it would be a no-op, but keep things tidy).
+  Delete "$INSTDIR\tedi.cmd"
 
   ; --- ensure install dir is on user PATH ---------------------------------
   ReadRegStr $1 ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path"
@@ -165,5 +141,8 @@ ${StrStr}
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  Delete "$INSTDIR\tedi.exe"
+  ; Legacy shim from <=0.2.19 installs. Delete is a no-op when absent so
+  ; this is safe on fresh-install-then-uninstall flows.
   Delete "$INSTDIR\tedi.cmd"
 !macroend

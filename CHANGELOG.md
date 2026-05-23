@@ -4,6 +4,27 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.20] - 23-05-2026
+
+### Fixed
+
+- **`tedi --help` / `--version` / `--update` / `ext` no longer leave PowerShell with a garbled prompt on Windows.** Root cause: `TEDIApp.exe` (formerly `TEDI.exe`) is built with `windows_subsystem = "windows"` so PowerShell — the Windows 11 default — does NOT synchronously wait for it. The shell redraws the next prompt the moment it spawns the child, and the binary's `AttachConsole`'d output then lands on top of (or below, depending on timing) that already-drawn prompt. The cursor ends up mid-line; the user has to press Enter to recover and the display reads scrambled. The previous v0.2.18 attempt (`delegate_cli_to_console_binary` re-execing `tedi-cli.exe` from inside the GUI binary) did not fix this — PowerShell had still moved on before the GUI even started executing.
+- **New approach: console-subsystem launcher `tedi.exe` (built from [src-tauri/src/bin/tedi-cli.rs](src-tauri/src/bin/tedi-cli.rs)).** It is what PATHEXT resolves the user's `tedi` to — the GUI binary is renamed to `TEDIApp.exe` via Tauri's `mainBinaryName` config specifically to keep it off PATHEXT's `tedi.exe` lookup. The stub:
+  - Handles `--help` / `--version` inline (no Tauri runtime boot, no process spawn).
+  - Spawns `TEDIApp.exe` synchronously with `Stdio::inherit` for `--update`, `ext`, `--extension` — output streams to the shell in real time, exit code propagates.
+  - Spawns `TEDIApp.exe` detached for GUI launches (`tedi`, `tedi .`, `tedi <path>`) so the shell prompt returns immediately.
+  - PowerShell waits on the console-subsystem stub like any normal CLI; the GUI binary's stdio is inherited from a real console handle so `dialoguer` keystroke reads work without `AttachConsole` contortions.
+
+### Changed
+
+- **Main GUI binary renamed `TEDI.exe` → `TEDIApp.exe`** via `tauri.conf.json: "mainBinaryName": "TEDIApp"`. `productName` stays `"TEDI"` so Start Menu, Add/Remove Programs, registry entries, and the installer filename are unchanged. The rename is purely a PATHEXT-collision avoidance so the new `tedi.exe` stub is what the shell finds when the user types `tedi`.
+- **Cargo binary layout: two `[[bin]]` entries.** `TEDIApp` (path = `src/main.rs`) is the GUI bin pinned via `default-run`; `tedi` (path = `src/bin/tedi-cli.rs`) is the console stub. The release workflow builds the stub via `cargo build --release --bin tedi` before `tauri-action` so the NSIS hook can `File` it from `target/release/tedi.exe`.
+- **`tedi.cmd` NSIS shim removed.** v0.2.0..v0.2.19 wrote a batch shim that PATHEXT bypassed (because `.EXE` resolves before `.CMD`) and that handled `--help` / `--version` natively as a belt-and-suspenders. The new `tedi.exe` supersedes it entirely. `NSIS_HOOK_PREUNINSTALL` deletes both `tedi.exe` and any legacy `tedi.cmd` from older installs.
+
+### Other
+
+- TypeScript: `tsconfig.json` `target` / `lib` bumped from ES2020 → ES2022 so `Error.cause` (used by the AI transport's correlation-id error path) type-checks. Vite + Tauri's WebView2 / WKWebView already runs modern Chromium / WebKit so emitting ES2022 is safe.
+
 ## [0.2.19] - 22-05-2026
 
 ### Changed

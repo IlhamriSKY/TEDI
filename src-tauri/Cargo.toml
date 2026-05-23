@@ -1,9 +1,15 @@
 [package]
 name = "tedi"
-version = "0.2.19"
+version = "0.2.20"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
+# `tauri-action` invokes `cargo build` without `--bin`, then asks Cargo
+# which binary to bundle. With two `[[bin]]` entries below Cargo would
+# otherwise refuse with "failed to find main binary, make sure you have
+# a package > default-run in the Cargo.toml file" — pin TEDIApp (the GUI
+# binary) as the main one so the Tauri bundler picks it.
+default-run = "TEDIApp"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +19,32 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "tedi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Main GUI binary. `windows_subsystem = "windows"` (set in main.rs) detaches
+# stdio on Windows so the binary cannot synchronously print to the parent
+# shell — see the `tedi` console stub below. Renamed from the default
+# package-name `tedi.exe` so PATHEXT on Windows finds the console stub first
+# (the two cannot share a name on a case-insensitive filesystem).
+[[bin]]
+name = "TEDIApp"
+path = "src/main.rs"
+
+# Console-subsystem entry point shipped as `tedi.exe` next to `TEDIApp.exe`
+# on Windows. PowerShell does not synchronously wait for GUI-subsystem
+# children, so output from the GUI binary lands AFTER the shell has already
+# redrawn its prompt — the cursor ends up mid-line and the user has to press
+# Enter to recover. The console stub solves this: PowerShell waits for it
+# like any normal CLI, it parses argv, handles `--help` / `--version`
+# natively, and forwards `--update` / `ext` / `--extension` to `TEDIApp.exe`
+# synchronously with `Stdio::inherit`. GUI launches are detached so the
+# shell prompt returns immediately.
+#
+# Built on every platform but only bundled on Windows (mac/Linux don't have
+# the GUI-subsystem split — there `tedi` resolves to the main binary which
+# inherits stdio normally).
+[[bin]]
+name = "tedi"
+path = "src/bin/tedi-cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
