@@ -46,6 +46,9 @@ export type ToolContext = {
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
   /** Type and submit into a specific terminal. Same resolution as injectIntoTerminal. */
   runInTerminal: (target: TerminalTarget, command: string) => boolean;
+  /** True when the resolved terminal is busy (running a command or in a TUI
+   *  alt-screen). Empty/missing target falls back to the active terminal. */
+  isTerminalBusy: (target?: TerminalTarget) => boolean;
   /** Absolute paths read this session via `read_file`. `edit`/`multi_edit`
    *  enforce read-before-edit by checking membership. */
   readCache: Set<string>;

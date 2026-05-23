@@ -14,7 +14,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   AgentRunBridge,
-  AiSidebarPanel,
   getAllKeys,
   hasAnyKey,
   hasKeyForModel,
@@ -132,6 +131,9 @@ const SshConnectionDialog = lazy(() =>
 // workflows skip this code entirely.
 const SshFileExplorer = lazy(() =>
   import("@/modules/ssh/SshFileExplorer").then((m) => ({ default: m.SshFileExplorer })),
+);
+const AiSidebarPanel = lazy(() =>
+  import("@/modules/ai/components/AiMiniWindow").then((m) => ({ default: m.AiSidebarPanel })),
 );
 
 /** Narrow context for live-terminal helpers. Subset of `liveContextRef.current`. */
@@ -1995,6 +1997,24 @@ export default function App() {
         closePaneByLeaf(leafId);
         return { ok: true, closedTab: onlyLeafInTab };
       },
+      isTerminalBusy: (target) => {
+        // Resolve target (default = active terminal). Missing terminal is
+        // reported as busy so callers fall through to "open new terminal".
+        const leafId =
+          target === undefined
+            ? (() => {
+                const { tabs, activeId } = liveContextRef.current;
+                const t = tabs.find((x) => x.id === activeId);
+                if (!t || t.kind !== "pane") return null;
+                const leaf = activeLeaf(t);
+                return leaf && leaf.leafKind === "terminal" ? leaf.id : null;
+              })()
+            : resolveTerminalLeaf(target, liveContextRef.current);
+        if (leafId === null) return true;
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return true;
+        return !term.isAtPrompt();
+      },
     });
   }, [setLive]);
 
@@ -2312,7 +2332,9 @@ export default function App() {
                     {rightPanelActive ? (
                       <RightPanelHost />
                     ) : hasComposer ? (
-                      <AiSidebarPanel />
+                      <Suspense fallback={null}>
+                        <AiSidebarPanel />
+                      </Suspense>
                     ) : (
                       <div className="border-border/60 bg-card/60 flex h-full flex-col border-l">
                         <AiInputBarConnect onAdd={handleAddProviderKey} />

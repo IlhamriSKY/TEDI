@@ -100,12 +100,6 @@ Settings → Extensions → From file       (pick a local .zip)
 Settings → Extensions → From GitHub     (paste owner/repo)
 Settings → Extensions → Check updates   (re-hit releases/latest on every github-sourced extension)
 ```
-
-**Reference extension — Discord Rich Presence:** <https://github.com/IlhamriSKY/TEDI.discord-rich-presence>
-Install string: `IlhamriSKY/TEDI.discord-rich-presence`.
-
-Want to write your own? See [extensions/README.md](extensions/README.md) for the manifest schema, host-API reference, lifecycle gotchas, and a copy-pasteable GitHub Actions release workflow.
-
 ## CLI Usage
 
 TEDI ships with a CLI that lets you open folders and files directly from the terminal.

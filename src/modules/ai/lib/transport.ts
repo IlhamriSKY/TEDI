@@ -4,6 +4,7 @@ import type { TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { CompactStages } from "./compact";
+import { classifyError, newCorrelationId, tediError, TediErrorCode, toChatError } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { native } from "./native";
 import type { ToolContext } from "../tools/tools";
@@ -72,34 +73,109 @@ type Deps = {
   getPlanMode?: () => boolean;
 };
 
+/** Max retries for transient provider errors (429, 5xx, network). */
+const MAX_RETRIES = 3;
+/** Base backoff in ms. With jitter: ~1s, ~2s, ~4s. */
+const RETRY_BASE_MS = 1000;
+
+function jitter(ms: number): number {
+  return ms * (0.75 + Math.random() * 0.5);
+}
+
 export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage> {
   return {
     async sendMessages({ messages, abortSignal }) {
-      const live = deps.getLive();
-      const projectMemory = await readTediMd(live.workspaceRoot);
-      const augmented = injectContext(messages, live);
-      const result = await runAgentStream({
+      const correlationId = newCorrelationId();
+
+      // Snapshot every per-turn knob ONCE, BEFORE any await, so a mid-turn
+      // settings change (model/provider swap, key rotation, persona switch,
+      // plan toggle) can't leak into a retry attempt or even into the first
+      // attempt of this same turn. The whole turn, including every backoff
+      // retry, runs against the values that were live when the user pressed
+      // Send. New values take effect on the next user prompt.
+      const snapshot = {
         keys: deps.getKeys(),
         modelId: deps.getModelId(),
         customInstructions: deps.getCustomInstructions(),
         agentPersona: deps.getAgentPersona(),
-        toolContext: deps.toolContext,
-        onStep: deps.onStep,
-        onUsage: deps.onUsage,
-        onCompact: deps.onCompact,
-        onFinishMeta: deps.onFinishMeta,
         lmstudioBaseURL: deps.getLmstudioBaseURL?.(),
         openaiCompatibleBaseURL: deps.getOpenaiCompatibleBaseURL?.(),
         planMode: deps.getPlanMode?.(),
-        projectMemory,
-        uiMessages: augmented,
-        abortSignal,
-      });
-      return result.toUIMessageStream({
-        // originalMessages lets the SDK assign a stable response id for
-        // retry/edit flows in the Chat UI.
-        originalMessages: messages,
-      });
+      };
+
+      const live = deps.getLive();
+      const projectMemory = await readTediMd(live.workspaceRoot);
+      const augmented = injectContext(messages, live);
+
+      let lastError: unknown;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (abortSignal?.aborted) {
+          throw toChatError(
+            tediError(TediErrorCode.ABORTED, "Request cancelled", { correlationId }),
+          );
+        }
+
+        try {
+          const result = await runAgentStream({
+            keys: snapshot.keys,
+            modelId: snapshot.modelId,
+            customInstructions: snapshot.customInstructions,
+            agentPersona: snapshot.agentPersona,
+            toolContext: deps.toolContext,
+            onStep: deps.onStep,
+            onUsage: deps.onUsage,
+            onCompact: deps.onCompact,
+            onFinishMeta: deps.onFinishMeta,
+            lmstudioBaseURL: snapshot.lmstudioBaseURL,
+            openaiCompatibleBaseURL: snapshot.openaiCompatibleBaseURL,
+            planMode: snapshot.planMode,
+            projectMemory,
+            uiMessages: augmented,
+            abortSignal,
+          });
+          return result.toUIMessageStream({
+            originalMessages: messages,
+          });
+        } catch (err) {
+          lastError = err;
+          if (abortSignal?.aborted) {
+            throw toChatError(
+              tediError(TediErrorCode.ABORTED, "Request cancelled", { correlationId }),
+            );
+          }
+
+          const code = classifyError(err);
+          // Only retry on transient errors. Auth failures, no-key, etc.
+          // should fail fast so the user can fix the root cause.
+          if (
+            code !== TediErrorCode.RATE_LIMITED &&
+            code !== TediErrorCode.PROVIDER_UNAVAILABLE
+          ) {
+            break;
+          }
+
+          if (attempt < MAX_RETRIES) {
+            const delay = jitter(RETRY_BASE_MS * Math.pow(2, attempt));
+            deps.onStep?.(`Retrying in ${Math.round(delay / 1000)}s…`);
+            await new Promise<void>((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+      }
+
+      const finalCode = classifyError(lastError);
+      const transient =
+        finalCode === TediErrorCode.RATE_LIMITED ||
+        finalCode === TediErrorCode.PROVIDER_UNAVAILABLE;
+      const message = transient
+        ? `Request failed after ${MAX_RETRIES + 1} attempts`
+        : (lastError instanceof Error ? lastError.message : String(lastError)) || "Request failed";
+      throw toChatError(
+        tediError(finalCode, message, {
+          detail: String(lastError instanceof Error ? lastError.message : lastError),
+          correlationId,
+        }),
+      );
     },
     async reconnectToStream() {
       // In-process transport: nothing to reconnect to.

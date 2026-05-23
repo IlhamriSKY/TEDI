@@ -3,14 +3,21 @@ import { cn } from "@/lib/utils";
 import { AlertCircleIcon, ShieldUserIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { useChatStore, type AgentMeta } from "../store/chatStore";
+import { useShallow } from "zustand/react/shallow";
+import { useChatStore, type AgentRunStatus } from "../store/chatStore";
 
 type Props = {
   onClick: () => void;
 };
 
 export function AgentStatusPill({ onClick }: Props) {
-  const meta = useChatStore((s) => s.agentMeta);
+  const meta = useChatStore(
+    useShallow((s) => ({
+      status: s.agentMeta.status,
+      approvalsPending: s.agentMeta.approvalsPending,
+      error: s.agentMeta.error,
+    })),
+  );
 
   // Surface only approval-pending and error in the status bar; thinking/streaming
   // already shows in the chat panel.
@@ -44,7 +51,11 @@ export function AgentStatusPill({ onClick }: Props) {
   );
 }
 
-function describe(meta: AgentMeta): {
+function describe(meta: {
+  status: AgentRunStatus;
+  approvalsPending: number;
+  error: string | null;
+}): {
   tone: string;
   icon: React.ReactNode;
   label: string;

@@ -131,7 +131,7 @@ const SHELL_PROMPT_LINE_PATTERNS: RegExp[] = [
   /^\s*[A-Za-z]:\\[^>]*>\s?$/i,
 ];
 
-function cursorLineLooksLikeShellPrompt(line: string): boolean {
+export function cursorLineLooksLikeShellPrompt(line: string): boolean {
   if (!line || line.replace(/\s+/g, "").length === 0) return false;
   for (const re of SHELL_PROMPT_LINE_PATTERNS) {
     if (re.test(line)) return true;

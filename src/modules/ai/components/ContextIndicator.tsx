@@ -12,6 +12,7 @@ import type { UIMessage } from "@ai-sdk/react";
 import { Minimize02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { getModel, getModelContextLimit } from "../config";
 import { useChatStore } from "../store/chatStore";
 
@@ -129,7 +130,9 @@ function LastCompactLine() {
 
 export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const modelId = useChatStore((s) => s.selectedModelId);
-  const usage = useChatStore((s) => s.agentMeta.usage);
+  const usage = useChatStore(
+    useShallow((s) => s.agentMeta.usage),
+  );
   const used = useMemo(() => estimateTokens(messages), [messages]);
   const max = getModelContextLimit(modelId);
   const modelLabel = useMemo(() => {

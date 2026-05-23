@@ -26,7 +26,7 @@ import {
 } from "@/modules/ssh/connections";
 import { openSsh, isHostKeyMismatchError } from "@/modules/ssh/bridge";
 import type { SshStatus } from "@/modules/ssh/status";
-import { createAiCliDetector, type AiCliDetector } from "./aiCliDetector";
+import { createAiCliDetector, cursorLineLooksLikeShellPrompt, type AiCliDetector } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
 
 export type { TediOpenInput, TediSpawnTabInput };
@@ -64,18 +64,21 @@ function isDebugPty(): boolean {
 
 /**
  * After `pty_open` resolves, no bytes within this window means the shell
- * stalled. Surface as a retry-able error.
+ * stalled. Surface as a retry-able error. 8s (was 5s) tolerates slow Windows
+ * pwsh user-profile loads that import many modules before the first prompt.
  */
-const NO_DATA_WATCHDOG_MS = 5_000;
+const NO_DATA_WATCHDOG_MS = 8_000;
 
 /**
  * Last-resort recovery for the silent-blank failure mode where attachSession
- * never runs or `s.ready` stays pending. Both `lastPtyError` and `pty` stay
- * null so Enter-to-retry can't fire. After this window with no live PTY and
- * no pending error, force `retryPty` / `retrySsh`. Sits between the 2s
- * container-settle budget and the 15s `SPAWN_TIMEOUT_MS`.
+ * never runs or `s.ready` stays pending. Fires only when there's no live
+ * PTY, no pending error, AND no in-flight spawn — an in-flight spawn that
+ * is just queued behind `SPAWN_LOCK` in Rust is legitimate progress and
+ * `SPAWN_TIMEOUT_MS` already covers genuinely hung pty_open invokes. Sits
+ * above worst-case `SPAWN_LOCK` queueing (3-5 splits stacking 1-2.5s of
+ * ConPTY init on Windows) and below `SPAWN_TIMEOUT_MS` (15s).
  */
-const STUCK_RECOVERY_MS = 8_000;
+const STUCK_RECOVERY_MS = 12_000;
 
 type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
@@ -134,6 +137,15 @@ type Session = {
    * before `invoke("pty_open")` resolved.
    */
   firstByteEpoch: number;
+  /**
+   * "[tedi] starting shell…" placeholder is currently visible in the term
+   * buffer. Cleared (via `\x1b[H\x1b[2J`) on the next PTY byte so the shell
+   * paints onto a clean viewport instead of leaving the dim hint as
+   * scrollback. Eliminates the perceived "blank pane" between attach and
+   * first shell output, especially on Windows where ConPTY + pwsh profile
+   * can take 200-1000ms before emitting anything.
+   */
+  placeholderShown: boolean;
   // SSH-only fields. Ignored on local PTY leaves.
   /** Latest emitted SSH status. */
   sshStatus: SshStatus;
@@ -245,6 +257,7 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     sshReconnectTimer: null,
     aiCliDetector: null,
     aiCliStatus: null,
+    placeholderShown: false,
   };
   sessions.set(leafId, session);
 
@@ -392,6 +405,14 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
     if (s.noDataTimer !== null) {
       clearTimeout(s.noDataTimer);
       s.noDataTimer = null;
+    }
+    // Clear the "starting shell…" placeholder before the shell's first
+    // paint so it doesn't linger above the prompt as scrollback. Soft reset
+    // (cursor home + erase display) keeps SGR/cursor state owned by the
+    // shell's own output.
+    if (s.placeholderShown) {
+      s.placeholderShown = false;
+      s.term.write("\x1b[H\x1b[2J");
     }
     totalBytes += bytes.length;
     s.term.write(bytes);
@@ -699,6 +720,7 @@ async function retrySsh(s: Session): Promise<void> {
   s.sshReconnectAttempts = 0;
   s.sshUserClose = false;
   s.term.reset();
+  s.placeholderShown = false;
   s.term.options.disableStdin = false;
   await runSshReconnect(s);
 }
@@ -748,6 +770,7 @@ function describeError(e: unknown): string {
 
 function writePtyError(s: Session, message: string): void {
   s.term.reset();
+  s.placeholderShown = false;
   s.term.options.disableStdin = false;
   s.term.write(
     "\x1b[31m\x1b[1m[tedi] failed to start shell\x1b[0m\r\n" +
@@ -798,6 +821,9 @@ async function retryPty(s: Session): Promise<void> {
   s.term.reset();
   s.term.options.disableStdin = false;
   s.term.write("\x1b[2m[tedi] retrying…\x1b[0m\r\n");
+  // Treat the retrying hint as the new placeholder so the first PTY byte
+  // wipes it instead of leaving "retrying…" stuck above the prompt.
+  s.placeholderShown = true;
   // Seed to the values openPtyForSession spawns at (floored) so post-spawn syncPtySize no-ops.
   s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
   s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
@@ -859,6 +885,7 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   s.pty = null;
   s.ptySpawnedAt = null;
   s.term.reset();
+  s.placeholderShown = false;
   s.term.options.disableStdin = false;
   s.lastSentCols = 0;
   s.lastSentRows = 0;
@@ -934,6 +961,14 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
     // Same floor as openPtyForSession so post-spawn syncPtySize no-ops on first attach.
     s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
     s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
+    // Immediate visual feedback so the user doesn't see a blank pane while
+    // ConPTY initializes and the shell loads its profile. SSH leaves get
+    // their own "[tedi] connecting to …" banner from `openSshForSession`,
+    // so skip the placeholder there. Cleared by `onData` on the first byte.
+    if (firstAttach && !s.sshConnectionId && !s.placeholderShown) {
+      s.placeholderShown = true;
+      s.term.write("\x1b[2m[tedi] starting shell…\x1b[0m");
+    }
     const debug = isDebugPty();
     const tAttach = performance.now();
     if (debug) {
@@ -1242,11 +1277,14 @@ export function useTerminalSession({
       if (cancelled || s.disposed) return;
       if (s.pty) return; // healthy
       if (s.lastPtyError !== null) return; // Enter-to-retry handles it
+      // In-flight spawn is legitimate progress (typically queued behind
+      // Rust's SPAWN_LOCK during rapid splits). `SPAWN_TIMEOUT_MS` handles
+      // the genuinely-hung case. Re-arming a spawn here would double-queue
+      // a ConPTY init and the late resolution would just close as stale.
+      if (s.ptyOpening) return;
       console.warn(
         `[tedi-pty] stuck-recovery: leaf=${leafId} pty=null lastPtyError=null ptyOpening=${s.ptyOpening} sshConn=${s.sshConnectionId ?? "-"} sshStatus=${s.sshStatus.kind} containerAttached=${s.term.element !== undefined} after ${STUCK_RECOVERY_MS}ms - forcing retry`,
       );
-      // Reset the opening flag so retry isn't blocked by a hung promise.
-      s.ptyOpening = false;
       if (s.sshConnectionId) {
         // SSH has its own reconnect. Only intervene from idle.
         if (s.sshStatus.kind === "idle") {
@@ -1370,13 +1408,30 @@ export function useTerminalSession({
    */
   const paste = useCallback((data: string) => sessions.get(leafId)?.term.paste(data), [leafId]);
 
+  // True when the cursor line matches a shell PS1 on the normal screen. Used
+  // by the AI's run_in_terminal to refuse disrupting a running command or TUI.
+  // Alt-screen (vim, htop, top, etc.) is always treated as busy.
+  const isAtPrompt = useCallback((): boolean => {
+    const s = sessions.get(leafId);
+    if (!s) return false;
+    try {
+      const buf = s.term.buffer.active;
+      if (buf.type === "alternate") return false;
+      const line = buf.getLine(buf.baseY + buf.cursorY);
+      const text = line ? line.translateToString(true) : "";
+      return cursorLineLooksLikeShellPrompt(text);
+    } catch {
+      return false;
+    }
+  }, [leafId]);
+
   const applyTheme = useCallback(() => {
     const s = sessions.get(leafId);
     if (!s) return;
     s.term.options.theme = buildTerminalTheme();
   }, [leafId]);
 
-  return { write, focus, getBuffer, getSelection, paste, applyTheme };
+  return { write, focus, getBuffer, getSelection, paste, isAtPrompt, applyTheme };
 }
 
 function isCtrlBackspace(event: KeyboardEvent): boolean {

@@ -16,6 +16,10 @@ export type TerminalPaneHandle = {
   getSelection: () => string | null;
   /** Bracketed-paste-aware insert. Prevents multi-line snippets from auto-executing under bash/zsh. */
   paste: (data: string) => void;
+  /** True when the cursor sits on a shell prompt (PS1/zsh/pwsh/cmd) on the
+   *  normal screen, i.e. safe for the AI to inject a command. False on the
+   *  alt-screen (TUI app) or mid-command-output. */
+  isAtPrompt: () => boolean;
 };
 
 type Props = {
@@ -90,6 +94,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
       getBuffer: (max?: number) => session.getBuffer(max),
       getSelection: () => session.getSelection(),
       paste: (data: string) => session.paste(data),
+      isAtPrompt: () => session.isAtPrompt(),
     }),
     [session],
   );

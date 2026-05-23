@@ -14,7 +14,7 @@ export function buildTerminalTools(ctx: ToolContext) {
   return {
     suggest_command: tool({
       description:
-        "Type a shell command into the user's active terminal WITHOUT running it. Use when the answer IS a command. No trailing newline.",
+        "Type a shell command into the user's active terminal WITHOUT running it. Use when the answer IS a command. No trailing newline. Refuses if the active terminal is busy (command running or TUI on the alt-screen); in that case a fresh split is opened for you, retry next step.",
       inputSchema: z.object({
         command: z.string().describe("The shell command. No trailing newline."),
         explanation: z
@@ -29,13 +29,37 @@ export function buildTerminalTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/\n+$/, "");
         const effective = applyShellTransformers(trimmed, "terminal");
-        const ok = ctx.injectIntoActivePty(effective);
-        if (!ok)
+
+        if (!ctx.isTerminalBusy()) {
+          const ok = ctx.injectIntoActivePty(effective);
+          if (!ok)
+            return { error: "no active terminal to inject into", command: trimmed };
+          return { command: trimmed, explanation, injected: true };
+        }
+
+        // Active terminal is busy. Open a fresh split (fall back to a new
+        // tab if the per-tab pane cap is hit) and tell the model to retry
+        // next step. The new terminal becomes active so the retry targets
+        // it. We don't auto-inject here: the new TerminalPane needs a render
+        // tick to mount and the PTY a moment more to open, so writes done in
+        // this same tick land in the void.
+        let spawn = ctx.openTerminalAdvanced({ mode: "split", splitDir: "row" });
+        if (!spawn.ok) spawn = ctx.openTerminalAdvanced({ mode: "tab" });
+        if (!spawn.ok)
           return {
-            error: "no active terminal to inject into",
+            error: `active terminal is busy and could not open a new one: ${spawn.error}`,
             command: trimmed,
           };
-        return { command: trimmed, explanation, injected: true };
+        return {
+          error:
+            "active terminal is busy (command running or TUI on the alt-screen). Opened a new terminal as the active tab; call suggest_command again to inject there.",
+          command: trimmed,
+          explanation,
+          opened_new_terminal: true,
+          tab_id: spawn.tabId,
+          leaf_id: spawn.leafId,
+          mode: spawn.mode,
+        };
       },
     }),
 
@@ -266,7 +290,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     run_in_terminal: tool({
       description:
-        "Submit a command into the focused terminal (Enter appended). Output stays in user's tab — use read_terminal after if needed. Different from bash_run (hidden shell). Approval.",
+        "Submit a command into the focused terminal (Enter appended). Output stays in user's tab; use read_terminal after if needed. Different from bash_run (hidden shell). Refuses if the active terminal is busy (command running or TUI on the alt-screen); in that case a fresh split is opened for you, retry next step. Approval.",
       inputSchema: z.object({
         command: z.string().describe("Command to submit. No trailing newline."),
       }),
@@ -276,9 +300,35 @@ export function buildTerminalTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
         const effective = applyShellTransformers(trimmed, "terminal");
-        const ok = ctx.runInActiveTerminal(effective);
-        if (!ok) return { error: "no active terminal tab to run in", command: trimmed };
-        return { command: trimmed, submitted: true };
+
+        if (!ctx.isTerminalBusy()) {
+          const ok = ctx.runInActiveTerminal(effective);
+          if (!ok) return { error: "no active terminal tab to run in", command: trimmed };
+          return { command: trimmed, submitted: true };
+        }
+
+        // Active terminal is busy. Open a fresh split (fall back to a new
+        // tab if the per-tab pane cap is hit) and report; the new terminal
+        // becomes active so the retry targets it. We don't auto-submit here:
+        // the new TerminalPane needs a render tick to mount and the PTY a
+        // moment more to open, so writes done in this same tick land in
+        // the void.
+        let spawn = ctx.openTerminalAdvanced({ mode: "split", splitDir: "row" });
+        if (!spawn.ok) spawn = ctx.openTerminalAdvanced({ mode: "tab" });
+        if (!spawn.ok)
+          return {
+            error: `active terminal is busy and could not open a new one: ${spawn.error}`,
+            command: trimmed,
+          };
+        return {
+          error:
+            "active terminal is busy (command running or TUI on the alt-screen). Opened a new terminal as the active tab; call run_in_terminal again to submit there.",
+          command: trimmed,
+          opened_new_terminal: true,
+          tab_id: spawn.tabId,
+          leaf_id: spawn.leafId,
+          mode: spawn.mode,
+        };
       },
     }),
 

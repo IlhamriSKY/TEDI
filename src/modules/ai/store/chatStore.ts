@@ -87,6 +87,10 @@ type Live = {
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
   /** Submit a command (Enter appended) to a specific terminal. */
   runInTerminal: (target: TerminalTarget, command: string) => boolean;
+  /** True when the target (default = active) terminal is running a command
+   *  or on the alt-screen (TUI). False when the cursor sits on a shell PS1
+   *  on the normal screen, i.e. safe for the AI to inject a command. */
+  isTerminalBusy: (target?: TerminalTarget) => boolean;
 };
 
 export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
@@ -241,6 +245,7 @@ const NOOP_LIVE: Live = {
   listTerminals: () => [],
   injectIntoTerminal: () => false,
   runInTerminal: () => false,
+  isTerminalBusy: () => true,
 };
 
 // Per-session Chat instances. The transport reads keys lazily, so key changes
@@ -313,6 +318,15 @@ export function flushPersist(id?: string): void {
   for (const key of Array.from(pendingPersist.keys())) flushPersistEntry(key);
 }
 
+// Periodic safety flush (every 5s) alongside the debounce. Ensures tail
+// messages survive a crash even if the debounced timer hasn't fired yet.
+let periodicFlushTimer: ReturnType<typeof setInterval> | undefined;
+function ensurePeriodicFlush(): void {
+  if (periodicFlushTimer !== undefined) return;
+  periodicFlushTimer = setInterval(() => flushPersist(), 5000);
+}
+ensurePeriodicFlush();
+
 // Per-session throttle so a chain of high-context turns doesn't fire a toast
 // per turn. Auto-compact surfaces at most once per 12 seconds.
 const AUTO_COMPACT_TOAST_THROTTLE_MS = 12_000;
@@ -350,6 +364,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     injectIntoTerminal: (target, text) =>
       useChatStore.getState().live.injectIntoTerminal(target, text),
     runInTerminal: (target, command) => useChatStore.getState().live.runInTerminal(target, command),
+    isTerminalBusy: (target) => useChatStore.getState().live.isTerminalBusy(target),
     readCache,
     getSessionId: () => sessionId,
   };
@@ -475,6 +490,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
       tryGetModel(id)?.provider ??
       // Fallback: keep current provider rather than guess.
       get().selectedProvider;
+    // The transport snapshots `selectedModelId` once per `sendMessages` call,
+    // so an in-flight agent run stays bound to whatever it started with. A
+    // mid-turn swap only takes effect on the next user prompt. This is
+    // intentional: restarting the stream mid-flight would lose partial work
+    // and surprise the user.
     set({ selectedModelId: id, selectedProvider: resolved });
   },
 
