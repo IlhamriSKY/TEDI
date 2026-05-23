@@ -1,38 +1,38 @@
+# Workspace root. The companion console-subsystem launcher `tedi.exe`
+# lives in a separate workspace member (`tedi-cli/`) so Tauri 2's deb /
+# dmg bundlers only see the GUI binary when they enumerate `[[bin]]`
+# entries from THIS manifest. Trying to gate the stub via `[[bin]]
+# required-features` here did NOT work — the bundlers ignored the gate
+# and still expected `target/release/tedi` to exist, then failed because
+# cargo had legitimately skipped the build. Splitting the package
+# removes the entry from the bundler's view entirely.
+#
+# `default-members = ["."]` keeps `cargo build` in this directory
+# scoped to the GUI package; the release workflow builds the stub
+# explicitly via `cargo build --release -p tedi-cli` on Windows only.
+[workspace]
+members = ["tedi-cli"]
+default-members = ["."]
+
 [package]
 name = "tedi"
 version = "0.2.20"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 edition = "2021"
-# `tauri-action` invokes `cargo build` without `--bin`, then asks Cargo
-# which binary to bundle. With two `[[bin]]` entries below Cargo would
-# otherwise refuse with "failed to find main binary, make sure you have
-# a package > default-run in the Cargo.toml file" — pin TEDIApp (the GUI
-# binary) as the main one so the Tauri bundler picks it.
+# Tauri-action invokes `cargo build` without `--bin` and asks Cargo which
+# binary to bundle. With the implicit bin (from package.name = "tedi" +
+# src/main.rs) plus the explicit `[[bin]] TEDIApp` pointing to the same
+# source, Cargo can refuse with "failed to find main binary". Pinning
+# default-run resolves it deterministically.
 default-run = "TEDIApp"
-# Disable Cargo's auto-discovery of `src/bin/*.rs`. We declare every binary
-# explicitly below so each one carries the right `required-features` /
-# subsystem gate. Auto-discovery would otherwise add a duplicate `tedi`
-# bin (from `src/bin/tedi.rs`) WITHOUT the feature gate, which Tauri 2's
-# deb / dmg bundlers then try to bundle as a sidecar — failing with
-# "/target/release/tedi-cli does not exist" (when the path stem still
-# matched the legacy filename) or worse, dropping an unsigned secondary
-# binary into the macOS .app bundle.
+# Disable auto-discovery so the implicit `tedi` bin (from package.name +
+# src/main.rs) does not collide with the explicit `[[bin]] TEDIApp` that
+# also points to src/main.rs. The companion launcher lives in a separate
+# workspace member, never in `src/bin/` of this package.
 autobins = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-# Opt-in gate for the `tedi` console-subsystem launcher. Off by default so
-# `cargo build` on macOS / Linux skips the stub (it serves no purpose there
-# and Tauri's macOS bundler would otherwise drop the secondary binary inside
-# `TEDI.app/Contents/MacOS/`, which trips ad-hoc codesign on x86_64 with
-# "code object is not signed at all. In subcomponent: ... /tedi"). The
-# Windows release step in `.github/workflows/release.yml` enables it via
-# `cargo build --release --bin tedi --features tedi-cli`; the subsequent
-# `tauri-action` `cargo build` (no features) leaves the previously-built
-# artifact intact via cargo's incremental cache.
-tedi-cli = []
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
@@ -49,26 +49,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "TEDIApp"
 path = "src/main.rs"
-
-# Console-subsystem entry point shipped as `tedi.exe` next to `TEDIApp.exe`
-# on Windows. PowerShell does not synchronously wait for GUI-subsystem
-# children, so output from the GUI binary lands AFTER the shell has already
-# redrawn its prompt — the cursor ends up mid-line and the user has to press
-# Enter to recover. The console stub solves this: PowerShell waits for it
-# like any normal CLI, it parses argv, handles `--help` / `--version`
-# natively, and forwards `--update` / `ext` / `--extension` to `TEDIApp.exe`
-# synchronously with `Stdio::inherit`. GUI launches are detached so the
-# shell prompt returns immediately.
-#
-# Built on Windows only (gated behind the `tedi-cli` feature — see
-# `[features]` above). On macOS / Linux this binary would land in
-# `TEDI.app/Contents/MacOS/tedi` and break ad-hoc codesign on x86_64. The
-# subsystem-split problem only exists on Windows anyway, so the stub
-# serves no purpose on POSIX where the GUI binary inherits stdio natively.
-[[bin]]
-name = "tedi"
-path = "src/bin/tedi.rs"
-required-features = ["tedi-cli"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

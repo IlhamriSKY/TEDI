@@ -4,7 +4,7 @@
 ;   TEDIApp.exe   GUI subsystem — the actual app. Named so PATHEXT does NOT
 ;                 resolve `tedi` to it; the user-facing entry point is the
 ;                 console stub below.
-;   tedi.exe      console subsystem — built from src/bin/tedi.rs. This is
+;   tedi.exe      console subsystem — built from tedi-cli/src/main.rs. This is
 ;                 what PowerShell / cmd invoke when the user types `tedi`.
 ;                 Dispatches `--help` / `--version` inline, runs `--update`
 ;                 and `ext` synchronously with inherited stdio, detaches
@@ -74,7 +74,7 @@ ${StrStr}
   ; TEDIApp.exe is `windows_subsystem = "windows"`; PowerShell does not
   ; synchronously wait for GUI-subsystem children, so `tedi --help` output
   ; lands after the next prompt and the cursor ends up mid-line. tedi.exe
-  ; is a console-subsystem twin from src/bin/tedi.rs that PowerShell
+  ; is a console-subsystem twin from tedi-cli/src/main.rs that PowerShell
   ; waits for properly. PATHEXT then resolves the user's `tedi` to this
   ; binary instead of the GUI (the GUI is renamed TEDIApp.exe specifically
   ; to keep it off PATHEXT's `tedi.exe` lookup).

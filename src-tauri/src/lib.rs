@@ -1,7 +1,14 @@
-// `pub` so the `tedi` console-subsystem binary (src/bin/tedi.rs) can
-// reach `cli::help_text()` and the version constants — keeps the help text
-// single-sourced between the GUI binary and the stub.
+// `pub` so the `tedi-cli` workspace member's stub binary
+// (src-tauri/tedi-cli/src/main.rs) can reach `cli::help_text()` and the
+// version constants — keeps the help text single-sourced between the GUI
+// binary and the launcher.
 pub mod modules;
+
+/// Version string this crate was compiled against. Re-exposed so the
+/// `tedi-cli` launcher (which has its own `CARGO_PKG_VERSION` for the
+/// `tedi-cli` package) can print the GUI crate's version instead and
+/// stay in sync without a duplicate version constant.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
     cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh,

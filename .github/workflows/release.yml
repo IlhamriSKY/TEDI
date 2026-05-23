@@ -78,14 +78,13 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         working-directory: src-tauri
-        # `--features tedi-cli` is required: the `[[bin]] tedi` target in
-        # Cargo.toml is gated by `required-features = ["tedi-cli"]` so that
-        # the subsequent `tauri-action` `cargo build` (no features) on
-        # macOS / Linux skips the stub. Otherwise Tauri's macOS bundler
-        # drops `tedi` into `TEDI.app/Contents/MacOS/` and ad-hoc codesign
-        # blows up on x86_64 with "code object is not signed at all.
-        # In subcomponent: ... /tedi".
-        run: cargo build --release --bin tedi --features tedi-cli
+        # The launcher lives in the `tedi-cli/` workspace member — kept
+        # separate from the GUI package on purpose so Tauri 2's deb / dmg
+        # bundlers don't enumerate it as a `[[bin]]` to bundle on POSIX.
+        # The shared workspace target dir means the produced
+        # `target/release/tedi.exe` sits next to the GUI's TEDIApp.exe,
+        # ready for the NSIS hook's `File` directive.
+        run: cargo build --release -p tedi-cli
 
       - uses: tauri-apps/tauri-action@v0
         env:

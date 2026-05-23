@@ -1,0 +1,35 @@
+[package]
+# Separate package from the GUI binary on purpose: Tauri 2's deb / dmg /
+# nsis bundlers enumerate `[[bin]]` entries from the manifest they're
+# invoked against and try to copy each to the install layout. With the
+# stub declared in the GUI's `Cargo.toml`, POSIX bundles either tried to
+# ship an unwanted `/usr/bin/tedi` (Linux) or dropped a secondary binary
+# into `TEDI.app/Contents/MacOS/` that ad-hoc codesign on x86_64 refused
+# to walk. `required-features` did not filter the bundler's enumeration —
+# it only skips the cargo build step, so the bundler then fails with
+# "target/release/tedi does not exist". A standalone package keeps the
+# stub out of the GUI manifest entirely; only the Windows release step
+# (`cargo build --release -p tedi-cli`) builds it.
+name = "tedi-cli"
+version = "0.2.20"
+edition = "2021"
+publish = false
+
+[[bin]]
+# Output filename is `tedi.exe` — this is what PATHEXT resolves the
+# user's `tedi` to on Windows. The companion GUI binary is `TEDIApp.exe`
+# (renamed via `mainBinaryName` in `tauri.conf.json`) so the two cannot
+# collide on a case-insensitive filesystem.
+name = "tedi"
+path = "src/main.rs"
+
+[dependencies]
+# Path-dep on the GUI crate so the stub's `--help` reuses
+# `tedi_lib::modules::cli::help_text` and never drifts. The package on
+# disk is named `tedi`; we keep the import name `tedi_lib` because that's
+# what its `[lib].name` field exposes and what the GUI code uses too.
+tedi_lib = { path = "..", package = "tedi" }
+
+# Release profile is inherited from the workspace root (Cargo only honours
+# `[profile.*]` at the workspace root; declaring one here would emit
+# "profiles for the non root package will be ignored").

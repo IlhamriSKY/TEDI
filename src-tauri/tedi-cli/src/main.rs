@@ -48,11 +48,12 @@ fn main() {
         .iter()
         .any(|a| matches!(a.as_str(), "--version" | "-v" | "-V"))
     {
-        println!(
-            "{} {}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        );
+        // Print "tedi <ver>" — the literal binary name the user invoked.
+        // `env!("CARGO_PKG_NAME")` would render as "tedi-cli" (this launcher
+        // package's Cargo name) which would confuse anyone tracking down a
+        // version string; the user typed `tedi`, the answer says `tedi`.
+        // Version comes from the GUI crate so both --version paths agree.
+        println!("tedi {}", tedi_lib::VERSION);
         return;
     }
 
