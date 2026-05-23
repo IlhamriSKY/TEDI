@@ -80,17 +80,25 @@ ${StrStr}
   ; to keep it off PATHEXT's `tedi.exe` lookup).
   ;
   ; The release workflow builds the stub via an explicit
-  ; `cargo build --release --bin tedi` step (see
+  ; `cargo build --release -p tedi-cli` step (see
   ; .github/workflows/release.yml), so by the time NSIS runs the file is at
-  ; <src-tauri>/target/release/tedi.exe. Path is relative to the generated
-  ; installer.nsi at <src-tauri>/target/release/bundle/nsis/<lang>/, i.e.
-  ; three dirs up gets us back to target/release.
+  ; <src-tauri>/target/release/tedi.exe. The Tauri 2.11 NSIS bundler emits
+  ; `installer.nsi` at `<src-tauri>/target/release/bundle/nsis/installer.nsi`
+  ; (NO per-language subdirectory — earlier versions of this comment claimed
+  ; otherwise and shipped `..\..\..\tedi.exe`, which resolved one level too
+  ; high to `target/tedi.exe`. `/nonfatal` then swallowed the missing-file
+  ; error and the installer silently shipped without the launcher, leaving
+  ; the user with "'tedi' is not recognized as an internal or external
+  ; command"). Two dots up = bundle/, three dots = the bundle/nsis sibling
+  ; level we don't want, two dots is correct: `..\..\` lands at
+  ; target/release/.
   ;
-  ; /nonfatal lets future bundler variants survive a missing file without
-  ; aborting the whole install; missing tedi.exe leaves the user with only
-  ; the GUI binary which they'd invoke via the Start Menu shortcut.
+  ; Drop /nonfatal so a missing tedi.exe FAILS the installer build instead
+  ; of producing a broken installer. The launcher is now load-bearing for
+  ; every CLI subcommand (`tedi --help`, `tedi ext ...`, etc.) so a missing
+  ; binary is not a degradation — it is a complete CLI outage.
   SetOutPath "$INSTDIR"
-  File /nonfatal "/oname=tedi.exe" "..\..\..\tedi.exe"
+  File "/oname=tedi.exe" "..\..\tedi.exe"
 
   ; --- remove any legacy tedi.cmd shim ------------------------------------
   ; v0.2.0 .. v0.2.19 wrote a `tedi.cmd` here that handled --help / --version
