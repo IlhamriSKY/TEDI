@@ -22,6 +22,7 @@ the GitHub `releases/latest` endpoint to surface available versions.
 | --- | --- | --- |
 | **Discord Rich Presence** | <https://github.com/IlhamriSKY/TEDI.discord-rich-presence> | `IlhamriSKY/TEDI.discord-rich-presence` |
 | **Secondary Folder Tree** | <https://github.com/IlhamriSKY/TEDI.secondary-folder-tree> | `IlhamriSKY/TEDI.secondary-folder-tree` |
+| **Terminal Screenshot** | <https://github.com/IlhamriSKY/TEDI.terminal-screenshot> | `IlhamriSKY/TEDI.terminal-screenshot` |
 
 Each repo has its own [release CI](https://github.com/IlhamriSKY/TEDI.discord-rich-presence/blob/main/.github/workflows/release.yml)
 that produces a `.zip` asset on every `vX.Y.Z` tag, exactly the shape
@@ -32,6 +33,7 @@ paste the install string above, click **Review → Install**.
 | --- | --- |
 | Discord Rich Presence | `contribute.settings`, `settings.onChange`, `app.onContextChange`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binaries via `shell_bg_spawn_direct`. |
 | Secondary Folder Tree | `contribute.panels` (right surface), `contribute.commands` + `contribute.keybindings` for rebindable shortcut, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`, drag-from-tree → drop-on-terminal. |
+| Terminal Screenshot | `contribute.panels` (right surface) used purely to mint the status-bar button, then the click is intercepted via a document capture-phase listener so a `position: fixed` floating dropdown opens instead of the right-slot, mapping `data-terminal-leaf-id` → tab `terminalOrdinal` by walking `TabsTrigger` DOM, DOM-side canvas compositing with no extra permissions, clipboard + `<a download>` for persistence. |
 
 When in doubt, copy the layout that's closest to what you're building.
 
