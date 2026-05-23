@@ -402,9 +402,10 @@ pub fn cli_install_path_shim() -> Result<ShimInstall, String> {
     {
         Ok(ShimInstall::NotApplicable {
             message: "On Windows the `tedi` command is installed by the NSIS \
-                      installer (it drops a tedi.cmd shim and appends the \
-                      install dir to your user PATH). Reinstall TEDI if it's \
-                      missing."
+                      installer (it ships a console-subsystem `tedi.exe` \
+                      launcher next to `TEDIApp.exe` and appends the install \
+                      directory to your user PATH). Reinstall TEDI if `tedi` \
+                      isn't recognised after opening a new terminal."
                 .into(),
         })
     }

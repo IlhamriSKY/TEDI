@@ -45,10 +45,14 @@
     "linux": {
       "deb": {
         "section": "utils",
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "postInstallScript": "scripts/linux-postinstall.sh",
+        "preRemoveScript": "scripts/linux-preremove.sh"
       },
       "rpm": {
-        "depends": ["webkit2gtk4.1", "gtk3"]
+        "depends": ["webkit2gtk4.1", "gtk3"],
+        "postInstallScript": "scripts/linux-postinstall.sh",
+        "preRemoveScript": "scripts/linux-preremove.sh"
       },
       "appimage": {
         "bundleMediaFramework": true
