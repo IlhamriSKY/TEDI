@@ -10,6 +10,15 @@ edition = "2021"
 # a package > default-run in the Cargo.toml file" — pin TEDIApp (the GUI
 # binary) as the main one so the Tauri bundler picks it.
 default-run = "TEDIApp"
+# Disable Cargo's auto-discovery of `src/bin/*.rs`. We declare every binary
+# explicitly below so each one carries the right `required-features` /
+# subsystem gate. Auto-discovery would otherwise add a duplicate `tedi`
+# bin (from `src/bin/tedi.rs`) WITHOUT the feature gate, which Tauri 2's
+# deb / dmg bundlers then try to bundle as a sidecar — failing with
+# "/target/release/tedi-cli does not exist" (when the path stem still
+# matched the legacy filename) or worse, dropping an unsigned secondary
+# binary into the macOS .app bundle.
+autobins = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -58,7 +67,7 @@ path = "src/main.rs"
 # serves no purpose on POSIX where the GUI binary inherits stdio natively.
 [[bin]]
 name = "tedi"
-path = "src/bin/tedi-cli.rs"
+path = "src/bin/tedi.rs"
 required-features = ["tedi-cli"]
 
 [build-dependencies]

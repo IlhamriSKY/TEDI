@@ -1,4 +1,4 @@
-// `pub` so the `tedi` console-subsystem binary (src/bin/tedi-cli.rs) can
+// `pub` so the `tedi` console-subsystem binary (src/bin/tedi.rs) can
 // reach `cli::help_text()` and the version constants — keeps the help text
 // single-sourced between the GUI binary and the stub.
 pub mod modules;
