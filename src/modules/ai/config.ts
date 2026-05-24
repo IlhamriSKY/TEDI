@@ -9,6 +9,7 @@ export type ProviderId =
   | "groq"
   | "deepseek"
   | "sumopod"
+  | "openrouter"
   | "openai-compatible"
   | "lmstudio";
 
@@ -76,6 +77,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "sumopod-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://sumopod.com",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    keyringAccount: "openrouter-api-key",
+    keyPrefix: "sk-or-",
+    consoleUrl: "https://openrouter.ai/keys",
   },
   {
     id: "openai-compatible",
@@ -312,6 +320,9 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
+// OpenRouter's stated base. The `/api/v1` segment is theirs, not a TEDI
+// add-on; their `/v1/models` 404s, only `/api/v1/models` resolves.
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 /** Per-turn cap on agent tool-call steps. 15 (was 24) matches industry
  *  baselines (Claude Code ~15, Cursor ~12). Shorter rope for runaway loops. */

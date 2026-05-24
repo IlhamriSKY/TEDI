@@ -14,6 +14,7 @@ import {
   getSystemPrompt,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
+  OPENROUTER_BASE_URL,
   providerNeedsKey,
   SUMOPOD_BASE_URL,
   tryGetModel,
@@ -133,6 +134,22 @@ export async function buildLanguageModel(
         name: "sumopod",
         baseURL: SUMOPOD_BASE_URL,
         apiKey: key,
+      })(resolvedModelId);
+      break;
+    }
+    case "openrouter": {
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      // HTTP-Referer + X-Title are OpenRouter's standard app-identification
+      // headers — they don't gate the API but show TEDI in OpenRouter's
+      // dashboard rankings so users can attribute usage.
+      built = createOpenAICompatible({
+        name: "openrouter",
+        baseURL: OPENROUTER_BASE_URL,
+        apiKey: key,
+        headers: {
+          "HTTP-Referer": "https://github.com/IlhamriSKY/TEDI",
+          "X-Title": "TEDI",
+        },
       })(resolvedModelId);
       break;
     }

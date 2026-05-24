@@ -10,6 +10,7 @@ import {
   Grok02Icon,
   CpuIcon,
   DeepseekIcon,
+  RouterIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -22,6 +23,7 @@ const ICON_BY_PROVIDER = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   sumopod: CloudServerIcon,
+  openrouter: RouterIcon,
   "openai-compatible": GlobalIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;

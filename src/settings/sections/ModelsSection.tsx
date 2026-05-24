@@ -27,6 +27,11 @@ import {
   useOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
 import {
+  clearOpenrouterModels,
+  refreshOpenrouterModels,
+  useOpenrouterModels,
+} from "@/modules/ai/lib/openrouter";
+import {
   clearSumopodModels,
   refreshSumopodModels,
   useSumopodModels,
@@ -67,6 +72,7 @@ export function ModelsSection() {
   const defaultProvider = usePreferencesStore((s) => s.defaultProviderId);
   const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   const sumopodModels = useSumopodModels();
+  const openrouterModels = useOpenrouterModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
   // Open provider accordions. Reset on dropdown open to start with the current default expanded.
@@ -83,6 +89,7 @@ export function ModelsSection() {
     void getAllKeys().then((k) => {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
+      if (k.openrouter) void refreshOpenrouterModels(k.openrouter);
       if (k["openai-compatible"] && openaiCompatibleBaseURL) {
         void refreshOpenAICompatibleModels(k["openai-compatible"], openaiCompatibleBaseURL);
       }
@@ -90,13 +97,21 @@ export function ModelsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onSave = async (provider: ProviderId, value: string) => {
+  const onSave = async (provider: ProviderId, value: string, urlOverride?: string) => {
     await setKey(provider, value);
     setKeys((prev) => (prev ? { ...prev, [provider]: value } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") void refreshSumopodModels(value);
-    if (provider === "openai-compatible" && openaiCompatibleBaseURL) {
-      void refreshOpenAICompatibleModels(value, openaiCompatibleBaseURL);
+    if (provider === "openrouter") void refreshOpenrouterModels(value);
+    if (provider === "openai-compatible") {
+      // Prefer the URL the block just committed (passed explicitly) over the
+      // store value, which a closure may still see as the previous default
+      // if React hasn't re-rendered yet. Without this, saving a key right
+      // after typing a new URL fired /models against the OLD endpoint —
+      // OpenRouter key sent to api.openai.com → 401 → "Detection failed",
+      // surfacing as "input AI terdetect tapi model tidak muncul".
+      const url = urlOverride ?? openaiCompatibleBaseURL;
+      if (url) void refreshOpenAICompatibleModels(value, url);
     }
   };
 
@@ -105,6 +120,7 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") clearSumopodModels();
+    if (provider === "openrouter") clearOpenrouterModels();
     if (provider === "openai-compatible") clearOpenAICompatibleModels();
   };
 
@@ -118,9 +134,11 @@ export function ModelsSection() {
       const pool =
         defaultProvider === "sumopod"
           ? sumopodModels.models
-          : defaultProvider === "openai-compatible"
-            ? oaiCompatModels.models
-            : MODELS.filter((m) => m.provider === defaultProvider);
+          : defaultProvider === "openrouter"
+            ? openrouterModels.models
+            : defaultProvider === "openai-compatible"
+              ? oaiCompatModels.models
+              : MODELS.filter((m) => m.provider === defaultProvider);
       const hit = pool.find((m) => m.id === defaultModel);
       if (hit) return hit;
       const providerLabel =
@@ -211,9 +229,11 @@ export function ModelsSection() {
                   const all =
                     p.id === "sumopod"
                       ? sumopodModels.models
-                      : p.id === "openai-compatible"
-                        ? oaiCompatModels.models
-                        : MODELS.filter((m) => m.provider === p.id);
+                      : p.id === "openrouter"
+                        ? openrouterModels.models
+                        : p.id === "openai-compatible"
+                          ? oaiCompatModels.models
+                          : MODELS.filter((m) => m.provider === p.id);
                   const filtered = all.filter((m) => matchesQuery(m, modelQuery));
                   totalMatches += filtered.length;
                   if (filtered.length === 0 && searching) return null;
@@ -221,9 +241,11 @@ export function ModelsSection() {
                   const dynamicState =
                     p.id === "sumopod"
                       ? sumopodModels
-                      : p.id === "openai-compatible"
-                        ? oaiCompatModels
-                        : null;
+                      : p.id === "openrouter"
+                        ? openrouterModels
+                        : p.id === "openai-compatible"
+                          ? oaiCompatModels
+                          : null;
                   const isDynamicEmpty = !!dynamicState && hasKey && filtered.length === 0;
                   const dynamicNote =
                     dynamicState && hasKey
@@ -342,7 +364,7 @@ export function ModelsSection() {
         status={oaiCompatModels.status}
         error={oaiCompatModels.error}
         modelsCount={oaiCompatModels.models.length}
-        onSaveKey={(v) => onSave("openai-compatible", v)}
+        onSaveKey={(v, url) => onSave("openai-compatible", v, url)}
         onClearKey={() => onClear("openai-compatible")}
       />
 
@@ -510,7 +532,9 @@ function OpenAICompatibleBlock({
   status: "idle" | "loading" | "ok" | "error";
   error: string | null;
   modelsCount: number;
-  onSaveKey: (key: string) => Promise<void>;
+  /** `url` is the URL the block just committed; parent should prefer it
+   *  over its own (possibly stale-by-one-render) `openaiCompatibleBaseURL`. */
+  onSaveKey: (key: string, url: string) => Promise<void>;
   onClearKey: () => Promise<void>;
 }) {
   const [urlDraft, setUrlDraft] = useState(baseURL);
@@ -537,15 +561,27 @@ function OpenAICompatibleBlock({
   };
 
   const saveKey = async () => {
-    const trimmed = keyDraft.trim();
-    if (!trimmed) {
+    const trimmedKey = keyDraft.trim();
+    if (!trimmedKey) {
       setKeyError("Enter your API key.");
       return;
     }
     setSavingKey(true);
     setKeyError(null);
+    // Commit the URL FIRST when it has changed. Without this, a user who
+    // types a new base URL (e.g. OpenRouter) then immediately hits Save on
+    // the key field never blurs the URL input — `baseURL` in the store stays
+    // at the old default (api.openai.com/v1) and the auto-refresh inside
+    // `onSave` fires /models against the wrong endpoint with the new key,
+    // returns 401, and surfaces as "Detection failed - check key / URL".
+    // Pass `trimmedUrl` explicitly to onSaveKey so the parent's refresh
+    // uses the value we just committed, regardless of React render timing.
+    const trimmedUrl = urlDraft.trim();
     try {
-      await onSaveKey(trimmed);
+      if (trimmedUrl && trimmedUrl !== baseURL) {
+        await setOpenAICompatibleBaseURL(trimmedUrl);
+      }
+      await onSaveKey(trimmedKey, trimmedUrl || baseURL);
     } catch (e) {
       setKeyError(`Failed to save: ${String(e)}`);
     } finally {

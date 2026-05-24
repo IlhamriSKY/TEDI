@@ -28,6 +28,7 @@ import {
   Grok02Icon,
   Mic01Icon,
   PinIcon,
+  RouterIcon,
   SentIcon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
@@ -48,6 +49,7 @@ import {
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useOpenAICompatibleModels } from "../lib/openaiCompatible";
+import { useOpenrouterModels } from "../lib/openrouter";
 import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 
@@ -90,6 +92,7 @@ const PROVIDER_ICON = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   sumopod: CloudServerIcon,
+  openrouter: RouterIcon,
   "openai-compatible": GlobalIcon,
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
@@ -279,6 +282,7 @@ function ModelDropdown() {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const sumopodModels = useSumopodModels();
+  const openrouterModels = useOpenrouterModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
@@ -341,13 +345,15 @@ function ModelDropdown() {
         const all =
           p.id === "sumopod"
             ? sumopodModels.models
-            : p.id === "openai-compatible"
-              ? oaiCompatModels.models
-              : MODELS.filter((m) => m.provider === p.id);
+            : p.id === "openrouter"
+              ? openrouterModels.models
+              : p.id === "openai-compatible"
+                ? oaiCompatModels.models
+                : MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
         return { provider: p, all, filtered };
       }),
-    [query, sumopodModels.models, oaiCompatModels.models],
+    [query, sumopodModels.models, openrouterModels.models, oaiCompatModels.models],
   );
 
   // Resolve pinned ids to ModelInfo. Two lookups: qualified (provider::modelId)
@@ -456,6 +462,9 @@ function ModelDropdown() {
           {sections.map(({ provider: p, filtered }) => {
             if (filtered.length === 0 && query) return null;
             const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
+            // Detection status note for providers whose catalogue is fetched
+            // dynamically (SumoPod, OpenRouter, OpenAI-Compatible). The
+            // variable name is historic; it now covers three gateways.
             const sumopodNote =
               p.id === "sumopod" && hasKey
                 ? sumopodModels.status === "loading"
@@ -465,15 +474,23 @@ function ModelDropdown() {
                     : filtered.length === 0
                       ? "No models detected"
                       : null
-                : p.id === "openai-compatible" && hasKey
-                  ? oaiCompatModels.status === "loading"
+                : p.id === "openrouter" && hasKey
+                  ? openrouterModels.status === "loading"
                     ? "Detecting models…"
-                    : oaiCompatModels.status === "error"
-                      ? "Detection failed"
+                    : openrouterModels.status === "error"
+                      ? "Detection failed - check key"
                       : filtered.length === 0
-                        ? "No models detected · open Settings → Models"
+                        ? "No models detected"
                         : null
-                  : null;
+                  : p.id === "openai-compatible" && hasKey
+                    ? oaiCompatModels.status === "loading"
+                      ? "Detecting models…"
+                      : oaiCompatModels.status === "error"
+                        ? "Detection failed"
+                        : filtered.length === 0
+                          ? "No models detected · open Settings → Models"
+                          : null
+                    : null;
             return (
               <ModelSection
                 key={p.id}

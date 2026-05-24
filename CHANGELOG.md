@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.22] - 25-05-2026
+
+### Added
+
+- **First-class OpenRouter provider.** OpenRouter ([openrouter.ai](https://openrouter.ai)) joins OpenAI, Anthropic, Google, xAI, Cerebras, Groq, DeepSeek, and SumoPod as a top-row provider with its own API-key card, dedicated icon, dropdown group, and runtime model catalogue. Picks up keys with `sk-or-` prefix; pings `https://openrouter.ai/api/v1/models` with the user's key plus the standard `HTTP-Referer` + `X-Title` headers OpenRouter uses for dashboard attribution. Eight curated defaults (Claude Opus 4 / Sonnet 4, GPT-5 / 5-mini, Gemini 2.5 Pro, DeepSeek Chat V3, Grok 4, Llama 3.3 70B) populate the dropdown before the live catalogue resolves so the picker is never empty. Detected models carry the real maker as `ownedBy` (parsed from the `<maker>/<model>` slug or OpenRouter's `top_provider.name`) so the chat chip credits *Anthropic* / *OpenAI* / *Google* — not the gateway. Wired through `agent.ts` via `@ai-sdk/openai-compatible` so model selection, transport, and chat history all behave identically to native providers. New module: [`src/modules/ai/lib/openrouter.ts`](src/modules/ai/lib/openrouter.ts).
+
+### Fixed
+
+- **"AI detected but model isn't" — OpenAI Compatible URL commit race.** Typing a new base URL and immediately pressing **Save** on the API key (without first clicking out of the URL field) used to fire the auto-detect against the *old* URL, because `commitURL` only runs on blur. The most painful version: paste an OpenRouter URL + key, hit Save → /models fetched against `api.openai.com/v1` with the OpenRouter key → 401 → "Detection failed". `OpenAICompatibleBlock.saveKey` now commits the URL first and passes the freshly-committed URL all the way through to the parent's auto-refresh, so the value React hasn't re-rendered yet can't leak into the request. Symptom matched the user report "input AI terdetect tapi model tidak".
+
 ## [0.2.21] - 24-05-2026
 
 ### Fixed
