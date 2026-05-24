@@ -4,7 +4,11 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [0.2.22] - 25-05-2026
+## [0.2.23] - 25-05-2026
+
+> 0.2.22 was tagged but type-check failed because in-flight SCM-right-panel
+> code from a separate branch sneaked into the App.tsx I edited; 0.2.23
+> is the clean shipping cut of the same OpenRouter feature.
 
 ### Added
 

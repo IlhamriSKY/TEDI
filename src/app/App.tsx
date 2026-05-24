@@ -38,7 +38,6 @@ import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { RightPanelHost, useExtensionsStore, useRightPanelStore } from "@/modules/extensions";
-import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -508,9 +507,6 @@ export default function App() {
   const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
-  const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
-  const scmRightOpen = useScmRightPanelStore((s) => s.open);
-  const closeScmRight = useScmRightPanelStore((s) => s.closePanel);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
   // Expose the zoom factor as a CSS variable so CodeMirror and diff
   // surfaces can scale via `calc(... * var(--content-zoom))`. The terminal
@@ -539,38 +535,20 @@ export default function App() {
     void useExtensionsStore.getState().init();
   }, []);
 
-  // Right-panel, SCM right panel, and AI sidebar are mutually exclusive
-  // (all three want the same ~22% slot). Opening one closes the others.
-  // Each effect reacts to one trigger and reads the others via
-  // `getState()`, avoiding ping-pong.
+  // Right-panel and AI sidebar are mutually exclusive (both want the same
+  // ~22% slot). Opening one closes the other. Each effect reacts to one
+  // trigger and reads the other via `getState()`, avoiding ping-pong.
   const rightPanelActive = useRightPanelStore((s) => s.active);
   useEffect(() => {
-    if (rightPanelActive) {
-      if (useChatStore.getState().panelOpen) useChatStore.getState().closePanel();
-      if (useScmRightPanelStore.getState().open) useScmRightPanelStore.getState().closePanel();
+    if (rightPanelActive && useChatStore.getState().panelOpen) {
+      useChatStore.getState().closePanel();
     }
   }, [rightPanelActive]);
   useEffect(() => {
-    if (panelOpen) {
-      if (useRightPanelStore.getState().active) useRightPanelStore.getState().close();
-      if (useScmRightPanelStore.getState().open) useScmRightPanelStore.getState().closePanel();
+    if (panelOpen && useRightPanelStore.getState().active) {
+      useRightPanelStore.getState().close();
     }
   }, [panelOpen]);
-  useEffect(() => {
-    if (scmRightOpen) {
-      if (useChatStore.getState().panelOpen) useChatStore.getState().closePanel();
-      if (useRightPanelStore.getState().active) useRightPanelStore.getState().close();
-    }
-  }, [scmRightOpen]);
-
-  // Close the SCM right panel when the user disables either the master
-  // "Show Source Control" toggle or the "in right panel" pref. Otherwise a
-  // stale open state could re-render an empty slot after the pref flips.
-  useEffect(() => {
-    if ((!sourceControlInRightPanel || !showSourceControl) && scmRightOpen) {
-      closeScmRight();
-    }
-  }, [sourceControlInRightPanel, showSourceControl, scmRightOpen, closeScmRight]);
 
   // Honor manifest `defaultOpen` for right-surface panels once per session.
   // Reads from the extensions store so this runs after `bootAll()` or when
@@ -2243,7 +2221,7 @@ export default function App() {
                         ) : null}
                       </div>
                     </ResizablePanel>
-                    {showSourceControl && !sourceControlInRightPanel ? (
+                    {showSourceControl ? (
                       <>
                         <ResizableHandle withHandle />
                         <ResizablePanel id="sidebar-scm" defaultSize="20%" minSize="10%">
@@ -2357,23 +2335,12 @@ export default function App() {
                   before the loser closes: a fresh `rightPanelActive`
                   reflects the user's latest click, so render that and
                   let the AI panel close in the background. */}
-              {rightPanelActive || scmRightOpen || (keysLoaded && panelOpen) ? (
+              {rightPanelActive || (keysLoaded && panelOpen) ? (
                 <>
                   <ResizableHandle withHandle />
                   <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
                     {rightPanelActive ? (
                       <RightPanelHost />
-                    ) : scmRightOpen ? (
-                      <div className="border-border/60 bg-card/60 flex h-full min-h-0 flex-col border-l">
-                        <Suspense fallback={null}>
-                          <SourceControlPanel
-                            rootPath={explorerRoot}
-                            onPathDeleted={handlePathDeleted}
-                            onOpenDiff={openGitDiffTab}
-                            onClose={closeScmRight}
-                          />
-                        </Suspense>
-                      </div>
                     ) : hasComposer ? (
                       <Suspense fallback={null}>
                         <AiSidebarPanel />
