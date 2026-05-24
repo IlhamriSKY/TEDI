@@ -13,6 +13,7 @@ import {
   AUTOCOMPLETE_PROVIDERS,
   DEFAULT_AUTOCOMPLETE_MODEL,
   MODELS,
+  OPENAI_COMPATIBLE_PRESETS,
   PROVIDERS,
   getProvider,
   providerNeedsKey,
@@ -26,11 +27,6 @@ import {
   refreshOpenAICompatibleModels,
   useOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
-import {
-  clearOpenrouterModels,
-  refreshOpenrouterModels,
-  useOpenrouterModels,
-} from "@/modules/ai/lib/openrouter";
 import {
   clearSumopodModels,
   refreshSumopodModels,
@@ -47,7 +43,7 @@ import {
   setOpenAICompatibleBaseURL,
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
@@ -72,9 +68,16 @@ export function ModelsSection() {
   const defaultProvider = usePreferencesStore((s) => s.defaultProviderId);
   const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   const sumopodModels = useSumopodModels();
-  const openrouterModels = useOpenrouterModels();
   const oaiCompatModels = useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
+  // Search filter for the "+ Add provider" dropdown. Cleared when the
+  // dropdown closes so reopening starts fresh.
+  const [addProviderQuery, setAddProviderQuery] = useState("");
+  // When the user picks a provider from the "Add provider" dropdown, we
+  // hold its id here. The provider's card is rendered in editing mode below
+  // the connected list until the key is saved (which clears this back to
+  // null). For OpenAI Compatible the "card" is the full URL+key block.
+  const [addingProvider, setAddingProvider] = useState<ProviderId | null>(null);
   // Open provider accordions. Reset on dropdown open to start with the current default expanded.
   const [expandedProviders, setExpandedProviders] = useState<Set<ProviderId>>(new Set());
   const toggleProvider = (id: ProviderId) =>
@@ -89,7 +92,6 @@ export function ModelsSection() {
     void getAllKeys().then((k) => {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
-      if (k.openrouter) void refreshOpenrouterModels(k.openrouter);
       if (k["openai-compatible"] && openaiCompatibleBaseURL) {
         void refreshOpenAICompatibleModels(k["openai-compatible"], openaiCompatibleBaseURL);
       }
@@ -101,8 +103,10 @@ export function ModelsSection() {
     await setKey(provider, value);
     setKeys((prev) => (prev ? { ...prev, [provider]: value } : prev));
     await emitKeysChanged();
+    // Once the key is persisted, the provider is "connected"; clear the
+    // in-progress add slot so the configured-providers list takes over.
+    setAddingProvider((cur) => (cur === provider ? null : cur));
     if (provider === "sumopod") void refreshSumopodModels(value);
-    if (provider === "openrouter") void refreshOpenrouterModels(value);
     if (provider === "openai-compatible") {
       // Prefer the URL the block just committed (passed explicitly) over the
       // store value, which a closure may still see as the previous default
@@ -120,7 +124,6 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") clearSumopodModels();
-    if (provider === "openrouter") clearOpenrouterModels();
     if (provider === "openai-compatible") clearOpenAICompatibleModels();
   };
 
@@ -134,11 +137,9 @@ export function ModelsSection() {
       const pool =
         defaultProvider === "sumopod"
           ? sumopodModels.models
-          : defaultProvider === "openrouter"
-            ? openrouterModels.models
-            : defaultProvider === "openai-compatible"
-              ? oaiCompatModels.models
-              : MODELS.filter((m) => m.provider === defaultProvider);
+          : defaultProvider === "openai-compatible"
+            ? oaiCompatModels.models
+            : MODELS.filter((m) => m.provider === defaultProvider);
       const hit = pool.find((m) => m.id === defaultModel);
       if (hit) return hit;
       const providerLabel =
@@ -159,41 +160,58 @@ export function ModelsSection() {
       }
     );
   })();
-  const gridProviders = PROVIDERS.filter(
+  // Native key providers (excluding OpenAI Compatible, which has its own
+  // URL+key block). Each appears as a card only when configured OR when
+  // currently being added from the dropdown below.
+  const keyedProviders = PROVIDERS.filter(
     (p) => providerNeedsKey(p.id) && p.id !== "openai-compatible",
   );
-  const configuredCount = gridProviders.filter((p) => !!keys[p.id]).length;
+  const configuredKeyed = keyedProviders.filter((p) => !!keys[p.id]);
+  const oaiCompatConfigured = !!keys["openai-compatible"];
+  const oaiCompatAdding = addingProvider === "openai-compatible";
+  // Providers eligible to appear in the "+ Add provider" dropdown: every
+  // provider needing a key, minus the ones already connected and minus the
+  // one mid-add. OpenAI Compatible is included because it's still a
+  // separate gateway choice; LM Studio is excluded because it's keyless
+  // and configured from the Editor autocomplete block below instead.
+  const addableProviders = PROVIDERS.filter(
+    (p) =>
+      providerNeedsKey(p.id) &&
+      !keys[p.id] &&
+      p.id !== addingProvider,
+  );
 
-  return (
-    <div className="flex flex-col gap-7">
-      <SectionHeader
-        title="Models"
-        description="Bring your own keys. They live in your OS keychain and are used only by TEDI."
-      />
-
-      <div className="flex flex-col gap-2">
-        <Label>Default model</Label>
-        <DropdownMenu
-          onOpenChange={(open) => {
-            if (open) {
-              setExpandedProviders(defaultProvider ? new Set([defaultProvider]) : new Set());
-            } else {
-              setModelQuery("");
-            }
-          }}
-        >
+  // Default-model dropdown rendered both at the top (rare path) and at the
+  // bottom in the AI defaults card. Extracted into a small JSX const so the
+  // markup stays in one place. The card itself owns the surrounding layout
+  // (label, description, hr) — this is the trigger + popover only.
+  const defaultModelDropdown = (
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open) {
+          setExpandedProviders(defaultProvider ? new Set([defaultProvider]) : new Set());
+        } else {
+          setModelQuery("");
+        }
+      }}
+    >
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
-              <span className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="h-9 w-full justify-between gap-2 px-2.5 text-[12px]"
+            >
+              <span className="flex min-w-0 items-center gap-2 truncate">
                 <ProviderIcon provider={defaultModelInfo.provider} size={14} />
-                <span>{defaultModelInfo.label}</span>
-                <span className="text-muted-foreground">· {defaultModelInfo.hint}</span>
+                <span className="truncate font-medium">{defaultModelInfo.label}</span>
+                <span className="text-muted-foreground truncate">
+                  · {defaultModelInfo.hint}
+                </span>
               </span>
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
                 size={12}
                 strokeWidth={2}
-                className="opacity-70"
+                className="shrink-0 opacity-70"
               />
             </Button>
           </DropdownMenuTrigger>
@@ -225,15 +243,19 @@ export function ModelsSection() {
               {(() => {
                 const searching = modelQuery.length > 0;
                 let totalMatches = 0;
-                const blocks = PROVIDERS.filter((p) => providerNeedsKey(p.id)).map((p) => {
+                // Only iterate providers the user has actually configured.
+                // The previous behaviour listed all 10 providers as "no key"
+                // rows, padding the dropdown with affordances for accounts
+                // the user has not (and may never) sign up for.
+                const blocks = PROVIDERS.filter(
+                  (p) => providerNeedsKey(p.id) && !!keys[p.id],
+                ).map((p) => {
                   const all =
                     p.id === "sumopod"
                       ? sumopodModels.models
-                      : p.id === "openrouter"
-                        ? openrouterModels.models
-                        : p.id === "openai-compatible"
-                          ? oaiCompatModels.models
-                          : MODELS.filter((m) => m.provider === p.id);
+                      : p.id === "openai-compatible"
+                        ? oaiCompatModels.models
+                        : MODELS.filter((m) => m.provider === p.id);
                   const filtered = all.filter((m) => matchesQuery(m, modelQuery));
                   totalMatches += filtered.length;
                   if (filtered.length === 0 && searching) return null;
@@ -241,11 +263,9 @@ export function ModelsSection() {
                   const dynamicState =
                     p.id === "sumopod"
                       ? sumopodModels
-                      : p.id === "openrouter"
-                        ? openrouterModels
-                        : p.id === "openai-compatible"
-                          ? oaiCompatModels
-                          : null;
+                      : p.id === "openai-compatible"
+                        ? oaiCompatModels
+                        : null;
                   const isDynamicEmpty = !!dynamicState && hasKey && filtered.length === 0;
                   const dynamicNote =
                     dynamicState && hasKey
@@ -325,6 +345,11 @@ export function ModelsSection() {
                 return (
                   <>
                     {blocks}
+                    {!searching && blocks.length === 0 ? (
+                      <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
+                        No providers connected yet. Add one below.
+                      </div>
+                    ) : null}
                     {searching && totalMatches === 0 ? (
                       <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
                         No models match “{modelQuery}”.
@@ -336,39 +361,212 @@ export function ModelsSection() {
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+  );
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between">
-          <Label>API keys</Label>
-          <span className="text-muted-foreground text-[10.5px]">
-            {configuredCount} of {gridProviders.length} configured
-          </span>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {gridProviders.map((p) => (
-            <ProviderKeyCard
-              key={p.id}
-              provider={p}
-              currentKey={keys[p.id]}
-              onSave={(v: string) => onSave(p.id, v)}
-              onClear={() => onClear(p.id)}
-            />
-          ))}
-        </div>
-      </div>
-
-      <OpenAICompatibleBlock
-        apiKey={keys["openai-compatible"]}
-        baseURL={openaiCompatibleBaseURL}
-        status={oaiCompatModels.status}
-        error={oaiCompatModels.error}
-        modelsCount={oaiCompatModels.models.length}
-        onSaveKey={(v, url) => onSave("openai-compatible", v, url)}
-        onClearKey={() => onClear("openai-compatible")}
+  return (
+    <div className="flex flex-col gap-7">
+      <SectionHeader
+        title="Models"
+        description="Connect the providers you use. Keys live in your OS keychain and are used only by TEDI."
       />
 
-      <AutocompleteBlock keys={keys} />
+      {/* Defaults card — Chat model + Autocomplete on inline label-control
+       *  rows. Per the spec mockup: label fixed-width on the left, control
+       *  fills the rest. The autocomplete row also gets a Switch directly
+       *  next to the label so toggling on/off is one click away from
+       *  picking the model. */}
+      <div className="flex flex-col gap-2">
+        <Label>Defaults</Label>
+        <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border px-3 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
+              Chat model
+            </span>
+            <div className="min-w-0 flex-1">{defaultModelDropdown}</div>
+          </div>
+
+          <AutocompleteBlock keys={keys} />
+        </div>
+      </div>
+
+      {/* Providers section — header has "+ Add provider" inline on the
+       *  right; cards (or empty state) sit below. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <Label>Providers</Label>
+          {addableProviders.length > 0 ? (
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (!open) setAddProviderQuery("");
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 rounded-full px-3 text-[11.5px]"
+                >
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    size={12}
+                    strokeWidth={2}
+                    className="opacity-80"
+                  />
+                  Add provider
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="bottom"
+                sideOffset={4}
+                avoidCollisions={false}
+                className="w-64 overflow-hidden p-0"
+              >
+                <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
+                  <Input
+                    value={addProviderQuery}
+                    onChange={(e) => setAddProviderQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Radix dropdown uses letters for type-ahead; trap
+                      // them here so typing only goes into the search box.
+                      if (
+                        e.key !== "Escape" &&
+                        e.key !== "ArrowDown" &&
+                        e.key !== "ArrowUp" &&
+                        e.key !== "Enter"
+                      ) {
+                        e.stopPropagation();
+                      }
+                    }}
+                    placeholder="Search providers…"
+                    spellCheck={false}
+                    autoFocus
+                    className="h-7 text-[11.5px]"
+                  />
+                </div>
+                {/* Cap the visible item list to ~5 rows; everything past
+                 *  that scrolls. With ~30px per row (text-[12px] + py-1.5)
+                 *  + 4px wrapper padding, 160px fits 5 items cleanly. */}
+                <div className="max-h-[160px] overflow-y-auto py-1">
+                  {(() => {
+                    const q = addProviderQuery.trim().toLowerCase();
+                    const filtered = addableProviders.filter(
+                      (p) =>
+                        !q || p.label.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+                    );
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="text-muted-foreground px-3 py-4 text-center text-[11px]">
+                          No providers match &ldquo;{addProviderQuery}&rdquo;.
+                        </div>
+                      );
+                    }
+                    return filtered.map((p) => (
+                      <DropdownMenuItem
+                        key={p.id}
+                        onSelect={() => setAddingProvider(p.id)}
+                        className="flex items-center gap-2 text-[12px]"
+                      >
+                        <ProviderIcon provider={p.id} size={13} />
+                        <span>{p.label}</span>
+                      </DropdownMenuItem>
+                    ));
+                  })()}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+
+        {/* Empty-state: no providers connected AND no add in progress. */}
+        {configuredKeyed.length === 0 &&
+        !oaiCompatConfigured &&
+        addingProvider === null ? (
+          <div className="border-border/50 bg-card/30 flex flex-col items-center gap-1 rounded-lg border border-dashed px-3 py-6 text-center">
+            <span className="text-foreground text-[12.5px]">No providers connected yet.</span>
+            <span className="text-muted-foreground text-[10.5px]">
+              Click &ldquo;Add provider&rdquo; to connect a cloud or local model source.
+            </span>
+          </div>
+        ) : null}
+
+        {/* Cards for currently-connected native providers. */}
+        {configuredKeyed.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {configuredKeyed.map((p) => (
+              <ProviderKeyCard
+                key={p.id}
+                provider={p}
+                currentKey={keys[p.id]}
+                onSave={(v: string) => onSave(p.id, v)}
+                onClear={() => onClear(p.id)}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {/* Card for the provider being added — keyed kind only. */}
+        {addingProvider && addingProvider !== "openai-compatible" ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-[10.5px]">
+              <div className="border-border/60 h-px flex-1 border-t" />
+              <span className="text-muted-foreground">
+                Connecting {getProvider(addingProvider).label}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAddingProvider(null)}
+                className="text-muted-foreground hover:text-foreground cursor-pointer underline-offset-2 hover:underline"
+              >
+                Cancel
+              </button>
+              <div className="border-border/60 h-px flex-1 border-t" />
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <ProviderKeyCard
+                provider={getProvider(addingProvider)}
+                currentKey={null}
+                onSave={(v: string) => onSave(addingProvider, v)}
+                onClear={() => {
+                  setAddingProvider(null);
+                  return Promise.resolve();
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* OpenAI Compatible: shown only when configured OR being added. */}
+      {oaiCompatConfigured || oaiCompatAdding ? (
+        <div className="flex flex-col gap-2">
+          {oaiCompatAdding && !oaiCompatConfigured ? (
+            <div className="flex items-center gap-2 text-[10.5px]">
+              <div className="border-border/60 h-px flex-1 border-t" />
+              <span className="text-muted-foreground">
+                Connecting OpenAI Compatible endpoint
+              </span>
+              <button
+                type="button"
+                onClick={() => setAddingProvider(null)}
+                className="text-muted-foreground hover:text-foreground cursor-pointer underline-offset-2 hover:underline"
+              >
+                Cancel
+              </button>
+              <div className="border-border/60 h-px flex-1 border-t" />
+            </div>
+          ) : null}
+          <OpenAICompatibleBlock
+            apiKey={keys["openai-compatible"]}
+            baseURL={openaiCompatibleBaseURL}
+            status={oaiCompatModels.status}
+            error={oaiCompatModels.error}
+            modelsCount={oaiCompatModels.models.length}
+            onSaveKey={(v, url) => onSave("openai-compatible", v, url)}
+            onClearKey={() => onClear("openai-compatible")}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -379,11 +577,9 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
   const modelId = usePreferencesStore((s) => s.autocompleteModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
 
-  const [modelDraft, setModelDraft] = useState(modelId);
   const [urlDraft, setUrlDraft] = useState(lmstudioBaseURL);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
-  useEffect(() => setModelDraft(modelId), [modelId]);
   useEffect(() => setUrlDraft(lmstudioBaseURL), [lmstudioBaseURL]);
 
   const onProviderChange = (next: AutocompleteProviderId) => {
@@ -409,112 +605,141 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
     }
   };
 
+  // Display name for the currently-selected autocomplete combo. Walks the
+  // static MODELS list first (gets the pretty label + hint), falls back to
+  // the raw model id when the user has typed a custom one (LM Studio with
+  // a local model not in the registry, mostly).
+  const currentDisplay = (() => {
+    const fromRegistry = MODELS.find((m) => m.id === modelId);
+    if (fromRegistry) return { label: fromRegistry.label, hint: fromRegistry.hint };
+    return { label: modelId, hint: providerInfo.label };
+  })();
+
+  // No outer container — the parent (the Defaults card) wraps both rows in
+  // a single bordered panel. Returning a fragment keeps the markup compact
+  // and matches the screenshot's "Chat model / Autocomplete" row layout.
   return (
-    <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-[12.5px] font-medium">Editor autocomplete</span>
-          <span className="text-muted-foreground text-[10.5px] leading-relaxed">
-            Inline ghost-text suggestions in the code editor. Powered by ultra-fast inference
-            (Cerebras / Groq) or a local LM Studio server.
-          </span>
-        </div>
+    <>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
+          Autocomplete
+        </span>
         <Switch
           checked={enabled}
           onCheckedChange={(v) => void setAutocompleteEnabled(v)}
-          className="mt-0.5 shrink-0"
+          className="shrink-0"
         />
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            !enabled && "pointer-events-none opacity-55",
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-9 w-full justify-between gap-2 px-2.5 text-[12px]"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <ProviderIcon provider={provider} size={14} />
+                  <span className="truncate font-medium">{currentDisplay.label}</span>
+                  <span className="text-muted-foreground truncate">· {currentDisplay.hint}</span>
+                </span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={12}
+                  strokeWidth={2}
+                  className="opacity-70"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="w-(--radix-dropdown-menu-trigger-width) min-w-72"
+            >
+              {AUTOCOMPLETE_PROVIDERS.map((id) => {
+                const info = getProvider(id);
+                const defaultModel = DEFAULT_AUTOCOMPLETE_MODEL[id];
+                const modelInfo = MODELS.find((m) => m.id === defaultModel);
+                const label = modelInfo?.label ?? defaultModel;
+                const hint = modelInfo?.hint ?? info.label;
+                const itemHasKey = providerNeedsKey(id) ? !!keys[id] : true;
+                return (
+                  <DropdownMenuItem
+                    key={id}
+                    onSelect={() => onProviderChange(id)}
+                    className={cn(
+                      "flex items-center gap-2 text-[12px]",
+                      id === provider && "bg-accent/50",
+                    )}
+                  >
+                    <ProviderIcon provider={id} size={14} />
+                    <span className="flex flex-col">
+                      <span className="font-medium">{label}</span>
+                      <span className="text-muted-foreground text-[10px]">
+                        {info.label}
+                        {!itemHasKey ? " · not connected" : ""}
+                      </span>
+                    </span>
+                    {!itemHasKey ? (
+                      <span className="text-muted-foreground/70 ml-auto text-[10px]">no key</span>
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      <div
-        className={cn(
-          "flex flex-col gap-2",
-          !enabled && "pointer-events-none opacity-55",
-        )}
-      >
-        <div className="flex flex-col gap-1.5">
-          <Label>Provider</Label>
-          <div className="flex gap-1">
-            {AUTOCOMPLETE_PROVIDERS.map((id) => {
-              const info = getProvider(id);
-              const active = id === provider;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => onProviderChange(id)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors",
-                    active
-                      ? "border-foreground/40 bg-accent/60"
-                      : "border-border/60 hover:bg-accent/30 bg-transparent",
-                  )}
-                >
-                  <ProviderIcon provider={id} size={12} />
-                  <span>{info.label}</span>
-                </button>
-              );
-            })}
+      {/* Warning when the selected autocomplete provider has no API key.
+       *  Indented under the dropdown so it reads as a sub-message of the
+       *  picker row above. */}
+      {enabled && !hasKey ? (
+        <div className="text-muted-foreground/80 text-center text-[10.5px] sm:pl-[calc(6rem+1.5rem+0.75rem)] sm:text-left">
+          {providerInfo.label} isn&rsquo;t connected — add it below.
+        </div>
+      ) : null}
+
+      {/* LM Studio URL field — only shown when LM Studio is the selected
+       *  autocomplete provider. Indented to align with the dropdown. */}
+      {enabled && provider === "lmstudio" ? (
+        <div className="flex flex-col gap-1.5 sm:pl-[calc(6rem+1.5rem+0.75rem)]">
+          <span className="text-muted-foreground text-[10px]">LM Studio base URL</span>
+          <div className="flex gap-1.5">
+            <Input
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onBlur={() => {
+                const v = urlDraft.trim();
+                if (v && v !== lmstudioBaseURL) void setLmstudioBaseURL(v);
+              }}
+              placeholder="http://localhost:1234/v1"
+              spellCheck={false}
+              className="h-8 flex-1 font-mono text-[11.5px]"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void testLmStudio()}
+              className="h-8 px-2.5 text-[11px]"
+            >
+              Test
+            </Button>
           </div>
-          {!hasKey ? (
-            <span className="text-[10.5px] text-amber-500">
-              No API key configured for {providerInfo.label}. Add one above.
+          {testStatus === "ok" ? (
+            <span className="text-[10.5px] text-emerald-500">Connected - server responded.</span>
+          ) : testStatus === "fail" ? (
+            <span className="text-destructive text-[10.5px]">
+              Could not reach the server. Is LM Studio running?
             </span>
+          ) : testStatus === "testing" ? (
+            <span className="text-muted-foreground text-[10.5px]">Testing…</span>
           ) : null}
         </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label>Model</Label>
-          <Input
-            value={modelDraft}
-            onChange={(e) => setModelDraft(e.target.value)}
-            onBlur={() => {
-              const v = modelDraft.trim();
-              if (v && v !== modelId) void setAutocompleteModelId(v);
-            }}
-            placeholder={DEFAULT_AUTOCOMPLETE_MODEL[provider]}
-            spellCheck={false}
-            className="h-8 font-mono text-[11.5px]"
-          />
-        </div>
-
-        {provider === "lmstudio" ? (
-          <div className="flex flex-col gap-1.5">
-            <Label>LM Studio base URL</Label>
-            <div className="flex gap-1.5">
-              <Input
-                value={urlDraft}
-                onChange={(e) => setUrlDraft(e.target.value)}
-                onBlur={() => {
-                  const v = urlDraft.trim();
-                  if (v && v !== lmstudioBaseURL) void setLmstudioBaseURL(v);
-                }}
-                placeholder="http://localhost:1234/v1"
-                spellCheck={false}
-                className="h-8 flex-1 font-mono text-[11.5px]"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void testLmStudio()}
-                className="h-8 px-2.5 text-[11px]"
-              >
-                Test
-              </Button>
-            </div>
-            {testStatus === "ok" ? (
-              <span className="text-[10.5px] text-emerald-500">Connected - server responded.</span>
-            ) : testStatus === "fail" ? (
-              <span className="text-destructive text-[10.5px]">
-                Could not reach the server. Is LM Studio running?
-              </span>
-            ) : testStatus === "testing" ? (
-              <span className="text-muted-foreground text-[10.5px]">Testing…</span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
+      ) : null}
+    </>
   );
 }
 
@@ -616,10 +841,17 @@ function OpenAICompatibleBlock({
         ? "•".repeat(apiKey.length)
         : "";
 
+  // Highlight the chip whose baseURL matches the current draft. Trims
+  // trailing slashes so "/v1" and "/v1/" both stay matched.
+  const activePresetId = (() => {
+    const norm = urlDraft.trim().replace(/\/$/, "");
+    return OPENAI_COMPATIBLE_PRESETS.find((p) => p.baseURL.replace(/\/$/, "") === norm)?.id;
+  })();
+
   return (
     <div className="flex flex-col gap-2">
       <Label>OpenAI Compatible endpoint</Label>
-      <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
+      <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
         <div className="flex items-center gap-2">
           <ProviderIcon provider="openai-compatible" size={14} />
           <span className="text-[12px] font-medium">OpenAI Compatible</span>
@@ -634,7 +866,46 @@ function OpenAICompatibleBlock({
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {/* Quick-pick presets — OpenAI / OpenRouter / 9Router. Clicking a
+         *  chip drops its URL into the field. Saves the user from
+         *  remembering "is it /v1 or /api/v1?" or 9Router's local port.
+         *  Hidden once a key is configured to keep the configured row tight. */}
+        {!apiKey ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-[10px]">Quick start</span>
+            <div className="flex flex-wrap gap-1">
+              {OPENAI_COMPATIBLE_PRESETS.map((preset) => {
+                const active = preset.id === activePresetId;
+                return (
+                  <Tooltip key={preset.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrlDraft(preset.baseURL);
+                          if (preset.baseURL !== baseURL) {
+                            void setOpenAICompatibleBaseURL(preset.baseURL);
+                          }
+                        }}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                          active
+                            ? "border-foreground/40 bg-accent/60"
+                            : "border-border/60 hover:bg-accent/30 bg-transparent",
+                        )}
+                      >
+                        <span>{preset.label}</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{preset.description}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-[10px]">Base URL</span>
             <Input

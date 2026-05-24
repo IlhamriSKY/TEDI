@@ -27,10 +27,6 @@ import {
   clearOpenAICompatibleModels,
   refreshOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
-import {
-  clearOpenrouterModels,
-  refreshOpenrouterModels,
-} from "@/modules/ai/lib/openrouter";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
@@ -483,12 +479,6 @@ export default function App() {
           void refreshSumopodModels(keys.sumopod);
         } else {
           clearSumopodModels();
-        }
-        // Same for OpenRouter — base URL is fixed, only the key matters.
-        if (keys.openrouter) {
-          void refreshOpenrouterModels(keys.openrouter);
-        } else {
-          clearOpenrouterModels();
         }
       });
     };

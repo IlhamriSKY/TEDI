@@ -9,7 +9,6 @@ export type ProviderId =
   | "groq"
   | "deepseek"
   | "sumopod"
-  | "openrouter"
   | "openai-compatible"
   | "lmstudio";
 
@@ -77,13 +76,6 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "sumopod-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://sumopod.com",
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    keyringAccount: "openrouter-api-key",
-    keyPrefix: "sk-or-",
-    consoleUrl: "https://openrouter.ai/keys",
   },
   {
     id: "openai-compatible",
@@ -320,10 +312,39 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
-// OpenRouter's stated base. The `/api/v1` segment is theirs, not a TEDI
-// add-on; their `/v1/models` 404s, only `/api/v1/models` resolves.
-export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+/** Preset endpoints surfaced as quick-pick chips inside the OpenAI
+ *  Compatible block in Settings → Models. Each entry pre-fills the base
+ *  URL so a user pasting an OpenRouter or 9Router key doesn't have to
+ *  remember the `/api/v1` (OpenRouter) or `localhost:20128/v1` (9Router)
+ *  paths. The presets are pure UX — TEDI still routes everything through
+ *  the openai-compatible code path. */
+export const OPENAI_COMPATIBLE_PRESETS: ReadonlyArray<{
+  id: string;
+  label: string;
+  baseURL: string;
+  description: string;
+}> = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    baseURL: "https://api.openai.com/v1",
+    description: "Official OpenAI API",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    description: "Cloud gateway for 300+ models",
+  },
+  {
+    id: "9router",
+    label: "9Router (local)",
+    baseURL: "http://localhost:20128/v1",
+    description: "Self-hosted router, default port",
+  },
+] as const;
 /** Per-turn cap on agent tool-call steps. 15 (was 24) matches industry
  *  baselines (Claude Code ~15, Cursor ~12). Shorter rope for runaway loops. */
 export const MAX_AGENT_STEPS = 15;
