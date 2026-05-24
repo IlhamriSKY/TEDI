@@ -70,6 +70,14 @@ const EditorThemeSchema = z
   })
   .strict();
 
+// `.passthrough()` (not `.strict()`): older TEDI builds must tolerate
+// extension manifests that declare panel flags added in newer TEDI
+// versions. v0.2.20 added `compact`, and a `.strict()` schema in
+// v0.2.15..v0.2.19 rejected install of any extension that set it with
+// `contributes.panels.0: Invalid input`. Unknown keys now survive the
+// parse and are simply ignored by the runtime renderer; engines.tedi
+// constraints from the extension manifest still gate hard if the
+// extension needs the new behaviour to work at all.
 const PanelSchema = z
   .object({
     id: z.string().min(1),
@@ -91,7 +99,7 @@ const PanelSchema = z
      *  to be set on this panel. `aria-label` keeps the title for a11y. */
     compact: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
 
 const AiToolSchema = z
   .object({
@@ -103,6 +111,11 @@ const AiToolSchema = z
   })
   .strict();
 
+// `.passthrough()` so a newer TEDI's manifest with an unknown contribution
+// category (e.g. a future `contributes.notifications`) does not fail the
+// whole install on older TEDI builds. The host only iterates the
+// categories it knows about; extra categories sit in the parsed object
+// untouched and inert.
 const ContributesSchema = z
   .object({
     settings: z.array(SettingSchema).optional(),
@@ -114,7 +127,7 @@ const ContributesSchema = z
     panels: z.array(PanelSchema).optional(),
     aiTools: z.array(AiToolSchema).optional(),
   })
-  .strict();
+  .passthrough();
 
 const EnginesSchema = z
   .object({

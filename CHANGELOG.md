@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.21] - 24-05-2026
+
+### Fixed
+
+- **Extension manifests with forward-compat fields no longer break install on older TEDI.** `PanelSchema` and `ContributesSchema` in [`src/modules/extensions/manifest.ts`](src/modules/extensions/manifest.ts) now use Zod `.passthrough()` instead of `.strict()`. Previously, declaring any panel field the host did not yet recognise — e.g. an extension targeting TEDI 0.2.21 setting `contributes.panels[].compact: true` against an installed TEDI 0.2.19 build — failed parse with `Invalid manifest: contributes.panels.0: Invalid input` and rendered the install dialog unusable. With `.passthrough()`, unknown keys flow through the parsed manifest, the host iterates only what it knows about, and the `engines.tedi` constraint still gates hard if the extension actually requires the new behaviour to work. This matches the VS Code convention where unknown manifest fields are silently tolerated. The change is host-side only; no extension reauthoring needed.
+
 ## [0.2.20] - 23-05-2026
 
 ### Fixed
@@ -20,6 +26,10 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 - **Main GUI binary renamed `TEDI.exe` → `TEDIApp.exe`** via `tauri.conf.json: "mainBinaryName": "TEDIApp"`. `productName` stays `"TEDI"` so Start Menu, Add/Remove Programs, registry entries, and the installer filename are unchanged. The rename is purely a PATHEXT-collision avoidance so the new `tedi.exe` stub is what the shell finds when the user types `tedi`.
 - **Cargo workspace split for the launcher.** The GUI package (`src-tauri/Cargo.toml`) declares only the `TEDIApp` bin; the `tedi.exe` console launcher lives in a separate workspace member (`src-tauri/tedi-cli/`) so Tauri 2's deb / dmg / nsis bundlers do not enumerate it when bundling the GUI install layout. Earlier attempts to gate the bin via `required-features` failed because the bundlers ignored the gate and then errored on the missing `target/release/tedi`. With the workspace split the Windows release step (`cargo build --release -p tedi-cli`) is the only invocation that touches the launcher; POSIX builds never see it.
 - **`tedi.cmd` NSIS shim removed.** v0.2.0..v0.2.19 wrote a batch shim that PATHEXT bypassed (because `.EXE` resolves before `.CMD`) and that handled `--help` / `--version` natively as a belt-and-suspenders. The new `tedi.exe` supersedes it entirely. `NSIS_HOOK_PREUNINSTALL` deletes both `tedi.exe` and any legacy `tedi.cmd` from older installs.
+
+### Added
+
+- **Extension manifest flag `contributes.panels[].compact: true`.** Tells the host's [`RightPanelToggleButtons`](src/modules/extensions/components/RightPanelToggleButtons.tsx) to render the auto-rendered status-bar toggle as a 24×24 icon-only square (no `title` text, no `<Kbd>` chip). `aria-label` still carries the panel title for accessibility and the tooltip still shows on hover; the icon comes from `panels[].icon` so the extension is responsible for shipping a recognisable badge. Used by [`tedi.terminal-screenshot 0.2.1`](https://github.com/IlhamriSKY/TEDI.terminal-screenshot) to keep the camera icon compact next to the AI sidebar toggle. Older TEDI builds reject the flag with a Zod strict-input error; this is fixed in 0.2.21.
 
 ### Other
 
