@@ -3,9 +3,14 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setCustomTheme, setCustomThemeEnabled } from "@/modules/settings/store";
+import {
+  setCustomTheme,
+  setCustomThemeEnabled,
+  setUserThemePresets,
+} from "@/modules/settings/store";
 import {
   parseThemeFile,
   serializeThemeFile,
@@ -14,9 +19,12 @@ import {
 } from "@/modules/settings/customTheme";
 import { DEFAULT_CUSTOM_THEME, THEME_PRESETS } from "@/modules/settings/themePresets";
 import {
+  BookmarkAdd02Icon,
+  Cancel01Icon,
   Delete02Icon,
   FolderUploadIcon,
   Image01Icon,
+  LinkSquare01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -201,11 +209,16 @@ function ColorSwatch({
 export function ThemeSection() {
   const enabled = usePreferencesStore((s) => s.customThemeEnabled);
   const theme = usePreferencesStore((s) => s.customTheme);
+  const userPresets = usePreferencesStore((s) => s.userThemePresets);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bgError, setBgError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<Group>("Base");
+  // Inline name input for "Save as preset". `null` = button mode, string =
+  // typing the name. Submitting (Enter or save button) writes to
+  // userThemePresets, then collapses back to button mode.
+  const [savePresetName, setSavePresetName] = useState<string | null>(null);
   // Which color variant is currently being edited. Defaults to the resolved
   // theme so the inputs always show what's actually painted on screen.
   const { resolvedTheme } = useTheme();
@@ -245,6 +258,56 @@ export function ThemeSection() {
     };
     void setCustomTheme(next);
     if (!enabled) void setCustomThemeEnabled(true);
+  };
+
+  // Compute a non-conflicting preset name. If the input collides with a
+  // built-in name or an existing user preset, append " (2)", " (3)", … until
+  // unique. Keeps the user from accidentally shadowing "Dracula" et al.
+  const uniquePresetName = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+    const used = new Set<string>([
+      ...THEME_PRESETS.map((p) => p.name),
+      ...userPresets.map((p) => p.name),
+    ]);
+    if (!used.has(trimmed)) return trimmed;
+    for (let i = 2; i < 100; i++) {
+      const candidate = `${trimmed} (${i})`;
+      if (!used.has(candidate)) return candidate;
+    }
+    return `${trimmed} ${Date.now()}`;
+  };
+
+  const onSaveAsPreset = (rawName: string) => {
+    const finalName = uniquePresetName(rawName);
+    if (!finalName) return;
+    const newPreset: CustomTheme = {
+      ...theme,
+      name: finalName,
+      // Drop wallpaper from the saved preset — the user's wallpaper is a
+      // separate concern and follows them across preset switches.
+      background: {
+        ...theme.background,
+        enabled: false,
+        path: "",
+        dataUrl: "",
+      },
+    };
+    void setUserThemePresets([...userPresets, newPreset]);
+    // Switch the live theme name to the new preset so the "modified" tag
+    // disappears until the user edits something again.
+    void setCustomTheme({ ...theme, name: finalName });
+    setSavePresetName(null);
+  };
+
+  const onDeleteUserPreset = (name: string) => {
+    void setUserThemePresets(userPresets.filter((p) => p.name !== name));
+    // If the live theme was the deleted preset, mark it as "(deleted preset)"
+    // so the user understands its provenance vanished. They can keep editing
+    // or pick another preset.
+    if (theme.name === name) {
+      void setCustomTheme({ ...theme, name: `${name} (deleted)` });
+    }
   };
 
   const onPickBackground = async () => {
@@ -374,7 +437,7 @@ export function ThemeSection() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <SectionHeader title="Theme" description="Customise every color and add a background image." />
 
       <SettingRow
@@ -385,65 +448,141 @@ export function ThemeSection() {
       </SettingRow>
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <Label>Preset</Label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={onResetToDefault}
-          >
-            Reset to Default
-          </Button>
+          <div className="flex items-center gap-1">
+            {savePresetName === null ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px]"
+                onClick={() => {
+                  // Seed the input with the current name minus any
+                  // "(modified)" suffix so a quick Enter saves over.
+                  const seed = theme.name.replace(/\s*\(modified\)\s*$/i, "");
+                  setSavePresetName(seed);
+                }}
+              >
+                <HugeiconsIcon icon={BookmarkAdd02Icon} size={12} strokeWidth={1.75} />
+                Save as preset
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={savePresetName}
+                  onChange={(e) => setSavePresetName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      onSaveAsPreset(savePresetName);
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setSavePresetName(null);
+                    }
+                  }}
+                  placeholder="Preset name"
+                  autoFocus
+                  spellCheck={false}
+                  className="h-7 w-40 text-[11.5px]"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  disabled={!savePresetName.trim()}
+                  onClick={() => onSaveAsPreset(savePresetName)}
+                >
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => setSavePresetName(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onResetToDefault}
+            >
+              Reset
+            </Button>
+          </div>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {THEME_PRESETS.map((p) => {
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          {[
+            ...THEME_PRESETS.map((p) => ({ preset: p, deletable: false })),
+            ...userPresets.map((p) => ({ preset: p, deletable: true })),
+          ].map(({ preset: p, deletable }) => {
             const active = p.name === theme.name;
             return (
-              <button
-                key={p.name}
-                type="button"
-                onClick={() => onPickPreset(p)}
-                aria-pressed={active}
-                className={cn(
-                  "flex items-center gap-2.5 border bg-card/60 px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-                  active
-                    ? "border-primary ring-1 ring-primary/40"
-                    : "border-border/60 hover:border-border",
-                )}
-              >
-                {/* Two stacked horizontal strips: top = light variant,
-                 * bottom = dark variant. Each shows background, button,
-                 * accent, foreground. Lets the user see both modes at a
-                 * glance and confirms the preset works in either theme. */}
-                <div
-                  aria-hidden
-                  className="flex flex-col shrink-0 overflow-hidden border border-border/40"
-                  style={{ width: 60, height: 28 }}
+              <div key={p.name} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => onPickPreset(p)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex w-full items-center gap-2 border bg-card/60 px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    active
+                      ? "border-primary ring-1 ring-primary/40"
+                      : "border-border/60 hover:border-border",
+                  )}
                 >
-                  <div className="flex h-1/2 w-full">
-                    {[p.light.background, p.light.button, p.light.accent, p.light.foreground].map(
-                      (c, i) => (
-                        <span key={`l-${i}`} className="h-full flex-1" style={{ background: c }} />
-                      ),
-                    )}
+                  <div
+                    aria-hidden
+                    className="flex flex-col shrink-0 overflow-hidden border border-border/40"
+                    style={{ width: 52, height: 24 }}
+                  >
+                    <div className="flex h-1/2 w-full">
+                      {[p.light.background, p.light.button, p.light.accent, p.light.foreground].map(
+                        (c, i) => (
+                          <span key={`l-${i}`} className="h-full flex-1" style={{ background: c }} />
+                        ),
+                      )}
+                    </div>
+                    <div className="flex h-1/2 w-full">
+                      {[p.dark.background, p.dark.button, p.dark.accent, p.dark.foreground].map(
+                        (c, i) => (
+                          <span key={`d-${i}`} className="h-full flex-1" style={{ background: c }} />
+                        ),
+                      )}
+                    </div>
                   </div>
-                  <div className="flex h-1/2 w-full">
-                    {[p.dark.background, p.dark.button, p.dark.accent, p.dark.foreground].map(
-                      (c, i) => (
-                        <span key={`d-${i}`} className="h-full flex-1" style={{ background: c }} />
-                      ),
-                    )}
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[12px] font-medium">{p.name}</span>
+                    <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                      {deletable ? "your preset" : "light / dark"}
+                    </span>
                   </div>
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-[12px] font-medium">{p.name}</span>
-                  <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
-                    light / dark
-                  </span>
-                </div>
-              </button>
+                </button>
+                {deletable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteUserPreset(p.name);
+                        }}
+                        className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border border-border/60 transition-colors group-hover:flex"
+                        aria-label={`Delete preset ${p.name}`}
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Delete &ldquo;{p.name}&rdquo;</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -511,47 +650,12 @@ export function ThemeSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Background image</Label>
-        <SettingRow
-          title="Use background image"
-          description={
-            theme.background.path
-              ? theme.background.path
-              : "Pick an image to render behind the UI. PNG / JPG / WebP supported (max 10 MB)."
-          }
-        >
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-[11px]"
-              onClick={() => void onPickBackground()}
-            >
-              <HugeiconsIcon icon={Image01Icon} size={12} strokeWidth={1.75} />
-              {theme.background.dataUrl ? "Replace" : "Pick image"}
-            </Button>
-            {theme.background.dataUrl ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-[11px]"
-                onClick={onClearBackground}
-              >
-                <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
-                Clear
-              </Button>
-            ) : null}
-            <Switch
-              checked={theme.background.enabled && !!theme.background.dataUrl}
-              disabled={!theme.background.dataUrl}
-              onCheckedChange={(v) => updateBackground({ enabled: v })}
-              aria-label="Toggle background image"
-            />
-          </div>
-        </SettingRow>
-        <SettingRow
-          title="From URL"
-          description="Paste a direct HTTPS link to an image (PNG/JPG/WebP/SVG). The URL is stored as-is, so the wallpaper is fetched on demand."
-        >
+        {/* Unified source row: ONE input that accepts either a local file
+         *  (via Browse) or a remote URL. Only one source is active at a
+         *  time — picking a file replaces the URL; pasting a URL replaces
+         *  the file. The Switch flips the layer on/off without losing the
+         *  underlying source. */}
+        <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
           <div className="flex items-center gap-2">
             <Input
               value={bgUrlDraft}
@@ -562,83 +666,132 @@ export function ThemeSection() {
                   onImportBackgroundUrl();
                 }
               }}
-              placeholder="https://example.com/wallpaper.jpg"
+              placeholder="Paste an image URL or click Browse for a local file"
               spellCheck={false}
               autoCapitalize="off"
               autoCorrect="off"
-              className="h-8 w-52 text-[11.5px]"
-              aria-label="Wallpaper URL"
+              className="h-8 flex-1 font-mono text-[11px]"
+              aria-label="Wallpaper source"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-[11px]"
-              disabled={!bgUrlDraft.trim()}
-              onClick={onImportBackgroundUrl}
-            >
-              Use
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 px-2 text-[11px]"
+                  disabled={!bgUrlDraft.trim()}
+                  onClick={onImportBackgroundUrl}
+                  aria-label="Use URL"
+                >
+                  <HugeiconsIcon icon={LinkSquare01Icon} size={12} strokeWidth={1.75} />
+                  Use URL
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                Load the URL above as the wallpaper. URLs are fetched on demand
+                (not stored as base64).
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 px-2 text-[11px]"
+                  onClick={() => void onPickBackground()}
+                >
+                  <HugeiconsIcon icon={Image01Icon} size={12} strokeWidth={1.75} />
+                  Browse
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                Pick a local image (PNG / JPG / WebP, max 10 MB). Inlined as a
+                data URI in your prefs.
+              </TooltipContent>
+            </Tooltip>
+            {theme.background.dataUrl ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-[11px]"
+                    onClick={onClearBackground}
+                    aria-label="Clear background"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Clear wallpaper</TooltipContent>
+              </Tooltip>
+            ) : null}
+            <Switch
+              checked={theme.background.enabled && !!theme.background.dataUrl}
+              disabled={!theme.background.dataUrl}
+              onCheckedChange={(v) => updateBackground({ enabled: v })}
+              aria-label="Toggle background image"
+            />
           </div>
-        </SettingRow>
+          {/* Current source line — a faint indicator so the user can tell
+           *  whether the wallpaper came from a file or a URL. */}
+          {theme.background.dataUrl ? (
+            <div className="text-muted-foreground truncate text-[10.5px]">
+              {theme.background.path.startsWith("data:")
+                ? "Local image (inlined)"
+                : `Source: ${theme.background.path}`}
+            </div>
+          ) : null}
+        </div>
         {bgError ? <span className="text-destructive text-[10.5px]">{bgError}</span> : null}
+        {/* Wallpaper adjustments — grouped into a single card with inline
+         *  rows so three sliders + their labels don't take up 3× the
+         *  vertical space of separate `SettingRow`s. */}
         {theme.background.dataUrl ? (
-          <>
-            <SettingRow
-              title="Blur"
-              description={`${theme.background.blur}px wallpaper blur.`}
-            >
-              <LiveSlider
-                value={theme.background.blur}
-                min={0}
-                max={40}
-                step={1}
-                onPreview={(n) => {
-                  const el = document.getElementById("tedi-bg-layer");
-                  if (el) el.style.filter = n > 0 ? `blur(${n}px)` : "";
-                }}
-                onCommit={(n) => updateBackground({ blur: n })}
-              />
-            </SettingRow>
-            <SettingRow
-              title="Terminal / editor surface opacity"
-              description={`${Math.round(theme.background.surfaceOpacity * 100)}% solid. Lower values let the wallpaper bleed through the terminal cells and the code editor / diff canvas while keeping the text fully opaque.`}
-            >
-              <LiveSlider
-                value={theme.background.surfaceOpacity}
-                min={0}
-                max={1}
-                step={0.05}
-                onPreview={(n) => {
-                  document.documentElement.style.setProperty(
-                    "--tedi-canvas-alpha",
-                    String(n),
-                  );
-                }}
-                onCommit={(n) => updateBackground({ surfaceOpacity: n })}
-              />
-            </SettingRow>
-            <SettingRow
-              title="Darken wallpaper"
-              description={`${Math.round((theme.background.darken ?? 0) * 100)}% dark overlay. Higher values dim the image for better text contrast.`}
-            >
-              <LiveSlider
-                value={theme.background.darken ?? 0}
-                min={0}
-                max={1}
-                step={0.05}
-                onPreview={(n) => {
-                  const el = document.getElementById("tedi-bg-layer");
-                  if (!el || !theme.background.dataUrl) return;
-                  const safeUrl = theme.background.dataUrl.replace(/"/g, '\\"');
-                  const overlay =
-                    n > 0 ? `linear-gradient(rgba(0,0,0,${n}), rgba(0,0,0,${n})), ` : "";
-                  el.style.backgroundImage = `${overlay}url("${safeUrl}")`;
-                }}
-                onCommit={(n) => updateBackground({ darken: n })}
-              />
-            </SettingRow>
-          </>
+          <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-[11.5px]">
+            <CompactSliderRow
+              label="Blur"
+              valueLabel={`${theme.background.blur}px`}
+              value={theme.background.blur}
+              min={0}
+              max={40}
+              step={1}
+              onPreview={(n) => {
+                const el = document.getElementById("tedi-bg-layer");
+                if (el) el.style.filter = n > 0 ? `blur(${n}px)` : "";
+              }}
+              onCommit={(n) => updateBackground({ blur: n })}
+            />
+            <CompactSliderRow
+              label="Surface opacity"
+              valueLabel={`${Math.round(theme.background.surfaceOpacity * 100)}%`}
+              value={theme.background.surfaceOpacity}
+              min={0}
+              max={1}
+              step={0.05}
+              onPreview={(n) => {
+                document.documentElement.style.setProperty("--tedi-canvas-alpha", String(n));
+              }}
+              onCommit={(n) => updateBackground({ surfaceOpacity: n })}
+            />
+            <CompactSliderRow
+              label="Darken"
+              valueLabel={`${Math.round((theme.background.darken ?? 0) * 100)}%`}
+              value={theme.background.darken ?? 0}
+              min={0}
+              max={1}
+              step={0.05}
+              onPreview={(n) => {
+                const el = document.getElementById("tedi-bg-layer");
+                if (!el || !theme.background.dataUrl) return;
+                const safeUrl = theme.background.dataUrl.replace(/"/g, '\\"');
+                const overlay =
+                  n > 0 ? `linear-gradient(rgba(0,0,0,${n}), rgba(0,0,0,${n})), ` : "";
+                el.style.backgroundImage = `${overlay}url("${safeUrl}")`;
+              }}
+              onCommit={(n) => updateBackground({ darken: n })}
+            />
+          </div>
         ) : null}
       </div>
 
@@ -740,7 +893,7 @@ function LiveSlider({
   }, [value]);
   return (
     <Slider
-      className="w-44"
+      className="w-full"
       min={min}
       max={max}
       step={step}
@@ -766,4 +919,48 @@ function slug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "theme";
+}
+
+/**
+ * Inline-row variant of `LiveSlider`: label + value chip + slider on a
+ * single row. Used for the wallpaper adjustments (blur / opacity / darken)
+ * which previously took 3 separate full-card `SettingRow` blocks.
+ */
+function CompactSliderRow({
+  label,
+  valueLabel,
+  value,
+  min,
+  max,
+  step,
+  onPreview,
+  onCommit,
+}: {
+  label: string;
+  valueLabel: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onPreview: (next: number) => void;
+  onCommit: (next: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-foreground w-32 shrink-0 text-[11.5px]">{label}</span>
+      <div className="flex-1">
+        <LiveSlider
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          onPreview={onPreview}
+          onCommit={onCommit}
+        />
+      </div>
+      <span className="text-muted-foreground w-12 shrink-0 text-right font-mono text-[10.5px]">
+        {valueLabel}
+      </span>
+    </div>
+  );
 }

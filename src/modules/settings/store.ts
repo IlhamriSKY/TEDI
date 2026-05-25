@@ -117,6 +117,14 @@ export type Preferences = {
    */
   customThemeEnabled: boolean;
   customTheme: CustomTheme;
+  /**
+   * User-saved theme presets. Appear in the Theme settings preset grid
+   * alongside the built-in `THEME_PRESETS`. The user "saves" the current
+   * custom-theme state as a preset (with a chosen name); subsequent
+   * tweaks to the live theme don't update the preset until they save
+   * again. Items can be deleted individually.
+   */
+  userThemePresets: CustomTheme[];
 };
 
 export const BRAND_COLOR_DEFAULT = "#0057fe";
@@ -167,6 +175,7 @@ const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
 const KEY_BRAND_COLOR = "brandColor";
 const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
+const KEY_USER_THEME_PRESETS = "userThemePresets";
 
 export const CONTENT_ZOOM_DEFAULT = 1.0;
 export const CONTENT_ZOOM_MIN = 0.5;
@@ -211,6 +220,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   brandColor: BRAND_COLOR_DEFAULT,
   customThemeEnabled: false,
   customTheme: DEFAULT_CUSTOM_THEME,
+  userThemePresets: [],
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -282,6 +292,15 @@ export async function loadPreferences(): Promise<Preferences> {
       get<unknown>(KEY_CUSTOM_THEME),
       DEFAULT_PREFERENCES.customTheme,
     ),
+    userThemePresets: (() => {
+      const raw = get<unknown>(KEY_USER_THEME_PRESETS);
+      if (!Array.isArray(raw)) return DEFAULT_PREFERENCES.userThemePresets;
+      // Normalise each entry through `normalizeCustomTheme` so a corrupt
+      // / partial preset doesn't crash the settings page on load.
+      return raw
+        .map((entry) => normalizeCustomTheme(entry, DEFAULT_PREFERENCES.customTheme))
+        .filter((p) => typeof p.name === "string" && p.name.length > 0);
+    })(),
   };
 }
 
@@ -426,6 +445,10 @@ export async function setCustomThemeEnabled(value: boolean): Promise<void> {
 
 export async function setCustomTheme(value: CustomTheme): Promise<void> {
   await writePref(KEY_CUSTOM_THEME, value);
+}
+
+export async function setUserThemePresets(value: CustomTheme[]): Promise<void> {
+  await writePref(KEY_USER_THEME_PRESETS, value);
 }
 
 /**
