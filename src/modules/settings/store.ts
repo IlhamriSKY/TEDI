@@ -11,6 +11,8 @@ import {
   type ProviderId,
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
+import { normalizeCustomTheme, type CustomTheme } from "./customTheme";
+import { DEFAULT_CUSTOM_THEME } from "./themePresets";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -65,6 +67,13 @@ export type Preferences = {
   showHiddenFiles: boolean;
   /** Show the Source Control panel. Default true. */
   showSourceControl: boolean;
+  /**
+   * Mount Source Control in the right slot (next to AI sidebar / extension
+   * right panels) instead of as a sidebar pane on the left. Default false.
+   * When true, the left sidebar drops the SCM pane and a status-bar button
+   * toggles the right-slot SCM panel.
+   */
+  sourceControlInRightPanel: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   /**
    * User overrides for extension keybindings. Keyed by command id from
@@ -100,6 +109,14 @@ export type Preferences = {
    * Default `#0057fe` (TEDI logo blue).
    */
   brandColor: string;
+  /**
+   * Custom theme overrides. When `customThemeEnabled` is true, the full color
+   * token set (and background image) in `customTheme` is applied on top of
+   * the base CSS variables. When false, only the brand color applies and
+   * the base palette wins.
+   */
+  customThemeEnabled: boolean;
+  customTheme: CustomTheme;
 };
 
 export const BRAND_COLOR_DEFAULT = "#0057fe";
@@ -138,6 +155,7 @@ const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
+const KEY_SOURCE_CONTROL_IN_RIGHT_PANEL = "sourceControlInRightPanel";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
@@ -147,6 +165,8 @@ const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
 const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
 const KEY_BRAND_COLOR = "brandColor";
+const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
+const KEY_CUSTOM_THEME = "customTheme";
 
 export const CONTENT_ZOOM_DEFAULT = 1.0;
 export const CONTENT_ZOOM_MIN = 0.5;
@@ -179,6 +199,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   showHiddenFiles: false,
   showSourceControl: true,
+  sourceControlInRightPanel: false,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   extensionShortcuts: {} as Record<string, KeyBinding[]>,
   pinnedModelIds: [],
@@ -188,6 +209,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   contentZoom: CONTENT_ZOOM_DEFAULT,
   aiNotificationsEnabled: true,
   brandColor: BRAND_COLOR_DEFAULT,
+  customThemeEnabled: false,
+  customTheme: DEFAULT_CUSTOM_THEME,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -237,6 +260,9 @@ export async function loadPreferences(): Promise<Preferences> {
     showHiddenFiles: get<boolean>(KEY_SHOW_HIDDEN_FILES) ?? DEFAULT_PREFERENCES.showHiddenFiles,
     showSourceControl:
       get<boolean>(KEY_SHOW_SOURCE_CONTROL) ?? DEFAULT_PREFERENCES.showSourceControl,
+    sourceControlInRightPanel:
+      get<boolean>(KEY_SOURCE_CONTROL_IN_RIGHT_PANEL) ??
+      DEFAULT_PREFERENCES.sourceControlInRightPanel,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ?? DEFAULT_PREFERENCES.shortcuts,
     extensionShortcuts:
@@ -250,6 +276,12 @@ export async function loadPreferences(): Promise<Preferences> {
     aiNotificationsEnabled:
       get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
     brandColor: normalizeBrandColor(get<string>(KEY_BRAND_COLOR)),
+    customThemeEnabled:
+      get<boolean>(KEY_CUSTOM_THEME_ENABLED) ?? DEFAULT_PREFERENCES.customThemeEnabled,
+    customTheme: normalizeCustomTheme(
+      get<unknown>(KEY_CUSTOM_THEME),
+      DEFAULT_PREFERENCES.customTheme,
+    ),
   };
 }
 
@@ -331,6 +363,10 @@ export async function setShowSourceControl(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_SOURCE_CONTROL, value);
 }
 
+export async function setSourceControlInRightPanel(value: boolean): Promise<void> {
+  await writePref(KEY_SOURCE_CONTROL_IN_RIGHT_PANEL, value);
+}
+
 export async function setTerminalFontSize(value: number): Promise<void> {
   const clamped = Number.isFinite(value)
     ? Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(value)))
@@ -382,6 +418,36 @@ export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
 
 export async function setBrandColor(value: string): Promise<void> {
   await writePref(KEY_BRAND_COLOR, normalizeBrandColor(value));
+}
+
+export async function setCustomThemeEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_CUSTOM_THEME_ENABLED, value);
+}
+
+export async function setCustomTheme(value: CustomTheme): Promise<void> {
+  await writePref(KEY_CUSTOM_THEME, value);
+}
+
+/**
+ * Pending preset id written by `tedi theme set <id>` (CLI). Read + drained
+ * once at app boot so the request is applied exactly once. Not exposed to
+ * extensions and not part of the typed `Preferences` shape.
+ */
+const KEY_THEME_PRESET_REQUEST = "customThemePresetRequest";
+
+export async function consumePendingPresetRequest(): Promise<string | null> {
+  const id = (await store.get<unknown>(KEY_THEME_PRESET_REQUEST)) ?? null;
+  if (typeof id !== "string" || id.length === 0) {
+    if (id !== null) {
+      // Corrupt value — drop it.
+      await store.delete(KEY_THEME_PRESET_REQUEST);
+      await store.save();
+    }
+    return null;
+  }
+  await store.delete(KEY_THEME_PRESET_REQUEST);
+  await store.save();
+  return id;
 }
 
 /**
@@ -466,7 +532,9 @@ export async function onPreferencesChange(
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
     [KEY_SHOW_SOURCE_CONTROL]: "showSourceControl",
+    [KEY_SOURCE_CONTROL_IN_RIGHT_PANEL]: "sourceControlInRightPanel",
     [KEY_SHORTCUTS]: "shortcuts",
+    [KEY_EXTENSION_SHORTCUTS]: "extensionShortcuts",
     [KEY_PINNED_MODELS]: "pinnedModelIds",
     [KEY_APPROVAL_MODE]: "approvalMode",
     [KEY_LAST_MODEL]: "lastModelId",
@@ -474,6 +542,8 @@ export async function onPreferencesChange(
     [KEY_CONTENT_ZOOM]: "contentZoom",
     [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
     [KEY_BRAND_COLOR]: "brandColor",
+    [KEY_CUSTOM_THEME_ENABLED]: "customThemeEnabled",
+    [KEY_CUSTOM_THEME]: "customTheme",
   };
   // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
   const unsubLocal = await store.onChange<unknown>((key, value) => {

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { GitStatus } from "./types";
+import type { GitCommit, GitStatus } from "./types";
 
 /** Mirrors Rust `fs::file::ReadResult`. Kept in sync manually. */
 export type FileReadResult =
@@ -34,4 +34,8 @@ export function gitPush(repoPath: string): Promise<string> {
 
 export function gitDiffFull(repoPath: string, maxBytes?: number): Promise<string> {
   return invoke<string>("git_diff_full", { repoPath, maxBytes });
+}
+
+export function gitLog(repoPath: string, limit?: number): Promise<GitCommit[]> {
+  return invoke<GitCommit[]>("git_log", { repoPath, limit });
 }

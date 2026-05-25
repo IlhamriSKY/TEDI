@@ -19,6 +19,12 @@ export type TerminalLeafState = {
    * Optional for back-compat with older saved state.
    */
   terminalOrdinal?: number;
+  /**
+   * Privacy flag. Per-leaf (not per pane-tab) so a split group can mix
+   * private and public terminals. When true the AI subsystem never sees
+   * the leaf's existence, cwd, scrollback, or accepts injects/runs on it.
+   */
+  private?: boolean;
 };
 
 export type EditorLeafState = {
@@ -33,6 +39,8 @@ export type EditorLeafState = {
   sshSessionId?: number;
   /** `user@host:port` for the remote host. Only set when `sshSessionId` is set. */
   sshHostLabel?: string;
+  /** Privacy flag. AI autocomplete + tools refuse on private editor leaves. */
+  private?: boolean;
 };
 
 export type LeafState = TerminalLeafState | EditorLeafState;
@@ -87,6 +95,22 @@ export function setLeafCwd(n: PaneNode, id: PaneId, cwd: string): PaneNode {
     return { ...n, cwd };
   }
   return { ...n, children: n.children.map((c) => setLeafCwd(c, id, cwd)) };
+}
+
+/**
+ * Set or clear the per-leaf privacy flag. Pass `undefined` (or false) to
+ * clear and remove the optional field entirely. Works on both terminal
+ * and editor leaves.
+ */
+export function setLeafPrivate(n: PaneNode, id: PaneId, value: boolean): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id) return n;
+    if (value) return { ...n, private: true };
+    if (n.private === undefined) return n;
+    const { private: _drop, ...rest } = n;
+    return rest as PaneLeaf;
+  }
+  return { ...n, children: n.children.map((c) => setLeafPrivate(c, id, value)) };
 }
 
 /** Patch an editor leaf's mutable state. */

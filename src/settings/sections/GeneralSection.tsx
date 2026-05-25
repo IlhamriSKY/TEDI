@@ -5,21 +5,28 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
 import {
+  CONTENT_ZOOM_DEFAULT,
+  CONTENT_ZOOM_MAX,
+  CONTENT_ZOOM_MIN,
+  CONTENT_ZOOM_STEP,
   EDITOR_THEME_LABELS,
   EDITOR_THEMES,
   TERMINAL_FONT_SIZES,
   setAiNotificationsEnabled,
   setAutostart,
+  setContentZoom,
   setEditorTheme,
   setRestoreWindowState,
   setShowHiddenFiles,
   setShowSourceControl,
+  setSourceControlInRightPanel,
   setTerminalFontSize,
   setTerminalWebglEnabled,
   setShowMinimap,
@@ -32,8 +39,7 @@ import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { useEffect, useState } from "react";
-import { BrandColorPicker } from "../components/BrandColorPicker";
+import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
@@ -62,7 +68,17 @@ export function GeneralSection() {
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
+  const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
+  const contentZoom = usePreferencesStore((s) => s.contentZoom);
+  // Local mirror for live drag. Persisted on slider release so we don't
+  // hit the prefs store + cross-window emit on every mousemove tick.
+  const [zoomDraft, setZoomDraft] = useState(contentZoom);
+  const zoomDragging = useRef(false);
+  useEffect(() => {
+    if (!zoomDragging.current) setZoomDraft(contentZoom);
+  }, [contentZoom]);
+  const zoomPct = Math.round(zoomDraft * 100);
 
   // Reconcile autostart pref with actual OS state on mount; the user may have
   // toggled it from System Settings.
@@ -141,11 +157,56 @@ export function GeneralSection() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Zoom</Label>
         <SettingRow
-          title="Main color"
-          description="Primary accent for buttons, links, focus rings, and the sidebar selection."
+          title="UI zoom level"
+          description="Scales the terminal font and code editor / diff content. Range 50%–300%."
         >
-          <BrandColorPicker />
+          <div className="flex w-64 items-center gap-2.5">
+            <Slider
+              min={CONTENT_ZOOM_MIN}
+              max={CONTENT_ZOOM_MAX}
+              step={CONTENT_ZOOM_STEP}
+              value={[zoomDraft]}
+              onValueChange={(values) => {
+                const next = values[0];
+                if (typeof next !== "number") return;
+                zoomDragging.current = true;
+                setZoomDraft(next);
+                document.documentElement.style.setProperty("--content-zoom", String(next));
+              }}
+              onValueCommit={(values) => {
+                const next = values[0];
+                zoomDragging.current = false;
+                if (typeof next === "number") void setContentZoom(next);
+              }}
+              aria-label="UI zoom level"
+            />
+            <span className="text-muted-foreground w-10 shrink-0 text-right font-mono text-[11px] tabular-nums">
+              {zoomPct}%
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-[11px]"
+              disabled={zoomDraft === CONTENT_ZOOM_DEFAULT}
+              onClick={() => {
+                setZoomDraft(CONTENT_ZOOM_DEFAULT);
+                document.documentElement.style.setProperty(
+                  "--content-zoom",
+                  String(CONTENT_ZOOM_DEFAULT),
+                );
+                void setContentZoom(CONTENT_ZOOM_DEFAULT);
+              }}
+              aria-label="Reset zoom"
+            >
+              Reset
+            </Button>
+          </div>
         </SettingRow>
       </div>
 
@@ -261,6 +322,16 @@ export function GeneralSection() {
           <Switch
             checked={showSourceControl}
             onCheckedChange={(v) => void setShowSourceControl(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Move Source Control to the right panel"
+          description="Mount Source Control next to the AI sidebar instead of the left sidebar. A status-bar button toggles it open."
+        >
+          <Switch
+            checked={sourceControlInRightPanel}
+            disabled={!showSourceControl}
+            onCheckedChange={(v) => void setSourceControlInRightPanel(v)}
           />
         </SettingRow>
       </div>

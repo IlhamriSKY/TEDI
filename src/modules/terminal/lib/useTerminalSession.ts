@@ -195,6 +195,46 @@ function effectiveTerminalFontSize(base: number, zoom: number): number {
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, raw));
 }
 
+/** True when the Theme tab's wallpaper is currently painted. */
+function wallpaperActive(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.dataset.tediBg === "on";
+}
+
+/**
+ * Toggle the WebGL renderer in/out depending on whether a wallpaper is
+ * active. The WebGL renderer in `@xterm/addon-webgl` has a known issue
+ * (xterm.js #4054) where an rgba `theme.background` causes the
+ * foreground glyphs to be alpha-multiplied too. The DOM renderer paints
+ * each cell as a `<span>` with independent `background-color` and
+ * `color`, so text stays fully opaque while the cell background can be
+ * semi-transparent. We dispose WebGL when the wallpaper turns on and
+ * re-load it when the wallpaper turns off (only if the user pref allows).
+ */
+function syncRendererForWallpaper(s: Session): void {
+  const wantWebgl = s.webglEnabled && !wallpaperActive();
+  if (wantWebgl && !s.webglAddon) {
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        if (s.webglAddon === webgl) s.webglAddon = null;
+      });
+      s.term.loadAddon(webgl);
+      s.webglAddon = webgl;
+    } catch (e) {
+      console.warn("WebGL renderer unavailable:", e);
+    }
+  } else if (!wantWebgl && s.webglAddon) {
+    try {
+      s.webglAddon.dispose();
+    } catch {
+      /* ignore */
+    }
+    s.webglAddon = null;
+  }
+}
+
 function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: string): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -214,6 +254,9 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     // 5k lines x 80 cols x ~16 B per cell ≈ 6 MB per leaf.
     scrollback: 5_000,
     allowProposedApi: true,
+    // Required so the WebGL renderer honours an rgba `theme.background` and
+    // lets the Theme tab's wallpaper bleed through the terminal canvas.
+    allowTransparency: true,
   });
 
   const fitAddon = new FitAddon();
@@ -941,7 +984,7 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   s.lastW = container.clientWidth;
   s.lastH = container.clientHeight;
 
-  if (firstAttach && !s.webglAddon && s.webglEnabled) {
+  if (firstAttach && !s.webglAddon && s.webglEnabled && !wallpaperActive()) {
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
@@ -1428,7 +1471,9 @@ export function useTerminalSession({
   const applyTheme = useCallback(() => {
     const s = sessions.get(leafId);
     if (!s) return;
+    syncRendererForWallpaper(s);
     s.term.options.theme = buildTerminalTheme();
+    s.term.refresh(0, s.term.rows - 1);
   }, [leafId]);
 
   return { write, focus, getBuffer, getSelection, paste, isAtPrompt, applyTheme };

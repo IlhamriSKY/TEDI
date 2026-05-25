@@ -13,9 +13,15 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       cwd: leaf.cwd,
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
+      ...(leaf.private ? { private: true } : {}),
     };
   }
-  return { kind: "leaf", leafKind: "editor", path: leaf.path };
+  return {
+    kind: "leaf",
+    leafKind: "editor",
+    path: leaf.path,
+    ...(leaf.private ? { private: true } : {}),
+  };
 }
 
 function nodeToSaved(node: PaneNode): SavedPaneNode {
@@ -66,6 +72,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         cwd: node.cwd,
         sshConnectionId: node.sshConnectionId,
         terminalOrdinal: node.terminalOrdinal,
+        ...(node.private ? { private: true } : {}),
       };
     }
     return {
@@ -75,6 +82,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
       path: node.path,
       dirty: false,
       preview: false,
+      ...(node.private ? { private: true } : {}),
     };
   }
   return {

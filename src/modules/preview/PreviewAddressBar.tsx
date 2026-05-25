@@ -18,6 +18,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 
 type PortPreset = {
   port: number;
@@ -91,6 +92,10 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
         setNotice("Enter a URL or pick a port preset.");
         return;
       }
+      if (isSelfReferenceUrl(next)) {
+        setNotice(SELF_REFERENCE_NOTICE);
+        return;
+      }
       setNotice(null);
       if (next !== url) onSubmit(next);
       else onReload();
@@ -98,16 +103,20 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
 
     const tryPort = async (port: number) => {
       setNotice(null);
+      const candidate = `http://localhost:${port}`;
+      if (isSelfReferenceUrl(candidate)) {
+        setNotice(SELF_REFERENCE_NOTICE);
+        return;
+      }
       setCheckingPort(port);
-      const url = `http://localhost:${port}`;
-      const ok = await probeUrl(url);
+      const ok = await probeUrl(candidate);
       setCheckingPort(null);
       if (!ok) {
         setNotice(`No server listening on :${port}.`);
         return;
       }
-      setDraft(url);
-      onSubmit(url);
+      setDraft(candidate);
+      onSubmit(candidate);
     };
 
     return (

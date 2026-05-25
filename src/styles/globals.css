@@ -71,6 +71,47 @@
 }
 
 :root {
+  /* AI CLI status colors. Themable via Settings > Theme. Defaults match the
+   * pre-existing emerald/yellow/red pill the codebase shipped with so the
+   * out-of-box look is unchanged. */
+  --tedi-icon-idle: #059669;
+  --tedi-icon-working: #ca8a04;
+  --tedi-icon-blocked: #dc2626;
+  /* Terminal + editor canvas surface. Defaults to opaque user background.
+   * When a wallpaper is active, `customTheme.applyBackground` overrides
+   * `--tedi-canvas-alpha` so xterm and CodeMirror let the image bleed
+   * through. */
+  --tedi-canvas-bg: #ffffff;
+  --tedi-canvas-alpha: 1;
+  /* Tab focus / active stripe color per tab kind. Themable via Settings
+   * > Theme. Defaults mirror the hard-coded palette `TabBar.tsx` used
+   * before the tokens existed. */
+  --tedi-tab-terminal: #10b981;
+  --tedi-tab-ssh: #0ea5e9;
+  --tedi-tab-editor: #0057fe;
+  --tedi-tab-preview: #06b6d4;
+  --tedi-tab-ai-diff: #8b5cf6;
+  --tedi-tab-git-diff: #f59e0b;
+  /* Drag-to-resize divider between split panes. Themable via Settings. */
+  --tedi-resize-handle: #e5e7eb;
+  /* ANSI 16 palette for the terminal. Themable per preset. Light-mode
+   * defaults are slightly muted; dark variants below brighten them. */
+  --tedi-ansi-black: #3f3f46;
+  --tedi-ansi-red: #dc2626;
+  --tedi-ansi-green: #16a34a;
+  --tedi-ansi-yellow: #ca8a04;
+  --tedi-ansi-blue: #2563eb;
+  --tedi-ansi-magenta: #9333ea;
+  --tedi-ansi-cyan: #0891b2;
+  --tedi-ansi-white: #e4e4e7;
+  --tedi-ansi-bright-black: #71717a;
+  --tedi-ansi-bright-red: #ef4444;
+  --tedi-ansi-bright-green: #22c55e;
+  --tedi-ansi-bright-yellow: #eab308;
+  --tedi-ansi-bright-blue: #3b82f6;
+  --tedi-ansi-bright-magenta: #a855f7;
+  --tedi-ansi-bright-cyan: #06b6d4;
+  --tedi-ansi-bright-white: #fafafa;
   --background: oklch(1 0 0);
   --foreground: oklch(0.148 0.004 228.8);
   --card: oklch(1 0 0);
@@ -110,6 +151,38 @@
  * focus/brand #0057FE (logo blue), fg #CCCCCC. Hex kept as-is (sRGB) so the
  * result matches VSCode's pixel feel rather than drifting through OKLCH. */
 .dark {
+  /* Brighter defaults for the AI CLI status icons under dark mode. */
+  --tedi-icon-idle: #34d399;
+  --tedi-icon-working: #facc15;
+  --tedi-icon-blocked: #f87171;
+  /* Dark base for the terminal/editor canvas. */
+  --tedi-canvas-bg: #1e1e1e;
+  /* Slightly brighter tab stripes for dark mode. */
+  --tedi-tab-terminal: #34d399;
+  --tedi-tab-ssh: #38bdf8;
+  --tedi-tab-editor: #5b8bff;
+  --tedi-tab-preview: #22d3ee;
+  --tedi-tab-ai-diff: #a78bfa;
+  --tedi-tab-git-diff: #fbbf24;
+  --tedi-resize-handle: #2b2b2b;
+  /* Brighter ANSI palette for dark mode (matches the previous hardcoded
+   * Tailwind defaults the codebase shipped with). */
+  --tedi-ansi-black: #18181b;
+  --tedi-ansi-red: #ef4444;
+  --tedi-ansi-green: #22c55e;
+  --tedi-ansi-yellow: #eab308;
+  --tedi-ansi-blue: #3b82f6;
+  --tedi-ansi-magenta: #a855f7;
+  --tedi-ansi-cyan: #06b6d4;
+  --tedi-ansi-white: #e4e4e7;
+  --tedi-ansi-bright-black: #52525b;
+  --tedi-ansi-bright-red: #f87171;
+  --tedi-ansi-bright-green: #4ade80;
+  --tedi-ansi-bright-yellow: #facc15;
+  --tedi-ansi-bright-blue: #60a5fa;
+  --tedi-ansi-bright-magenta: #c084fc;
+  --tedi-ansi-bright-cyan: #22d3ee;
+  --tedi-ansi-bright-white: #fafafa;
   --background: #1e1e1e;
   --foreground: #cccccc;
   --card: #1f1f1f;
@@ -181,6 +254,60 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
+}
+
+/* Custom theme background image: when an image is loaded via
+ * Settings → Theme, `<html>` gains `data-tedi-bg="on"`. Make body and the
+ * React root transparent so the fixed `#tedi-bg-layer` div behind the React
+ * tree is actually visible. Side panels (sidebar, cards, popovers) keep
+ * their solid `--card` / `--sidebar` backgrounds, so the wallpaper only
+ * peeks through gaps and editor canvases - which is exactly the effect
+ * users expect from VSCode-style background images. */
+html[data-tedi-bg="on"],
+html[data-tedi-bg="on"] body {
+  background-color: transparent !important;
+}
+html[data-tedi-bg="on"] #root,
+html[data-tedi-bg="on"] #settings-root {
+  background-color: transparent !important;
+}
+
+/* CodeMirror surface tint. Only `.cm-editor` carries the alpha so the
+ * wallpaper is not occluded by stacked semi-transparent layers. Inner
+ * scrollers, content, and gutters go fully transparent and let the
+ * `.cm-editor` color-mixed backdrop show through. The `@uiw` themes set
+ * `.cm-editor` background via a class with specificity (0,2,0); the
+ * root attribute selector here is (0,2,1) and `!important` wins. */
+html[data-tedi-bg="on"] .cm-editor {
+  background-color: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) calc(var(--tedi-canvas-alpha) * 100%),
+    transparent
+  ) !important;
+}
+html[data-tedi-bg="on"] .cm-scroller,
+html[data-tedi-bg="on"] .cm-content,
+html[data-tedi-bg="on"] .cm-gutters {
+  background-color: transparent !important;
+}
+html[data-tedi-bg="on"] .cm-activeLine,
+html[data-tedi-bg="on"] .cm-activeLineGutter {
+  background-color: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) 18%,
+    transparent
+  ) !important;
+}
+/* xterm WebGL renderer needs `allowTransparency: true` (set in
+ * `useTerminalSession.ts`) so the canvas itself accepts an rgba clear
+ * color. The DOM wrappers around the canvas go fully transparent so
+ * the wallpaper bleeds through without compounding the alpha. The
+ * actual tint is computed in `buildTerminalTheme()` and passed as
+ * `theme.background = rgba(...)`. */
+html[data-tedi-bg="on"] .xterm,
+html[data-tedi-bg="on"] .xterm .xterm-screen,
+html[data-tedi-bg="on"] .xterm .xterm-viewport {
+  background-color: transparent !important;
 }
 
 /* Custom window chrome (Linux/Windows): the OS gives us a transparent

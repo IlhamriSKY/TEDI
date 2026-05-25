@@ -10,12 +10,16 @@ import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
+import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
 }
 
 applyBrandColorFastPath();
+// Custom theme overrides brand color when active. Run after the brand fast
+// path so its CSS variables win on first paint.
+applyCustomThemeFastPath();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);
 

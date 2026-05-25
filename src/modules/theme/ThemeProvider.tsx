@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   loadPreferences,
   onPreferencesChange,
@@ -6,6 +14,12 @@ import {
   type ThemePref,
 } from "@/modules/settings/store";
 import { applyBrandColor, applyBrandColorFastPath } from "@/modules/settings/brandColor";
+import {
+  applyCustomTheme,
+  normalizeCustomTheme,
+  type CustomTheme,
+} from "@/modules/settings/customTheme";
+import { DEFAULT_CUSTOM_THEME } from "@/modules/settings/themePresets";
 
 export type Theme = ThemePref;
 
@@ -49,28 +63,68 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
       : window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
 
+  // Track the latest known custom-theme state so brand/theme toggles can
+  // re-resolve which layer should be active without re-fetching the store.
+  const customStateRef = useRef<{ enabled: boolean; theme: CustomTheme | null }>({
+    enabled: false,
+    theme: null,
+  });
+
+  const reconcileLayers = useCallback((brand: string) => {
+    if (customStateRef.current.enabled && customStateRef.current.theme) {
+      applyCustomTheme(customStateRef.current.theme);
+    } else {
+      // Order matters: clear any leftover custom-theme overrides first so
+      // `clearCssVars()` does not wipe the `--primary` / `--ring` / `--accent`
+      // values that `applyBrandColor` is about to set.
+      applyCustomTheme(null);
+      applyBrandColor(brand);
+    }
+  }, []);
+
   // Hydrate from the persistent store (cross-window source of truth).
   useEffect(() => {
     let alive = true;
-    void loadPreferences().then((p) => {
-      if (!alive) return;
-      setThemeState(p.theme);
-      writeFastTheme(p.theme);
-      applyBrandColor(p.brandColor);
-    });
+    loadPreferences()
+      .then((p) => {
+        if (!alive) return;
+        setThemeState(p.theme);
+        writeFastTheme(p.theme);
+        customStateRef.current = {
+          enabled: p.customThemeEnabled,
+          theme: p.customTheme,
+        };
+        reconcileLayers(p.brandColor);
+      })
+      .catch((err) => {
+        console.error("ThemeProvider: loadPreferences failed", err);
+      });
     const unlistenP = onPreferencesChange((key, value) => {
       if (key === "theme" && (value === "system" || value === "light" || value === "dark")) {
         setThemeState(value);
         writeFastTheme(value);
       } else if (key === "brandColor" && typeof value === "string") {
-        applyBrandColor(value);
+        reconcileLayers(value);
+      } else if (key === "customThemeEnabled" && typeof value === "boolean") {
+        customStateRef.current = { ...customStateRef.current, enabled: value };
+        // Re-read brand from the store snapshot only when we need to fall back.
+        loadPreferences()
+          .then((p) => reconcileLayers(p.brandColor))
+          .catch((err) => console.error("ThemeProvider: enable-toggle reload failed", err));
+      } else if (key === "customTheme" && value && typeof value === "object") {
+        const normalized = normalizeCustomTheme(value, DEFAULT_CUSTOM_THEME);
+        customStateRef.current = {
+          ...customStateRef.current,
+          theme: normalized,
+        };
+        if (customStateRef.current.enabled) applyCustomTheme(normalized);
       }
     });
     return () => {
       alive = false;
       void unlistenP.then((fn) => fn());
     };
-  }, []);
+  }, [reconcileLayers]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -86,9 +140,14 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(resolvedTheme);
-    // Accent derivation differs per mode, so re-apply on theme flips using the
-    // cached hex - cheaper than re-hitting tauri-plugin-store.
-    applyBrandColorFastPath();
+    // Accent derivation differs per mode, so re-apply on theme flips. When a
+    // custom theme is active it owns the palette and wins; otherwise fall
+    // back to the cached brand hex (cheaper than re-hitting the store).
+    if (customStateRef.current.enabled && customStateRef.current.theme) {
+      applyCustomTheme(customStateRef.current.theme);
+    } else {
+      applyBrandColorFastPath();
+    }
   }, [resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {

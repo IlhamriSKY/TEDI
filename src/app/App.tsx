@@ -34,12 +34,14 @@ import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { RightPanelHost, useExtensionsStore, useRightPanelStore } from "@/modules/extensions";
+import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { FileExplorer } from "@/modules/explorer";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Header, type SearchInlineHandle, type SearchTarget } from "@/modules/header";
 import { PaneStack } from "@/modules/panes";
 import { type PreviewPaneHandle } from "@/modules/preview";
+import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/preview/lib/proxy";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -78,6 +80,7 @@ import {
   leaves,
   respawnSession,
   useTerminalFileDrop,
+  type PaneLeaf,
   type TerminalPaneHandle,
   type TediOpenInput,
   type TediSpawnTabInput,
@@ -143,10 +146,34 @@ type LiveTerminalCtx = {
 };
 
 /**
+ * Per-leaf title used in the AI-facing terminal snapshot. Derived from
+ * the leaf itself (not the pane-tab mirror) so a private active leaf
+ * cannot leak its cwd basename into a public sibling's `title` row —
+ * `t.title` reflects whichever leaf is currently focused, including a
+ * private one, which would otherwise surface inside the `<env>` block.
+ */
+function leafTitleForSnapshot(l: PaneLeaf): string {
+  if (l.leafKind !== "terminal") return "";
+  if (l.sshConnectionId) return "ssh";
+  if (l.cwd) {
+    const parts = l.cwd.split(/[\\/]/).filter(Boolean);
+    const b = parts.length ? parts[parts.length - 1] : "";
+    if (b) return b;
+  }
+  return "shell";
+}
+
+/**
  * Snapshots all terminal leaves in tab order. `ordinal` is the leaf's
  * FIFO `terminalOrdinal` (the number on the TabBar chip), so "terminal 3"
  * maps to the same leaf across closes, drags, and restarts. Falls back to
  * positional numbering if the saved field is missing.
+ *
+ * Private leaves are filtered out entirely so the AI never learns of their
+ * existence (no ordinal, no leafId, no cwd, no title). Privacy is per-leaf
+ * — a split group can mix private and public terminals; only marked
+ * leaves disappear. This is the single chokepoint backing `listTerminals`,
+ * the per-turn `<env>` block, and every `target`-based AI tool.
  */
 function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   const out: TerminalInfo[] = [];
@@ -155,12 +182,14 @@ function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
     if (t.kind !== "pane") continue;
     for (const l of leaves(t.paneTree)) {
       if (l.leafKind !== "terminal") continue;
+      if (l.private) continue;
       fallback += 1;
       out.push({
         tabId: t.id,
         leafId: l.id,
         ordinal: l.terminalOrdinal ?? fallback,
-        title: t.title,
+        // Per-leaf derivation. See leafTitleForSnapshot comment.
+        title: leafTitleForSnapshot(l),
         cwd: l.cwd ?? null,
         isActive: t.id === ctx.activeId && t.activeLeafId === l.id,
       });
@@ -168,6 +197,21 @@ function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   }
   return out;
 }
+
+/**
+ * True when the leaf carries the per-leaf private flag. The setLive bridge
+ * uses this to refuse injects/runs/reads even when a tool resolves to a
+ * leafId directly.
+ */
+function isLeafPrivate(ctx: LiveTerminalCtx, leafId: number): boolean {
+  for (const t of ctx.tabs) {
+    if (t.kind !== "pane") continue;
+    const leaf = findLeaf(t.paneTree, leafId);
+    if (leaf?.private) return true;
+  }
+  return false;
+}
+
 
 /** Resolves a TerminalTarget to a leaf id. Order: leafId, tabId, ordinal, title substring. Empty target picks the active terminal. */
 function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): number | null {
@@ -238,6 +282,7 @@ export default function App() {
     allocId,
     reorderTabs,
     reorderLeafInGroup,
+    togglePrivate,
   } = useTabs();
 
   // Drop a file from the OS file manager onto a terminal pane to paste its
@@ -497,6 +542,9 @@ export default function App() {
   const prefLastProviderId = usePreferencesStore((s) => s.lastProviderId);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
+  const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
+  const scmRightOpen = useScmRightPanelStore((s) => s.open);
+  const closeScmRight = useScmRightPanelStore((s) => s.closePanel);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
   // Expose the zoom factor as a CSS variable so CodeMirror and diff
   // surfaces can scale via `calc(... * var(--content-zoom))`. The terminal
@@ -525,20 +573,38 @@ export default function App() {
     void useExtensionsStore.getState().init();
   }, []);
 
-  // Right-panel and AI sidebar are mutually exclusive (both want the same
-  // ~22% slot). Opening one closes the other. Each effect reacts to one
-  // trigger and reads the other via `getState()`, avoiding ping-pong.
+  // Right-panel, SCM right panel, and AI sidebar are mutually exclusive
+  // (all three want the same ~22% slot). Opening one closes the others.
+  // Each effect reacts to one trigger and reads the others via
+  // `getState()`, avoiding ping-pong.
   const rightPanelActive = useRightPanelStore((s) => s.active);
   useEffect(() => {
-    if (rightPanelActive && useChatStore.getState().panelOpen) {
-      useChatStore.getState().closePanel();
+    if (rightPanelActive) {
+      if (useChatStore.getState().panelOpen) useChatStore.getState().closePanel();
+      if (useScmRightPanelStore.getState().open) useScmRightPanelStore.getState().closePanel();
     }
   }, [rightPanelActive]);
   useEffect(() => {
-    if (panelOpen && useRightPanelStore.getState().active) {
-      useRightPanelStore.getState().close();
+    if (panelOpen) {
+      if (useRightPanelStore.getState().active) useRightPanelStore.getState().close();
+      if (useScmRightPanelStore.getState().open) useScmRightPanelStore.getState().closePanel();
     }
   }, [panelOpen]);
+  useEffect(() => {
+    if (scmRightOpen) {
+      if (useChatStore.getState().panelOpen) useChatStore.getState().closePanel();
+      if (useRightPanelStore.getState().active) useRightPanelStore.getState().close();
+    }
+  }, [scmRightOpen]);
+
+  // Close the SCM right panel when the user disables either the master
+  // "Show Source Control" toggle or the "in right panel" pref. Otherwise a
+  // stale open state could re-render an empty slot after the pref flips.
+  useEffect(() => {
+    if ((!sourceControlInRightPanel || !showSourceControl) && scmRightOpen) {
+      closeScmRight();
+    }
+  }, [sourceControlInRightPanel, showSourceControl, scmRightOpen, closeScmRight]);
 
   // Honor manifest `defaultOpen` for right-surface panels once per session.
   // Reads from the extensions store so this runs after `bootAll()` or when
@@ -1127,6 +1193,9 @@ export default function App() {
     if (!t || t.kind !== "pane") return null;
     const leaf = activeLeaf(t);
     if (!leaf) return null;
+    // Private leaves never expose their selection to the AI. Returning
+    // null here suppresses the Ask-AI popup and short-circuits attachSelection.
+    if (leaf.private) return null;
     if (leaf.leafKind === "terminal") {
       return terminalRefs.current.get(leaf.id)?.getSelection() ?? null;
     }
@@ -1270,6 +1339,12 @@ export default function App() {
     newTab(explorerRoot ?? inheritedCwdForNewTab());
   }, [newTab, inheritedCwdForNewTab, explorerRoot]);
 
+  /** Same as `openNewTab` but flags the new tab private so the AI cannot
+   *  see its scrollback, cwd, or even existence in `<env>`. */
+  const openNewPrivateTab = useCallback(() => {
+    newTab(explorerRoot ?? inheritedCwdForNewTab(), { private: true });
+  }, [newTab, inheritedCwdForNewTab, explorerRoot]);
+
   const sendCd = useCallback(
     (path: string) => {
       // Breadcrumb click = open this folder. Updates the workspace root so
@@ -1401,7 +1476,11 @@ export default function App() {
   }, [activeTab]);
 
   const openPreviewTab = useCallback(
-    (url: string) => {
+    (url: string): number | null => {
+      if (url && isSelfReferenceUrl(url)) {
+        toast(SELF_REFERENCE_NOTICE, { variant: "warning" });
+        return null;
+      }
       const id = newPreviewTab(url);
       if (!url) {
         setTimeout(() => previewRefs.current.get(id)?.focusAddressBar(), 0);
@@ -1503,10 +1582,10 @@ export default function App() {
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
-      // Ctrl+Shift+C: copy terminal selection. No-op when nothing is
-      // selected. useGlobalShortcuts preventDefaults the event so xterm
-      // never sees it. Ctrl+C without Shift falls through to xterm and
-      // sends SIGINT.
+      // Copy terminal selection. Defaults: Cmd+C on macOS, Ctrl+Shift+C
+      // elsewhere (see shortcuts.ts). No-op when nothing is selected.
+      // useGlobalShortcuts preventDefaults the event so xterm never sees
+      // it. Bare Ctrl+C falls through to xterm and sends SIGINT.
       "terminal.copy": () => {
         if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
@@ -1519,9 +1598,10 @@ export default function App() {
           console.warn("terminal.copy: clipboard write failed:", e);
         });
       },
-      // Ctrl+Shift+V: paste clipboard via term.paste so the shell gets a
-      // bracketed paste (multi-line snippets don't auto-execute line by
-      // line under bash/zsh).
+      // Paste clipboard via term.paste so the shell gets a bracketed
+      // paste (multi-line snippets don't auto-execute line by line under
+      // bash/zsh). Defaults: Cmd+V on macOS, Ctrl+Shift+V or Shift+Insert
+      // elsewhere (see shortcuts.ts).
       "terminal.paste": () => {
         if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
         const term = terminalRefs.current.get(activeLeafIdInTab);
@@ -1806,15 +1886,17 @@ export default function App() {
       getCwd: () => {
         const { tabs, activeId, explorerRoot, home } = liveContextRef.current;
         const active = tabs.find((x) => x.id === activeId);
+        // Private leaves never leak their cwd. Fall back to the workspace
+        // root the same way an empty terminal tab would.
         if (active?.kind === "pane") {
           const leaf = activeLeaf(active);
-          if (leaf?.leafKind === "terminal" && leaf.cwd) return leaf.cwd;
+          if (leaf?.leafKind === "terminal" && !leaf.private && leaf.cwd) return leaf.cwd;
         }
         for (let i = tabs.length - 1; i >= 0; i--) {
           const t = tabs[i];
           if (t.kind !== "pane") continue;
           for (const l of leaves(t.paneTree)) {
-            if (l.leafKind === "terminal" && l.cwd) return l.cwd;
+            if (l.leafKind === "terminal" && !l.private && l.cwd) return l.cwd;
           }
         }
         return explorerRoot ?? home ?? null;
@@ -1825,6 +1907,9 @@ export default function App() {
         if (!t || t.kind !== "pane") return null;
         const leaf = activeLeaf(t);
         if (!leaf || leaf.leafKind !== "terminal") return null;
+        // Private leaves deny scrollback reads entirely. The AI sees null,
+        // same as if the active leaf weren't a terminal.
+        if (leaf.private) return null;
         const n = Math.max(1, Math.min(2000, lines ?? 300));
         return terminalRefs.current.get(leaf.id)?.getBuffer(n) ?? null;
       },
@@ -1834,6 +1919,9 @@ export default function App() {
         if (!t || t.kind !== "pane") return false;
         const leaf = activeLeaf(t);
         if (!leaf || leaf.leafKind !== "terminal") return false;
+        // Refuse injection into private leaves. The AI sees `no active
+        // terminal`, identical to the no-terminal fallback.
+        if (leaf.private) return false;
         const term = terminalRefs.current.get(leaf.id);
         if (!term) return false;
         term.write(text);
@@ -1849,11 +1937,13 @@ export default function App() {
         const t = tabs.find((x) => x.id === activeId);
         if (!t || t.kind !== "pane") return null;
         const leaf = activeLeaf(t);
-        return leaf?.leafKind === "editor" ? leaf.path : null;
+        if (!leaf || leaf.leafKind !== "editor") return null;
+        // Private editor leaves keep their path hidden too.
+        if (leaf.private) return null;
+        return leaf.path;
       },
       openPreview: (url: string) => {
-        liveContextRef.current.openPreviewTab(url);
-        return true;
+        return liveContextRef.current.openPreviewTab(url) !== null;
       },
       openTerminal: (cwd) => {
         const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;
@@ -1867,6 +1957,8 @@ export default function App() {
         if (!t || t.kind !== "pane") return false;
         const leaf = activeLeaf(t);
         if (!leaf || leaf.leafKind !== "terminal") return false;
+        // Private leaves refuse all AI-driven command submission.
+        if (leaf.private) return false;
         const term = terminalRefs.current.get(leaf.id);
         if (!term) return false;
         // Strip trailing newlines, submit with CR. Windows ConPTY + pwsh
@@ -1880,6 +1972,9 @@ export default function App() {
       injectIntoTerminal: (target, text) => {
         const leafId = resolveTerminalLeaf(target, liveContextRef.current);
         if (leafId === null) return false;
+        // Defense in depth: snapshotTerminals already filters private, but
+        // re-check by leafId in case future code paths bypass the snapshot.
+        if (isLeafPrivate(liveContextRef.current, leafId)) return false;
         const term = terminalRefs.current.get(leafId);
         if (!term) return false;
         term.write(text);
@@ -1888,6 +1983,7 @@ export default function App() {
       runInTerminal: (target, command) => {
         const leafId = resolveTerminalLeaf(target, liveContextRef.current);
         if (leafId === null) return false;
+        if (isLeafPrivate(liveContextRef.current, leafId)) return false;
         const term = terminalRefs.current.get(leafId);
         if (!term) return false;
         const trimmed = command.replace(/[\r\n]+$/, "");
@@ -1990,6 +2086,10 @@ export default function App() {
         const owner = tabs.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
         if (!owner || owner.kind !== "pane")
           return { ok: false, error: `leaf ${leafId} not found` };
+        // Private leaves are invisible to the AI; report not-found rather
+        // than letting the AI close one.
+        if (isLeafPrivate(liveContextRef.current, leafId))
+          return { ok: false, error: `leaf ${leafId} not found` };
         const onlyLeafInTab = leafIds(owner.paneTree).length === 1;
         const onlyTab = tabs.filter((t) => t.kind === "pane").length === 1;
         if (onlyLeafInTab && onlyTab)
@@ -2000,6 +2100,9 @@ export default function App() {
       isTerminalBusy: (target) => {
         // Resolve target (default = active terminal). Missing terminal is
         // reported as busy so callers fall through to "open new terminal".
+        // Private leaves are also reported as busy so suggest_command and
+        // run_in_terminal route the AI into a fresh public terminal
+        // instead of writing to the private one.
         const leafId =
           target === undefined
             ? (() => {
@@ -2007,10 +2110,13 @@ export default function App() {
                 const t = tabs.find((x) => x.id === activeId);
                 if (!t || t.kind !== "pane") return null;
                 const leaf = activeLeaf(t);
-                return leaf && leaf.leafKind === "terminal" ? leaf.id : null;
+                if (!leaf || leaf.leafKind !== "terminal") return null;
+                if (leaf.private) return null;
+                return leaf.id;
               })()
             : resolveTerminalLeaf(target, liveContextRef.current);
         if (leafId === null) return true;
+        if (isLeafPrivate(liveContextRef.current, leafId)) return true;
         const term = terminalRefs.current.get(leafId);
         if (!term) return true;
         return !term.isAtPrompt();
@@ -2066,6 +2172,10 @@ export default function App() {
   // input. De-dup by path so split panes don't duplicate. The setter
   // short-circuits on shape-equal lists, so most keystroke runs are
   // no-ops downstream.
+  //
+  // Private editor leaves are excluded so their path never appears as a
+  // chip or mention-picker entry — preventing the user from accidentally
+  // attaching a private file to the AI conversation.
   useEffect(() => {
     const openFiles: { path: string; name: string }[] = [];
     const seenPaths = new Set<string>();
@@ -2073,6 +2183,7 @@ export default function App() {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind !== "editor") continue;
+        if (l.private) continue;
         if (seenPaths.has(l.path)) continue;
         seenPaths.add(l.path);
         const parts = l.path.split(/[\\/]/).filter(Boolean);
@@ -2116,6 +2227,8 @@ export default function App() {
               }
             }}
             onNewTerminal={openNewTab}
+            onNewPrivateTerminal={openNewPrivateTab}
+            onTogglePrivate={togglePrivate}
             onNewPreview={() => openPreviewTab("")}
             onNewEditor={() => setNewEditorOpen(true)}
             onPinLeaf={(tabId, leafId) => {
@@ -2133,7 +2246,7 @@ export default function App() {
             onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenExtensions={() => void openSettingsWindow("extensions")}
             onOpenSettings={() => void openSettingsWindow()}
-            onConnectSsh={(conn) => newSshTab(conn.id, conn.name)}
+            onConnectSsh={(conn, opts) => newSshTab(conn.id, conn.name, opts)}
             onMoveLeafToGroup={moveLeafToGroup}
             onMoveLeafToNewTab={moveLeafToNewTab}
             onRotateLeafSplit={rotateLeafSplit}
@@ -2211,7 +2324,7 @@ export default function App() {
                         ) : null}
                       </div>
                     </ResizablePanel>
-                    {showSourceControl ? (
+                    {showSourceControl && !sourceControlInRightPanel ? (
                       <>
                         <ResizableHandle withHandle />
                         <ResizablePanel id="sidebar-scm" defaultSize="20%" minSize="10%">
@@ -2325,12 +2438,23 @@ export default function App() {
                   before the loser closes: a fresh `rightPanelActive`
                   reflects the user's latest click, so render that and
                   let the AI panel close in the background. */}
-              {rightPanelActive || (keysLoaded && panelOpen) ? (
+              {rightPanelActive || scmRightOpen || (keysLoaded && panelOpen) ? (
                 <>
                   <ResizableHandle withHandle />
                   <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
                     {rightPanelActive ? (
                       <RightPanelHost />
+                    ) : scmRightOpen ? (
+                      <div className="border-border/60 bg-card/60 flex h-full min-h-0 flex-col border-l">
+                        <Suspense fallback={null}>
+                          <SourceControlPanel
+                            rootPath={explorerRoot}
+                            onPathDeleted={handlePathDeleted}
+                            onOpenDiff={openGitDiffTab}
+                            onClose={closeScmRight}
+                          />
+                        </Suspense>
+                      </div>
                     ) : hasComposer ? (
                       <Suspense fallback={null}>
                         <AiSidebarPanel />

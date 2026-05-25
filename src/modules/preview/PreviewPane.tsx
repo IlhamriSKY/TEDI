@@ -1,7 +1,7 @@
-import { Globe02Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { isLocalUrl, resolveIframeSrc } from "./lib/proxy";
+import { isLocalUrl, isSelfReferenceUrl, resolveIframeSrc, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 import { PreviewAddressBar, type PreviewAddressBarHandle } from "./PreviewAddressBar";
 
 export type PreviewPaneHandle = {
@@ -38,10 +38,11 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function Preview
   );
 
   const isLocal = url ? isLocalUrl(url) : true;
+  const selfBlocked = url ? isSelfReferenceUrl(url) : false;
   const proxied = !isLocal && !bypassProxy;
   const iframeSrc = useMemo(
-    () => (url ? resolveIframeSrc(url, { bypassProxy }) : ""),
-    [url, bypassProxy],
+    () => (url && !selfBlocked ? resolveIframeSrc(url, { bypassProxy }) : ""),
+    [url, bypassProxy, selfBlocked],
   );
 
   return (
@@ -69,10 +70,16 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function Preview
       />
       <div
         className={
-          url ? "relative min-h-0 flex-1 bg-white" : "bg-background relative min-h-0 flex-1"
+          url && !selfBlocked
+            ? "relative min-h-0 flex-1 bg-white"
+            : "bg-background relative min-h-0 flex-1"
         }
       >
-        {url ? (
+        {!url ? (
+          <EmptyState />
+        ) : selfBlocked ? (
+          <SelfBlockedState />
+        ) : (
           <iframe
             key={`${iframeSrc}#${nonce}`}
             src={iframeSrc}
@@ -80,8 +87,6 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function Preview
             className="h-full w-full border-0"
             allow="clipboard-read; clipboard-write; fullscreen"
           />
-        ) : (
-          <EmptyState />
         )}
       </div>
     </div>
@@ -102,6 +107,24 @@ function EmptyState() {
           dropdown to jump straight to your running dev server. Public sites are routed through
           TEDI's strip-XFO proxy so they render inline - toggle it off with the shield button if a
           site looks broken.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SelfBlockedState() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
+      <div className="flex size-12 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <HugeiconsIcon icon={AlertCircleIcon} size={20} strokeWidth={1.5} />
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-foreground text-sm font-medium">Preview blocked</p>
+        <p className="text-muted-foreground max-w-sm text-xs leading-relaxed">
+          {SELF_REFERENCE_NOTICE} Pick a different URL or use the{" "}
+          <span className="bg-muted rounded px-1 py-0.5 font-mono text-[10.5px]">Ports</span>{" "}
+          dropdown to find your dev server.
         </p>
       </div>
     </div>

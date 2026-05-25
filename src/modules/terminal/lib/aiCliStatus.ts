@@ -41,27 +41,35 @@ export function aiCliStateWord(s: NonNullable<AiCliStatus>): string {
   return s.state;
 }
 
-/** Tailwind classes for the inline state pill. Idle green, working yellow, blocking red pulse. */
+/**
+ * Tailwind classes for the inline state pill. Colors resolve from the
+ * themable `--tedi-icon-*` CSS variables (set in globals.css with sensible
+ * defaults, overridable via Settings → Theme). Background is a soft tint
+ * mixed from the same var via `color-mix()`.
+ */
 export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
   switch (s.state) {
     case "idle":
-      return "text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15";
+      return "text-[color:var(--tedi-icon-idle)] bg-[color:color-mix(in_oklab,var(--tedi-icon-idle)_15%,transparent)]";
     case "working":
-      return "text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-500/15";
+      return "text-[color:var(--tedi-icon-working)] bg-[color:color-mix(in_oklab,var(--tedi-icon-working)_15%,transparent)]";
     case "blocking":
-      return "text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-500/20 animate-pulse";
+      return "text-[color:var(--tedi-icon-blocked)] bg-[color:color-mix(in_oklab,var(--tedi-icon-blocked)_18%,transparent)] animate-pulse";
   }
 }
 
-/** Tailwind text color for the terminal-leaf icon when an AI CLI is active. Working and blocking pulse. */
+/**
+ * Tailwind text color for the terminal-leaf icon when an AI CLI is active.
+ * Resolves from themable CSS variables; working and blocking pulse.
+ */
 export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
   switch (s.state) {
     case "idle":
-      return "text-emerald-600 dark:text-emerald-400";
+      return "text-[color:var(--tedi-icon-idle)]";
     case "working":
-      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+      return "text-[color:var(--tedi-icon-working)] animate-pulse";
     case "blocking":
-      return "text-red-600 dark:text-red-400 animate-pulse";
+      return "text-[color:var(--tedi-icon-blocked)] animate-pulse";
   }
 }
 

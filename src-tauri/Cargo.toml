@@ -19,6 +19,10 @@ name = "tedi"
 version = "0.2.23"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
+license = "Apache-2.0"
+repository = "https://github.com/IlhamriSKY/TEDI"
+homepage = "https://github.com/IlhamriSKY/TEDI"
+readme = "../README.md"
 edition = "2021"
 # Tauri-action invokes `cargo build` without `--bin` and asks Cargo which
 # binary to bundle. With the implicit bin (from package.name = "tedi" +

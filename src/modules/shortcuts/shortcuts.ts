@@ -229,21 +229,31 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ alt: true, key: "z" }],
   },
   {
-    // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C. Matches GNOME
-    // Terminal, Konsole, Windows Terminal, VS Code. macOS users can rebind
-    // to Cmd+C in Settings, Shortcuts, Terminal.
+    // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C on Linux/Windows.
+    // Matches GNOME Terminal, Konsole, Windows Terminal, VS Code. On macOS
+    // the convention (Terminal.app, iTerm2) is Cmd+C — Cmd is not a shell
+    // signal, so it's safe to bind unconditionally.
     id: "terminal.copy",
     label: "Copy selection",
     group: "Terminal",
-    defaultBindings: [{ ctrl: true, shift: true, key: "c" }],
+    defaultBindings: IS_MAC
+      ? [{ meta: true, key: "c" }]
+      : [{ ctrl: true, shift: true, key: "c" }],
   },
   {
     // Uses xterm's bracketed-paste so multi-line snippets aren't executed
-    // line-by-line.
+    // line-by-line. Cmd+V on macOS; Ctrl+Shift+V elsewhere. Shift+Insert is
+    // a de-facto universal terminal paste on Linux/Windows — included as a
+    // secondary default for muscle memory from other emulators.
     id: "terminal.paste",
     label: "Paste from clipboard",
     group: "Terminal",
-    defaultBindings: [{ ctrl: true, shift: true, key: "v" }],
+    defaultBindings: IS_MAC
+      ? [{ meta: true, key: "v" }]
+      : [
+          { ctrl: true, shift: true, key: "v" },
+          { shift: true, key: "Insert" },
+        ],
   },
   {
     // Closes the focused terminal pane. No-op for the last terminal.

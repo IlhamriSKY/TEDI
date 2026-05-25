@@ -41,6 +41,7 @@ import {
   ComputerTerminal02Icon,
   GitCompareIcon,
   Globe02Icon,
+  LockedIcon,
   MoreVerticalIcon,
   PencilEdit02Icon,
   PlusSignIcon,
@@ -97,6 +98,8 @@ type PaneEntry = EntryBase & {
   aiCliStatus?: AiCliStatus;
   /** Set on editor leaves backed by SFTP. Flips the file icon to a remote variant. */
   remoteHost?: string;
+  /** Inherited from the owning tab. Drives the red badge + lock icon. */
+  isPrivate?: boolean;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -114,16 +117,19 @@ type Entry = PaneEntry | StandaloneEntry;
  */
 function tabAccentClass(e: Entry): string {
   if (e.kind === "pane-leaf") {
+    // Private tabs win the accent regardless of leaf kind so the red stripe
+    // is the dominant signal. AI cannot see this tab.
+    if (e.isPrivate) return "bg-red-500 dark:bg-red-400";
     if (e.leafKind === "terminal") {
       return e.sshConnectionId
-        ? "bg-sky-500 dark:bg-sky-400"
-        : "bg-emerald-500 dark:bg-emerald-400";
+        ? "bg-[color:var(--tedi-tab-ssh)]"
+        : "bg-[color:var(--tedi-tab-terminal)]";
     }
-    return "bg-[#0057fe] dark:bg-[#0057fe]";
+    return "bg-[color:var(--tedi-tab-editor)]";
   }
-  if (e.kind === "preview") return "bg-cyan-500 dark:bg-cyan-400";
-  if (e.kind === "ai-diff") return "bg-violet-500 dark:bg-violet-400";
-  return "bg-amber-500 dark:bg-amber-400";
+  if (e.kind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
+  if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
+  return "bg-[color:var(--tedi-tab-git-diff)]";
 }
 
 function basename(path: string): string {
@@ -195,6 +201,7 @@ function buildEntries(
           aiCliStatus:
             leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
           remoteHost,
+          isPrivate: leaf.private === true,
         });
       }
       continue;
@@ -236,8 +243,12 @@ type Props = {
   /** Close a pane leaf or standalone tab. `leafId` is null for standalone. */
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   onNewTerminal: () => void;
+  /** Open a new local terminal tab pre-flagged as private. */
+  onNewPrivateTerminal?: () => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
+  /** Flip the `private` flag on a single leaf (per-tab in the strip, not the whole split group). */
+  onTogglePrivate?: (leafId: number) => void;
   /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
   /** Reorder tabs. `beforeTabId` null appends. */
@@ -304,8 +315,10 @@ export function TabBar({
   onSelectEntry,
   onCloseEntry,
   onNewTerminal,
+  onNewPrivateTerminal,
   onNewPreview,
   onNewEditor,
+  onTogglePrivate,
   onPinLeaf,
   onReorderTabs,
   onReorderLeafInGroup,
@@ -609,6 +622,7 @@ export function TabBar({
                     onMoveLeafToGroup={onMoveLeafToGroup}
                     onMoveLeafToNewTab={onMoveLeafToNewTab}
                     onRotateLeafSplit={onRotateLeafSplit}
+                    onTogglePrivate={onTogglePrivate}
                     paneGroupsForMove={paneGroupsForMove}
                   />
                 ))}
@@ -656,6 +670,17 @@ export function TabBar({
               <span className="flex-1">Terminal</span>
               <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "T")}</span>
             </DropdownMenuItem>
+            {onNewPrivateTerminal ? (
+              <DropdownMenuItem onSelect={() => onNewPrivateTerminal()}>
+                <HugeiconsIcon
+                  icon={LockedIcon}
+                  size={14}
+                  strokeWidth={1.75}
+                  className="text-red-600 dark:text-red-400"
+                />
+                <span className="flex-1">Private Terminal</span>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onSelect={() => onNewEditor()}>
               <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1">Editor</span>
@@ -711,6 +736,8 @@ type SortableTabGroupProps = {
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split containing this leaf. */
   onRotateLeafSplit?: (leafId: number) => void;
+  /** Toggle privacy on a single leaf. */
+  onTogglePrivate?: (leafId: number) => void;
   paneGroupsForMove: PaneGroupForMove[];
 };
 
@@ -737,6 +764,7 @@ function SortableTabGroup({
   onMoveLeafToGroup,
   onMoveLeafToNewTab,
   onRotateLeafSplit,
+  onTogglePrivate,
   paneGroupsForMove,
 }: SortableTabGroupProps) {
   const isSplit = entries.length > 1;
@@ -790,6 +818,7 @@ function SortableTabGroup({
           onMoveLeafToGroup={onMoveLeafToGroup}
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
+          onTogglePrivate={onTogglePrivate}
           paneGroupsForMove={paneGroupsForMove}
         />
       );
@@ -815,6 +844,7 @@ function SortableTabGroup({
       onMoveLeafToGroup,
       onMoveLeafToNewTab,
       onRotateLeafSplit,
+      onTogglePrivate,
       paneGroupsForMove,
     });
   });
@@ -894,6 +924,7 @@ type RenderEntryArgs = {
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   onRotateLeafSplit?: (leafId: number) => void;
+  onTogglePrivate?: (leafId: number) => void;
   paneGroupsForMove: PaneGroupForMove[];
 };
 
@@ -920,6 +951,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
     onMoveLeafToGroup,
     onMoveLeafToNewTab,
     onRotateLeafSplit,
+    onTogglePrivate,
     paneGroupsForMove,
   } = args;
   const sshHost =
@@ -1018,14 +1050,17 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
   // Right-click actions: rotate split, leave group, join group, close right.
   // Rotate/leave-group only for leaves inside a split. Move-to-group needs another tab.
   const isPaneLeaf = e.kind === "pane-leaf";
+  const isPrivate = isPaneLeaf && e.isPrivate === true;
   const moveTargets =
     isPaneLeaf && onMoveLeafToGroup ? paneGroupsForMove.filter((g) => g.id !== e.tabId) : [];
   const canRotate = isPaneLeaf && isSplit && !!onRotateLeafSplit;
   const canLeaveGroup = isPaneLeaf && isSplit && !!onMoveLeafToNewTab;
   const canMove = moveTargets.length > 0;
+  const canTogglePrivate = isPaneLeaf && !!onTogglePrivate;
   const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
-  const hasContextActions = canRotate || canLeaveGroup || canMove || canCloseToRight;
-  const hasLeafActions = canRotate || canLeaveGroup || canMove;
+  const hasContextActions =
+    canRotate || canLeaveGroup || canMove || canTogglePrivate || canCloseToRight;
+  const hasLeafActions = canRotate || canLeaveGroup || canMove || canTogglePrivate;
   const tooltipMode: "ssh" | "ai" | null = sshHost
     ? "ssh"
     : isPaneLeaf && e.aiCliStatus
@@ -1079,6 +1114,23 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
                 ))}
               </ContextMenuSubContent>
             </ContextMenuSub>
+          )}
+          {canTogglePrivate && (
+            <ContextMenuItem
+              onSelect={() => {
+                if (e.kind === "pane-leaf") onTogglePrivate!(e.leafId);
+              }}
+            >
+              <HugeiconsIcon
+                icon={LockedIcon}
+                size={13}
+                strokeWidth={1.75}
+                className={isPrivate ? undefined : "text-red-600 dark:text-red-400"}
+              />
+              <span className="flex-1">
+                {isPrivate ? "Mark as Public" : "Mark as Private"}
+              </span>
+            </ContextMenuItem>
           )}
           {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
           {canCloseToRight && (
@@ -1202,16 +1254,28 @@ function TrailingIconButton({
 
 /**
  * Pill badge stamped next to terminal entries. Same ordinal the AI sees in
- * `<env>`. Colors stay muted; the emerald/yellow/red palette is reserved
- * for the AI CLI icon tint.
+ * `<env>`. Public tabs use the muted palette so the emerald/yellow/red
+ * palette stays reserved for the AI CLI icon tint. Private tabs override
+ * the badge to solid red so the number-going-red is the headline signal
+ * that the AI cannot see this tab.
  */
-function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
+function TerminalOrdinalBadge({
+  ordinal,
+  isPrivate,
+}: {
+  ordinal: number;
+  isPrivate?: boolean;
+}) {
   return (
     <span
-      aria-label={`Terminal ${ordinal}`}
+      aria-label={
+        isPrivate ? `Terminal ${ordinal} (private, hidden from AI)` : `Terminal ${ordinal}`
+      }
       className={cn(
         "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold tabular-nums",
-        "bg-muted text-muted-foreground",
+        isPrivate
+          ? "bg-red-600 text-white dark:bg-red-500 dark:text-white"
+          : "bg-muted text-muted-foreground",
       )}
     >
       {ordinal}
@@ -1221,6 +1285,23 @@ function TerminalOrdinalBadge({ ordinal }: { ordinal: number }) {
 
 function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
+    // Private tabs replace the leaf icon with a red lock so the AI-can't-read
+    // signal reads at a glance, regardless of terminal vs editor or ssh.
+    if (entry.isPrivate) {
+      return (
+        <span className="inline-flex shrink-0 items-center gap-1">
+          <HugeiconsIcon
+            icon={LockedIcon}
+            size={14}
+            strokeWidth={2}
+            className="shrink-0 text-red-600 dark:text-red-400"
+          />
+          {entry.leafKind === "terminal" && entry.terminalOrdinal ? (
+            <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} isPrivate />
+          ) : null}
+        </span>
+      );
+    }
     if (entry.leafKind === "editor") {
       const url = fileIconUrl(entry.label);
       // Remote files reuse the file-type icon shape but get recolored sky-blue

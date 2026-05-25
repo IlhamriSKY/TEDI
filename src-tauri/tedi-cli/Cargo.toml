@@ -12,6 +12,10 @@
 # (`cargo build --release -p tedi-cli`) builds it.
 name = "tedi-cli"
 version = "0.2.23"
+description = "Console-subsystem launcher stub for the TEDI GUI app (Windows)."
+authors = ["IlhamriSKY"]
+license = "Apache-2.0"
+repository = "https://github.com/IlhamriSKY/TEDI"
 edition = "2021"
 publish = false
 

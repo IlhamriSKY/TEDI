@@ -43,6 +43,10 @@ type Props = {
   /** Close a pane entry or standalone tab. */
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   onNewTerminal: () => void;
+  /** Open a new local terminal tab pre-flagged as private (AI cannot read it). */
+  onNewPrivateTerminal?: () => void;
+  /** Toggle the per-leaf privacy flag from the tab right-click menu. */
+  onTogglePrivate?: (leafId: number) => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
   /** Pin a preview-editor leaf on double-click. */
@@ -59,8 +63,9 @@ type Props = {
   onOpenShortcuts: () => void;
   onOpenExtensions: () => void;
   onOpenSettings: () => void;
-  /** Open a saved SSH host as a new terminal tab. */
-  onConnectSsh: (conn: SshConnection) => void;
+  /** Open a saved SSH host as a new terminal tab. `opts.private` opens it
+   *  pre-flagged as private (AI cannot see its contents or even existence). */
+  onConnectSsh: (conn: SshConnection, opts?: { private?: boolean }) => void;
   /** Move a leaf into `targetTabId` as a split. Caller toasts on full. */
   onMoveLeafToGroup: (leafId: number, targetTabId: number) => void;
   /** Pop `leafId` out into a new top-level tab. Returns "invalid" if not in a multi-leaf split. */
@@ -109,6 +114,8 @@ export function Header({
   onSelectEntry,
   onCloseEntry,
   onNewTerminal,
+  onNewPrivateTerminal,
+  onTogglePrivate,
   onNewPreview,
   onNewEditor,
   onPinLeaf,
@@ -376,6 +383,8 @@ export function Header({
           onSelectEntry={onSelectEntry}
           onCloseEntry={onCloseEntry}
           onNewTerminal={onNewTerminal}
+          onNewPrivateTerminal={onNewPrivateTerminal}
+          onTogglePrivate={onTogglePrivate}
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
           onPinLeaf={onPinLeaf}

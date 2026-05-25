@@ -61,9 +61,14 @@
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
       }
     },
     "category": "DeveloperTool",
+    "copyright": "Copyright © 2026 Crynta. Licensed under the Apache License, Version 2.0.",
+    "licenseFile": "../LICENSE",
     "shortDescription": "Terminal Environment & Development Infrastructure",
     "longDescription": "TEDI (Terminal Environment & Development Infrastructure) is a lightweight, low-footprint terminal that boosts developer productivity with split-screen terminals, tab grouping, and workspaces."
   },

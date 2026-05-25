@@ -20,6 +20,7 @@
     "core:event:allow-unlisten",
     "opener:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "log:default",
     "os:default",
     "store:default",

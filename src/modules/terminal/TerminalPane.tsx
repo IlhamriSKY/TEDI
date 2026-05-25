@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useTheme } from "@/modules/theme";
 import type { SearchAddon } from "@xterm/addon-search";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -62,6 +63,11 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
+  // Re-apply the xterm theme whenever the Theme-tab custom palette or
+  // wallpaper opacity changes. The `customTheme` reference flips on every
+  // setter call so identity comparison is enough.
+  const customTheme = usePreferencesStore((s) => s.customTheme);
+  const customThemeEnabled = usePreferencesStore((s) => s.customThemeEnabled);
 
   const session = useTerminalSession({
     leafId,
@@ -81,10 +87,11 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
   });
 
   useEffect(() => {
-    // Defer one frame so CSS variable tokens see the new class.
+    // Defer one frame so CSS variable tokens see the new class / new
+    // `--tedi-canvas-*` values written by `applyCustomTheme`.
     const id = requestAnimationFrame(() => session.applyTheme());
     return () => cancelAnimationFrame(id);
-  }, [resolvedTheme, session]);
+  }, [resolvedTheme, session, customTheme, customThemeEnabled]);
 
   useImperativeHandle(
     ref,

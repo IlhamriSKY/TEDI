@@ -16,12 +16,16 @@ export type SavedTerminalLeaf = {
   sshConnectionId?: string;
   /** FIFO chip number. Persisted so "Terminal 3" stays the same after restart. Backfilled by `useTabs.ts` for older state. */
   terminalOrdinal?: number;
+  /** Per-leaf privacy flag. AI subsystem ignores private leaves. */
+  private?: boolean;
 };
 
 export type SavedEditorLeaf = {
   kind: "leaf";
   leafKind: "editor";
   path: string;
+  /** Per-leaf privacy flag. AI inline autocomplete refuses on private leaves. */
+  private?: boolean;
 };
 
 export type SavedPaneNode =

@@ -23,6 +23,7 @@ import {
   CloudServerIcon,
   Copy01Icon,
   Delete02Icon,
+  LockedIcon,
   PencilEdit01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -45,8 +46,9 @@ const SshConnectionDialog = lazy(() =>
 );
 
 type Props = {
-  /** Opens a saved host as a new terminal tab. */
-  onConnect: (conn: SshConnection) => void;
+  /** Opens a saved host as a new terminal tab. `opts.private` opts the
+   *  new tab into privacy mode (AI subsystem cannot see it). */
+  onConnect: (conn: SshConnection, opts?: { private?: boolean }) => void;
 };
 
 export function SshMenu({ onConnect }: Props) {
@@ -112,6 +114,11 @@ export function SshMenu({ onConnect }: Props) {
     onConnect(c);
   };
 
+  const onPickPrivate = (c: SshConnection) => {
+    setMenuOpen(false);
+    onConnect(c, { private: true });
+  };
+
   return (
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -158,6 +165,12 @@ export function SshMenu({ onConnect }: Props) {
                     stopPropagation on pointerDown stops the menu treating
                     the click as a row select. */}
                 <span className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <RowIconButton
+                    label={`Connect ${c.name} as private (AI cannot see it)`}
+                    onClick={() => onPickPrivate(c)}
+                    icon={LockedIcon}
+                    privateMode
+                  />
                   <RowIconButton
                     label={`Duplicate ${c.name}`}
                     onClick={() => void duplicate(c)}
@@ -230,16 +243,19 @@ function RowIconButton({
   onClick,
   icon,
   danger,
+  privateMode,
 }: {
   label: string;
   onClick: () => void;
   icon: typeof PencilEdit01Icon;
   danger?: boolean;
+  privateMode?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      title={label}
       // Run on mousedown, before the row's pointerup fires and highlights it.
       // preventDefault stops focus shifting here (which would also blue-paint
       // the parent row via Radix focus styling).
@@ -256,8 +272,12 @@ function RowIconButton({
         e.stopPropagation();
       }}
       className={cn(
-        "text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-        danger ? "hover:bg-destructive/15 hover:text-destructive" : "hover:bg-muted-foreground/15",
+        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+        danger
+          ? "text-foreground hover:bg-destructive/15 hover:text-destructive"
+          : privateMode
+            ? "text-red-600 hover:bg-muted-foreground/15 dark:text-red-400"
+            : "text-foreground hover:bg-muted-foreground/15",
       )}
     >
       <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />

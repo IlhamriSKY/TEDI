@@ -7,6 +7,7 @@ import ReactDOM from "react-dom/client";
 import { ThemeProvider } from "@/modules/theme";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
+import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
 import { SettingsApp } from "./SettingsApp";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
@@ -14,6 +15,7 @@ if (USE_CUSTOM_WINDOW_CONTROLS) {
 }
 
 applyBrandColorFastPath();
+applyCustomThemeFastPath();
 
 ReactDOM.createRoot(document.getElementById("settings-root") as HTMLElement).render(
   <ThemeProvider>

@@ -20,6 +20,7 @@ import {
   ArrowDown01Icon,
   ArrowTurnBackwardIcon,
   ArrowUp01Icon,
+  Cancel01Icon,
   CloudUploadIcon,
   GitBranchIcon,
   GitCommitIcon,
@@ -29,8 +30,10 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
+import { GitGraphView } from "./GitGraphView";
 import type { GitChange, GitChangeStatus, GitStatus } from "./types";
 
 type Props = {
@@ -43,6 +46,12 @@ type Props = {
     repoPath: string;
     changeStatus: GitChangeStatus;
   }) => void;
+  /**
+   * When set, renders a close button in the header. Used when the panel is
+   * hosted in the right slot so the user can dismiss it without going to
+   * settings.
+   */
+  onClose?: () => void;
 };
 
 const STATUS_LETTER: Record<GitChangeStatus, string> = {
@@ -133,7 +142,7 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
   return raw || `Failed to ${op}.`;
 }
 
-export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Props) {
+export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClose }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +150,11 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
   const [confirmOne, setConfirmOne] = useState<GitChange | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<null | "commit" | "push" | "ai">(null);
+  const [tab, setTab] = useState<"changes" | "graph">("changes");
+  // Bumped after commit/push and on manual refresh so the Graph tab refetches
+  // without us wiring a direct ref into the child.
+  const [graphRefreshToken, setGraphRefreshToken] = useState(0);
+  const bumpGraph = useCallback(() => setGraphRefreshToken((n) => n + 1), []);
 
   const inFlightRef = useRef(false);
   const rootRef = useRef(rootPath);
@@ -201,7 +215,10 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
     }
   }, []);
 
-  const refresh = useCallback(() => fetchStatus(false), [fetchStatus]);
+  const refresh = useCallback(() => {
+    bumpGraph();
+    return fetchStatus(false);
+  }, [fetchStatus, bumpGraph]);
 
   useEffect(() => {
     void fetchStatus(false);
@@ -411,8 +428,25 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
 
   if (!rootPath) {
     return (
-      <div className="text-muted-foreground flex h-full items-center justify-center px-3 text-center text-[11px]">
-        Open a folder to use source control.
+      <div className="relative flex h-full flex-col">
+        {onClose ? (
+          <div className="flex h-8 shrink-0 items-center justify-end px-2">
+            <IconTooltip label="Close panel" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+                onClick={onClose}
+                aria-label="Close Source Control panel"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          </div>
+        ) : null}
+        <div className="text-muted-foreground flex flex-1 items-center justify-center px-3 text-center text-[11px]">
+          Open a folder to use source control.
+        </div>
       </div>
     );
   }
@@ -488,126 +522,169 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff }: Prop
             <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        {onClose ? (
+          <IconTooltip label="Close panel" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+              onClick={onClose}
+              aria-label="Close Source Control panel"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
       </div>
 
       {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
       <Separator className="bg-border" />
 
-      {status?.isRepo ? (
-        <div
-          className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-2.5"
-          aria-busy={busy !== null}
-        >
-          <div className="relative flex-1">
-            <Input
-              placeholder="Commit message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (message.trim() && sorted.length > 0 && busy === null) {
-                    void doCommit();
-                  }
-                }
-              }}
-              className="h-7 w-full rounded-md pr-7 pl-2 text-[11.5px]"
-              disabled={busy !== null}
-            />
-            <IconTooltip
-              label={
-                busy === "ai"
-                  ? "Generating…"
-                  : sorted.length === 0
-                    ? "No changes to summarize"
-                    : "Generate commit message with AI"
-              }
-              side="bottom"
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md active:-translate-y-1/2!"
-                onClick={() => void doGenerate()}
-                disabled={sorted.length === 0 || busy !== null}
-                aria-label="Generate commit message"
-              >
-                {busy === "ai" ? (
-                  <Spinner className="size-3" />
-                ) : (
-                  <HugeiconsIcon
-                    icon={SparklesIcon}
-                    size={12}
-                    strokeWidth={2}
-                  />
-                )}
-              </Button>
-            </IconTooltip>
-          </div>
-          <IconTooltip label={busy === "commit" ? "Committing…" : "Commit (Enter)"} side="bottom">
-            <Button
-              size="icon"
-              className="size-7 rounded-md"
-              onClick={() => void doCommit()}
-              disabled={!message.trim() || sorted.length === 0 || busy !== null}
-              aria-label="Commit"
-            >
-              <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-          <IconTooltip
-            label={
-              busy === "push"
-                ? "Pushing…"
-                : status.upstream
-                  ? `Push to ${status.upstream}` +
-                    (status.behind > 0 ? ` (${status.behind} behind)` : "")
-                  : `Publish ${status.branch ?? "HEAD"} to origin`
-            }
-            side="bottom"
-          >
-            <Button
-              variant="outline"
-              size="icon"
-              className={cn(
-                "h-7 rounded-md",
-                status.ahead > 0 ? "w-auto gap-0.5 px-1.5" : "size-7",
-              )}
-              onClick={() => void doPush()}
-              disabled={busy !== null}
-              aria-label="Push"
-            >
-              <HugeiconsIcon icon={CloudUploadIcon} size={12} strokeWidth={2} />
-              {status.ahead > 0 ? (
-                <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
-              ) : null}
-            </Button>
-          </IconTooltip>
-        </div>
-      ) : null}
-
       {!status?.isRepo ? (
         <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
           Not a git repository.
         </div>
-      ) : sorted.length === 0 ? (
-        <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-          No changes.
-        </div>
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <ul className="py-0.5">
-            {sorted.map((c) => (
-              <ChangeRow
-                key={c.relative + ":" + c.status}
-                change={c}
-                onClickDiff={() => openDiff(c)}
-                onDiscard={() => setConfirmOne(c)}
-              />
-            ))}
-          </ul>
-        </ScrollArea>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as "changes" | "graph")}
+          className="flex min-h-0 flex-1 flex-col gap-0"
+        >
+          <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
+            <TabsTrigger
+              value="changes"
+              className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]"
+            >
+              Changes
+              {sorted.length > 0 ? (
+                <span className="text-muted-foreground tabular-nums">{sorted.length}</span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+              Graph
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
+            <div
+              className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-2.5"
+              aria-busy={busy !== null}
+            >
+              <div className="relative flex-1">
+                <Input
+                  placeholder="Commit message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (message.trim() && sorted.length > 0 && busy === null) {
+                        void doCommit();
+                      }
+                    }
+                  }}
+                  className="h-7 w-full rounded-md pr-7 pl-2 text-[11.5px]"
+                  disabled={busy !== null}
+                />
+                <IconTooltip
+                  label={
+                    busy === "ai"
+                      ? "Generating…"
+                      : sorted.length === 0
+                        ? "No changes to summarize"
+                        : "Generate commit message with AI"
+                  }
+                  side="bottom"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md active:-translate-y-1/2!"
+                    onClick={() => void doGenerate()}
+                    disabled={sorted.length === 0 || busy !== null}
+                    aria-label="Generate commit message"
+                  >
+                    {busy === "ai" ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={2} />
+                    )}
+                  </Button>
+                </IconTooltip>
+              </div>
+              <IconTooltip
+                label={busy === "commit" ? "Committing…" : "Commit (Enter)"}
+                side="bottom"
+              >
+                <Button
+                  size="icon"
+                  className="size-7 rounded-md"
+                  onClick={() => void doCommit()}
+                  disabled={!message.trim() || sorted.length === 0 || busy !== null}
+                  aria-label="Commit"
+                >
+                  <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={2} />
+                </Button>
+              </IconTooltip>
+              <IconTooltip
+                label={
+                  busy === "push"
+                    ? "Pushing…"
+                    : status.upstream
+                      ? `Push to ${status.upstream}` +
+                        (status.behind > 0 ? ` (${status.behind} behind)` : "")
+                      : `Publish ${status.branch ?? "HEAD"} to origin`
+                }
+                side="bottom"
+              >
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-7 rounded-md",
+                    status.ahead > 0 ? "w-auto gap-0.5 px-1.5" : "size-7",
+                  )}
+                  onClick={() => void doPush()}
+                  disabled={busy !== null}
+                  aria-label="Push"
+                >
+                  <HugeiconsIcon icon={CloudUploadIcon} size={12} strokeWidth={2} />
+                  {status.ahead > 0 ? (
+                    <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
+                  ) : null}
+                </Button>
+              </IconTooltip>
+            </div>
+
+            {sorted.length === 0 ? (
+              <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
+                No changes.
+              </div>
+            ) : (
+              <ScrollArea className="min-h-0 flex-1">
+                <ul className="py-0.5">
+                  {sorted.map((c) => (
+                    <ChangeRow
+                      key={c.relative + ":" + c.status}
+                      change={c}
+                      onClickDiff={() => openDiff(c)}
+                      onDiscard={() => setConfirmOne(c)}
+                    />
+                  ))}
+                </ul>
+              </ScrollArea>
+            )}
+          </TabsContent>
+
+          <TabsContent value="graph" className="flex min-h-0 flex-1 flex-col">
+            <GitGraphView
+              rootPath={status.root}
+              isRepo={status.isRepo}
+              refreshToken={graphRefreshToken}
+            />
+          </TabsContent>
+        </Tabs>
       )}
 
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>

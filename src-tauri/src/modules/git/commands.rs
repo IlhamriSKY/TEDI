@@ -529,6 +529,108 @@ pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<Stri
     Ok(out)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    /// Full 40-char SHA.
+    pub sha: String,
+    /// Abbreviated SHA (git's default short length).
+    pub short_sha: String,
+    /// Parent SHAs (full). Empty for the root commit; 2+ for merges.
+    pub parents: Vec<String>,
+    /// Raw refs pointing at this commit. Entries may include prefixes like
+    /// "HEAD -> main", "tag: v1.0", or remote names like "origin/main".
+    pub refs: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    /// Author timestamp as Unix seconds.
+    pub author_time: i64,
+    /// First line of the commit message.
+    pub subject: String,
+}
+
+/// Return up to `limit` commits reachable from any ref (`--all`), in
+/// topological + date order. Used by the Source Control "Graph" tab.
+#[tauri::command]
+pub fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    let max = limit.unwrap_or(500).clamp(1, 5000);
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+    // Tab-separated fields; subject is last so embedded tabs in the message
+    // can't desync the parse. `%D` emits decorations without surrounding
+    // parens (no `%d`), which keeps refs easy to split.
+    let fmt = "%H%x09%h%x09%P%x09%D%x09%an%x09%ae%x09%at%x09%s";
+    let mut cmd = git(&root);
+    cmd.args([
+        "log",
+        "--all",
+        "--topo-order",
+        "--date-order",
+        &format!("--max-count={max}"),
+        &format!("--pretty=format:{fmt}"),
+    ]);
+    let raw = match run(cmd) {
+        Ok(s) => s,
+        Err(e) => {
+            // Empty repo (no commits yet) reports "does not have any commits yet".
+            let lower = e.to_lowercase();
+            if lower.contains("does not have any commits") || lower.contains("bad default revision")
+            {
+                return Ok(Vec::new());
+            }
+            return Err(e);
+        }
+    };
+
+    let mut out: Vec<GitCommit> = Vec::new();
+    for line in raw.split('\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(8, '\t');
+        let sha = parts.next().unwrap_or("").to_string();
+        let short_sha = parts.next().unwrap_or("").to_string();
+        let parents_raw = parts.next().unwrap_or("");
+        let refs_raw = parts.next().unwrap_or("");
+        let author_name = parts.next().unwrap_or("").to_string();
+        let author_email = parts.next().unwrap_or("").to_string();
+        let author_time: i64 = parts
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let subject = parts.next().unwrap_or("").to_string();
+        if sha.is_empty() {
+            continue;
+        }
+        let parents: Vec<String> = parents_raw
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        let refs: Vec<String> = if refs_raw.is_empty() {
+            Vec::new()
+        } else {
+            refs_raw
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        out.push(GitCommit {
+            sha,
+            short_sha,
+            parents,
+            refs,
+            author_name,
+            author_email,
+            author_time,
+            subject,
+        });
+    }
+    Ok(out)
+}
+
 /// Push the current branch to its upstream. With no upstream configured,
 /// falls back to `git push -u origin <branch>` to publish the branch.
 #[tauri::command]

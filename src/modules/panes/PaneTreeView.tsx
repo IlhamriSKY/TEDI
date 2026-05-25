@@ -103,6 +103,7 @@ export function PaneTreeView({
           onClose={b.onCloseLeaf}
           mdPreview={mdPreviewLeafIds.has(node.id)}
           sshSessionId={node.sshSessionId}
+          aiDisabled={node.private === true}
         />
       </div>
     );

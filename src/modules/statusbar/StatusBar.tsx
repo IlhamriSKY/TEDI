@@ -5,9 +5,13 @@ import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
 import { ExtensionStatusItems, RightPanelToggleButtons } from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
+import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { UpdaterPill } from "@/modules/updater";
-import { Globe02Icon } from "@hugeicons/core-free-icons";
+import { GitBranchIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { motion } from "motion/react";
+import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomIndicator } from "./ZoomIndicator";
@@ -77,6 +81,7 @@ function StatusBarInner({
         {/* Extension-contributed right-panel toggles from the `panels`
             contribution (surface="right"). */}
         <RightPanelToggleButtons />
+        <ScmRightOpenButton />
         {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
       </div>
     </footer>
@@ -92,6 +97,42 @@ function OsBadge() {
     <span className="border-border bg-muted/40 text-muted-foreground inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[11px] font-medium">
       {label}
     </span>
+  );
+}
+
+/**
+ * "Open Source Control" status-bar button. Visible only when the user has
+ * opted in to the right-panel SCM layout (and SCM itself is enabled) and the
+ * panel isn't already open. Mirrors `AiOpenButton`'s styling.
+ */
+function ScmRightOpenButton() {
+  const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
+  const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
+  const open = useScmRightPanelStore((s) => s.open);
+  const openPanel = useScmRightPanelStore((s) => s.openPanel);
+  if (!showSourceControl || !sourceControlInRightPanel || open) return null;
+  return (
+    <IconTooltip label="Open Source Control" side="top">
+      <motion.button
+        initial={{ y: -15 }}
+        animate={{ y: 0 }}
+        type="button"
+        onClick={openPanel}
+        aria-label="Open Source Control"
+        className={cn(
+          "border-border/60 bg-card flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs",
+          "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
+        )}
+      >
+        <HugeiconsIcon
+          icon={GitBranchIcon}
+          size={11}
+          strokeWidth={2}
+          className="shrink-0"
+        />
+        <span>Source Control</span>
+      </motion.button>
+    </IconTooltip>
   );
 }
 

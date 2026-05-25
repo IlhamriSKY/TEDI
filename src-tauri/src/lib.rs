@@ -11,7 +11,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    cli, cli_ext, cli_update, extensions, fs, git, net, preview, pty, secrets, shell, ssh,
+    cli, cli_ext, cli_theme, cli_update, extensions, fs, git, net, preview, pty, secrets, shell,
+    ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -206,6 +207,11 @@ pub fn run() {
     // directory the GUI uses, then exit.
     cli_ext::handle_extension_command_and_exit();
 
+    // `tedi theme ...`: list / set / configure the custom theme + wallpaper
+    // by writing directly to `tedi-settings.json`. Returns without acting
+    // when the `theme` subcommand is absent.
+    cli_theme::handle_theme_command_and_exit();
+
     // `tedi --update` / `-u`: fetch latest.json, verify the bundle's minisign
     // signature, install in place per platform, exit. Returns without acting
     // when the flag is absent.
@@ -311,6 +317,7 @@ pub fn run() {
             git::commands::git_commit,
             git::commands::git_push,
             git::commands::git_diff_full,
+            git::commands::git_log,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,

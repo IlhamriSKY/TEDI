@@ -30,3 +30,16 @@ export type GitStatus = {
   behind: number;
   changes: GitChange[];
 };
+
+export type GitCommit = {
+  sha: string;
+  shortSha: string;
+  parents: string[];
+  /** Raw refs with prefixes preserved: "HEAD -> main", "tag: v1", "origin/main". */
+  refs: string[];
+  authorName: string;
+  authorEmail: string;
+  /** Author timestamp as Unix seconds. */
+  authorTime: number;
+  subject: string;
+};

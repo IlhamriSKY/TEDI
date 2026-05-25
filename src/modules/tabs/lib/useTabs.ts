@@ -10,6 +10,7 @@ import {
   reorderLeafInTree,
   rotateLeafWithNeighbor,
   setLeafCwd as setLeafCwdInTree,
+  setLeafPrivate as setLeafPrivateInTree,
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
@@ -223,7 +224,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   );
 
   const newTab = useCallback(
-    (cwd?: string) => {
+    (cwd?: string, opts?: { private?: boolean }) => {
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
       setTabs((curr) => {
@@ -233,6 +234,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           leafKind: "terminal",
           cwd,
           terminalOrdinal: allocOrdinal(curr),
+          ...(opts?.private ? { private: true } : {}),
         };
         return [
           ...curr,
@@ -253,7 +255,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
 
   /** Open a tab whose initial terminal leaf is bound to a saved SSH connection. Routes through `ssh_open`. */
   const newSshTab = useCallback(
-    (sshConnectionId: string, title: string) => {
+    (sshConnectionId: string, title: string, opts?: { private?: boolean }) => {
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
       setTabs((curr) => {
@@ -263,6 +265,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           leafKind: "terminal",
           sshConnectionId,
           terminalOrdinal: allocOrdinal(curr),
+          ...(opts?.private ? { private: true } : {}),
         };
         return [
           ...curr,
@@ -280,6 +283,25 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     },
     [allocOrdinal],
   );
+
+  /**
+   * Flip the per-leaf privacy flag. Each entry in the tab strip toggles
+   * independently — a split group can mix private and public terminals.
+   * The AI subsystem ignores private leaves entirely.
+   */
+  const togglePrivate = useCallback((leafId: number) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        const leaf = findLeaf(t.paneTree, leafId);
+        if (!leaf) return t;
+        const nextValue = !leaf.private;
+        const paneTree = setLeafPrivateInTree(t.paneTree, leafId, nextValue);
+        if (paneTree === t.paneTree) return t;
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
 
   /** Find a pane tab with an editor leaf matching `predicate`. Used by openFileTab for dedup. */
   const findEditorLeafIn = useCallback(
@@ -896,6 +918,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
                 cwd: leaf.cwd,
                 sshConnectionId: leaf.sshConnectionId,
                 terminalOrdinal: leaf.terminalOrdinal,
+                ...(leaf.private ? { private: true } : {}),
               }
             : {
                 leafKind: "editor",
@@ -904,6 +927,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
                 preview: leaf.preview,
                 sshSessionId: leaf.sshSessionId,
                 sshHostLabel: leaf.sshHostLabel,
+                ...(leaf.private ? { private: true } : {}),
               };
         const newSourceTree = removeLeaf(source.paneTree, leafId);
         const splitId = nextIdRef.current++;
@@ -987,6 +1011,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               cwd: leaf.cwd,
               sshConnectionId: leaf.sshConnectionId,
               terminalOrdinal: leaf.terminalOrdinal,
+              ...(leaf.private ? { private: true } : {}),
             }
           : {
               leafKind: "editor",
@@ -995,6 +1020,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               preview: leaf.preview,
               sshSessionId: leaf.sshSessionId,
               sshHostLabel: leaf.sshHostLabel,
+              ...(leaf.private ? { private: true } : {}),
             };
       const newSourceTree = removeLeaf(source.paneTree, leafId);
       // Source has 2+ leaves so removing one leaves something. Guard anyway.
@@ -1127,5 +1153,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     allocId,
     reorderTabs,
     reorderLeafInGroup,
+    togglePrivate,
   };
 }

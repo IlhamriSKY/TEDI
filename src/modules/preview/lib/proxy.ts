@@ -2,6 +2,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 const SCHEME = "tedi-frame";
 
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"]);
+
+export const SELF_REFERENCE_NOTICE =
+  "Refusing to load TEDI inside its own preview (would recurse and leak memory).";
+
 export function isLocalUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -16,6 +21,45 @@ export function isLocalUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * True if `url` would load TEDI itself inside the iframe. Catches:
+ *   - exact origin match against the running webview (covers dev
+ *     `http://localhost:1420` and prod `http(s)://tauri.localhost`,
+ *     `tauri://localhost`),
+ *   - the `tedi-frame:` proxy scheme in either form (`tedi-frame://...`
+ *     and Windows' `http://tedi-frame.localhost/...`),
+ *   - any loopback alias that resolves to the same port as the webview
+ *     (`127.0.0.1:1420`, `[::1]:1420`, …) — those bypass string-equality
+ *     against `location.origin` but still hit the same server.
+ */
+export function isSelfReferenceUrl(url: string): boolean {
+  if (!url) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const scheme = u.protocol.replace(/:$/, "").toLowerCase();
+  if (scheme === SCHEME) return true;
+  if (u.hostname === `${SCHEME}.localhost` || u.hostname.endsWith(`.${SCHEME}.localhost`)) {
+    return true;
+  }
+  if (typeof window !== "undefined") {
+    const here = window.location;
+    if (u.origin === here.origin) return true;
+    if (
+      LOOPBACK_HOSTNAMES.has(u.hostname.toLowerCase()) &&
+      LOOPBACK_HOSTNAMES.has(here.hostname.toLowerCase()) &&
+      u.port === here.port &&
+      u.port !== ""
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function base64UrlEncode(input: string): string {

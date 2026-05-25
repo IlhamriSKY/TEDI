@@ -47,6 +47,10 @@ type Props = {
   /** Edits a remote file over SFTP on the matching russh session id.
    *  Forwarded to `useDocument` so reads/writes hit the SSH backend. */
   sshSessionId?: number;
+  /** When true the inline AI autocomplete is force-disabled regardless of
+   *  user preferences. Set by PaneStack on editor leaves inside a private
+   *  tab so file content never reaches a model provider. */
+  aiDisabled?: boolean;
 };
 
 function formatBytes(n: number): string {
@@ -117,7 +121,7 @@ function computeMarkers(
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPane(
-  { path, onDirtyChange, onSaved, onClose, mdPreview, sshSessionId },
+  { path, onDirtyChange, onSaved, onClose, mdPreview, sshSessionId, aiDisabled },
   ref,
 ) {
   const { doc, liveContent, onChange, save, reload } = useDocument({
@@ -200,6 +204,11 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
 
   const pathRef = useRef(path);
   pathRef.current = path;
+  // Mirror `aiDisabled` into a ref so the (memoised) extensions array can
+  // read the latest value without reconfiguring CodeMirror on every prop
+  // change.
+  const aiDisabledRef = useRef(aiDisabled === true);
+  aiDisabledRef.current = aiDisabled === true;
 
   const extensions = useMemo(
     () => [
@@ -224,7 +233,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
         getPrefs: () => {
           const s = usePreferencesStore.getState();
           return {
-            enabled: s.autocompleteEnabled,
+            // Private tabs force-disable AI autocomplete so file content
+            // never reaches the model provider.
+            enabled: s.autocompleteEnabled && !aiDisabledRef.current,
             provider: s.autocompleteProvider,
             modelId: s.autocompleteModelId,
             apiKey: apiKeyRef.current,

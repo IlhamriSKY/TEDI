@@ -9,6 +9,7 @@ import {
   AiScanIcon,
   Cancel01Icon,
   InformationCircleIcon,
+  PaintBoardIcon,
   PuzzleIcon,
   Settings01Icon,
   UserMultiple02Icon,
@@ -16,10 +17,22 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { ComponentType, lazy, Suspense, useEffect, useState } from "react";
+import {
+  Component,
+  type ComponentType,
+  type ErrorInfo,
+  type ReactNode,
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+} from "react";
 
 const GeneralSection = lazy(() =>
   import("./sections/GeneralSection").then((m) => ({ default: m.GeneralSection })),
+);
+const ThemeSection = lazy(() =>
+  import("./sections/ThemeSection").then((m) => ({ default: m.ThemeSection })),
 );
 const ShortcutsSection = lazy(() =>
   import("./sections/ShortcutsSection").then((m) => ({ default: m.ShortcutsSection })),
@@ -44,6 +57,7 @@ const TABS: {
   component: ComponentType;
 }[] = [
   { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
+  { id: "theme", label: "Theme", icon: PaintBoardIcon, component: ThemeSection },
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
   { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
   { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
@@ -53,6 +67,7 @@ const TABS: {
 
 const VALID_TABS: SettingsTab[] = [
   "general",
+  "theme",
   "shortcuts",
   "models",
   "agents",
@@ -68,6 +83,51 @@ function readInitialTab(): SettingsTab {
   if (t === "ai" || t === "connections") return "models";
   if (t && (VALID_TABS as string[]).includes(t)) return t as SettingsTab;
   return "general";
+}
+
+/**
+ * Catches render-time errors inside a settings tab so a single broken
+ * section does not blank the whole window. Resets when the active tab
+ * changes (so flipping tabs after fixing data clears the error).
+ */
+class SectionErrorBoundary extends Component<
+  { tabId: string; children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error): { error: Error | null } {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error("Settings section crashed", error, info.componentStack);
+  }
+
+  componentDidUpdate(prev: { tabId: string }): void {
+    if (prev.tabId !== this.props.tabId && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="border-destructive/40 bg-destructive/5 flex flex-col gap-2 border p-4">
+          <span className="text-destructive text-[12px] font-semibold">
+            This section failed to render.
+          </span>
+          <pre className="text-muted-foreground max-h-40 overflow-auto font-mono text-[10.5px] whitespace-pre-wrap">
+            {this.state.error.message}
+          </pre>
+          <span className="text-muted-foreground text-[10.5px]">
+            Switch to another tab and back to retry, or report the issue with the message above.
+          </span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export function SettingsApp() {
@@ -149,7 +209,9 @@ export function SettingsApp() {
 
         <main className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-6 pb-7">
           <div className="mx-auto w-full max-w-3xl">
-            <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
+            <SectionErrorBoundary tabId={active}>
+              <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
+            </SectionErrorBoundary>
           </div>
         </main>
       </div>
