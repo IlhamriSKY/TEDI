@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.24] - 25-05-2026
+
+> The 0.2.23 release was tagged but its Linux Ubuntu job got cancelled mid-
+> run; the GitHub release ended up with Windows + macOS binaries only.
+> 0.2.24 reships the same content (plus three new feature batches) with a
+> fresh build of all four platforms.
+
+### Added
+
+- **Theme presets with editable user list.** Built-in presets stay; a new `userThemePresets` preference holds user-created variants. "Save as preset" inline input next to the Reset button captures the current `customTheme` (minus its wallpaper) under a name of the user's choosing; the entry appears alongside built-ins in the preset grid with an "your preset" sub-label and a hover-× delete affordance. Name collisions auto-suffix `(2)` / `(3)` so a saved preset never silently shadows a built-in.
+- **First-class OpenRouter and 9Router via OpenAI Compatible presets.** The "OpenAI Compatible" connector in Settings → Models gains a Quick-start chip row — **OpenAI / OpenRouter / 9Router (local)** — that pre-fills the base URL so users don't have to remember whether OpenRouter's path is `/v1` or `/api/v1` (it's the latter; everyone trips on this), or which port the local 9Router server uses (20128). The chips are hidden once a key is configured to keep the configured row compact.
+- **Source Control right-panel variant.** New session-scoped `useScmRightPanelStore` parallel to the AI sidebar / extension right panels — all three live in the same right slot and a three-way mutual-exclusion effect block in `App.tsx` reconciles them. Preference `sourceControlInRightPanel` (default off) gates the mode; toggle is in General settings. Includes a new `GitGraphView` tab for the commit graph.
+
+### Changed
+
+- **Settings → Models layout overhaul.** "+ Add provider" dropdown moves to the top of the providers section (with built-in search box + max-height capped to ~5 rows + scroll); the configured-provider cards list below it. Default chat model and editor autocomplete settings are merged into a single bordered "Defaults" card with inline label-control rows. The chat dropdown / autocomplete picker / default model dropdown all filter out unconfigured providers so the chip cluster stays focused on what actually works.
+- **Settings → Theme layout overhaul.** Outer `gap-6` → `gap-4`; preset card padding and swatch size shrink one tier; wallpaper Blur / Opacity / Darken sliders re-housed in a single `CompactSliderRow` panel instead of three separate `SettingRow`s. Two `SettingRow`s ("Use background image" + "From URL") merged into a single bordered row: one URL input + Browse + Use URL + Clear + enable switch — only one source can be active at a time because they share the same backing field. A faint "Source: …" line under the row tells the user whether the current wallpaper came from a local file or a URL.
+- **Settings → Models chat-dropdown filtered to configured providers.** The previous behaviour listed every provider in the registry regardless of whether the user had pasted a key for it; with 10 entries the "+ key please" affordances drowned the few rows that actually worked.
+
+### Fixed
+
+- **"AI detected but model isn't" — OpenAI Compatible URL commit race.** Typing a new base URL and immediately pressing **Save** on the API key (without first clicking out of the URL field) used to fire the auto-detect against the *old* URL because `commitURL` only ran on blur. `OpenAICompatibleBlock.saveKey` now commits the URL first and passes the freshly-committed URL through to the parent's auto-refresh, so the value React hasn't re-rendered yet can't leak into the request. Matches the user-reported "input AI terdetect tapi model tidak" symptom.
+
+### Repo metadata
+
+- `Cargo.toml`, `tedi-cli/Cargo.toml`, `tauri.conf.json`, `package.json` all gain `description` / `authors` / `license` / `repository` / `homepage` / `bugs` fields so the crate / installer / npm-style metadata reflects the IlhamriSKY/TEDI fork. NSIS `installerIcon` set to `icons/icon.ico`; upstream Crynta copyright + `licenseFile` reference added.
+
 ## [0.2.23] - 25-05-2026
 
 > 0.2.22 was tagged but type-check failed because in-flight SCM-right-panel

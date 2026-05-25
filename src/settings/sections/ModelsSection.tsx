@@ -663,7 +663,6 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
                 const defaultModel = DEFAULT_AUTOCOMPLETE_MODEL[id];
                 const modelInfo = MODELS.find((m) => m.id === defaultModel);
                 const label = modelInfo?.label ?? defaultModel;
-                const hint = modelInfo?.hint ?? info.label;
                 const itemHasKey = providerNeedsKey(id) ? !!keys[id] : true;
                 return (
                   <DropdownMenuItem
