@@ -42,7 +42,7 @@ type LaidOut = {
   laneIn: (string | null)[];
   /** Snapshot AFTER this row was processed. */
   laneOut: (string | null)[];
-  /** Lanes (other than `lane`) that were waiting for this SHA — they merge in. */
+  /** Lanes (other than `lane`) that were waiting for this SHA - they merge in. */
   mergedLanes: number[];
   /** Lanes newly opened for extra parents (merge commits with 2+ parents). */
   branchedLanes: number[];
@@ -346,7 +346,7 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
         selected && "bg-accent/60",
       )}
       onClick={onSelect}
-      title={`${commit.shortSha} — ${commit.subject}`}
+      title={`${commit.shortSha} - ${commit.subject}`}
     >
       <div className="shrink-0" style={{ width: graphWidth, height: ROW_H }}>
         <svg

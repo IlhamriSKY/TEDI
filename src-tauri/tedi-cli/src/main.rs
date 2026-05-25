@@ -4,7 +4,7 @@
 //! name so it stays off the shell's resolution path).
 //!
 //! Why it exists: TEDIApp.exe is `windows_subsystem = "windows"` (set in
-//! `main.rs`). PowerShell — the default Windows 11 shell — does NOT
+//! `main.rs`). PowerShell - the default Windows 11 shell - does NOT
 //! synchronously wait for GUI-subsystem children. The next prompt is drawn
 //! immediately after spawn, and any output the GUI binary later emits via
 //! `AttachConsole(ATTACH_PARENT_PROCESS)` lands on top of that already-drawn
@@ -14,7 +14,7 @@
 //! a console-subsystem child and waits for it the same way it waits for
 //! `git.exe` or `node.exe`. Inside, we dispatch:
 //!
-//!   `--help` / `--version`         → print inline, no spawn (fast — no
+//!   `--help` / `--version`         → print inline, no spawn (fast - no
 //!                                     Tauri runtime boot for a 20-line
 //!                                     string).
 //!   `--update`, `ext`, `--extension`
@@ -26,7 +26,7 @@
 //!                                     null stdio so the shell prompt
 //!                                     returns immediately.
 //!
-//! macOS / Linux ship without a subsystem split — there `tedi` resolves
+//! macOS / Linux ship without a subsystem split - there `tedi` resolves
 //! directly to the GUI binary which inherits stdio natively. This stub is
 //! built on every platform for `cargo check` parity but only the NSIS
 //! installer bundles `tedi.exe`.
@@ -48,7 +48,7 @@ fn main() {
         .iter()
         .any(|a| matches!(a.as_str(), "--version" | "-v" | "-V"))
     {
-        // Print "tedi <ver>" — the literal binary name the user invoked.
+        // Print "tedi <ver>" - the literal binary name the user invoked.
         // `env!("CARGO_PKG_NAME")` would render as "tedi-cli" (this launcher
         // package's Cargo name) which would confuse anyone tracking down a
         // version string; the user typed `tedi`, the answer says `tedi`.
@@ -70,7 +70,7 @@ fn main() {
         // the shell in real time. GUI binary inherits the console handles
         // and calls `AttachConsole(ATTACH_PARENT_PROCESS)` to make
         // Win32 console APIs (used by dialoguer) work. PowerShell waits on
-        // *this* stub (console subsystem) — proper synchronisation.
+        // *this* stub (console subsystem) - proper synchronisation.
         match Command::new(&gui_exe)
             .args(rest)
             .stdin(Stdio::inherit())
@@ -87,7 +87,7 @@ fn main() {
     }
 
     // GUI launch (`tedi`, `tedi .`, `tedi <path>`). Detach so the shell
-    // prompt returns immediately — the GUI lives its own life from here.
+    // prompt returns immediately - the GUI lives its own life from here.
     // Errors are intentionally swallowed: if the GUI fails to start the
     // user sees nothing in their shell (matches `start "" TEDIApp.exe`
     // behaviour). Errors will surface in the Windows Event Log if needed.
@@ -143,7 +143,7 @@ fn spawn_detached(gui_exe: &Path, args: &[String]) {
 
 #[cfg(not(target_os = "windows"))]
 fn spawn_detached(gui_exe: &Path, args: &[String]) {
-    // Non-Windows: nothing fancy — POSIX shells background the child via
+    // Non-Windows: nothing fancy - POSIX shells background the child via
     // job control if invoked with `&`. This binary is not shipped on
     // mac/Linux anyway (only Windows needs the subsystem split fix);
     // we keep the function for `cargo check` parity.

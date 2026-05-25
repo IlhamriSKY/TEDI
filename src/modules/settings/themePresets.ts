@@ -203,33 +203,35 @@ const TOKYO_DARK: ThemeColors = {
   ansiBrightCyan: "#7dcfff",
   ansiBrightWhite: "#c0caf5",
 };
-// Tokyo Night Day (official light variant).
+// Tokyo Night Day (official light variant). Selection foregrounds darkened
+// from the brand blue (#3760bf, ~3:1 vs lavender accent) to a near-navy
+// (#1a2238, ~10:1) so file-tree selection text passes WCAG AA.
 const TOKYO_LIGHT: ThemeColors = {
   ...LIGHT_COLORS,
   background: "#e1e2e7",
-  foreground: "#3760bf",
+  foreground: "#1a2238",
   card: "#d5d6db",
-  cardForeground: "#3760bf",
+  cardForeground: "#1a2238",
   popover: "#d5d6db",
-  popoverForeground: "#3760bf",
+  popoverForeground: "#1a2238",
   button: "#2e7de9",
-  buttonForeground: "#e1e2e7",
+  buttonForeground: "#ffffff",
   secondary: "#c4c8da",
-  secondaryForeground: "#3760bf",
+  secondaryForeground: "#1a2238",
   muted: "#c4c8da",
-  mutedForeground: "#6172b0",
+  mutedForeground: "#3a4566",
   accent: "#b6bfe2",
-  accentForeground: "#3760bf",
+  accentForeground: "#1a2238",
   destructive: "#f52a65",
   border: "#a8aecb",
   input: "#a8aecb",
   buttonBorder: "#8990b3",
   ring: "#2e7de9",
   sidebar: "#d5d6db",
-  sidebarForeground: "#3760bf",
+  sidebarForeground: "#1a2238",
   sidebarBorder: "#a8aecb",
   sidebarAccent: "#b6bfe2",
-  sidebarAccentForeground: "#3760bf",
+  sidebarAccentForeground: "#1a2238",
   iconWorking: "#8c6c3e",
   iconIdle: "#587539",
   iconBlocked: "#f52a65",
@@ -366,32 +368,37 @@ const CATPPUCCIN_DARK: ThemeColors = {
   ansiBrightCyan: "#94e2d5",
   ansiBrightWhite: "#a6adc8",
 };
+// Catppuccin Latte. Default Latte uses `Text #4c4f69` against `Surface1`/
+// `Overlay0` highlights which lands ~3.5:1 - acceptable for body text on
+// the page bg, but not for selection text on the highlight bg. Selection
+// foregrounds switched to Mocha `Base #1e1e2e` (~9:1) so file-tree picks
+// stay readable.
 const CATPPUCCIN_LIGHT: ThemeColors = {
   ...LIGHT_COLORS,
   background: "#eff1f5",
-  foreground: "#4c4f69",
+  foreground: "#1e1e2e",
   card: "#e6e9ef",
-  cardForeground: "#4c4f69",
+  cardForeground: "#1e1e2e",
   popover: "#e6e9ef",
-  popoverForeground: "#4c4f69",
+  popoverForeground: "#1e1e2e",
   button: "#8839ef",
   buttonForeground: "#eff1f5",
   secondary: "#ccd0da",
-  secondaryForeground: "#4c4f69",
+  secondaryForeground: "#1e1e2e",
   muted: "#ccd0da",
-  mutedForeground: "#6c6f85",
+  mutedForeground: "#4c4f69",
   accent: "#bcc0cc",
-  accentForeground: "#4c4f69",
+  accentForeground: "#1e1e2e",
   destructive: "#d20f39",
   border: "#bcc0cc",
   input: "#bcc0cc",
   buttonBorder: "#acb0be",
   ring: "#8839ef",
   sidebar: "#e6e9ef",
-  sidebarForeground: "#4c4f69",
+  sidebarForeground: "#1e1e2e",
   sidebarBorder: "#bcc0cc",
   sidebarAccent: "#acb0be",
-  sidebarAccentForeground: "#4c4f69",
+  sidebarAccentForeground: "#1e1e2e",
   iconWorking: "#df8e1d",
   iconIdle: "#40a02b",
   iconBlocked: "#d20f39",
@@ -399,20 +406,23 @@ const CATPPUCCIN_LIGHT: ThemeColors = {
 };
 
 // Solarized family.
+// Solarized Dark. Body text bumped from base0 (#839496, ~4:1 on base03)
+// to base1 (#93a1a1, ~5:1) so non-selected sidebar rows pass AA. Selection
+// fg already paired correctly with the gold accent (base03 #002b36).
 const SOLARIZED_DARK: ThemeColors = {
   ...DARK_COLORS,
   background: "#002b36",
-  foreground: "#839496",
+  foreground: "#93a1a1",
   card: "#073642",
-  cardForeground: "#839496",
+  cardForeground: "#93a1a1",
   popover: "#073642",
-  popoverForeground: "#839496",
+  popoverForeground: "#93a1a1",
   button: "#268bd2",
   buttonForeground: "#002b36",
   secondary: "#073642",
-  secondaryForeground: "#839496",
+  secondaryForeground: "#93a1a1",
   muted: "#073642",
-  mutedForeground: "#586e75",
+  mutedForeground: "#839496",
   accent: "#b58900",
   accentForeground: "#002b36",
   destructive: "#dc322f",
@@ -421,7 +431,7 @@ const SOLARIZED_DARK: ThemeColors = {
   buttonBorder: "#1a5063",
   ring: "#268bd2",
   sidebar: "#073642",
-  sidebarForeground: "#839496",
+  sidebarForeground: "#93a1a1",
   sidebarBorder: "#0e4150",
   sidebarAccent: "#b58900",
   sidebarAccentForeground: "#002b36",
@@ -447,32 +457,37 @@ const SOLARIZED_DARK: ThemeColors = {
   ansiBrightCyan: "#93a1a1",
   ansiBrightWhite: "#fdf6e3",
 };
+// Solarized Light. Gold accent (#b58900) on cream foreground (#fdf6e3) lands
+// at ~2:1 - failing AA even at large text. Foregrounds for accent/sidebar-
+// accent swapped to base03 (#002b36) where the spec already calls them
+// "the dark text on a light bg" pair. body text uses base02 (#073642) for
+// stronger contrast on the cream sidebar/page surfaces.
 const SOLARIZED_LIGHT: ThemeColors = {
   ...LIGHT_COLORS,
   background: "#fdf6e3",
-  foreground: "#586e75",
+  foreground: "#073642",
   card: "#eee8d5",
-  cardForeground: "#586e75",
+  cardForeground: "#073642",
   popover: "#eee8d5",
-  popoverForeground: "#586e75",
+  popoverForeground: "#073642",
   button: "#268bd2",
   buttonForeground: "#fdf6e3",
   secondary: "#eee8d5",
-  secondaryForeground: "#586e75",
+  secondaryForeground: "#073642",
   muted: "#eee8d5",
-  mutedForeground: "#93a1a1",
+  mutedForeground: "#586e75",
   accent: "#b58900",
-  accentForeground: "#fdf6e3",
+  accentForeground: "#002b36",
   destructive: "#dc322f",
   border: "#d6d0bd",
   input: "#d6d0bd",
   buttonBorder: "#c0b89e",
   ring: "#268bd2",
   sidebar: "#eee8d5",
-  sidebarForeground: "#586e75",
+  sidebarForeground: "#073642",
   sidebarBorder: "#d6d0bd",
   sidebarAccent: "#b58900",
-  sidebarAccentForeground: "#fdf6e3",
+  sidebarAccentForeground: "#002b36",
   iconWorking: "#b58900",
   iconIdle: "#859900",
   iconBlocked: "#dc322f",
@@ -545,6 +560,9 @@ const MONOKAI_DARK: ThemeColors = {
   ansiBrightCyan: "#a1efe4",
   ansiBrightWhite: "#f9f8f5",
 };
+// Monokai Light. The bright cyan accent (#0099a8) on white text fails AA
+// (~3.5:1); deepened to #006d75 (~5.6:1) while keeping the Monokai cyan
+// signature.
 const MONOKAI_LIGHT: ThemeColors = {
   ...LIGHT_COLORS,
   background: "#fafafa",
@@ -558,8 +576,8 @@ const MONOKAI_LIGHT: ThemeColors = {
   secondary: "#eaeaea",
   secondaryForeground: "#272822",
   muted: "#eaeaea",
-  mutedForeground: "#75715e",
-  accent: "#0099a8",
+  mutedForeground: "#5a5848",
+  accent: "#006d75",
   accentForeground: "#fafafa",
   destructive: "#f92672",
   border: "#d1d1d1",
@@ -569,7 +587,7 @@ const MONOKAI_LIGHT: ThemeColors = {
   sidebar: "#f5f5f5",
   sidebarForeground: "#272822",
   sidebarBorder: "#d1d1d1",
-  sidebarAccent: "#75715e",
+  sidebarAccent: "#5e5b4a",
   sidebarAccentForeground: "#fafafa",
   iconWorking: "#b58900",
   iconIdle: "#75af00",
@@ -614,7 +632,7 @@ const MATRIX_DARK: ThemeColors = {
   tabAccentAiDiff: "#aaff00",
   tabAccentGitDiff: "#ffd700",
   resizeHandle: "#0d2f0d",
-  // Matrix ANSI 16 — green-dominant phosphor palette.
+  // Matrix ANSI 16 - green-dominant phosphor palette.
   ansiBlack: "#003b00",
   ansiRed: "#ff003c",
   ansiGreen: "#00ff41",

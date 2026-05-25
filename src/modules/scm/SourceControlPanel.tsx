@@ -557,9 +557,6 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
               className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]"
             >
               Changes
-              {sorted.length > 0 ? (
-                <span className="text-muted-foreground tabular-nums">{sorted.length}</span>
-              ) : null}
             </TabsTrigger>
             <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
               Graph

@@ -148,7 +148,7 @@ type LiveTerminalCtx = {
 /**
  * Per-leaf title used in the AI-facing terminal snapshot. Derived from
  * the leaf itself (not the pane-tab mirror) so a private active leaf
- * cannot leak its cwd basename into a public sibling's `title` row —
+ * cannot leak its cwd basename into a public sibling's `title` row -
  * `t.title` reflects whichever leaf is currently focused, including a
  * private one, which would otherwise surface inside the `<env>` block.
  */
@@ -171,7 +171,7 @@ function leafTitleForSnapshot(l: PaneLeaf): string {
  *
  * Private leaves are filtered out entirely so the AI never learns of their
  * existence (no ordinal, no leafId, no cwd, no title). Privacy is per-leaf
- * — a split group can mix private and public terminals; only marked
+ * - a split group can mix private and public terminals; only marked
  * leaves disappear. This is the single chokepoint backing `listTerminals`,
  * the per-turn `<env>` block, and every `target`-based AI tool.
  */
@@ -1461,7 +1461,7 @@ export default function App() {
   // status-bar breadcrumb and the file-explorer "reveal" behavior, so it
   // must cover every tab kind that has a workspace file backing it:
   // editor leaf, AI-proposed diff, and git diff. SSH editor leaves are
-  // excluded — their `path` is remote and would never match the local
+  // excluded - their `path` is remote and would never match the local
   // explorer root.
   const activeFilePath = useMemo<string | null>(() => {
     if (!activeTab) return null;
@@ -1553,6 +1553,15 @@ export default function App() {
       "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
       "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
       "search.focus": () => searchInlineRef.current?.focus(),
+      "editor.findReplace": () => {
+        // VSCode-style Ctrl+H opens the find/replace overlay inside the
+        // active editor. Falls through silently when the focused leaf isn't
+        // an editor; the global shortcut still consumes the key to match
+        // VSCode's behavior of preventing the browser's history palette.
+        if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
+        const handle = editorRefs.current.get(activeLeafIdInTab);
+        handle?.openFindReplace();
+      },
       "ai.toggle": togglePanelAndFocus,
       "ai.askSelection": askFromSelection,
       "shortcuts.open": () => void openSettingsWindow("shortcuts"),
@@ -2051,7 +2060,7 @@ export default function App() {
         if (allTerminals.length > MAX_PANES_PER_TAB)
           return {
             ok: false,
-            error: `cannot consolidate ${allTerminals.length} terminals into one tab — the per-tab cap is ${MAX_PANES_PER_TAB}. Close some or merge in batches.`,
+            error: `cannot consolidate ${allTerminals.length} terminals into one tab - the per-tab cap is ${MAX_PANES_PER_TAB}. Close some or merge in batches.`,
           };
         let moved = 0;
         let alreadyInGroup = 0;
@@ -2174,7 +2183,7 @@ export default function App() {
   // no-ops downstream.
   //
   // Private editor leaves are excluded so their path never appears as a
-  // chip or mention-picker entry — preventing the user from accidentally
+  // chip or mention-picker entry - preventing the user from accidentally
   // attaching a private file to the AI conversation.
   useEffect(() => {
     const openFiles: { path: string; name: string }[] = [];

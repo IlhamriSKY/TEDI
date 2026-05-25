@@ -1,6 +1,6 @@
 // `pub` so the `tedi-cli` workspace member's stub binary
 // (src-tauri/tedi-cli/src/main.rs) can reach `cli::help_text()` and the
-// version constants — keeps the help text single-sourced between the GUI
+// version constants - keeps the help text single-sourced between the GUI
 // binary and the launcher.
 pub mod modules;
 
@@ -310,6 +310,7 @@ pub fn run() {
             fs::search::fs_search,
             fs::grep::fs_grep,
             fs::grep::fs_glob,
+            fs::grep::fs_grep_replace,
             git::commands::git_status,
             git::commands::git_file_head,
             git::commands::git_discard_file,

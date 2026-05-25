@@ -72,7 +72,7 @@ const NO_DATA_WATCHDOG_MS = 8_000;
 /**
  * Last-resort recovery for the silent-blank failure mode where attachSession
  * never runs or `s.ready` stays pending. Fires only when there's no live
- * PTY, no pending error, AND no in-flight spawn — an in-flight spawn that
+ * PTY, no pending error, AND no in-flight spawn - an in-flight spawn that
  * is just queued behind `SPAWN_LOCK` in Rust is legitimate progress and
  * `SPAWN_TIMEOUT_MS` already covers genuinely hung pty_open invokes. Sits
  * above worst-case `SPAWN_LOCK` queueing (3-5 splits stacking 1-2.5s of

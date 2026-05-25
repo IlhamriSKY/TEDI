@@ -27,7 +27,7 @@ interface TauriInternals {
 
 if (typeof window !== "undefined" && !window.__TAURI_INTERNALS__) {
   console.warn(
-    "[tauri-browser-shim] No Tauri runtime detected — installing stub APIs. " +
+    "[tauri-browser-shim] No Tauri runtime detected - installing stub APIs. " +
       "UI renders for preview only; native commands return empty results.",
   );
 

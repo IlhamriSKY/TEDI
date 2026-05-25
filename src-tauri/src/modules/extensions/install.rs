@@ -57,7 +57,7 @@ pub enum InstallPhase {
 }
 
 /// Reporter the install pipeline calls into. Implementors translate the
-/// callbacks into whatever surface the caller wants — TUI gauge, log lines,
+/// callbacks into whatever surface the caller wants - TUI gauge, log lines,
 /// nothing. All methods MUST be cheap and non-blocking; they run on the
 /// install thread.
 pub trait InstallProgress: Send + Sync {
@@ -360,7 +360,7 @@ fn extract_into(
             .map_err(|e| format!("write {}: {e}", target.display()))?;
         // Per-file tick after a successful write. Directories don't fire this
         // event, so a caller deriving a percentage from (index+1)/total may
-        // see jumps — that's intentional, the headline progress is "bytes
+        // see jumps - that's intentional, the headline progress is "bytes
         // committed so far", not "entries traversed".
         progress.file(i, total_entries, &rel.to_string_lossy().replace('\\', "/"));
     }

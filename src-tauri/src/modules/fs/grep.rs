@@ -266,3 +266,136 @@ pub fn fs_glob(
 
     Ok(GlobResponse { hits, truncated })
 }
+
+#[derive(Serialize)]
+pub struct GrepReplaceEdit {
+    pub path: String,
+    pub rel: String,
+    pub replacements: usize,
+}
+
+#[derive(Serialize)]
+pub struct GrepReplaceResponse {
+    pub files_changed: usize,
+    pub total_replacements: usize,
+    pub edits: Vec<GrepReplaceEdit>,
+    pub truncated: bool,
+}
+
+/// File-level regex find-and-replace driven by the explorer Search panel.
+/// Walks the same `ignore` tree as `fs_grep` (respects `.gitignore`), reads
+/// each candidate file as UTF-8, applies `regex::Regex::replace_all`, and
+/// writes the result back when the content actually changed.
+///
+/// Binary files: skipped silently. The 5 MiB cap mirrors `fs_grep` so a
+/// stray multi-GB asset never blocks the walk.
+///
+/// Returns a per-file edit log capped at `MAX_REPLACE_FILES` so the IPC
+/// payload stays small even on a huge replace. `total_replacements` and
+/// `files_changed` always reflect the full operation - only the edit list
+/// is truncated.
+#[tauri::command]
+pub fn fs_grep_replace(
+    pattern: String,
+    replacement: String,
+    root: String,
+    glob: Option<Vec<String>>,
+    case_insensitive: Option<bool>,
+) -> Result<GrepReplaceResponse, String> {
+    use std::fs;
+
+    if pattern.is_empty() {
+        return Err("empty pattern".into());
+    }
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("not a directory: {root}"));
+    }
+
+    let re = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(case_insensitive.unwrap_or(false))
+        .multi_line(true)
+        .build()
+        .map_err(|e| format!("bad regex: {e}"))?;
+
+    let globs = build_globset(glob.as_deref().unwrap_or(&[]))?;
+
+    let walker = WalkBuilder::new(&root_path)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .ignore(true)
+        .parents(true)
+        .follow_links(false)
+        .build();
+
+    const MAX_REPLACE_FILES: usize = 1_000;
+    let mut files_changed = 0usize;
+    let mut total_replacements = 0usize;
+    let mut edits: Vec<GrepReplaceEdit> = Vec::new();
+    let mut truncated = false;
+
+    for dent in walker.flatten() {
+        if !dent.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = dent.path();
+        let rel = match path.strip_prefix(&root_path) {
+            Ok(r) => to_canon(r),
+            Err(_) => continue,
+        };
+        if let Some(set) = globs.as_ref() {
+            if !set.is_match(&rel) {
+                continue;
+            }
+        }
+        if let Ok(meta) = fs::metadata(path) {
+            if meta.len() > FILE_SIZE_CAP {
+                continue;
+            }
+        }
+
+        let original = match fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => continue, // binary / non-UTF-8 / unreadable -> skip
+        };
+
+        let mut count = 0usize;
+        let replaced = re
+            .replace_all(&original, |caps: &regex::Captures| {
+                count += 1;
+                let mut buf = String::new();
+                caps.expand(&replacement, &mut buf);
+                buf
+            })
+            .into_owned();
+
+        if count == 0 || replaced == original {
+            continue;
+        }
+
+        if let Err(e) = fs::write(path, &replaced) {
+            return Err(format!("write {}: {e}", path.display()));
+        }
+
+        files_changed += 1;
+        total_replacements += count;
+        if edits.len() < MAX_REPLACE_FILES {
+            edits.push(GrepReplaceEdit {
+                path: to_canon(path),
+                rel,
+                replacements: count,
+            });
+        } else {
+            truncated = true;
+        }
+    }
+
+    Ok(GrepReplaceResponse {
+        files_changed,
+        total_replacements,
+        edits,
+        truncated,
+    })
+}

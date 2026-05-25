@@ -78,7 +78,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         working-directory: src-tauri
-        # The launcher lives in the `tedi-cli/` workspace member — kept
+        # The launcher lives in the `tedi-cli/` workspace member - kept
         # separate from the GUI package on purpose so Tauri 2's deb / dmg
         # bundlers don't enumerate it as a `[[bin]]` to bundle on POSIX.
         # The shared workspace target dir means the produced

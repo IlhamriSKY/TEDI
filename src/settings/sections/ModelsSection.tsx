@@ -111,7 +111,7 @@ export function ModelsSection() {
       // Prefer the URL the block just committed (passed explicitly) over the
       // store value, which a closure may still see as the previous default
       // if React hasn't re-rendered yet. Without this, saving a key right
-      // after typing a new URL fired /models against the OLD endpoint —
+      // after typing a new URL fired /models against the OLD endpoint -
       // OpenRouter key sent to api.openai.com → 401 → "Detection failed",
       // surfacing as "input AI terdetect tapi model tidak muncul".
       const url = urlOverride ?? openaiCompatibleBaseURL;
@@ -184,7 +184,7 @@ export function ModelsSection() {
   // Default-model dropdown rendered both at the top (rare path) and at the
   // bottom in the AI defaults card. Extracted into a small JSX const so the
   // markup stays in one place. The card itself owns the surrounding layout
-  // (label, description, hr) — this is the trigger + popover only.
+  // (label, description, hr) - this is the trigger + popover only.
   const defaultModelDropdown = (
     <DropdownMenu
       onOpenChange={(open) => {
@@ -370,7 +370,7 @@ export function ModelsSection() {
         description="Connect the providers you use. Keys live in your OS keychain and are used only by TEDI."
       />
 
-      {/* Defaults card — Chat model + Autocomplete on inline label-control
+      {/* Defaults card - Chat model + Autocomplete on inline label-control
        *  rows. Per the spec mockup: label fixed-width on the left, control
        *  fills the rest. The autocomplete row also gets a Switch directly
        *  next to the label so toggling on/off is one click away from
@@ -389,7 +389,7 @@ export function ModelsSection() {
         </div>
       </div>
 
-      {/* Providers section — header has "+ Add provider" inline on the
+      {/* Providers section - header has "+ Add provider" inline on the
        *  right; cards (or empty state) sit below. */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
@@ -505,7 +505,7 @@ export function ModelsSection() {
           </div>
         ) : null}
 
-        {/* Card for the provider being added — keyed kind only. */}
+        {/* Card for the provider being added - keyed kind only. */}
         {addingProvider && addingProvider !== "openai-compatible" ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 text-[10.5px]">
@@ -615,7 +615,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
     return { label: modelId, hint: providerInfo.label };
   })();
 
-  // No outer container — the parent (the Defaults card) wraps both rows in
+  // No outer container - the parent (the Defaults card) wraps both rows in
   // a single bordered panel. Returning a fragment keeps the markup compact
   // and matches the screenshot's "Chat model / Autocomplete" row layout.
   return (
@@ -697,11 +697,11 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
        *  picker row above. */}
       {enabled && !hasKey ? (
         <div className="text-muted-foreground/80 text-center text-[10.5px] sm:pl-[calc(6rem+1.5rem+0.75rem)] sm:text-left">
-          {providerInfo.label} isn&rsquo;t connected — add it below.
+          {providerInfo.label} isn&rsquo;t connected - add it below.
         </div>
       ) : null}
 
-      {/* LM Studio URL field — only shown when LM Studio is the selected
+      {/* LM Studio URL field - only shown when LM Studio is the selected
        *  autocomplete provider. Indented to align with the dropdown. */}
       {enabled && provider === "lmstudio" ? (
         <div className="flex flex-col gap-1.5 sm:pl-[calc(6rem+1.5rem+0.75rem)]">
@@ -794,7 +794,7 @@ function OpenAICompatibleBlock({
     setKeyError(null);
     // Commit the URL FIRST when it has changed. Without this, a user who
     // types a new base URL (e.g. OpenRouter) then immediately hits Save on
-    // the key field never blurs the URL input — `baseURL` in the store stays
+    // the key field never blurs the URL input - `baseURL` in the store stays
     // at the old default (api.openai.com/v1) and the auto-refresh inside
     // `onSave` fires /models against the wrong endpoint with the new key,
     // returns 401, and surfaces as "Detection failed - check key / URL".
@@ -865,7 +865,7 @@ function OpenAICompatibleBlock({
           )}
         </div>
 
-        {/* Quick-pick presets — OpenAI / OpenRouter / 9Router. Clicking a
+        {/* Quick-pick presets - OpenAI / OpenRouter / 9Router. Clicking a
          *  chip drops its URL into the field. Saves the user from
          *  remembering "is it /v1 or /api/v1?" or 9Router's local port.
          *  Hidden once a key is configured to keep the configured row tight. */}

@@ -75,7 +75,7 @@ const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: string }[] =
   { key: "tabAccentPreview", label: "Active preview stripe", group: "Tabs" },
   { key: "tabAccentAiDiff", label: "AI diff stripe", group: "Tabs" },
   { key: "tabAccentGitDiff", label: "Git diff stripe", group: "Tabs" },
-  // Full ANSI 16 — feeds the xterm palette directly.
+  // Full ANSI 16 - feeds the xterm palette directly.
   { key: "ansiBlack", label: "ANSI black", group: "Terminal" },
   { key: "ansiRed", label: "ANSI red", group: "Terminal" },
   { key: "ansiGreen", label: "ANSI green", group: "Terminal" },
@@ -284,7 +284,7 @@ export function ThemeSection() {
     const newPreset: CustomTheme = {
       ...theme,
       name: finalName,
-      // Drop wallpaper from the saved preset — the user's wallpaper is a
+      // Drop wallpaper from the saved preset - the user's wallpaper is a
       // separate concern and follows them across preset switches.
       background: {
         ...theme.background,
@@ -652,7 +652,7 @@ export function ThemeSection() {
         <Label>Background image</Label>
         {/* Unified source row: ONE input that accepts either a local file
          *  (via Browse) or a remote URL. Only one source is active at a
-         *  time — picking a file replaces the URL; pasting a URL replaces
+         *  time - picking a file replaces the URL; pasting a URL replaces
          *  the file. The Switch flips the layer on/off without losing the
          *  underlying source. */}
         <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
@@ -733,7 +733,7 @@ export function ThemeSection() {
               aria-label="Toggle background image"
             />
           </div>
-          {/* Current source line — a faint indicator so the user can tell
+          {/* Current source line - a faint indicator so the user can tell
            *  whether the wallpaper came from a file or a URL. */}
           {theme.background.dataUrl ? (
             <div className="text-muted-foreground truncate text-[10.5px]">
@@ -744,7 +744,7 @@ export function ThemeSection() {
           ) : null}
         </div>
         {bgError ? <span className="text-destructive text-[10.5px]">{bgError}</span> : null}
-        {/* Wallpaper adjustments — grouped into a single card with inline
+        {/* Wallpaper adjustments - grouped into a single card with inline
          *  rows so three sliders + their labels don't take up 3× the
          *  vertical space of separate `SettingRow`s. */}
         {theme.background.dataUrl ? (

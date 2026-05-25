@@ -184,7 +184,7 @@ export const ContextContentHeader = ({
             </p>
           ) : usedPercent >= 0.8 ? (
             <p className="text-[10px] text-amber-600/90 dark:text-amber-400/90">
-              Near window — older tool results will be auto-elided on next turn.
+              Near window - older tool results will be auto-elided on next turn.
             </p>
           ) : null}
         </>

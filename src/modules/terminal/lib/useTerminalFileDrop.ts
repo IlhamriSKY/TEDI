@@ -179,7 +179,7 @@ export function ensureFsDragListener(): void {
       if (!drag) return;
       // Only the left-button release commits or cancels a drag. A
       // right-click during an in-progress drag still fires mouseup
-      // (with `button === 2`) — without this filter that mid-gesture
+      // (with `button === 2`) - without this filter that mid-gesture
       // release would mis-trigger a drop and lose the user's drag.
       if (e.button !== 0) return;
       const wasActive = drag.active;

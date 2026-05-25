@@ -24,6 +24,7 @@ import { useDocument } from "./lib/useDocument";
 import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
+import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -35,6 +36,9 @@ export type EditorPaneHandle = {
   getPath: () => string;
   /** Re-reads the file from disk. No-op if the buffer is dirty. */
   reload: () => boolean;
+  /** Open the find/replace overlay. Both find and replace rows are always
+   *  rendered together — there is no accordion. */
+  openFindReplace: () => void;
 };
 
 type Props = {
@@ -133,6 +137,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
   reloadRef.current = reload;
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const outerRef = useRef<HTMLDivElement>(null);
+  const findReplaceRef = useRef<EditorFindReplaceHandle>(null);
   const [markerState, setMarkerState] = useState<{
     barTop: number;
     barHeight: number;
@@ -372,6 +377,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       },
       getPath: () => path,
       reload: () => reloadRef.current(),
+      openFindReplace: () => {
+        findReplaceRef.current?.open();
+      },
     }),
     [path],
   );
@@ -453,9 +461,12 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
             autocompletion: true,
             highlightActiveLine: true,
             highlightSelectionMatches: true,
-            searchKeymap: true,
+            // Custom Ctrl+F / Ctrl+H bar lives in <EditorFindReplace>; the
+            // built-in CM panel would compete with it and stack at the top.
+            searchKeymap: false,
           }}
         />
+        <EditorFindReplace ref={findReplaceRef} getView={() => cmRef.current?.view ?? null} />
       </div>
       {/* Scrollbar marker overlay: paints caret + selection over the native
           scrollbar. Outside CodeMirror's ViewPlugin lifecycle; refreshed by

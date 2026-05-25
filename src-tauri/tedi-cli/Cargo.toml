@@ -5,13 +5,13 @@
 # stub declared in the GUI's `Cargo.toml`, POSIX bundles either tried to
 # ship an unwanted `/usr/bin/tedi` (Linux) or dropped a secondary binary
 # into `TEDI.app/Contents/MacOS/` that ad-hoc codesign on x86_64 refused
-# to walk. `required-features` did not filter the bundler's enumeration —
+# to walk. `required-features` did not filter the bundler's enumeration -
 # it only skips the cargo build step, so the bundler then fails with
 # "target/release/tedi does not exist". A standalone package keeps the
 # stub out of the GUI manifest entirely; only the Windows release step
 # (`cargo build --release -p tedi-cli`) builds it.
 name = "tedi-cli"
-version = "0.2.24"
+version = "0.2.25"
 description = "Console-subsystem launcher stub for the TEDI GUI app (Windows)."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ edition = "2021"
 publish = false
 
 [[bin]]
-# Output filename is `tedi.exe` — this is what PATHEXT resolves the
+# Output filename is `tedi.exe` - this is what PATHEXT resolves the
 # user's `tedi` to on Windows. The companion GUI binary is `TEDIApp.exe`
 # (renamed via `mainBinaryName` in `tauri.conf.json`) so the two cannot
 # collide on a case-insensitive filesystem.

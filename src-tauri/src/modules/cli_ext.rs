@@ -5,7 +5,7 @@
 //!
 //! Interactive mode (on a TTY) uses `dialoguer::Select` for arrow-key
 //! navigation. No alternate-screen TUI, no raw-mode contention with the
-//! parent shell — output flows inline like a normal command.
+//! parent shell - output flows inline like a normal command.
 //!
 //! Subcommands:
 //!   tedi ext                     # menu: pick an action
@@ -25,6 +25,9 @@
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+use dialoguer::theme::{ColorfulTheme, Theme};
 
 use crate::modules::cli;
 use crate::modules::extensions::commands as ext_cmd;
@@ -33,6 +36,51 @@ use crate::modules::extensions::install::{
 };
 use crate::modules::extensions::manifest::{validate_id, Manifest};
 use crate::modules::extensions::state::{load as load_state, now_ms, save as save_state};
+
+/// ANSI SGR helpers. Emit codes only when stdout is a TTY so piped output
+/// (CI logs, file redirection) stays clean.
+fn color_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+}
+
+fn ansi(code: &str, text: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+fn paint_official(label: &str) -> String {
+    ansi("36;1", label)
+}
+fn paint_unofficial(label: &str) -> String {
+    ansi("33;1", label)
+}
+fn paint_on() -> String {
+    ansi("32;1", "[on] ")
+}
+fn paint_off() -> String {
+    ansi("90", "[off]")
+}
+fn paint_dim(text: &str) -> String {
+    ansi("2", text)
+}
+fn paint_update_hint(text: &str) -> String {
+    ansi("33", text)
+}
+
+/// `ColorfulTheme` brings dialoguer's coloured prompt + active-item ">"
+/// indicator. Wrapped in a small selector so non-TTY shells still get the
+/// plain theme (no ANSI in pipes / CI).
+fn picker_theme() -> Box<dyn Theme> {
+    if color_enabled() {
+        Box::new(ColorfulTheme::default())
+    } else {
+        Box::new(dialoguer::theme::SimpleTheme)
+    }
+}
 
 /// Bundle id from `tauri.conf.json`. Tauri 2's `app_data_dir` returns
 /// `<dirs::data_dir()>/<bundle_id>` on every desktop platform, so we can
@@ -158,7 +206,8 @@ fn cmd_menu() -> Result<(), String> {
         ("Quit", "quit"),
     ];
     let labels: Vec<&str> = actions.iter().map(|(l, _)| *l).collect();
-    let chosen = dialoguer::Select::new()
+    let theme = picker_theme();
+    let chosen = dialoguer::Select::with_theme(theme.as_ref())
         .with_prompt("tedi ext")
         .items(&labels)
         .default(0)
@@ -254,8 +303,9 @@ fn prompt_install_reference(runtime: &tokio::runtime::Runtime) -> Result<String,
             }
         })
         .collect();
-    labels.push("(type a custom ref)".to_string());
-    let chosen = dialoguer::Select::new()
+    labels.push(paint_dim("(type a custom ref)"));
+    let theme = picker_theme();
+    let chosen = dialoguer::Select::with_theme(theme.as_ref())
         .with_prompt("Install from registry")
         .items(&labels)
         .default(0)
@@ -312,7 +362,8 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     }
 
     let labels: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
-    let chosen = dialoguer::Select::new()
+    let theme = picker_theme();
+    let chosen = dialoguer::Select::with_theme(theme.as_ref())
         .with_prompt("Pilih extension untuk diinstall (Esc untuk batal)")
         .items(&labels)
         .default(0)
@@ -335,18 +386,24 @@ fn cmd_list_installed() -> Result<(), String> {
         println!("No extensions installed.");
         return Ok(());
     }
-    println!("INSTALLED EXTENSIONS ({})", rows.len());
+    println!(
+        "{} ({})",
+        ansi("1", "INSTALLED EXTENSIONS"),
+        rows.len()
+    );
     for r in &rows {
-        let badge = if r.enabled { "[on] " } else { "[off]" };
+        let badge = if r.enabled { paint_on() } else { paint_off() };
         let update_hint = match &r.latest {
-            Some(v) if v != &r.version => format!("  -> v{v} available"),
+            Some(v) if v != &r.version => paint_update_hint(&format!("  -> v{v} available")),
             _ => String::new(),
         };
         println!(
-            "  {badge}  {} (id: {})  v{}{update_hint}",
-            r.name, r.id, r.version
+            "  {badge}  {} {}  {}{update_hint}",
+            r.name,
+            paint_dim(&format!("(id: {})", r.id)),
+            paint_dim(&format!("v{}", r.version)),
         );
-        println!("         source: {}", r.source);
+        println!("         {}", paint_dim(&format!("source: {}", r.source)));
     }
     Ok(())
 }
@@ -507,7 +564,7 @@ fn cmd_set_enabled(args: &[String], enabled: bool) -> Result<(), String> {
 }
 
 /// Arrow-pick from the installed list. Errors when nothing is installed
-/// or the user cancels — the caller bubbles those up.
+/// or the user cancels - the caller bubbles those up.
 fn prompt_installed_id(prompt: &str) -> Result<String, String> {
     if !interactive() {
         return Err("missing argument: id required on a non-interactive shell".into());
@@ -519,11 +576,17 @@ fn prompt_installed_id(prompt: &str) -> Result<String, String> {
     let labels: Vec<String> = rows
         .iter()
         .map(|r| {
-            let badge = if r.enabled { "[on] " } else { "[off]" };
-            format!("{badge} {} (id: {})  v{}", r.name, r.id, r.version)
+            let badge = if r.enabled { paint_on() } else { paint_off() };
+            format!(
+                "{badge} {} {}  {}",
+                r.name,
+                paint_dim(&format!("(id: {})", r.id)),
+                paint_dim(&format!("v{}", r.version)),
+            )
         })
         .collect();
-    let chosen = dialoguer::Select::new()
+    let theme = picker_theme();
+    let chosen = dialoguer::Select::with_theme(theme.as_ref())
         .with_prompt(prompt)
         .items(&labels)
         .default(0)
@@ -623,7 +686,7 @@ fn registry_not_found_msg(reference: &str, doc: &RegistryDoc) -> String {
 
 fn print_registry_groups(doc: &RegistryDoc) {
     if !doc.official.is_empty() {
-        println!("OFFICIAL");
+        println!("{}", paint_official("OFFICIAL"));
         for e in &doc.official {
             print_registry_row(e);
         }
@@ -632,7 +695,7 @@ fn print_registry_groups(doc: &RegistryDoc) {
         if !doc.official.is_empty() {
             println!();
         }
-        println!("UNOFFICIAL");
+        println!("{}", paint_unofficial("UNOFFICIAL"));
         for e in &doc.unofficial {
             print_registry_row(e);
         }
@@ -645,17 +708,28 @@ fn print_registry_row(e: &RegistryEntry) {
     } else {
         e.license.as_str()
     };
-    println!("  {:<28}  by {:<18}  {}", e.id, e.publisher, license);
+    println!(
+        "  {:<28}  {} {:<18}  {}",
+        e.id,
+        paint_dim("by"),
+        e.publisher,
+        paint_dim(license),
+    );
     if !e.description.is_empty() {
-        println!("    {}", e.description);
+        println!("    {}", paint_dim(&e.description));
     }
 }
 
 fn registry_label(e: &RegistryEntry, group: &str) -> String {
-    if e.description.is_empty() {
-        format!("[{group}] {}", e.id)
+    let tag = if group == "official" {
+        paint_official(&format!("[{group}]"))
     } else {
-        format!("[{group}] {} - {}", e.id, e.description)
+        paint_unofficial(&format!("[{group}]"))
+    };
+    if e.description.is_empty() {
+        format!("{tag} {}", e.id)
+    } else {
+        format!("{tag} {} {}", e.id, paint_dim(&format!("- {}", e.description)))
     }
 }
 

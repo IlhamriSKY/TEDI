@@ -6,9 +6,9 @@ const KEEP_TAIL = 24;
  *  the model not to retry, because either a fresher read is downstream or the
  *  file has been mutated. */
 const ELISION_TEXT =
-  "[elided — newer output for this call is already further down in the conversation. Do not retry.]";
+  "[elided - newer output for this call is already further down in the conversation. Do not retry.]";
 const ELISION_TEXT_MUTATED =
-  "[elided — this file has been modified since; the post-mutation read is below. Do not re-read this snapshot.]";
+  "[elided - this file has been modified since; the post-mutation read is below. Do not re-read this snapshot.]";
 
 type ToolPart = {
   type: string;

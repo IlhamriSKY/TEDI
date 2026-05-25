@@ -22,7 +22,8 @@ the GitHub `releases/latest` endpoint to surface available versions.
 | --- | --- | --- |
 | **Discord Rich Presence** | <https://github.com/IlhamriSKY/TEDI.discord-rich-presence> | `IlhamriSKY/TEDI.discord-rich-presence` |
 | **Secondary Folder Tree** | <https://github.com/IlhamriSKY/TEDI.secondary-folder-tree> | `IlhamriSKY/TEDI.secondary-folder-tree` |
-| **Terminal Screenshot** | <https://github.com/IlhamriSKY/TEDI.terminal-screenshot> | `IlhamriSKY/TEDI.terminal-screenshot` |
+| **Screenshot** | <https://github.com/IlhamriSKY/TEDI.screenshot> | `IlhamriSKY/TEDI.screenshot` |
+
 
 Each repo has its own [release CI](https://github.com/IlhamriSKY/TEDI.discord-rich-presence/blob/main/.github/workflows/release.yml)
 that produces a `.zip` asset on every `vX.Y.Z` tag, exactly the shape
@@ -195,7 +196,7 @@ type ExtensionContext = {
     container.appendChild(/* … */);
     return () => container.replaceChildren();
   });
-  // Imperative right-panel controls — useful inside a command
+  // Imperative right-panel controls - useful inside a command
   // handler so a keybinding can toggle your panel.
   panel: {
     open(panelId): void;

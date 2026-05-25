@@ -24,7 +24,10 @@ export { permissionRiskTier } from "./permissions";
 export { loadExtensionIcon } from "./icon";
 export { ExtensionStatusItems } from "./components/ExtensionStatusItems";
 export { RightPanelHost } from "./components/RightPanelHost";
-export { RightPanelToggleButtons } from "./components/RightPanelToggleButtons";
+export {
+  RightPanelCompactToggles,
+  RightPanelTextToggles,
+} from "./components/RightPanelToggleButtons";
 export { useRightPanelStore } from "./rightPanelStore";
 export {
   setExtensionWorkspaceBridge,

@@ -23,7 +23,7 @@
 //!   tedi theme darken <0..1>         # set wallpaper darken overlay
 //!
 //! Concurrency: the GUI may also write `tedi-settings.json` (last writer
-//! wins). Acceptable for the CLI use case — two GUI windows already accept
+//! wins). Acceptable for the CLI use case - two GUI windows already accept
 //! the same race today.
 
 use std::fs;

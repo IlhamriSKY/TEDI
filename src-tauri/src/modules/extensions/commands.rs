@@ -532,7 +532,7 @@ pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 /// Streaming variant of [`http_get_bytes`] that reports cumulative bytes
 /// received via `on_progress`. The closure runs on the network thread on
-/// every chunk read — keep it cheap (typical implementation: send through
+/// every chunk read - keep it cheap (typical implementation: send through
 /// an `mpsc` channel). `bytes_total` is `Some(content_length)` when the
 /// server advertised one, `None` otherwise.
 pub(crate) async fn http_get_bytes_with_progress<F: FnMut(u64, Option<u64>)>(

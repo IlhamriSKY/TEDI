@@ -6504,7 +6504,7 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6521,6 +6521,7 @@ dependencies = [
  "lol_html",
  "minisign-verify",
  "portable-pty",
+ "regex",
  "reqwest 0.12.28",
  "russh",
  "russh-sftp",
@@ -6548,7 +6549,7 @@ dependencies = [
 
 [[package]]
 name = "tedi-cli"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "tedi",
 ]

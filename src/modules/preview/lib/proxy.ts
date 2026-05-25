@@ -31,7 +31,7 @@ export function isLocalUrl(url: string): boolean {
  *   - the `tedi-frame:` proxy scheme in either form (`tedi-frame://...`
  *     and Windows' `http://tedi-frame.localhost/...`),
  *   - any loopback alias that resolves to the same port as the webview
- *     (`127.0.0.1:1420`, `[::1]:1420`, …) — those bypass string-equality
+ *     (`127.0.0.1:1420`, `[::1]:1420`, …) - those bypass string-equality
  *     against `location.origin` but still hit the same server.
  */
 export function isSelfReferenceUrl(url: string): boolean {

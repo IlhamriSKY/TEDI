@@ -462,7 +462,7 @@ export async function consumePendingPresetRequest(): Promise<string | null> {
   const id = (await store.get<unknown>(KEY_THEME_PRESET_REQUEST)) ?? null;
   if (typeof id !== "string" || id.length === 0) {
     if (id !== null) {
-      // Corrupt value — drop it.
+      // Corrupt value - drop it.
       await store.delete(KEY_THEME_PRESET_REQUEST);
       await store.save();
     }

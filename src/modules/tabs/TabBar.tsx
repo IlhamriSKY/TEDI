@@ -1061,11 +1061,17 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const hasContextActions =
     canRotate || canLeaveGroup || canMove || canTogglePrivate || canCloseToRight;
   const hasLeafActions = canRotate || canLeaveGroup || canMove || canTogglePrivate;
-  const tooltipMode: "ssh" | "ai" | null = sshHost
+  // Private tabs always get a tooltip explaining the AI-visibility implication;
+  // SSH / AI-CLI tooltips win the slot when both apply and append the private
+  // note as an extra line.
+  const tooltipMode: "ssh" | "ai" | "private" | null = sshHost
     ? "ssh"
     : isPaneLeaf && e.aiCliStatus
       ? "ai"
-      : null;
+      : isPrivate
+        ? "private"
+        : null;
+  const PRIVATE_HINT = "Not visible to the native AI agent";
 
   // Build innermost-out. TabsTrigger must be the DOM child of every asChild
   // trigger so Radix' Slot can merge handlers. Tooltip is a Provider, not a
@@ -1121,12 +1127,6 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
                 if (e.kind === "pane-leaf") onTogglePrivate!(e.leafId);
               }}
             >
-              <HugeiconsIcon
-                icon={LockedIcon}
-                size={13}
-                strokeWidth={1.75}
-                className={isPrivate ? undefined : "text-red-600 dark:text-red-400"}
-              />
               <span className="flex-1">
                 {isPrivate ? "Mark as Public" : "Mark as Private"}
               </span>
@@ -1157,6 +1157,9 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
               <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
             ) : null}
             {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
+            {isPrivate ? (
+              <span className="text-red-600 dark:text-red-400">{PRIVATE_HINT}</span>
+            ) : null}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -1167,7 +1170,21 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <Tooltip>
         {wrapped}
         <TooltipContent side="bottom">
-          <div className="text-[11px]">{aiCliLabel(ai)}</div>
+          <div className="flex flex-col gap-0.5 text-[11px]">
+            <span>{aiCliLabel(ai)}</span>
+            {isPrivate ? (
+              <span className="text-red-600 dark:text-red-400">{PRIVATE_HINT}</span>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    );
+  } else if (tooltipMode === "private") {
+    wrapped = (
+      <Tooltip>
+        {wrapped}
+        <TooltipContent side="bottom">
+          <div className="text-red-600 text-[11px] dark:text-red-400">{PRIVATE_HINT}</div>
         </TooltipContent>
       </Tooltip>
     );

@@ -130,7 +130,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_list: tool({
       description:
-        "List bash_background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates — reuse running matches via open_preview. Auto.",
+        "List bash_background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates - reuse running matches via open_preview. Auto.",
       inputSchema: z.object({}),
       execute: async () => {
         try {

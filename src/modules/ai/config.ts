@@ -318,7 +318,7 @@ export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
  *  Compatible block in Settings → Models. Each entry pre-fills the base
  *  URL so a user pasting an OpenRouter or 9Router key doesn't have to
  *  remember the `/api/v1` (OpenRouter) or `localhost:20128/v1` (9Router)
- *  paths. The presets are pure UX — TEDI still routes everything through
+ *  paths. The presets are pure UX - TEDI still routes everything through
  *  the openai-compatible code path. */
 export const OPENAI_COMPATIBLE_PRESETS: ReadonlyArray<{
   id: string;
@@ -389,7 +389,7 @@ export const SYSTEM_PROMPT = `You are TEDI, an AI engineer in a developer termin
 - One short why-line before a mutation tool call. After work, 1-2 sentences: what changed, what's next. No diff recap.
 - Same tool + same args twice = stop and ask; never retry a third time.
 - Refused reads on sensitive files (.env, .ssh, credentials) are final.
-- No em-dashes (—). Use a hyphen, comma, semicolon, or rewrite.`;
+- No em-dashes (-). Use a hyphen, comma, semicolon, or rewrite.`;
 
 export const SYSTEM_PROMPT_LITE = `You are TEDI, an AI agent in a developer terminal. \`Host:\` at top gives OS + shell; match syntax. Each turn prepends \`<env>\` (workspace_root, active_terminal_cwd, optional active_file, terminals list with ordinal matching the user's tab badge); treat as ground truth.
 
@@ -402,7 +402,7 @@ export const SYSTEM_PROMPT_LITE = `You are TEDI, an AI agent in a developer term
 - schedule_command: deferred runs in any language (delay_seconds OR fire_at_iso). list_schedules / cancel_schedule.
 - run_subagent for large search/audit; isolated context.
 - Pass objects/numbers natively. Same tool + same args twice = stop. Refused reads on .env/.ssh/credentials are final.
-- Terse. No em-dashes (—); use hyphen, comma, semicolon.`;
+- Terse. No em-dashes (-); use hyphen, comma, semicolon.`;
 
 const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
   "gpt-5.4-nano",

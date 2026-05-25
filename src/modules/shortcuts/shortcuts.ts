@@ -17,6 +17,8 @@ export type ShortcutId =
   | "search.focus"
   | "explorer.search"
   | "explorer.grep"
+  | "explorer.replaceAll"
+  | "editor.findReplace"
   | "ai.toggle"
   | "ai.askSelection"
   | "ai.send"
@@ -149,10 +151,28 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "f" }],
   },
   {
-    id: "explorer.search",
-    label: "Search files",
+    id: "explorer.replaceAll",
+    label: "Replace in files",
     group: "Search",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "p" }],
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "h" }],
+  },
+  {
+    id: "editor.findReplace",
+    label: "Find and replace in editor",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, key: "h" }],
+  },
+  {
+    id: "explorer.search",
+    label: "Go to file",
+    group: "Search",
+    defaultBindings: [
+      { [MOD_PROP]: true, shift: true, key: "p" },
+      // VS Code uses Ctrl+P for the fuzzy file picker; we ship Ctrl+G as an
+      // explicit alternative requested by Indonesian users who already bind
+      // Ctrl+G to "open file" in their muscle memory.
+      { [MOD_PROP]: true, key: "g" },
+    ],
   },
   {
     id: "search.focus",
@@ -231,7 +251,7 @@ export const SHORTCUTS: Shortcut[] = [
   {
     // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C on Linux/Windows.
     // Matches GNOME Terminal, Konsole, Windows Terminal, VS Code. On macOS
-    // the convention (Terminal.app, iTerm2) is Cmd+C — Cmd is not a shell
+    // the convention (Terminal.app, iTerm2) is Cmd+C - Cmd is not a shell
     // signal, so it's safe to bind unconditionally.
     id: "terminal.copy",
     label: "Copy selection",
@@ -243,7 +263,7 @@ export const SHORTCUTS: Shortcut[] = [
   {
     // Uses xterm's bracketed-paste so multi-line snippets aren't executed
     // line-by-line. Cmd+V on macOS; Ctrl+Shift+V elsewhere. Shift+Insert is
-    // a de-facto universal terminal paste on Linux/Windows — included as a
+    // a de-facto universal terminal paste on Linux/Windows - included as a
     // secondary default for muscle memory from other emulators.
     id: "terminal.paste",
     label: "Paste from clipboard",

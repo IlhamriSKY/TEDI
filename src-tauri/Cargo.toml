@@ -2,7 +2,7 @@
 # lives in a separate workspace member (`tedi-cli/`) so Tauri 2's deb /
 # dmg bundlers only see the GUI binary when they enumerate `[[bin]]`
 # entries from THIS manifest. Trying to gate the stub via `[[bin]]
-# required-features` here did NOT work — the bundlers ignored the gate
+# required-features` here did NOT work - the bundlers ignored the gate
 # and still expected `target/release/tedi` to exist, then failed because
 # cargo had legitimately skipped the build. Splitting the package
 # removes the entry from the bundler's view entirely.
@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.2.24"
+version = "0.2.25"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -47,7 +47,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Main GUI binary. `windows_subsystem = "windows"` (set in main.rs) detaches
 # stdio on Windows so the binary cannot synchronously print to the parent
-# shell — see the `tedi` console stub below. Renamed from the default
+# shell - see the `tedi` console stub below. Renamed from the default
 # package-name `tedi.exe` so PATHEXT on Windows finds the console stub first
 # (the two cannot share a name on a case-insensitive filesystem).
 [[bin]]
@@ -72,6 +72,9 @@ grep-regex = "0.1"
 grep-searcher = "0.1"
 grep-matcher = "0.1"
 globset = "0.4"
+# Direct `regex` for `fs_grep_replace`: file-level `replace_all` instead of
+# the line-by-line `grep_regex` matcher used for read-only search.
+regex = "1"
 shared_child = "1"
 tauri-plugin-log = "2"
 tauri-plugin-os = "2"
@@ -106,7 +109,7 @@ hex = "0.4"
 # we ship to without needing a separate console-subsystem companion binary.
 dialoguer = { version = "0.11", default-features = false }
 # Verify-only minisign implementation. Same crate `tauri-plugin-updater`
-# uses internally — keeps the headless `tedi --update` path semantically
+# uses internally - keeps the headless `tedi --update` path semantically
 # identical to the GUI updater. No signing dependencies pulled in.
 minisign-verify = "0.2"
 

@@ -108,7 +108,7 @@ function toForwardSlash(p: string): string {
  * Folders to expand so `filePath` becomes visible under `rootPath`. Returns
  * forward-slash paths matching what `useFileTree.joinPath` produces.
  * Returns `[]` when the file is not under the root (different drive, escape
- * via `..`, etc.) — caller treats that as "nothing to reveal".
+ * via `..`, etc.) - caller treats that as "nothing to reveal".
  */
 function ancestorFolders(rootPath: string, filePath: string): string[] {
   const root = toForwardSlash(rootPath).replace(/\/+$/, "");
@@ -210,7 +210,7 @@ export function FileExplorer({
     const isUnderRoot =
       normalizedActiveFile === rootNorm || normalizedActiveFile.startsWith(rootNorm + "/");
     if (!isUnderRoot) {
-      // File lives outside the workspace root (different drive, etc.) —
+      // File lives outside the workspace root (different drive, etc.) -
       // nothing to reveal.
       revealTargetRef.current = null;
       return;
@@ -222,7 +222,7 @@ export function FileExplorer({
     }
     // Expand every intermediate folder so the row will eventually land in
     // `flat`. `ancestorFolders` returns `[]` for files sitting directly
-    // under `rootNorm` — that's correct, no expansion needed there.
+    // under `rootNorm` - that's correct, no expansion needed there.
     const ancestors = ancestorFolders(rootPath, normalizedActiveFile);
     for (const a of ancestors) tree.expand(a);
     revealTargetRef.current = normalizedActiveFile;
@@ -231,7 +231,7 @@ export function FileExplorer({
   // Select + scroll once the row appears in `flat` (after the fetches
   // triggered above commit). Cleared on success so a later collapse +
   // flat-shrink doesn't trigger an unwanted re-scroll. Also re-fires on
-  // uncollapse — the list DOM is unmounted while `collapsed`, so the very
+  // uncollapse - the list DOM is unmounted while `collapsed`, so the very
   // first scroll attempt can find no element and we'd never retry without
   // this dep.
   useEffect(() => {
@@ -269,6 +269,15 @@ export function FileExplorer({
       setIsSearchOpen(false);
       setIsGrepOpen(true);
       grepRef.current?.focus();
+    },
+    "explorer.replaceAll": () => {
+      // VSCode-style: Ctrl+Shift+H opens the folder-wide grep panel with the
+      // replace input already expanded so the user can type and apply
+      // without an extra click.
+      if (collapsed) onToggleCollapsed?.();
+      setIsSearchOpen(false);
+      setIsGrepOpen(true);
+      grepRef.current?.focusWithReplace();
     },
   });
 

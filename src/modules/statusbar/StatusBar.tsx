@@ -3,7 +3,11 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
-import { ExtensionStatusItems, RightPanelToggleButtons } from "@/modules/extensions";
+import {
+  ExtensionStatusItems,
+  RightPanelCompactToggles,
+  RightPanelTextToggles,
+} from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -51,8 +55,11 @@ function StatusBarInner({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {/* Extension-contributed status icons, leftmost. */}
+        {/* Extension-contributed borderless icons (status items + compact
+            panel toggles) cluster at the leftmost slot so the icon row stays
+            visually unified. */}
         <ExtensionStatusItems />
+        <RightPanelCompactToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
         <UpdaterPill />
@@ -78,9 +85,9 @@ function StatusBarInner({
           </IconTooltip>
         ) : null}
         <AgentStatusPill onClick={onOpenMini} />
-        {/* Extension-contributed right-panel toggles from the `panels`
-            contribution (surface="right"). */}
-        <RightPanelToggleButtons />
+        {/* Full-label right-panel toggles (text + Kbd) sit with the other
+            "open X" buttons so the bordered row reads consistently. */}
+        <RightPanelTextToggles />
         <ScmRightOpenButton />
         {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
       </div>

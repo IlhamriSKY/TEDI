@@ -29,6 +29,7 @@ import {
   Mic01Icon,
   PinIcon,
   SentIcon,
+  SparklesIcon,
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -108,6 +109,7 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
           "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
         )}
       >
+        <HugeiconsIcon icon={SparklesIcon} size={11} strokeWidth={2} className="shrink-0" />
         <span>Open AI agent</span>
         <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
       </motion.button>
@@ -337,7 +339,7 @@ function ModelDropdown() {
 
   // Hide providers the user has not configured. Keyless providers
   // (LM Studio) are always shown because they don't gate on a credential
-  // the user can withhold. Filtering keeps the chat dropdown clean — a
+  // the user can withhold. Filtering keeps the chat dropdown clean - a
   // grid of 10 empty "Set key →" rows for someone who only configured
   // Anthropic is noise, not affordance.
   const sections = useMemo(

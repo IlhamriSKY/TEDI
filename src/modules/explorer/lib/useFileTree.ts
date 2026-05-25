@@ -33,7 +33,7 @@ function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
   const out = entries.slice();
   switch (mode) {
     case "name-asc":
-      // Folders first, then by name. Same shape as Rust default — kept
+      // Folders first, then by name. Same shape as Rust default - kept
       // separate from "default" so the radio reads as an explicit pick.
       out.sort((a, b) => dirRank(a.kind) - dirRank(b.kind) || nameCmp(a, b));
       break;
@@ -41,7 +41,7 @@ function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
       out.sort((a, b) => dirRank(a.kind) - dirRank(b.kind) || -nameCmp(a, b));
       break;
     case "modified-desc":
-      // Pure mtime — folders and files mixed. Matches Finder's "Date Modified".
+      // Pure mtime - folders and files mixed. Matches Finder's "Date Modified".
       out.sort((a, b) => b.mtime - a.mtime || nameCmp(a, b));
       break;
     case "modified-asc":

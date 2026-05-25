@@ -286,7 +286,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
 
   /**
    * Flip the per-leaf privacy flag. Each entry in the tab strip toggles
-   * independently — a split group can mix private and public terminals.
+   * independently - a split group can mix private and public terminals.
    * The AI subsystem ignores private leaves entirely.
    */
   const togglePrivate = useCallback((leafId: number) => {

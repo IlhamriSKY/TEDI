@@ -172,7 +172,7 @@ export function buildTerminalTools(ctx: ToolContext) {
       execute: async ({ target }) => {
         const terms = ctx.listTerminals();
         if (terms.length === 0) return { error: "no terminals open" };
-        if (terms.length === 1) return { error: "only one terminal — nothing to consolidate" };
+        if (terms.length === 1) return { error: "only one terminal - nothing to consolidate" };
 
         const t = normalizeTargetExternal(target);
         let targetTabId: number | null = null;

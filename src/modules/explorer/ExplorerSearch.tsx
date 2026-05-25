@@ -279,7 +279,9 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                         onClick={() => openHit(hit)}
                         className={cn(
                           "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
-                          isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
+                          isActive
+                            ? "bg-accent text-accent-foreground"
+                            : "hover:bg-accent/60",
                         )}
                       >
                         {url ? (

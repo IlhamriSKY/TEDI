@@ -1,6 +1,6 @@
 /**
  * Open/closed state for Source Control hosted in the right slot.
- * Not persisted — session-scoped only. Mutual exclusion with the AI sidebar
+ * Not persisted - session-scoped only. Mutual exclusion with the AI sidebar
  * and extension right panels lives in App.tsx.
  */
 import { create } from "zustand";

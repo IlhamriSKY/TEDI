@@ -158,7 +158,7 @@ export function SshFileExplorer({
           </TooltipTrigger>
           <TooltipContent side="bottom" className="font-mono text-[11px]">
             <div>{hostLabel ?? "remote"}</div>
-            <div className="text-muted-foreground">{rootPath ?? "—"}</div>
+            <div className="text-muted-foreground">{rootPath ?? "-"}</div>
           </TooltipContent>
         </Tooltip>
 

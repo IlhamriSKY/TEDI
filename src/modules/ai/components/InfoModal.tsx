@@ -69,7 +69,7 @@ export function InfoModal() {
                               <>
                                 <span className="text-foreground font-medium">{row.label}</span>
                                 {row.desc ? (
-                                  <span className="text-muted-foreground"> — {row.desc}</span>
+                                  <span className="text-muted-foreground"> - {row.desc}</span>
                                 ) : null}
                               </>
                             ) : (

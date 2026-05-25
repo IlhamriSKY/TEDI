@@ -7,6 +7,8 @@ import {
   ArrowRight01Icon,
   Cancel01Icon,
   FileSearchIcon,
+  ReplaceAllIcon,
+  ReplaceIcon,
   UnfoldLessIcon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
@@ -29,6 +31,13 @@ type GrepResponse = {
   files_scanned: number;
 };
 
+type GrepReplaceResponse = {
+  files_changed: number;
+  total_replacements: number;
+  edits: { path: string; rel: string; replacements: number }[];
+  truncated: boolean;
+};
+
 type Props = {
   rootPath: string;
   onOpenFile: (path: string) => void;
@@ -40,6 +49,8 @@ type Props = {
 export type ExplorerGrepHandle = {
   focus: () => void;
   isFocused: () => boolean;
+  /** Expand the replace row + focus the search input. Used by Ctrl+Shift+H. */
+  focusWithReplace: () => void;
 };
 
 const HIGHLIGHT_CLASS = "bg-amber-400/30 text-foreground rounded-[2px] px-[1px]";
@@ -56,28 +67,60 @@ function basename(p: string): string {
   return parts.length ? parts[parts.length - 1] : p;
 }
 
-function HighlightLine({ text, needle }: { text: string; needle: string }) {
+/**
+ * Tries to compile the user's regex client-side so we can show a "bad regex"
+ * hint without round-tripping to Rust. JS regex isn't identical to Rust's
+ * `regex` crate (no lookbehind in older browsers, slightly different
+ * character-class semantics) but the common syntax overlaps - good enough
+ * for early validation.
+ */
+function tryCompileRegex(pattern: string): string | null {
+  try {
+    new RegExp(pattern);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : "invalid regex";
+  }
+}
+
+function HighlightLine({
+  text,
+  needle,
+  useRegex,
+  caseInsensitive,
+}: {
+  text: string;
+  needle: string;
+  useRegex: boolean;
+  caseInsensitive: boolean;
+}) {
   const trimmed = text.length > MAX_LINE_CHARS ? text.slice(0, MAX_LINE_CHARS) + "…" : text;
-  if (!needle) return <>{trimmed}</>;
-  const lowerHay = trimmed.toLowerCase();
-  const lowerNeedle = needle.toLowerCase();
-  const out: React.ReactNode[] = [];
-  let i = 0;
-  let k = 0;
-  while (i < trimmed.length) {
-    const idx = lowerHay.indexOf(lowerNeedle, i);
-    if (idx < 0) {
-      out.push(trimmed.slice(i));
-      break;
+  const re = useMemo(() => {
+    if (!needle) return null;
+    try {
+      const src = useRegex ? needle : escapeRegex(needle);
+      return new RegExp(src, caseInsensitive ? "gi" : "g");
+    } catch {
+      return null;
     }
-    if (idx > i) out.push(trimmed.slice(i, idx));
+  }, [needle, useRegex, caseInsensitive]);
+  if (!needle || !re) return <>{trimmed}</>;
+  const out: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let k = 0;
+  for (const m of trimmed.matchAll(re)) {
+    const start = m.index ?? 0;
+    if (start > lastIdx) out.push(trimmed.slice(lastIdx, start));
     out.push(
       <span key={k++} className={HIGHLIGHT_CLASS}>
-        {trimmed.slice(idx, idx + needle.length)}
+        {m[0]}
       </span>,
     );
-    i = idx + needle.length;
+    lastIdx = start + m[0].length;
+    // Zero-width match guard: advance one char so we don't loop forever.
+    if (m[0].length === 0) lastIdx = start + 1;
   }
+  if (lastIdx < trimmed.length) out.push(trimmed.slice(lastIdx));
   return <>{out}</>;
 }
 
@@ -90,15 +133,25 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
   ref,
 ) {
   const [query, setQuery] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [useRegex, setUseRegex] = useState(false);
+  const [caseSensitive, setCaseSensitive] = useState(false);
   const [hits, setHits] = useState<GrepHit[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [activeHitIdx, setActiveHitIdx] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Two-step confirm: first Enter on the Replace input (or first click on
+  // the Replace All button) arms; second actually writes to disk. Disarmed
+  // whenever the query/replace/options change so a re-run starts fresh.
+  const [replaceArmed, setReplaceArmed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const active = query.trim().length > 0;
+  const regexError = useRegex ? tryCompileRegex(query.trim()) : null;
 
   useEffect(() => {
     onActiveChange?.(active);
@@ -110,17 +163,33 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
       inputRef.current?.select();
     } else {
       setQuery("");
+      setReplaceText("");
       setHits([]);
       setTruncated(false);
       setSearching(false);
       setActiveHitIdx(0);
       setCollapsed(new Set());
+      setReplaceArmed(false);
     }
   }, [open]);
+
+  // Any change to the inputs/options resets the confirm arm so the user
+  // never replaces text against a stale match set.
+  useEffect(() => {
+    setReplaceArmed(false);
+  }, [query, replaceText, useRegex, caseSensitive, hits]);
 
   useEffect(() => {
     const q = query.trim();
     if (!q) {
+      setHits([]);
+      setTruncated(false);
+      setSearching(false);
+      setActiveHitIdx(0);
+      return;
+    }
+    if (useRegex && regexError) {
+      // Skip the backend call while the regex is invalid; banner explains it.
       setHits([]);
       setTruncated(false);
       setSearching(false);
@@ -132,9 +201,9 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
     const handle = setTimeout(async () => {
       try {
         const resp = await invoke<GrepResponse>("fs_grep", {
-          pattern: escapeRegex(q),
+          pattern: useRegex ? q : escapeRegex(q),
           root: rootPath,
-          caseInsensitive: true,
+          caseInsensitive: !caseSensitive,
           maxResults: 200,
         });
         if (alive) {
@@ -158,7 +227,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
       alive = false;
       clearTimeout(handle);
     };
-  }, [query, rootPath]);
+  }, [query, rootPath, useRegex, caseSensitive, regexError]);
 
   useImperativeHandle(
     ref,
@@ -170,12 +239,20 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
         });
       },
       isFocused: () => document.activeElement === inputRef.current,
+      focusWithReplace: () => {
+        // Replace row is always visible now (no accordion). Behave like
+        // plain `focus` so Ctrl+Shift+H still puts the caret on the search
+        // input.
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        });
+      },
     }),
     [],
   );
 
   const { rows, hitCount, fileCount, allCollapsed } = useMemo(() => {
-    // Group by rel path; preserve backend insertion order.
     const groups = new Map<string, { path: string; hits: GrepHit[] }>();
     for (const h of hits) {
       const g = groups.get(h.rel);
@@ -235,6 +312,59 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
     }
   };
 
+  /**
+   * Two-step replace gate. First call arms the action and returns without
+   * writing; the UI shows an inline "press Enter again to confirm" banner.
+   * The second call (next Enter / button click) actually invokes the
+   * backend. Any change to inputs/options between the two clears the arm.
+   */
+  const requestReplaceAll = () => {
+    const q = query.trim();
+    if (!q || replacing) return;
+    if (useRegex && regexError) return;
+    if (hits.length === 0) return;
+    if (!replaceArmed) {
+      setReplaceArmed(true);
+      return;
+    }
+    setReplaceArmed(false);
+    void runReplaceAll();
+  };
+
+  const runReplaceAll = async () => {
+    const q = query.trim();
+    if (!q || replacing) return;
+    if (useRegex && regexError) return;
+    if (hits.length === 0) return;
+    setReplacing(true);
+    try {
+      const resp = await invoke<GrepReplaceResponse>("fs_grep_replace", {
+        pattern: useRegex ? q : escapeRegex(q),
+        replacement: replaceText,
+        root: rootPath,
+        caseInsensitive: !caseSensitive,
+      });
+      // Re-run the search so the panel reflects the post-replace state.
+      const refreshed = await invoke<GrepResponse>("fs_grep", {
+        pattern: useRegex ? q : escapeRegex(q),
+        root: rootPath,
+        caseInsensitive: !caseSensitive,
+        maxResults: 200,
+      });
+      setHits(refreshed.hits);
+      setTruncated(refreshed.truncated);
+      setActiveHitIdx(0);
+      console.info(
+        `[fs_grep_replace] ${resp.total_replacements} replacement(s) across ${resp.files_changed} file(s)`,
+      );
+    } catch (e) {
+      console.error("fs_grep_replace failed:", e);
+      window.alert(`Replace failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setReplacing(false);
+    }
+  };
+
   return (
     <div className="@container flex flex-col">
       {open ? (
@@ -243,61 +373,195 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
           initial={{ opacity: 0, transform: "translateY(-15px)" }}
           animate={{ opacity: 1, transform: "translateY(0px)" }}
         >
-          <HugeiconsIcon
-            icon={FileSearchIcon}
-            size={13}
-            strokeWidth={2}
-            className="text-muted-foreground absolute top-1/2 left-4 -translate-y-1/2"
-          />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                e.stopPropagation();
-                onRequestClose();
-                return;
-              }
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                if (hitCount === 0) return;
-                setActiveHitIdx((i) => (i + 1 >= hitCount ? 0 : i + 1));
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                if (hitCount === 0) return;
-                setActiveHitIdx((i) => (i - 1 < 0 ? hitCount - 1 : i - 1));
-                return;
-              }
-              if (e.key === "Enter") {
-                e.preventDefault();
-                let n = 0;
-                for (const r of rows) {
-                  if (r.kind === "hit") {
-                    if (n === clampedActive) {
-                      openHit(r.hit);
+          <div className="flex items-center gap-1">
+            <div className="relative flex-1">
+              <HugeiconsIcon
+                icon={FileSearchIcon}
+                size={13}
+                strokeWidth={2}
+                className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
+              />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRequestClose();
+                    return;
+                  }
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    if (hitCount === 0) return;
+                    setActiveHitIdx((i) => (i + 1 >= hitCount ? 0 : i + 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    if (hitCount === 0) return;
+                    setActiveHitIdx((i) => (i - 1 < 0 ? hitCount - 1 : i - 1));
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    let n = 0;
+                    for (const r of rows) {
+                      if (r.kind === "hit") {
+                        if (n === clampedActive) {
+                          openHit(r.hit);
+                          return;
+                        }
+                        n++;
+                      }
+                    }
+                  }
+                }}
+                placeholder={useRegex ? "Regex" : "Find text in files…"}
+                className={cn(
+                  "h-7 pl-7 text-xs",
+                  // Right padding scales with how many toggle buttons are
+                  // floating inside the input (clear + Aa + .*).
+                  query ? "pr-22" : "pr-15",
+                  useRegex && regexError && "border-destructive/60",
+                )}
+              />
+              <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5">
+                {query ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setQuery("")}
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5"
+                        aria-label="Clear search"
+                      >
+                        <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Clear</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setCaseSensitive((v) => !v)}
+                      aria-label="Match case"
+                      aria-pressed={caseSensitive}
+                      className={cn(
+                        "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
+                        caseSensitive
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      Aa
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Match case</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setUseRegex((v) => !v)}
+                      aria-label="Use regular expression"
+                      aria-pressed={useRegex}
+                      className={cn(
+                        "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
+                        useRegex
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      .*
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Use regular expression</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+          {useRegex && regexError ? (
+            <div className="text-destructive mt-1 pl-7 text-[10px]">{regexError}</div>
+          ) : null}
+
+          {/* Replace row: always rendered (no accordion). Two-Enter confirm
+              prevents accidental folder-wide writes. */}
+          <div className="mt-1.5 flex items-center gap-1">
+            <div className="relative flex-1">
+              <HugeiconsIcon
+                icon={ReplaceIcon}
+                size={13}
+                strokeWidth={2}
+                className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
+              />
+              <Input
+                ref={replaceInputRef}
+                value={replaceText}
+                onChange={(e) => setReplaceText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (replaceArmed) {
+                      // First Escape disarms without closing the panel.
+                      setReplaceArmed(false);
                       return;
                     }
-                    n++;
+                    onRequestClose();
+                    return;
                   }
-                }
-              }
-            }}
-            placeholder="Find text in files…"
-            className="h-7 pr-7 pl-6.5 text-xs"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded p-0.5"
-              aria-label="Clear search"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
-            </button>
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    requestReplaceAll();
+                  }
+                }}
+                placeholder={useRegex ? "Replace ($1 for groups)" : "Replace"}
+                className={cn(
+                  "h-7 pr-9 pl-7 text-xs",
+                  replaceArmed && "border-amber-500/70 focus-visible:ring-amber-500/40",
+                )}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={requestReplaceAll}
+                    disabled={
+                      replacing || hits.length === 0 || (useRegex && !!regexError) || !active
+                    }
+                    aria-label={replaceArmed ? "Confirm replace all" : "Replace all"}
+                    className={cn(
+                      "absolute top-1/2 right-1 -translate-y-1/2 cursor-pointer rounded p-1 transition-colors",
+                      replaceArmed
+                        ? "bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 dark:text-amber-400"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+                    )}
+                  >
+                    <HugeiconsIcon icon={ReplaceAllIcon} size={11} strokeWidth={2} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {replacing
+                    ? "Replacing…"
+                    : hits.length === 0
+                      ? "No matches to replace"
+                      : replaceArmed
+                        ? `Press Enter again to confirm (${hits.length} in ${fileCount})`
+                        : `Replace all (${hits.length} in ${fileCount})`}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+          {replaceArmed && hits.length > 0 ? (
+            <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+              Press Enter again to replace {hits.length} match{hits.length === 1 ? "" : "es"} in{" "}
+              {fileCount} file{fileCount === 1 ? "" : "s"}. Esc to cancel.
+            </div>
           ) : null}
         </motion.div>
       ) : null}
@@ -387,14 +651,21 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                             onClick={() => openHit(r.hit)}
                             className={cn(
                               "flex w-full cursor-pointer items-start gap-2 px-2 py-0.5 pl-7 text-left text-xs",
-                              isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
+                              isActive
+                                ? "bg-accent text-accent-foreground"
+                                : "hover:bg-accent/60",
                             )}
                           >
                             <span className="text-muted-foreground w-8 shrink-0 pt-[1px] text-right text-[10px] leading-relaxed tabular-nums">
                               {r.hit.line}
                             </span>
                             <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap">
-                              <HighlightLine text={r.hit.text} needle={query.trim()} />
+                              <HighlightLine
+                                text={r.hit.text}
+                                needle={query.trim()}
+                                useRegex={useRegex}
+                                caseInsensitive={!caseSensitive}
+                              />
                             </span>
                           </button>
                         </TooltipTrigger>
