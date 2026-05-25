@@ -3,6 +3,10 @@
  * Calls are gated against `manifest.permissions`. See `permissions.ts`.
  */
 
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import * as HugeIcons from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@/components/ui/toast";
@@ -29,9 +33,15 @@ import {
   type MountFolderTreeOptions,
 } from "./components/mountFolderTree";
 import {
+  mountCodeEditor,
+  type CodeEditorHandle,
+  type CodeEditorOptions,
+} from "./codeEditor";
+import {
   aiToolsRegistry,
   commandsRegistry,
   editorThemesRegistry,
+  headerItemsRegistry,
   keybindingsRegistry,
   panelRenderersRegistry,
   panelsRegistry,
@@ -40,10 +50,12 @@ import {
   slashCommandsRegistry,
   statusItemsRegistry,
   themesRegistry,
+  type HeaderItem,
   type PanelRenderer,
   type ShellCommandTransformer,
   type StatusItem,
 } from "./registries";
+import { openExtensionTab as openExtTabBridge, setSidebarVisible as setSidebarVisibleBridge } from "./tabsBridge";
 
 export type ExtensionRuntime = {
   id: string;
@@ -92,7 +104,7 @@ export type AppContextSnapshot = {
   activeFileName: string | null;
   terminalCount: number;
   /** Kind of the focused tab. `null` when no tab is active. */
-  activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | null;
+  activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | "ext" | null;
 };
 
 export type ExtensionContext = {
@@ -113,6 +125,11 @@ export type ExtensionContext = {
   app: {
     getContext(): AppContextSnapshot;
     onContextChange(cb: (ctx: AppContextSnapshot) => void): Disposer;
+    /** Show or hide the left sidebar (file explorer + SCM). Useful for
+     *  extensions that take over the workspace and want more horizontal
+     *  room. No permission gate; reversible by the user clicking the
+     *  sidebar toggle in the header. */
+    setSidebarVisible(visible: boolean): void;
   };
   /** Read/write app settings. Writes require `settings:write`. */
   settings: {
@@ -132,7 +149,7 @@ export type ExtensionContext = {
     emit(name: string, payload?: unknown): Promise<void>;
     on(name: string, cb: (payload: unknown) => void): Promise<Disposer>;
   };
-  /** Toast / mount helpers. */
+  /** Toast / mount / icon helpers. */
   ui: {
     toast(
       message: string,
@@ -142,12 +159,52 @@ export type ExtensionContext = {
      *  owns. No permission required: read-only render, click-to-open routes
      *  through the same workspace bridge as the built-in explorer. */
     mountFolderTree(container: HTMLElement, options: MountFolderTreeOptions): MountedFolderTree;
+    /** Returns a `<span>` with a HugeIcon mounted inside via React. `name`
+     *  is the `@hugeicons/core-free-icons` export id (for example
+     *  `"Add01Icon"`, `"Database01Icon"`). Unknown names render an empty
+     *  span and log a warning. No permission required.
+     *
+     *  Each call spawns a fresh React root; for high-frequency rendering,
+     *  cache one element and `.cloneNode(true)` it. All roots created
+     *  through this API are unmounted on extension deactivate. */
+    icon(
+      name: string,
+      opts?: { size?: number; strokeWidth?: number; className?: string },
+    ): HTMLElement;
+    /** Mount a CodeMirror 6 code editor into `container`. Reuses the host's
+     *  CodeMirror bundle so the visual look (line numbers, gutter,
+     *  selection, syntax highlight) is identical to the main editor pane.
+     *  Returns a handle for runtime mutation; auto-disposed on deactivate.
+     *
+     *  Languages supported in v0.2.4: `sql`, `sql:mysql`, `sql:postgres`,
+     *  `sql:sqlite`, `json`, `plain`. */
+    codeEditor(container: HTMLElement, opts: CodeEditorOptions): CodeEditorHandle;
   };
   /** Status-bar icons in the bottom-right. Multiple items per extension;
    *  keyed by `id`. Removed automatically on `deactivate`. */
   statusBar: {
     setItem(item: StatusItem): void;
     removeItem(itemId: string): void;
+  };
+  /** Header-bar icons in the top-right cluster (between SSH and the
+   *  Extensions / Settings buttons). Identical semantics to `statusBar`
+   *  except every item carries its own `onClick` since the header slot
+   *  has no default action. Requires `headerbar:write`. */
+  headerBar: {
+    setItem(item: HeaderItem): void;
+    removeItem(itemId: string): void;
+  };
+  /** Open or focus an extension-owned tab in the workspace. The tab
+   *  mounts the renderer previously registered for `panelId` via
+   *  `registerPanelRenderer`. Pass `reuseKey` to dedupe (same key
+   *  focuses the existing tab). Requires `tabs:open`. */
+  tabs: {
+    openExtensionTab(opts: {
+      panelId: string;
+      title: string;
+      icon?: string;
+      reuseKey?: string;
+    }): number | null;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
    *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
@@ -246,6 +303,23 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     disposers.push(d);
   };
 
+  // React roots minted by `ctx.ui.icon`. Unmounted en masse on deactivate
+  // so HugeIcon mounts do not leak across enable/disable cycles. Pushed
+  // here, which lands the disposer near the start of `disposers`; reverse
+  // iteration during teardown then runs it last, after panel-renderer
+  // cleanups whose own DOM trees may hold the icon spans.
+  const iconRoots = new Set<Root>();
+  disposers.push(() => {
+    for (const r of iconRoots) {
+      try {
+        r.unmount();
+      } catch {
+        // ignore
+      }
+    }
+    iconRoots.clear();
+  });
+
   const { getAppContext, subscribeAppContext } = await import("./appBridge");
   const os = await detectOs();
 
@@ -261,6 +335,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         disposers.push(dispose);
         return dispose;
       },
+      setSidebarVisible: (visible) => setSidebarVisibleBridge(visible),
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {
@@ -366,6 +441,36 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         disposers.push(() => mounted.dispose());
         return mounted;
       },
+      codeEditor(container, opts) {
+        const handle = mountCodeEditor(container, opts);
+        disposers.push(() => handle.dispose());
+        return handle;
+      },
+      icon(name, opts) {
+        const span = document.createElement("span");
+        if (opts?.className) span.className = opts.className;
+        // inline-flex so the icon baseline-aligns with adjacent text and
+        // the span sizes exactly to its child SVG instead of inheriting
+        // the parent line-height.
+        span.style.display = "inline-flex";
+        span.style.alignItems = "center";
+        span.style.justifyContent = "center";
+        const iconValue = (HugeIcons as Record<string, unknown>)[name];
+        if (!iconValue) {
+          console.warn(`[ext:${ext.id}] unknown HugeIcon: ${name}`);
+          return span;
+        }
+        const root = createRoot(span);
+        iconRoots.add(root);
+        root.render(
+          createElement(HugeiconsIcon, {
+            icon: iconValue as IconSvgElement,
+            size: opts?.size ?? 15,
+            strokeWidth: opts?.strokeWidth ?? 1.75,
+          }),
+        );
+        return span;
+      },
     },
     statusBar: {
       setItem(item: StatusItem) {
@@ -376,6 +481,27 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         // No permission check: an extension can always remove its own item,
         // even after a revoke.
         statusItemsRegistry.removeItem(ext.id, itemId);
+      },
+    },
+    headerBar: {
+      setItem(item: HeaderItem) {
+        requirePermission(ext.id, declared, "headerbar:write");
+        headerItemsRegistry.setItem(ext.id, item);
+      },
+      removeItem(itemId: string) {
+        headerItemsRegistry.removeItem(ext.id, itemId);
+      },
+    },
+    tabs: {
+      openExtensionTab(opts) {
+        requirePermission(ext.id, declared, "tabs:open");
+        return openExtTabBridge({
+          extensionId: ext.id,
+          panelId: opts.panelId,
+          title: opts.title,
+          icon: opts.icon,
+          reuseKey: opts.reuseKey,
+        });
       },
     },
     shell: {

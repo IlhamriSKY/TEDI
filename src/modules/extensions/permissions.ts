@@ -80,6 +80,8 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p.startsWith("ui:")) return "low";
   if (p.startsWith("panels:")) return "low";
   if (p.startsWith("statusbar:")) return "low";
+  if (p.startsWith("headerbar:")) return "low";
+  if (p === "tabs:open") return "low";
   // `shell:transform` lets an extension rewrite every AI shell command;
   // mark high so the install dialog flags it.
   if (p === "shell:transform") return "high";

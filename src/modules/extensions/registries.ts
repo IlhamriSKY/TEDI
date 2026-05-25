@@ -192,6 +192,91 @@ class StatusItemRegistry {
 export const statusItemsRegistry = new StatusItemRegistry();
 
 /**
+ * Header-bar item shape. Identical fields to `StatusItem` but the slot
+ * sits in the header row (next to SSH / Extensions / Settings) instead
+ * of the status bar. `onClick` is required because the host has no
+ * default action like the right-panel auto-toggle; the extension wires
+ * the click to its own command handler.
+ */
+export type HeaderItem = {
+  id: string;
+  icon: string;
+  tooltip: string;
+  /** Optional badge / tone. Same semantics as `StatusItem.tone`. */
+  tone?: "default" | "success" | "warning" | "error";
+  /** Synchronous click handler. Receives the click event. The host
+   *  wraps the call in try/catch and surfaces errors via console. */
+  onClick: (event: MouseEvent) => void;
+};
+
+/**
+ * Header-bar item registry. Mirrors `statusItemsRegistry` but the
+ * rendered slot is in the top header row.
+ */
+class HeaderItemRegistry {
+  private readonly byExt = new Map<string, Map<string, HeaderItem>>();
+  private readonly listeners = new Set<Listener>();
+  private cachedList: { extensionId: string; item: HeaderItem }[] | null = null;
+
+  setItem(extensionId: string, item: HeaderItem): void {
+    let map = this.byExt.get(extensionId);
+    if (!map) {
+      map = new Map();
+      this.byExt.set(extensionId, map);
+    }
+    map.set(item.id, item);
+    this.cachedList = null;
+    this.emit();
+  }
+
+  removeItem(extensionId: string, itemId: string): void {
+    const map = this.byExt.get(extensionId);
+    if (!map) return;
+    if (map.delete(itemId)) {
+      if (map.size === 0) this.byExt.delete(extensionId);
+      this.cachedList = null;
+      this.emit();
+    }
+  }
+
+  clear(extensionId: string): void {
+    if (!this.byExt.has(extensionId)) return;
+    this.byExt.delete(extensionId);
+    this.cachedList = null;
+    this.emit();
+  }
+
+  list(): { extensionId: string; item: HeaderItem }[] {
+    if (this.cachedList !== null) return this.cachedList;
+    const out: { extensionId: string; item: HeaderItem }[] = [];
+    for (const [extId, items] of this.byExt) {
+      for (const item of items.values()) out.push({ extensionId: extId, item });
+    }
+    this.cachedList = out;
+    return out;
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emit(): void {
+    for (const l of this.listeners) {
+      try {
+        l();
+      } catch (err) {
+        console.error("[extensions] header-item listener threw", err);
+      }
+    }
+  }
+}
+
+export const headerItemsRegistry = new HeaderItemRegistry();
+
+/**
  * Shell-command transformer registry. Lets extensions rewrite shell commands
  * before the built-in AI tools execute them (e.g. RTK prefixing `git status`
  * as `rtk git status`).
@@ -323,5 +408,6 @@ export function clearExtensionContributions(extensionId: string): void {
   panelRenderersRegistry.clear(extensionId);
   aiToolsRegistry.clear(extensionId);
   statusItemsRegistry.clear(extensionId);
+  headerItemsRegistry.clear(extensionId);
   shellTransformersRegistry.clear(extensionId);
 }

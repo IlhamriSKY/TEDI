@@ -83,8 +83,10 @@ const PanelSchema = z
     id: z.string().min(1),
     title: z.string().min(1),
     // `right` is the slide-out slot next to the workspace, mutually
-    // exclusive with the AI sidebar. The other surfaces are reserved.
-    surface: z.enum(["sidebar-bottom", "statusbar-right", "right"]),
+    // exclusive with the AI sidebar. `tab` mounts the panel renderer as
+    // a full workspace tab (open via `ctx.tabs.openExtensionTab`), no
+    // auto-rendered status-bar toggle. The other surfaces are reserved.
+    surface: z.enum(["sidebar-bottom", "statusbar-right", "right", "tab"]),
     icon: z.string().optional(),
     /** Open this panel once per session on launch. User can override. */
     defaultOpen: z.boolean().optional(),
