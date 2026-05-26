@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.4] - 26-05-2026
+
+### Changed
+
+- **SSH menu row actions: tooltip + icon visibility cleanup.** [`SshMenu.tsx`](src/modules/ssh/SshMenu.tsx)'s per-row action buttons (`RowIconButton`) used the browser-native `title` attribute, which paints in the OS chrome colour and looks foreign next to every other header tooltip (`IconTooltip` everywhere else). Replaced with `IconTooltip` so the popup matches the rest of the header family. The buttons also stop fading: previously `opacity-0` until row hover, now visible at rest so the affordance is discoverable without hunting per-row. The danger / default tone palette tightens to a single `muted-foreground` resting colour with `accent` / `destructive/15` hover backgrounds, matching the rest of the icon button family.
+- **SSH menu row actions: drop private + duplicate shortcuts.** The lock (private connect) and copy (duplicate) buttons were rarely used and crowded the row. Private mode is still reachable via the connection editor; duplicating a connection can be done by editing + saving under a new name. Edit + delete remain as the two row actions; the icons now stay visible without hover so the action is one click instead of two.
+
 ## [0.3.3] - 26-05-2026
 
 ### Added

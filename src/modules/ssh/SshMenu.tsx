@@ -21,9 +21,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Add01Icon,
   CloudServerIcon,
-  Copy01Icon,
   Delete02Icon,
-  LockedIcon,
   PencilEdit01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -31,11 +29,8 @@ import { cn } from "@/lib/utils";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteConnection,
-  getConnectionSecrets,
   listConnections,
-  newConnectionId,
   onConnectionsChanged,
-  upsertConnection,
   type SshConnection,
 } from "./connections";
 import { formatRelative } from "./components/SshStatusPill";
@@ -46,8 +41,9 @@ const SshConnectionDialog = lazy(() =>
 );
 
 type Props = {
-  /** Opens a saved host as a new terminal tab. `opts.private` opts the
-   *  new tab into privacy mode (AI subsystem cannot see it). */
+  /** Opens a saved host as a new terminal tab. `opts.private` is kept for
+   *  backward compatibility with callers that still pass it; the SSH menu
+   *  itself no longer exposes a private-mode shortcut button. */
   onConnect: (conn: SshConnection, opts?: { private?: boolean }) => void;
 };
 
@@ -89,34 +85,9 @@ export function SshMenu({ onConnect }: Props) {
     setMenuOpen(false);
   };
 
-  const duplicate = async (c: SshConnection) => {
-    setMenuOpen(false);
-    const secrets = await getConnectionSecrets(c.id);
-    const copy: SshConnection = {
-      ...c,
-      id: newConnectionId(),
-      name: `${c.name} copy`,
-      hasPassword: false,
-      hasPrivateKey: false,
-      hasKeyPassphrase: false,
-      lastConnectedAt: undefined,
-      lastFingerprint: undefined,
-    };
-    await upsertConnection(copy, {
-      password: secrets.password ?? undefined,
-      privateKey: secrets.privateKey ?? undefined,
-      keyPassphrase: secrets.keyPassphrase ?? undefined,
-    });
-  };
-
   const onPick = (c: SshConnection) => {
     setMenuOpen(false);
     onConnect(c);
-  };
-
-  const onPickPrivate = (c: SshConnection) => {
-    setMenuOpen(false);
-    onConnect(c, { private: true });
   };
 
   return (
@@ -163,19 +134,10 @@ export function SshMenu({ onConnect }: Props) {
                 {/* Action buttons. preventDefault on click blocks the row's
                     onSelect (which would also trigger connect).
                     stopPropagation on pointerDown stops the menu treating
-                    the click as a row select. */}
-                <span className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <RowIconButton
-                    label={`Connect ${c.name} as private (AI cannot see it)`}
-                    onClick={() => onPickPrivate(c)}
-                    icon={LockedIcon}
-                    privateMode
-                  />
-                  <RowIconButton
-                    label={`Duplicate ${c.name}`}
-                    onClick={() => void duplicate(c)}
-                    icon={Copy01Icon}
-                  />
+                    the click as a row select. Icons stay visible at rest
+                    (no opacity fade) so the affordance is discoverable
+                    without hovering each row. */}
+                <span className="ml-1 flex shrink-0 items-center gap-0.5">
                   <RowIconButton
                     label={`Edit ${c.name}`}
                     onClick={() => openEdit(c)}
@@ -243,44 +205,41 @@ function RowIconButton({
   onClick,
   icon,
   danger,
-  privateMode,
 }: {
   label: string;
   onClick: () => void;
   icon: typeof PencilEdit01Icon;
   danger?: boolean;
-  privateMode?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      // Run on mousedown, before the row's pointerup fires and highlights it.
-      // preventDefault stops focus shifting here (which would also blue-paint
-      // the parent row via Radix focus styling).
-      onMouseDown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onClick();
-      }}
-      // Block propagation so the parent DropdownMenuItem never fires its
-      // onSelect (the row's connect action).
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-      className={cn(
-        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-        danger
-          ? "text-foreground hover:bg-destructive/15 hover:text-destructive"
-          : privateMode
-            ? "text-destructive hover:bg-muted-foreground/15 text-destructive"
-            : "text-foreground hover:bg-muted-foreground/15",
-      )}
-    >
-      <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />
-    </button>
+    <IconTooltip label={label} side="top">
+      <button
+        type="button"
+        aria-label={label}
+        // Run on mousedown, before the row's pointerup fires and highlights it.
+        // preventDefault stops focus shifting here (which would also blue-paint
+        // the parent row via Radix focus styling).
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onClick();
+        }}
+        // Block propagation so the parent DropdownMenuItem never fires its
+        // onSelect (the row's connect action).
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        className={cn(
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          danger
+            ? "text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        )}
+      >
+        <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />
+      </button>
+    </IconTooltip>
   );
 }
