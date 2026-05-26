@@ -1,16 +1,23 @@
 /**
  * Lightweight CodeMirror 6 mount used by `ctx.ui.codeEditor`. Keeps the
  * subset of features that matter for ad-hoc query editors (syntax
- * highlight, line numbers, history, Mod+Enter callback) while staying
- * out of the bigger EditorPane extension tower (vim, minimap, lint,
- * autocomplete, search) so an extension can drop one of these into any
- * container without taking on the EditorPane shape.
+ * highlight, line numbers, history, Mod+Enter callback, optional
+ * extension-driven completions) while staying out of the bigger
+ * EditorPane extension tower (vim, minimap, lint, full search) so an
+ * extension can drop one of these into any container without taking on
+ * the EditorPane shape.
  *
  * The theme intentionally pulls TEDI's CSS variables instead of
  * hard-coded colors so the editor visually matches whatever theme the
  * user has active.
  */
 
+import {
+  autocompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import {
   HighlightStyle,
@@ -38,6 +45,23 @@ export type CodeEditorLanguage =
   | "json"
   | "plain";
 
+/** Single autocomplete suggestion. `type` controls the leading icon CM
+ *  paints (keyword / variable / property / type / function / etc - see
+ *  the @codemirror/autocomplete docs). `detail` and `info` are right-side
+ *  metadata: `detail` is a short inline label (e.g. the parent table for
+ *  a column), `info` is a longer hover description. */
+export type CodeEditorCompletion = {
+  label: string;
+  detail?: string;
+  info?: string;
+  type?: string;
+  /** Optional replacement text. Defaults to `label`. Useful when the
+   *  inserted form differs from what the user sees in the menu. */
+  apply?: string;
+  /** Sort hint. Higher values float to the top of the menu. Default 0. */
+  boost?: number;
+};
+
 export type CodeEditorOptions = {
   language?: CodeEditorLanguage;
   value?: string;
@@ -46,6 +70,12 @@ export type CodeEditorOptions = {
   /** Fires on Ctrl/Cmd+Enter. Returning `false` lets default handling run;
    *  by default the helper returns `true` so newlines are suppressed. */
   onCmdEnter?: () => void;
+  /** Optional completion source. Receives the current prefix (the word
+   *  before the caret, may be empty when the user explicitly asks for
+   *  completions via Ctrl+Space) and returns matching suggestions
+   *  synchronously. Returning `[]` shows no popup. Older TEDI hosts
+   *  ignore this field so extensions can opt in without bumping engines. */
+  completions?: (prefix: string) => CodeEditorCompletion[];
 };
 
 export type CodeEditorHandle = {
@@ -131,6 +161,42 @@ const baseTheme = EditorView.theme({
     border: "1px solid var(--border)",
     color: "var(--foreground)",
   },
+  ".cm-tooltip.cm-tooltip-autocomplete": {
+    borderRadius: "6px",
+    overflow: "hidden",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
+  },
+  ".cm-tooltip-autocomplete > ul": {
+    fontFamily: "var(--font-mono, ui-monospace, 'JetBrains Mono', monospace)",
+    fontSize: "12px",
+    maxHeight: "240px",
+  },
+  ".cm-tooltip-autocomplete > ul > li": {
+    padding: "4px 10px",
+    color: "var(--foreground)",
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+    backgroundColor: "var(--accent, rgba(127,127,127,0.18))",
+    color: "var(--foreground)",
+  },
+  ".cm-tooltip-autocomplete .cm-completionLabel": {
+    color: "var(--foreground)",
+  },
+  ".cm-tooltip-autocomplete .cm-completionDetail": {
+    color: "var(--muted-foreground)",
+    fontStyle: "normal",
+    marginLeft: "12px",
+  },
+  ".cm-tooltip-autocomplete .cm-completionMatchedText": {
+    textDecoration: "none",
+    color: "var(--primary, #3b82f6)",
+    fontWeight: "600",
+  },
+  ".cm-tooltip-autocomplete .cm-completionIcon": {
+    opacity: "0.7",
+    width: "14px",
+    paddingRight: "4px",
+  },
 });
 
 export function mountCodeEditor(
@@ -157,6 +223,46 @@ export function mountCodeEditor(
       ])
     : [];
 
+  // Optional extension-driven completions. Source returns suggestions
+  // synchronously based on the current word prefix; the closure is held
+  // for the lifetime of the editor so the extension can mutate its own
+  // backing data (e.g. populate a schema cache) and the next keystroke
+  // sees the new state. `explicit` (Ctrl+Space) bypasses the empty-word
+  // guard so the user can probe completions on a fresh line.
+  const completionsCb = opts.completions;
+  const completionExtension: Extension = completionsCb
+    ? autocompletion({
+        override: [
+          (context: CompletionContext): CompletionResult | null => {
+            const word = context.matchBefore(/[\w]+/);
+            if (!word || (word.from === word.to && !context.explicit)) return null;
+            let items: CodeEditorCompletion[] = [];
+            try {
+              items = completionsCb(word.text) ?? [];
+            } catch (err) {
+              console.error("[extensions] codeEditor completions threw", err);
+              return null;
+            }
+            if (items.length === 0) return null;
+            const options: Completion[] = items.map((it) => ({
+              label: it.label,
+              detail: it.detail,
+              info: it.info,
+              type: it.type,
+              apply: it.apply,
+              boost: it.boost,
+            }));
+            return { from: word.from, options, validFor: /^[\w]*$/ };
+          },
+        ],
+        // No icons by default; we already get type-based glyph from CM.
+        // `closeOnBlur` keeps the popup visible when the user clicks the
+        // results pane, matching IDE expectations.
+        closeOnBlur: true,
+        maxRenderedOptions: 50,
+      })
+    : [];
+
   const state = EditorState.create({
     doc: opts.value ?? "",
     extensions: [
@@ -167,6 +273,7 @@ export function mountCodeEditor(
       history(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       cmdEnterKeymap,
+      completionExtension,
       syntaxHighlighting(tediHighlightStyle),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       langCompartment.of(pickLanguage(opts.language)),

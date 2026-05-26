@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.3] - 26-05-2026
+
+### Added
+
+- **`ctx.ui.codeEditor` autocomplete hook.** [`codeEditor.ts`](src/modules/extensions/codeEditor.ts) gains a `completions` option on `CodeEditorOptions`: a synchronous callback `(prefix: string) => CodeEditorCompletion[]` that the host wires into CodeMirror's `@codemirror/autocomplete` as a custom completion source. Each suggestion exposes `label`, `detail`, `info`, `type`, optional `apply` (replacement text) and `boost` (sort hint). When the callback is omitted the host skips the autocomplete extension entirely, so older extensions stay zero-overhead. SQL Explorer 0.2.13 is the first consumer (table + column completions sourced from its schema cache).
+- **Themed autocomplete popup.** New `cm-tooltip-autocomplete` rules in `codeEditor.ts`'s base theme paint the popup in the same `--popover` / `--accent` palette as host menus: rounded card, mono font, matched-text highlighted in `--primary`, muted-foreground `detail` column. The popup no longer looks like raw CodeMirror chrome.
+
 ## [0.3.2] - 26-05-2026
 
 ### Fixed
