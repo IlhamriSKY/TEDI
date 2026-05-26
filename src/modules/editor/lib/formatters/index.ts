@@ -25,7 +25,7 @@ export class NoFormatterError extends Error {
   constructor(public language: string | null) {
     super(
       language
-        ? `No formatter configured for "${language}". Set one in Settings → General → Formatters.`
+        ? `No formatter configured for "${language}". Set one in Settings → Code Editor → Formatters.`
         : "No formatter — file extension not recognised.",
     );
     this.name = "NoFormatterError";

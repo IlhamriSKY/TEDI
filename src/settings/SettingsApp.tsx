@@ -8,6 +8,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AiScanIcon,
   Cancel01Icon,
+  CodeIcon,
   InformationCircleIcon,
   PaintBoardIcon,
   PuzzleIcon,
@@ -30,6 +31,9 @@ import {
 
 const GeneralSection = lazy(() =>
   import("./sections/GeneralSection").then((m) => ({ default: m.GeneralSection })),
+);
+const CodeEditorSection = lazy(() =>
+  import("./sections/CodeEditorSection").then((m) => ({ default: m.CodeEditorSection })),
 );
 const ThemeSection = lazy(() =>
   import("./sections/ThemeSection").then((m) => ({ default: m.ThemeSection })),
@@ -57,6 +61,7 @@ const TABS: {
   component: ComponentType;
 }[] = [
   { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
+  { id: "code-editor", label: "Code Editor", icon: CodeIcon, component: CodeEditorSection },
   { id: "theme", label: "Theme", icon: PaintBoardIcon, component: ThemeSection },
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
   { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
@@ -67,6 +72,7 @@ const TABS: {
 
 const VALID_TABS: SettingsTab[] = [
   "general",
+  "code-editor",
   "theme",
   "shortcuts",
   "models",

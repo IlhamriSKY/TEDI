@@ -16,25 +16,17 @@ import {
   CONTENT_ZOOM_MAX,
   CONTENT_ZOOM_MIN,
   CONTENT_ZOOM_STEP,
-  EDITOR_THEME_LABELS,
-  EDITOR_THEMES,
   TERMINAL_FONT_SIZES,
   setAiNotificationsEnabled,
   setAutostart,
   setContentZoom,
-  setEditorTheme,
-  setFormatOnSave,
   setRestoreWindowState,
   setShowHiddenFiles,
   setShowSourceControl,
   setSourceControlInRightPanel,
   setTerminalFontSize,
   setTerminalWebglEnabled,
-  setShowMinimap,
-  setVimMode,
-  type EditorThemeId,
 } from "@/modules/settings/store";
-import { FormattersTable } from "./components/FormattersTable";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
 import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
@@ -61,18 +53,14 @@ const APPEARANCE: {
 
 export function GeneralSection() {
   const { theme, setTheme } = useTheme();
-  const editorTheme = usePreferencesStore((s) => s.editorTheme);
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
-  const vimMode = usePreferencesStore((s) => s.vimMode);
-  const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const terminalWebglEnabled = usePreferencesStore((s) => s.terminalWebglEnabled);
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
-  const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
   // Local mirror for live drag. Persisted on slider release so we don't
   // hit the prefs store + cross-window emit on every mousemove tick.
@@ -109,8 +97,6 @@ export function GeneralSection() {
       console.error("autostart toggle failed", e);
     }
   };
-
-  const onPickEditor = (id: EditorThemeId) => void setEditorTheme(id);
 
   const onToggleTerminalWebgl = (next: boolean) => {
     void setTerminalWebglEnabled(next).catch((e) =>
@@ -211,54 +197,6 @@ export function GeneralSection() {
             </Button>
           </div>
         </SettingRow>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Editor theme</Label>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
-              <span>{EDITOR_THEME_LABELS[editorTheme]}</span>
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={12}
-                strokeWidth={2}
-                className="opacity-70"
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[220px]">
-            {EDITOR_THEMES.map((t) => (
-              <DropdownMenuItem
-                key={t}
-                onSelect={() => onPickEditor(t)}
-                className={cn("text-[12px]", t === editorTheme && "bg-accent/50")}
-              >
-                {EDITOR_THEME_LABELS[t]}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <SettingRow title="Vim mode" description="Enable Vim keybindings in the code editor.">
-          <Switch checked={vimMode} onCheckedChange={(v) => void setVimMode(v)} />
-        </SettingRow>
-        <SettingRow
-          title="Show minimap"
-          description="Display the code minimap on the right side of the editor."
-        >
-          <Switch checked={showMinimap} onCheckedChange={(v) => void setShowMinimap(v)} />
-        </SettingRow>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Formatters</Label>
-        <SettingRow
-          title="Format on save"
-          description="When saving (Ctrl+S), run the configured formatter for the file's language first. Shift+Alt+F formats without saving."
-        >
-          <Switch checked={formatOnSave} onCheckedChange={(v) => void setFormatOnSave(v)} />
-        </SettingRow>
-        <FormattersTable />
       </div>
 
       <div className="flex flex-col gap-2">

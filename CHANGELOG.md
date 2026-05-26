@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.1] - 26-05-2026
+
+### Added
+
+- **Settings: dedicated `Code Editor` tab.** [`src/settings/sections/CodeEditorSection.tsx`](src/settings/sections/CodeEditorSection.tsx) is the new home for editor theme, `Show minimap`, `Vim mode`, `Format on save`, and the `FormattersTable`. Splits them out of the General tab so the General page reads as "app behaviour" while editor concerns live next to the editor itself. Registered as a top-level tab in [`SettingsApp.tsx`](src/settings/SettingsApp.tsx) with the `CodeIcon` glyph and a `code-editor` `openSection` deep link.
+- **`pnpm-workspace.yaml` with `allowBuilds`.** pnpm v10 blocks postinstall scripts by default; the new workspace file opts in `esbuild` and `msw` (both legitimate native / service-worker setup steps) so a fresh `pnpm install` no longer prints the "ignored build scripts" warning.
+
+### Changed
+
+- **`FormattersTable` language picker is now a searchable Popover + Command.** [`FormattersTable.tsx`](src/settings/sections/components/FormattersTable.tsx) swaps the previous `DropdownMenu` for `Popover` + `cmdk` so the language list (170+ entries once everything is loaded) becomes filterable by typing. Each item still shows the preset external command (e.g. `rustfmt`, `gofmt`) when one exists. Functional behaviour on selection is unchanged.
+- **Editor pane flush against top + right edges.** [`editor/lib/extensions.ts`](src/modules/editor/lib/extensions.ts) drops the 8 px top padding (kept only on the left, where the gutter still needs breathing room). The first line, scrollbar, and minimap now sit flush, matching the chrome of the surrounding panes.
+- **`NoFormatterError` message points to the new tab.** Toast now says `Settings → Code Editor → Formatters` instead of `Settings → General → Formatters` after the section move.
+
+### Bundled extensions
+
+- **`tedi.discord-rich-presence` 1.5.8.** Presence card simplified to `<workspace folder>` on the top line and `<N workspaces, M terminals>` on the bottom (removes the duplicated terminal count). Release pipeline now also builds the `windows-aarch64` and `linux-aarch64` sidecar binaries, so users on Windows ARM / Linux ARM no longer see the "no sidecar binary for this platform" toast.
+
 ## [0.3.0] - 26-05-2026
 
 ### Added

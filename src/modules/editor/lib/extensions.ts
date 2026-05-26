@@ -69,10 +69,10 @@ export function buildSharedExtensions(opts?: {
         backgroundColor: "transparent !important",
         color: "var(--foreground)",
         outline: "none",
-        // Drop right + bottom padding so the scrollbars and minimap sit
-        // flush with the pane edges. Left + top keep 8px so the gutter
-        // and first line don't crowd the edge.
-        padding: "8px 0 0 8px",
+        // Drop top, right, and bottom padding so the first line, scrollbars,
+        // and minimap sit flush with the pane edges. Left keeps 8px so the
+        // gutter doesn't crowd the edge.
+        padding: "0 0 0 8px",
       },
       ".cm-scroller": {
         fontFamily: detectMonoFontFamily(),

@@ -1,11 +1,20 @@
 import { Button } from "@/components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -63,6 +72,7 @@ function stringifyArgs(args: string[] | undefined): string {
 
 export function FormattersTable() {
   const formatters = usePreferencesStore((s) => s.formatters);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const rows = useMemo(
     () =>
@@ -98,8 +108,8 @@ export function FormattersTable() {
         </div>
       )}
       {unconfigured.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="sm"
@@ -108,33 +118,54 @@ export function FormattersTable() {
               <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
               Add language…
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="max-h-72 min-w-[200px] overflow-y-auto">
-            {unconfigured.map((id) => (
-              <DropdownMenuItem
-                key={id}
-                onSelect={() => {
-                  // Pre-fill with the most useful config: builtin if
-                  // Prettier supports it, otherwise the preset external
-                  // command if one's registered (rustfmt, gofmt, etc.),
-                  // otherwise an empty external row for the user to fill.
-                  const next: FormatterConfig = BUILTIN_LANGUAGES.has(id)
-                    ? { type: "builtin" }
-                    : (buildPresetConfig(id) ?? { type: "external" });
-                  void patchFormatter(formatters, id, next);
-                }}
-                className="text-[12px]"
-              >
-                {LANGUAGE_LABELS[id] ?? id}
-                {hasPreset(id) && !BUILTIN_LANGUAGES.has(id) && (
-                  <span className="text-muted-foreground ml-2 font-mono text-[10px]">
-                    {EXTERNAL_PRESETS[id]!.command}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            className="w-72 gap-0 overflow-hidden rounded-2xl p-0"
+          >
+            <Command className="rounded-2xl">
+              <CommandInput placeholder="Search language…" className="text-[12px]" />
+              <CommandList className="max-h-64">
+                <CommandEmpty className="py-4 text-[11px]">No language found.</CommandEmpty>
+                <CommandGroup>
+                  {unconfigured.map((id) => {
+                    const label = LANGUAGE_LABELS[id] ?? id;
+                    const presetCmd =
+                      hasPreset(id) && !BUILTIN_LANGUAGES.has(id)
+                        ? EXTERNAL_PRESETS[id]!.command
+                        : null;
+                    return (
+                      <CommandItem
+                        key={id}
+                        value={`${label} ${id}`}
+                        onSelect={() => {
+                          // Pre-fill with the most useful config: builtin if
+                          // Prettier supports it, otherwise the preset external
+                          // command if one's registered (rustfmt, gofmt, etc.),
+                          // otherwise an empty external row for the user to fill.
+                          const next: FormatterConfig = BUILTIN_LANGUAGES.has(id)
+                            ? { type: "builtin" }
+                            : (buildPresetConfig(id) ?? { type: "external" });
+                          void patchFormatter(formatters, id, next);
+                          setPickerOpen(false);
+                        }}
+                        className="gap-2 rounded-xl px-2.5 py-1.5 text-[12px]"
+                      >
+                        <span className="truncate">{label}</span>
+                        {presetCmd ? (
+                          <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]">
+                            {presetCmd}
+                          </span>
+                        ) : null}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   );
