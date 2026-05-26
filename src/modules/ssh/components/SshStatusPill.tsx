@@ -46,21 +46,21 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
           <button
             type="button"
             aria-label={`SSH ${connection.user}@${connection.host}: ${statusLabel(status)}`}
-            className="border-border/70 bg-card text-foreground/90 hover:bg-accent hover:text-foreground focus-visible:ring-primary/35 inline-flex h-6 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            className="border-border/70 bg-card text-foreground/90 hover:bg-accent hover:text-accent-foreground focus-visible:ring-primary/35 inline-flex h-6 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
             <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
             <HugeiconsIcon
               icon={CloudServerIcon}
               size={11}
               strokeWidth={1.75}
-              className="shrink-0 text-sky-600 dark:text-sky-400"
+              className="shrink-0 text-info"
             />
             <span className="truncate font-medium">SSH</span>
             <span className="text-muted-foreground truncate">
               {connection.user}@{connection.host}
             </span>
             {status.kind === "reconnecting" ? (
-              <span className="shrink-0 text-yellow-700 dark:text-yellow-400">
+              <span className="shrink-0 text-icon-working">
                 · {Math.round(status.nextDelayMs / 1000)}s
               </span>
             ) : null}

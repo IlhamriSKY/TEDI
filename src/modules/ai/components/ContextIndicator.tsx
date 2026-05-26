@@ -61,10 +61,10 @@ function CompactPulseBadge() {
   // Tone by severity: drop=warning, elide=info, lossless=subtle.
   const tone =
     dropped > 0
-      ? "border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+      ? "border-icon-working/60 bg-icon-working/15 text-icon-working"
       : elided > 0
-        ? "border-sky-500/60 bg-sky-500/15 text-sky-700 dark:text-sky-300"
-        : "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+        ? "border-info/60 bg-info/15 text-info"
+        : "border-diff-added/50 bg-diff-added/10 text-diff-added";
   const detail =
     dropped > 0 ? `−${dropped}` : elided > 0 ? `~${elided}` : lossless > 0 ? "tidy" : "";
   const tip =
@@ -193,7 +193,7 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
                 className={cn(
                   "font-mono",
                   hasReportedUsage && cacheRatioPct >= 50
-                    ? "text-emerald-600 dark:text-emerald-400"
+                    ? "text-diff-added"
                     : "text-foreground",
                 )}
               >

@@ -127,7 +127,7 @@ export function SshMenu({ onConnect }: Props) {
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
               aria-label="SSH connections"
             >
               <HugeiconsIcon icon={CloudServerIcon} size={15} strokeWidth={1.75} />
@@ -276,7 +276,7 @@ function RowIconButton({
         danger
           ? "text-foreground hover:bg-destructive/15 hover:text-destructive"
           : privateMode
-            ? "text-red-600 hover:bg-muted-foreground/15 dark:text-red-400"
+            ? "text-destructive hover:bg-muted-foreground/15 text-destructive"
             : "text-foreground hover:bg-muted-foreground/15",
       )}
     >

@@ -132,17 +132,28 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
     setLiveContent(next);
   }, []);
 
-  const save = useCallback(async () => {
-    if (!dirty) return;
-    const content = bufferRef.current;
-    if (sshSessionId !== undefined) {
-      await sftpWriteFile(sshSessionId, path, content);
-    } else {
-      await invoke("fs_write_file", { path, content });
-    }
-    savedRef.current = content;
-    setDirty(false);
-  }, [path, sshSessionId, dirty]);
+  /**
+   * Persist the buffer. With no argument: short-circuits when clean and
+   * writes `bufferRef.current` otherwise. With `overrideContent`: forces a
+   * write of the provided text (used by format-on-save so we don't race
+   * the stale `dirty` closure between a CM dispatch and the save call).
+   */
+  const save = useCallback(
+    async (overrideContent?: string) => {
+      const usingOverride = overrideContent !== undefined;
+      if (!usingOverride && !dirty) return;
+      const content = usingOverride ? overrideContent : bufferRef.current;
+      if (sshSessionId !== undefined) {
+        await sftpWriteFile(sshSessionId, path, content);
+      } else {
+        await invoke("fs_write_file", { path, content });
+      }
+      savedRef.current = content;
+      if (usingOverride) bufferRef.current = content;
+      setDirty(false);
+    },
+    [path, sshSessionId, dirty],
+  );
 
   return { doc, dirty, liveContent, onChange, save, reload };
 }

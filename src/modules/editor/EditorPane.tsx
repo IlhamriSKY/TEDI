@@ -25,6 +25,8 @@ import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
 import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
+import { formatDocument, NoFormatterError, shouldFormatOnSave } from "./lib/formatters";
+import { toast } from "@/components/ui/toast";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -34,11 +36,21 @@ export type EditorPaneHandle = {
   focus: () => void;
   getSelection: () => string | null;
   getPath: () => string;
+  /** Returns the live (possibly dirty) editor buffer. `null` when the
+   *  underlying CodeMirror view isn't mounted (loading / binary / etc.). */
+  getContent: () => string | null;
+  /** Replaces the entire editor buffer via a single CodeMirror transaction.
+   *  Returns `true` when applied. The user sees the change as dirty until
+   *  Ctrl+S. */
+  setContent: (content: string) => boolean;
   /** Re-reads the file from disk. No-op if the buffer is dirty. */
   reload: () => boolean;
   /** Open the find/replace overlay. Both find and replace rows are always
    *  rendered together — there is no accordion. */
   openFindReplace: () => void;
+  /** Run the configured formatter against the current buffer and apply the
+   *  result. Surfaces failures as a toast. Does not save. */
+  formatDocument: () => Promise<void>;
 };
 
 type Props = {
@@ -207,6 +219,61 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  /**
+   * Replace the buffer in a single CM transaction, preserving cursor +
+   * scroll best-effort. Clamps the selection to the new length because
+   * formatting can shrink the document below the prior anchor.
+   */
+  const applyFormattedToView = (formatted: string): void => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (formatted === current) return;
+    const sel = view.state.selection.main;
+    const len = formatted.length;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: formatted },
+      selection: {
+        anchor: Math.min(sel.anchor, len),
+        head: Math.min(sel.head, len),
+      },
+      scrollIntoView: false,
+    });
+  };
+
+  /**
+   * Wraps the save flow with optional format-on-save. Always calls
+   * `saveRef.current()` at the end so a formatter failure never blocks the
+   * write — the user keeps their unsaved work persisted.
+   */
+  const formatAndSaveRef = useRef<() => Promise<void>>(async () => {});
+  formatAndSaveRef.current = async () => {
+    const view = cmRef.current?.view;
+    if (view && shouldFormatOnSave(pathRef.current)) {
+      try {
+        const current = view.state.doc.toString();
+        const formatted = await formatDocument({ path: pathRef.current, content: current });
+        if (formatted !== current) {
+          applyFormattedToView(formatted);
+          await saveRef.current(formatted);
+          onSavedRef.current?.();
+          return;
+        }
+      } catch (err) {
+        // NoFormatterError means the user has format-on-save on but no
+        // formatter for this language — that's expected, fall through to
+        // a plain save without nagging.
+        if (!(err instanceof NoFormatterError)) {
+          toast(`Format on save failed: ${(err as Error).message}`, {
+            variant: "error",
+          });
+        }
+      }
+    }
+    await saveRef.current();
+    onSavedRef.current?.();
+  };
+
   const pathRef = useRef(path);
   pathRef.current = path;
   // Mirror `aiDisabled` into a ref so the (memoised) extensions array can
@@ -222,10 +289,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       vimCompartment.of(usePreferencesStore.getState().vimMode ? Prec.highest(vim()) : []),
       vimHandlersExtension(() => ({
         save: () => {
-          void (async () => {
-            await saveRef.current();
-            onSavedRef.current?.();
-          })();
+          void formatAndSaveRef.current();
         },
         close: () => onCloseRef.current?.(),
       })),
@@ -255,9 +319,28 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
           key: "Mod-s",
           preventDefault: true,
           run: () => {
+            void formatAndSaveRef.current();
+            return true;
+          },
+        },
+        {
+          // VSCode's Format Document.
+          key: "Shift-Alt-f",
+          preventDefault: true,
+          run: () => {
+            const view = cmRef.current?.view;
+            if (!view) return false;
             void (async () => {
-              await saveRef.current();
-              onSavedRef.current?.();
+              try {
+                const current = view.state.doc.toString();
+                const formatted = await formatDocument({
+                  path: pathRef.current,
+                  content: current,
+                });
+                applyFormattedToView(formatted);
+              } catch (err) {
+                toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
+              }
             })();
             return true;
           },
@@ -376,9 +459,33 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
         return view.state.sliceDoc(from, to);
       },
       getPath: () => path,
+      getContent: () => {
+        const view = cmRef.current?.view;
+        if (!view) return null;
+        return view.state.doc.toString();
+      },
+      setContent: (content: string) => {
+        const view = cmRef.current?.view;
+        if (!view) return false;
+        // Reuse the same buffer-swap helper the built-in formatter uses so
+        // the cursor and scroll position survive the replacement.
+        applyFormattedToView(content);
+        return true;
+      },
       reload: () => reloadRef.current(),
       openFindReplace: () => {
         findReplaceRef.current?.open();
+      },
+      formatDocument: async () => {
+        const view = cmRef.current?.view;
+        if (!view) return;
+        try {
+          const current = view.state.doc.toString();
+          const formatted = await formatDocument({ path: pathRef.current, content: current });
+          applyFormattedToView(formatted);
+        } catch (err) {
+          toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
+        }
       },
     }),
     [path],
@@ -490,7 +597,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
                 right: 0,
                 top: markerState.selection.top,
                 height: markerState.selection.height,
-                backgroundColor: "rgba(56, 139, 253, 0.5)",
+                backgroundColor: "color-mix(in srgb, var(--primary) 50%, transparent)",
               }}
             />
           )}
@@ -501,7 +608,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
               right: 0,
               top: markerState.cursorY,
               height: 2,
-              backgroundColor: "rgb(56, 139, 253)",
+              backgroundColor: "var(--primary)",
             }}
           />
         </div>

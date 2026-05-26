@@ -69,7 +69,7 @@ function StatusBarInner({
               type="button"
               onClick={onOpenPreview}
               aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
-              className="border-border/70 bg-accent/40 text-foreground/90 hover:bg-accent hover:text-foreground flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors"
+              className="border-border/70 bg-accent/40 text-foreground/90 hover:bg-accent hover:text-accent-foreground flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors"
             >
               <HugeiconsIcon
                 icon={Globe02Icon}
@@ -110,7 +110,9 @@ function OsBadge() {
 /**
  * "Open Source Control" status-bar button. Visible only when the user has
  * opted in to the right-panel SCM layout (and SCM itself is enabled) and the
- * panel isn't already open. Mirrors `AiOpenButton`'s styling.
+ * panel isn't already open. Icon-only chrome matches `AiOpenButton` and the
+ * extension panel toggles so the status-bar right cluster reads as a single
+ * row of glyphs.
  */
 function ScmRightOpenButton() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
@@ -127,17 +129,15 @@ function ScmRightOpenButton() {
         onClick={openPanel}
         aria-label="Open Source Control"
         className={cn(
-          "border-border/60 bg-card flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs",
-          "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
+          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
         )}
       >
         <HugeiconsIcon
           icon={GitBranchIcon}
-          size={11}
-          strokeWidth={2}
+          size={16}
+          strokeWidth={1.75}
           className="shrink-0"
         />
-        <span>Source Control</span>
       </motion.button>
     </IconTooltip>
   );

@@ -75,6 +75,11 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   const autoRespondedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (approvalMode === "ask") return;
+    // Track which approval IDs are still in `approval-requested` this pass so
+    // entries whose part has transitioned (responded / output-*) can be pruned
+    // from the dedup set. Without this, a long-running yolo session accrues
+    // approval IDs indefinitely.
+    const stillRequested = new Set<string>();
     for (const m of messages) {
       if (m.role !== "assistant") continue;
       for (const part of m.parts as AnyPart[]) {
@@ -84,13 +89,18 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
         if (!type.startsWith("tool-")) continue;
         const toolName = type.slice("tool-".length);
         const approvalId = (part as { approval?: { id?: string } }).approval?.id;
-        if (!approvalId || autoRespondedRef.current.has(approvalId)) continue;
+        if (!approvalId) continue;
+        stillRequested.add(approvalId);
+        if (autoRespondedRef.current.has(approvalId)) continue;
         const input = (part as ToolPartLike).input as Record<string, unknown> | undefined;
         if (shouldAutoApprove(approvalMode, toolName, input)) {
           autoRespondedRef.current.add(approvalId);
           addToolApprovalResponse({ id: approvalId, approved: true });
         }
       }
+    }
+    for (const id of autoRespondedRef.current) {
+      if (!stillRequested.has(id)) autoRespondedRef.current.delete(id);
     }
   }, [messages, approvalMode, addToolApprovalResponse]);
 
@@ -178,6 +188,10 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
 
     const pending: Pending[] = [];
     const statusUpdates: StatusUpdate[] = [];
+    // Track currently-requested approval ids so `openedRef` can be pruned
+    // when a part transitions past `approval-requested`. Keeps the set
+    // bounded over long sessions with many file mutations.
+    const stillRequested = new Set<string>();
 
     for (const m of messages) {
       if (m.role !== "assistant") continue;
@@ -187,6 +201,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
         const { state, approvalId, path, derive } = info;
         if (!approvalId) continue;
         if (state === "approval-requested") {
+          stillRequested.add(approvalId);
           if (!openedRef.current.has(approvalId)) {
             pending.push({ approvalId, path, derive });
           }
@@ -208,6 +223,9 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     }
 
     for (const u of statusUpdates) setAiDiffStatus(u.approvalId, u.status);
+    for (const id of openedRef.current) {
+      if (!stillRequested.has(id)) openedRef.current.delete(id);
+    }
 
     if (pending.length === 0) return;
 

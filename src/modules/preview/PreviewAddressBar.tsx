@@ -129,7 +129,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
               size="icon"
               onClick={onReload}
               aria-label="Reload"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
             >
               <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={14} strokeWidth={1.75} />
             </Button>
@@ -143,7 +143,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
                     variant="ghost"
                     size="sm"
                     aria-label="Common dev-server ports"
-                    className="text-muted-foreground hover:bg-accent hover:text-foreground h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px]"
+                    className="text-muted-foreground hover:bg-accent hover:text-accent-foreground h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px]"
                   >
                     <HugeiconsIcon icon={Globe02Icon} size={13} strokeWidth={1.75} />
                     <span className="hidden sm:inline">Ports</span>
@@ -208,8 +208,8 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
                 aria-pressed={proxied}
                 className={
                   proxied
-                    ? "hover:bg-accent size-7 shrink-0 rounded-md text-emerald-600 dark:text-emerald-400"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+                    ? "hover:bg-accent size-7 shrink-0 rounded-md text-diff-added"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
                 }
               >
                 <HugeiconsIcon
@@ -229,7 +229,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
                 if (url) void openUrl(url).catch(console.error);
               }}
               aria-label="Open in system browser"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
               disabled={!url}
             >
               <HugeiconsIcon icon={LinkSquare02Icon} size={14} strokeWidth={1.75} />
@@ -237,7 +237,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
           </IconTooltip>
         </div>
         {notice ? (
-          <div className="flex items-center gap-1.5 bg-amber-500/8 px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-1.5 bg-icon-working/8 px-3 py-1 text-[11px] text-icon-working">
             <span className="truncate">{notice}</span>
             <button
               type="button"

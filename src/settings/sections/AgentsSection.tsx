@@ -263,7 +263,7 @@ function AgentCard({
               </span>
             ) : null}
             {overridden ? (
-              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] tracking-wide text-amber-600 uppercase dark:text-amber-300">
+              <span className="rounded bg-icon-working/15 px-1 py-0.5 text-[9px] tracking-wide text-icon-working uppercase text-icon-working">
                 Edited
               </span>
             ) : null}

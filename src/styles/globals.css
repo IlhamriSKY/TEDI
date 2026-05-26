@@ -61,6 +61,12 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-diff-added: var(--tedi-diff-added);
+  --color-diff-removed: var(--tedi-diff-removed);
+  --color-info: var(--tedi-info);
+  --color-icon-working: var(--tedi-icon-working);
+  --color-icon-idle: var(--tedi-icon-idle);
+  --color-icon-blocked: var(--tedi-icon-blocked);
   --radius-sm: 0px;
   --radius-md: 0px;
   --radius-lg: 0px;
@@ -77,6 +83,14 @@
   --tedi-icon-idle: #059669;
   --tedi-icon-working: #ca8a04;
   --tedi-icon-blocked: #dc2626;
+  /* Semantic diff colors (git +/-, SCM status). Themable. Kept distinct
+   * from --destructive so destructive remains an actionable-danger token
+   * and diff removed stays a "kind of change" indicator. */
+  --tedi-diff-added: #16a34a;
+  --tedi-diff-removed: #dc2626;
+  /* Semantic "info" / neutral status color (toasts, renamed/copied SCM
+   * rows, SSH info pills). Themable. */
+  --tedi-info: #0284c7;
   /* Terminal + editor canvas surface. Defaults to opaque user background.
    * When a wallpaper is active, `customTheme.applyBackground` overrides
    * `--tedi-canvas-alpha` so xterm and CodeMirror let the image bleed
@@ -155,6 +169,10 @@
   --tedi-icon-idle: #34d399;
   --tedi-icon-working: #facc15;
   --tedi-icon-blocked: #f87171;
+  /* Brighter diff + info colors for dark mode. */
+  --tedi-diff-added: #4ade80;
+  --tedi-diff-removed: #f87171;
+  --tedi-info: #38bdf8;
   /* Dark base for the terminal/editor canvas. */
   --tedi-canvas-bg: #1e1e1e;
   /* Slightly brighter tab stripes for dark mode. */
@@ -535,10 +553,10 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   outline: none;
 }
 .diff-ruler-added {
-  background: #16a34a;
+  background: var(--tedi-diff-added);
 }
 .diff-ruler-removed {
-  background: #dc2626;
+  background: var(--tedi-diff-removed);
 }
 
 /* ===== Opt-out classes =====

@@ -208,8 +208,8 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                     className={cn(
                       "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
                       caseSensitive
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
                     Aa
@@ -227,8 +227,8 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                     className={cn(
                       "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
                       wholeWord
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
                     ab
@@ -246,8 +246,8 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                     className={cn(
                       "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
                       useRegex
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
                     .*
@@ -267,7 +267,7 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                 aria-label="Previous match"
                 className={cn(
                   "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                  "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                 )}
               >
@@ -286,7 +286,7 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                 aria-label="Next match"
                 className={cn(
                   "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                  "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                 )}
               >
@@ -341,7 +341,7 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                 aria-label="Replace"
                 className={cn(
                   "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                  "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                 )}
               >
@@ -359,7 +359,7 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
                 aria-label="Replace all"
                 className={cn(
                   "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                  "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                 )}
               >

@@ -81,7 +81,7 @@ function CtlButton({
         "text-muted-foreground grid size-7 cursor-pointer place-items-center rounded-md transition-colors",
         danger
           ? "hover:bg-destructive/10 hover:text-destructive"
-          : "hover:bg-accent hover:text-foreground",
+          : "hover:bg-accent hover:text-accent-foreground",
       )}
     >
       {children}

@@ -20,7 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { leafIds, leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
 import { MAX_PANES_PER_TAB } from "./lib/useTabs";
 import {
@@ -34,7 +34,7 @@ import {
   aiCliLabel,
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
-import * as HugeIcons from "@hugeicons/core-free-icons";
+import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -133,7 +133,7 @@ function tabAccentClass(e: Entry): string {
   if (e.kind === "pane-leaf") {
     // Private tabs win the accent regardless of leaf kind so the red stripe
     // is the dominant signal. AI cannot see this tab.
-    if (e.isPrivate) return "bg-red-500 dark:bg-red-400";
+    if (e.isPrivate) return "bg-icon-blocked";
     if (e.leafKind === "terminal") {
       return e.sshConnectionId
         ? "bg-[color:var(--tedi-tab-ssh)]"
@@ -365,6 +365,12 @@ export function TabBar({
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Re-render once the HugeIcons barrel and catppuccin file-icon set finish
+  // loading so extension tab icons + editor-tab file icons swap from the
+  // fallback glyph to the real one. Both hooks return true immediately when
+  // already cached and flip on load completion.
+  useHugeIconsReady();
+  useExplorerIconsReady();
   // dnd-kit drag id. `tab:<n>` for whole-group, `leaf:<n>` for in-group reorder. Prefix routes `handleDragEnd`.
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   // Load SSH hosts on mount and on change so leaf `sshConnectionId` resolves for the tooltip.
@@ -667,7 +673,7 @@ export function TabBar({
               {draggedEntry && (
                 <div
                   className={cn(
-                    "bg-accent/95 text-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
+                    "bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
                     compact ? "max-w-48" : "max-w-80",
                   )}
                 >
@@ -676,7 +682,7 @@ export function TabBar({
                     {draggedEntry.label}
                   </span>
                   {draggedEntry.dirty && (
-                    <span className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400" />
+                    <span className="size-1.5 shrink-0 rounded-full bg-icon-working" />
                   )}
                 </div>
               )}
@@ -690,7 +696,7 @@ export function TabBar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+                  className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
                   aria-label="New"
                 >
                   <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
@@ -713,7 +719,7 @@ export function TabBar({
                   icon={LockedIcon}
                   size={14}
                   strokeWidth={1.75}
-                  className="text-red-600 dark:text-red-400"
+                  className="text-destructive"
                 />
                 <span className="flex-1 whitespace-nowrap">Private Terminal</span>
                 <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
@@ -1042,7 +1048,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
         // Active state uses the brand --accent surface. `h-full!` overrides
         // the primitive's calc so trigger height stays an even integer.
         "group bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 relative h-full! shrink-0 justify-between gap-1.5 text-xs transition-[background-color,color] duration-150",
-        "data-[state=active]:bg-accent data-[state=active]:text-foreground data-[state=active]:font-semibold",
+        "data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold",
         // Inside a split cluster, entries are flat; outside they keep the pill look.
         isSplit ? "rounded-none" : "rounded-md",
         compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!",
@@ -1092,7 +1098,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {e.dirty ? (
           <span
             aria-label="Unsaved changes"
-            className="size-1.5 shrink-0 rounded-full bg-yellow-500 dark:bg-yellow-400"
+            className="size-1.5 shrink-0 rounded-full bg-icon-working"
           />
         ) : null}
       </span>
@@ -1221,7 +1227,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
             ) : null}
             {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
             {isPrivate ? (
-              <span className="text-red-600 dark:text-red-400">{PRIVATE_HINT}</span>
+              <span className="text-destructive">{PRIVATE_HINT}</span>
             ) : null}
           </div>
         </TooltipContent>
@@ -1236,7 +1242,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
           <div className="flex flex-col gap-0.5 text-[11px]">
             <span>{aiCliLabel(ai)}</span>
             {isPrivate ? (
-              <span className="text-red-600 dark:text-red-400">{PRIVATE_HINT}</span>
+              <span className="text-destructive">{PRIVATE_HINT}</span>
             ) : null}
           </div>
         </TooltipContent>
@@ -1247,7 +1253,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <Tooltip>
         {wrapped}
         <TooltipContent side="bottom">
-          <div className="text-red-600 text-[11px] dark:text-red-400">{PRIVATE_HINT}</div>
+          <div className="text-destructive text-[11px] text-destructive">{PRIVATE_HINT}</div>
         </TooltipContent>
       </Tooltip>
     );
@@ -1354,7 +1360,7 @@ function TerminalOrdinalBadge({
       className={cn(
         "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold tabular-nums",
         isPrivate
-          ? "bg-red-600 text-white dark:bg-red-500 dark:text-white"
+          ? "bg-icon-blocked text-background"
           : "bg-muted text-muted-foreground",
       )}
     >
@@ -1374,7 +1380,7 @@ function EntryIcon({ entry }: { entry: Entry }) {
             icon={LockedIcon}
             size={14}
             strokeWidth={2}
-            className="shrink-0 text-red-600 dark:text-red-400"
+            className="shrink-0 text-destructive"
           />
           {entry.leafKind === "terminal" && entry.terminalOrdinal ? (
             <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} isPrivate />
@@ -1391,7 +1397,7 @@ function EntryIcon({ entry }: { entry: Entry }) {
         return (
           <span
             aria-hidden
-            className="size-3.5 shrink-0 bg-sky-600 dark:bg-sky-400"
+            className="size-3.5 shrink-0 bg-info"
             style={{
               WebkitMaskImage: `url("${url}")`,
               maskImage: `url("${url}")`,
@@ -1445,15 +1451,14 @@ function EntryIcon({ entry }: { entry: Entry }) {
     // of the remote-dev cluster.
     const iconRef = entry.icon ?? "";
     const m = iconRef.match(/^hugeicon:(.+)$/);
-    const found = m ? (HugeIcons as Record<string, unknown>)[m[1]] : null;
-    const iconValue =
-      (found as Parameters<typeof HugeiconsIcon>[0]["icon"] | null) ?? Database01Icon;
+    const found = m ? tryGetHugeIcon(m[1]) : null;
+    const iconValue: Parameters<typeof HugeiconsIcon>[0]["icon"] = found ?? Database01Icon;
     return (
       <HugeiconsIcon
         icon={iconValue}
         size={14}
         strokeWidth={2}
-        className="shrink-0 text-sky-600 dark:text-sky-400"
+        className="shrink-0 text-info"
       />
     );
   }
@@ -1462,7 +1467,7 @@ function EntryIcon({ entry }: { entry: Entry }) {
       icon={GitCompareIcon}
       size={14}
       strokeWidth={2}
-      className="shrink-0 text-yellow-600 dark:text-yellow-400"
+      className="shrink-0 text-icon-working"
     />
   );
 }

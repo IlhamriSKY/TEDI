@@ -54,9 +54,9 @@ export function InfoModal() {
                             <code
                               className={cn(
                                 "bg-muted/60 text-foreground rounded px-1.5 py-0.5 font-mono text-[11px]",
-                                row.tone === "ok" && "text-emerald-700 dark:text-emerald-300",
-                                row.tone === "warn" && "text-amber-700 dark:text-amber-300",
-                                row.tone === "err" && "text-red-700 dark:text-red-300",
+                                row.tone === "ok" && "text-diff-added",
+                                row.tone === "warn" && "text-icon-working",
+                                row.tone === "err" && "text-destructive",
                               )}
                             >
                               {row.kbd}

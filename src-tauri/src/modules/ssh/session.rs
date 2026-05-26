@@ -100,6 +100,14 @@ pub struct SshSession {
     /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops do
     /// not pay the channel-open + handshake roundtrip each time.
     sftp: Mutex<Option<Arc<SftpSession>>>,
+    /// One-shot signal that fires when the pump task exits. The sender lives
+    /// inside the pump's tokio task; `send()` runs at normal exit (Eof/Close,
+    /// peer hang-up, wait() returning None) and the Sender simply drops on
+    /// `pump.abort()` from explicit close; both paths unblock the receiver.
+    /// Taken once by `ssh_open` to drive the post-exit janitor that evicts
+    /// the session id from `SshState.sessions`. `std::sync::Mutex` so the
+    /// take is sync-cheap.
+    exit_signal: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl SshSession {
@@ -130,6 +138,14 @@ impl SshSession {
         if let Some(j) = self.pump.lock().await.take() {
             j.abort();
         }
+    }
+
+    /// Take the one-shot exit-signal receiver out of the session. Called once
+    /// by `ssh_open` to wire up the janitor task; subsequent callers get
+    /// `None`. Returning `Option` so the field can be safely re-tried without
+    /// panicking when a future refactor introduces a second consumer.
+    pub fn take_exit_signal(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
+        self.exit_signal.lock().ok().and_then(|mut g| g.take())
     }
 
     /// Return the cached SFTP session, opening a fresh subsystem channel on
@@ -278,7 +294,14 @@ pub async fn connect(
     let (mut read_half, write_half) = channel.split();
     let on_event_pump = on_event.clone();
 
+    // Pump owns the sender side; whether it sends() or just drops, the
+    // receiver returned to ssh_open unblocks. That gives us a single wakeup
+    // for both "remote disconnected" (Eof/Close branch) and "explicit close"
+    // (pump.abort() drops the sender mid-future).
+    let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
+
     let pump = tokio::spawn(async move {
+        let _exit_tx = exit_tx;
         while let Some(msg) = read_half.wait().await {
             match msg {
                 ChannelMsg::Data { ref data } => {
@@ -312,6 +335,7 @@ pub async fn connect(
         pump: Mutex::new(Some(pump)),
         handle: Mutex::new(Some(handle)),
         sftp: Mutex::new(None),
+        exit_signal: std::sync::Mutex::new(Some(exit_rx)),
     }))
 }
 

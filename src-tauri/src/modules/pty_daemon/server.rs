@@ -442,19 +442,45 @@ async fn dispatch(
             cols,
             rows,
             cwd,
-        } => match open_session(state, tx.clone(), client_id, cols, rows, cwd) {
-            Ok(id) => {
-                let _ = tx.send(DaemonMsg::OpenOk { req_id, session_id: id }).await;
+        } => {
+            // Move to the blocking pool so the sync SPAWN_LOCK + ConPTY
+            // openpty/spawn_command (slow on Windows, can run for hundreds
+            // of ms) don't pin a tokio worker. Two concurrent Opens would
+            // otherwise stall both workers in a default multi-thread runtime.
+            let state_clone = state.clone();
+            let client_tx = tx.clone();
+            let outcome =
+                tokio::task::spawn_blocking(move || {
+                    open_session(&state_clone, client_tx, client_id, cols, rows, cwd)
+                })
+                .await;
+            match outcome {
+                Ok(Ok(id)) => {
+                    let _ = tx
+                        .send(DaemonMsg::OpenOk {
+                            req_id,
+                            session_id: id,
+                        })
+                        .await;
+                }
+                Ok(Err(e)) => {
+                    let _ = tx
+                        .send(DaemonMsg::Err {
+                            req_id,
+                            message: e,
+                        })
+                        .await;
+                }
+                Err(join_err) => {
+                    let _ = tx
+                        .send(DaemonMsg::Err {
+                            req_id,
+                            message: format!("open_session task join failed: {join_err}"),
+                        })
+                        .await;
+                }
             }
-            Err(e) => {
-                let _ = tx
-                    .send(DaemonMsg::Err {
-                        req_id,
-                        message: e,
-                    })
-                    .await;
-            }
-        },
+        }
         ClientMsg::Attach {
             req_id,
             session_id,

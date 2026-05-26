@@ -141,7 +141,7 @@ function PlanModeStrip() {
   if (!active) return null;
   return (
     <div className="border-border/40 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
-      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
+      <span className="size-1.5 shrink-0 rounded-full bg-icon-working" />
       <span className="text-foreground text-[11px] font-medium">Plan mode</span>
       <span className="text-muted-foreground text-[11px]">
         {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}
@@ -232,7 +232,7 @@ function SessionPicker() {
               className={cn(
                 "flex max-w-48 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1",
                 "text-muted-foreground text-[11px] transition-colors",
-                "hover:bg-accent hover:text-foreground",
+                "hover:bg-accent hover:text-accent-foreground",
               )}
               aria-label="Switch session"
             >

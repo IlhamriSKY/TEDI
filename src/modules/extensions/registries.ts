@@ -204,6 +204,11 @@ export type HeaderItem = {
   tooltip: string;
   /** Optional badge / tone. Same semantics as `StatusItem.tone`. */
   tone?: "default" | "success" | "warning" | "error";
+  /** Where the icon lands in the header row. `"right"` (default) is the
+   *  cluster after the SSH divider, alongside Extensions / Settings.
+   *  `"left"` lands immediately before the markdown-preview toggle, in
+   *  the file-view-mode area, for buttons that act on the active editor. */
+  placement?: "left" | "right";
   /** Synchronous click handler. Receives the click event. The host
    *  wraps the call in try/catch and surfaces errors via console. */
   onClick: (event: MouseEvent) => void;

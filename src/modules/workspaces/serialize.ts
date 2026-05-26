@@ -3,6 +3,18 @@ import type { PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
 import { leaves } from "@/modules/terminal/lib/panes";
 import type { SavedPaneNode, SavedTab } from "./store";
 
+/** Count terminal leaves in a serialised pane tree. Used to tally
+ *  terminals across inactive workspaces without rehydrating them into
+ *  live `Tab[]` objects. */
+export function countSavedTerminalLeaves(node: SavedPaneNode): number {
+  if (node.kind === "leaf") {
+    return node.leafKind === "terminal" ? 1 : 0;
+  }
+  let n = 0;
+  for (const child of node.children) n += countSavedTerminalLeaves(child);
+  return n;
+}
+
 // live -> saved
 
 function leafToSaved(leaf: PaneLeaf): SavedPaneNode {

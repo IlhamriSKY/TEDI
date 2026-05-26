@@ -32,6 +32,7 @@ import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
 import { setOpenExtensionTab, setSidebarSetter } from "@/modules/extensions/tabsBridge";
+import { setEditorBridge } from "@/modules/extensions/editorBridge";
 import { ExtensionTabStack } from "@/modules/extensions/components/ExtensionTabStack";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
@@ -95,6 +96,7 @@ import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
 import { scheduler, setSchedulerBridge } from "@/modules/scheduler";
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import {
+  countSavedTerminalLeaves,
   defaultTabForEmptyWorkspace,
   savedToTab,
   serializeTabs,
@@ -366,9 +368,16 @@ export default function App() {
     });
   }, []);
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
+  // Tracks an ext-requested sidebar hide so we can auto-restore the user's
+  // prior visibility when they switch off that extension's tab, and re-hide
+  // when they switch back. Cleared on any manual toggle or when the
+  // owning extension no longer has an open ext tab. Ref (not state) so the
+  // bridge callback can mutate it without re-binding via setSidebarSetter.
+  const sidebarHiderRef = useRef<{ extensionId: string; prior: boolean } | null>(null);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
+    sidebarHiderRef.current = null;
     if (p.getSize().asPercentage <= 0) p.expand();
     else p.collapse();
   }, []);
@@ -904,6 +913,21 @@ export default function App() {
     }
     return n;
   }, [tabs]);
+  // Total terminals across every workspace. Active workspace contributes
+  // its live tab tree (so newly opened terminals count immediately); other
+  // workspaces use their last-saved tabs from the workspace store.
+  const terminalCountAll = useMemo(() => {
+    let n = terminalCount;
+    for (const w of wsList) {
+      if (w.id === wsActiveId) continue;
+      for (const t of w.tabs) {
+        if (t.kind !== "pane") continue;
+        n += countSavedTerminalLeaves(t.paneTree);
+      }
+    }
+    return n;
+  }, [terminalCount, wsList, wsActiveId]);
+  const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;
     if (activeTab.kind === "preview") return "preview";
@@ -927,8 +951,10 @@ export default function App() {
       activeFileName,
       terminalCount,
       activeTabKind,
+      workspaceCount,
+      terminalCountAll,
     });
-  }, [explorerRoot, activeFileName, terminalCount, activeTabKind]);
+  }, [explorerRoot, activeFileName, terminalCount, activeTabKind, workspaceCount, terminalCountAll]);
 
   // Wire the tabsBridge so `ctx.tabs.openExtensionTab(...)` in the host
   // API can push a new tab. `openExtensionTab` is stable across renders.
@@ -937,21 +963,93 @@ export default function App() {
     return () => setOpenExtensionTab(null);
   }, [openExtensionTab]);
 
+  // Wire `ctx.editor.{getActive,setActiveContent}` to the active editor pane.
+  // The bridge closures read live state on each call so an extension that
+  // hangs onto `ctx.editor` always reaches the currently-focused leaf, not
+  // whichever editor happened to be active when the extension activated.
+  const editorBridgeStateRef = useRef<{
+    handle: EditorPaneHandle | null;
+    leaf: PaneLeaf | null;
+  }>({ handle: null, leaf: null });
+  editorBridgeStateRef.current = {
+    handle: activeEditorHandle,
+    leaf: activePaneTab ? activeLeaf(activePaneTab) : null,
+  };
+  useEffect(() => {
+    setEditorBridge({
+      getActive() {
+        const { handle, leaf } = editorBridgeStateRef.current;
+        if (!handle || !leaf || leaf.leafKind !== "editor") return null;
+        const content = handle.getContent();
+        if (content === null) return null;
+        const dirty = (leaf as PaneLeaf & { dirty?: boolean }).dirty === true;
+        return { path: leaf.path, content, dirty };
+      },
+      setActiveContent(content) {
+        const { handle, leaf } = editorBridgeStateRef.current;
+        if (!handle || !leaf || leaf.leafKind !== "editor") return false;
+        return handle.setContent(content);
+      },
+    });
+    return () => setEditorBridge(null);
+  }, []);
+
   // Wire `ctx.app.setSidebarVisible(visible)` through the imperative
   // `sidebarRef` so an extension can collapse / expand the file explorer
   // pane without having to know how it is laid out. The handle is
   // mutable across renders, so the callback dereferences it on every
   // invocation rather than closing over the current value.
+  //
+  // When called with an `ownerExtensionId` and `visible === false`, the
+  // host snapshots the current visibility so it can restore the user's
+  // prior state once they switch away from that extension's tab (see the
+  // effect below that watches `activeTab`).
   useEffect(() => {
-    setSidebarSetter((visible) => {
+    setSidebarSetter((visible, ownerExtensionId) => {
       const p = sidebarRef.current;
       if (!p) return;
       const visibleNow = p.getSize().asPercentage > 0;
+      if (ownerExtensionId && !visible) {
+        if (!sidebarHiderRef.current) {
+          sidebarHiderRef.current = { extensionId: ownerExtensionId, prior: visibleNow };
+        }
+      } else {
+        sidebarHiderRef.current = null;
+      }
       if (visible && !visibleNow) p.expand();
       else if (!visible && visibleNow) p.collapse();
     });
     return () => setSidebarSetter(null);
   }, []);
+
+  // Auto-restore / re-hide the sidebar around the ext tab that requested
+  // a hide. When the user navigates to a different tab, expand back to
+  // the snapshotted state; when they return to the ext's tab, re-collapse.
+  // If the ext closes all of its tabs, restore once and clear the latch.
+  useEffect(() => {
+    const hider = sidebarHiderRef.current;
+    if (!hider) return;
+    const p = sidebarRef.current;
+    if (!p) return;
+    const visibleNow = p.getSize().asPercentage > 0;
+    const stillOpen = tabs.some(
+      (t) => t.kind === "ext" && t.extensionId === hider.extensionId,
+    );
+    if (!stillOpen) {
+      if (hider.prior && !visibleNow) p.expand();
+      else if (!hider.prior && visibleNow) p.collapse();
+      sidebarHiderRef.current = null;
+      return;
+    }
+    const onHiderTab =
+      activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
+    if (onHiderTab) {
+      if (visibleNow) p.collapse();
+    } else {
+      if (hider.prior && !visibleNow) p.expand();
+      else if (!hider.prior && visibleNow) p.collapse();
+    }
+  }, [activeTab, tabs]);
 
   // On active leaf or tab change, surface its search addon, editor handle,
   // and detected URL to the chrome.
@@ -1621,6 +1719,13 @@ export default function App() {
       "editor.toggleWordWrap": () => {
         void setLineWrap(!usePreferencesStore.getState().lineWrap);
       },
+      "editor.formatDocument": () => {
+        // Falls through silently when the focused leaf isn't an editor —
+        // matches VSCode's behaviour of consuming the chord regardless so
+        // the OS / browser default never fires.
+        if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
+        void editorRefs.current.get(activeLeafIdInTab)?.formatDocument();
+      },
       // Copy terminal selection. Defaults: Cmd+C on macOS, Ctrl+Shift+C
       // elsewhere (see shortcuts.ts). No-op when nothing is selected.
       // useGlobalShortcuts preventDefaults the event so xterm never sees
@@ -2256,6 +2361,52 @@ export default function App() {
     [tabs],
   );
 
+  // Stable handlers for the memoised <Header/>. Each was previously an inline
+  // arrow in the JSX, so the memo wrapper saw a fresh prop identity on every
+  // App re-render (AI streaming tokens, statusbar ticks, etc.) and re-rendered
+  // the header + tab strip even when no header-relevant state changed.
+  const handleHeaderSelectEntry = useCallback(
+    (tabId: number, leafId: number | null) => {
+      setActiveId(tabId);
+      if (leafId !== null) focusPane(tabId, leafId);
+    },
+    [setActiveId, focusPane],
+  );
+  const handleHeaderCloseEntry = useCallback(
+    (tabId: number, leafId: number | null) => {
+      if (leafId !== null) {
+        closePaneByLeaf(leafId);
+      } else {
+        handleClose(tabId);
+      }
+    },
+    [closePaneByLeaf, handleClose],
+  );
+  const handleHeaderNewPreview = useCallback(() => openPreviewTab(""), [openPreviewTab]);
+  const handleHeaderNewEditor = useCallback(() => setNewEditorOpen(true), []);
+  const handleHeaderPinLeaf = useCallback(
+    (tabId: number, leafId: number) => {
+      focusPane(tabId, leafId);
+      pinTab(tabId);
+    },
+    [focusPane, pinTab],
+  );
+  const handleHeaderOpenExtensions = useCallback(
+    () => void openSettingsWindow("extensions"),
+    [],
+  );
+  const handleHeaderOpenSettings = useCallback(() => void openSettingsWindow(), []);
+  const handleHeaderConnectSsh = useCallback(
+    (conn: SshConnection, opts?: { private?: boolean }) =>
+      newSshTab(conn.id, conn.name, opts),
+    [newSshTab],
+  );
+  const headerCanSplit = useMemo(
+    () =>
+      activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB,
+    [activePaneTab],
+  );
+
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
@@ -2263,37 +2414,23 @@ export default function App() {
           <Header
             tabs={tabs}
             activeId={activeId}
-            onSelectEntry={(tabId, leafId) => {
-              setActiveId(tabId);
-              if (leafId !== null) focusPane(tabId, leafId);
-            }}
-            onCloseEntry={(tabId, leafId) => {
-              if (leafId !== null) {
-                closePaneByLeaf(leafId);
-              } else {
-                handleClose(tabId);
-              }
-            }}
+            onSelectEntry={handleHeaderSelectEntry}
+            onCloseEntry={handleHeaderCloseEntry}
             onNewTerminal={openNewTab}
             onNewPrivateTerminal={openNewPrivateTab}
             onTogglePrivate={togglePrivate}
-            onNewPreview={() => openPreviewTab("")}
-            onNewEditor={() => setNewEditorOpen(true)}
-            onPinLeaf={(tabId, leafId) => {
-              focusPane(tabId, leafId);
-              pinTab(tabId);
-            }}
+            onNewPreview={handleHeaderNewPreview}
+            onNewEditor={handleHeaderNewEditor}
+            onPinLeaf={handleHeaderPinLeaf}
             onReorderTabs={reorderTabs}
             onReorderLeafInGroup={reorderLeafInGroup}
             onToggleSidebar={toggleSidebar}
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
-            canSplit={
-              activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB
-            }
-            onOpenExtensions={() => void openSettingsWindow("extensions")}
-            onOpenSettings={() => void openSettingsWindow()}
-            onConnectSsh={(conn, opts) => newSshTab(conn.id, conn.name, opts)}
+            canSplit={headerCanSplit}
+            onOpenExtensions={handleHeaderOpenExtensions}
+            onOpenSettings={handleHeaderOpenSettings}
+            onConnectSsh={handleHeaderConnectSsh}
             onMoveLeafToGroup={moveLeafToGroup}
             onMoveLeafToNewTab={moveLeafToNewTab}
             onRotateLeafSplit={rotateLeafSplit}

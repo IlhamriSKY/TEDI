@@ -728,7 +728,7 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
             </Button>
           </div>
           {testStatus === "ok" ? (
-            <span className="text-[10.5px] text-emerald-500">Connected - server responded.</span>
+            <span className="text-[10.5px] text-diff-added">Connected - server responded.</span>
           ) : testStatus === "fail" ? (
             <span className="text-destructive text-[10.5px]">
               Could not reach the server. Is LM Studio running?
@@ -855,7 +855,7 @@ function OpenAICompatibleBlock({
           <ProviderIcon provider="openai-compatible" size={14} />
           <span className="text-[12px] font-medium">OpenAI Compatible</span>
           {apiKey ? (
-            <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
+            <span className="rounded border border-diff-added/40 bg-diff-added/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-diff-added uppercase text-diff-added">
               Configured
             </span>
           ) : (
@@ -995,7 +995,7 @@ function OpenAICompatibleBlock({
         <div className="flex items-center gap-1.5">
           <span className="text-muted-foreground flex-1 truncate text-[10px]">
             {testStatus === "ok" ? (
-              <span className="text-emerald-500">Endpoint reachable.</span>
+              <span className="text-diff-added">Endpoint reachable.</span>
             ) : testStatus === "fail" ? (
               <span className="text-destructive">
                 Unreachable{testError ? ` (${testError})` : ""}.

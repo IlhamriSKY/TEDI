@@ -38,7 +38,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   return (
     <div className="border-border bg-card rounded-lg border shadow-sm">
       <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
-        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
+        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-icon-working" />
         <HugeiconsIcon
           icon={Icon}
           size={13}

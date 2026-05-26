@@ -3,6 +3,7 @@ pub mod cli_ext;
 pub mod cli_theme;
 pub mod cli_update;
 pub mod extensions;
+pub mod format;
 pub mod fs;
 pub mod git;
 pub mod net;

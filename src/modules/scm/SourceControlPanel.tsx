@@ -66,13 +66,13 @@ const STATUS_LETTER: Record<GitChangeStatus, string> = {
 };
 
 const STATUS_TONE: Record<GitChangeStatus, string> = {
-  modified: "text-amber-500",
-  added: "text-emerald-500",
-  deleted: "text-rose-500",
-  renamed: "text-sky-500",
-  copied: "text-sky-500",
-  untracked: "text-emerald-400",
-  conflicted: "text-rose-600",
+  modified: "text-icon-working",
+  added: "text-diff-added",
+  deleted: "text-diff-removed",
+  renamed: "text-info",
+  copied: "text-info",
+  untracked: "text-diff-added",
+  conflicted: "text-destructive",
   ignored: "text-muted-foreground",
 };
 
@@ -804,10 +804,10 @@ function DiffStats({ change }: { change: GitChange }) {
   return (
     <span className="ml-1 flex shrink-0 items-center gap-1 text-[10px] tabular-nums group-hover:hidden">
       {change.added > 0 ? (
-        <span className="text-emerald-500 dark:text-emerald-400">+{change.added}</span>
+        <span className="text-diff-added">+{change.added}</span>
       ) : null}
       {change.removed > 0 ? (
-        <span className="text-rose-500 dark:text-rose-400">−{change.removed}</span>
+        <span className="text-diff-removed">−{change.removed}</span>
       ) : null}
     </span>
   );

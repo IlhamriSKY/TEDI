@@ -23,6 +23,7 @@ import {
   setAutostart,
   setContentZoom,
   setEditorTheme,
+  setFormatOnSave,
   setRestoreWindowState,
   setShowHiddenFiles,
   setShowSourceControl,
@@ -33,6 +34,7 @@ import {
   setVimMode,
   type EditorThemeId,
 } from "@/modules/settings/store";
+import { FormattersTable } from "./components/FormattersTable";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
 import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
@@ -70,6 +72,7 @@ export function GeneralSection() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
+  const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
   // Local mirror for live drag. Persisted on slider release so we don't
   // hit the prefs store + cross-window emit on every mousemove tick.
@@ -245,6 +248,17 @@ export function GeneralSection() {
         >
           <Switch checked={showMinimap} onCheckedChange={(v) => void setShowMinimap(v)} />
         </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Formatters</Label>
+        <SettingRow
+          title="Format on save"
+          description="When saving (Ctrl+S), run the configured formatter for the file's language first. Shift+Alt+F formats without saving."
+        >
+          <Switch checked={formatOnSave} onCheckedChange={(v) => void setFormatOnSave(v)} />
+        </SettingRow>
+        <FormattersTable />
       </div>
 
       <div className="flex flex-col gap-2">

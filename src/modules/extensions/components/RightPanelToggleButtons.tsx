@@ -1,10 +1,12 @@
 /**
  * Status-bar toggle buttons for extension right panels.
  * Renders one button per `panelsRegistry` entry with `surface === "right"`.
- * Click calls `rightPanelStore.toggle`. Matches `AiOpenButton` styling: h-6,
- * border + accent hover, drop-in motion, optional `<Kbd>` chip resolved from
- * `panel.toggleCommand` against `keybindingsRegistry` plus user overrides in
- * `preferences.extensionShortcuts`.
+ * Click calls `rightPanelStore.toggle`. All variants render icon-only —
+ * the title + optional shortcut chip live in the tooltip, so the status
+ * bar stays a uniform row of glyphs (Discord/Screenshot-style) instead of
+ * a mix of bordered "Open X" pills. Shortcut chips resolve from
+ * `panel.toggleCommand` against `keybindingsRegistry` plus user overrides
+ * in `preferences.extensionShortcuts`.
  *
  * Icon source: well-known first-party extensions render a HugeIcon from
  * `HUGE_ICON_MAP` so the status bar stays visually homogeneous with core
@@ -14,10 +16,9 @@
  *
  * The button hides while its own panel is open.
  *
- * Compact mode (`panel.compact === true`): icon-only, no border, no card
- * background. Matches `ExtensionStatusItems`' borderless 16 px presentation
- * so a compact panel toggle reads as part of the same icon row as
- * extension-contributed status items.
+ * Compact mode (`panel.compact === true`): same icon-only chrome as the
+ * default variant; the flag now only governs ordering (compact toggles
+ * cluster with `ExtensionStatusItems` at the left of the right group).
  */
 import { useEffect, useState } from "react";
 import { Kbd } from "@/components/ui/kbd";
@@ -79,7 +80,6 @@ export function RightPanelCompactToggles() {
           panelId={item.id}
           title={item.title}
           icon={item.icon ?? null}
-          compact
           toggleCommand={item.toggleCommand ?? null}
         />
       ))}
@@ -88,15 +88,16 @@ export function RightPanelCompactToggles() {
 }
 
 /**
- * Full-label (text + icon + Kbd) right-panel toggles. Rendered near
- * `AiOpenButton` / `ScmRightOpenButton` so they read as a row of
- * matched bordered "open X" affordances.
+ * Default-priority right-panel toggles. Rendered next to `AiOpenButton` /
+ * `ScmRightOpenButton`; the chrome is now icon-only so the full row of
+ * status-bar buttons stays uniform. The title + shortcut chip appear in
+ * the tooltip on hover.
  */
 export function RightPanelTextToggles() {
   const sorted = useSortedRightPanels(false);
   if (sorted.length === 0) return null;
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
       {sorted.map(({ extensionId, item }) => (
         <ToggleButton
           key={`${extensionId}:${item.id}`}
@@ -104,7 +105,6 @@ export function RightPanelTextToggles() {
           panelId={item.id}
           title={item.title}
           icon={item.icon ?? null}
-          compact={false}
           toggleCommand={item.toggleCommand ?? null}
         />
       ))}
@@ -117,14 +117,12 @@ function ToggleButton({
   panelId,
   title,
   icon,
-  compact,
   toggleCommand,
 }: {
   extensionId: string;
   panelId: string;
   title: string;
   icon: string | null;
-  compact: boolean;
   toggleCommand: string | null;
 }) {
   const active = useRightPanelStore((s) => s.active);
@@ -137,9 +135,10 @@ function ToggleButton({
   if (isOpen) return null;
 
   // Resolve the shortcut chip. User overrides win; otherwise parse the
-  // manifest's `keybindings[].key`. Skipped in compact mode (icon-only).
+  // manifest's `keybindings[].key`. Surfaces in the tooltip so users can
+  // discover the shortcut without losing the icon-row compactness.
   let chipBinding: KeyBinding | null = null;
-  if (!compact && toggleCommand) {
+  if (toggleCommand) {
     const userBinding = overrides[toggleCommand]?.[0];
     if (userBinding) {
       chipBinding = userBinding;
@@ -152,31 +151,17 @@ function ToggleButton({
   }
   // `KEY_SEP` is "+" on Win/Linux, empty on macOS. Matches `fmtShortcut`.
   const chipText = chipBinding ? getBindingTokens(chipBinding).join(KEY_SEP) : null;
+  const tooltipLabel = (
+    <span className="inline-flex items-center gap-1.5">
+      <span>Open {title}</span>
+      {chipText ? <Kbd className="h-4 min-w-4 px-1">{chipText}</Kbd> : null}
+    </span>
+  );
 
-  // Compact: borderless icon-only button, 16 px icon, matches
-  // `ExtensionStatusItems` so compact toggles share a row with status items
-  // without visual seams.
-  if (compact) {
-    return (
-      <IconTooltip label={`Open ${title}`} side="top">
-        <motion.button
-          initial={{ y: -15 }}
-          animate={{ y: 0 }}
-          type="button"
-          onClick={() => toggle(extensionId, panelId)}
-          aria-label={title}
-          className={cn(
-            "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
-          )}
-        >
-          <PanelIcon extensionId={extensionId} icon={icon} alt={title} size={16} />
-        </motion.button>
-      </IconTooltip>
-    );
-  }
-
+  // Borderless icon-only button — same chrome as compact mode. The
+  // `compact` prop now only controls ordering inside the status bar.
   return (
-    <IconTooltip label={`Open ${title}`} side="top">
+    <IconTooltip label={tooltipLabel} side="top">
       <motion.button
         initial={{ y: -15 }}
         animate={{ y: 0 }}
@@ -184,13 +169,10 @@ function ToggleButton({
         onClick={() => toggle(extensionId, panelId)}
         aria-label={title}
         className={cn(
-          "border-border/60 bg-card flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs",
-          "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
+          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
         )}
       >
-        <PanelIcon extensionId={extensionId} icon={icon} alt="" size={11} />
-        <span className="max-w-32 truncate">{title}</span>
-        {chipText ? <Kbd className="h-4 min-w-4 px-1">{chipText}</Kbd> : null}
+        <PanelIcon extensionId={extensionId} icon={icon} alt={title} size={16} />
       </motion.button>
     </IconTooltip>
   );

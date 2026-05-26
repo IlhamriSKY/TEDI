@@ -75,7 +75,7 @@ function ToolButton({ title, children }: { title: string; children: React.ReactN
         variant="ghost"
         size="icon"
         aria-label={title}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 rounded-md"
+        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 rounded-md"
       >
         {children}
       </Button>
@@ -91,7 +91,7 @@ function ModelSelector() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-muted-foreground hover:bg-accent hover:text-foreground h-7 gap-1 rounded-md px-1.5 text-xs"
+          className="text-muted-foreground hover:bg-accent hover:text-accent-foreground h-7 gap-1 rounded-md px-1.5 text-xs"
         >
           {selected.label}
           <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2} className="opacity-70" />

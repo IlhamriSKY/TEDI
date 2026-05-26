@@ -37,7 +37,7 @@ import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
 import { FileTreeNode } from "./FileTreeNode";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, revealInFinder } from "./lib/contextActions";
-import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
+import { fileIconUrl, folderIconUrl, useExplorerIconsReady } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useFileTree, type SortMode } from "./lib/useFileTree";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
@@ -145,6 +145,10 @@ export function FileExplorer({
   activeFilePath,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
+  // Re-render once the lazy-loaded catppuccin icon set arrives so file +
+  // folder rows swap from empty src to the real glyph. Children inherit the
+  // re-render because the icon URLs are computed inside the render body.
+  useExplorerIconsReady();
   const [sortMode, setSortModeState] = useState<SortMode>(readStoredSortMode);
   const setSortMode = useCallback((value: SortMode) => {
     setSortModeState(value);

@@ -28,9 +28,9 @@ import { useAgentsStore } from "../store/agentsStore";
 
 const APPROVAL_MODE_ORDER: ApprovalMode[] = ["ask", "semi", "yolo"];
 const APPROVAL_MODE_DOT: Record<ApprovalMode, string> = {
-  ask: "bg-amber-500",
-  semi: "bg-sky-500",
-  yolo: "bg-emerald-500",
+  ask: "bg-icon-working",
+  semi: "bg-info",
+  yolo: "bg-diff-added",
 };
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
@@ -70,7 +70,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               aria-label={agentTooltip}
               className={cn(
                 !isMiniWindow
-                  ? "border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
+                  ? "border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-accent-foreground flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
                   : "mr-1 text-xs",
               )}
             >

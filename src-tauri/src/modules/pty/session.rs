@@ -205,7 +205,7 @@ pub fn spawn_with_sink(
                 log::warn!("pty backpressure: dropped {dropped_bytes} bytes (cap {MAX_PENDING})");
             }
         })
-        .expect("spawn pty reader thread");
+        .map_err(|e| format!("spawn pty reader thread: {e}"))?;
 
     let sink_flush = sink.clone();
     let pending_f = pending.clone();
@@ -231,11 +231,18 @@ pub fn spawn_with_sink(
                 break;
             }
         })
-        .expect("spawn pty flusher thread");
+        .map_err(|e| {
+            // Kill the child so the reader's blocking read() unblocks and
+            // the (now lone) reader thread exits when we return Err.
+            let _ = session.killer.lock().map(|mut k| k.kill());
+            format!("spawn pty flusher thread: {e}")
+        })?;
 
     let sink_exit = sink;
     let pending_e = pending;
-    let done_e = done;
+    // Clone instead of move so the outer `done` stays accessible to the
+    // map_err cleanup path below if waiter spawn fails.
+    let done_e = done.clone();
     thread::Builder::new()
         .name("tedi-pty-waiter".into())
         .spawn(move || {
@@ -258,7 +265,13 @@ pub fn spawn_with_sink(
             done_e.store(true, Ordering::Release);
             sink_exit.exit(code);
         })
-        .expect("spawn pty waiter thread");
+        .map_err(|e| {
+            // Wake the flusher's empty-pending branch so it exits its loop,
+            // and kill the child to unblock the reader.
+            done.store(true, Ordering::Release);
+            let _ = session.killer.lock().map(|mut k| k.kill());
+            format!("spawn pty waiter thread: {e}")
+        })?;
 
     Ok((session, size))
 }

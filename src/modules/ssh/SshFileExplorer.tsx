@@ -12,7 +12,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { FileTreeNode } from "@/modules/explorer/FileTreeNode";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { copyToClipboard } from "@/modules/explorer/lib/contextActions";
-import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
+import {
+  fileIconUrl,
+  folderIconUrl,
+  useExplorerIconsReady,
+} from "@/modules/explorer/lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -67,6 +71,8 @@ export function SshFileExplorer({
   onToggleCollapsed,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
+  // Re-render once the lazy-loaded catppuccin icon set arrives.
+  useExplorerIconsReady();
   const [homePath, setHomePath] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
 

@@ -22,10 +22,44 @@
 //! and `plugins.updater.pubkey` in `tauri.conf.json`. Embedded by hand
 //! because `generate_context!` only exposes them post-boot.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
+use std::sync::OnceLock;
 
 use crate::modules::cli;
 use crate::modules::extensions::commands as ext_cmd;
+
+// ----- ANSI helpers -----------------------------------------------------
+// Mirrors the gating in `cli.rs` / `cli_ext.rs` / `cli_theme.rs` so all
+// four `tedi` CLI surfaces speak the same palette and respect NO_COLOR.
+
+fn color_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+}
+
+fn ansi(code: &str, text: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+fn paint_dim(s: &str) -> String {
+    ansi("2", s)
+}
+fn paint_id(s: &str) -> String {
+    ansi("33;1", s)
+}
+fn paint_ok(s: &str) -> String {
+    ansi("32", s)
+}
+fn paint_warn(s: &str) -> String {
+    ansi("33", s)
+}
+fn paint_header(s: &str) -> String {
+    ansi("36;1", s)
+}
 
 /// Update manifest URL. Mirrors `plugins.updater.endpoints[0]` in
 /// `tauri.conf.json`. Tauri normally fetches this from inside the app; we
@@ -80,7 +114,12 @@ pub fn handle_update_command_and_exit() {
 
 fn run_update() -> Result<(), String> {
     let current = env!("CARGO_PKG_VERSION");
-    println!("TEDI {current}; checking for updates...");
+    println!(
+        "{} {} {}",
+        paint_header("TEDI"),
+        paint_id(&format!("v{current}")),
+        paint_dim("checking for updates..."),
+    );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -94,10 +133,19 @@ fn run_update() -> Result<(), String> {
     let latest = ext_cmd::strip_v_prefix(&manifest.version);
     let cmp = ext_cmd::compare_versions(current, &latest);
     if cmp != std::cmp::Ordering::Less {
-        println!("Already on the latest version (v{current}).");
+        println!(
+            "{} Already on the latest version {}.",
+            paint_ok("✓"),
+            paint_id(&format!("(v{current})")),
+        );
         return Ok(());
     }
-    println!("Update available: v{current} -> v{latest}");
+    println!(
+        "{} {} -> {}",
+        paint_warn("Update available:"),
+        paint_dim(&format!("v{current}")),
+        paint_id(&format!("v{latest}")),
+    );
 
     let key = current_platform_key()?;
     let platform = manifest
@@ -115,47 +163,53 @@ fn run_update() -> Result<(), String> {
 
     if !manifest.notes.is_empty() {
         println!();
-        println!("Release notes:");
+        println!("{}", paint_header("Release notes:"));
         // 30-line cap keeps the prompt visible on long changelogs.
         for line in manifest.notes.lines().take(30) {
             println!("  {line}");
         }
         let extra = manifest.notes.lines().count().saturating_sub(30);
         if extra > 0 {
-            println!("  ({extra} more line(s) omitted)");
+            println!("  {}", paint_dim(&format!("({extra} more line(s) omitted)")));
         }
         println!();
     }
 
     // Confirm on a TTY; in a non-interactive shell, assume the caller
     // meant it. Mirrors `apt -y` under automation.
-    use std::io::IsTerminal;
     if std::io::stdin().is_terminal() {
-        print!("Download and install v{latest}? (y/N): ");
+        print!(
+            "Download and install {}? (y/N): ",
+            paint_id(&format!("v{latest}"))
+        );
         let _ = std::io::stdout().flush();
         let mut buf = String::new();
         let n = std::io::stdin()
             .read_line(&mut buf)
             .map_err(|e| format!("read stdin: {e}"))?;
         if n == 0 || !buf.trim().eq_ignore_ascii_case("y") {
-            println!("Skipped.");
+            println!("{}", paint_dim("Skipped."));
             return Ok(());
         }
     } else {
-        println!("Non-interactive shell; proceeding with download.");
+        println!("{}", paint_dim("Non-interactive shell; proceeding with download."));
     }
 
-    println!("Downloading {}", platform.url);
+    println!("{} {}", paint_dim("Downloading"), platform.url);
     let bytes = runtime.block_on(ext_cmd::http_get_bytes(&platform.url))?;
-    println!("Downloaded {} bytes.", bytes.len());
+    println!(
+        "{} {}",
+        paint_dim("Downloaded"),
+        paint_dim(&format!("{} bytes.", bytes.len())),
+    );
 
-    println!("Verifying signature...");
+    println!("{}", paint_dim("Verifying signature..."));
     verify_signature(&bytes, &platform.signature)?;
-    println!("Signature OK.");
+    println!("{} {}", paint_ok("✓"), paint_ok("Signature OK."));
 
-    println!("Installing...");
+    println!("{}", paint_dim("Installing..."));
     let outcome = install_bundle(&bytes, &platform.url)?;
-    println!("{outcome}");
+    println!("{} {outcome}", paint_ok("✓"));
     Ok(())
 }
 

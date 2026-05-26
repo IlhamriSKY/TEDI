@@ -38,15 +38,17 @@ fn ssh_runtime() -> &'static Runtime {
 
 pub struct SshState {
     /// `pub(crate)` so the sibling `sftp` module can look up an existing
-    /// session by id to issue file-system commands.
-    pub(crate) sessions: tokio::sync::RwLock<HashMap<u32, Arc<SshSession>>>,
+    /// session by id to issue file-system commands. `Arc`-wrapped so the
+    /// janitor task spawned per session can hold a handle for eviction
+    /// after the pump task exits on remote disconnect.
+    pub(crate) sessions: Arc<tokio::sync::RwLock<HashMap<u32, Arc<SshSession>>>>,
     next_id: AtomicU32,
 }
 
 impl Default for SshState {
     fn default() -> Self {
         Self {
-            sessions: tokio::sync::RwLock::new(HashMap::new()),
+            sessions: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             next_id: AtomicU32::new(1),
         }
     }
@@ -90,7 +92,22 @@ pub async fn ssh_open(
             e
         })?;
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+    // Take the exit receiver before handing the Arc to the map so the
+    // janitor can wait for the pump task to finish without racing another
+    // caller for the slot. Receiver fires on normal exit (Eof/Close, peer
+    // hangup) and on pump abort (because the oneshot Sender is then dropped),
+    // so explicit close paths also wake the janitor; it just no-ops on the
+    // already-removed id.
+    let exit_signal = session.take_exit_signal();
+    let sessions_handle = state.sessions.clone();
     state.sessions.write().await.insert(id, session);
+    if let Some(rx) = exit_signal {
+        rt.spawn(async move {
+            let _ = rx.await;
+            sessions_handle.write().await.remove(&id);
+            log::info!("ssh session id={id} evicted after pump exit");
+        });
+    }
     log::info!("ssh opened id={id}");
     Ok(id)
 }

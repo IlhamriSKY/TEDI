@@ -5,8 +5,8 @@
 
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import * as HugeIcons from "@hugeicons/core-free-icons";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { onHugeIconsReady, tryGetHugeIcon } from "@/lib/hugeIconsBarrel";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@/components/ui/toast";
@@ -56,6 +56,11 @@ import {
   type StatusItem,
 } from "./registries";
 import { openExtensionTab as openExtTabBridge, setSidebarVisible as setSidebarVisibleBridge } from "./tabsBridge";
+import {
+  getActiveEditor,
+  setActiveEditorContent,
+  type ActiveEditorSnapshot,
+} from "./editorBridge";
 
 export type ExtensionRuntime = {
   id: string;
@@ -102,9 +107,17 @@ type Disposer = () => void;
 export type AppContextSnapshot = {
   workspaceCwd: string | null;
   activeFileName: string | null;
+  /** Terminal leaves in the currently-active workspace. Kept for back-compat
+   *  with extensions that already read it; new code should prefer
+   *  `terminalCountAll` when "all open terminals" is the intent. */
   terminalCount: number;
   /** Kind of the focused tab. `null` when no tab is active. */
   activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | "ext" | null;
+  /** Total workspaces the user has open in the workspace store. ≥ 1. */
+  workspaceCount: number;
+  /** Sum of terminal leaves across every workspace (active workspace uses
+   *  live tabs, inactive workspaces use their last-saved tab snapshot). */
+  terminalCountAll: number;
 };
 
 export type ExtensionContext = {
@@ -193,6 +206,15 @@ export type ExtensionContext = {
   headerBar: {
     setItem(item: HeaderItem): void;
     removeItem(itemId: string): void;
+  };
+  /** Live access to the active editor leaf's CodeMirror buffer. `getActive`
+   *  returns `null` when no editor is focused (terminal, preview, settings,
+   *  ext tab, …). `setActiveContent` replaces the whole buffer via a single
+   *  CodeMirror transaction; the user sees the change as dirty until Ctrl+S.
+   *  `editor:read` gates `getActive`; `editor:write` gates `setActiveContent`. */
+  editor: {
+    getActive(): ActiveEditorSnapshot | null;
+    setActiveContent(content: string): boolean;
   };
   /** Open or focus an extension-owned tab in the workspace. The tab
    *  mounts the renderer previously registered for `panelId` via
@@ -335,7 +357,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         disposers.push(dispose);
         return dispose;
       },
-      setSidebarVisible: (visible) => setSidebarVisibleBridge(visible),
+      setSidebarVisible: (visible) => setSidebarVisibleBridge(visible, ext.id),
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {
@@ -389,14 +411,21 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     secrets: {
       async get(name: string) {
         requirePermission(ext.id, declared, "secrets:read");
-        // Namespaced so extensions can't guess each other's keys.
-        const ns = `ext:${ext.id}:${name}`;
-        return tauriInvoke<string | null>("secrets_get", { name: ns });
+        // The native `secrets_get` takes (service, account); per-extension
+        // service string keeps namespaces isolated so extensions can't read
+        // each other's keys.
+        return tauriInvoke<string | null>("secrets_get", {
+          service: `tedi-ext:${ext.id}`,
+          account: name,
+        });
       },
       async set(name: string, value: string) {
         requirePermission(ext.id, declared, "secrets:write");
-        const ns = `ext:${ext.id}:${name}`;
-        await tauriInvoke("secrets_set", { name: ns, value });
+        await tauriInvoke("secrets_set", {
+          service: `tedi-ext:${ext.id}`,
+          account: name,
+          password: value,
+        });
       },
     },
     events: {
@@ -455,20 +484,35 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         span.style.display = "inline-flex";
         span.style.alignItems = "center";
         span.style.justifyContent = "center";
-        const iconValue = (HugeIcons as Record<string, unknown>)[name];
-        if (!iconValue) {
-          console.warn(`[ext:${ext.id}] unknown HugeIcon: ${name}`);
-          return span;
+        // The HugeIcons barrel is lazy-loaded so it doesn't bloat the main
+        // chunk. If an extension calls `icon()` before the barrel lands,
+        // we return the empty span now and mount the icon once the chunk
+        // arrives; if it's already cached, the mount runs synchronously.
+        const mount = () => {
+          const iconValue = tryGetHugeIcon(name);
+          if (!iconValue) {
+            console.warn(`[ext:${ext.id}] unknown HugeIcon: ${name}`);
+            return;
+          }
+          const root = createRoot(span);
+          iconRoots.add(root);
+          root.render(
+            createElement(HugeiconsIcon, {
+              icon: iconValue,
+              size: opts?.size ?? 15,
+              strokeWidth: opts?.strokeWidth ?? 1.75,
+            }),
+          );
+        };
+        if (tryGetHugeIcon(name)) {
+          mount();
+        } else {
+          const unsub = onHugeIconsReady(() => {
+            mount();
+            unsub();
+          });
+          disposers.push(unsub);
         }
-        const root = createRoot(span);
-        iconRoots.add(root);
-        root.render(
-          createElement(HugeiconsIcon, {
-            icon: iconValue as IconSvgElement,
-            size: opts?.size ?? 15,
-            strokeWidth: opts?.strokeWidth ?? 1.75,
-          }),
-        );
         return span;
       },
     },
@@ -490,6 +534,16 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       },
       removeItem(itemId: string) {
         headerItemsRegistry.removeItem(ext.id, itemId);
+      },
+    },
+    editor: {
+      getActive() {
+        requirePermission(ext.id, declared, "editor:read");
+        return getActiveEditor();
+      },
+      setActiveContent(content) {
+        requirePermission(ext.id, declared, "editor:write");
+        return setActiveEditorContent(content);
       },
     },
     tabs: {

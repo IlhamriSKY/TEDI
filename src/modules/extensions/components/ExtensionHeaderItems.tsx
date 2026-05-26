@@ -10,27 +10,30 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import * as HugeIcons from "@hugeicons/core-free-icons";
+import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 import { loadExtensionIcon } from "../icon";
 import { headerItemsRegistry, type HeaderItem } from "../registries";
 import { useRegistry } from "../useRegistry";
 
-/** Strip the `hugeicon:` prefix and resolve against
- *  `@hugeicons/core-free-icons`. Returns null for unknown names so the
- *  caller falls back to the empty-placeholder branch. */
+/** Strip the `hugeicon:` prefix and resolve against the lazy-loaded
+ *  `@hugeicons/core-free-icons` barrel. Returns null for unknown names so
+ *  the caller falls back to the empty-placeholder branch; also returns null
+ *  while the barrel is still in flight on first paint. */
 function resolveHugeIcon(icon: string): IconSvgElement | null {
   const m = icon.match(/^hugeicon:(.+)$/);
   if (!m) return null;
-  const found = (HugeIcons as Record<string, unknown>)[m[1]];
-  return (found as IconSvgElement | undefined) ?? null;
+  return tryGetHugeIcon(m[1]);
 }
 
-export function ExtensionHeaderItems() {
+export function ExtensionHeaderItems({ placement = "right" }: { placement?: "left" | "right" } = {}) {
   const items = useRegistry(headerItemsRegistry);
-  if (items.length === 0) return null;
-  const sorted = [...items].sort((a, b) => {
+  // Subscribe so the icon row re-renders once the lazy barrel arrives.
+  useHugeIconsReady();
+  const matching = items.filter(({ item }) => (item.placement ?? "right") === placement);
+  if (matching.length === 0) return null;
+  const sorted = [...matching].sort((a, b) => {
     const e = a.extensionId.localeCompare(b.extensionId);
     return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
   });
@@ -75,7 +78,7 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
           }
         }}
         className={cn(
-          "hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md",
+          "hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md",
           hugeIcon && toneColorClass,
           tone === "warning" && "animate-pulse",
         )}

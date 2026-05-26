@@ -19,12 +19,39 @@ import {
   useState,
 } from "react";
 
-const TERM_DECORATIONS = {
-  matchBackground: "#515c6a",
-  activeMatchBackground: "#d18616",
-  matchOverviewRuler: "#d18616",
-  activeMatchColorOverviewRuler: "#d18616",
-};
+/**
+ * Resolves xterm search decoration colours from the active theme. xterm's
+ * canvas renderer needs concrete rgb strings (not `var(...)`), so we probe
+ * the live CSS custom properties on demand. Active match tracks
+ * `--tedi-icon-working` (gold/amber in default; canonical per preset),
+ * inactive matches use `--muted-foreground` so they read as "found but not
+ * focused". Recomputed per call so theme switches re-tint immediately.
+ */
+function termDecorations(): {
+  matchBackground: string;
+  activeMatchBackground: string;
+  matchOverviewRuler: string;
+  activeMatchColorOverviewRuler: string;
+} {
+  const probe = document.createElement("div");
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  document.body.appendChild(probe);
+  const resolve = (varName: string, fallback: string): string => {
+    probe.style.color = `var(${varName}, ${fallback})`;
+    return getComputedStyle(probe).color || fallback;
+  };
+  const active = resolve("--tedi-icon-working", "#d18616");
+  const match = resolve("--muted-foreground", "#515c6a");
+  probe.remove();
+  return {
+    matchBackground: match,
+    activeMatchBackground: active,
+    matchOverviewRuler: active,
+    activeMatchColorOverviewRuler: active,
+  };
+}
 
 export type SearchTarget =
   | { kind: "terminal"; addon: SearchAddon; focus: () => void }
@@ -105,7 +132,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
       if (next) {
         target.addon.findNext(next, {
           incremental: true,
-          decorations: TERM_DECORATIONS,
+          decorations: termDecorations(),
         });
       } else {
         target.addon.clearDecorations();
@@ -118,7 +145,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
   const findDirection = (forward: boolean) => {
     if (!target || !q) return;
     if (target.kind === "terminal") {
-      const opts = { decorations: TERM_DECORATIONS };
+      const opts = { decorations: termDecorations() };
       if (forward) target.addon.findNext(q, opts);
       else target.addon.findPrevious(q, opts);
     } else {
@@ -207,7 +234,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
                 onClick={focus}
                 aria-label={tooltipTitle}
               >

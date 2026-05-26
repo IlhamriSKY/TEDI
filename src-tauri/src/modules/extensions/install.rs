@@ -333,16 +333,11 @@ fn extract_into(
                 MAX_FILE_BYTES
             ));
         }
-        total_bytes = total_bytes.saturating_add(entry_size);
-        if total_bytes > MAX_INSTALL_BYTES {
-            return Err(format!(
-                "uncompressed size exceeds cap ({} bytes)",
-                MAX_INSTALL_BYTES
-            ));
-        }
 
-        let mut out =
-            fs::File::create(&target).map_err(|e| format!("create {}: {e}", target.display()))?;
+        // Read into memory FIRST, then check caps against the actual bytes.
+        // A malicious zip whose header claims `size: 0` for many entries can
+        // bypass a claim-based total cap; counting `buf.len()` keeps the
+        // MAX_INSTALL_BYTES cap honest regardless of what entries claim.
         let mut buf = Vec::with_capacity(entry_size as usize);
         // Cap copy so a malicious zip header that claims a small size cannot
         // stream more bytes. `take` enforces the cap on the decompressor side.
@@ -356,6 +351,16 @@ fn extract_into(
                 rel.display()
             ));
         }
+        total_bytes = total_bytes.saturating_add(buf.len() as u64);
+        if total_bytes > MAX_INSTALL_BYTES {
+            return Err(format!(
+                "uncompressed size exceeds cap ({} bytes)",
+                MAX_INSTALL_BYTES
+            ));
+        }
+
+        let mut out =
+            fs::File::create(&target).map_err(|e| format!("create {}: {e}", target.display()))?;
         io::Write::write_all(&mut out, &buf)
             .map_err(|e| format!("write {}: {e}", target.display()))?;
         // Per-file tick after a successful write. Directories don't fire this

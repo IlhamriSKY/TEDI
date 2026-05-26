@@ -15,7 +15,7 @@ export function ZoomIndicator() {
         type="button"
         onClick={() => void setContentZoom(CONTENT_ZOOM_DEFAULT)}
         aria-label={`Content zoom ${label}. Click to reset to 100%.`}
-        className="border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs transition-colors"
+        className="border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-accent-foreground flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs transition-colors"
       >
         <HugeiconsIcon icon={ZoomIcon} size={12} strokeWidth={1.75} className="shrink-0" />
         <span>{label}</span>

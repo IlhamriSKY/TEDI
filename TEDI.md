@@ -31,6 +31,7 @@ The webview never touches OS resources directly. Everything goes through `invoke
 | `pty_daemon/`  | `protocol`, `transport`, `paths`, `server`, `client`, `spawn` | `--pty-daemon` CLI flag (no Tauri commands)                                                                                                                    | Sidecar process that owns every PTY across GUI restarts. Same binary, daemon mode short-circuits before Tauri boots. IPC over Unix domain socket / Windows named pipe. |
 | `fs/`          | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_read_file_portion`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). `fs_read_file_portion` streams only the requested line range through a `BufReader` so the IPC payload for AI reads stays bounded.    |
 | `shell/`       | `session.rs`, `background.rs`, `ringbuffer.rs`            | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list`                                                                           | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.** |
+| `format.rs`    | -                                                         | `fmt_run_external`                                                                                                                                             | Direct-spawn (no shell wrapper) external formatter executor. Pipes stdin in / captures stdout / enforces a 15s default timeout. Backs the editor's user-defined formatter type — `rustfmt`, `gofmt`, `php-cs-fixer`, etc.          |
 | `git/`         | `mod.rs` (+ submodules)                                   | `git_status`, `git_diff_full`, `git_commit`, `git_push`, `git_discard_*`                                                                                       | Backend for the `scm/` frontend panel - runs `git` against the workspace cwd and parses status/diff into structured payloads.                                                                                                     |
 | `ssh/`         | `mod.rs` (+ submodules)                                   | `ssh_connect`, `ssh_run`, `ssh_disconnect`, `sftp_*` (`list_dir`, `read_file`, `write_file`, …)                                                                | SSH/SFTP sessions backing the `ssh/` frontend module. Uses `russh` for connections, `russh-sftp` for filesystem ops.                                                                                                              |
 | `extensions/`  | `commands.rs`, `install.rs`, `manifest.rs`, `state.rs`, `mod.rs` | `ext_install_from_zip`, `ext_install_from_github`, `ext_check_update`, `ext_list`, `ext_enable`, `ext_disable`, `ext_uninstall`, `ext_read_manifest`, `ext_read_asset`, `ext_read_asset_bytes` | Install pipeline + state store for third-party extensions. Guards: `enclosed_name()`, 50 MiB total + 10 MiB per-file caps, stream-mode running-total check. State at `<app_data_dir>/extensions/state.json`.                       |
@@ -107,7 +108,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, owns its ho
 | Module          | Role                                                                                                                                                                                                                                                   |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **terminal/**   | `TerminalPane` keeps one mounted xterm per tab via `lib/useTerminalSession` + `lib/pty-bridge`. `lib/osc-handlers.ts` parses OSC 7 (with Windows drive-letter normalization: `/C:/Users/foo` → `C:/Users/foo`) and OSC 133. Themes in `lib/themes.ts`. |
-| **editor/**     | CodeMirror 6 stack (`EditorPane` mirrors `TerminalPane`). `lib/extensions.ts` configures language modes; `lib/autocomplete/` provides AI inline completion. Vim mode + prebuilt themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode).    |
+| **editor/**     | CodeMirror 6 stack (`EditorPane` mirrors `TerminalPane`). `lib/extensions.ts` configures language modes; `lib/autocomplete/` provides AI inline completion; `lib/formatters/` is the format-on-save pipeline (built-in Prettier + user external commands). Vim mode + prebuilt themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode). |
 | **explorer/**   | File tree with Material/Catppuccin icons (`lib/iconResolver.ts`), fuzzy search, keyboard nav, inline rename, context actions. Backslash-aware `basename`.                                                                                              |
 | **panes/**      | Split-pane orchestration. `PaneStack` + `PaneTreeView` manage horizontal/vertical splits using `react-resizable-panels`.                                                                                                                               |
 | **workspaces/** | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                        |
@@ -343,6 +344,40 @@ The Discord example demonstrates every host-API pattern an integration needs: `c
 The Secondary Folder Tree example covers the right-panel surface: `contributes.panels[]` with `surface: "right"` + `hideHostHeader`, `contributes.commands` + `contributes.keybindings` for the `Mod+Shift+E` toggle (rebindable), `ctx.registerCommandHandler` wiring the command to `ctx.panel.toggle()`, and `ctx.ui.mountFolderTree` to embed the built-in file explorer instead of reimplementing the tree. **The codebase ships zero secondary-folder-tree code** - the right-panel slot, status-bar toggle button, shortcut dispatcher, and folder-tree mount API are all generic facilities that any extension can use.
 
 See [extensions/README.md](extensions/README.md) (the only file in `extensions/` that *is* committed) for the manifest schema, host-API reference, and a copy-pasteable release workflow.
+
+## Formatters (format on save)
+
+VSCode-parity feature surface. Two pipelines under one prefs schema. Source
+lives in [src/modules/editor/lib/formatters/](src/modules/editor/lib/formatters/).
+
+| Type | Path | Behaviour |
+| --- | --- | --- |
+| `builtin` | `prettier.ts` | Lazy-imports Prettier 3 standalone + only the plugins the file's parser needs. Cached per-session. Supported parsers: `BUILTIN_LANGUAGES` in [lang.ts](src/modules/editor/lib/formatters/lang.ts) (JS/TS/JSX/TSX, JSON/JSONC, CSS/SCSS/LESS, HTML/Vue, YAML, Markdown, GraphQL). Project config resolved from `.editorconfig` + `.prettierrc(.json|.json5)` / `package.json#prettier` walked up from the file's directory — see "Built-in config resolution" below. |
+| `external` | `external.ts` → `fmt_run_external` | Direct-spawned (no shell wrapper). Two modes auto-selected by the args list: any arg containing `${file}` switches to temp-file mode (TEDI writes the buffer to a temp file in the document's dir, substitutes the path into args, reads it back); otherwise stdin mode (pipes the buffer in, treats stdout as the result). Defaults: `cwd = dir(file)` so the formatter resolves its own project config (`rustfmt.toml`, `.scalafmt.conf`, `pyproject.toml`, `.clang-format`, `mix format`, etc.) from the file's location. 15s timeout, 8 MiB output cap. Presets ship for 30+ tools — see `presets.ts`. |
+| `none` | - | Disabled for this language. Save skips formatting. |
+
+**Resolution order** for save / Format Document (Shift+Alt+F):
+
+1. `languageFromPath(path)` → language id from extension or basename overrides ([lang.ts](src/modules/editor/lib/formatters/lang.ts)).
+2. `formatters[lang]` from preferences picks the config. Per-language `formatOnSave: true|false|undefined` overrides the global `formatOnSave` boolean.
+3. Dispatch to prettier or external. Failures toast and fall through to a plain save — formatting is never allowed to block persistence.
+
+**EditorPane wiring** ([EditorPane.tsx](src/modules/editor/EditorPane.tsx)): `formatAndSaveRef` wraps the Mod+S keymap and the vim `:w` handler. It formats first, replaces the CM buffer in a single transaction (clamping the selection to the new length so a shrinking format doesn't crash the editor), then calls `useDocument.save(formatted)` — passing the override skips the stale-`dirty`-closure issue between dispatch and save. Shift+Alt+F runs the same pipeline but skips the save (matches VSCode's Format Document).
+
+**Settings UI** lives in [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx) → "Formatters" card, backed by [FormattersTable.tsx](src/settings/sections/components/FormattersTable.tsx). Adding a language pre-fills `builtin` if Prettier supports it, otherwise the preset external command (e.g. Rust → `rustfmt --emit stdout`) if one's registered, otherwise an empty external row. A "Use suggested" link re-snaps the row to the preset after the user has edited it.
+
+### Built-in config resolution
+
+[projectConfig.ts](src/modules/editor/lib/formatters/projectConfig.ts) walks parents of the file looking for the first hit, in priority order:
+
+1. `.prettierrc` / `.prettierrc.json` / `.prettierrc.json5` — relaxed JSON (line comments + trailing commas stripped).
+2. `package.json` with a top-level `"prettier"` field.
+
+[editorConfig.ts](src/modules/editor/lib/formatters/editorConfig.ts) walks for `.editorconfig` (stops at `root = true`). Maps `indent_style`/`indent_size`/`end_of_line`/`max_line_length` to Prettier `useTabs`/`tabWidth`/`endOfLine`/`printWidth`. Section globs follow the EditorConfig spec subset that matters in practice (`*.ext`, `**/*.ext`, `[abc]`, `{a,b,c}`).
+
+Merge order (last wins): bundled defaults → `.editorconfig` → `.prettierrc`. Per-directory results are cached for the session.
+
+**What's deliberately not supported in built-in mode**: `.prettierrc.{js,cjs,mjs}` and `.prettierrc.{yaml,yml}`. JS configs need a runtime sandbox we don't ship; YAML would require dragging in a parser for one config file. Both flavours work flawlessly when the user switches the language's type to `external` with `prettier --stdin-filepath ${file}` — that CLI invocation respects every config format natively. The FormattersTable help text spells this out.
 
 ## Known gotchas
 

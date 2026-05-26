@@ -62,7 +62,7 @@ function describe(meta: {
 } {
   if (meta.status === "awaiting-approval") {
     return {
-      tone: "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15",
+      tone: "border-icon-working/40 bg-icon-working/10 text-icon-working hover:bg-icon-working/15",
       icon: <HugeiconsIcon icon={ShieldUserIcon} size={12} strokeWidth={1.75} />,
       label:
         meta.approvalsPending > 1 ? `${meta.approvalsPending} approvals needed` : "Approval needed",

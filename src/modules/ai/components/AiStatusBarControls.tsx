@@ -96,8 +96,14 @@ const PROVIDER_ICON = {
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 
 export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
+  const tooltipLabel = (
+    <span className="inline-flex items-center gap-1.5">
+      <span>Open AI agent</span>
+      <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
+    </span>
+  );
   return (
-    <IconTooltip label="Open AI agent" side="top">
+    <IconTooltip label={tooltipLabel} side="top">
       <motion.button
         initial={{ y: -15 }}
         animate={{ y: 0 }}
@@ -105,13 +111,10 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
         onClick={onOpen}
         aria-label="Open AI agent"
         className={cn(
-          "border-border/60 bg-card flex h-6 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs",
-          "text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground transition-colors",
+          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
         )}
       >
-        <HugeiconsIcon icon={SparklesIcon} size={11} strokeWidth={2} className="shrink-0" />
-        <span>Open AI agent</span>
-        <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
+        <HugeiconsIcon icon={SparklesIcon} size={16} strokeWidth={1.75} className="shrink-0" />
       </motion.button>
     </IconTooltip>
   );
@@ -399,10 +402,10 @@ function ModelDropdown() {
               size="sm"
               aria-label={modelTooltip}
               className={cn(
-                "hover:bg-accent hover:text-foreground my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
+                "hover:bg-accent hover:text-accent-foreground my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
                 currentProviderHasKey
                   ? "text-muted-foreground"
-                  : "text-amber-600 dark:text-amber-400",
+                  : "text-icon-working",
               )}
             >
               <span className="truncate">{current.label}</span>
@@ -627,7 +630,7 @@ function ModelSection({
               onSetKey();
             }}
             onPointerDown={(e) => e.stopPropagation()}
-            className="cursor-pointer rounded-sm px-1 text-[9px] tracking-normal text-amber-600 normal-case underline-offset-2 hover:underline dark:text-amber-400"
+            className="cursor-pointer rounded-sm px-1 text-[9px] tracking-normal text-icon-working normal-case underline-offset-2 hover:underline text-icon-working"
           >
             Set key…
           </button>
@@ -669,7 +672,7 @@ function ModelSection({
                         "shrink-0 cursor-pointer rounded p-1 transition-colors",
                         pinned
                           ? "text-foreground hover:bg-accent"
-                          : "text-muted-foreground/60 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
+                          : "text-muted-foreground/60 hover:bg-accent hover:text-accent-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
                       )}
                     >
                       <HugeiconsIcon

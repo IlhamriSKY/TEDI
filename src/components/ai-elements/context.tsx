@@ -113,9 +113,9 @@ export const ContextTrigger = ({ children, className, ...props }: ContextTrigger
   // turns colour around the time the agent starts compacting.
   const tone =
     usedPercent >= 1
-      ? "text-red-600 dark:text-red-400"
+      ? "text-destructive"
       : usedPercent >= 0.8
-        ? "text-amber-600 dark:text-amber-400"
+        ? "text-icon-working"
         : "text-muted-foreground";
 
   return (
@@ -163,9 +163,9 @@ export const ContextContentHeader = ({
             <p
               className={cn(
                 usedPercent >= 1
-                  ? "text-red-600 dark:text-red-400"
+                  ? "text-destructive"
                   : usedPercent >= 0.8
-                    ? "text-amber-600 dark:text-amber-400"
+                    ? "text-icon-working"
                     : undefined,
               )}
             >
@@ -179,11 +179,11 @@ export const ContextContentHeader = ({
             <Progress className="bg-muted" value={progressValue} />
           </div>
           {usedPercent >= 1 ? (
-            <p className="text-[10px] text-red-600 dark:text-red-400">
+            <p className="text-[10px] text-destructive">
               Over context window. Run <span className="font-mono">/compact</span> to trim history.
             </p>
           ) : usedPercent >= 0.8 ? (
-            <p className="text-[10px] text-amber-600/90 dark:text-amber-400/90">
+            <p className="text-[10px] text-icon-working/90">
               Near window - older tool results will be auto-elided on next turn.
             </p>
           ) : null}

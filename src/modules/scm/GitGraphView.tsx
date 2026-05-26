@@ -17,21 +17,22 @@ const LANE_W = 14;
 const DOT_R = 3.5;
 const LANE_PAD_X = 8;
 
-/** Stable color per lane index. Picked from Tailwind's palette so it reads on
- * both light and dark themes without extra CSS. */
-const LANE_COLORS = [
-  "#3b82f6", // blue-500
-  "#10b981", // emerald-500
-  "#f59e0b", // amber-500
-  "#ec4899", // pink-500
-  "#8b5cf6", // violet-500
-  "#06b6d4", // cyan-500
-  "#ef4444", // red-500
-  "#84cc16", // lime-500
+/** Stable color per lane index. Pulls from the themed ANSI palette so each
+ * preset (Solarized, Monokai, etc.) tints branches in its own palette while
+ * keeping the 8 lanes visually distinct from one another. */
+const LANE_COLOR_VARS = [
+  "var(--tedi-ansi-bright-blue)",
+  "var(--tedi-ansi-bright-green)",
+  "var(--tedi-ansi-bright-yellow)",
+  "var(--tedi-ansi-bright-magenta)",
+  "var(--tedi-ansi-bright-cyan)",
+  "var(--tedi-ansi-bright-red)",
+  "var(--tedi-ansi-cyan)",
+  "var(--tedi-ansi-yellow)",
 ];
 
 function laneColor(lane: number): string {
-  return LANE_COLORS[lane % LANE_COLORS.length];
+  return LANE_COLOR_VARS[lane % LANE_COLOR_VARS.length];
 }
 
 type LaidOut = {
@@ -394,12 +395,12 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
 function RefBadge({ chip }: { chip: RefChip }) {
   const tone =
     chip.kind === "head"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+      ? "bg-diff-added/15 text-diff-added border-diff-added/30"
       : chip.kind === "tag"
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+        ? "bg-icon-working/15 text-icon-working border-icon-working/30"
         : chip.kind === "remote"
-          ? "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30"
-          : "bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30";
+          ? "bg-info/15 text-info border-info/30"
+          : "bg-primary/15 text-primary border-primary/30";
   return (
     <span
       className={cn(

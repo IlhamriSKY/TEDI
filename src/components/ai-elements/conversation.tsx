@@ -102,7 +102,7 @@ export const ConversationScrollButton = ({
             className={cn(
               // Outline-pill with light shadow, no halo ring. Text and arrow
               // signal the affordance without a heavy glow.
-              "border-border/60 bg-background text-muted-foreground hover:border-foreground/30 hover:bg-accent hover:text-foreground dark:bg-background dark:hover:bg-muted pointer-events-auto h-7 gap-1.5 rounded-full border px-3 text-[11px] font-medium shadow-md backdrop-blur transition-colors active:scale-95",
+              "border-border/60 bg-background text-muted-foreground hover:border-foreground/30 hover:bg-accent hover:text-accent-foreground dark:bg-background dark:hover:bg-muted pointer-events-auto h-7 gap-1.5 rounded-full border px-3 text-[11px] font-medium shadow-md backdrop-blur transition-colors active:scale-95",
               className,
             )}
             onClick={handleScrollToBottom}

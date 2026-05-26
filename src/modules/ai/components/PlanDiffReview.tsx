@@ -128,14 +128,14 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
           <div className="flex items-baseline gap-1.5 font-mono text-[11.5px]">
             <span className="text-foreground truncate">{basename(item.path)}</span>
             {isNew ? (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">new</span>
+              <span className="text-diff-added text-[10px]">new</span>
             ) : null}
           </div>
           <div className="text-muted-foreground truncate font-mono text-[10px]">{item.path}</div>
           {stats ? (
             <div className="mt-0.5 flex items-center gap-2 text-[10px] tabular-nums">
-              <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
-              <span className="text-destructive">−{stats.removed}</span>
+              <span className="text-diff-added">+{stats.added}</span>
+              <span className="text-diff-removed">−{stats.removed}</span>
               <span className="text-muted-foreground">
                 {item.kind === "multi_edit" ? "multi-edit" : item.kind}
               </span>
@@ -196,8 +196,8 @@ function UnifiedDiffPreview({ original, proposed }: { original: string; proposed
             className={cn(
               "flex whitespace-pre",
               l.kind === "add"
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                : "bg-destructive/10 text-destructive",
+                ? "bg-diff-added/10 text-diff-added"
+                : "bg-diff-removed/10 text-diff-removed",
             )}
           >
             <span className="w-4 shrink-0 px-1 text-center opacity-70 select-none">

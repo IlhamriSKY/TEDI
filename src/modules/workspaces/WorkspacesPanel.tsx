@@ -84,8 +84,8 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
                 className={cn(
                   "group relative flex h-7 items-center gap-1.5 rounded px-1.5 text-xs",
                   isActive
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
                 )}
               >
                 <HugeiconsIcon
@@ -123,7 +123,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
                     <span
                       className={cn(
                         "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
-                        isActive ? "text-foreground/80" : "text-muted-foreground",
+                        isActive ? "text-accent-foreground/80" : "text-muted-foreground",
                         "group-hover:opacity-0",
                       )}
                       aria-label={`${tabCount} tabs open`}
@@ -142,7 +142,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
                       aria-label="Rename workspace"
                       variant="ghost"
                       size="icon-sm"
-                      className="text-muted-foreground hover:bg-accent hover:text-foreground size-5 rounded"
+                      className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-5 rounded"
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
                     </Button>

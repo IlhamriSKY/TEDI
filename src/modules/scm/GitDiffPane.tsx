@@ -39,9 +39,11 @@ function isNonText(r: FileReadResult): boolean {
 
 // Match AiDiffPane's diff coloring. MergeView scroll wiring lives in
 // `globals.css` (.cm-mergeView); EditorView.theme can't reach the outer wrapper.
+// Inline added-text highlight reads from the themable `--tedi-diff-added`
+// token so Solarized/Monokai/etc. get their canonical green tint.
 const DIFF_THEME = EditorView.theme({
   ".cm-changedText": {
-    background: "#88ff881a !important",
+    background: "color-mix(in srgb, var(--tedi-diff-added) 18%, transparent) !important",
   },
 });
 

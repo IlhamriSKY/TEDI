@@ -11,8 +11,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    cli, cli_ext, cli_theme, cli_update, extensions, fs, git, net, preview, pty, pty_daemon,
-    secrets, shell, ssh,
+    cli, cli_ext, cli_theme, cli_update, extensions, format, fs, git, net, preview, pty,
+    pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -336,6 +336,7 @@ pub fn run() {
             shell::shell_bg_logs,
             shell::shell_bg_kill,
             shell::shell_bg_list,
+            format::fmt_run_external,
             open_settings_window,
             cli::cli_initial_target,
             cli::cli_take_initial_update_request,

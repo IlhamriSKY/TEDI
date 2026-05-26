@@ -47,28 +47,28 @@ export function statusDotClass(s: SshStatus): string {
     case "neutral":
       return "bg-muted-foreground/60";
     case "warn":
-      return "bg-yellow-500 dark:bg-yellow-400";
+      return "bg-icon-working";
     case "ok":
-      return "bg-emerald-500 dark:bg-emerald-400";
+      return "bg-icon-idle";
     case "bad":
-      return "bg-red-500 dark:bg-red-400";
+      return "bg-icon-blocked";
   }
 }
 
 /** Tailwind `text-*` class for the SSH cloud icon. Colour carries the
- *  connection status so no extra dot overlay is needed. Sky is the resting
- *  tint before the session settles. */
+ *  connection status so no extra dot overlay is needed. `info` is the
+ *  resting tint before the session settles. */
 export function statusIconClass(s: SshStatus | undefined): string {
-  if (!s) return "text-sky-600 dark:text-sky-400";
+  if (!s) return "text-info";
   switch (statusTone(s)) {
     case "neutral":
-      return "text-sky-600 dark:text-sky-400";
+      return "text-info";
     case "warn":
-      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+      return "text-icon-working animate-pulse";
     case "ok":
-      return "text-emerald-600 dark:text-emerald-400";
+      return "text-icon-idle";
     case "bad":
-      return "text-red-600 dark:text-red-400";
+      return "text-icon-blocked";
   }
 }
 
@@ -82,11 +82,11 @@ export function statusLabelClass(s: SshStatus | undefined): string {
     case "neutral":
       return "";
     case "warn":
-      return "text-yellow-600 dark:text-yellow-400 animate-pulse";
+      return "text-icon-working animate-pulse";
     case "ok":
-      return "text-emerald-600 dark:text-emerald-400";
+      return "text-icon-idle";
     case "bad":
-      return "text-red-600 dark:text-red-400";
+      return "text-icon-blocked";
   }
 }
 

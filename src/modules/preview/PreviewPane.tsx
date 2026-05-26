@@ -71,7 +71,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function Preview
       <div
         className={
           url && !selfBlocked
-            ? "relative min-h-0 flex-1 bg-white"
+            ? "relative min-h-0 flex-1 bg-background"
             : "bg-background relative min-h-0 flex-1"
         }
       >
@@ -116,7 +116,7 @@ function EmptyState() {
 function SelfBlockedState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+      <div className="flex size-12 items-center justify-center rounded-2xl border border-icon-working/30 bg-icon-working/10 text-icon-working">
         <HugeiconsIcon icon={AlertCircleIcon} size={20} strokeWidth={1.5} />
       </div>
       <div className="space-y-1.5">

@@ -41,7 +41,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
     iconUrl !== null &&
     (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
   // Only `error` gets a corner dot. `warning` pulses instead.
-  const dot = item.tone === "error" ? "bg-red-500" : null;
+  const dot = item.tone === "error" ? "bg-icon-blocked" : null;
   return (
     <IconTooltip label={item.tooltip} side="top">
       <span

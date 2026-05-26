@@ -62,6 +62,14 @@ export type ThemeColors = {
   iconIdle: string;
   /** Icon color when blocked / awaiting approval. */
   iconBlocked: string;
+  /** Semantic green for diff additions, "+N" stats, success indicators. */
+  diffAdded: string;
+  /** Semantic red for diff removals, "-N" stats. Distinct from `destructive`
+   *  which targets actionable danger UI (delete buttons, error text). */
+  diffRemoved: string;
+  /** Semantic sky/cyan for "info" pills, renamed/copied SCM rows, neutral
+   *  status notifications. */
+  info: string;
   /**
    * Focus / accent stripe color painted on the active tab in the top
    * tab bar, per tab kind. The stripe is the 3px vertical bar near the
@@ -184,6 +192,9 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   iconWorking: ["--tedi-icon-working"],
   iconIdle: ["--tedi-icon-idle"],
   iconBlocked: ["--tedi-icon-blocked"],
+  diffAdded: ["--tedi-diff-added"],
+  diffRemoved: ["--tedi-diff-removed"],
+  info: ["--tedi-info"],
   tabAccentTerminal: ["--tedi-tab-terminal"],
   tabAccentSsh: ["--tedi-tab-ssh"],
   tabAccentEditor: ["--tedi-tab-editor"],
@@ -455,6 +466,9 @@ const SAFE_LIGHT_FALLBACK: ThemeColors = {
   iconWorking: "#ca8a04",
   iconIdle: "#059669",
   iconBlocked: "#dc2626",
+  diffAdded: "#16a34a",
+  diffRemoved: "#dc2626",
+  info: "#0284c7",
   tabAccentTerminal: "#10b981",
   tabAccentSsh: "#0ea5e9",
   tabAccentEditor: "#0057fe",
@@ -508,6 +522,9 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
   iconWorking: "#facc15",
   iconIdle: "#34d399",
   iconBlocked: "#f87171",
+  diffAdded: "#4ade80",
+  diffRemoved: "#f87171",
+  info: "#38bdf8",
   tabAccentTerminal: "#34d399",
   tabAccentSsh: "#38bdf8",
   tabAccentEditor: "#5b8bff",

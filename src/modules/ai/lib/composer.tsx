@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
@@ -193,7 +193,11 @@ export function AiComposerProvider({ children }: ProviderProps) {
     },
   });
 
-  const addFiles = async (list: FileList | null) => {
+  // useCallback the closures that only touch setState dispatchers (stable by
+  // React contract). Stable identities stop the memoised `ctx` object below
+  // from rotating on unrelated re-renders, and shield downstream useEffect
+  // deps from spurious fires.
+  const addFiles = useCallback(async (list: FileList | null) => {
     if (!list) return;
     const next: FileAttachment[] = [];
     for (const f of Array.from(list)) {
@@ -201,21 +205,36 @@ export function AiComposerProvider({ children }: ProviderProps) {
       if (att) next.push(att);
     }
     if (next.length) setFiles((prev) => [...prev, ...next]);
-  };
+  }, []);
 
-  const removeFile = (id: string) => setFiles((prev) => prev.filter((f) => f.id !== id));
+  const removeFile = useCallback(
+    (id: string) => setFiles((prev) => prev.filter((f) => f.id !== id)),
+    [],
+  );
 
-  const addSnippet = (s: Snippet) =>
-    setPickedSnippets((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]));
-  const removeSnippet = (id: string) =>
-    setPickedSnippets((prev) => prev.filter((s) => s.id !== id));
+  const addSnippet = useCallback(
+    (s: Snippet) =>
+      setPickedSnippets((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s])),
+    [],
+  );
+  const removeSnippet = useCallback(
+    (id: string) => setPickedSnippets((prev) => prev.filter((s) => s.id !== id)),
+    [],
+  );
 
-  const addCommand = (cmd: SlashCommandMeta) =>
-    setPickedCommands((prev) => (prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd]));
-  const removeCommand = (name: string) =>
-    setPickedCommands((prev) => prev.filter((c) => c.name !== name));
+  const addCommand = useCallback(
+    (cmd: SlashCommandMeta) =>
+      setPickedCommands((prev) =>
+        prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd],
+      ),
+    [],
+  );
+  const removeCommand = useCallback(
+    (name: string) => setPickedCommands((prev) => prev.filter((c) => c.name !== name)),
+    [],
+  );
 
-  const attachFileByPath = async (path: string) => {
+  const attachFileByPath = useCallback(async (path: string) => {
     try {
       type ReadResult =
         | { kind: "text"; content: string; size: number }
@@ -246,9 +265,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
     } catch (e) {
       console.error("attachFileByPath failed:", e);
     }
-  };
+  }, []);
 
-  const attachFolderByPath = async (path: string): Promise<boolean> => {
+  const attachFolderByPath = useCallback(async (path: string): Promise<boolean> => {
     try {
       type DirEntry = { name: string; kind: "file" | "dir" | "symlink"; size: number };
       const entries = await invoke<DirEntry[]>("fs_read_dir", { path });
@@ -278,9 +297,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
       console.error("attachFolderByPath failed:", e);
       return false;
     }
-  };
+  }, []);
 
-  const submit = () => {
+  const submit = useCallback(() => {
     if (isBusy) return;
     const trimmed = value.trim();
     if (
@@ -430,14 +449,14 @@ export function AiComposerProvider({ children }: ProviderProps) {
     setFiles([]);
     setPickedSnippets([]);
     setPickedCommands([]);
-  };
+  }, [isBusy, value, files, pickedSnippets, pickedCommands, sessionId]);
 
-  const stop = () => {
+  const stop = useCallback(() => {
     if (!sessionId) return;
     void getOrCreateChat(sessionId).stop();
     // Reset transient agent meta so a stuck error or step label doesn't linger.
     useChatStore.getState().resetAgentMeta();
-  };
+  }, [sessionId]);
 
   const canSend =
     !isBusy &&
@@ -446,30 +465,56 @@ export function AiComposerProvider({ children }: ProviderProps) {
       pickedSnippets.length > 0 ||
       pickedCommands.length > 0);
 
-  const ctx: ComposerCtx = {
-    textareaRef,
-    value,
-    setValue,
-    files,
-    addFiles,
-    attachFileByPath,
-    attachFolderByPath,
-    isActive,
-    removeFile,
-    setAttachments: setFiles,
-    pickedSnippets,
-    addSnippet,
-    removeSnippet,
-    setPickedSnippets,
-    pickedCommands,
-    addCommand,
-    removeCommand,
-    isBusy,
-    submit,
-    stop,
-    voice,
-    canSend,
-  };
+  // Memoise the context value so consumers don't observe a fresh object ref
+  // on parent re-renders that didn't touch any composer field. Function refs
+  // above are useCallback-stabilised so this memo's identity only rotates
+  // when an actual state field changes.
+  const ctx = useMemo<ComposerCtx>(
+    () => ({
+      textareaRef,
+      value,
+      setValue,
+      files,
+      addFiles,
+      attachFileByPath,
+      attachFolderByPath,
+      isActive,
+      removeFile,
+      setAttachments: setFiles,
+      pickedSnippets,
+      addSnippet,
+      removeSnippet,
+      setPickedSnippets,
+      pickedCommands,
+      addCommand,
+      removeCommand,
+      isBusy,
+      submit,
+      stop,
+      voice,
+      canSend,
+    }),
+    [
+      value,
+      files,
+      addFiles,
+      attachFileByPath,
+      attachFolderByPath,
+      isActive,
+      removeFile,
+      pickedSnippets,
+      addSnippet,
+      removeSnippet,
+      pickedCommands,
+      addCommand,
+      removeCommand,
+      isBusy,
+      submit,
+      stop,
+      voice,
+      canSend,
+    ],
+  );
 
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
 }

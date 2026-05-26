@@ -48,12 +48,12 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
 // Small rounded status indicator left of the tool icon: green on success,
 // red on error, orange on deny.
 const STATUS_DOT: Record<ToolPart["state"], string> = {
-  "approval-requested": "bg-amber-500/80 border border-amber-500",
-  "approval-responded": "bg-sky-500/80 border border-sky-500",
+  "approval-requested": "bg-icon-working/80 border border-icon-working",
+  "approval-responded": "bg-info/80 border border-info",
   "input-streaming": "bg-muted-foreground/30 border border-muted-foreground/40",
-  "input-available": "bg-amber-500/80 border border-amber-500",
-  "output-available": "bg-emerald-500/80 border border-emerald-500",
-  "output-denied": "bg-orange-500/80 border border-orange-500",
+  "input-available": "bg-icon-working/80 border border-icon-working",
+  "output-available": "bg-diff-added/80 border border-diff-added",
+  "output-denied": "bg-destructive/80 border border-destructive",
   "output-error": "bg-destructive/80 border border-destructive",
 };
 
@@ -350,7 +350,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     const lines = content ? content.split("\n").length : null;
     return (
       <div className="flex items-center gap-1.5 font-mono text-[11px]">
-        <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+        <span className="text-diff-added">✓</span>
         <span className="text-foreground">read</span>
         {path ? <span className="text-muted-foreground">· {path}</span> : null}
         {lines != null ? (
@@ -449,7 +449,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
             {filesScanned != null ? ` · ${filesScanned} files` : ""}
           </span>
           {truncated ? (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400">
+            <span className="rounded bg-icon-working/15 px-1.5 py-0.5 text-icon-working">
               truncated
             </span>
           ) : null}
@@ -485,7 +485,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
       const path = typeof o.path === "string" ? o.path : "";
       return (
         <div className="flex items-center gap-1.5 font-mono text-[11px]">
-          <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+          <span className="text-diff-added">✓</span>
           {reps != null ? (
             <span className="text-foreground">
               {reps} replacement{reps === 1 ? "" : "s"}
@@ -502,7 +502,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     const bytes = typeof o.bytesWritten === "number" ? o.bytesWritten : null;
     return (
       <div className="flex items-center gap-1.5 font-mono text-[11px]">
-        <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+        <span className="text-diff-added">✓</span>
         <span className="text-foreground">
           {toolName === "create_directory" ? "created" : "wrote"}
         </span>
@@ -567,7 +567,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="flex items-center gap-1.5">
-          <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+          <span className="size-1.5 animate-pulse rounded-full bg-diff-added" />
           {handle ? <span className="text-foreground">{handle}</span> : null}
           <span className="text-muted-foreground">running</span>
         </div>
@@ -628,7 +628,7 @@ function BashRunOutput({ data }: { data: Record<string, unknown> }) {
             className={cn(
               "rounded px-1.5 py-0.5 font-mono text-[10px]",
               exit === 0
-                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                ? "bg-diff-added/15 text-diff-added"
                 : "bg-destructive/15 text-destructive",
             )}
           >
@@ -636,12 +636,12 @@ function BashRunOutput({ data }: { data: Record<string, unknown> }) {
           </span>
         ) : null}
         {timedOut ? (
-          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-400">
+          <span className="rounded bg-icon-working/15 px-1.5 py-0.5 font-mono text-[10px] text-icon-working">
             timed out
           </span>
         ) : null}
         {truncated ? (
-          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-400">
+          <span className="rounded bg-icon-working/15 px-1.5 py-0.5 font-mono text-[10px] text-icon-working">
             truncated
           </span>
         ) : null}
@@ -667,7 +667,7 @@ function highlightMatch(text: string, pattern: string): ReactNode {
   const parts = text.split(re);
   return parts.map((p, i) =>
     i % 2 === 1 ? (
-      <mark key={i} className="text-foreground rounded bg-amber-500/30 px-0.5">
+      <mark key={i} className="text-foreground rounded bg-icon-working/30 px-0.5">
         {p}
       </mark>
     ) : (

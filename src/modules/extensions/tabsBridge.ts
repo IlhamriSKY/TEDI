@@ -35,8 +35,13 @@ export function openExtensionTab(opts: OpenExtensionTabOpts): number | null {
 }
 
 /** Visibility setter for the left sidebar (file explorer + SCM panel).
- *  App wires the imperative collapse / expand on `sidebarRef`. */
-export type SetSidebarVisibleFn = (visible: boolean) => void;
+ *  App wires the imperative collapse / expand on `sidebarRef`. The optional
+ *  `ownerExtensionId` lets App attribute a hide request to an extension so
+ *  it can auto-restore the prior visibility when the user switches away
+ *  from that extension's tab, and re-hide when they return. Calls without
+ *  an owner are treated as a user-driven toggle and clear any pending
+ *  restore. */
+export type SetSidebarVisibleFn = (visible: boolean, ownerExtensionId?: string) => void;
 
 let sidebarSetter: SetSidebarVisibleFn | null = null;
 
@@ -44,12 +49,12 @@ export function setSidebarSetter(fn: SetSidebarVisibleFn | null): void {
   sidebarSetter = fn;
 }
 
-export function setSidebarVisible(visible: boolean): void {
+export function setSidebarVisible(visible: boolean, ownerExtensionId?: string): void {
   if (!sidebarSetter) {
     console.warn(
       "[extensions] setSidebarVisible called before App wired the bridge; ignoring",
     );
     return;
   }
-  sidebarSetter(visible);
+  sidebarSetter(visible, ownerExtensionId);
 }

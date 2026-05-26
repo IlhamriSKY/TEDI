@@ -28,8 +28,8 @@ export function SchedulerStatusPill() {
           type="button"
           aria-label={`${pending.length} scheduled command(s)`}
           className={cn(
-            "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-            "hover:bg-amber-500/15 flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors",
+            "border-icon-working/40 bg-icon-working/10 text-icon-working",
+            "hover:bg-icon-working/15 flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors",
           )}
         >
           <HugeiconsIcon icon={Clock04Icon} size={11} strokeWidth={1.75} />

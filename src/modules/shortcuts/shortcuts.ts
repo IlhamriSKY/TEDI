@@ -32,6 +32,7 @@ export type ShortcutId =
   | "view.zoomOut"
   | "view.zoomReset"
   | "editor.toggleWordWrap"
+  | "editor.formatDocument"
   | "terminal.copy"
   | "terminal.paste"
   | "terminal.close";
@@ -254,6 +255,15 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Toggle word wrap",
     group: "Editor",
     defaultBindings: [{ alt: true, key: "z" }],
+  },
+  {
+    // VSCode parity. Runs the configured formatter (built-in Prettier or
+    // user external command) against the active editor and rewrites the
+    // buffer. Does not save — pair with Mod+S for format-then-save.
+    id: "editor.formatDocument",
+    label: "Format document",
+    group: "Editor",
+    defaultBindings: [{ shift: true, alt: true, key: "f" }],
   },
   {
     // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C on Linux/Windows.

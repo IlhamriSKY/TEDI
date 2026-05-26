@@ -82,7 +82,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
         {currentKey ? (
           <Badge
             variant="outline"
-            className="ml-1 h-4 gap-1 border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-700 dark:text-emerald-300"
+            className="ml-1 h-4 gap-1 border-diff-added/40 bg-diff-added/10 px-1.5 text-[10px] text-diff-added"
           >
             <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
             Configured

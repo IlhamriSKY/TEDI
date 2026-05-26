@@ -20,6 +20,7 @@ the GitHub `releases/latest` endpoint to surface available versions.
 
 | Extension | Repository | Install string |
 | --- | --- | --- |
+| **Beautify** | <https://github.com/IlhamriSKY/TEDI.beautify> | `IlhamriSKY/TEDI.beautify` |
 | **Discord Rich Presence** | <https://github.com/IlhamriSKY/TEDI.discord-rich-presence> | `IlhamriSKY/TEDI.discord-rich-presence` |
 | **Secondary Folder Tree** | <https://github.com/IlhamriSKY/TEDI.secondary-folder-tree> | `IlhamriSKY/TEDI.secondary-folder-tree` |
 | **Screenshot** | <https://github.com/IlhamriSKY/TEDI.screenshot> | `IlhamriSKY/TEDI.screenshot` |
@@ -32,6 +33,7 @@ paste the install string above, click **Review → Install**.
 
 | Reference | Covers |
 | --- | --- |
+| Beautify | `headerbar:write` with `placement: "left"` (file-view-mode cluster, next to the markdown-preview toggle), `editor:read` / `editor:write` for live-buffer round-trip via `ctx.editor.getActive` + `ctx.editor.setActiveContent`, sidecar HTTP server pattern reused from SQL Explorer (`shell_bg_spawn_direct` + `READY {port,token}` handshake), VSCode-parity language dispatch in a Rust binary that links `dprint-plugin-typescript` (JS / TS / JSX / TSX), `dprint-plugin-markdown`, `malva` (CSS / SCSS / LESS / Sass), `markup_fmt` (HTML / Vue / Svelte / Astro), `pretty_yaml`, `toml_edit`, `sqlformat`, and `serde_json`. |
 | Discord Rich Presence | `contribute.settings`, `settings.onChange`, `app.onContextChange`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binaries via `shell_bg_spawn_direct`. |
 | Secondary Folder Tree | `contribute.panels` (right surface), `contribute.commands` + `contribute.keybindings` for rebindable shortcut, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`, drag-from-tree → drop-on-terminal. |
 | Terminal Screenshot | `contribute.panels` (right surface) used purely to mint the status-bar button, then the click is intercepted via a document capture-phase listener so a `position: fixed` floating dropdown opens instead of the right-slot, mapping `data-terminal-leaf-id` → tab `terminalOrdinal` by walking `TabsTrigger` DOM, DOM-side canvas compositing with no extra permissions, clipboard + `<a download>` for persistence. |
@@ -76,7 +78,9 @@ publisher-scoped prefix to avoid collisions
     "ui:toast",
     "secrets:read",
     "secrets:write",
-    "panels:register"
+    "panels:register",
+    "editor:read",
+    "editor:write"
   ],
   "contributes": {
     "settings": [
@@ -245,6 +249,8 @@ resource the host can't see (a `setTimeout`, a third-party listener,
 | `ui:toast`             | low    | Show a toast in the main window.                                    |
 | `panels:register`      | low    | Declare panels in `contributes.panels[]` AND call `ctx.registerPanelRenderer`, `ctx.panel.{open,close,toggle}`. |
 | `statusbar:write`      | low    | Push runtime icons into the status bar via `ctx.statusBar.setItem`. |
+| `editor:read`          | medium | Read the active editor's live (possibly dirty) buffer via `ctx.editor.getActive`. |
+| `editor:write`         | medium | Replace the active editor's buffer via `ctx.editor.setActiveContent`. The user sees a dirty buffer and can undo or save. |
 | `shell:transform`      | high   | Rewrite every shell command AI tools run via `ctx.shell.registerCommandTransformer`. |
 | `*`                    | high   | Everything (power-user only).                                       |
 

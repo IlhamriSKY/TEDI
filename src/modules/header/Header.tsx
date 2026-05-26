@@ -15,7 +15,7 @@ import {
   TextWrapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
@@ -98,7 +98,7 @@ function onHeaderMouseDown(e: React.MouseEvent<HTMLElement>) {
   }
 }
 
-export function Header({
+function HeaderImpl({
   tabs,
   activeId,
   onSelectEntry,
@@ -158,7 +158,7 @@ export function Header({
       <Button
         variant="ghost"
         size="icon"
-        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
         onClick={onOpenExtensions}
         aria-label="Extensions"
       >
@@ -172,7 +172,7 @@ export function Header({
       <Button
         variant="ghost"
         size="icon"
-        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
+        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
         onClick={onOpenSettings}
         aria-label="Settings"
       >
@@ -201,7 +201,7 @@ export function Header({
               aria-label="Toggle sidebar"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 rounded-md"
             >
               <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
             </Button>
@@ -213,7 +213,7 @@ export function Header({
               aria-label="Open folder"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 rounded-md"
             >
               <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
             </Button>
@@ -224,6 +224,11 @@ export function Header({
         {/* Drag spacer between the left and right icon clusters. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
 
+        {/* Extension buttons that opt-in to `placement: "left"`. Sits in the
+            file-view-mode cluster, before the markdown-preview toggle, so
+            "format / view as X" actions group with the other view toggles. */}
+        <ExtensionHeaderItems placement="left" />
+
         {mdPreviewToggle && (
           <IconTooltip label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}>
             <Button
@@ -232,8 +237,8 @@ export function Header({
               onClick={mdPreviewToggle.toggle}
               aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
               aria-pressed={mdPreviewToggle.active}
-              className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
-                mdPreviewToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
+              className={`hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md ${
+                mdPreviewToggle.active ? "bg-accent text-accent-foreground" : "text-muted-foreground"
               }`}
             >
               <HugeiconsIcon
@@ -257,8 +262,8 @@ export function Header({
               onClick={lineWrapToggle.toggle}
               aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
               aria-pressed={lineWrapToggle.active}
-              className={`hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md ${
-                lineWrapToggle.active ? "bg-accent text-foreground" : "text-muted-foreground"
+              className={`hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md ${
+                lineWrapToggle.active ? "bg-accent text-accent-foreground" : "text-muted-foreground"
               }`}
             >
               <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
@@ -318,3 +323,11 @@ export function Header({
     </div>
   );
 }
+
+/**
+ * Memoised so unrelated App.tsx re-renders (AI streaming tokens, status bar
+ * ticks, sidebar resize, etc.) don't ripple through the header + tab strip.
+ * Callers MUST pass stable callback references (use `useCallback`) or memo
+ * is a no-op.
+ */
+export const Header = memo(HeaderImpl);

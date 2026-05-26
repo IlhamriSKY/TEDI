@@ -787,7 +787,7 @@ function QueueRow({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.92 }}
                 transition={{ duration: 0.12 }}
-                className="group flex max-w-60 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px]"
+                className="group flex max-w-60 items-center gap-1 rounded-md border border-icon-working/30 bg-icon-working/10 px-1.5 py-0.5 text-[11px]"
               >
                 <span className="text-foreground/90 truncate">{q.text}</span>
                 <button

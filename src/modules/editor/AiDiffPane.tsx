@@ -61,8 +61,10 @@ const DIFF_THEME = EditorView.theme({
   // ".cm-deletedLineGutter": {
   //   backgroundColor: "#ef4444",
   // },
+  // Inline added-text highlight inside merge view. Reads `--tedi-diff-added`
+  // so Solarized/Monokai/etc. pick their canonical green tint.
   ".cm-changedText": {
-    background: "#88ff881a !important",
+    background: "color-mix(in srgb, var(--tedi-diff-added) 18%, transparent) !important",
   },
 });
 
@@ -169,8 +171,8 @@ export function AiDiffPane({
             <TooltipContent side="bottom">{path}</TooltipContent>
           </Tooltip>
           <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
-            <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
-            <span className="text-rose-600 dark:text-rose-400">−{stats.removed}</span>
+            <span className="text-diff-added">+{stats.added}</span>
+            <span className="text-diff-removed">−{stats.removed}</span>
           </span>
         </div>
         {status === "pending" ? (

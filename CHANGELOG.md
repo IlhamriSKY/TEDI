@@ -4,6 +4,37 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.0] - 26-05-2026
+
+### Added
+
+- **Format-on-save + format document pipeline.** New editor formatter system at [`src/modules/editor/lib/formatters/`](src/modules/editor/lib/formatters/) routes a save through Prettier (built-in) or an external CLI (`rustfmt`, `gofmt`, `black`, `clang-format`, `phpcbf`, etc.) based on the file's resolved language. Rust side [`src-tauri/src/modules/format.rs`](src-tauri/src/modules/format.rs) spawns the external binary with stdin/stdout piping and a 30 s timeout. UI in Settings → General gains a `FormattersTable` for binding a language to a formatter + setting `formatOnSave`. Built-in language detection in `formatters/lang.ts`; ready-made external presets in `formatters/presets.ts`. Falls back to a `NoFormatterError` toast when no formatter is configured.
+- **`ctx.editor` host API.** Extensions can now read the active editor's `{ path, content, dirty }` and replace its content via `ctx.editor.getActive()` / `ctx.editor.setActiveContent(text)`. Wired through [`editorBridge.ts`](src/modules/extensions/editorBridge.ts) which App.tsx feeds on every render with the live `activeEditorHandle`, so the host stays React-free. Lets formatter / lint / refactor extensions act on the current buffer without re-implementing tab tracking.
+- **Workspace + total terminal counts on `AppContextSnapshot`.** Two new fields: `workspaceCount` (length of the workspace store) and `terminalCountAll` (live tabs for the active workspace + last-saved tabs for inactive ones, walked via the new `countSavedTerminalLeaves` helper in [`workspaces/serialize.ts`](src/modules/workspaces/serialize.ts)). Discord Rich Presence v1.5.5 surfaces both in the presence card so the viewer sees the multi-workspace footprint at a glance.
+- **Auto-restore for ext-tab sidebar collapses.** When an extension calls `ctx.app.setSidebarVisible(false)` while opening its tab (SQL Explorer is the first consumer), the host snapshots the user's prior sidebar state. Switching to another tab restores it; coming back to the ext's tab re-collapses. Manual sidebar toggles clear the latch so the user's intent always wins. Implemented via a new `ownerExtensionId` channel on `setSidebarVisible` + a tabs-watching effect in `App.tsx`.
+- **Lazy HugeIcons barrel.** [`src/lib/hugeIconsBarrel.ts`](src/lib/hugeIconsBarrel.ts) splits the dynamic-name HugeIcons lookups (extension tab icons, `ctx.ui.icon`, contributed header items) into their own Rollup chunk loaded in parallel with the main bundle. Named imports in JSX keep their tree-shaken path.
+
+### Changed
+
+- **Status-bar buttons unified to icon-only.** `AiOpenButton`, `ScmRightOpenButton`, and every extension `RightPanelToggleButtons` variant render as borderless `size-6` icon buttons (Discord-style). Title + shortcut chip live in the tooltip now, so the status-bar right cluster reads as one consistent row of glyphs. The `RightPanelTextToggles` export name is preserved but its chrome matches `RightPanelCompactToggles`; the `compact` flag now only governs ordering. Tooltip `Kbd` chip forces `bg-foreground/15 text-foreground` so it stays readable against TEDI's popover (which shares `--background`'s colour token).
+- **Tooltip collision padding.** `TooltipContent` defaults `collisionPadding={8}` so tooltips near the viewport edge (the rightmost status-bar button being the canonical case) auto-shift instead of clipping.
+- **Extension secrets API: parameter mismatch fixed.** `host.ts`'s `ctx.secrets.{get,set}` were sending `{ name, value }` to the native `secrets_set` / `secrets_get` commands which expect `{ service, account, password }`. The call deserialised as missing fields and silently no-op'd, so any extension storing a credential (SQL Explorer being the user-visible case) actually saved nothing. Now namespaced as `service: "tedi-ext:<id>"` + `account: <name>`, matching the SSH manager's pattern. Existing keychain entries from before this fix don't exist (they never landed); a one-time re-enter is needed on first save after upgrade.
+- **CLI `tedi ext` UX refresh.** [`cli_ext.rs`](src-tauri/src/modules/cli_ext.rs) gains discoverable subcommands, friendlier error messages, and more telemetry surfaced when installs / updates fail.
+- **PTY daemon: scrollback + session restore reliability.** [`pty/session.rs`](src-tauri/src/modules/pty/session.rs) and [`pty_daemon/server.rs`](src-tauri/src/modules/pty_daemon/server.rs) tighten the AttachOk replay path and clean up edge cases around daemon-restart while a window is mid-close.
+- **SSH session lifecycle.** [`ssh/session.rs`](src-tauri/src/modules/ssh/session.rs) + [`ssh/mod.rs`](src-tauri/src/modules/ssh/mod.rs) refine disconnect ordering so the status pill no longer briefly flickers "Connected" during teardown.
+- **Em-dash sweep, round 2.** Same scope as 0.2.25 (`—` → `-`) applied to files added since.
+
+### Extension surface
+
+- **`AppContextSnapshot` (additive, non-breaking).** New fields `workspaceCount: number` and `terminalCountAll: number` on every snapshot delivered by `ctx.app.onContextChange`. Old extensions ignore them.
+- **`ctx.editor` (additive).** Read `getActive()` for `{ path, content, dirty }`; mutate with `setActiveContent(text)`. Returns `null` / `false` when no editor leaf is focused. No new permission.
+- **`ctx.app.setSidebarVisible(false)` now snapshots prior state.** The visible behaviour for extensions doesn't change (the call still hides the sidebar). The host additionally restores the snapshot when the user switches away from the calling extension's ext tab. Drop the call to opt out.
+
+### Bundled extensions
+
+- **`tedi.sql-explorer` 0.2.8.** Identifier whitelist replaced with proper backtick / double-quote escape so MySQL / PostgreSQL names with hyphens, leading digits, or non-ASCII characters load instead of failing with `bad request: invalid identifier`. NUL / CR / LF still rejected for safety. Connection editor switches to a docked, draggable side panel with explicit X close + Esc, matching the host AlertDialog visual family. Schema tree filters to the connection's pinned `database` when one is set, and grows an inline search box. Brand SVGs dropped from the rail + engine dropdown for a denser, chrome-coherent look. Delete connection asks for confirmation in the same custom modal (no native `confirm()`).
+- **`tedi.discord-rich-presence` 1.5.5.** Presence `details` line now reports the workspace folder *plus* `N workspaces` and `M terminals` (across all workspaces). Older TEDIs that don't ship the new context fields gracefully render the legacy format.
+
 ## [0.2.26] - 26-05-2026
 
 ### Added

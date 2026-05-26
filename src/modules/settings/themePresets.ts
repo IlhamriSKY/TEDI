@@ -99,6 +99,9 @@ const DARK_COLORS: ThemeColors = {
   iconWorking: "#facc15",
   iconIdle: "#34d399",
   iconBlocked: "#f87171",
+  diffAdded: "#4ade80",
+  diffRemoved: "#f87171",
+  info: "#38bdf8",
   tabAccentTerminal: "#34d399",
   tabAccentSsh: "#38bdf8",
   tabAccentEditor: "#5b8bff",
@@ -137,6 +140,9 @@ const LIGHT_COLORS: ThemeColors = {
   iconWorking: "#ca8a04",
   iconIdle: "#059669",
   iconBlocked: "#dc2626",
+  diffAdded: "#16a34a",
+  diffRemoved: "#dc2626",
+  info: "#0284c7",
   tabAccentTerminal: "#10b981",
   tabAccentSsh: "#0ea5e9",
   tabAccentEditor: "#0057fe",
@@ -184,6 +190,9 @@ const TOKYO_DARK: ThemeColors = {
   iconWorking: "#e0af68",
   iconIdle: "#9ece6a",
   iconBlocked: "#f7768e",
+  diffAdded: "#9ece6a",
+  diffRemoved: "#f7768e",
+  info: "#7dcfff",
   resizeHandle: "#2d3047",
   // Tokyo Night Storm ANSI 16.
   ansiBlack: "#15161e",
@@ -235,6 +244,9 @@ const TOKYO_LIGHT: ThemeColors = {
   iconWorking: "#8c6c3e",
   iconIdle: "#587539",
   iconBlocked: "#f52a65",
+  diffAdded: "#587539",
+  diffRemoved: "#f52a65",
+  info: "#2e7de9",
   resizeHandle: "#a8aecb",
 };
 
@@ -268,6 +280,9 @@ const NORD_DARK: ThemeColors = {
   iconWorking: "#ebcb8b",
   iconIdle: "#a3be8c",
   iconBlocked: "#bf616a",
+  diffAdded: "#a3be8c",
+  diffRemoved: "#bf616a",
+  info: "#81a1c1",
   resizeHandle: "#4c566a",
   // Nord ANSI 16.
   ansiBlack: "#3b4252",
@@ -316,6 +331,9 @@ const NORD_LIGHT: ThemeColors = {
   iconWorking: "#d08770",
   iconIdle: "#a3be8c",
   iconBlocked: "#bf616a",
+  diffAdded: "#a3be8c",
+  diffRemoved: "#bf616a",
+  info: "#5e81ac",
   resizeHandle: "#d8dee9",
 };
 
@@ -349,6 +367,9 @@ const CATPPUCCIN_DARK: ThemeColors = {
   iconWorking: "#f9e2af",
   iconIdle: "#a6e3a1",
   iconBlocked: "#f38ba8",
+  diffAdded: "#a6e3a1",
+  diffRemoved: "#f38ba8",
+  info: "#89dceb",
   resizeHandle: "#45475a",
   // Catppuccin Mocha ANSI 16.
   ansiBlack: "#45475a",
@@ -402,6 +423,9 @@ const CATPPUCCIN_LIGHT: ThemeColors = {
   iconWorking: "#df8e1d",
   iconIdle: "#40a02b",
   iconBlocked: "#d20f39",
+  diffAdded: "#40a02b",
+  diffRemoved: "#d20f39",
+  info: "#04a5e5",
   resizeHandle: "#bcc0cc",
 };
 
@@ -409,6 +433,8 @@ const CATPPUCCIN_LIGHT: ThemeColors = {
 // Solarized Dark. Body text bumped from base0 (#839496, ~4:1 on base03)
 // to base1 (#93a1a1, ~5:1) so non-selected sidebar rows pass AA. Selection
 // fg already paired correctly with the gold accent (base03 #002b36).
+// mutedForeground was still base0 (#839496) against muted base02 (#073642)
+// at ~4.0:1, just under AA - lifted to base1 (#93a1a1) for ~5:1.
 const SOLARIZED_DARK: ThemeColors = {
   ...DARK_COLORS,
   background: "#002b36",
@@ -422,7 +448,7 @@ const SOLARIZED_DARK: ThemeColors = {
   secondary: "#073642",
   secondaryForeground: "#93a1a1",
   muted: "#073642",
-  mutedForeground: "#839496",
+  mutedForeground: "#93a1a1",
   accent: "#b58900",
   accentForeground: "#002b36",
   destructive: "#dc322f",
@@ -438,6 +464,9 @@ const SOLARIZED_DARK: ThemeColors = {
   iconWorking: "#b58900",
   iconIdle: "#859900",
   iconBlocked: "#dc322f",
+  diffAdded: "#859900",
+  diffRemoved: "#dc322f",
+  info: "#2aa198",
   resizeHandle: "#0e4150",
   // Solarized ANSI 16 (shared between Dark + Light per author's spec).
   ansiBlack: "#073642",
@@ -491,6 +520,9 @@ const SOLARIZED_LIGHT: ThemeColors = {
   iconWorking: "#b58900",
   iconIdle: "#859900",
   iconBlocked: "#dc322f",
+  diffAdded: "#859900",
+  diffRemoved: "#dc322f",
+  info: "#2aa198",
   resizeHandle: "#d6d0bd",
   // Solarized ANSI (shared with Dark).
   ansiBlack: "#073642",
@@ -512,6 +544,11 @@ const SOLARIZED_LIGHT: ThemeColors = {
 };
 
 // Monokai family.
+// Monokai Dark. The canonical "comment" gray #75715e is intentionally dim
+// (designed for code comments, not UI body). Against `muted` #3e3d32 it
+// only lands ~2.2:1 - well under AA - so muted body text in the sidebar
+// and popovers becomes unreadable. Lifted to #bcb29a (~4.9:1) which keeps
+// the warm Monokai cast while passing AA.
 const MONOKAI_DARK: ThemeColors = {
   ...DARK_COLORS,
   background: "#272822",
@@ -525,7 +562,7 @@ const MONOKAI_DARK: ThemeColors = {
   secondary: "#3e3d32",
   secondaryForeground: "#f8f8f2",
   muted: "#3e3d32",
-  mutedForeground: "#75715e",
+  mutedForeground: "#bcb29a",
   accent: "#66d9ef",
   accentForeground: "#272822",
   destructive: "#f92672",
@@ -541,6 +578,9 @@ const MONOKAI_DARK: ThemeColors = {
   iconWorking: "#e6db74",
   iconIdle: "#a6e22e",
   iconBlocked: "#f92672",
+  diffAdded: "#a6e22e",
+  diffRemoved: "#f92672",
+  info: "#66d9ef",
   resizeHandle: "#3e3d32",
   // Monokai ANSI 16.
   ansiBlack: "#272822",
@@ -592,6 +632,9 @@ const MONOKAI_LIGHT: ThemeColors = {
   iconWorking: "#b58900",
   iconIdle: "#75af00",
   iconBlocked: "#f92672",
+  diffAdded: "#75af00",
+  diffRemoved: "#f92672",
+  info: "#006d75",
   resizeHandle: "#d1d1d1",
 };
 
@@ -625,6 +668,9 @@ const MATRIX_DARK: ThemeColors = {
   iconWorking: "#39ff14",
   iconIdle: "#3f8f3f",
   iconBlocked: "#ff003c",
+  diffAdded: "#00ff41",
+  diffRemoved: "#ff003c",
+  info: "#00d4ff",
   tabAccentTerminal: "#00ff41",
   tabAccentSsh: "#00ffaa",
   tabAccentEditor: "#39ff14",
@@ -679,6 +725,9 @@ const MATRIX_LIGHT: ThemeColors = {
   iconWorking: "#0a8a0a",
   iconIdle: "#006400",
   iconBlocked: "#c2185b",
+  diffAdded: "#006400",
+  diffRemoved: "#c2185b",
+  info: "#1976d2",
   tabAccentTerminal: "#006400",
   tabAccentSsh: "#0a8a8a",
   tabAccentEditor: "#0a6a0a",

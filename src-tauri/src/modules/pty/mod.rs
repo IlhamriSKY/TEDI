@@ -304,21 +304,38 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
                 // Windows that sometimes manifests as the closed pane
                 // refusing to disappear from the React tree because
                 // subsequent IPC stalls behind it.
-                thread::Builder::new()
+                if let Err(spawn_err) = thread::Builder::new()
                     .name(format!("tedi-pty-drop-{id}"))
-                    .spawn(move || {
-                        let t0 = std::time::Instant::now();
-                        // Goes through `drop_session` so
-                        // ClosePseudoConsole holds `SPAWN_LOCK` and can't
-                        // corrupt a sibling spawn's ConPTY. See blank-pane
-                        // note in `session.rs` next to `SPAWN_LOCK`.
-                        session::drop_session(s);
-                        log::info!(
-                            "pty session id={id} dropped in {}ms",
-                            t0.elapsed().as_millis()
-                        );
+                    .spawn({
+                        let s = s.clone();
+                        move || {
+                            let t0 = std::time::Instant::now();
+                            // Goes through `drop_session` so
+                            // ClosePseudoConsole holds `SPAWN_LOCK` and can't
+                            // corrupt a sibling spawn's ConPTY. See blank-pane
+                            // note in `session.rs` next to `SPAWN_LOCK`.
+                            session::drop_session(s);
+                            log::info!(
+                                "pty session id={id} dropped in {}ms",
+                                t0.elapsed().as_millis()
+                            );
+                        }
                     })
-                    .expect("spawn pty drop thread");
+                {
+                    // Thread/FD exhaustion: drop inline rather than panicking
+                    // and tearing down the GUI. This may briefly block the
+                    // Tauri worker on Windows' ClosePseudoConsole, but a
+                    // brief stall beats a crash.
+                    log::warn!(
+                        "could not spawn pty-drop thread (running drop inline): {spawn_err}"
+                    );
+                    let t0 = std::time::Instant::now();
+                    session::drop_session(s);
+                    log::info!(
+                        "pty session id={id} dropped inline in {}ms",
+                        t0.elapsed().as_millis()
+                    );
+                }
             } else {
                 log::debug!("pty_close: unknown id={id}");
             }

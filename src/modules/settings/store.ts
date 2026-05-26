@@ -125,6 +125,33 @@ export type Preferences = {
    * again. Items can be deleted individually.
    */
   userThemePresets: CustomTheme[];
+  /**
+   * Global "format on save" toggle. When true and the document's language
+   * has a configured formatter, save runs the formatter first. Per-language
+   * overrides live on `formatters[lang].formatOnSave` and beat the global.
+   */
+  formatOnSave: boolean;
+  /**
+   * Per-language formatter configuration. Key is the editor language id
+   * (`javascript`, `python`, `rust`, …) — see `editor/lib/formatters/lang.ts`.
+   * `type: "builtin"` uses bundled Prettier (only languages Prettier
+   * supports — see `BUILTIN_LANGUAGES`). `type: "external"` shells out to
+   * `command` + `args`; `${file}` in args is replaced with a temp-file
+   * path containing the buffer (the formatter must write back to the same
+   * path), otherwise the buffer is piped via stdin and stdout is the
+   * formatted output. `type: "none"` skips formatting for that language.
+   */
+  formatters: Record<string, FormatterConfig>;
+};
+
+export type FormatterConfig = {
+  type: "builtin" | "external" | "none";
+  /** External: program name (resolved via PATH) or absolute path. */
+  command?: string;
+  /** External: argv. `${file}` is substituted with a temp-file path. */
+  args?: string[];
+  /** Per-language override of `formatOnSave`. Undefined = use the global. */
+  formatOnSave?: boolean;
 };
 
 export const BRAND_COLOR_DEFAULT = "#0057fe";
@@ -176,6 +203,8 @@ const KEY_BRAND_COLOR = "brandColor";
 const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
 const KEY_USER_THEME_PRESETS = "userThemePresets";
+const KEY_FORMAT_ON_SAVE = "formatOnSave";
+const KEY_FORMATTERS = "formatters";
 
 export const CONTENT_ZOOM_DEFAULT = 1.0;
 export const CONTENT_ZOOM_MIN = 0.5;
@@ -187,6 +216,32 @@ export const TERMINAL_FONT_SIZE_MIN = 8;
 export const TERMINAL_FONT_SIZE_MAX = 32;
 
 export const TERMINAL_FONT_SIZES = [10, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const;
+
+/**
+ * First-install formatter defaults. Languages Prettier supports get
+ * `builtin`; everything else stays unset so the file extension simply has
+ * no formatter until the user configures one. Users can still flip a
+ * `builtin` language to `external` to override.
+ *
+ * Must be declared before `DEFAULT_PREFERENCES` references it, otherwise
+ * the const sits in the TDZ during DEFAULT_PREFERENCES initialization.
+ */
+export const DEFAULT_FORMATTERS: Record<string, FormatterConfig> = {
+  javascript: { type: "builtin" },
+  typescript: { type: "builtin" },
+  jsx: { type: "builtin" },
+  tsx: { type: "builtin" },
+  json: { type: "builtin" },
+  jsonc: { type: "builtin" },
+  css: { type: "builtin" },
+  scss: { type: "builtin" },
+  less: { type: "builtin" },
+  html: { type: "builtin" },
+  yaml: { type: "builtin" },
+  markdown: { type: "builtin" },
+  graphql: { type: "builtin" },
+  vue: { type: "builtin" },
+};
 
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
@@ -221,6 +276,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customThemeEnabled: false,
   customTheme: DEFAULT_CUSTOM_THEME,
   userThemePresets: [],
+  formatOnSave: false,
+  formatters: DEFAULT_FORMATTERS,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -301,7 +358,30 @@ export async function loadPreferences(): Promise<Preferences> {
         .map((entry) => normalizeCustomTheme(entry, DEFAULT_PREFERENCES.customTheme))
         .filter((p) => typeof p.name === "string" && p.name.length > 0);
     })(),
+    formatOnSave: get<boolean>(KEY_FORMAT_ON_SAVE) ?? DEFAULT_PREFERENCES.formatOnSave,
+    formatters: normalizeFormatters(get<unknown>(KEY_FORMATTERS)),
   };
+}
+
+function normalizeFormatters(raw: unknown): Record<string, FormatterConfig> {
+  if (!raw || typeof raw !== "object") return DEFAULT_PREFERENCES.formatters;
+  const out: Record<string, FormatterConfig> = {};
+  for (const [lang, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const type = v.type;
+    if (type !== "builtin" && type !== "external" && type !== "none") continue;
+    const cfg: FormatterConfig = { type };
+    if (typeof v.command === "string") cfg.command = v.command;
+    if (Array.isArray(v.args) && v.args.every((x) => typeof x === "string")) {
+      cfg.args = v.args as string[];
+    }
+    if (typeof v.formatOnSave === "boolean") cfg.formatOnSave = v.formatOnSave;
+    out[lang] = cfg;
+  }
+  // Merge with defaults so a wiped or partial store still surfaces the
+  // builtin coverage. User-set entries (including explicit "none") win.
+  return { ...DEFAULT_PREFERENCES.formatters, ...out };
 }
 
 function clampZoom(value: number): number {
@@ -451,6 +531,34 @@ export async function setUserThemePresets(value: CustomTheme[]): Promise<void> {
   await writePref(KEY_USER_THEME_PRESETS, value);
 }
 
+export async function setFormatOnSave(value: boolean): Promise<void> {
+  await writePref(KEY_FORMAT_ON_SAVE, value);
+}
+
+export async function setFormatters(value: Record<string, FormatterConfig>): Promise<void> {
+  await writePref(KEY_FORMATTERS, value);
+}
+
+/**
+ * Patches a single language's formatter entry. Caller supplies the
+ * current `formatters` map (typically `usePreferencesStore.getState().formatters`
+ * so the diff reflects in-memory state, not stale disk state). Pass
+ * `null` to delete the entry.
+ */
+export async function patchFormatter(
+  current: Record<string, FormatterConfig>,
+  language: string,
+  config: FormatterConfig | null,
+): Promise<void> {
+  const next = { ...current };
+  if (config === null) {
+    delete next[language];
+  } else {
+    next[language] = config;
+  }
+  await setFormatters(next);
+}
+
 /**
  * Pending preset id written by `tedi theme set <id>` (CLI). Read + drained
  * once at app boot so the request is applied exactly once. Not exposed to
@@ -567,6 +675,8 @@ export async function onPreferencesChange(
     [KEY_BRAND_COLOR]: "brandColor",
     [KEY_CUSTOM_THEME_ENABLED]: "customThemeEnabled",
     [KEY_CUSTOM_THEME]: "customTheme",
+    [KEY_FORMAT_ON_SAVE]: "formatOnSave",
+    [KEY_FORMATTERS]: "formatters",
   };
   // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
   const unsubLocal = await store.onChange<unknown>((key, value) => {

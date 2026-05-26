@@ -82,6 +82,10 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p.startsWith("statusbar:")) return "low";
   if (p.startsWith("headerbar:")) return "low";
   if (p === "tabs:open") return "low";
+  // Active-editor buffer access. Read returns the live (possibly dirty)
+  // text; write replaces it via a CodeMirror transaction. Medium-risk
+  // because an extension could quietly mangle code the user is editing.
+  if (p === "editor:read" || p === "editor:write") return "medium";
   // `shell:transform` lets an extension rewrite every AI shell command;
   // mark high so the install dialog flags it.
   if (p === "shell:transform") return "high";

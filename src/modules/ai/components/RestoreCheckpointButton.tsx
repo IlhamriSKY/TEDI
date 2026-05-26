@@ -46,7 +46,7 @@ export function RestoreCheckpointButton() {
         className={cn(
           "border-border/50 bg-card/60 inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-1.5",
           "text-muted-foreground text-[10.5px] transition-colors",
-          "hover:border-border hover:bg-accent hover:text-foreground",
+          "hover:border-border hover:bg-accent hover:text-accent-foreground",
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >

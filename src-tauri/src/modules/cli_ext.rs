@@ -74,6 +74,28 @@ fn paint_installed(text: &str) -> String {
     ansi("32;1", text)
 }
 
+// Shared paint vocabulary used by help text + runtime output. Same palette
+// as `cli.rs` / `cli_theme.rs` so `tedi --help`, `tedi ext help`, and
+// `tedi theme help` look like a single CLI rather than three styles.
+fn paint_header(text: &str) -> String {
+    ansi("36;1", text)
+}
+fn paint_id(text: &str) -> String {
+    ansi("33;1", text)
+}
+fn paint_bold(text: &str) -> String {
+    ansi("1", text)
+}
+fn paint_ok(text: &str) -> String {
+    ansi("32", text)
+}
+fn paint_err(text: &str) -> String {
+    ansi("31", text)
+}
+fn paint_brand(text: &str) -> String {
+    ansi("34;1", text)
+}
+
 /// `ColorfulTheme` brings dialoguer's coloured prompt + active-item ">"
 /// indicator. Wrapped in a small selector so non-TTY shells still get the
 /// plain theme (no ANSI in pipes / CI).
@@ -251,10 +273,11 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
             &format!("local:{}", p.display()),
         )?;
         println!(
-            "Installed {} v{} (from local:{})",
-            outcome.manifest.id,
-            outcome.manifest.version,
-            p.display()
+            "{} Installed {} {} {}",
+            paint_ok("✓"),
+            paint_id(&outcome.manifest.id),
+            paint_dim(&format!("v{}", outcome.manifest.version)),
+            paint_dim(&format!("(from local:{})", p.display())),
         );
         return Ok(());
     }
@@ -427,9 +450,9 @@ fn cmd_list_installed() -> Result<(), String> {
         return Ok(());
     }
     println!(
-        "{} ({})",
-        ansi("1", "INSTALLED EXTENSIONS"),
-        rows.len()
+        "{} {}",
+        paint_header("INSTALLED EXTENSIONS"),
+        paint_dim(&format!("({})", rows.len())),
     );
     for r in &rows {
         let badge = if r.enabled { paint_on() } else { paint_off() };
@@ -439,7 +462,7 @@ fn cmd_list_installed() -> Result<(), String> {
         };
         println!(
             "  {badge}  {} {}  {}{update_hint}",
-            r.name,
+            paint_bold(&r.name),
             paint_dim(&format!("(id: {})", r.id)),
             paint_dim(&format!("v{}", r.version)),
         );
@@ -479,7 +502,12 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
     let now = now_ms();
     for (id, current_version, source) in targets {
         let Some(owner_repo) = source.strip_prefix("github:") else {
-            println!("[{id}] non-github source ({source}); skip");
+            println!(
+                "{} {} {}",
+                paint_dim(&format!("[{id}]")),
+                paint_dim(&format!("non-github source ({source});")),
+                paint_dim("skip"),
+            );
             if let Some(e) = state_w.entries.get_mut(&id) {
                 e.last_checked_at_ms = Some(now);
             }
@@ -489,12 +517,20 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
         let json = match runtime.block_on(ext_cmd::http_get_text(&api)) {
             Ok(j) => j,
             Err(e) => {
-                println!("[{id}] check failed: {e}");
+                println!(
+                    "{} {} {e}",
+                    paint_dim(&format!("[{id}]")),
+                    paint_err("check failed:"),
+                );
                 continue;
             }
         };
         let Some(tag) = ext_cmd::pick_release_tag(&json) else {
-            println!("[{id}] no tag_name in release JSON");
+            println!(
+                "{} {}",
+                paint_dim(&format!("[{id}]")),
+                paint_err("no tag_name in release JSON"),
+            );
             continue;
         };
         let latest = ext_cmd::strip_v_prefix(&tag);
@@ -505,17 +541,28 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
             e.last_checked_at_ms = Some(now);
         }
         if has_update {
-            println!("[{id}] v{current_version} -> v{latest} (update available)");
+            println!(
+                "{} {} -> {} {}",
+                paint_dim(&format!("[{id}]")),
+                paint_dim(&format!("v{current_version}")),
+                paint_id(&format!("v{latest}")),
+                paint_update_hint("(update available)"),
+            );
             to_apply.push((id, current_version, latest, owner_repo.to_string()));
         } else {
-            println!("[{id}] v{current_version} (up to date)");
+            println!(
+                "{} {} {}",
+                paint_dim(&format!("[{id}]")),
+                paint_dim(&format!("v{current_version}")),
+                paint_ok("(up to date)"),
+            );
         }
     }
     save_state(&state_path, &state_w)?;
 
     if to_apply.is_empty() {
         println!();
-        println!("Nothing to update.");
+        println!("{}", paint_ok("Nothing to update."));
         return Ok(());
     }
 
@@ -547,10 +594,19 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
     let mut failed = 0usize;
     for (id, _from, _to, owner_repo) in to_apply {
         println!();
-        println!("Updating {id} (github:{owner_repo})...");
+        println!(
+            "{} {} {}",
+            paint_header("Updating"),
+            paint_id(&id),
+            paint_dim(&format!("(github:{owner_repo})...")),
+        );
         if let Err(e) = install_github(&runtime, &owner_repo, &root, &state_path) {
             failed += 1;
-            eprintln!("[{id}] update failed: {e}");
+            eprintln!(
+                "{} {} {e}",
+                paint_dim(&format!("[{id}]")),
+                paint_err("update failed:"),
+            );
         }
     }
     if failed > 0 {
@@ -579,7 +635,7 @@ fn cmd_uninstall(args: &[String]) -> Result<(), String> {
     }
     st.entries.remove(&id);
     save_state(&state_path, &st)?;
-    println!("Uninstalled {id}.");
+    println!("{} Uninstalled {}.", paint_ok("✓"), paint_id(&id));
     Ok(())
 }
 
@@ -599,7 +655,12 @@ fn cmd_set_enabled(args: &[String], enabled: bool) -> Result<(), String> {
         .ok_or_else(|| format!("extension not installed: {id}"))?;
     entry.enabled = enabled;
     save_state(&state_path, &st)?;
-    println!("{} {id}.", if enabled { "Enabled" } else { "Disabled" });
+    let verb = if enabled {
+        paint_ok("Enabled")
+    } else {
+        paint_dim("Disabled")
+    };
+    println!("{} {verb} {}.", paint_ok("✓"), paint_id(&id));
     Ok(())
 }
 
@@ -977,7 +1038,7 @@ fn install_github(
     let json = runtime.block_on(ext_cmd::http_get_text(&api))?;
     let zip_url = ext_cmd::pick_release_zip(&json)
         .ok_or_else(|| format!("no .zip asset in latest release of {owner_repo}"))?;
-    println!("Downloading {zip_url}");
+    println!("{} {zip_url}", paint_dim("Downloading"));
     let progress: Box<dyn InstallProgress> = if interactive() {
         Box::new(CliProgress::new())
     } else {
@@ -1000,8 +1061,11 @@ fn install_github(
         progress.as_ref(),
     )?;
     println!(
-        "Installed {} v{} (from github:{owner_repo})",
-        outcome.manifest.id, outcome.manifest.version
+        "{} Installed {} {} {}",
+        paint_ok("✓"),
+        paint_id(&outcome.manifest.id),
+        paint_dim(&format!("v{}", outcome.manifest.version)),
+        paint_dim(&format!("(from github:{owner_repo})")),
     );
     Ok(())
 }
@@ -1043,44 +1107,99 @@ fn looks_like_github_ref(s: &str) -> bool {
 }
 
 fn print_help() {
-    print!("{}", HELP);
+    print!("{}", help_text());
 }
 
-const HELP: &str = concat!(
-    "tedi ext - manage TEDI extensions\n",
-    "\n",
-    "USAGE:\n",
-    "    tedi ext [SUBCOMMAND] [ARGS]\n",
-    "    tedi --extension [SUBCOMMAND] [ARGS]    (alias)\n",
-    "\n",
-    "Run `tedi ext` with no subcommand to open an arrow-key menu. Each\n",
-    "subcommand also accepts an interactive picker when its target arg is\n",
-    "omitted (TTY only). Non-TTY shells (CI, pipes) fall back to printing\n",
-    "a hint instead of stalling on the picker.\n",
-    "\n",
-    "SUBCOMMANDS:\n",
-    "    install [<REF>]         Install an extension. <REF> can be:\n",
-    "                              - path to a local .zip file\n",
-    "                              - owner/repo (e.g. IlhamriSKY/TEDI.discord-rich-presence)\n",
-    "                              - full GitHub URL\n",
-    "                              - registry id (e.g. discord-rich-presence)\n",
-    "                            Omit <REF> for an interactive registry picker.\n",
-    "    list                    Browse the public registry; pick one to install (interactive on a TTY).\n",
-    "    list --installed        Show extensions currently installed locally.\n",
-    "    installed               Alias for `list --installed`.\n",
-    "    update [<ID>]           Check upstream for newer releases. Without <ID>,\n",
-    "                            checks every github-sourced extension. Prompts before applying.\n",
-    "    uninstall [<ID>]        Remove an installed extension. Picker on a TTY.\n",
-    "    enable [<ID>]           Enable an installed extension. Picker on a TTY.\n",
-    "    disable [<ID>]          Disable an installed extension. Picker on a TTY.\n",
-    "    help                    Print this help.\n",
-    "\n",
-    "Registry: https://tedi.ilhamriski.com/extensions/\n",
-);
+/// Colorised help text. Matches the palette used by `cli.rs::help_text()`
+/// and `cli_theme.rs::help_text()` so the three `--help` outputs look
+/// uniform. ANSI codes are gated through `ansi()` (TTY + `NO_COLOR`).
+fn help_text() -> String {
+    let r = paint_dim("[<REF>]");
+    let i = paint_dim("[<ID>]");
+    format!(
+        "{title}  {tag}\n\
+         \n\
+         {usage}\n  \
+         {tedi} ext {sub}        Pick an action (arrow keys)\n  \
+         {tedi} ext install {r}    path | owner/repo | GitHub URL | registry id\n  \
+         {tedi} --extension {sub}  Alias for `tedi ext {sub}`\n\
+         \n\
+         {hint}\n  \
+         {dim_hint1}\n  \
+         {dim_hint2}\n\
+         \n\
+         {subs}\n  \
+         {c_install} {r}         Install. Omit {r} for an interactive registry picker\n  \
+         {c_list}                  Browse the public registry (TTY picker)\n  \
+         {c_list_inst}      Show locally installed extensions\n  \
+         {c_installed}             Alias for `list --installed`\n  \
+         {c_update} {i}          Check upstream / apply updates\n  \
+         {c_uninst} {i}       Remove an installed extension\n  \
+         {c_enable} {i}          Enable an installed extension\n  \
+         {c_disable} {i}         Disable an installed extension\n  \
+         {c_help}                  Print this help\n\
+         \n\
+         {dim_registry}\n",
+        title = paint_brand(&format!("tedi ext  {}", env!("CARGO_PKG_VERSION"))),
+        tag = paint_dim("· manage TEDI extensions"),
+        usage = paint_header("USAGE"),
+        tedi = paint_id("tedi"),
+        sub = paint_dim("[<subcommand>]"),
+        r = r,
+        hint = paint_header("INTERACTIVE"),
+        dim_hint1 = paint_dim(
+            "Subcommands prompt with an arrow-key picker when the target arg is omitted."
+        ),
+        dim_hint2 = paint_dim(
+            "Non-TTY shells (CI, pipes) print a hint instead of stalling on the picker."
+        ),
+        subs = paint_header("SUBCOMMANDS"),
+        c_install = paint_id("install   "),
+        c_list = paint_id("list             "),
+        c_list_inst = paint_id("list --installed"),
+        c_installed = paint_id("installed        "),
+        c_update = paint_id("update   "),
+        c_uninst = paint_id("uninstall"),
+        c_enable = paint_id("enable   "),
+        c_disable = paint_id("disable  "),
+        c_help = paint_id("help             "),
+        dim_registry = paint_dim("Registry: https://tedi.ilhamriski.com/extensions/"),
+        i = i,
+    )
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `help_text()` keeps the canonical section names and every subcommand
+    /// id. Tests run with stdout piped so `ansi()` returns plain text - the
+    /// assertions match plain substrings only.
+    #[test]
+    fn help_text_keeps_sections_and_subcommands() {
+        let h = help_text();
+        for section in ["USAGE", "INTERACTIVE", "SUBCOMMANDS"] {
+            assert!(h.contains(section), "expected `{section}` in `tedi ext help`");
+        }
+        for sub in [
+            "install",
+            "list",
+            "list --installed",
+            "installed",
+            "update",
+            "uninstall",
+            "enable",
+            "disable",
+            "help",
+        ] {
+            assert!(h.contains(sub), "expected subcommand `{sub}` in help");
+        }
+        assert!(h.contains("--extension"), "alias `--extension` missing");
+        assert!(
+            h.contains("tedi.ilhamriski.com/extensions"),
+            "registry URL missing",
+        );
+    }
 
     #[test]
     fn extract_ext_subcommand_form() {

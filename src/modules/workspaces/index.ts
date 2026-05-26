@@ -1,3 +1,8 @@
 export { WorkspacesPanel } from "./WorkspacesPanel";
 export { useWorkspacesStore } from "./store";
-export { savedToTab, serializeTabs, defaultTabForEmptyWorkspace } from "./serialize";
+export {
+  countSavedTerminalLeaves,
+  defaultTabForEmptyWorkspace,
+  savedToTab,
+  serializeTabs,
+} from "./serialize";

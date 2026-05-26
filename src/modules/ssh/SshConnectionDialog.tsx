@@ -447,7 +447,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           {test.kind === "running" ? (
             <p className="text-muted-foreground text-[11px]">Testing connection…</p>
           ) : test.kind === "ok" ? (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+            <p className="text-[11px] text-diff-added">
               Connected · server key {test.fingerprint || "(unavailable)"} · {test.durationMs}ms
             </p>
           ) : test.kind === "fail" ? (

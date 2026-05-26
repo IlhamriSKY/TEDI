@@ -424,7 +424,7 @@ export function ExtensionsSection() {
                 className={cn(
                   "h-7 rounded-md px-2.5 text-[11.5px] font-medium transition",
                   tab === t
-                    ? "bg-accent text-foreground"
+                    ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50",
                 )}
                 type="button"
@@ -609,7 +609,7 @@ function ExtensionCard({
               {updateAvailable ? (
                 <Badge
                   variant="outline"
-                  className="h-4 border-emerald-500/50 bg-emerald-500/10 px-1.5 font-mono text-[9.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                  className="h-4 border-diff-added/50 bg-diff-added/10 px-1.5 font-mono text-[9.5px] uppercase tracking-wide text-diff-added"
                 >
                   v{ext.latest_version} available
                 </Badge>
@@ -965,9 +965,9 @@ function PermissionBadge({ permission }: { permission: string }) {
   const tier = permissionRiskTier(permission);
   const tone =
     tier === "high"
-      ? "border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300"
+      ? "border-destructive/50 bg-destructive/10 text-destructive"
       : tier === "medium"
-        ? "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        ? "border-icon-working/50 bg-icon-working/10 text-icon-working"
         : "border-border/60 bg-muted/40 text-foreground/80";
   return (
     <Badge
@@ -1145,7 +1145,7 @@ function MarketplaceCard({
           {item.channel === "official" ? (
             <Badge
               variant="outline"
-              className="h-4 border-emerald-500/50 bg-emerald-500/10 px-1.5 text-[9.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+              className="h-4 border-diff-added/50 bg-diff-added/10 px-1.5 text-[9.5px] uppercase tracking-wide text-diff-added"
             >
               Official
             </Badge>

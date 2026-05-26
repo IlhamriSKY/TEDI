@@ -45,7 +45,7 @@ export function SelectionAskAi({ x, y, onAsk, onDismiss }: Props) {
           e.stopPropagation();
           onAsk();
         }}
-        className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/45 relative flex h-full w-full cursor-pointer items-center justify-between gap-2 rounded-full px-3 text-xs font-medium shadow-md ring-1 ring-black/10 transition-colors duration-100 focus-visible:ring-2 focus-visible:outline-none"
+        className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/45 relative flex h-full w-full cursor-pointer items-center justify-between gap-2 rounded-full px-3 text-xs font-medium shadow-md ring-1 ring-foreground/10 transition-colors duration-100 focus-visible:ring-2 focus-visible:outline-none"
       >
         <span className="flex items-center gap-1.5">
           <HugeiconsIcon icon={AiMagicIcon} size={14} strokeWidth={2} className="shrink-0" />

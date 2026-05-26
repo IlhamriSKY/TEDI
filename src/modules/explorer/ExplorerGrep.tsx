@@ -53,7 +53,7 @@ export type ExplorerGrepHandle = {
   focusWithReplace: () => void;
 };
 
-const HIGHLIGHT_CLASS = "bg-amber-400/30 text-foreground rounded-[2px] px-[1px]";
+const HIGHLIGHT_CLASS = "bg-icon-working/30 text-foreground rounded-[2px] px-[1px]";
 
 const MAX_LINE_CHARS = 240;
 
@@ -453,8 +453,8 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                       className={cn(
                         "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
                         caseSensitive
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                       )}
                     >
                       Aa
@@ -472,8 +472,8 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                       className={cn(
                         "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
                         useRegex
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                       )}
                     >
                       .*
@@ -522,7 +522,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                 placeholder={useRegex ? "Replace ($1 for groups)" : "Replace"}
                 className={cn(
                   "h-7 pr-9 pl-7 text-xs",
-                  replaceArmed && "border-amber-500/70 focus-visible:ring-amber-500/40",
+                  replaceArmed && "border-icon-working/70 focus-visible:ring-icon-working/40",
                 )}
               />
               <Tooltip>
@@ -537,8 +537,8 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                     className={cn(
                       "absolute top-1/2 right-1 -translate-y-1/2 cursor-pointer rounded p-1 transition-colors",
                       replaceArmed
-                        ? "bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 dark:text-amber-400"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        ? "bg-icon-working/15 text-icon-working hover:bg-icon-working/25 text-icon-working"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                       "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                     )}
                   >
@@ -558,7 +558,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
             </div>
           </div>
           {replaceArmed && hits.length > 0 ? (
-            <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+            <div className="mt-1 text-[10px] text-icon-working">
               Press Enter again to replace {hits.length} match{hits.length === 1 ? "" : "es"} in{" "}
               {fileCount} file{fileCount === 1 ? "" : "s"}. Esc to cancel.
             </div>
@@ -579,7 +579,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                   <button
                     type="button"
                     onClick={toggleAllGroups}
-                    className="hover:bg-accent hover:text-foreground flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5"
+                    className="hover:bg-accent hover:text-accent-foreground flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5"
                     aria-label={allCollapsed ? "Expand all" : "Collapse all"}
                   >
                     <HugeiconsIcon
