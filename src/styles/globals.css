@@ -322,16 +322,23 @@ html[data-chrome="borderless"] #settings-root {
   height: 100%;
   border-radius: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  /* `outline` + negative offset instead of `border`: WebView2 on Windows with
+   * `transparent: true` + `decorations: false` drops the rightmost physical
+   * pixel after a horizontal resize, so a real 1px border at the edge goes
+   * missing. Outline doesn't take layout space (no box-sizing math) and
+   * `outline-offset: -1px` paints it one pixel inside the element box, so
+   * the visible line sits at [W-2, W-1] and survives the edge clipping. */
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
   background: var(--background);
 }
 
 /* Settings window reads as a modal floating over the main app, so it gets
- * the brand `--primary` accent border + rounded corners. `overflow: hidden`
+ * the brand `--primary` accent outline + rounded corners. `overflow: hidden`
  * inherited from the rule above clips header/main children to the curve,
  * so the inner React root does NOT need its own border/rounded classes. */
 html[data-chrome="borderless"] #settings-root {
-  border-color: var(--primary);
+  outline-color: var(--primary);
   border-radius: 0.5rem;
 }
 
@@ -380,10 +387,22 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 
 /* Radix ScrollArea: viewport already gets `overflow:scroll` from the
  * primitive and a custom thumb is rendered on top. The global rule above
- * wins on specificity, so without this `!important` override every Radix
- * scroll area would show TWO scrollbars (native + custom). */
+ * wins on specificity, so without these overrides every Radix scroll area
+ * would show TWO scrollbars (native + custom).
+ *
+ * Both axes are belt-and-braces: `scrollbar-width: none` hides the native
+ * bar under the modern CSS scrollbar UI that WebView2 falls back to in
+ * some HiDPI/zoom states (where `::-webkit-scrollbar { display: none }`
+ * is silently ignored), and the webkit rule covers the legacy path. We
+ * scope `scrollbar-width` to this single element so it does NOT trip the
+ * "switches the engine to modern UI globally" footgun described above. */
+[data-radix-scroll-area-viewport] {
+  scrollbar-width: none !important;
+}
 [data-radix-scroll-area-viewport]::-webkit-scrollbar {
   display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* Radix wraps Viewport children in an inner `<div style="display:table;
@@ -398,6 +417,21 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   display: block !important;
   width: 100% !important;
   min-width: 0 !important;
+}
+
+/* `react-resizable-panels` wraps every Panel's children in an internal
+ * <div style="overflow: auto"> (so consumers don't have to think about
+ * runaway content). In this app every panel handles its own scroll via
+ * an inner Radix `<ScrollArea>`, so that wrapper's `overflow:auto` is
+ * dead weight — but sub-pixel rounding at scroll extremes (e.g. when
+ * the file explorer is scrolled to the bottom) gives the wrapper a
+ * 1-2px overflow and it paints a native scrollbar right next to the
+ * Radix custom one. Result: a phantom second scrollbar. The selector
+ * targets the panel's immediate child (the library always renders
+ * exactly one wrapper there) and uses `!important` to beat the inline
+ * style. */
+[data-slot="resizable-panel"] > div {
+  overflow: hidden !important;
 }
 
 /* xterm renders its own canvas-based scrollbar via add-ons; we only need to

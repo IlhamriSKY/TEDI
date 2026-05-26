@@ -22,6 +22,12 @@ type Props = {
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   onSshStatus?: (leafId: number, status: SshStatus) => void;
   onAiCliStatus?: (leafId: number, status: AiCliStatus) => void;
+  /**
+   * Fires once whenever a leaf's PTY acquires a daemon UUID. Forwarded
+   * to `App.tsx` which writes it onto the leaf's `ptyId` field so the
+   * workspace serializer persists it for restore.
+   */
+  onPtyId?: (leafId: number, ptyId: string) => void;
   // Editor leaf callbacks
   registerEditorHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
@@ -44,6 +50,7 @@ export function PaneStack({
   onTediSpawnTab,
   onSshStatus,
   onAiCliStatus,
+  onPtyId,
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
@@ -66,6 +73,7 @@ export function PaneStack({
   const tediSpawnTabRef = useRef(onTediSpawnTab);
   const sshStatusRef = useRef(onSshStatus);
   const aiCliStatusRef = useRef(onAiCliStatus);
+  const ptyIdRef = useRef(onPtyId);
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
@@ -97,6 +105,9 @@ export function PaneStack({
     aiCliStatusRef.current = onAiCliStatus;
   }, [onAiCliStatus]);
   useEffect(() => {
+    ptyIdRef.current = onPtyId;
+  }, [onPtyId]);
+  useEffect(() => {
     registerEditorRef.current = registerEditorHandle;
   }, [registerEditorHandle]);
   useEffect(() => {
@@ -120,6 +131,7 @@ export function PaneStack({
         onTediSpawnTab: (input) => tediSpawnTabRef.current?.(leafId, input),
         onSshStatus: (status) => sshStatusRef.current?.(leafId, status),
         onAiCliStatus: (status) => aiCliStatusRef.current?.(leafId, status),
+        onPtyId: (ptyId) => ptyIdRef.current?.(leafId, ptyId),
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),

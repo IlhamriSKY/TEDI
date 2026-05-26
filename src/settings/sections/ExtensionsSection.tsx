@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -28,10 +28,76 @@ import { useExtSetting } from "@/modules/extensions/extSettings";
 import { useRegistry } from "@/modules/extensions/useRegistry";
 import type { ContributedSetting, Manifest } from "@/modules/extensions/manifest";
 import { safeParseManifest } from "@/modules/extensions/manifest";
+import { buildProxyUrl } from "@/modules/preview/lib/proxy";
 
 import { SectionHeader } from "../components/SectionHeader";
 
-type InstallTab = "zip" | "github";
+type InstallTab = "zip" | "github" | "marketplace";
+
+/** Public catalog endpoint. Owner-controlled. Payload is a JSON object with
+ *  `official` and (optional) `unofficial` arrays of {@link MarketplaceItem}.
+ *  Fired lazily the first time the Marketplace tab is selected, never at
+ *  section mount, so users who never visit the tab pay zero network cost. */
+const MARKETPLACE_URL = "https://tedi.ilhamriski.com/extensions/";
+
+type MarketplaceItem = {
+  /** Catalog id, e.g. `discord-rich-presence`. Not the installed manifest id
+   *  (which is publisher-prefixed like `tedi.discord-rich-presence`). Kept
+   *  only for React keys + telemetry; dedup against installed uses the repo
+   *  slug, which both sides reliably agree on. */
+  id: string;
+  name: string;
+  /** Normalized `owner/repo`. Used both for install (backend accepts it
+   *  directly) and for dedup against installed `source = github:owner/repo`. */
+  repoSlug: string;
+  /** Original URL from the catalog, displayed in the card. */
+  repository: string;
+  description?: string;
+  icon?: string;
+  publisher?: string;
+  version?: string;
+  license?: string;
+  /** `"official"` items render first and get a small badge; `"unofficial"`
+   *  items render after with no badge. */
+  channel: "official" | "unofficial";
+};
+
+type MarketplaceState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; items: MarketplaceItem[] }
+  | { status: "error"; message: string };
+
+/** Extract `owner/repo` from any of: full GitHub URL, `github.com/owner/repo`,
+ *  or already-normalized `owner/repo`. Trailing slashes and `.git` are
+ *  stripped. Returns null if no slug can be derived. Mirrors the backend's
+ *  `normalize_owner_repo` so the dedup key here matches what Rust stores. */
+function extractOwnerRepo(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  let rest = trimmed;
+  for (const prefix of [
+    "https://github.com/",
+    "http://github.com/",
+    "https://www.github.com/",
+    "http://www.github.com/",
+    "github.com/",
+  ]) {
+    if (rest.toLowerCase().startsWith(prefix)) {
+      rest = rest.slice(prefix.length);
+      break;
+    }
+  }
+  // Drop trailing `.git`, trailing slash, and any path after `owner/repo`.
+  rest = rest.replace(/\.git$/i, "").replace(/\/+$/, "");
+  const parts = rest.split("/");
+  if (parts.length < 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  // Backend's `safe()` rejects spaces and a few specials; rough mirror.
+  if (/\s/.test(owner) || /\s/.test(repo)) return null;
+  return `${owner}/${repo}`;
+}
 
 type PendingSource =
   | { kind: "zip"; path: string }
@@ -90,6 +156,9 @@ export function ExtensionsSection() {
   const [busy, setBusy] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
+  const [marketplace, setMarketplace] = useState<MarketplaceState>({ status: "idle" });
+  /** Cancels an in-flight marketplace fetch on tab-switch/unmount/refresh. */
+  const marketplaceAbortRef = useRef<AbortController | null>(null);
 
   const hasGithubExt = list.some((e) => e.source.startsWith("github:"));
   const updatesAvailable = list.filter(
@@ -102,6 +171,130 @@ export function ExtensionsSection() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Lazy: fire the network request only when the user actually opens the
+  // Marketplace tab, and only the first time. Once `status` flips out of
+  // `idle`, subsequent tab toggles reuse the cached result. Force-refresh
+  // routes through the Refresh button below.
+  const fetchMarketplace = useCallback(async (force: boolean) => {
+    if (!force) {
+      // Snapshot the current state via the setter callback so this callback
+      // doesn't need `marketplace` in its dep list (which would cause a
+      // re-fetch every time state ticks during loading).
+      let skip = false;
+      setMarketplace((prev) => {
+        if (prev.status !== "idle") skip = true;
+        return prev;
+      });
+      if (skip) return;
+    }
+    marketplaceAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    marketplaceAbortRef.current = ctrl;
+    setMarketplace({ status: "loading" });
+    try {
+      const resp = await fetch(MARKETPLACE_URL, {
+        signal: ctrl.signal,
+        cache: "default",
+        headers: { accept: "application/json" },
+        // Avoid leaking the desktop app's referrer header to the catalog host.
+        referrerPolicy: "no-referrer",
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const raw: unknown = await resp.json();
+      if (!raw || typeof raw !== "object") {
+        throw new Error("Catalog did not return an object");
+      }
+      const rec = raw as Record<string, unknown>;
+      const parseList = (
+        list: unknown,
+        channel: "official" | "unofficial",
+      ): MarketplaceItem[] => {
+        if (!Array.isArray(list)) return [];
+        const out: MarketplaceItem[] = [];
+        for (const entry of list) {
+          if (!entry || typeof entry !== "object") continue;
+          const e = entry as Record<string, unknown>;
+          if (typeof e.id !== "string" || typeof e.name !== "string") continue;
+          // Catalog uses `repository` (URL); fall back to `repo` for
+          // forward-compat with the simpler array shape.
+          const repoField =
+            typeof e.repository === "string"
+              ? e.repository
+              : typeof e.repo === "string"
+                ? e.repo
+                : null;
+          if (!repoField) continue;
+          const slug = extractOwnerRepo(repoField);
+          if (!slug) continue;
+          out.push({
+            id: e.id,
+            name: e.name,
+            repoSlug: slug,
+            repository: repoField,
+            description: typeof e.description === "string" ? e.description : undefined,
+            icon: typeof e.icon === "string" ? e.icon : undefined,
+            // Accept either `publisher` (current catalog) or `author` (legacy).
+            publisher:
+              typeof e.publisher === "string"
+                ? e.publisher
+                : typeof e.author === "string"
+                  ? e.author
+                  : undefined,
+            version: typeof e.version === "string" ? e.version : undefined,
+            license: typeof e.license === "string" ? e.license : undefined,
+            channel,
+          });
+        }
+        return out;
+      };
+      const items = [
+        ...parseList(rec.official, "official"),
+        ...parseList(rec.unofficial, "unofficial"),
+      ];
+      if (ctrl.signal.aborted) return;
+      setMarketplace({ status: "ready", items });
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setMarketplace({
+        status: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "marketplace") void fetchMarketplace(false);
+  }, [tab, fetchMarketplace]);
+
+  // Abort any in-flight fetch when the settings panel unmounts so a slow
+  // request can't write to a torn-down component.
+  useEffect(() => () => marketplaceAbortRef.current?.abort(), []);
+
+  /** Dedup against installed by GitHub repo slug, lowercased - the catalog
+   *  `id` (`discord-rich-presence`) doesn't match the installed manifest id
+   *  (`tedi.discord-rich-presence`), but the repo slug both sides reference
+   *  is the same. `source` is `github:owner/repo` for github installs, `zip:`
+   *  for local zips (which we ignore for dedup since they could be unrelated
+   *  forks). Set lookup keeps the filter O(n_market). */
+  const installedSlugs = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of list) {
+      if (e.source.startsWith("github:")) {
+        set.add(e.source.slice("github:".length).toLowerCase());
+      }
+    }
+    return set;
+  }, [list]);
+  const availableItems = useMemo(
+    () =>
+      marketplace.status === "ready"
+        ? marketplace.items.filter(
+            (item) => !installedSlugs.has(item.repoSlug.toLowerCase()),
+          )
+        : [],
+    [marketplace, installedSlugs],
+  );
 
   const startReview = async (source: PendingSource, sourceLabel: string) => {
     // Open the dialog immediately in a loading state. The peek call reads
@@ -224,7 +417,7 @@ export function ExtensionsSection() {
         <Label>Install</Label>
         <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border p-3">
           <div className="flex gap-1">
-            {(["zip", "github"] as InstallTab[]).map((t) => (
+            {(["zip", "github", "marketplace"] as InstallTab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -236,7 +429,7 @@ export function ExtensionsSection() {
                 )}
                 type="button"
               >
-                {t === "zip" ? "From file" : "From GitHub"}
+                {t === "zip" ? "From file" : t === "github" ? "From GitHub" : "Marketplace"}
               </button>
             ))}
           </div>
@@ -275,6 +468,20 @@ export function ExtensionsSection() {
                 Review
               </Button>
             </div>
+          ) : null}
+
+          {tab === "marketplace" ? (
+            <MarketplacePanel
+              state={marketplace}
+              items={availableItems}
+              onRefresh={() => void fetchMarketplace(true)}
+              onInstall={(item) =>
+                void startReview(
+                  { kind: "github", repo: item.repoSlug },
+                  `${item.name} · ${item.repoSlug} (marketplace)`,
+                )
+              }
+            />
           ) : null}
 
           {installError ? (
@@ -814,5 +1021,155 @@ function Label({ children }: { children: React.ReactNode }) {
     <span className="text-muted-foreground text-[11px] font-medium tracking-tight">
       {children}
     </span>
+  );
+}
+
+/** Body of the Marketplace tab. Receives derived state from the parent so it
+ *  has no network logic of its own; install routes through the same review
+ *  pipeline as the From-GitHub tab to keep the manifest dialog as the single
+ *  security boundary. */
+function MarketplacePanel({
+  state,
+  items,
+  onRefresh,
+  onInstall,
+}: {
+  state: MarketplaceState;
+  items: MarketplaceItem[];
+  onRefresh: () => void;
+  onInstall: (item: MarketplaceItem) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground flex-1 text-[11px]">
+          Browse the official catalog at <code>tedi.ilhamriski.com/extensions/</code>. Items
+          already installed (matched by GitHub repo) are hidden. Install opens the same
+          manifest review dialog as the GitHub tab.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2.5 text-[11px]"
+          disabled={state.status === "loading"}
+          onClick={onRefresh}
+        >
+          {state.status === "loading" ? "Loading…" : "Refresh"}
+        </Button>
+      </div>
+
+      {state.status === "loading" ? (
+        <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
+          <Spinner className="size-3" /> Loading marketplace…
+        </div>
+      ) : state.status === "error" ? (
+        <div className="text-destructive text-[11px]">
+          Could not load marketplace: {state.message}
+        </div>
+      ) : state.status === "ready" ? (
+        items.length === 0 ? (
+          <span className="text-muted-foreground text-[11px]">
+            All marketplace extensions are already installed.
+          </span>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {items.map((item) => (
+              <MarketplaceCard key={item.id} item={item} onInstall={() => onInstall(item)} />
+            ))}
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** Single marketplace row. Remote icon falls back to a letter avatar if the
+ *  URL 404s or violates CORS for an image load, mirroring `ExtensionIcon`.
+ *  Channel badge (Official / Unofficial) makes provenance obvious before the
+ *  user clicks Install. */
+function MarketplaceCard({
+  item,
+  onInstall,
+}: {
+  item: MarketplaceItem;
+  onInstall: () => void;
+}) {
+  const [iconBroken, setIconBroken] = useState(false);
+  // Route remote icons through the existing `tedi-frame://` proxy. The
+  // catalog server (tedi.ilhamriski.com) ships `Cross-Origin-Resource-Policy:
+  // same-site`, which blocks the webview's cross-origin `<img>` load. The
+  // proxy strips that header (see `STRIPPED_HEADERS` in preview.rs), so the
+  // PNG arrives at the webview origin and renders. `data:` / `blob:` URLs
+  // are passed through untouched.
+  const iconSrc = useMemo(() => {
+    if (!item.icon) return null;
+    const lower = item.icon.toLowerCase();
+    if (lower.startsWith("http://") || lower.startsWith("https://")) {
+      try {
+        return buildProxyUrl(item.icon);
+      } catch {
+        return item.icon;
+      }
+    }
+    return item.icon;
+  }, [item.icon]);
+  const showImg = !!iconSrc && !iconBroken;
+  const letter = item.name.trim().charAt(0).toUpperCase() || "?";
+  return (
+    <div className="border-border/60 bg-card/60 flex items-start gap-3 rounded-md border px-2.5 py-2">
+      {showImg ? (
+        <img
+          src={iconSrc}
+          alt=""
+          className="border-border/40 size-8 shrink-0 rounded-md border object-cover"
+          loading="lazy"
+          draggable={false}
+          onError={() => setIconBroken(true)}
+        />
+      ) : (
+        <div
+          aria-hidden
+          className="bg-muted text-muted-foreground border-border/40 flex size-8 shrink-0 items-center justify-center rounded-md border text-[12px] font-semibold"
+        >
+          {letter}
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[12px] font-medium">{item.name}</span>
+          {item.version ? (
+            <Badge variant="secondary" className="h-4 px-1.5 font-mono text-[9.5px]">
+              v{item.version}
+            </Badge>
+          ) : null}
+          {item.channel === "official" ? (
+            <Badge
+              variant="outline"
+              className="h-4 border-emerald-500/50 bg-emerald-500/10 px-1.5 text-[9.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+            >
+              Official
+            </Badge>
+          ) : null}
+        </div>
+        {item.description ? (
+          <span className="text-muted-foreground text-[10.5px] leading-snug">
+            {item.description}
+          </span>
+        ) : null}
+        <span className="text-muted-foreground/70 break-all text-[10px]">
+          {item.publisher ? `${item.publisher} · ` : ""}
+          {item.repoSlug}
+          {item.license ? ` · ${item.license}` : ""}
+        </span>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 px-2.5 text-[11px]"
+        onClick={onInstall}
+      >
+        Install
+      </Button>
+    </div>
   );
 }

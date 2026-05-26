@@ -11,6 +11,7 @@ import {
   rotateLeafWithNeighbor,
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
+  setLeafPtyId as setLeafPtyIdInTree,
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
@@ -92,7 +93,25 @@ export type GitDiffTab = {
   reloadKey: number;
 };
 
-export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab;
+/**
+ * Extension-owned tab. The content is mounted by `ExtensionTabStack`
+ * which calls the renderer registered by `ctx.registerPanelRenderer`.
+ * Opened via `ctx.tabs.openExtensionTab({ extensionId, panelId, title })`.
+ */
+export type ExtensionTab = {
+  id: number;
+  kind: "ext";
+  title: string;
+  extensionId: string;
+  panelId: string;
+  /** Optional icon path relative to the extension root (or `data:` URL). */
+  icon?: string;
+  /** Caller-supplied stable id for dedup (so re-opening focuses the
+   *  existing tab instead of pushing a new one). */
+  reuseKey?: string;
+};
+
+export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab | ExtensionTab;
 
 export type TabPatch = Partial<{
   title: string;
@@ -578,6 +597,57 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     return id;
   }, []);
 
+  /**
+   * Open (or focus) an extension-owned tab. Caller passes a `reuseKey` to
+   * dedupe; if a tab with the same `(extensionId, panelId, reuseKey)`
+   * already exists, we activate it instead of pushing a new one. The
+   * extension's panel renderer (registered via `ctx.registerPanelRenderer`)
+   * is mounted by `ExtensionTabStack`.
+   */
+  const openExtensionTab = useCallback(
+    (opts: {
+      extensionId: string;
+      panelId: string;
+      title: string;
+      icon?: string;
+      reuseKey?: string;
+    }) => {
+      let resolvedId: number | null = null;
+      setTabs((curr) => {
+        const reuse = opts.reuseKey
+          ? curr.find(
+              (t) =>
+                t.kind === "ext" &&
+                t.extensionId === opts.extensionId &&
+                t.panelId === opts.panelId &&
+                t.reuseKey === opts.reuseKey,
+            )
+          : null;
+        if (reuse) {
+          resolvedId = reuse.id;
+          return curr;
+        }
+        const id = nextIdRef.current++;
+        resolvedId = id;
+        return [
+          ...curr,
+          {
+            id,
+            kind: "ext",
+            title: opts.title,
+            extensionId: opts.extensionId,
+            panelId: opts.panelId,
+            icon: opts.icon,
+            reuseKey: opts.reuseKey,
+          } satisfies ExtensionTab,
+        ];
+      });
+      if (resolvedId !== null) setActiveId(resolvedId);
+      return resolvedId as number | null;
+    },
+    [],
+  );
+
   const closeTab = useCallback((id: number) => {
     setTabs((curr) => {
       if (curr.length <= 1) return curr;
@@ -614,6 +684,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             ...x,
             ...(patch.title !== undefined && { title: patch.title }),
             ...(patch.path !== undefined && { path: patch.path }),
+          };
+        }
+        if (x.kind === "ext") {
+          return {
+            ...x,
+            ...(patch.title !== undefined && { title: patch.title }),
           };
         }
         // pane tab: patches apply to the active leaf.
@@ -659,6 +735,24 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
         const paneTree = setLeafCwdInTree(t.paneTree, leafId, cwd);
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
+
+  /**
+   * Stamp the daemon-side PTY UUID returned by `pty_open` / `pty_attach`
+   * onto a terminal leaf so the workspace serializer can persist it.
+   * Clears any `savedPtyId` set by the restore path - the leaf is now
+   * authoritative and a manual respawn must spawn fresh, not re-attach.
+   */
+  const setLeafPtyId = useCallback((leafId: number, ptyId: string) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const paneTree = setLeafPtyIdInTree(t.paneTree, leafId, ptyId);
+        if (paneTree === t.paneTree) return t;
         return syncPaneMirror({ ...t, paneTree });
       }),
     );
@@ -1132,6 +1226,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     openFileTab,
     pinTab,
     newPreviewTab,
+    openExtensionTab,
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,
@@ -1139,6 +1234,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setLeafPtyId,
     setEditorLeafDirty,
     setEditorLeafPath,
     focusPane,

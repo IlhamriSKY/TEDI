@@ -18,6 +18,14 @@ export type SavedTerminalLeaf = {
   terminalOrdinal?: number;
   /** Per-leaf privacy flag. AI subsystem ignores private leaves. */
   private?: boolean;
+  /**
+   * Daemon-owned PTY UUID. When present on next launch the restore path
+   * calls `pty_attach` to resume the shell with its scrollback; on attach
+   * failure (daemon was killed, system rebooted) the leaf falls back to a
+   * fresh `pty_open`. Absent on SSH leaves and on builds where the daemon
+   * backend is unavailable.
+   */
+  ptyId?: string;
 };
 
 export type SavedEditorLeaf = {

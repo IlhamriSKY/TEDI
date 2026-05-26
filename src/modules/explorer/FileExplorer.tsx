@@ -85,6 +85,9 @@ type Props = {
   hideCreateActions?: boolean;
   /** Hide the grep button when only filename search is needed. */
   hideGrep?: boolean;
+  /** Hide the Sort dropdown button. The primary sidebar tree opts out;
+   *  extension-mounted trees keep it for their own sort UX. */
+  hideSort?: boolean;
   /** Extra buttons appended after Refresh + Collapse. */
   headerExtras?: React.ReactNode;
   /** Absolute path of the file the user is currently viewing (editor, ai-diff,
@@ -137,6 +140,7 @@ export function FileExplorer({
   onToggleCollapsed,
   hideCreateActions = false,
   hideGrep = false,
+  hideSort = false,
   headerExtras,
   activeFilePath,
 }: Props) {
@@ -498,38 +502,40 @@ export function FileExplorer({
                 <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
-            <DropdownMenu>
-              <IconTooltip label={`Sort: ${SORT_LABELS[sortMode]}`} side="bottom">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Sort entries"
-                    className={
-                      sortMode === "default"
-                        ? "text-muted-foreground hover:text-foreground size-6"
-                        : "text-foreground hover:text-foreground size-6"
-                    }
+            {!hideSort && (
+              <DropdownMenu>
+                <IconTooltip label={`Sort: ${SORT_LABELS[sortMode]}`} side="bottom">
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Sort entries"
+                      className={
+                        sortMode === "default"
+                          ? "text-muted-foreground hover:text-foreground size-6"
+                          : "text-foreground hover:text-foreground size-6"
+                      }
+                    >
+                      <HugeiconsIcon icon={Sorting02Icon} size={13} strokeWidth={2} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </IconTooltip>
+                <DropdownMenuContent align="end" className="min-w-56">
+                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup
+                    value={sortMode}
+                    onValueChange={(v) => setSortMode(v as SortMode)}
                   >
-                    <HugeiconsIcon icon={Sorting02Icon} size={13} strokeWidth={2} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </IconTooltip>
-              <DropdownMenuContent align="end" className="min-w-56">
-                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuRadioGroup
-                  value={sortMode}
-                  onValueChange={(v) => setSortMode(v as SortMode)}
-                >
-                  {SORT_MODES.map((mode) => (
-                    <DropdownMenuRadioItem key={mode} value={mode}>
-                      {SORT_LABELS[mode]}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    {SORT_MODES.map((mode) => (
+                      <DropdownMenuRadioItem key={mode} value={mode}>
+                        {SORT_LABELS[mode]}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {headerExtras}
           </>
         )}

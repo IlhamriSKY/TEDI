@@ -31,6 +31,8 @@ import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumop
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
+import { setOpenExtensionTab, setSidebarSetter } from "@/modules/extensions/tabsBridge";
+import { ExtensionTabStack } from "@/modules/extensions/components/ExtensionTabStack";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { RightPanelHost, useExtensionsStore, useRightPanelStore } from "@/modules/extensions";
@@ -261,6 +263,7 @@ export default function App() {
     openFileTab,
     pinTab,
     newPreviewTab,
+    openExtensionTab,
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,
@@ -268,6 +271,7 @@ export default function App() {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setLeafPtyId,
     setEditorLeafDirty,
     setEditorLeafPath,
     focusPane,
@@ -314,6 +318,7 @@ export default function App() {
   const hasPreviewTab = useMemo(() => tabs.some((t) => t.kind === "preview"), [tabs]);
   const hasAiDiffTab = useMemo(() => tabs.some((t) => t.kind === "ai-diff"), [tabs]);
   const hasGitDiffTab = useMemo(() => tabs.some((t) => t.kind === "git-diff"), [tabs]);
+  const hasExtensionTab = useMemo(() => tabs.some((t) => t.kind === "ext"), [tabs]);
 
   // Active leaf says what's focused in the current tab. Drives Search,
   // AI selection, CWD wiring, etc.
@@ -903,6 +908,7 @@ export default function App() {
     if (!activeTab) return null;
     if (activeTab.kind === "preview") return "preview";
     if (activeTab.kind === "ai-diff" || activeTab.kind === "git-diff") return "diff";
+    if (activeTab.kind === "ext") return "ext";
     if (activeTab.kind === "pane") {
       const leaf = activeLeaf(activeTab);
       if (!leaf) return null;
@@ -923,6 +929,29 @@ export default function App() {
       activeTabKind,
     });
   }, [explorerRoot, activeFileName, terminalCount, activeTabKind]);
+
+  // Wire the tabsBridge so `ctx.tabs.openExtensionTab(...)` in the host
+  // API can push a new tab. `openExtensionTab` is stable across renders.
+  useEffect(() => {
+    setOpenExtensionTab((opts) => openExtensionTab(opts));
+    return () => setOpenExtensionTab(null);
+  }, [openExtensionTab]);
+
+  // Wire `ctx.app.setSidebarVisible(visible)` through the imperative
+  // `sidebarRef` so an extension can collapse / expand the file explorer
+  // pane without having to know how it is laid out. The handle is
+  // mutable across renders, so the callback dereferences it on every
+  // invocation rather than closing over the current value.
+  useEffect(() => {
+    setSidebarSetter((visible) => {
+      const p = sidebarRef.current;
+      if (!p) return;
+      const visibleNow = p.getSize().asPercentage > 0;
+      if (visible && !visibleNow) p.expand();
+      else if (!visible && visibleNow) p.collapse();
+    });
+    return () => setSidebarSetter(null);
+  }, []);
 
   // On active leaf or tab change, surface its search addon, editor handle,
   // and detected URL to the chrome.
@@ -1540,6 +1569,7 @@ export default function App() {
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       "tab.new": openNewTab,
+      "tab.newPrivate": openNewPrivateTab,
       "tab.newPreview": () => openPreviewTab(""),
       "tab.newEditor": () => setNewEditorOpen(true),
       "tab.close": handleCloseTabOrPane,
@@ -1646,6 +1676,7 @@ export default function App() {
       cycleTab,
       handleCloseTabOrPane,
       openNewTab,
+      openNewPrivateTab,
       openPreviewTab,
       selectByIndex,
       splitActivePaneInActiveTab,
@@ -1690,6 +1721,14 @@ export default function App() {
   const handleTerminalCwd = useCallback(
     (leafId: number, cwd: string) => setLeafCwd(leafId, cwd),
     [setLeafCwd],
+  );
+
+  // Fires once whenever a terminal leaf acquires a daemon-side PTY UUID.
+  // Stamping it onto the leaf lets the workspace serializer persist it
+  // so the next launch can `pty_attach` instead of spawning fresh.
+  const handlePtyId = useCallback(
+    (leafId: number, ptyId: string) => setLeafPtyId(leafId, ptyId),
+    [setLeafPtyId],
   );
 
   const handleFocusLeaf = useCallback(
@@ -2252,7 +2291,6 @@ export default function App() {
             canSplit={
               activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB
             }
-            onOpenShortcuts={() => void openSettingsWindow("shortcuts")}
             onOpenExtensions={() => void openSettingsWindow("extensions")}
             onOpenSettings={() => void openSettingsWindow()}
             onConnectSsh={(conn, opts) => newSshTab(conn.id, conn.name, opts)}
@@ -2310,6 +2348,7 @@ export default function App() {
                             collapsed={localFilesCollapsed}
                             onToggleCollapsed={toggleLocalFiles}
                             activeFilePath={activeFilePath}
+                            hideSort
                           />
                         </div>
                         {hasAnySshLeaf ? (
@@ -2382,6 +2421,7 @@ export default function App() {
                         onTediSpawnTab={handleTediSpawnTab}
                         onSshStatus={handleSshStatus}
                         onAiCliStatus={handleAiCliStatus}
+                        onPtyId={handlePtyId}
                         registerEditorHandle={registerEditorHandle}
                         onDirtyChange={handleEditorDirty}
                         onCloseLeaf={handleEditorCloseLeaf}
@@ -2438,6 +2478,17 @@ export default function App() {
                         </Suspense>
                       ) : null}
                     </div>
+                    {hasExtensionTab ? (
+                      <div
+                        className={cn(
+                          "absolute inset-0",
+                          activeTab?.kind !== "ext" && "pointer-events-none invisible",
+                        )}
+                        aria-hidden={activeTab?.kind === "ext" ? "false" : "true"}
+                      >
+                        <ExtensionTabStack tabs={tabs} activeId={activeId} />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </ResizablePanel>

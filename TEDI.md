@@ -27,7 +27,8 @@ The webview never touches OS resources directly. Everything goes through `invoke
 
 | Module       | Files                                                     | Commands                                                                                                                                                       | Purpose                                                                                                                                                                                                                           |
 | ------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`         | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/`       | `pty_open/write/resize/close`                                                                                                                                  | Long-lived interactive PTYs (xterm ↔ portable-pty). State: `RwLock<HashMap<id, Session>>`. Streams output via Tauri `Channel<PtyEvent>`.                                                                                          |
+| `pty/`         | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/`       | `pty_open/attach/write/resize/close/list_sessions/kill_all`                                                                                                    | Interactive PTYs (xterm ↔ portable-pty). Two-backend: daemon (default, survives window close) → falls back to in-process `HashMap<id, Session>` if the daemon won't spawn. Streams via Tauri `Channel<PtyEvent>`. See **PTY daemon** below. |
+| `pty_daemon/`  | `protocol`, `transport`, `paths`, `server`, `client`, `spawn` | `--pty-daemon` CLI flag (no Tauri commands)                                                                                                                    | Sidecar process that owns every PTY across GUI restarts. Same binary, daemon mode short-circuits before Tauri boots. IPC over Unix domain socket / Windows named pipe. |
 | `fs/`          | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs` | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_read_file_portion`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob` | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). `fs_read_file_portion` streams only the requested line range through a `BufReader` so the IPC payload for AI reads stays bounded.    |
 | `shell/`       | `session.rs`, `background.rs`, `ringbuffer.rs`            | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list`                                                                           | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.** |
 | `git/`         | `mod.rs` (+ submodules)                                   | `git_status`, `git_diff_full`, `git_commit`, `git_push`, `git_discard_*`                                                                                       | Backend for the `scm/` frontend panel - runs `git` against the workspace cwd and parses status/diff into structured payloads.                                                                                                     |
@@ -55,11 +56,41 @@ Init scripts in [src-tauri/src/modules/pty/scripts/](src-tauri/src/modules/pty/s
 
 #### Windows-specific gotchas
 
-- **`SPAWN_LOCK`** ([session.rs](src-tauri/src/modules/pty/session.rs)) - `Mutex` around `openpty + spawn_command`. Concurrent ConPTY spawns stall the output pipe of one PTY. Don't remove without verifying first-tab stability under fast tab spam.
+- **`SPAWN_LOCK`** ([session.rs](src-tauri/src/modules/pty/session.rs)) - `Mutex` gating ConPTY lifecycle: held by `spawn()` across `openpty + spawn_command`, and by `drop_session()` across the `Arc<Session>` drop (so `ClosePseudoConsole` on the master can't run concurrently with a sibling's openpty). Overlapping ConPTY create + close corrupts the freshly-spawned console so its shell never pumps output - the pane stays blank. Workspace restore triggered this when the default tab's PTY closed while the saved tabs' PTYs were spawning. `mod::pty_close` drops via `session::drop_session` (not bare `drop`) so the lock applies; the drop still runs on a detached thread so the Tauri worker isn't blocked. Reader/flusher threads keep reading from already-live PTYs while the lock is held - it only gates lifecycle, not IO. Don't remove without verifying first-tab stability under fast tab spam AND a "restore workspace with 3+ panes after a default-tab PTY" scenario.
 - **Job Objects** ([job.rs](src-tauri/src/modules/pty/job.rs)) - each ConPTY child is assigned to a per-session Job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. When the Job HANDLE drops (clean shutdown, panic, even SIGKILL'd TEDI), the kernel kills every descendant (e.g. `npm run dev` inside pwsh). Without it Windows orphans the whole subtree because `TerminateProcess` only kills the immediate child. `portable-pty::killer.kill()` only kills the immediate child too - the Job catches the rest.
 - **Cwd normalization** - `CreateProcessW` misbehaves with forward-slash cwd. Normalize to backslashes before passing to ConPTY (`apply_common` handles PTY spawn; other call sites must normalize themselves).
 
 macOS/Linux rely on `Drop for Session → killer.kill()`. Dev-time `Ctrl-C` on `cargo run` skips destructors → orphans possible there too. Acceptable for dev.
+
+### PTY daemon (sidecar persistence)
+
+Goal: PTYs outlive a GUI window close (so `cargo watch` / dev servers resume on next launch). Out of scope by design: surviving PC restart or daemon crash - both clear sessions, GUI falls back to fresh spawn.
+
+| Event | Daemon | Sessions |
+| --- | --- | --- |
+| First GUI launch | Spawned detached, 5 s connect budget | — |
+| Window close | Survives (Unix `process_group(0)` / Windows `DETACHED_PROCESS`) | Kept alive |
+| GUI reopens | Reconnects, `pty_attach(uuid)` per saved leaf | **Restored** with replayed scrollback |
+| PC restart / daemon crash | Process dies; no autostart | **Lost** (intended); GUI re-spawns fresh |
+| Idle 24 h, no clients | Self-shuts down (`TEDI_PTYD_IDLE_SECS` overrides) | Discarded |
+
+**Protocol** ([protocol.rs](src-tauri/src/modules/pty_daemon/protocol.rs)): length-prefixed JSON, version-gated via `Hello`. Push events (`Data`/`Exit`) carry no `req_id` so they're distinguishable from responses. GUI splits reader (events + responses) from a write-locked sender.
+
+**Socket** ([paths.rs](src-tauri/src/modules/pty_daemon/paths.rs)): Unix `$XDG_RUNTIME_DIR/tedi-ptyd.sock` (or `$TMPDIR/tedi-ptyd-$USER.sock` mode 0600); Windows `\\.\pipe\tedi-ptyd-<fnv1a(USERNAME)>`.
+
+**Scrollback** ([server.rs](src-tauri/src/modules/pty_daemon/server.rs)): per-session `VecDeque<u8>` ring capped at 1 MiB. On attach the daemon emits the ring as one `AttachOk { scrollback_b64 }` before live events resume - xterm reconstructs screen state from the ANSI in the replay. `close_session` detaches the Arc drop onto a thread (routed through `pty::session::drop_session` for `SPAWN_LOCK`) so Windows ClosePseudoConsole can't stall a tokio worker.
+
+**Restore flow**: each terminal leaf carries `ptyId?` ([panes.ts](src/modules/terminal/lib/panes.ts)), set by `useTerminalSession` after `pty_open` / `pty_attach` returns a non-empty `sessionId`. `serializeTabs` ([workspaces/serialize.ts](src/modules/workspaces/serialize.ts)) persists it for local terminals (SSH skipped). On next launch the leaf gets `savedPtyId`; `attachSession` calls `reattachPty` first and transparently falls back to `openPty` at the saved cwd on daemon-unknown-uuid.
+
+**Fallback**: `PtyClient::connect_or_spawn` failure (binary missing, socket unwritable) → `pty/mod.rs` switches to the in-process backend; `pty_open` returns `sessionId: ""`, frontend skips persistence. Same behaviour as pre-daemon releases.
+
+**Logging**: daemon stderr is redirected at spawn ([spawn.rs](src-tauri/src/modules/pty_daemon/spawn.rs)) to `<data_dir>/id.ilhamrisky.tedi/logs/tedi-ptyd.log`; `server::init_logging` installs a minimal `log::Log` so existing `log::*!` macros land in the file. Override level with `TEDI_PTYD_LOG=debug`.
+
+**CLI dispatch** in [lib.rs](src-tauri/src/lib.rs): `--pty-daemon` short-circuits between `cli_update` and `cli::capture_startup`; `server::run_forever` blocks until idle-timeout or `Shutdown`.
+
+**Dev / packaging gotchas**:
+- `pnpm tauri dev`: daemon outlives the dev GUI - set `TEDI_PTYD_IDLE_SECS=60` for fast iteration or kill `TEDIApp --pty-daemon` manually when editing daemon code.
+- AppImage: daemon spawned from `current_exe()` (the mount path), so an old daemon keeps an old AppImage mount alive until idle. Prefer `$APPIMAGE` in a follow-up.
 
 ### Frontend (`src/`)
 
@@ -328,6 +359,7 @@ src-tauri/src/
   main.rs
   modules/
     pty/{mod,session,shell_init,job}.rs + scripts/
+    pty_daemon/{mod,protocol,transport,paths,server,client,spawn}.rs  ← sidecar daemon
     fs/{mod,tree,file,mutate,search,grep}.rs
     shell/{mod,session,background,ringbuffer}.rs
     git/                  ← scm backend (status/diff/commit/push)

@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.2.26] - 26-05-2026
+
+### Added
+
+- **PTY daemon for session persistence.** New sidecar process ([`src-tauri/src/modules/pty_daemon/`](src-tauri/src/modules/pty_daemon/)) owns every interactive PTY across window-close so long-running shells (`cargo watch`, `npm run dev`) keep streaming and reattach when the GUI re-opens. IPC over Unix domain socket / Windows named pipe via [`interprocess`](https://crates.io/crates/interprocess); per-session ids minted by `uuid`. Scrollback ring (1 MiB) replayed as one `AttachOk` event on reattach so xterm reconstructs screen state from the ANSI on the wire. Daemon self-shuts after 24 h idle, falls back to in-process PTY when the sidecar can't spawn. See the "PTY daemon" section of [`TEDI.md`](TEDI.md) for the full protocol + fallback semantics.
+- **Workspace tab + header surfaces for extensions.** `panels[].surface` enum grows a new `"tab"` value: extensions that declare it can open their UI as a full workspace tab via the new `ctx.tabs.openExtensionTab({ panelId, title, reuseKey })` host API instead of (or alongside) the right-panel slot. The first consumer is `tedi.sql-explorer`'s HeidiSQL-style query workbench. Pair with `ctx.headerBar.{setItem,removeItem}` for a header button next to SSH / Extensions / Settings (gated on `headerbar:write`), and `ctx.app.setSidebarVisible(visible)` to collapse the host file-explorer when the workbench tab opens. Tab strip renders an extension tab with the icon the extension hinted (e.g. `hugeicon:Database01Icon`) tinted in the SSH-tab sky-blue tone so workbench extensions read as part of the remote-dev cluster.
+- **`ctx.ui.codeEditor(container, opts)` host API.** Mounts a CodeMirror 6 view in any extension-owned `<div>`, with the same syntax-highlight palette tier as the host code editor and a small subset of extensions (line numbers, history, active-line gutter, `Mod+Enter` callback). Languages: `sql`, `sql:mysql`, `sql:postgres`, `sql:sqlite`, `json`, `plain`. Theme inherits TEDI's CSS vars. Auto-disposed on extension deactivate.
+- **`ctx.ui.icon(name, opts)` host API.** Returns a `<span>` with a HugeIcon mounted via React. Lets vanilla-JS extensions render pixel-perfect HugeIcons matching the host header / status-bar chrome instead of bundling their own SVGs. Roots tracked per extension and unmounted on deactivate. `ExtensionHeaderItems` and `ExtensionStatusItems` recognise the same `hugeicon:<Name>` prefix on `icon` strings, so an extension that registers a header item with `icon: "hugeicon:Database01Icon"` paints exactly like a core SSH / Settings button.
+
+### Changed
+
+- **`tedi.sql-explorer` (new external extension).** First-party reference extension showcasing the new host APIs above. Connects to MySQL / PostgreSQL / SQLite via a self-contained Rust sidecar (`tedi-sql-helper`) speaking HTTP+JSON on `127.0.0.1` with a per-boot bearer token. CRUD via UI (insert dialog, double-click cell edit, row delete) and via the embedded CodeMirror SQL editor. Connections stored under `ext:tedi.sql-explorer:connections` in TEDI settings; passwords in the OS keychain. Lives at [`IlhamriSKY/TEDI.sql-explorer`](https://github.com/IlhamriSKY/TEDI.sql-explorer), install via *Settings → Extensions → From GitHub*.
+
+### Extension surface
+
+- **`panels[].surface` enum: `"tab"` accepted alongside `"right"` / `"sidebar-bottom"` / `"statusbar-right"`.** A `"tab"` panel skips the auto-rendered status-bar toggle; the extension owns the open via `ctx.tabs.openExtensionTab`.
+- **New permissions: `headerbar:write` (low risk), `tabs:open` (low risk).**
+- **New registries: `headerItemsRegistry`** (runtime-only, mirror of `statusItemsRegistry`; cleared by `clearExtensionContributions`).
+
 ## [0.2.25] - 25-05-2026
 
 ### Added

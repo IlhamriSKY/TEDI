@@ -43,57 +43,82 @@ pub fn is_update_flag(s: &str) -> bool {
 }
 
 pub fn help_text() -> String {
-    // Hand-laid out: `concat!` keeps every line literal so the 21-space
-    // indent under "Folder to open" survives (backslash-continuation would
-    // eat the leading whitespace).
-    concat!(
-        "TEDI ",
-        env!("CARGO_PKG_VERSION"),
-        " - Terminal Environment & Development Infrastructure\n",
-        "\n",
-        "USAGE:\n",
-        "    tedi [PATH]\n",
-        "    tedi [FLAG]\n",
-        "    tedi ext <SUBCOMMAND> [ARGS]      (manage extensions, headless)\n",
-        "    tedi theme <SUBCOMMAND> [ARGS]    (manage custom theme + wallpaper)\n",
-        "\n",
-        "If TEDI is already running, the request is forwarded to that window\n",
-        "(a second window is not opened).\n",
-        "\n",
-        "FLAGS:\n",
-        "    -h, --help           Print this help and exit\n",
-        "    -v, -V, --version    Print version and exit\n",
-        "    -u, --update         Check for updates and install in place (headless)\n",
-        "\n",
-        "ARGS:\n",
-        "    PATH             Folder to open, or file to edit. Use `.` for the\n",
-        "                     current directory. Relative paths resolve against\n",
-        "                     the shell's cwd.\n",
-        "\n",
-        "EXTENSION SUBCOMMANDS (run `tedi ext help` for full reference):\n",
-        "    tedi ext                       Open the TUI dashboard\n",
-        "    tedi ext install <path|owner/repo|registry-id>\n",
-        "    tedi ext list                  Browse registry (TUI on TTY, table on pipe)\n",
-        "    tedi ext list --installed      Locally installed (alias: `tedi ext installed`)\n",
-        "    tedi ext update [<ID>]         Check upstream for updates\n",
-        "    tedi ext uninstall <ID>\n",
-        "    tedi ext enable <ID>\n",
-        "    tedi ext disable <ID>\n",
-        "    --plain (-p)                   Force plain text output (no TUI)\n",
-        "\n",
-        "THEME SUBCOMMANDS (run `tedi theme help` for full reference):\n",
-        "    tedi theme list                Show available presets\n",
-        "    tedi theme show                Show currently active theme\n",
-        "    tedi theme set <id>            Apply preset (default, tokyo-night, nord,\n",
-        "                                   catppuccin, solarized, monokai, matrix)\n",
-        "    tedi theme on | off            Toggle custom theme entirely\n",
-        "    tedi theme reset               Restore Default preset\n",
-        "    tedi theme bg <url|file|off>   Set or clear wallpaper\n",
-        "    tedi theme blur <0..40>        Wallpaper blur (px)\n",
-        "    tedi theme opacity <0..1>      Terminal / editor surface opacity\n",
-        "    tedi theme darken <0..1>       Wallpaper darken overlay",
+    let dim = |s: &str| ansi_help("2", s);
+    let header = |s: &str| ansi_help("36;1", s);
+    let cmd = |s: &str| ansi_help("33;1", s);
+    let brand = |s: &str| ansi_help("34;1", s);
+
+    format!(
+        "{title}  {tag}\n\
+         \n\
+         {usage}\n  \
+         {tedi} {path}               Open folder or file in the running window\n  \
+         {tedi} {flag}               Show a flag-action below\n  \
+         {tedi} ext {sub}      Manage extensions   {dim_more}\n  \
+         {tedi} theme {sub}    Theme + wallpaper   {dim_more_t}\n\
+         \n\
+         {flags}\n  \
+         {h_short}, {h_long}         Show this help and exit\n  \
+         {v_short}, {v_long}      Print version and exit\n  \
+         {u_short}, {u_long}       Check for updates and install in place\n\
+         \n\
+         {ext_hdr}\n  \
+         install {ref_arg}     path | owner/repo | registry-id\n  \
+         list              Browse public registry (TTY picker)\n  \
+         installed         Show locally installed + updates\n  \
+         update {id_opt}     Check upstream / apply updates\n  \
+         enable | disable | uninstall {id_req}\n\
+         \n\
+         {thm_hdr}\n  \
+         list              Presets with color preview\n  \
+         show              Currently active theme\n  \
+         set {id_req}         Apply preset (queues for next launch)\n  \
+         on | off | reset  Toggle / restore Default\n  \
+         bg {bg_arg}      Set or clear wallpaper\n\
+         \n\
+         {dim_note}\n\
+         {dim_registry}\n",
+        title = brand(&format!("TEDI {}", env!("CARGO_PKG_VERSION"))),
+        tag = dim("· Terminal Environment & Development Infrastructure"),
+        usage = header("USAGE"),
+        tedi = cmd("tedi"),
+        path = dim("[PATH]"),
+        flag = dim("<FLAG>"),
+        sub = dim("<subcommand>"),
+        dim_more = dim("(tedi ext help)"),
+        dim_more_t = dim("(tedi theme help)"),
+        flags = header("FLAGS"),
+        h_short = cmd("-h"),
+        h_long = cmd("--help"),
+        v_short = cmd("-v"),
+        v_long = cmd("--version"),
+        u_short = cmd("-u"),
+        u_long = cmd("--update"),
+        ext_hdr = header("EXTENSIONS"),
+        thm_hdr = header("THEME"),
+        ref_arg = dim("<ref>"),
+        id_opt = dim("[<id>]"),
+        id_req = dim("<id>"),
+        bg_arg = dim("<url|file|off>"),
+        dim_note = dim(
+            "If TEDI is already running, the request is forwarded to that window\n\
+             (a second window is not opened)."
+        ),
+        dim_registry = dim("Registry: https://tedi.ilhamriski.com/extensions/"),
     )
-    .to_string()
+}
+
+/// Local ANSI helper that mirrors the gating in `cli_ext.rs` / `cli_theme.rs`.
+/// Kept inline here so `help_text()` can be called even before the rest of
+/// the CLI modules link (the Windows tedi-cli launcher reuses this fn).
+fn ansi_help(code: &str, text: &str) -> String {
+    use std::io::IsTerminal;
+    let enabled = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    if enabled {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
 }
 
 /// Re-attach this process to the parent terminal's console on Windows so the
@@ -425,5 +450,31 @@ pub fn cli_install_path_shim() -> Result<ShimInstall, String> {
     #[cfg(unix)]
     {
         install_shim_unix()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Lock the `--plain` flag out of the help text and ensure the new
+    /// section headers stay present. Tests run with stdout piped, so
+    /// `ansi_help` falls back to plain text - the assertions match plain
+    /// substrings.
+    #[test]
+    fn help_text_has_no_plain_flag_and_keeps_sections() {
+        let h = help_text();
+        assert!(!h.contains("--plain"), "expected --plain to be removed from help");
+        assert!(!h.contains("-p)"), "expected the legacy `-p` short flag to be gone");
+        assert!(h.contains(env!("CARGO_PKG_VERSION")), "version missing from help");
+        for section in ["USAGE", "FLAGS", "EXTENSIONS", "THEME"] {
+            assert!(
+                h.contains(section),
+                "expected `{section}` section in help",
+            );
+        }
+        for flag in ["--help", "--version", "--update"] {
+            assert!(h.contains(flag), "expected `{flag}` in help");
+        }
     }
 }

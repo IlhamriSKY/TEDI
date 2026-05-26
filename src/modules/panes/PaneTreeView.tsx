@@ -20,6 +20,7 @@ export type LeafBundle = {
   onTediSpawnTab: (input: TediSpawnTabInput) => void;
   onSshStatus: (status: SshStatus) => void;
   onAiCliStatus: (status: AiCliStatus) => void;
+  onPtyId: (ptyId: string) => void;
   // editor-only
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -70,6 +71,7 @@ export function PaneTreeView({
               focused={focused}
               initialCwd={node.cwd}
               sshConnectionId={node.sshConnectionId}
+              savedPtyId={node.savedPtyId}
               ref={b.setTerminalRef}
               onSearchReady={(_id, addon) => b.onSearchReady(addon)}
               onCwd={(_id, cwd) => b.onCwd(cwd)}
@@ -79,6 +81,7 @@ export function PaneTreeView({
               onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
               onSshStatus={(_id, status) => b.onSshStatus(status)}
               onAiCliStatus={(_id, status) => b.onAiCliStatus(status)}
+              onPtyId={(_id, ptyId) => b.onPtyId(ptyId)}
             />
           </div>
         </div>

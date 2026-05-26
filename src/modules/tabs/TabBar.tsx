@@ -3,6 +3,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -33,14 +34,18 @@ import {
   aiCliLabel,
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
+import * as HugeIcons from "@hugeicons/core-free-icons";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   Cancel01Icon,
   CloudServerIcon,
   ComputerTerminal02Icon,
+  Database01Icon,
   GitCompareIcon,
   Globe02Icon,
+  LayoutTwoColumnIcon,
+  LayoutTwoRowIcon,
   LockedIcon,
   MoreVerticalIcon,
   PencilEdit02Icon,
@@ -106,7 +111,16 @@ type StandaloneEntry = EntryBase & {
   kind: "preview" | "ai-diff" | "git-diff";
 };
 
-type Entry = PaneEntry | StandaloneEntry;
+type ExtensionEntry = EntryBase & {
+  kind: "ext";
+  extensionId: string;
+  panelId: string;
+  /** Icon hint from the extension. Either `hugeicon:<Name>` for an
+   *  inline HugeIcon or a relative asset path. */
+  icon?: string;
+};
+
+type Entry = PaneEntry | StandaloneEntry | ExtensionEntry;
 
 /**
  * Background color for the per-tab accent stripe. Emerald for local shell,
@@ -129,7 +143,10 @@ function tabAccentClass(e: Entry): string {
   }
   if (e.kind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
-  return "bg-[color:var(--tedi-tab-git-diff)]";
+  if (e.kind === "git-diff") return "bg-[color:var(--tedi-tab-git-diff)]";
+  // Extension tab. Reuse the SSH accent (sky blue) so workbench-style
+  // extensions read as "remote-ish dev tools" next to terminal tabs.
+  return "bg-[color:var(--tedi-tab-ssh)]";
 }
 
 function basename(path: string): string {
@@ -224,12 +241,24 @@ function buildEntries(
       });
       continue;
     }
-    // git-diff
+    if (t.kind === "git-diff") {
+      out.push({
+        kind: "git-diff",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    // ext: extension-owned tab. Carry icon + ext id forward for rendering.
     out.push({
-      kind: "git-diff",
+      kind: "ext",
       key: `tab-${t.id}`,
       tabId: t.id,
       label: t.title,
+      extensionId: t.extensionId,
+      panelId: t.panelId,
+      icon: t.icon,
     });
   }
   return out;
@@ -261,6 +290,10 @@ type Props = {
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split containing `leafId`. Rendered only on entries inside a split. */
   onRotateLeafSplit?: (leafId: number) => void;
+  /** Split the active pane. Wired into the `+` dropdown next to New Terminal. */
+  onSplit?: (dir: "row" | "col") => void;
+  /** Disable the split-pane items when the active tab is at its split cap. */
+  canSplit?: boolean;
   /** Map of leafId to SSH session status. Drives the colored dot and tooltip. */
   sshStatuses?: Map<number, SshStatus>;
   /** Map of leafId to AI CLI status. Drives the icon dot and tooltip. */
@@ -325,6 +358,8 @@ export function TabBar({
   onMoveLeafToGroup,
   onMoveLeafToNewTab,
   onRotateLeafSplit,
+  onSplit,
+  canSplit = false,
   sshStatuses,
   aiCliStatuses,
   compact,
@@ -664,11 +699,13 @@ export function TabBar({
             </TooltipTrigger>
             <TooltipContent side="bottom">New</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="start" className="min-w-44">
+          <DropdownMenuContent align="start" className="w-auto min-w-64">
             <DropdownMenuItem onSelect={() => onNewTerminal()}>
               <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1">Terminal</span>
-              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "T")}</span>
+              <span className="flex-1 whitespace-nowrap">Terminal</span>
+              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                {fmtShortcut(MOD_KEY, "T")}
+              </span>
             </DropdownMenuItem>
             {onNewPrivateTerminal ? (
               <DropdownMenuItem onSelect={() => onNewPrivateTerminal()}>
@@ -678,19 +715,45 @@ export function TabBar({
                   strokeWidth={1.75}
                   className="text-red-600 dark:text-red-400"
                 />
-                <span className="flex-1">Private Terminal</span>
+                <span className="flex-1 whitespace-nowrap">Private Terminal</span>
+                <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                  {fmtShortcut(MOD_KEY, "Shift", "T")}
+                </span>
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem onSelect={() => onNewEditor()}>
               <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1">Editor</span>
-              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "E")}</span>
+              <span className="flex-1 whitespace-nowrap">Editor</span>
+              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                {fmtShortcut(MOD_KEY, "E")}
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onNewPreview()}>
               <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1">Preview</span>
-              <span className="text-muted-foreground text-xs">{fmtShortcut(MOD_KEY, "P")}</span>
+              <span className="flex-1 whitespace-nowrap">Preview</span>
+              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                {fmtShortcut(MOD_KEY, "P")}
+              </span>
             </DropdownMenuItem>
+            {onSplit ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row")}>
+                  <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
+                  <span className="flex-1 whitespace-nowrap">Split right</span>
+                  <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                    {fmtShortcut(MOD_KEY, "D")}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("col")}>
+                  <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
+                  <span className="flex-1 whitespace-nowrap">Split down</span>
+                  <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                    {fmtShortcut(MOD_KEY, "Shift", "D")}
+                  </span>
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1374,6 +1437,25 @@ function EntryIcon({ entry }: { entry: Entry }) {
   }
   if (entry.kind === "preview") {
     return <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={2} className="shrink-0" />;
+  }
+  if (entry.kind === "ext") {
+    // Extension tab icon: resolve `hugeicon:<Name>` if the extension hinted
+    // one, else fall back to a generic database glyph. Tinted with the same
+    // sky color the SSH tab uses so workbench-style extensions read as part
+    // of the remote-dev cluster.
+    const iconRef = entry.icon ?? "";
+    const m = iconRef.match(/^hugeicon:(.+)$/);
+    const found = m ? (HugeIcons as Record<string, unknown>)[m[1]] : null;
+    const iconValue =
+      (found as Parameters<typeof HugeiconsIcon>[0]["icon"] | null) ?? Database01Icon;
+    return (
+      <HugeiconsIcon
+        icon={iconValue}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0 text-sky-600 dark:text-sky-400"
+      />
+    );
   }
   return (
     <HugeiconsIcon

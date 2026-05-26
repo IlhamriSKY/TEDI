@@ -14,6 +14,9 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
+      // Only local PTYs use the daemon backend; SSH leaves carry their
+      // remote session id separately and aren't restored via pty_attach.
+      ...(leaf.ptyId && !leaf.sshConnectionId ? { ptyId: leaf.ptyId } : {}),
     };
   }
   return {
@@ -39,6 +42,7 @@ function tabToSaved(tab: Tab): SavedTab | null {
   }
   if (tab.kind === "ai-diff") return null; // session-only
   if (tab.kind === "git-diff") return null; // session-only
+  if (tab.kind === "ext") return null; // session-only — extension re-opens on demand
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {
@@ -73,6 +77,10 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         sshConnectionId: node.sshConnectionId,
         terminalOrdinal: node.terminalOrdinal,
         ...(node.private ? { private: true } : {}),
+        // `savedPtyId` is the signal for `useTerminalSession.attachSession`
+        // to attempt `reattachPty` before falling back to `openPty`. The
+        // hot `ptyId` field is populated by the session itself on attach.
+        ...(node.ptyId ? { savedPtyId: node.ptyId } : {}),
       };
     }
     return {

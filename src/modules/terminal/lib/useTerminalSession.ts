@@ -17,7 +17,7 @@ import {
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./osc-handlers";
-import { openPty, type PtySession } from "./pty-bridge";
+import { openPty, reattachPty, type PtySession } from "./pty-bridge";
 import {
   getConnectionSecrets,
   listConnections,
@@ -91,6 +91,13 @@ type Callbacks = {
   onSshStatus?: (status: SshStatus) => void;
   /** Emitted on AI CLI detection/state change. */
   onAiCliStatus?: (status: AiCliStatus) => void;
+  /**
+   * Fires once whenever the session acquires a daemon-side PTY id (on
+   * successful `openPty` or `reattachPty`). The caller persists this onto
+   * the leaf state so the workspace serializer can save it for restore.
+   * Empty string means the in-process backend is in use (non-restorable).
+   */
+  onPtyId?: (ptyId: string) => void;
 };
 
 const RECONNECT_BACKOFF_MS = [1_000, 3_000, 7_000] as const;
@@ -122,6 +129,14 @@ type Session = {
   initialCwd: string | undefined;
   /** Bound saved SSH connection id, if any. */
   sshConnectionId: string | undefined;
+  /**
+   * Daemon-side PTY UUID from a prior GUI launch. When set,
+   * `openPtyForSession` calls `reattachPty` first and falls back to
+   * `openPty` only on attach failure. Cleared after the first spawn
+   * resolves so a user-initiated retry / respawn doesn't reuse a stale
+   * UUID (which would race the daemon's killing of the original).
+   */
+  savedPtyId: string | undefined;
   ptyOpening: boolean;
   /** Last error from a failed `openPtyForSession`. Drives Enter-to-retry. */
   lastPtyError: string | null;
@@ -235,7 +250,12 @@ function syncRendererForWallpaper(s: Session): void {
   }
 }
 
-function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: string): Session {
+function ensureSession(
+  leafId: number,
+  initialCwd?: string,
+  sshConnectionId?: string,
+  savedPtyId?: string,
+): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
 
@@ -288,6 +308,7 @@ function ensureSession(leafId: number, initialCwd?: string, sshConnectionId?: st
     disposed: false,
     initialCwd,
     sshConnectionId,
+    savedPtyId,
     ptyOpening: false,
     lastPtyError: null,
     ptySpawnedAt: null,
@@ -514,6 +535,25 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
     return openSshForSession(s, s.sshConnectionId, spawnCols, spawnRows, onData, onExit);
   }
 
+  // Restore path: a saved daemon UUID exists. Try `reattachPty` first; on
+  // failure the daemon has lost the session (crash or PC reboot) and we
+  // spawn a fresh shell at the saved cwd instead. Either way the UUID is
+  // consumed - subsequent retries / respawns must go through `openPty`.
+  const reattachId = s.savedPtyId;
+  if (reattachId) {
+    s.savedPtyId = undefined;
+    return withSpawnTimeout(
+      reattachPty(reattachId, spawnCols, spawnRows, { onData, onExit }).catch((e) => {
+        if (isDebugPty()) {
+          console.info(
+            `[tedi-pty] reattach failed for ${reattachId}, falling back to fresh spawn: ${describeError(e)}`,
+          );
+        }
+        return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
+      }),
+    );
+  }
+
   return withSpawnTimeout(openPty(spawnCols, spawnRows, { onData, onExit }, cwd));
 }
 
@@ -665,9 +705,13 @@ async function openSshForSession(
   resolvedSessionId = sshSession.id;
   emitConnectedIfReady();
 
-  // Adapter so SSH looks like a PtySession to the rest of the file.
+  // Adapter so SSH looks like a PtySession to the rest of the file. SSH
+  // sessions are not persisted via daemon UUIDs (`pty_attach` is local
+  // PTY only), so `sessionId` is empty - serialize.ts skips ptyId for
+  // SSH leaves.
   return {
     id: sshSession.id,
+    sessionId: "",
     write: (data) => sshSession.write(data),
     resize: (cols, rows) => sshSession.resize(cols, rows),
     close: () => sshSession.close(),
@@ -1042,6 +1086,11 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
         s.ptySpawnedAt = Date.now();
         syncPtySize(s);
         armNoDataWatchdog(s, s.ptySpawnEpoch);
+        // Stamp the daemon UUID onto the leaf so the workspace serializer
+        // picks it up on the next save. Empty `sessionId` means the
+        // in-process backend ran the spawn (non-restorable); the leaf's
+        // `ptyId` stays undefined and serialize.ts skips persistence.
+        if (pty.sessionId) s.callbacks.onPtyId?.(pty.sessionId);
       })
       .catch((e) => {
         if (myEpoch !== s.ptySpawnEpoch) return;
@@ -1192,6 +1241,13 @@ type Options = {
   initialCwd?: string;
   /** When set, opens an SSH session instead of a local PTY. */
   sshConnectionId?: string;
+  /**
+   * Daemon UUID from a previously saved workspace. When set the session
+   * tries `pty_attach` first and falls back to a fresh `pty_open` on
+   * failure (daemon was killed or the PC rebooted). Consumed on first
+   * spawn so a subsequent retry does not reuse the same UUID.
+   */
+  savedPtyId?: string;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -1202,6 +1258,12 @@ type Options = {
   onSshStatus?: (status: SshStatus) => void;
   /** Fires when an AI CLI starts, changes state, or exits. */
   onAiCliStatus?: (status: AiCliStatus) => void;
+  /**
+   * Fires once whenever the session acquires a daemon-side UUID
+   * (`pty_open` / `pty_attach` returning a non-empty `sessionId`).
+   * Stamp it onto the leaf so the workspace serializer persists it.
+   */
+  onPtyId?: (ptyId: string) => void;
 };
 
 export function useTerminalSession({
@@ -1211,6 +1273,7 @@ export function useTerminalSession({
   focused = true,
   initialCwd,
   sshConnectionId,
+  savedPtyId,
   onSearchReady,
   onExit,
   onCwd,
@@ -1219,6 +1282,7 @@ export function useTerminalSession({
   onTediSpawnTab,
   onSshStatus,
   onAiCliStatus,
+  onPtyId,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
@@ -1229,6 +1293,7 @@ export function useTerminalSession({
     onTediSpawnTab,
     onSshStatus,
     onAiCliStatus,
+    onPtyId,
   });
   cbRef.current = {
     onSearchReady,
@@ -1239,6 +1304,7 @@ export function useTerminalSession({
     onTediSpawnTab,
     onSshStatus,
     onAiCliStatus,
+    onPtyId,
   };
 
   useEffect(() => {
@@ -1246,7 +1312,7 @@ export function useTerminalSession({
     let rafId: number | null = null;
     let attachIntervalId: ReturnType<typeof setInterval> | null = null;
     let stuckTimer: ReturnType<typeof setTimeout> | null = null;
-    const s = ensureSession(leafId, initialCwd, sshConnectionId);
+    const s = ensureSession(leafId, initialCwd, sshConnectionId, savedPtyId);
     // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;
@@ -1260,6 +1326,7 @@ export function useTerminalSession({
       onTediSpawnTab: (input) => cbRef.current.onTediSpawnTab?.(input),
       onSshStatus: (status) => cbRef.current.onSshStatus?.(status),
       onAiCliStatus: (status) => cbRef.current.onAiCliStatus?.(status),
+      onPtyId: (ptyId) => cbRef.current.onPtyId?.(ptyId),
     };
     // Wait for the container ref. Up to 120 rAF frames (~2s) covers
     // react-resizable-panels measure-pass during workspace restore; after

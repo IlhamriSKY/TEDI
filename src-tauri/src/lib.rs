@@ -11,8 +11,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    cli, cli_ext, cli_theme, cli_update, extensions, fs, git, net, preview, pty, secrets, shell,
-    ssh,
+    cli, cli_ext, cli_theme, cli_update, extensions, fs, git, net, preview, pty, pty_daemon,
+    secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -217,6 +217,11 @@ pub fn run() {
     // when the flag is absent.
     cli_update::handle_update_command_and_exit();
 
+    // `TEDIApp --pty-daemon`: run the sidecar PTY daemon forever and exit.
+    // Spawned detached by the GUI on first launch. Returns immediately when
+    // the flag is absent so normal startup proceeds. See `pty_daemon::mod`.
+    pty_daemon::handle_pty_daemon_command_and_exit();
+
     // Resolve `tedi .` / `tedi <path>` against the launch cwd before any
     // later code can shift the working directory.
     cli::capture_startup();
@@ -288,16 +293,19 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(pty::PtyState::default())
+        .manage(pty::PtyState::new())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
         .manage(ssh::SshState::default())
         .manage(extensions::ExtensionsState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
+            pty::pty_attach,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,
+            pty::pty_list_sessions,
+            pty::pty_kill_all,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,

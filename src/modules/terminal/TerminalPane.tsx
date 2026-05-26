@@ -33,6 +33,12 @@ type Props = {
   initialCwd?: string;
   /** When set, opens an SSH session instead of a local PTY. */
   sshConnectionId?: string;
+  /**
+   * Daemon-side PTY UUID from a previously saved workspace. The terminal
+   * session tries `pty_attach` first and falls back to a fresh spawn on
+   * failure. Forwarded to `useTerminalSession`.
+   */
+  savedPtyId?: string;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -41,6 +47,12 @@ type Props = {
   onTediSpawnTab?: (leafId: number, input: TediSpawnTabInput) => void;
   onSshStatus?: (leafId: number, status: SshStatus) => void;
   onAiCliStatus?: (leafId: number, status: AiCliStatus) => void;
+  /**
+   * Fires once whenever the daemon hands back a session UUID. Caller
+   * (the pane stack consumer) writes it into the leaf so the workspace
+   * serializer persists it for restore on next launch.
+   */
+  onPtyId?: (leafId: number, ptyId: string) => void;
 };
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
@@ -50,6 +62,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     focused = true,
     initialCwd,
     sshConnectionId,
+    savedPtyId,
     onSearchReady,
     onExit,
     onCwd,
@@ -58,6 +71,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     onTediSpawnTab,
     onSshStatus,
     onAiCliStatus,
+    onPtyId,
   },
   ref,
 ) {
@@ -76,6 +90,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     focused,
     initialCwd,
     sshConnectionId,
+    savedPtyId,
     onSearchReady: (a) => onSearchReady?.(leafId, a),
     onExit: (c) => onExit?.(leafId, c),
     onCwd: (c) => onCwd?.(leafId, c),
@@ -84,6 +99,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
     onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
     onSshStatus: (status) => onSshStatus?.(leafId, status),
     onAiCliStatus: (status) => onAiCliStatus?.(leafId, status),
+    onPtyId: (ptyId) => onPtyId?.(leafId, ptyId),
   });
 
   useEffect(() => {

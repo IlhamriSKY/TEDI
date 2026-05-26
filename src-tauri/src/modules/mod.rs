@@ -8,6 +8,7 @@ pub mod git;
 pub mod net;
 pub mod preview;
 pub mod pty;
+pub mod pty_daemon;
 pub mod secrets;
 pub mod shell;
 pub mod ssh;

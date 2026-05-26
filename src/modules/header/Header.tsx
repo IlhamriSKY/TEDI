@@ -1,12 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -16,21 +9,18 @@ import {
   BookOpenIcon,
   DocumentCodeIcon,
   FolderOpenIcon,
-  GridViewIcon,
-  KeyboardIcon,
-  LayoutTwoColumnIcon,
-  LayoutTwoRowIcon,
   PuzzleIcon,
   Settings01Icon,
   SidebarLeftIcon,
   TextWrapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import { SshMenu } from "@/modules/ssh/SshMenu";
+import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
@@ -57,10 +47,10 @@ type Props = {
   onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
   onToggleSidebar: () => void;
   onOpenFolder: () => void;
+  /** Split the active pane. Forwarded to the TabBar's `+` dropdown. */
   onSplit: (dir: "row" | "col") => void;
   /** True when the active tab still has room for another split. */
   canSplit: boolean;
-  onOpenShortcuts: () => void;
   onOpenExtensions: () => void;
   onOpenSettings: () => void;
   /** Open a saved SSH host as a new terminal tab. `opts.private` opens it
@@ -125,7 +115,6 @@ export function Header({
   onOpenFolder,
   onSplit,
   canSplit,
-  onOpenShortcuts,
   onOpenExtensions,
   onOpenSettings,
   onConnectSsh,
@@ -151,14 +140,6 @@ export function Header({
     return getBindingTokens(bindings[0]).join(KEY_SEP);
   };
 
-  const shortcutLabel = useMemo(() => {
-    const tokens = tokensFor("shortcuts.open");
-    return tokens ? `Keyboard shortcuts (${tokens})` : "Keyboard shortcuts";
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userShortcuts]);
-
-  const splitRightTokens = tokensFor("pane.splitRight");
-  const splitDownTokens = tokensFor("pane.splitDown");
   const wordWrapTokens = tokensFor("editor.toggleWordWrap");
 
   useEffect(() => {
@@ -171,20 +152,6 @@ export function Header({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  const shortcutsButton = (
-    <IconTooltip label={shortcutLabel}>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="text-muted-foreground hover:bg-accent hover:text-foreground size-7 shrink-0 rounded-md"
-        onClick={onOpenShortcuts}
-        aria-label={shortcutLabel}
-      >
-        <HugeiconsIcon icon={KeyboardIcon} size={16} strokeWidth={1.75} />
-      </Button>
-    </IconTooltip>
-  );
 
   const extensionsButton = (
     <IconTooltip label="Extensions">
@@ -252,47 +219,6 @@ export function Header({
             </Button>
           </IconTooltip>
 
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md disabled:opacity-50"
-                    aria-label="Split pane"
-                    disabled={!canSplit}
-                  >
-                    <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Split pane</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start" className="w-auto min-w-56">
-              <DropdownMenuItem onSelect={() => onSplit("row")}>
-                <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
-                <span className="flex-1 whitespace-nowrap">Split right</span>
-                {splitRightTokens && (
-                  <span className="text-muted-foreground text-xs whitespace-nowrap">
-                    {splitRightTokens}
-                  </span>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onSplit("col")}>
-                <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
-                <span className="flex-1 whitespace-nowrap">Split down</span>
-                {splitDownTokens && (
-                  <span className="text-muted-foreground text-xs whitespace-nowrap">
-                    {splitDownTokens}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {!IS_MAC && shortcutsButton}
-          {!IS_MAC && extensionsButton}
         </div>
 
         {/* Drag spacer between the left and right icon clusters. */}
@@ -345,23 +271,10 @@ export function Header({
         {/* Divider before the trailing cluster. */}
         <span className="bg-border mx-1 h-5 w-px shrink-0" />
 
-        {IS_MAC && (
-          <>
-            {shortcutsButton}
-            {extensionsButton}
-            <SshMenu onConnect={onConnectSsh} />
-            {settingsButton}
-          </>
-        )}
-
-        {!IS_MAC && (
-          <>
-            <SshMenu onConnect={onConnectSsh} />
-            {settingsButton}
-          </>
-        )}
-
-        {/* Extensions button: left cluster on non-mac, right cluster on mac. */}
+        <SshMenu onConnect={onConnectSsh} />
+        <ExtensionHeaderItems />
+        {extensionsButton}
+        {settingsButton}
 
         {USE_CUSTOM_WINDOW_CONTROLS && (
           <>
@@ -393,6 +306,8 @@ export function Header({
           onMoveLeafToGroup={onMoveLeafToGroup}
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
+          onSplit={onSplit}
+          canSplit={canSplit}
           sshStatuses={sshStatuses}
           aiCliStatuses={aiCliStatuses}
           compact={compact}

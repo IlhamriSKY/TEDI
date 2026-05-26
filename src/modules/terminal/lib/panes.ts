@@ -25,6 +25,22 @@ export type TerminalLeafState = {
    * the leaf's existence, cwd, scrollback, or accepts injects/runs on it.
    */
   private?: boolean;
+  /**
+   * Daemon-owned PTY UUID for this leaf. Stamped onto the leaf when its
+   * `useTerminalSession` Session successfully calls `openPty`/`reattachPty`
+   * and the daemon returns a non-empty `sessionId`. The workspace
+   * serializer persists this so the next GUI launch can ask the daemon to
+   * resume the same shell via `pty_attach`. Empty/undefined means
+   * "respawn fresh on restore" (no persistent backend or first run).
+   */
+  ptyId?: string;
+  /**
+   * Set by the workspace restore path (`savedToTab`) so
+   * `useTerminalSession.attachSession` knows to try `reattachPty` before
+   * falling back to a fresh `openPty`. Cleared once the session attaches
+   * (or fails to) so a manual close-and-reopen of the tab spawns fresh.
+   */
+  savedPtyId?: string;
 };
 
 export type EditorLeafState = {
@@ -95,6 +111,26 @@ export function setLeafCwd(n: PaneNode, id: PaneId, cwd: string): PaneNode {
     return { ...n, cwd };
   }
   return { ...n, children: n.children.map((c) => setLeafCwd(c, id, cwd)) };
+}
+
+/**
+ * Stamp a daemon-side PTY UUID onto a terminal leaf. Also clears
+ * `savedPtyId` so any later retry/respawn does not redundantly try to
+ * reattach the same uuid (which would race the daemon killing the
+ * original). No-op for editor leaves or mismatched ids.
+ */
+export function setLeafPtyId(n: PaneNode, id: PaneId, ptyId: string): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "terminal") return n;
+    if (n.ptyId === ptyId && n.savedPtyId === undefined) return n;
+    // Narrow to the terminal branch by leafKind before reassembling so
+    // TypeScript keeps the PaneLeaf union tight (editor branch has no
+    // ptyId / savedPtyId fields to drop).
+    const { savedPtyId: _drop, ...rest } = n;
+    const updated: PaneLeaf = { ...rest, leafKind: "terminal", ptyId };
+    return updated;
+  }
+  return { ...n, children: n.children.map((c) => setLeafPtyId(c, id, ptyId)) };
 }
 
 /**

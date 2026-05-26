@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.2.25"
+version = "0.2.26"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -112,6 +112,13 @@ dialoguer = { version = "0.11", default-features = false }
 # uses internally - keeps the headless `tedi --update` path semantically
 # identical to the GUI updater. No signing dependencies pulled in.
 minisign-verify = "0.2"
+# Stable session ids for the sidecar PTY daemon. v4 (random) is plenty - we
+# only need uniqueness across the daemon's lifetime, not global ordering.
+uuid = { version = "1", features = ["v4", "serde"] }
+# Cross-platform local IPC for the sidecar PTY daemon. Wraps Unix domain
+# sockets and Windows named pipes behind one API so the daemon protocol does
+# not need parallel transport implementations.
+interprocess = { version = "2.2", features = ["tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [

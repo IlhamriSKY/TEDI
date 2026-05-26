@@ -11,6 +11,34 @@ use tauri::ipc::Channel;
 
 use super::shell_init;
 
+/// Sink the PTY reader/flusher/waiter threads push into. Decouples session
+/// lifecycle from the Tauri `Channel` so the sidecar daemon (see
+/// `pty_daemon`) can reuse the same spawn logic with a different sink
+/// (scrollback ring + multi-client fanout instead of a single channel).
+///
+/// `data` takes raw bytes - the sink decides whether to base64-encode for
+/// wire transport (`Channel` impl) or store raw (daemon scrollback). Returns
+/// false when the sink is closed, signalling the flusher to stop.
+pub trait PtyEventSink: Send + Sync + 'static {
+    fn data(&self, bytes: &[u8]) -> bool;
+    fn exit(&self, code: i32);
+}
+
+impl PtyEventSink for Channel<PtyEvent> {
+    fn data(&self, bytes: &[u8]) -> bool {
+        Channel::send(
+            self,
+            PtyEvent::Data {
+                data: B64.encode(bytes),
+            },
+        )
+        .is_ok()
+    }
+    fn exit(&self, code: i32) {
+        let _ = Channel::send(self, PtyEvent::Exit { code });
+    }
+}
+
 const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 const READ_BUF: usize = 16 * 1024;
 // Cap on buffered-but-unflushed bytes. On overflow we discard the entire
@@ -57,13 +85,43 @@ impl Drop for Session {
         }
     }
 }
+// Serializes ConPTY lifecycle: openpty/spawn_command AND ClosePseudoConsole
+// (which runs when the master is dropped). Overlapping ConPTY create + close
+// corrupts the freshly-created console so its shell never pumps output - the
+// pane stays blank. Symptom we hit: workspace restore disposes the default
+// tab's PTY at the same instant the restored tabs spawn theirs; 1 pane
+// works, the rest stay silent. Reader threads keep reading from already-live
+// PTYs while this lock is held (it only gates lifecycle, not IO).
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
+/// Drop an `Arc<Session>` while holding `SPAWN_LOCK` so ClosePseudoConsole
+/// can't race a sibling spawn. Call this from the detached drop thread in
+/// `mod::pty_close` instead of a bare `drop(s)`. Visible to `pty_daemon`
+/// so the daemon's `close_session` can use the same SPAWN_LOCK protection.
+pub fn drop_session(session: Arc<Session>) {
+    let _guard = SPAWN_LOCK.lock().unwrap();
+    drop(session);
+}
 
 pub fn spawn(
     cols: u16,
     rows: u16,
     cwd: Option<String>,
     on_event: Channel<PtyEvent>,
+) -> Result<(Arc<Session>, PtySize), String> {
+    spawn_with_sink(cols, rows, cwd, Arc::new(on_event))
+}
+
+/// Generic-sink variant. The Channel-based `spawn` is a thin wrapper for
+/// existing in-process callers; the daemon supplies its own
+/// `Arc<dyn PtyEventSink>` that buffers scrollback and fans out to
+/// subscribed clients. All thread orchestration is shared - the only
+/// difference is where bytes land at the end of the flush.
+pub fn spawn_with_sink(
+    cols: u16,
+    rows: u16,
+    cwd: Option<String>,
+    sink: Arc<dyn PtyEventSink>,
 ) -> Result<(Arc<Session>, PtySize), String> {
     let _spawn_guard = SPAWN_LOCK.lock().unwrap();
 
@@ -149,7 +207,7 @@ pub fn spawn(
         })
         .expect("spawn pty reader thread");
 
-    let on_event_flush = on_event.clone();
+    let sink_flush = sink.clone();
     let pending_f = pending.clone();
     let done_f = done.clone();
     thread::Builder::new()
@@ -166,22 +224,16 @@ pub fn spawn(
                 }
                 std::mem::take(&mut *g)
             };
-            // base64 note: Tauri v2 `Channel<T>` serializes via JSON, so
-            // `Vec<u8>` becomes a JSON int array (~3x worse than base64). A
-            // raw-bytes path via `InvokeResponseBody::Raw` exists but the
-            // data+exit multiplex through one channel is awkward. Base64's
-            // 33% overhead is trivial on local IPC.
-            let event = PtyEvent::Data {
-                data: B64.encode(&chunk),
-            };
-            if let Err(e) = on_event_flush.send(event) {
-                log::debug!("pty flusher exiting, channel closed: {e}");
+            // Sink decides encoding: Channel sink base64-encodes for the
+            // Tauri JSON IPC, daemon sink stores raw + fans out to clients.
+            if !sink_flush.data(&chunk) {
+                log::debug!("pty flusher exiting, sink closed");
                 break;
             }
         })
         .expect("spawn pty flusher thread");
 
-    let on_event_exit = on_event;
+    let sink_exit = sink;
     let pending_e = pending;
     let done_e = done;
     thread::Builder::new()
@@ -201,16 +253,10 @@ pub fn spawn(
             }
             let tail = std::mem::take(&mut *pending_e.lock().unwrap());
             if !tail.is_empty() {
-                if let Err(e) = on_event_exit.send(PtyEvent::Data {
-                    data: B64.encode(&tail),
-                }) {
-                    log::debug!("pty final-data send failed (channel closed): {e}");
-                }
+                sink_exit.data(&tail);
             }
             done_e.store(true, Ordering::Release);
-            if let Err(e) = on_event_exit.send(PtyEvent::Exit { code }) {
-                log::debug!("pty exit send failed (channel closed): {e}");
-            }
+            sink_exit.exit(code);
         })
         .expect("spawn pty waiter thread");
 

@@ -70,6 +70,9 @@ fn paint_dim(text: &str) -> String {
 fn paint_update_hint(text: &str) -> String {
     ansi("33", text)
 }
+fn paint_installed(text: &str) -> String {
+    ansi("32;1", text)
+}
 
 /// `ColorfulTheme` brings dialoguer's coloured prompt + active-item ">"
 /// indicator. Wrapped in a small selector so non-TTY shells still get the
@@ -342,20 +345,57 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     }
     let runtime = build_runtime()?;
     let doc = fetch_registry(&runtime)?;
+
+    // Cross-reference each registry entry against the local install state so
+    // the user can see at a glance which extensions are already installed and
+    // which have a newer version cached from a previous `ext update` check.
+    let (rows, by_id, by_repo) = build_installed_lookups();
+
     let mut entries: Vec<(String, RegistryEntry)> = Vec::new();
+    let mut installed_count = 0usize;
+    let mut update_count = 0usize;
     for e in &doc.official {
-        entries.push((registry_label(e, "official"), e.clone()));
+        let inst = find_installed_for(e, &rows, &by_id, &by_repo);
+        if let Some(r) = inst {
+            installed_count += 1;
+            if matches!(&r.latest, Some(latest) if latest != &r.version) {
+                update_count += 1;
+            }
+        }
+        entries.push((registry_label(e, "official", inst), e.clone()));
     }
     for e in &doc.unofficial {
-        entries.push((registry_label(e, "unofficial"), e.clone()));
+        let inst = find_installed_for(e, &rows, &by_id, &by_repo);
+        if let Some(r) = inst {
+            installed_count += 1;
+            if matches!(&r.latest, Some(latest) if latest != &r.version) {
+                update_count += 1;
+            }
+        }
+        entries.push((registry_label(e, "unofficial", inst), e.clone()));
     }
     if entries.is_empty() {
         println!("(registry empty)");
         return Ok(());
     }
 
+    let summary = format!(
+        "{} extension(s) - {} installed, {} update(s) available",
+        entries.len(),
+        installed_count,
+        update_count,
+    );
+    println!("{}", paint_dim(&summary));
+    if update_count > 0 {
+        println!(
+            "{}",
+            paint_dim("Tip: `tedi ext update` to refresh upstream versions / apply updates."),
+        );
+    }
+    println!();
+
     if !interactive() {
-        print_registry_groups(&doc);
+        print_registry_groups(&doc, &rows, &by_id, &by_repo);
         println!();
         println!("Install: tedi ext install <id>");
         return Ok(());
@@ -364,7 +404,7 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     let labels: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
     let theme = picker_theme();
     let chosen = dialoguer::Select::with_theme(theme.as_ref())
-        .with_prompt("Pilih extension untuk diinstall (Esc untuk batal)")
+        .with_prompt("Pilih extension (item terinstall akan di-reinstall/update). Esc untuk batal")
         .items(&labels)
         .default(0)
         .interact_opt()
@@ -684,11 +724,16 @@ fn registry_not_found_msg(reference: &str, doc: &RegistryDoc) -> String {
     }
 }
 
-fn print_registry_groups(doc: &RegistryDoc) {
+fn print_registry_groups(
+    doc: &RegistryDoc,
+    rows: &[InstalledRow],
+    by_id: &std::collections::HashMap<String, usize>,
+    by_repo: &std::collections::HashMap<String, usize>,
+) {
     if !doc.official.is_empty() {
         println!("{}", paint_official("OFFICIAL"));
         for e in &doc.official {
-            print_registry_row(e);
+            print_registry_row(e, find_installed_for(e, rows, by_id, by_repo));
         }
     }
     if !doc.unofficial.is_empty() {
@@ -697,19 +742,20 @@ fn print_registry_groups(doc: &RegistryDoc) {
         }
         println!("{}", paint_unofficial("UNOFFICIAL"));
         for e in &doc.unofficial {
-            print_registry_row(e);
+            print_registry_row(e, find_installed_for(e, rows, by_id, by_repo));
         }
     }
 }
 
-fn print_registry_row(e: &RegistryEntry) {
+fn print_registry_row(e: &RegistryEntry, installed: Option<&InstalledRow>) {
     let license = if e.license.is_empty() {
         "-"
     } else {
         e.license.as_str()
     };
+    let status = installed_status(installed);
     println!(
-        "  {:<28}  {} {:<18}  {}",
+        "  {:<28}  {} {:<18}  {}{status}",
         e.id,
         paint_dim("by"),
         e.publisher,
@@ -720,17 +766,76 @@ fn print_registry_row(e: &RegistryEntry) {
     }
 }
 
-fn registry_label(e: &RegistryEntry, group: &str) -> String {
+fn registry_label(e: &RegistryEntry, group: &str, installed: Option<&InstalledRow>) -> String {
     let tag = if group == "official" {
         paint_official(&format!("[{group}]"))
     } else {
         paint_unofficial(&format!("[{group}]"))
     };
+    let status = installed_status(installed);
     if e.description.is_empty() {
-        format!("{tag} {}", e.id)
+        format!("{tag} {}{status}", e.id)
     } else {
-        format!("{tag} {} {}", e.id, paint_dim(&format!("- {}", e.description)))
+        format!(
+            "{tag} {} {}{status}",
+            e.id,
+            paint_dim(&format!("- {}", e.description))
+        )
     }
+}
+
+/// Render the inline "installed / update available" suffix for registry rows.
+/// Returns an empty string when the entry is not installed locally - keeps
+/// the bare-registry layout identical for fresh systems.
+fn installed_status(row: Option<&InstalledRow>) -> String {
+    match row {
+        Some(r) => match &r.latest {
+            Some(latest) if latest != &r.version => format!(
+                "  {}",
+                paint_update_hint(&format!("[update v{} -> v{}]", r.version, latest))
+            ),
+            _ => format!(
+                "  {}",
+                paint_installed(&format!("[installed v{}]", r.version))
+            ),
+        },
+        None => String::new(),
+    }
+}
+
+/// Build the installed-row vector once plus two indices: by manifest id (the
+/// primary match) and by lower-cased `github:<owner/repo>` source (a fallback
+/// for registries whose id drifted from the published manifest id).
+fn build_installed_lookups() -> (
+    Vec<InstalledRow>,
+    std::collections::HashMap<String, usize>,
+    std::collections::HashMap<String, usize>,
+) {
+    let rows = load_installed_rows().unwrap_or_default();
+    let mut by_id: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut by_repo: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (i, r) in rows.iter().enumerate() {
+        by_id.insert(r.id.clone(), i);
+        if let Some(s) = r.source.strip_prefix("github:") {
+            by_repo.insert(s.to_ascii_lowercase(), i);
+        }
+    }
+    (rows, by_id, by_repo)
+}
+
+fn find_installed_for<'a>(
+    e: &RegistryEntry,
+    rows: &'a [InstalledRow],
+    by_id: &std::collections::HashMap<String, usize>,
+    by_repo: &std::collections::HashMap<String, usize>,
+) -> Option<&'a InstalledRow> {
+    if let Some(&i) = by_id.get(&e.id) {
+        return Some(&rows[i]);
+    }
+    let normalized = ext_cmd::normalize_owner_repo(&e.repository).ok()?;
+    by_repo
+        .get(&normalized.to_ascii_lowercase())
+        .map(|&i| &rows[i])
 }
 
 fn extensions_root() -> Result<PathBuf, String> {
