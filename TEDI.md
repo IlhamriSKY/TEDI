@@ -16,7 +16,7 @@ Workspace-root agent memory (loaded like `AGENTS.md` / `CLAUDE.md`) **and** the 
 | Frontend check   | `pnpm exec tsc --noEmit`                                           |
 | Rust check       | `cd src-tauri && cargo check && cargo clippy`                      |
 | Build            | `pnpm tauri build`                                                 |
-| Dev              | `pnpm tauri dev`                                                   |
+| Dev              | `pnpm tauri:dev` (recommended, isolated data dir) or `pnpm tauri dev` (shares prod data) |
 | Auto-updater     | **Enabled** - signed updates via GitHub Releases (6h poll)         |
 
 ## Architecture: two-process model
@@ -90,6 +90,7 @@ Goal: PTYs outlive a GUI window close (so `cargo watch` / dev servers resume on 
 **CLI dispatch** in [lib.rs](src-tauri/src/lib.rs): `--pty-daemon` short-circuits between `cli_update` and `cli::capture_startup`; `server::run_forever` blocks until idle-timeout or `Shutdown`.
 
 **Dev / packaging gotchas**:
+- `pnpm tauri:dev` vs `pnpm tauri dev`: the colon variant loads [`tauri.dev.conf.json`](src-tauri/tauri.dev.conf.json), which flips the bundle identifier to `id.ilhamrisky.tedi.dev`. Workspaces, extensions, PTY socket, daemon log path all read from `<data_dir>/id.ilhamrisky.tedi.dev/` instead of the prod dir, so dev runs start fresh and cannot stomp on the installed release's state. Plain `pnpm tauri dev` still works for the cases where sharing prod data is intentional. The Rust constants in `pty_daemon/paths.rs`, `cli_ext.rs`, and `cli_theme.rs` mirror this split via `cfg(debug_assertions)`.
 - `pnpm tauri dev`: daemon outlives the dev GUI - set `TEDI_PTYD_IDLE_SECS=60` for fast iteration or kill `TEDIApp --pty-daemon` manually when editing daemon code.
 - AppImage: daemon spawned from `current_exe()` (the mount path), so an old daemon keeps an old AppImage mount alive until idle. Prefer `$APPIMAGE` in a follow-up.
 

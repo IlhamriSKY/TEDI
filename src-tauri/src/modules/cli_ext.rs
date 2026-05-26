@@ -110,7 +110,12 @@ fn picker_theme() -> Box<dyn Theme> {
 /// Bundle id from `tauri.conf.json`. Tauri 2's `app_data_dir` returns
 /// `<dirs::data_dir()>/<bundle_id>` on every desktop platform, so we can
 /// reproduce the path without an `AppHandle`. Keep in sync with the
-/// `identifier` field in `tauri.conf.json`.
+/// `identifier` field in `tauri.conf.json`. Debug builds switch to the
+/// `.dev` suffix so `pnpm tauri dev` operates on a separate data dir
+/// (see `pty_daemon/paths.rs` for the matching constant).
+#[cfg(debug_assertions)]
+const BUNDLE_ID: &str = "id.ilhamrisky.tedi.dev";
+#[cfg(not(debug_assertions))]
 const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 
 /// Public extension registry. Shape:

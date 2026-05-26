@@ -37,6 +37,11 @@ use serde_json::{json, Value};
 use crate::modules::cli;
 
 /// Bundle id from `tauri.conf.json`. Kept in sync with `cli_ext::BUNDLE_ID`.
+/// Debug builds use the `.dev` suffix so dev runs land in a separate
+/// data dir from installed releases.
+#[cfg(debug_assertions)]
+const BUNDLE_ID: &str = "id.ilhamrisky.tedi.dev";
+#[cfg(not(debug_assertions))]
 const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 /// Store file managed by `tauri-plugin-store` (see `store.ts`).
 const STORE_FILE: &str = "tedi-settings.json";
