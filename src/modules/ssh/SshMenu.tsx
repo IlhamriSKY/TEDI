@@ -33,7 +33,6 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "./connections";
-import { formatRelative } from "./components/SshStatusPill";
 
 // Heavy module. Lazy-load until the user opens the add/edit modal.
 const SshConnectionDialog = lazy(() =>
@@ -128,7 +127,6 @@ export function SshMenu({ onConnect }: Props) {
                   <span className="truncate">{c.name}</span>
                   <span className="text-muted-foreground truncate font-mono text-[10px]">
                     {c.user}@{c.host}:{c.port}
-                    {c.lastConnectedAt ? ` · last ${formatRelative(c.lastConnectedAt)}` : ""}
                   </span>
                 </span>
                 {/* Action buttons. preventDefault on click blocks the row's

@@ -6,6 +6,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@/components/ui/command";
 import {
   DropdownMenu,
@@ -150,13 +151,13 @@ export function FormattersTable() {
                           void patchFormatter(formatters, id, next);
                           setPickerOpen(false);
                         }}
-                        className="gap-2 rounded-xl px-2.5 py-1.5 text-[12px]"
+                        className="gap-3 rounded-xl px-2.5 py-1.5 text-[12px]"
                       >
                         <span className="truncate">{label}</span>
                         {presetCmd ? (
-                          <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]">
+                          <CommandShortcut className="font-mono text-[10px] tracking-normal">
                             {presetCmd}
-                          </span>
+                          </CommandShortcut>
                         ) : null}
                       </CommandItem>
                     );

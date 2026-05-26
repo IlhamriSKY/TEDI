@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.5] - 26-05-2026
+
+### Added
+
+- **`tedi theme` CLI subcommand recognised by the Windows console stub.** [`tedi-cli/src/main.rs`](src-tauri/tedi-cli/src/main.rs)'s `is_cli_invocation` now matches `theme` in addition to `ext`, so `tedi theme …` from a terminal routes to the GUI binary's CLI handler ([`cli_theme.rs`](src-tauri/src/modules/cli_theme.rs)) and prints to the user's shell instead of detaching into a new window. Without this, the stub forwarded the args to a detached GUI process and the user never saw the output.
+
+### Changed
+
+- **SSH menu rows drop the "last connected" relative timestamp.** [`SshMenu.tsx`](src/modules/ssh/SshMenu.tsx) used to append ` · last 5m ago` to each connection's `user@host:port` meta line via `formatRelative(c.lastConnectedAt)`. The string churned every render (relative-time recompute) and the data was already visible inside the connection editor; the menu row now stays static showing only `user@host:port`. The `formatRelative` import + the `lastConnectedAt` branch are gone.
+- **Formatter language picker uses `CommandShortcut` for the preset command badge.** [`FormattersTable.tsx`](src/settings/sections/components/FormattersTable.tsx)'s "Add language…" popover listed each picker row as `<label> <muted span with cmd>`. The trailing span used a hand-rolled `text-muted-foreground font-mono text-[10px]` chip that drifted from the rest of the command-palette family. Swapped it for `<CommandShortcut>` (same component the search shortcut uses), and bumped the item gap to `gap-3` so the label and shortcut don't collide on long preset commands.
+
 ## [0.3.4] - 26-05-2026
 
 ### Changed

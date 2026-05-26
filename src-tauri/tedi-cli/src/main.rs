@@ -120,7 +120,10 @@ fn is_cli_invocation(rest: &[String]) -> bool {
     if rest.iter().any(|a| a == "--extension") {
         return true;
     }
-    rest.first().map(String::as_str) == Some("ext")
+    matches!(
+        rest.first().map(String::as_str),
+        Some("ext") | Some("theme")
+    )
 }
 
 #[cfg(target_os = "windows")]
