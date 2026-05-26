@@ -270,10 +270,7 @@ pub async fn ext_peek_zip(zip_path: String) -> Result<PeekResult, String> {
 #[tauri::command]
 pub async fn ext_peek_github(repo: String) -> Result<PeekResult, String> {
     let normalized = normalize_owner_repo(&repo)?;
-    let api = format!("https://api.github.com/repos/{normalized}/releases/latest");
-    let json = http_get_text(&api).await?;
-    let asset_url =
-        pick_release_zip(&json).ok_or_else(|| "no .zip asset in latest release".to_string())?;
+    let (_tag, asset_url) = resolve_latest_release(&normalized).await?;
     let bytes = http_get_bytes(&asset_url).await?;
     super::install::peek_bytes(&bytes, &format!("github:{normalized}"))
 }
@@ -286,10 +283,7 @@ pub async fn ext_install_from_github(
 ) -> Result<ListEntry, String> {
     // Accept "owner/repo" or a full URL like "https://github.com/owner/repo".
     let normalized = normalize_owner_repo(&repo)?;
-    let api = format!("https://api.github.com/repos/{normalized}/releases/latest");
-    let json = http_get_text(&api).await?;
-    let asset_url =
-        pick_release_zip(&json).ok_or_else(|| "no .zip asset in latest release".to_string())?;
+    let (_tag, asset_url) = resolve_latest_release(&normalized).await?;
     let bytes = http_get_bytes(&asset_url).await?;
     install_and_return(state, &app, &bytes, &format!("github:{normalized}")).await
 }
@@ -382,10 +376,7 @@ pub async fn ext_check_update(
         }
     };
 
-    let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-    let json = http_get_text(&api).await?;
-    let latest_raw = pick_release_tag(&json)
-        .ok_or_else(|| "could not read tag_name from GitHub response".to_string())?;
+    let latest_raw = resolve_latest_tag(&owner_repo).await?;
     let latest_clean = strip_v_prefix(&latest_raw);
     let has_update = compare_versions(&current_version, &latest_clean) == std::cmp::Ordering::Less;
     let now = super::state::now_ms();
@@ -597,16 +588,171 @@ pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("http client: {e}"))?;
-    let resp = client
+    let mut req = client
         .get(url)
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", "application/vnd.github+json");
+    // Optional auth: a personal access token in TEDI_GITHUB_TOKEN lifts the
+    // anonymous 60 req/h cap to 5000 req/h. Read on every call so a user
+    // can drop a token in without restarting TEDI. Only the api.github.com
+    // host gets the header; arbitrary URLs do not, in case a redirect ever
+    // points elsewhere.
+    if url.contains("api.github.com") {
+        if let Ok(tok) = std::env::var("TEDI_GITHUB_TOKEN") {
+            let tok = tok.trim();
+            if !tok.is_empty() {
+                req = req.header("Authorization", format!("Bearer {tok}"));
+            }
+        }
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("GET {url}: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        // Surface rate-limit hits with an actionable hint. The raw JSON
+        // body's message would otherwise be hidden inside a generic HTTP
+        // 403 toast and the user would have no idea what to do.
+        let body = resp.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::FORBIDDEN
+            && (body.contains("rate limit") || body.contains("API rate"))
+        {
+            return Err(
+                "GitHub API rate limit reached (60 requests/hour for unauthenticated \
+                 access). Set the TEDI_GITHUB_TOKEN environment variable to a personal \
+                 access token to raise the cap to 5000 requests/hour, or wait until the \
+                 limit window resets (typically within the hour)."
+                    .to_string(),
+            );
+        }
+        return Err(format!("GET {url}: HTTP {status}"));
+    }
+    resp.text().await.map_err(|e| format!("read body: {e}"))
+}
+
+/// Resolve `(tag, zip_url)` for the latest release of `owner_repo`. Tries
+/// the GitHub REST API first - richer metadata, but anonymous requests are
+/// rate limited to 60/hour per IP - and falls back to two unauthenticated
+/// public endpoints when the API returns 403 / rate-limited:
+///
+///   1. `GET https://github.com/<owner>/<repo>/releases/latest` (302 to
+///      `.../releases/tag/<tag>`) gives the tag without needing the API.
+///   2. `GET https://github.com/<owner>/<repo>/releases/expanded_assets/<tag>`
+///      returns an HTML fragment (the same one the release page loads via
+///      AJAX when "Assets" is expanded) listing every download link.
+///
+/// Both fallbacks are stable HTML/redirect surfaces - changes since 2020
+/// have been backward compatible.
+async fn resolve_latest_release(owner_repo: &str) -> Result<(String, String), String> {
+    let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
+    match http_get_text(&api).await {
+        Ok(json) => {
+            let tag = pick_release_tag(&json)
+                .ok_or_else(|| "could not read tag_name from GitHub response".to_string())?;
+            let url = pick_release_zip(&json)
+                .ok_or_else(|| "no .zip asset in latest release".to_string())?;
+            return Ok((tag, url));
+        }
+        Err(e) if is_rate_limited_err(&e) => {
+            // fall through to the unauthenticated path
+        }
+        Err(e) => return Err(e),
+    }
+    let tag = latest_tag_via_redirect(owner_repo).await?;
+    let url = pick_zip_via_html(owner_repo, &tag).await?;
+    Ok((tag, url))
+}
+
+/// Tag-only variant of [`resolve_latest_release`] for the update-check
+/// path, which never downloads anything and so does not need the asset URL.
+async fn resolve_latest_tag(owner_repo: &str) -> Result<String, String> {
+    let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
+    match http_get_text(&api).await {
+        Ok(json) => {
+            return pick_release_tag(&json)
+                .ok_or_else(|| "could not read tag_name from GitHub response".to_string());
+        }
+        Err(e) if is_rate_limited_err(&e) => {}
+        Err(e) => return Err(e),
+    }
+    latest_tag_via_redirect(owner_repo).await
+}
+
+fn is_rate_limited_err(err: &str) -> bool {
+    err.contains("rate limit") || err.contains("HTTP 403")
+}
+
+/// Discover the latest release tag by following GitHub's public 302 from
+/// `/<owner>/<repo>/releases/latest` to `/<owner>/<repo>/releases/tag/<tag>`.
+/// Redirects are disabled so we can read the `Location` header directly;
+/// the path's final segment is the tag we want.
+async fn latest_tag_via_redirect(owner_repo: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("TEDI-Extensions/1.0")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let url = format!("https://github.com/{owner_repo}/releases/latest");
+    let resp = client
+        .head(&url)
+        .send()
+        .await
+        .map_err(|e| format!("HEAD {url}: {e}"))?;
+    if !resp.status().is_redirection() {
+        return Err(format!(
+            "expected 302 from {url}, got HTTP {}",
+            resp.status()
+        ));
+    }
+    let loc = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "missing Location header on /releases/latest".to_string())?;
+    let tag = loc
+        .rsplit('/')
+        .next()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| format!("malformed Location header: {loc}"))?;
+    Ok(tag.to_string())
+}
+
+/// Pick the first `.zip` download link from the `expanded_assets` HTML
+/// fragment GitHub serves for a release. The fragment is stable enough
+/// to scan with naive string ops: every asset is rendered as
+/// `<a href="/owner/repo/releases/download/<tag>/<name>.zip">`. We split
+/// on `"`, accept the first token shaped like a download path that ends
+/// in `.zip` (case-insensitive). Matching ignores owner/repo case because
+/// GitHub canonicalises the case in HTML even when the user typed it
+/// differently.
+async fn pick_zip_via_html(owner_repo: &str, tag: &str) -> Result<String, String> {
+    let url = format!("https://github.com/{owner_repo}/releases/expanded_assets/{tag}");
+    let client = reqwest::Client::builder()
+        .user_agent("TEDI-Extensions/1.0")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let resp = client
+        .get(&url)
         .send()
         .await
         .map_err(|e| format!("GET {url}: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("GET {url}: HTTP {}", resp.status()));
     }
-    resp.text().await.map_err(|e| format!("read body: {e}"))
+    let html = resp.text().await.map_err(|e| format!("read body: {e}"))?;
+    for tok in html.split('"') {
+        if tok.starts_with('/')
+            && tok.contains("/releases/download/")
+            && tok.to_ascii_lowercase().ends_with(".zip")
+        {
+            return Ok(format!("https://github.com{tok}"));
+        }
+    }
+    Err(format!("no .zip asset link in expanded_assets for {tag}"))
 }
 
 pub(crate) fn normalize_owner_repo(input: &str) -> Result<String, String> {

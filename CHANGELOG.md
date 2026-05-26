@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.2] - 26-05-2026
+
+### Fixed
+
+- **Extension install/update no longer breaks on GitHub rate limits.** [`extensions/commands.rs`](src-tauri/src/modules/extensions/commands.rs) used to hit `api.github.com/repos/.../releases/latest` for every install, update check, and CLI `tedi ext` call. The endpoint is capped at 60 requests/hour per IP for unauthenticated traffic, so a user installing or checking several extensions in one session (or sharing an IP behind NAT) would start seeing `GET ...: HTTP 403` toasts with no actionable hint. The path now falls back to two unauthenticated public surfaces when the API returns rate-limited: the `https://github.com/<owner>/<repo>/releases/latest` 302 redirect (gives the tag) and the `releases/expanded_assets/<tag>` HTML fragment (gives the asset list). Both succeed without rate-limit accounting, so install / update keeps working even after the API quota is exhausted.
+
+### Added
+
+- **`TEDI_GITHUB_TOKEN` environment variable for higher GitHub API limits.** Setting a personal access token (no scopes required for public repo reads) bumps the cap from 60 to 5000 requests/hour. Useful for power users who maintain many extensions or test installs in tight loops. Read on every request, so a fresh token takes effect without restarting TEDI.
+- **Actionable rate-limit error.** When the API does return HTTP 403 with a rate-limit body and the unauthenticated fallback also fails, the toast now spells out the cause, the `TEDI_GITHUB_TOKEN` workaround, and the typical reset window instead of surfacing the bare HTTP code.
+
 ## [0.3.1] - 26-05-2026
 
 ### Added
