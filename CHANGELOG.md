@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.6] - 27-05-2026
+
+### Added
+
+- **`ctx.app.setRightSidebarVisible(visible)` extension API.** [`tabsBridge.ts`](src/modules/extensions/tabsBridge.ts) gains a `setRightSidebarSetter` bridge and `setRightSidebarVisible` public function; [`host.ts`](src/modules/extensions/host.ts) exposes it on `ExtensionContext.app` alongside the existing `setSidebarVisible`. Closes whichever of the three mutually-exclusive right surfaces (`useChatStore`, `useRightPanelStore`, `useScmRightPanelStore`) is currently open, snapshots which one it was, and replays the snapshot when the user leaves the extension's tab — same lifecycle latch the left sidebar already had. Calls with `visible: true` are a deliberate no-op (we can't infer which surface to reopen from a bare call); the existing exclusivity effects handle the user reopening one manually. SQL Explorer 0.2.20 is the first consumer (collapses both sidebars on `Ctrl+Alt+D` open so the workbench gets the full workspace width).
+
 ## [0.3.5] - 26-05-2026
 
 ### Added

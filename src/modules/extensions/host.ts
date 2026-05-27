@@ -55,7 +55,11 @@ import {
   type ShellCommandTransformer,
   type StatusItem,
 } from "./registries";
-import { openExtensionTab as openExtTabBridge, setSidebarVisible as setSidebarVisibleBridge } from "./tabsBridge";
+import {
+  openExtensionTab as openExtTabBridge,
+  setSidebarVisible as setSidebarVisibleBridge,
+  setRightSidebarVisible as setRightSidebarVisibleBridge,
+} from "./tabsBridge";
 import {
   getActiveEditor,
   setActiveEditorContent,
@@ -143,6 +147,13 @@ export type ExtensionContext = {
      *  room. No permission gate; reversible by the user clicking the
      *  sidebar toggle in the header. */
     setSidebarVisible(visible: boolean): void;
+    /** Same as `setSidebarVisible` but for the right-side aux column
+     *  (AI chat / extension right panel / SCM right panel). Closes
+     *  whichever of the three is open; on `visible: true` it's a no-op
+     *  (we can't infer which surface to reopen). The host snapshots the
+     *  prior surface so it can replay when the extension's tab goes
+     *  away. */
+    setRightSidebarVisible(visible: boolean): void;
   };
   /** Read/write app settings. Writes require `settings:write`. */
   settings: {
@@ -358,6 +369,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         return dispose;
       },
       setSidebarVisible: (visible) => setSidebarVisibleBridge(visible, ext.id),
+      setRightSidebarVisible: (visible) => setRightSidebarVisibleBridge(visible, ext.id),
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {

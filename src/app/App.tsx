@@ -31,7 +31,11 @@ import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumop
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
-import { setOpenExtensionTab, setSidebarSetter } from "@/modules/extensions/tabsBridge";
+import {
+  setOpenExtensionTab,
+  setSidebarSetter,
+  setRightSidebarSetter,
+} from "@/modules/extensions/tabsBridge";
 import { setEditorBridge } from "@/modules/extensions/editorBridge";
 import { ExtensionTabStack } from "@/modules/extensions/components/ExtensionTabStack";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
@@ -142,6 +146,16 @@ const SshFileExplorer = lazy(() =>
 const AiSidebarPanel = lazy(() =>
   import("@/modules/ai/components/AiMiniWindow").then((m) => ({ default: m.AiSidebarPanel })),
 );
+
+/** Snapshot of whichever of the three mutually-exclusive right surfaces
+ *  (AI chat, extension right panel, SCM right panel) was open at the
+ *  moment an extension asked the right slot to close. `null` means the
+ *  slot was already empty — nothing to restore. */
+type RightAuxSnapshot =
+  | { kind: "chat" }
+  | { kind: "rightPanel"; extensionId: string; panelId: string }
+  | { kind: "scm" }
+  | null;
 
 /** Narrow context for live-terminal helpers. Subset of `liveContextRef.current`. */
 type LiveTerminalCtx = {
@@ -374,6 +388,16 @@ export default function App() {
   // owning extension no longer has an open ext tab. Ref (not state) so the
   // bridge callback can mutate it without re-binding via setSidebarSetter.
   const sidebarHiderRef = useRef<{ extensionId: string; prior: boolean } | null>(null);
+  // Twin of `sidebarHiderRef` for the right-side aux column (AI chat / ext
+  // right panel / SCM right panel). Tracks which (if any) of the three was
+  // open when an extension asked the right slot to close, so we can restore
+  // it once the user leaves that extension's tab. Snapshot is a tag, not a
+  // re-open call: we never reopen a panel the user has since dismissed
+  // explicitly.
+  const rightSidebarHiderRef = useRef<{
+    extensionId: string;
+    prior: RightAuxSnapshot;
+  } | null>(null);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
@@ -1021,6 +1045,85 @@ export default function App() {
     });
     return () => setSidebarSetter(null);
   }, []);
+
+  // Mirror of the left-sidebar setter for the right-side aux column. The
+  // three right surfaces (AI chat, extension right panel, SCM right panel)
+  // are mutually exclusive so we just snapshot whichever was open, close
+  // them all on hide, and replay the snapshot when the owning ext tab goes
+  // away. `visible === true` clears the latch (no re-open: the user can
+  // toggle it manually).
+  useEffect(() => {
+    setRightSidebarSetter((visible, ownerExtensionId) => {
+      const chat = useChatStore.getState();
+      const rightPanel = useRightPanelStore.getState();
+      const scm = useScmRightPanelStore.getState();
+      const snapshot: RightAuxSnapshot = chat.panelOpen
+        ? { kind: "chat" }
+        : rightPanel.active
+          ? {
+              kind: "rightPanel",
+              extensionId: rightPanel.active.extensionId,
+              panelId: rightPanel.active.panelId,
+            }
+          : scm.open
+            ? { kind: "scm" }
+            : null;
+      if (ownerExtensionId && !visible) {
+        if (!rightSidebarHiderRef.current) {
+          rightSidebarHiderRef.current = { extensionId: ownerExtensionId, prior: snapshot };
+        }
+      } else {
+        rightSidebarHiderRef.current = null;
+      }
+      if (!visible) {
+        if (chat.panelOpen) chat.closePanel();
+        if (rightPanel.active) rightPanel.close();
+        if (scm.open) scm.closePanel();
+      }
+      // `visible === true` is a no-op: we don't know which of the three
+      // surfaces to reopen from a bare call. The owner-restore effect
+      // below handles the actual replay when the ext tab goes away.
+    });
+    return () => setRightSidebarSetter(null);
+  }, []);
+
+  // Auto-restore the right-side aux column around the ext tab that hid
+  // it. Same shape as the left-sidebar effect above. Restoring is a
+  // best-effort replay: if the panel the user had open no longer exists
+  // (extension uninstalled), we silently skip rather than show an empty
+  // slot.
+  useEffect(() => {
+    const hider = rightSidebarHiderRef.current;
+    if (!hider) return;
+    const stillOpen = tabs.some(
+      (t) => t.kind === "ext" && t.extensionId === hider.extensionId,
+    );
+    const replay = (): void => {
+      const prior = hider.prior;
+      if (!prior) return;
+      if (prior.kind === "chat") useChatStore.getState().openPanel();
+      else if (prior.kind === "rightPanel")
+        useRightPanelStore.getState().open(prior.extensionId, prior.panelId);
+      else if (prior.kind === "scm") useScmRightPanelStore.getState().openPanel();
+    };
+    if (!stillOpen) {
+      replay();
+      rightSidebarHiderRef.current = null;
+      return;
+    }
+    const onHiderTab =
+      activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
+    if (onHiderTab) {
+      const chat = useChatStore.getState();
+      const rightPanel = useRightPanelStore.getState();
+      const scm = useScmRightPanelStore.getState();
+      if (chat.panelOpen) chat.closePanel();
+      if (rightPanel.active) rightPanel.close();
+      if (scm.open) scm.closePanel();
+    } else {
+      replay();
+    }
+  }, [activeTab, tabs]);
 
   // Auto-restore / re-hide the sidebar around the ext tab that requested
   // a hide. When the user navigates to a different tab, expand back to

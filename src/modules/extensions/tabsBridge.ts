@@ -58,3 +58,27 @@ export function setSidebarVisible(visible: boolean, ownerExtensionId?: string): 
   }
   sidebarSetter(visible, ownerExtensionId);
 }
+
+/** Visibility setter for the right-side aux column (AI chat + extension
+ *  right panel + SCM right panel — three mutually-exclusive surfaces that
+ *  share the same slot). App wires a callback that closes whichever of the
+ *  three is currently open. Mirrors `setSidebarVisible` for the left rail,
+ *  so an extension can give its workspace tab the full width on both sides
+ *  without having to reach into individual stores. */
+export type SetRightSidebarVisibleFn = (visible: boolean, ownerExtensionId?: string) => void;
+
+let rightSidebarSetter: SetRightSidebarVisibleFn | null = null;
+
+export function setRightSidebarSetter(fn: SetRightSidebarVisibleFn | null): void {
+  rightSidebarSetter = fn;
+}
+
+export function setRightSidebarVisible(visible: boolean, ownerExtensionId?: string): void {
+  if (!rightSidebarSetter) {
+    console.warn(
+      "[extensions] setRightSidebarVisible called before App wired the bridge; ignoring",
+    );
+    return;
+  }
+  rightSidebarSetter(visible, ownerExtensionId);
+}
