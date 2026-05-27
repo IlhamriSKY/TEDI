@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.8] - 28-05-2026
+
+### Changed
+
+- **Extension tab icon and label no longer carry the info tint.** [`TabBar.tsx`](src/modules/tabs/TabBar.tsx) drops the `text-info` class from both `EntryIcon`'s extension branch and the label `<span>`. Extension tabs now inherit the surrounding tab foreground so they read as part of the default tab cluster, matching the user's preference for visual consistency over per-kind colour cues. The accent stripe under the active tab still uses `--tedi-tab-ssh` so the tab kind stays identifiable in the strip.
+
 ## [0.3.7] - 27-05-2026
 
 ### Fixed

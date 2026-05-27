@@ -1091,10 +1091,6 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
             e.kind === "pane-leaf" && e.sshConnectionId
               ? statusLabelClass(e.sshStatus)
               : null,
-            // Extension tabs reuse the SSH info tint on the label so icon +
-            // text read as one unit, matching SSH's icon/text pairing in
-            // connecting / connected / disconnected states.
-            e.kind === "ext" && "text-info",
           )}
         >
           {e.label}
@@ -1450,9 +1446,9 @@ function EntryIcon({ entry }: { entry: Entry }) {
   }
   if (entry.kind === "ext") {
     // Extension tab icon: resolve `hugeicon:<Name>` if the extension hinted
-    // one, else fall back to a generic database glyph. Tinted with the same
-    // sky color the SSH tab uses so workbench-style extensions read as part
-    // of the remote-dev cluster.
+    // one, else fall back to a generic database glyph. No tint: inherits
+    // the surrounding tab's foreground colour so ext tabs visually match
+    // the default tab cluster.
     const iconRef = entry.icon ?? "";
     const m = iconRef.match(/^hugeicon:(.+)$/);
     const found = m ? tryGetHugeIcon(m[1]) : null;
@@ -1462,7 +1458,7 @@ function EntryIcon({ entry }: { entry: Entry }) {
         icon={iconValue}
         size={14}
         strokeWidth={2}
-        className="shrink-0 text-info"
+        className="shrink-0"
       />
     );
   }
