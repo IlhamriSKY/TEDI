@@ -25,6 +25,17 @@ export type MountFolderTreeOptions = {
   /** Absolute path of the tree root. A user pick via "Open Folder" wins
    *  until the prop changes; a new `rootPath` from `update()` clears the pick. */
   rootPath: string | null;
+  /** Restore an "Open Folder" pick on first mount so close/reopen doesn't
+   *  send the user back to `rootPath`. Only honored on first render of the
+   *  React tree; pass via every `mountFolderTree` call (the React root is
+   *  fresh after each `dispose()`). Subsequent `update()` calls within the
+   *  same mount lifecycle do NOT override the live pick. */
+  initialPickedPath?: string | null;
+  /** Fires after every pick change: user pick, header reset, or
+   *  workspace-switch clear. Persist this in extension storage (and an
+   *  in-closure variable) so the next mount can pass it back as
+   *  `initialPickedPath`. */
+  onPickedPathChange?: (path: string | null) => void;
   /** File-open handler. Defaults to routing through the workspace bridge. */
   onOpenFile?: (path: string, pin?: boolean) => void;
   /** Show the "Open Folder" picker icon and a reset chip when a pick is active. */
@@ -43,27 +54,34 @@ export type MountedFolderTree = {
 /**
  * Owns the effective root: extension-provided `rootPath` or a user pick.
  * When `rootPath` changes the pick is cleared so workspace switches win.
+ * `initialPickedPath` lets the caller restore a prior pick (persisted in
+ * extension storage) so close/reopen of the panel doesn't reset to home.
  */
 function FolderTreeShell({
   rootPath,
+  initialPickedPath,
+  onPickedPathChange,
   onOpenFile,
   showOpenFolder,
   onClose,
 }: {
   rootPath: string | null;
+  initialPickedPath: string | null;
+  onPickedPathChange?: (path: string | null) => void;
   onOpenFile: (path: string, pin?: boolean) => void;
   showOpenFolder: boolean;
   onClose?: () => void;
 }) {
-  const [pickedPath, setPickedPath] = useState<string | null>(null);
+  const [pickedPath, setPickedPath] = useState<string | null>(initialPickedPath);
   // When `rootPath` changes (workspace switch), drop the user pick.
   const lastPropRootRef = useRef<string | null>(rootPath);
   useEffect(() => {
     if (lastPropRootRef.current !== rootPath) {
       lastPropRootRef.current = rootPath;
       setPickedPath(null);
+      onPickedPathChange?.(null);
     }
-  }, [rootPath]);
+  }, [rootPath, onPickedPathChange]);
 
   const effectiveRoot = pickedPath ?? rootPath;
 
@@ -77,13 +95,17 @@ function FolderTreeShell({
       });
       if (typeof selected === "string" && selected.length > 0) {
         setPickedPath(selected);
+        onPickedPathChange?.(selected);
       }
     } catch (err) {
       console.error("[extensions] folder picker failed", err);
     }
   };
 
-  const handleReset = (): void => setPickedPath(null);
+  const handleReset = (): void => {
+    setPickedPath(null);
+    onPickedPathChange?.(null);
+  };
 
   // Action row appended to FileExplorer's header (after Search/Refresh/Collapse).
   // Folder name + icon come from FileExplorer.
@@ -177,6 +199,8 @@ export function mountFolderTree(
         <TooltipProvider>
           <FolderTreeShell
             rootPath={current.rootPath}
+            initialPickedPath={current.initialPickedPath ?? null}
+            onPickedPathChange={current.onPickedPathChange}
             onOpenFile={handleOpenFile}
             showOpenFolder={current.showOpenFolder ?? false}
             onClose={current.onClose}

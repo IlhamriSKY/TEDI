@@ -4,6 +4,21 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.7] - 27-05-2026
+
+### Fixed
+
+- **Extension tab activates on open even when the extension also hides the sidebars first.** [`useTabs.openExtensionTab`](src/modules/tabs/lib/useTabs.ts) previously read the reuse-target id from inside the `setTabs` updater and then called `setActiveId(resolvedId)`. That pattern only worked when React performed eager state computation. Extensions like SQL Explorer that call `setSidebarVisible(false)` + `setRightSidebarVisible(false)` before opening their tab schedule unrelated state updates first, which forces React to defer the updater. `resolvedId` stayed `null`, `setActiveId` was effectively skipped, and the new tab appeared in the bar but never took focus. The function now reads `tabsRef.current` synchronously for reuse detection, allocates the new id outside `setTabs`, and calls `setActiveId(id)` with a concrete value.
+
+### Added
+
+- **`ctx.ui.mountFolderTree` accepts `initialPickedPath` + `onPickedPathChange`.** [`mountFolderTree.tsx`](src/modules/extensions/components/mountFolderTree.tsx) gains two new options. `initialPickedPath` is honored on the first render of each React root, so an extension that re-mounts the tree (e.g. after closing and reopening its panel) can restore the prior "Open Folder" pick instead of snapping back to `rootPath`. `onPickedPathChange` fires whenever the shell's picked-path state mutates (pick, clear, workspace switch), giving the extension a stable hook to persist the selection. tedi.secondary-folder-tree 0.1.9 is the first consumer.
+- **Extension tab title text now uses the SSH info tint.** [`TabBar.tsx`](src/modules/tabs/TabBar.tsx) adds `text-info` to the ext-tab label so the title reads in the same sky/info colour as its icon, mirroring how an SSH tab's icon + label share a colour at rest. Visual consistency for workbench-style extensions sitting next to terminal tabs.
+
+### Changed
+
+- **Source Control is no longer auto-restored after an extension tab closes.** [`App.tsx`](src/app/App.tsx) drops the `{ kind: "scm" }` arm from the `RightAuxSnapshot` union. If SCM is open when an extension hides the right sidebar, it still closes (alongside the AI chat / extension right panel), but it is never recorded for replay. The user re-opens SCM manually via the status-bar GitBranch icon. Rationale: SCM is intentionally a deliberate, user-driven surface; silently resurrecting it after extension teardown felt magical and made users wonder why the panel kept reappearing.
+
 ## [0.3.6] - 27-05-2026
 
 ### Added

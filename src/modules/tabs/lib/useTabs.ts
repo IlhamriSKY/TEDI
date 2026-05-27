@@ -212,6 +212,11 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   });
   const [activeId, setActiveId] = useState(1);
   const nextIdRef = useRef(3);
+  // Sync ref of `tabs` so callbacks can read the latest array without relying
+  // on React's eager state computation (skipped when the fiber already has
+  // other pending updates). Used by `openExtensionTab` for reuse detection.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   // Monotonic FIFO counter for the terminal chip number. New terminals from
   // any path pick the next unused integer. Drag/reorder doesn't bump this;
   // the ordinal belongs to the leaf, not its position.
@@ -603,6 +608,14 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * already exists, we activate it instead of pushing a new one. The
    * extension's panel renderer (registered via `ctx.registerPanelRenderer`)
    * is mounted by `ExtensionTabStack`.
+   *
+   * Reuse detection + id allocation runs against `tabsRef.current` (not
+   * inside the `setTabs` updater) so `setActiveId(id)` always receives a
+   * concrete value. Mutating a closure variable from inside the updater
+   * only works when React performs eager state computation; callers that
+   * schedule unrelated state updates first (e.g. SQL Explorer hiding both
+   * sidebars before opening its tab) force React to defer the updater,
+   * and the active-id then stays on the previous tab.
    */
   const openExtensionTab = useCallback(
     (opts: {
@@ -612,38 +625,34 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       icon?: string;
       reuseKey?: string;
     }) => {
-      let resolvedId: number | null = null;
-      setTabs((curr) => {
-        const reuse = opts.reuseKey
-          ? curr.find(
-              (t) =>
-                t.kind === "ext" &&
-                t.extensionId === opts.extensionId &&
-                t.panelId === opts.panelId &&
-                t.reuseKey === opts.reuseKey,
-            )
-          : null;
-        if (reuse) {
-          resolvedId = reuse.id;
-          return curr;
-        }
-        const id = nextIdRef.current++;
-        resolvedId = id;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "ext",
-            title: opts.title,
-            extensionId: opts.extensionId,
-            panelId: opts.panelId,
-            icon: opts.icon,
-            reuseKey: opts.reuseKey,
-          } satisfies ExtensionTab,
-        ];
-      });
-      if (resolvedId !== null) setActiveId(resolvedId);
-      return resolvedId as number | null;
+      const reuse = opts.reuseKey
+        ? tabsRef.current.find(
+            (t) =>
+              t.kind === "ext" &&
+              t.extensionId === opts.extensionId &&
+              t.panelId === opts.panelId &&
+              t.reuseKey === opts.reuseKey,
+          )
+        : null;
+      if (reuse) {
+        setActiveId(reuse.id);
+        return reuse.id;
+      }
+      const id = nextIdRef.current++;
+      setTabs((curr) => [
+        ...curr,
+        {
+          id,
+          kind: "ext",
+          title: opts.title,
+          extensionId: opts.extensionId,
+          panelId: opts.panelId,
+          icon: opts.icon,
+          reuseKey: opts.reuseKey,
+        } satisfies ExtensionTab,
+      ]);
+      setActiveId(id);
+      return id;
     },
     [],
   );

@@ -147,14 +147,15 @@ const AiSidebarPanel = lazy(() =>
   import("@/modules/ai/components/AiMiniWindow").then((m) => ({ default: m.AiSidebarPanel })),
 );
 
-/** Snapshot of whichever of the three mutually-exclusive right surfaces
- *  (AI chat, extension right panel, SCM right panel) was open at the
- *  moment an extension asked the right slot to close. `null` means the
- *  slot was already empty — nothing to restore. */
+/** Snapshot of whichever of the two auto-restorable right surfaces
+ *  (AI chat, extension right panel) was open at the moment an extension
+ *  asked the right slot to close. `null` means the slot was either empty
+ *  or only had Source Control open — SCM is manual-only and is never
+ *  auto-restored, so it gets closed alongside the others on hide but is
+ *  never recorded for replay. */
 type RightAuxSnapshot =
   | { kind: "chat" }
   | { kind: "rightPanel"; extensionId: string; panelId: string }
-  | { kind: "scm" }
   | null;
 
 /** Narrow context for live-terminal helpers. Subset of `liveContextRef.current`. */
@@ -1052,6 +1053,11 @@ export default function App() {
   // them all on hide, and replay the snapshot when the owning ext tab goes
   // away. `visible === true` clears the latch (no re-open: the user can
   // toggle it manually).
+  //
+  // Source Control is intentionally excluded from the snapshot: the user
+  // has asked for SCM to be strictly status-bar-icon-driven, so even if
+  // it was open when the extension hid the sidebar, we don't auto-restore
+  // it. They close behind the extension and stay closed.
   useEffect(() => {
     setRightSidebarSetter((visible, ownerExtensionId) => {
       const chat = useChatStore.getState();
@@ -1065,9 +1071,7 @@ export default function App() {
               extensionId: rightPanel.active.extensionId,
               panelId: rightPanel.active.panelId,
             }
-          : scm.open
-            ? { kind: "scm" }
-            : null;
+          : null;
       if (ownerExtensionId && !visible) {
         if (!rightSidebarHiderRef.current) {
           rightSidebarHiderRef.current = { extensionId: ownerExtensionId, prior: snapshot };
@@ -1101,10 +1105,11 @@ export default function App() {
     const replay = (): void => {
       const prior = hider.prior;
       if (!prior) return;
+      // SCM is deliberately not in the union: see the setter above. The
+      // user must reopen it via the status-bar GitBranch icon.
       if (prior.kind === "chat") useChatStore.getState().openPanel();
       else if (prior.kind === "rightPanel")
         useRightPanelStore.getState().open(prior.extensionId, prior.panelId);
-      else if (prior.kind === "scm") useScmRightPanelStore.getState().openPanel();
     };
     if (!stillOpen) {
       replay();

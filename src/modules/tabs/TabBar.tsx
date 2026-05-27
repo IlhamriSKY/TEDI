@@ -1091,6 +1091,10 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
             e.kind === "pane-leaf" && e.sshConnectionId
               ? statusLabelClass(e.sshStatus)
               : null,
+            // Extension tabs reuse the SSH info tint on the label so icon +
+            // text read as one unit, matching SSH's icon/text pairing in
+            // connecting / connected / disconnected states.
+            e.kind === "ext" && "text-info",
           )}
         >
           {e.label}
