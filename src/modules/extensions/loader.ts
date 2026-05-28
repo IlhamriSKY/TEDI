@@ -7,10 +7,13 @@
  * skip activation.
  */
 
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 
+import { toast } from "@/components/ui/toast";
 import { buildContext, type ExtensionContext } from "./host";
 import { safeParseManifest, type Manifest } from "./manifest";
+import { satisfies } from "./semver";
 import {
   aiToolsRegistry,
   clearExtensionContributions,
@@ -92,6 +95,15 @@ type ActiveRecord = {
 
 const active = new Map<string, ActiveRecord>();
 
+/** Cached host version. Resolved once on first need so the loader's hot
+ *  path stays sync after boot. `Promise<string>` is stored so concurrent
+ *  callers all await the same fetch. */
+let hostVersionPromise: Promise<string> | null = null;
+function getHostVersion(): Promise<string> {
+  if (!hostVersionPromise) hostVersionPromise = getVersion();
+  return hostVersionPromise;
+}
+
 export async function listInstalled(): Promise<InstalledExtension[]> {
   const raw = await invoke<RawListEntry[]>("ext_list");
   const out: InstalledExtension[] = [];
@@ -124,6 +136,21 @@ export async function activate(ext: InstalledExtension): Promise<void> {
   if (!ext.enabled) {
     console.warn(`[extensions] activate called on disabled ext ${ext.id} - ignoring`);
     return;
+  }
+  // Engine-compat gate. Refuse to activate when the manifest asks for a
+  // newer host than the running app. A stricter version of the same gate
+  // already runs at install time on the Rust side, but extensions that
+  // were installed before the constraint was tightened (or sideloaded
+  // outside the install pipeline) still need to be caught here.
+  const required = ext.manifest.engines?.tedi;
+  if (required) {
+    const host = await getHostVersion();
+    if (!satisfies(required, host)) {
+      const msg = `${ext.manifest.name} needs TEDI ${required} (you have ${host}).`;
+      console.warn(`[extensions] skipping ${ext.id}: host ${host} does not satisfy ${required}`);
+      toast(msg, { variant: "warning" });
+      return;
+    }
   }
   // Seed declarative contributions first. If activate() throws, they stay
   // so the user can still disable/uninstall from Settings.

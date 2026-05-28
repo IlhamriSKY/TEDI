@@ -436,6 +436,42 @@ pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
+/// True iff `host` satisfies the `engines.tedi` constraint. Supports the
+/// shapes extensions in this project actually use: empty / `*` (any),
+/// `">=X.Y.Z"`, `">X.Y.Z"`, `"<=X.Y.Z"`, `"<X.Y.Z"`, `"=X.Y.Z"`, and plain
+/// `"X.Y.Z"` (exact). Comparison uses [`compare_versions`] so `v` prefixes
+/// and trailing pre-release tags behave the same way the rest of the host
+/// already expects.
+pub(crate) fn satisfies(constraint: &str, host: &str) -> bool {
+    let c = constraint.trim();
+    if c.is_empty() || c == "*" {
+        return true;
+    }
+    let host = strip_v_prefix(host);
+    let (op, rest) = if let Some(r) = c.strip_prefix(">=") {
+        (">=", r)
+    } else if let Some(r) = c.strip_prefix("<=") {
+        ("<=", r)
+    } else if let Some(r) = c.strip_prefix('>') {
+        (">", r)
+    } else if let Some(r) = c.strip_prefix('<') {
+        ("<", r)
+    } else if let Some(r) = c.strip_prefix('=') {
+        ("=", r)
+    } else {
+        ("=", c)
+    };
+    let target = strip_v_prefix(rest.trim());
+    let ord = compare_versions(&host, &target);
+    match op {
+        ">=" => ord != std::cmp::Ordering::Less,
+        ">" => ord == std::cmp::Ordering::Greater,
+        "<=" => ord != std::cmp::Ordering::Greater,
+        "<" => ord == std::cmp::Ordering::Less,
+        _ => ord == std::cmp::Ordering::Equal,
+    }
+}
+
 pub(crate) fn pick_release_tag(json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     v.get("tag_name")

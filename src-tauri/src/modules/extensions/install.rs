@@ -146,6 +146,21 @@ pub fn install_from_bytes_with_progress(
         }
     };
 
+    // Engine-compat gate. Refuse to install an extension that asks for a
+    // newer host than this binary. The host version comes from Cargo.toml
+    // at compile time; the constraint comes from `manifest.engines.tedi`
+    // and is parsed by [`super::commands::satisfies`].
+    if let Some(req) = manifest.engines.as_ref().and_then(|e| e.tedi.as_deref()) {
+        let host = env!("CARGO_PKG_VERSION");
+        if !super::commands::satisfies(req, host) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!(
+                "{} requires TEDI {req}, but this host is {host}. Update TEDI to install.",
+                manifest.name
+            ));
+        }
+    }
+
     // Validate `main` if declared so a broken extension does not reach
     // the activation path.
     if let Some(main) = manifest.main.as_deref() {
