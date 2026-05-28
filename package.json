@@ -23,7 +23,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "lint:rust": "cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings",
-    "fmt:rust": "cd src-tauri && cargo fmt --all"
+    "fmt:rust": "cd src-tauri && cargo fmt --all",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.77",
@@ -116,6 +117,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "prettier-plugin-tailwindcss": "^0.8.0",
+    "react-doctor": "^0.2.8",
     "typescript": "~5.8.3",
     "vite": "^7.3.3"
   }

@@ -53,14 +53,14 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
               icon={CloudServerIcon}
               size={11}
               strokeWidth={1.75}
-              className="shrink-0 text-info"
+              className="text-info shrink-0"
             />
             <span className="truncate font-medium">SSH</span>
             <span className="text-muted-foreground truncate">
               {connection.user}@{connection.host}
             </span>
             {status.kind === "reconnecting" ? (
-              <span className="shrink-0 text-icon-working">
+              <span className="text-icon-working shrink-0">
                 · {Math.round(status.nextDelayMs / 1000)}s
               </span>
             ) : null}
@@ -163,7 +163,7 @@ function formatTime(ms: number): string {
   }
 }
 
-export function formatRelative(ms: number): string {
+function formatRelative(ms: number): string {
   const delta = Date.now() - ms;
   if (delta < 60_000) return "just now";
   const mins = Math.floor(delta / 60_000);

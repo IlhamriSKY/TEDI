@@ -136,7 +136,7 @@ const defaultFormatMessage = (message: UIMessage): string => {
   return `**${roleLabel}:** ${getMessageText(message)}`;
 };
 
-export const messagesToMarkdown = (
+const messagesToMarkdown = (
   messages: UIMessage[],
   formatMessage: (message: UIMessage, index: number) => string = defaultFormatMessage,
 ): string => messages.map((msg, i) => formatMessage(msg, i)).join("\n\n");
