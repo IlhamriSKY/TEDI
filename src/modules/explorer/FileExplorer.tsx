@@ -85,8 +85,10 @@ type Props = {
   hideCreateActions?: boolean;
   /** Hide the grep button when only filename search is needed. */
   hideGrep?: boolean;
-  /** Hide the Sort dropdown button. The primary sidebar tree opts out;
-   *  extension-mounted trees keep it for their own sort UX. */
+  /** Hide the Sort dropdown button. When hidden, `sortMode` is forced to
+   *  "default" (folders-first) so a value persisted by another surface
+   *  sharing the storage key can't strand this tree on a mode the user
+   *  can't see or change. */
   hideSort?: boolean;
   /** Extra buttons appended after Refresh + Collapse. */
   headerExtras?: React.ReactNode;
@@ -149,7 +151,14 @@ export function FileExplorer({
   // folder rows swap from empty src to the real glyph. Children inherit the
   // re-render because the icon URLs are computed inside the render body.
   useExplorerIconsReady();
-  const [sortMode, setSortModeState] = useState<SortMode>(readStoredSortMode);
+  // When the Sort dropdown is hidden the user has no way to change the mode
+  // from this surface, so honoring a persisted value (set by another surface
+  // sharing the same key, e.g. the Secondary Folder Tree extension) would
+  // leave the sidebar stuck on a mode the user can't see or unset. Force
+  // "default" (folders first, VSCode-style) in that case.
+  const [sortMode, setSortModeState] = useState<SortMode>(() =>
+    hideSort ? "default" : readStoredSortMode(),
+  );
   const setSortMode = useCallback((value: SortMode) => {
     setSortModeState(value);
     try {

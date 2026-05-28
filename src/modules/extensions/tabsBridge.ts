@@ -34,6 +34,38 @@ export function openExtensionTab(opts: OpenExtensionTabOpts): number | null {
   return opener(opts);
 }
 
+/**
+ * Lifecycle tone the extension can apply to its tab title. Re-exports the
+ * type from `useTabs` so callers (host wrapper + bridge consumers) don't
+ * have to import the whole tab module.
+ */
+import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
+
+export type SetExtensionTabStateOpts = {
+  extensionId: string;
+  panelId: string;
+  reuseKey?: string;
+  state: ExtensionTabState | null;
+};
+
+export type SetExtensionTabStateFn = (opts: SetExtensionTabStateOpts) => void;
+
+let tabStateSetter: SetExtensionTabStateFn | null = null;
+
+export function setSetExtensionTabState(fn: SetExtensionTabStateFn | null): void {
+  tabStateSetter = fn;
+}
+
+export function setExtensionTabState(opts: SetExtensionTabStateOpts): void {
+  if (!tabStateSetter) {
+    console.warn(
+      "[extensions] setExtensionTabState called before App wired the bridge; ignoring",
+    );
+    return;
+  }
+  tabStateSetter(opts);
+}
+
 /** Visibility setter for the left sidebar (file explorer + SCM panel).
  *  App wires the imperative collapse / expand on `sidebarRef`. The optional
  *  `ownerExtensionId` lets App attribute a hide request to an extension so

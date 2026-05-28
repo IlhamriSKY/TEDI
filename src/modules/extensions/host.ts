@@ -57,9 +57,11 @@ import {
 } from "./registries";
 import {
   openExtensionTab as openExtTabBridge,
+  setExtensionTabState as setExtensionTabStateBridge,
   setSidebarVisible as setSidebarVisibleBridge,
   setRightSidebarVisible as setRightSidebarVisibleBridge,
 } from "./tabsBridge";
+import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import {
   getActiveEditor,
   setActiveEditorContent,
@@ -238,6 +240,15 @@ export type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
+    /** Tint the tab's title text to reflect a lifecycle state. Matches the
+     *  tab on `(extensionId, panelId, reuseKey)`. Pass `null` to clear.
+     *  Tones mirror the SSH palette: `connecting`/`reconnecting` pulse
+     *  yellow, `connected` is green, `disconnected`/`error` is red. */
+    setExtensionTabState(opts: {
+      panelId: string;
+      reuseKey?: string;
+      state: ExtensionTabState | null;
+    }): void;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
    *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
@@ -567,6 +578,15 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           title: opts.title,
           icon: opts.icon,
           reuseKey: opts.reuseKey,
+        });
+      },
+      setExtensionTabState(opts) {
+        requirePermission(ext.id, declared, "tabs:open");
+        setExtensionTabStateBridge({
+          extensionId: ext.id,
+          panelId: opts.panelId,
+          reuseKey: opts.reuseKey,
+          state: opts.state,
         });
       },
     },

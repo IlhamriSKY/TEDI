@@ -94,6 +94,21 @@ export type GitDiffTab = {
 };
 
 /**
+ * Lifecycle hint an extension can attach to its tab so the title text
+ * colour reflects connection / job state. Mirrors the SSH tab palette so
+ * "remote-ish" extensions read consistently next to terminal tabs:
+ * `connecting`/`reconnecting` → pulsing yellow, `connected` → green,
+ * `disconnected`/`error` → red, `idle`/undefined → default.
+ */
+export type ExtensionTabState =
+  | "idle"
+  | "connecting"
+  | "reconnecting"
+  | "connected"
+  | "disconnected"
+  | "error";
+
+/**
  * Extension-owned tab. The content is mounted by `ExtensionTabStack`
  * which calls the renderer registered by `ctx.registerPanelRenderer`.
  * Opened via `ctx.tabs.openExtensionTab({ extensionId, panelId, title })`.
@@ -109,6 +124,9 @@ export type ExtensionTab = {
   /** Caller-supplied stable id for dedup (so re-opening focuses the
    *  existing tab instead of pushing a new one). */
   reuseKey?: string;
+  /** Optional lifecycle tone for the tab title text. Updated by the
+   *  extension via `ctx.tabs.setExtensionTabState(...)`. */
+  state?: ExtensionTabState;
 };
 
 export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab | ExtensionTab;
@@ -657,6 +675,37 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [],
   );
 
+  /**
+   * Update the lifecycle tone on an extension tab. Matches the tab on
+   * `(extensionId, panelId, reuseKey)`; `reuseKey` is optional and matches
+   * tabs opened without one when omitted. Pass `null` for `state` to clear.
+   */
+  const setExtensionTabState = useCallback(
+    (opts: {
+      extensionId: string;
+      panelId: string;
+      reuseKey?: string;
+      state: ExtensionTabState | null;
+    }) => {
+      setTabs((curr) =>
+        curr.map((t) => {
+          if (t.kind !== "ext") return t;
+          if (t.extensionId !== opts.extensionId) return t;
+          if (t.panelId !== opts.panelId) return t;
+          if ((t.reuseKey ?? undefined) !== (opts.reuseKey ?? undefined)) return t;
+          const next: ExtensionTab = { ...t };
+          if (opts.state === null) {
+            delete next.state;
+          } else {
+            next.state = opts.state;
+          }
+          return next;
+        }),
+      );
+    },
+    [],
+  );
+
   const closeTab = useCallback((id: number) => {
     setTabs((curr) => {
       if (curr.length <= 1) return curr;
@@ -701,6 +750,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             ...(patch.title !== undefined && { title: patch.title }),
           };
         }
+
         // pane tab: patches apply to the active leaf.
         const leaf = findLeaf(x.paneTree, x.activeLeafId);
         if (!leaf) return x;
@@ -1236,6 +1286,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     pinTab,
     newPreviewTab,
     openExtensionTab,
+    setExtensionTabState,
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,

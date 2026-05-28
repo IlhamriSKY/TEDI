@@ -33,6 +33,7 @@ import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
 import {
   setOpenExtensionTab,
+  setSetExtensionTabState,
   setSidebarSetter,
   setRightSidebarSetter,
 } from "@/modules/extensions/tabsBridge";
@@ -281,6 +282,7 @@ export default function App() {
     pinTab,
     newPreviewTab,
     openExtensionTab,
+    setExtensionTabState,
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,
@@ -987,6 +989,13 @@ export default function App() {
     setOpenExtensionTab((opts) => openExtensionTab(opts));
     return () => setOpenExtensionTab(null);
   }, [openExtensionTab]);
+
+  // Wire `ctx.tabs.setExtensionTabState(...)` for extensions to tint their
+  // tab title by lifecycle (SQL Explorer uses it to mirror the SSH palette).
+  useEffect(() => {
+    setSetExtensionTabState((opts) => setExtensionTabState(opts));
+    return () => setSetExtensionTabState(null);
+  }, [setExtensionTabState]);
 
   // Wire `ctx.editor.{getActive,setActiveContent}` to the active editor pane.
   // The bridge closures read live state on each call so an extension that

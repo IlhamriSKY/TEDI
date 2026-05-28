@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.9] - 28-05-2026
+
+### Fixed
+
+- **Left sidebar file tree always renders folders-first (VSCode-style), even when the Secondary Folder Tree extension has saved a non-default sort.** [`FileExplorer.tsx`](src/modules/explorer/FileExplorer.tsx) honoured `localStorage["tedi:explorer:sortMode"]` even when its Sort dropdown was hidden, so a `Modified (newest first)` pick made in the right-side extension panel (which shares the same key) bled into the primary sidebar and mixed files between folders. The primary tree now forces `sortMode` to `"default"` whenever `hideSort` is set, so a foreign mode persisted by another surface can't strand the sidebar on an order the user can't see or change. The right-side Secondary Folder Tree keeps its dropdown and full mode selection.
+
+### Added
+
+- **`ctx.tabs.setExtensionTabState({ panelId, reuseKey?, state })` extension API.** [`useTabs.ts`](src/modules/tabs/lib/useTabs.ts) introduces an `ExtensionTabState` union (`idle | connecting | reconnecting | connected | disconnected | error`) and a matching mutator on the tabs hook; [`tabsBridge.ts`](src/modules/extensions/tabsBridge.ts) re-exports the type and wires a setter so the bridge can reach into `useTabs` without coupling to React; [`host.ts`](src/modules/extensions/host.ts) exposes the call on `ExtensionContext.tabs` behind the existing `tabs:open` permission; [`App.tsx`](src/app/App.tsx) registers the live `setExtensionTabState` from `useTabs` into the bridge once on mount. [`TabBar.tsx`](src/modules/tabs/TabBar.tsx) renders the lifecycle tone on the tab title text using the SSH palette so workbench-style extensions read consistently next to terminal tabs: `connecting`/`reconnecting` pulses yellow, `connected` is green, `disconnected`/`error` is red, `idle`/undefined inherits the default tab colour. SQL Explorer is the first consumer (mirrors its DB connection state into the tab strip).
+
+### Changed
+
+- **`tedi --update` defers to the in-app updater when a TEDI window is already running on Windows.** [`cli_update.rs`](src-tauri/src/modules/cli_update.rs) now scans the live process list via `CreateToolhelp32Snapshot` (plus a new `Win32_System_Diagnostics_ToolHelp` feature on the `windows-sys` Cargo dep) before booting the headless updater. If another `TEDIApp.exe` is alive it prints a one-line notice and returns from the CLI handler instead of `process::exit`ing, so the rest of `lib::run` continues, `tauri-plugin-single-instance` forwards `--update` to the existing window via `tedi:trigger-update`, and `useUpdater` drives the download / close / install / relaunch through `tauri-plugin-updater`. This is the only path that works on Windows because NSIS cannot overwrite a mapped `TEDIApp.exe`, so the headless install would silently no-op. macOS / Linux keep the previous direct path (POSIX rename swaps the bundle while the running process holds the old inode).
+
 ## [0.3.8] - 28-05-2026
 
 ### Changed

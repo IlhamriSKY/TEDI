@@ -94,12 +94,35 @@ struct PlatformEntry {
 
 /// Run the headless update flow and exit. Returns without acting when
 /// `--update` / `-u` is not in argv.
+///
+/// One escape hatch from "exit": when a TEDI GUI is already running on this
+/// machine, return without `process::exit` so the rest of `lib::run` can
+/// boot Tauri. `tauri-plugin-single-instance` then detects the existing
+/// window, forwards `--update` via `tedi:trigger-update`, and exits this
+/// duplicate process. The in-app updater (`useUpdater`) handles the
+/// download / close / install / relaunch dance through `tauri-plugin-updater`,
+/// which is the only path that works on Windows when `TEDIApp.exe` is in
+/// use (NSIS cannot replace a mapped binary, so the headless install would
+/// silently no-op).
 pub fn handle_update_command_and_exit() {
     let args: Vec<String> = std::env::args().collect();
     if !args.iter().skip(1).any(|a| cli::is_update_flag(a)) {
         return;
     }
     cli::attach_parent_console();
+
+    if another_gui_instance_is_running() {
+        println!(
+            "{} {}",
+            paint_ok("→"),
+            paint_dim(
+                "TEDI is already running. Forwarding update request to the in-app updater..."
+            ),
+        );
+        let _ = std::io::stdout().flush();
+        return;
+    }
+
     let code = match run_update() {
         Ok(()) => 0,
         Err(e) => {
@@ -110,6 +133,75 @@ pub fn handle_update_command_and_exit() {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     std::process::exit(code);
+}
+
+/// Detect whether another `TEDIApp` GUI process is alive on this machine.
+///
+/// Windows is the case that motivated this: NSIS cannot overwrite a
+/// `TEDIApp.exe` that is currently mapped by the running GUI, so the headless
+/// install silently no-ops. On macOS / Linux a POSIX rename succeeds even
+/// while the binary is mapped (the running process keeps the old inode), so
+/// the headless flow there does not need the same hand-off and we return
+/// `false` to preserve the existing path.
+#[cfg(target_os = "windows")]
+fn another_gui_instance_is_running() -> bool {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    // The current process is `TEDIApp.exe --update` itself (spawned by the
+    // `tedi.exe` launcher), so we must exclude our own PID from the scan.
+    let current_pid = std::process::id();
+    // SAFETY: CreateToolhelp32Snapshot returns INVALID_HANDLE_VALUE on
+    // failure (checked below). Process32FirstW / Process32NextW iterate the
+    // snapshot until they return 0. `entry.szExeFile` is a fixed-size wide
+    // buffer the OS fills with a null-terminated process image name.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if entry.th32ProcessID != current_pid {
+                    let name_len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let name = OsString::from_wide(&entry.szExeFile[..name_len]);
+                    if name
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case("TEDIApp.exe")
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+        found
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn another_gui_instance_is_running() -> bool {
+    // POSIX rename swaps the bundle file even while the running GUI has it
+    // mapped, so headless install is non-destructive on macOS / Linux. Add
+    // platform-specific enumeration here if the in-app updater ever needs
+    // to own this flow too.
+    false
 }
 
 fn run_update() -> Result<(), String> {

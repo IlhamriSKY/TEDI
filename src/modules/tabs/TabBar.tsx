@@ -22,7 +22,7 @@ import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { leafIds, leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
-import { MAX_PANES_PER_TAB } from "./lib/useTabs";
+import { MAX_PANES_PER_TAB, type ExtensionTabState } from "./lib/useTabs";
 import {
   listConnections,
   onConnectionsChanged,
@@ -118,6 +118,9 @@ type ExtensionEntry = EntryBase & {
   /** Icon hint from the extension. Either `hugeicon:<Name>` for an
    *  inline HugeIcon or a relative asset path. */
   icon?: string;
+  /** Lifecycle tone set by the extension via
+   *  `ctx.tabs.setExtensionTabState(...)`. Drives the title text colour. */
+  state?: ExtensionTabState;
 };
 
 type Entry = PaneEntry | StandaloneEntry | ExtensionEntry;
@@ -152,6 +155,26 @@ function tabAccentClass(e: Entry): string {
 function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : path;
+}
+
+/** Tailwind `text-*` class for an extension tab title. Mirrors the SSH
+ *  palette so workbench-style extensions read consistently: connecting
+ *  pulses yellow, connected is green, disconnected/error is red. Returns
+ *  "" for idle/unknown so the label inherits the tab's default colour. */
+function extensionStateLabelClass(state: ExtensionTabState | undefined): string {
+  if (!state) return "";
+  switch (state) {
+    case "connecting":
+    case "reconnecting":
+      return "text-icon-working animate-pulse";
+    case "connected":
+      return "text-icon-idle";
+    case "disconnected":
+    case "error":
+      return "text-icon-blocked";
+    case "idle":
+      return "";
+  }
 }
 
 function entryLabel(
@@ -259,6 +282,7 @@ function buildEntries(
       extensionId: t.extensionId,
       panelId: t.panelId,
       icon: t.icon,
+      state: t.state,
     });
   }
   return out;
@@ -1091,6 +1115,9 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
             e.kind === "pane-leaf" && e.sshConnectionId
               ? statusLabelClass(e.sshStatus)
               : null,
+            // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
+            // its DB connection state). Same palette as the SSH label.
+            e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
           )}
         >
           {e.label}
