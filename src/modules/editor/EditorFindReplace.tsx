@@ -11,7 +11,7 @@ import {
   ReplaceIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 
 export type EditorFindReplaceHandle = {
   /** Open the bar. Both rows are always rendered. `initialQuery` seeds
@@ -25,6 +25,7 @@ type Props = {
   /** Live CodeMirror view. May be null while the editor is loading or
    *  showing an image/binary placeholder. */
   getView: () => EditorView | null;
+  ref?: Ref<EditorFindReplaceHandle>;
 };
 
 // Cap match counting so a query like "a" on a huge file doesn't freeze the UI.
@@ -47,8 +48,7 @@ function countMatches(view: EditorView, query: SearchQuery): number {
   }
 }
 
-export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
-  function EditorFindReplace({ getView }: Props, ref) {
+export function EditorFindReplace({ getView, ref }: Props) {
     const [visible, setVisible] = useState(false);
     const [query, setQuery] = useState("");
     const [replace, setReplace] = useState("");
@@ -395,5 +395,4 @@ export const EditorFindReplace = forwardRef<EditorFindReplaceHandle, Props>(
         ) : null}
       </div>
     );
-  },
-);
+  }

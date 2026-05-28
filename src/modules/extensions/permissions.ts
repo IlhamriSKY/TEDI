@@ -28,6 +28,17 @@ const HARD_DENY_INVOKE: ReadonlySet<string> = new Set([
   "secrets_get_all",
 ]);
 
+const GLOB_ESCAPE_RE = /[.+?^${}()|[\]\\]/g;
+const GLOB_RE_CACHE = new Map<string, RegExp>();
+function globToRegExp(pattern: string): RegExp {
+  let re = GLOB_RE_CACHE.get(pattern);
+  if (!re) {
+    re = new RegExp("^" + pattern.replace(GLOB_ESCAPE_RE, "\\$&").replace(/\*/g, ".*") + "$");
+    GLOB_RE_CACHE.set(pattern, re);
+  }
+  return re;
+}
+
 export function checkPermission(declared: readonly string[], required: string): boolean {
   // Wildcard. Manifests can declare `*`; the install dialog warns loudly.
   if (declared.includes("*")) return true;
@@ -39,8 +50,7 @@ export function checkPermission(declared: readonly string[], required: string): 
     }
     // `invoke:foo_*` matches `invoke:foo_bar`.
     if (p.includes("*")) {
-      const re = new RegExp("^" + p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
-      if (re.test(required)) return true;
+      if (globToRegExp(p).test(required)) return true;
     }
   }
   return false;

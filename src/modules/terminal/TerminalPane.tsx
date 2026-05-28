@@ -1,7 +1,7 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useTheme } from "@/modules/theme";
 import type { SearchAddon } from "@xterm/addon-search";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import {
   useTerminalSession,
   type TediOpenInput,
@@ -53,28 +53,27 @@ type Props = {
    * serializer persists it for restore on next launch.
    */
   onPtyId?: (leafId: number, ptyId: string) => void;
+  ref?: Ref<TerminalPaneHandle>;
 };
 
-export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
-  {
-    leafId,
-    visible,
-    focused = true,
-    initialCwd,
-    sshConnectionId,
-    savedPtyId,
-    onSearchReady,
-    onExit,
-    onCwd,
-    onDetectedLocalUrl,
-    onTediOpen,
-    onTediSpawnTab,
-    onSshStatus,
-    onAiCliStatus,
-    onPtyId,
-  },
+export function TerminalPane({
+  leafId,
+  visible,
+  focused = true,
+  initialCwd,
+  sshConnectionId,
+  savedPtyId,
+  onSearchReady,
+  onExit,
+  onCwd,
+  onDetectedLocalUrl,
+  onTediOpen,
+  onTediSpawnTab,
+  onSshStatus,
+  onAiCliStatus,
+  onPtyId,
   ref,
-) {
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   // Re-apply the xterm theme whenever the Theme-tab custom palette or
@@ -82,6 +81,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
   // setter call so identity comparison is enough.
   const customTheme = usePreferencesStore((s) => s.customTheme);
   const customThemeEnabled = usePreferencesStore((s) => s.customThemeEnabled);
+  // Note: app-opacity changes re-theme the terminal via the rAF-throttled
+  // `tedi:canvas-opacity` window listener in `useTerminalSession`, so it stays
+  // smooth during live slider drags (not a per-tick effect here).
 
   const session = useTerminalSession({
     leafId,
@@ -140,4 +142,4 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function Termi
       }}
     />
   );
-});
+}

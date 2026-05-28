@@ -146,6 +146,7 @@ export function AiStatusBarControls() {
         type="file"
         multiple
         accept={ACCEPTED_FILES}
+        aria-label="Attach files"
         className="hidden"
         onChange={(e) => {
           void c.addFiles(e.target.files);
@@ -347,7 +348,8 @@ function ModelDropdown() {
   // Anthropic is noise, not affordance.
   const sections = useMemo(
     () =>
-      PROVIDERS.filter((p) => (providerNeedsKey(p.id) ? !!apiKeys[p.id] : true)).map((p) => {
+      PROVIDERS.flatMap((p) => {
+        if (providerNeedsKey(p.id) && !apiKeys[p.id]) return [];
         const all =
           p.id === "sumopod"
             ? sumopodModels.models
@@ -355,7 +357,7 @@ function ModelDropdown() {
               ? oaiCompatModels.models
               : MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
-        return { provider: p, all, filtered };
+        return [{ provider: p, all, filtered }];
       }),
     [query, apiKeys, sumopodModels.models, oaiCompatModels.models],
   );
@@ -421,7 +423,7 @@ function ModelDropdown() {
         <TooltipContent side="top">{modelTooltip}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="max-h-105 w-72 overflow-hidden p-0">
-        <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
+        <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}

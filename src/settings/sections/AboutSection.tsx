@@ -25,6 +25,18 @@ const PLATFORM_LABEL: Record<string, string> = {
   freebsd: "FreeBSD",
 };
 
+/** Synchronous platform/arch label. Returns "" off-Tauri (the calls throw). */
+function initialBuildLabel(): string {
+  try {
+    const p = platform();
+    const a = arch();
+    const platformLabel = PLATFORM_LABEL[p] ?? p;
+    return `${platformLabel} · ${a}`;
+  } catch {
+    return "";
+  }
+}
+
 type CheckState =
   | { kind: "idle" }
   | { kind: "checking" }
@@ -38,7 +50,7 @@ type CheckState =
 export function AboutSection() {
   const [version, setVersion] = useState("");
   const [name, setName] = useState("TEDI");
-  const [build, setBuild] = useState("");
+  const [build] = useState(initialBuildLabel);
   const [checkState, setCheckState] = useState<CheckState>({ kind: "idle" });
   // Held in a ref, not state. The Update handle is non-serialisable and bound
   // to the plugin's native side; putting it in state would trigger structuredClone
@@ -48,14 +60,6 @@ export function AboutSection() {
   useEffect(() => {
     void getVersion().then(setVersion);
     void getName().then(setName);
-    try {
-      const p = platform();
-      const a = arch();
-      const platformLabel = PLATFORM_LABEL[p] ?? p;
-      setBuild(`${platformLabel} · ${a}`);
-    } catch {
-      setBuild("");
-    }
   }, []);
 
   const onCheck = () => {

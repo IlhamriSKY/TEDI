@@ -48,6 +48,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   async applyAll(sessionId) {
     const items = get().queue;
     const results: { id: string; ok: boolean; error?: string }[] = [];
+    // sequential: checkpoint records and nested mkdir order must be preserved
     for (const q of items) {
       try {
         if (q.kind === "create_directory") {

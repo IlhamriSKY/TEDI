@@ -98,22 +98,26 @@ function readInitialTab(): SettingsTab {
  */
 class SectionErrorBoundary extends Component<
   { tabId: string; children: ReactNode },
-  { error: Error | null }
+  { error: Error | null; prevTabId: string }
 > {
-  state = { error: null as Error | null };
+  state = { error: null as Error | null, prevTabId: this.props.tabId };
 
   static getDerivedStateFromError(error: Error): { error: Error | null } {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("Settings section crashed", error, info.componentStack);
+  static getDerivedStateFromProps(
+    props: { tabId: string },
+    state: { error: Error | null; prevTabId: string },
+  ): { error: Error | null; prevTabId: string } | null {
+    if (props.tabId !== state.prevTabId) {
+      return { error: null, prevTabId: props.tabId };
+    }
+    return null;
   }
 
-  componentDidUpdate(prev: { tabId: string }): void {
-    if (prev.tabId !== this.props.tabId && this.state.error) {
-      this.setState({ error: null });
-    }
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error("Settings section crashed", error, info.componentStack);
   }
 
   render() {

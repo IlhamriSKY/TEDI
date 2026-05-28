@@ -25,6 +25,17 @@
 
 @source "../../node_modules/streamdown/dist/index.js";
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -91,12 +102,15 @@
   /* Semantic "info" / neutral status color (toasts, renamed/copied SCM
    * rows, SSH info pills). Themable. */
   --tedi-info: #0284c7;
-  /* Terminal + editor canvas surface. Defaults to opaque user background.
-   * When a wallpaper is active, `customTheme.applyBackground` overrides
-   * `--tedi-canvas-alpha` so xterm and CodeMirror let the image bleed
-   * through. */
+  /* Solid base colour for the terminal/editor canvas and the glass surface
+   * tint. `customTheme.applyBackground` sets it to the theme's background
+   * colour; the glass layer mixes it with `--tedi-app-opacity`. */
   --tedi-canvas-bg: #ffffff;
-  --tedi-canvas-alpha: 1;
+  /* Whole-app transparency (0..1). 1 = solid (default), 0 = fully see-through.
+   * The single opacity control: `appOpacity.ts` writes it + toggles
+   * `data-tedi-glass`, consumed by the `html[data-tedi-glass="on"]` rules and
+   * the terminal canvas. */
+  --tedi-app-opacity: 1;
   /* Tab focus / active stripe color per tab kind. Themable via Settings
    * > Theme. Defaults mirror the hard-coded palette `TabBar.tsx` used
    * before the tokens existed. */
@@ -274,57 +288,35 @@
   }
 }
 
-/* Custom theme background image: when an image is loaded via
- * Settings → Theme, `<html>` gains `data-tedi-bg="on"`. Make body and the
- * React root transparent so the fixed `#tedi-bg-layer` div behind the React
- * tree is actually visible. Side panels (sidebar, cards, popovers) keep
- * their solid `--card` / `--sidebar` backgrounds, so the wallpaper only
- * peeks through gaps and editor canvases - which is exactly the effect
- * users expect from VSCode-style background images. */
-html[data-tedi-bg="on"],
-html[data-tedi-bg="on"] body {
-  background-color: transparent !important;
-}
-html[data-tedi-bg="on"] #root,
-html[data-tedi-bg="on"] #settings-root {
-  background-color: transparent !important;
-}
-
-/* CodeMirror surface tint. Only `.cm-editor` carries the alpha so the
- * wallpaper is not occluded by stacked semi-transparent layers. Inner
- * scrollers, content, and gutters go fully transparent and let the
- * `.cm-editor` color-mixed backdrop show through. The `@uiw` themes set
- * `.cm-editor` background via a class with specificity (0,2,0); the
- * root attribute selector here is (0,2,1) and `!important` wins. */
-html[data-tedi-bg="on"] .cm-editor {
+/* Editor + terminal canvas transparency under the single "App opacity"
+ * glass mode (`data-tedi-glass`). Only `.cm-editor` carries the alpha tint;
+ * inner scrollers, content, and gutters go fully transparent so the layers
+ * don't stack. The `@uiw` themes set `.cm-editor` background via a class with
+ * specificity (0,2,0); this selector is (0,2,1) and `!important` wins. */
+html[data-tedi-glass="on"] .cm-editor {
   background-color: color-mix(
     in srgb,
-    var(--tedi-canvas-bg) calc(var(--tedi-canvas-alpha) * 100%),
+    var(--tedi-canvas-bg) calc(var(--tedi-app-opacity) * 100%),
     transparent
   ) !important;
 }
-html[data-tedi-bg="on"] .cm-scroller,
-html[data-tedi-bg="on"] .cm-content,
-html[data-tedi-bg="on"] .cm-gutters {
+html[data-tedi-glass="on"] .cm-scroller,
+html[data-tedi-glass="on"] .cm-content,
+html[data-tedi-glass="on"] .cm-gutters {
   background-color: transparent !important;
 }
-html[data-tedi-bg="on"] .cm-activeLine,
-html[data-tedi-bg="on"] .cm-activeLineGutter {
-  background-color: color-mix(
-    in srgb,
-    var(--tedi-canvas-bg) 18%,
-    transparent
-  ) !important;
+html[data-tedi-glass="on"] .cm-activeLine,
+html[data-tedi-glass="on"] .cm-activeLineGutter {
+  background-color: color-mix(in srgb, var(--tedi-canvas-bg) 18%, transparent) !important;
 }
 /* xterm WebGL renderer needs `allowTransparency: true` (set in
  * `useTerminalSession.ts`) so the canvas itself accepts an rgba clear
- * color. The DOM wrappers around the canvas go fully transparent so
- * the wallpaper bleeds through without compounding the alpha. The
+ * color. The DOM wrappers around the canvas go fully transparent; the
  * actual tint is computed in `buildTerminalTheme()` and passed as
  * `theme.background = rgba(...)`. */
-html[data-tedi-bg="on"] .xterm,
-html[data-tedi-bg="on"] .xterm .xterm-screen,
-html[data-tedi-bg="on"] .xterm .xterm-viewport {
+html[data-tedi-glass="on"] .xterm,
+html[data-tedi-glass="on"] .xterm .xterm-screen,
+html[data-tedi-glass="on"] .xterm .xterm-viewport {
   background-color: transparent !important;
 }
 
@@ -359,6 +351,86 @@ html[data-chrome="borderless"] #settings-root {
   outline-color: var(--primary);
   border-radius: 0.5rem;
 }
+
+/* ===== App transparency (single "App opacity" control) =====
+ *
+ * The OS window is already transparent (src-tauri/src/lib.rs builds it with
+ * `transparent: true`); the app only looks solid because surfaces paint
+ * opaque colours. When the Theme → Background "Opacity" slider lowers
+ * `--tedi-app-opacity` below 1, `appOpacity.ts` sets `data-tedi-glass="on"`
+ * and we fade EVERY surface uniformly toward whatever sits behind the window:
+ * the wallpaper image when one is set, else the desktop. That covers the
+ * shell, sidebar, header, tabs, status bar, panels, popovers / dropdowns /
+ * menus, the editor's find panel, and the editor / terminal canvases — plus
+ * extensions (e.g. SQL Explorer) since they paint with these same tokens.
+ * `!important` beats the inline `--background` / `--card` a custom theme sets
+ * on `<html>`. Left solid on purpose: text/borders (legibility), `--accent` /
+ * `--sidebar-accent` (active tab, selected rows, terminal selection), and
+ * `--primary` / `--destructive` (buttons stay crisp). Main window only; the
+ * settings window opts out for readability (see `appOpacity.ts`). */
+html[data-tedi-glass="on"] {
+  --tedi-glass-surface: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) calc(var(--tedi-app-opacity) * 100%),
+    transparent
+  );
+  /* Header is intentionally more opaque (alpha maps 0..1 -> 0.5..1) so the
+   * top bar stays a clear, grabbable drag handle, while still fading with the
+   * slider. */
+  --tedi-glass-header: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) calc((var(--tedi-app-opacity) * 0.5 + 0.5) * 100%),
+    transparent
+  );
+  /* The app canvas (shell, pane gaps, editor/terminal frames) goes FULLY
+   * see-through so you look straight at the wallpaper / desktop — no dark
+   * tint over the whole window. */
+  --background: transparent !important;
+  /* Panels keep a translucent backing scaled by the opacity slider so chrome,
+   * menus, and the editor/terminal text stay readable while still showing
+   * what's behind. The editor (.cm-editor) and terminal canvas use the same
+   * `--tedi-app-opacity` for their own rgba tint (see rules above + JS). */
+  --card: var(--tedi-glass-surface) !important;
+  --popover: var(--tedi-glass-surface) !important;
+  --secondary: var(--tedi-glass-surface) !important;
+  --muted: var(--tedi-glass-surface) !important;
+  --sidebar: var(--tedi-glass-surface) !important;
+}
+/* Top header bar: more opaque than the rest (still follows the slider) so it
+ * reads as a solid title/drag bar. `bg-card` makes it inherit the translucent
+ * `--card` above, so override it back to the boosted header tint. */
+html[data-tedi-glass="on"] [data-tedi-header] {
+  background-color: var(--tedi-glass-header) !important;
+}
+
+/* SQL Explorer (first-party extension) paints its STICKY bars (table header,
+ * result toolbar, schema-tree head) with the now-translucent `--card`; under
+ * glass that lets the rows / tree scrolling beneath them bleed through. Pin
+ * those sticky bars to the SOLID canvas colour so they read as clean header
+ * bars (the rows/tree themselves stay glass). The hover tint mixes against the
+ * same solid. Non-sticky SQL surfaces keep the normal translucent `--card`. */
+html[data-tedi-glass="on"] .tsql-grid thead th,
+html[data-tedi-glass="on"] .tsql-meta--sticky,
+html[data-tedi-glass="on"] .tsql-tree-head {
+  background: var(--tedi-canvas-bg) !important;
+}
+html[data-tedi-glass="on"] .tsql-grid thead th.tsql-grid-th:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--tedi-canvas-bg)) !important;
+}
+/* The conversation "jump to message" pin is sticky over the scrolling message
+ * list. Its `bg-background` would go fully see-through under glass (we force
+ * `--background` transparent), letting messages bleed through it. Give it the
+ * boosted header tint so it stays a readable bar that still follows the slider,
+ * and drop its backdrop blur (dark fill on Windows). */
+html[data-tedi-glass="on"] .tedi-chat-pin {
+  background-color: var(--tedi-glass-header) !important;
+  backdrop-filter: none !important;
+}
+/* No `backdrop-filter`: over a transparent window WebView2 (Windows) renders
+ * the blurred backdrop as a dark fill, which made panes look black instead of
+ * see-through. The frosted-glass look comes from the wallpaper's own "Blur"
+ * slider (it blurs the image layer directly), so the transparency stays clean
+ * and predictable on every platform. */
 
 /* ===== Unified scrollbar style =====
  *

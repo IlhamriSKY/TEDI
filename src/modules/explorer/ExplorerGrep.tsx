@@ -15,7 +15,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "motion/react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { fileIconUrl } from "./lib/iconResolver";
 
 type GrepHit = {
@@ -44,6 +44,7 @@ type Props = {
   open: boolean;
   onRequestClose: () => void;
   onActiveChange?: (active: boolean) => void;
+  ref?: Ref<ExplorerGrepHandle>;
 };
 
 export type ExplorerGrepHandle = {
@@ -128,10 +129,7 @@ type Row =
   | { kind: "file"; rel: string; path: string; count: number }
   | { kind: "hit"; hit: GrepHit; hitIdx: number };
 
-export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function ExplorerGrep(
-  { rootPath, onOpenFile, open, onRequestClose, onActiveChange }: Props,
-  ref,
-) {
+export function ExplorerGrep({ rootPath, onOpenFile, open, onRequestClose, onActiveChange, ref }: Props) {
   const [query, setQuery] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const [useRegex, setUseRegex] = useState(false);
@@ -642,7 +640,7 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
                     }
                     const isActive = r.hitIdx === clampedActive;
                     return (
-                      <Tooltip key={`h-${r.hit.path}-${r.hit.line}-${idx}`}>
+                      <Tooltip key={`h-${r.hit.path}-${r.hit.line}-${r.hitIdx}`}>
                         <TooltipTrigger asChild>
                           <button
                             type="button"
@@ -686,4 +684,4 @@ export const ExplorerGrep = forwardRef<ExplorerGrepHandle, Props>(function Explo
       ) : null}
     </div>
   );
-});
+}

@@ -17,7 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 
 type PortPreset = {
@@ -57,10 +57,10 @@ type Props = {
   onSubmit: (url: string) => void;
   onReload: () => void;
   onToggleProxy: () => void;
+  ref?: Ref<PreviewAddressBarHandle>;
 };
 
-export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
-  function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, onToggleProxy }, ref) {
+export function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, onToggleProxy, ref }: Props) {
     const [draft, setDraft] = useState(url);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -250,8 +250,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
         ) : null}
       </div>
     );
-  },
-);
+  }
 
 async function probeUrl(url: string): Promise<boolean> {
   try {

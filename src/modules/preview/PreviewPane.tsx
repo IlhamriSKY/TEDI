@@ -1,6 +1,6 @@
 import { AlertCircleIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { isLocalUrl, isSelfReferenceUrl, resolveIframeSrc, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 import { PreviewAddressBar, type PreviewAddressBarHandle } from "./PreviewAddressBar";
 
@@ -14,12 +14,10 @@ type Props = {
   url: string;
   visible: boolean;
   onUrlChange: (url: string) => void;
+  ref?: Ref<PreviewPaneHandle>;
 };
 
-export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
-  { url, visible, onUrlChange },
-  ref,
-) {
+export function PreviewPane({ url, visible, onUrlChange, ref }: Props) {
   // `nonce` is part of the iframe `key`. Bumping it remounts the iframe,
   // which is the only reliable cross-origin reload (calling
   // contentWindow.location.reload() throws on cross-origin frames).
@@ -85,13 +83,14 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function Preview
             src={iframeSrc}
             title="Preview"
             className="h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
             allow="clipboard-read; clipboard-write; fullscreen"
           />
         )}
       </div>
     </div>
   );
-});
+}
 
 function EmptyState() {
   return (

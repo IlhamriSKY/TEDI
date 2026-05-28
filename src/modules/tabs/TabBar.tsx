@@ -29,11 +29,7 @@ import {
   type SshConnection,
 } from "@/modules/ssh/connections";
 import { statusLabel, statusLabelClass, type SshStatus } from "@/modules/ssh/status";
-import {
-  aiCliIconClass,
-  aiCliLabel,
-  type AiCliStatus,
-} from "@/modules/terminal/lib/aiCliStatus";
+import { aiCliIconClass, aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
 import {
   ArrowLeft01Icon,
@@ -238,8 +234,7 @@ function buildEntries(
           sshConnectionId,
           sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
           // AI CLI status on SSH leaves too. Detector runs on the byte stream regardless of PTY locality.
-          aiCliStatus:
-            leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
+          aiCliStatus: leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
           remoteHost,
           isPrivate: leaf.private === true,
         });
@@ -455,9 +450,7 @@ export function TabBar({
     if (activeDragId.startsWith("leaf:")) {
       const leafId = Number(activeDragId.slice(5));
       return (
-        entries.find(
-          (e): e is PaneEntry => e.kind === "pane-leaf" && e.leafId === leafId,
-        ) ?? null
+        entries.find((e): e is PaneEntry => e.kind === "pane-leaf" && e.leafId === leafId) ?? null
       );
     }
     return null;
@@ -594,16 +587,10 @@ export function TabBar({
   };
 
   return (
-    <div
-      data-tauri-drag-region="false"
-      className="flex h-full min-w-0 shrink items-center"
-    >
+    <div data-tauri-drag-region="false" className="flex h-full min-w-0 shrink items-center">
       {/* Scroll arrows. Shown only when the strip overflows. */}
       {overflow && (
-        <div
-          data-tauri-drag-region="false"
-          className="flex shrink-0 items-center gap-0.5 pr-1"
-        >
+        <div data-tauri-drag-region="false" className="flex shrink-0 items-center gap-0.5 pr-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -612,7 +599,7 @@ export function TabBar({
                 onClick={() => scrollByDelta(-200)}
                 disabled={!canScrollLeft}
                 // h-7 (28px) to match the tab triggers.
-                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80"
+                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80 flex size-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
               </button>
@@ -626,7 +613,7 @@ export function TabBar({
                 aria-label="Scroll tabs right"
                 onClick={() => scrollByDelta(200)}
                 disabled={!canScrollRight}
-                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80"
+                className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80 flex size-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={2} />
               </button>
@@ -645,148 +632,156 @@ export function TabBar({
         className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
       >
         <div data-tauri-drag-region="false" className="flex w-max items-center gap-0.5">
-        <Tabs
-          value={activeKey ?? ""}
-          onValueChange={(k) => {
-            const entry = entries.find((e) => e.key === k);
-            if (!entry) return;
-            if (entry.kind === "pane-leaf") {
-              onSelectEntry(entry.tabId, entry.leafId);
-            } else {
-              onSelectEntry(entry.tabId, null);
-            }
-          }}
-        >
-          <DndContext
-            sensors={sensors}
-            // Scoped `closestCenter`. See `makeScopedCollisionDetection`.
-            collisionDetection={collisionDetection}
-            onDragStart={(ev) => setActiveDragId(String(ev.active.id))}
-            onDragEnd={handleDragEnd}
-            onDragCancel={() => setActiveDragId(null)}
+          <Tabs
+            value={activeKey ?? ""}
+            onValueChange={(k) => {
+              const entry = entries.find((e) => e.key === k);
+              if (!entry) return;
+              if (entry.kind === "pane-leaf") {
+                onSelectEntry(entry.tabId, entry.leafId);
+              } else {
+                onSelectEntry(entry.tabId, null);
+              }
+            }}
           >
-            <TabsList className="h-7 w-max gap-1 bg-transparent p-0">
-              <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
-                {entryGroups.map((group) => (
-                  <SortableTabGroup
-                    key={group.tabId}
-                    tabId={group.tabId}
-                    entries={group.entries}
-                    totalEntries={entries.length}
-                    activeKey={activeKey}
-                    lastEntryKey={lastEntryKey}
-                    compact={compact}
-                    sortable={!!onReorderTabs}
-                    leafSortable={!!onReorderLeafInGroup}
-                    groupDragging={activeDragId !== null}
-                    isDragging={activeDragId === `tab:${group.tabId}`}
-                    onPinLeaf={onPinLeaf}
-                    onCloseEntry={onCloseEntry}
-                    onCloseEntriesAfter={closeEntriesAfter}
-                    sshHosts={sshHosts}
-                    onMoveLeafToGroup={onMoveLeafToGroup}
-                    onMoveLeafToNewTab={onMoveLeafToNewTab}
-                    onRotateLeafSplit={onRotateLeafSplit}
-                    onTogglePrivate={onTogglePrivate}
-                    paneGroupsForMove={paneGroupsForMove}
-                  />
-                ))}
-              </SortableContext>
-            </TabsList>
-            <DragOverlay dropAnimation={DROP_ANIMATION} modifiers={[snapCenterAndLockY]}>
-              {draggedEntry && (
-                <div
-                  className={cn(
-                    "bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
-                    compact ? "max-w-48" : "max-w-80",
-                  )}
-                >
-                  <EntryIcon entry={draggedEntry} />
-                  <span className={cn("truncate", draggedEntry.italic && "italic")}>
-                    {draggedEntry.label}
-                  </span>
-                  {draggedEntry.dirty && (
-                    <span className="size-1.5 shrink-0 rounded-full bg-icon-working" />
-                  )}
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
-        </Tabs>
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
-                  aria-label="New"
-                >
-                  <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">New</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="start" className="w-auto min-w-64">
-            <DropdownMenuItem onSelect={() => onNewTerminal()}>
-              <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1 whitespace-nowrap">Terminal</span>
-              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                {fmtShortcut(MOD_KEY, "T")}
-              </span>
-            </DropdownMenuItem>
-            {onNewPrivateTerminal ? (
-              <DropdownMenuItem onSelect={() => onNewPrivateTerminal()}>
-                <HugeiconsIcon
-                  icon={LockedIcon}
-                  size={14}
-                  strokeWidth={1.75}
-                  className="text-destructive"
-                />
-                <span className="flex-1 whitespace-nowrap">Private Terminal</span>
+            <DndContext
+              sensors={sensors}
+              // Scoped `closestCenter`. See `makeScopedCollisionDetection`.
+              collisionDetection={collisionDetection}
+              onDragStart={(ev) => setActiveDragId(String(ev.active.id))}
+              onDragEnd={handleDragEnd}
+              onDragCancel={() => setActiveDragId(null)}
+            >
+              <TabsList className="h-7 w-max gap-1 bg-transparent p-0">
+                <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
+                  {entryGroups.map((group) => (
+                    <SortableTabGroup
+                      key={group.tabId}
+                      tabId={group.tabId}
+                      entries={group.entries}
+                      totalEntries={entries.length}
+                      activeKey={activeKey}
+                      lastEntryKey={lastEntryKey}
+                      compact={compact}
+                      sortable={!!onReorderTabs}
+                      leafSortable={!!onReorderLeafInGroup}
+                      groupDragging={activeDragId !== null}
+                      isDragging={activeDragId === `tab:${group.tabId}`}
+                      onPinLeaf={onPinLeaf}
+                      onCloseEntry={onCloseEntry}
+                      onCloseEntriesAfter={closeEntriesAfter}
+                      sshHosts={sshHosts}
+                      onMoveLeafToGroup={onMoveLeafToGroup}
+                      onMoveLeafToNewTab={onMoveLeafToNewTab}
+                      onRotateLeafSplit={onRotateLeafSplit}
+                      onTogglePrivate={onTogglePrivate}
+                      paneGroupsForMove={paneGroupsForMove}
+                    />
+                  ))}
+                </SortableContext>
+              </TabsList>
+              <DragOverlay dropAnimation={DROP_ANIMATION} modifiers={[snapCenterAndLockY]}>
+                {draggedEntry && (
+                  <div
+                    className={cn(
+                      "bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
+                      compact ? "max-w-48" : "max-w-80",
+                    )}
+                  >
+                    <EntryIcon entry={draggedEntry} />
+                    <span
+                      className={cn(
+                        "truncate",
+                        draggedEntry.italic && "italic",
+                        draggedEntry.kind === "pane-leaf" &&
+                          draggedEntry.isPrivate === true &&
+                          "text-destructive",
+                      )}
+                    >
+                      {draggedEntry.label}
+                    </span>
+                    {draggedEntry.dirty && (
+                      <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
+                    )}
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          </Tabs>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+                    aria-label="New"
+                  >
+                    <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">New</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="w-auto min-w-64">
+              <DropdownMenuItem onSelect={() => onNewTerminal()}>
+                <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 whitespace-nowrap">Terminal</span>
                 <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                  {fmtShortcut(MOD_KEY, "Shift", "T")}
+                  {fmtShortcut(MOD_KEY, "T")}
                 </span>
               </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem onSelect={() => onNewEditor()}>
-              <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1 whitespace-nowrap">Editor</span>
-              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                {fmtShortcut(MOD_KEY, "E")}
-              </span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onNewPreview()}>
-              <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
-              <span className="flex-1 whitespace-nowrap">Preview</span>
-              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                {fmtShortcut(MOD_KEY, "P")}
-              </span>
-            </DropdownMenuItem>
-            {onSplit ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row")}>
-                  <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
-                  <span className="flex-1 whitespace-nowrap">Split right</span>
+              {onNewPrivateTerminal ? (
+                <DropdownMenuItem onSelect={() => onNewPrivateTerminal()}>
+                  <HugeiconsIcon
+                    icon={LockedIcon}
+                    size={14}
+                    strokeWidth={1.75}
+                    className="text-destructive"
+                  />
+                  <span className="flex-1 whitespace-nowrap">Private Terminal</span>
                   <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                    {fmtShortcut(MOD_KEY, "D")}
+                    {fmtShortcut(MOD_KEY, "Shift", "T")}
                   </span>
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("col")}>
-                  <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
-                  <span className="flex-1 whitespace-nowrap">Split down</span>
-                  <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-                    {fmtShortcut(MOD_KEY, "Shift", "D")}
-                  </span>
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              ) : null}
+              <DropdownMenuItem onSelect={() => onNewEditor()}>
+                <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 whitespace-nowrap">Editor</span>
+                <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                  {fmtShortcut(MOD_KEY, "E")}
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onNewPreview()}>
+                <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 whitespace-nowrap">Preview</span>
+                <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                  {fmtShortcut(MOD_KEY, "P")}
+                </span>
+              </DropdownMenuItem>
+              {onSplit ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row")}>
+                    <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
+                    <span className="flex-1 whitespace-nowrap">Split right</span>
+                    <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                      {fmtShortcut(MOD_KEY, "D")}
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("col")}>
+                    <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
+                    <span className="flex-1 whitespace-nowrap">Split down</span>
+                    <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                      {fmtShortcut(MOD_KEY, "Shift", "D")}
+                    </span>
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );
@@ -883,9 +878,7 @@ function SortableTabGroup({
   // Inner sortable items. Only consulted when `isSplit && leafSortable`; other tabs skip the inner SortableContext.
   const leafItems = useMemo(
     () =>
-      entries
-        .filter((e): e is PaneEntry => e.kind === "pane-leaf")
-        .map((e) => `leaf:${e.leafId}`),
+      entries.filter((e): e is PaneEntry => e.kind === "pane-leaf").map((e) => `leaf:${e.leafId}`),
     [entries],
   );
 
@@ -1112,12 +1105,13 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
             e.italic && "italic",
             // SSH status colors the label text: pulse yellow while connecting,
             // emerald when connected, red on disconnect/error. Icon stays sky.
-            e.kind === "pane-leaf" && e.sshConnectionId
-              ? statusLabelClass(e.sshStatus)
-              : null,
+            e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
             // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
             // its DB connection state). Same palette as the SSH label.
             e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
+            // Private leaves carry the red on the label (not the icon) so the
+            // icon colour stays free to show AI CLI status. Last = wins.
+            e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",
           )}
         >
           {e.label}
@@ -1125,7 +1119,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {e.dirty ? (
           <span
             aria-label="Unsaved changes"
-            className="size-1.5 shrink-0 rounded-full bg-icon-working"
+            className="bg-icon-working size-1.5 shrink-0 rounded-full"
           />
         ) : null}
       </span>
@@ -1223,9 +1217,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
                 if (e.kind === "pane-leaf") onTogglePrivate!(e.leafId);
               }}
             >
-              <span className="flex-1">
-                {isPrivate ? "Mark as Public" : "Mark as Private"}
-              </span>
+              <span className="flex-1">{isPrivate ? "Mark as Public" : "Mark as Private"}</span>
             </ContextMenuItem>
           )}
           {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
@@ -1253,9 +1245,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
               <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
             ) : null}
             {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
-            {isPrivate ? (
-              <span className="text-destructive">{PRIVATE_HINT}</span>
-            ) : null}
+            {isPrivate ? <span className="text-destructive">{PRIVATE_HINT}</span> : null}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -1268,9 +1258,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-0.5 text-[11px]">
             <span>{aiCliLabel(ai)}</span>
-            {isPrivate ? (
-              <span className="text-destructive">{PRIVATE_HINT}</span>
-            ) : null}
+            {isPrivate ? <span className="text-destructive">{PRIVATE_HINT}</span> : null}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -1280,7 +1268,7 @@ function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <Tooltip>
         {wrapped}
         <TooltipContent side="bottom">
-          <div className="text-destructive text-[11px] text-destructive">{PRIVATE_HINT}</div>
+          <div className="text-destructive text-destructive text-[11px]">{PRIVATE_HINT}</div>
         </TooltipContent>
       </Tooltip>
     );
@@ -1346,8 +1334,8 @@ function TrailingIconButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          role="button"
+        <button
+          type="button"
           aria-label={label}
           // Stop propagation so click doesn't activate the tab or start a drag.
           onPointerDown={(ev) => ev.stopPropagation()}
@@ -1358,7 +1346,7 @@ function TrailingIconButton({
           className={cn(TRAILING_BTN_BASE, TRAILING_BTN_VARIANT[variant])}
         >
           <HugeiconsIcon icon={icon} size={TRAILING_ICON_SIZE} strokeWidth={2} />
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
@@ -1372,13 +1360,7 @@ function TrailingIconButton({
  * the badge to solid red so the number-going-red is the headline signal
  * that the AI cannot see this tab.
  */
-function TerminalOrdinalBadge({
-  ordinal,
-  isPrivate,
-}: {
-  ordinal: number;
-  isPrivate?: boolean;
-}) {
+function TerminalOrdinalBadge({ ordinal, isPrivate }: { ordinal: number; isPrivate?: boolean }) {
   return (
     <span
       aria-label={
@@ -1386,9 +1368,7 @@ function TerminalOrdinalBadge({
       }
       className={cn(
         "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold tabular-nums",
-        isPrivate
-          ? "bg-icon-blocked text-background"
-          : "bg-muted text-muted-foreground",
+        isPrivate ? "bg-icon-blocked text-background" : "bg-muted text-muted-foreground",
       )}
     >
       {ordinal}
@@ -1398,16 +1378,19 @@ function TerminalOrdinalBadge({
 
 function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
-    // Private tabs replace the leaf icon with a red lock so the AI-can't-read
-    // signal reads at a glance, regardless of terminal vs editor or ssh.
+    // Private leaves swap to a lock so the AI-can't-read signal reads at a
+    // glance, regardless of terminal vs editor or ssh. The red lives on the
+    // label text (see renderEntryBody) so the lock's colour stays free to
+    // carry AI CLI status, same as a non-private icon.
     if (entry.isPrivate) {
+      const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
       return (
         <span className="inline-flex shrink-0 items-center gap-1">
           <HugeiconsIcon
             icon={LockedIcon}
             size={14}
             strokeWidth={2}
-            className="shrink-0 text-destructive"
+            className={cn("shrink-0", aiTint)}
           />
           {entry.leafKind === "terminal" && entry.terminalOrdinal ? (
             <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} isPrivate />
@@ -1424,16 +1407,10 @@ function EntryIcon({ entry }: { entry: Entry }) {
         return (
           <span
             aria-hidden
-            className="size-3.5 shrink-0 bg-info"
+            className="bg-info size-3.5 shrink-0"
             style={{
-              WebkitMaskImage: `url("${url}")`,
-              maskImage: `url("${url}")`,
-              WebkitMaskRepeat: "no-repeat",
-              maskRepeat: "no-repeat",
-              WebkitMaskPosition: "center",
-              maskPosition: "center",
-              WebkitMaskSize: "contain",
-              maskSize: "contain",
+              mask: `url("${url}") center / contain no-repeat`,
+              WebkitMask: `url("${url}") center / contain no-repeat`,
             }}
           />
         );
@@ -1480,21 +1457,14 @@ function EntryIcon({ entry }: { entry: Entry }) {
     const m = iconRef.match(/^hugeicon:(.+)$/);
     const found = m ? tryGetHugeIcon(m[1]) : null;
     const iconValue: Parameters<typeof HugeiconsIcon>[0]["icon"] = found ?? Database01Icon;
-    return (
-      <HugeiconsIcon
-        icon={iconValue}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0"
-      />
-    );
+    return <HugeiconsIcon icon={iconValue} size={14} strokeWidth={2} className="shrink-0" />;
   }
   return (
     <HugeiconsIcon
       icon={GitCompareIcon}
       size={14}
       strokeWidth={2}
-      className="shrink-0 text-icon-working"
+      className="text-icon-working shrink-0"
     />
   );
 }

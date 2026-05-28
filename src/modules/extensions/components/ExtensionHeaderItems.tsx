@@ -90,14 +90,8 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
             <span
               aria-hidden
               style={{
-                WebkitMaskImage: `url("${iconUrl}")`,
-                maskImage: `url("${iconUrl}")`,
-                WebkitMaskRepeat: "no-repeat",
-                maskRepeat: "no-repeat",
-                WebkitMaskPosition: "center",
-                maskPosition: "center",
-                WebkitMaskSize: "contain",
-                maskSize: "contain",
+                mask: `url("${iconUrl}") center / contain no-repeat`,
+                WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
               }}
               className={cn(
                 "size-[15px] transition-colors duration-200",

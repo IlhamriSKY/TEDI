@@ -106,7 +106,7 @@ function BreadcrumbSegment({ segment, onCd }: { segment: Segment; onCd: (path: s
         <button
           type="button"
           aria-label={`Browse subfolders of ${segment.label}`}
-          className="text-muted-foreground/70 hover:bg-accent/60 hover:text-accent-foreground inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded"
+          className="text-muted-foreground/70 hover:bg-accent/60 hover:text-accent-foreground inline-flex size-4 cursor-pointer items-center justify-center rounded"
         >
           <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
         </button>
@@ -256,6 +256,7 @@ function SubfolderDropdown({
                 ref={searchInputRef}
                 type="text"
                 value={query}
+                aria-label="Search subfolders"
                 onChange={(e) => setQuery(e.target.value)}
                 // Stop Radix's menu typeahead from intercepting letters
                 // and prevent Enter from bubbling to a focused item.

@@ -54,7 +54,7 @@ function FileTreeNodeImpl({
 
   const iconUrl = isDir ? folderIconUrl(entry.name, isExpanded) : fileIconUrl(entry.name);
 
-  const handleClick = useCallback(() => {
+  const handleNodeSelect = useCallback(() => {
     if (tree.renaming) return;
     onSelectPath(path);
     if (isDir) tree.toggle(path);
@@ -104,7 +104,7 @@ function FileTreeNodeImpl({
               // tests the source against `[data-fs-path]` and the target
               // against `[data-terminal-leaf-id]`. See that file for the
               // full rationale.
-              onClick={handleClick}
+              onClick={handleNodeSelect}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(
                 "group text-sidebar-foreground/85 hover:bg-sidebar-accent/40 relative flex w-full cursor-pointer items-center gap-2 px-1.5 py-0.5 text-left text-[13px] transition-colors",

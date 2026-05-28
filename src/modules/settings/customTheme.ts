@@ -251,10 +251,9 @@ function writeShadow(theme: CustomTheme | null): void {
     // tauri-plugin-store payload once it resolves. URL dataUrls stay
     // since they are tiny (~100 bytes) and let the wallpaper paint on
     // first frame without waiting for the async store load.
-    const slim =
-      theme.background.dataUrl.startsWith("data:")
-        ? { ...theme, background: { ...theme.background, dataUrl: "" } }
-        : theme;
+    const slim = theme.background.dataUrl.startsWith("data:")
+      ? { ...theme, background: { ...theme.background, dataUrl: "" } }
+      : theme;
     window.localStorage.setItem(FAST_PATH_KEY, JSON.stringify(slim));
   } catch {
     /* ignore */
@@ -272,6 +271,7 @@ function ensureBgElement(): HTMLDivElement | null {
     el.style.inset = "0";
     el.style.zIndex = "-1";
     el.style.pointerEvents = "none";
+    el.style.overflow = "hidden";
     el.style.backgroundSize = "cover";
     el.style.backgroundPosition = "center";
     el.style.backgroundRepeat = "no-repeat";
@@ -286,10 +286,8 @@ function clearCssVars(): void {
   for (const vars of Object.values(COLOR_VAR_MAP)) {
     for (const v of vars) root.style.removeProperty(v);
   }
-  // Clean up canvas tokens; defaults in globals.css take over so
-  // terminal/editor surfaces stay solid out of the box.
+  // Clean up the canvas base colour; the globals.css default takes over.
   root.style.removeProperty("--tedi-canvas-bg");
-  root.style.removeProperty("--tedi-canvas-alpha");
 }
 
 /**
@@ -303,88 +301,166 @@ function isSettingsWindow(): boolean {
   return document.getElementById("settings-root") !== null;
 }
 
-function applyBackground(bg: ThemeBackground, baseColor: string | null): void {
+const BG_MEDIA_ATTR = "data-tedi-bg-media";
+const BG_DARKEN_ATTR = "data-tedi-bg-darken";
+
+type BgKind = "image" | "video" | "youtube";
+
+/** Classify a background source so a video/YouTube renders in-app (a `<video>`
+ *  / embed `<iframe>`) instead of a static image. Rendering video inside the
+ *  webview is the only way it survives transparency: a video on the *desktop*
+ *  behind a transparent window goes black (Windows Multi-Plane Overlay). */
+function detectBgKind(src: string): BgKind {
+  const s = src.trim();
+  if (/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)/i.test(s)) return "youtube";
+  if (/^data:video\//i.test(s) || /\.(mp4|webm|ogg|ogv|mov|m4v)(?:[?#]|$)/i.test(s)) return "video";
+  return "image";
+}
+
+/** Build a looping, muted, chrome-free YouTube embed URL for a wallpaper. */
+function youtubeEmbedUrl(src: string): string | null {
+  const m = src.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/i);
+  if (!m) return null;
+  const id = m[1];
+  const params = new URLSearchParams({
+    autoplay: "1",
+    mute: "1",
+    controls: "0",
+    loop: "1",
+    playlist: id,
+    modestbranding: "1",
+    playsinline: "1",
+    rel: "0",
+    iv_load_policy: "3",
+  });
+  return `https://www.youtube.com/embed/${id}?${params.toString()}`;
+}
+
+/** Darken overlay on top of the media so light text stays readable. */
+function setDarkenOverlay(el: HTMLElement, darken: number): void {
+  let overlay = el.querySelector<HTMLElement>(`[${BG_DARKEN_ATTR}]`);
+  if (darken <= 0) {
+    overlay?.remove();
+    return;
+  }
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.setAttribute(BG_DARKEN_ATTR, "");
+    overlay.style.cssText = "position:absolute;inset:0;pointer-events:none;";
+    el.appendChild(overlay);
+  }
+  overlay.style.background = `rgba(0,0,0,${darken})`;
+}
+
+/**
+ * Paint (or clear) the wallpaper layer behind the app. Supports a static
+ * image, a looping video (`.mp4`/`.webm`/...), or a YouTube URL (embedded,
+ * muted, looping). Independent of the colour theme: it shows whenever a source
+ * is set, regardless of `customThemeEnabled`. Transparency itself is the single
+ * "App opacity" control; the translucent surfaces reveal this layer (or the
+ * desktop when none is set). Settings window opts out.
+ */
+export function applyBackground(bg: ThemeBackground): void {
   if (typeof document === "undefined") return;
-  const root = document.documentElement;
 
-  // `--tedi-canvas-bg` always carries the user's solid background color so
-  // the terminal/editor surface can be a controllable rgba on top of the
-  // wallpaper. Falls back to base palette defaults in globals.css.
-  if (baseColor) root.style.setProperty("--tedi-canvas-bg", baseColor);
-  else root.style.removeProperty("--tedi-canvas-bg");
-
-  // Settings window opts out of the wallpaper entirely. Make sure any
-  // residual state from a previous theme is cleared, then bail.
   if (isSettingsWindow()) {
     const existing = document.getElementById(BG_ELEMENT_ID);
     if (existing) existing.remove();
-    delete root.dataset.tediBg;
-    root.style.setProperty("--tedi-canvas-alpha", "1");
-    root.style.backgroundColor = "";
     return;
   }
 
   const el = ensureBgElement();
   if (!el) return;
 
-  if (bg.enabled && bg.dataUrl) {
-    // Stack a black rgba overlay on top of the image inside the same
-    // background-image property; CSS composites the gradient over the
-    // picture without needing a second DOM node.
-    const darken = Math.max(0, Math.min(1, bg.darken ?? 0));
+  const clearMedia = () => el.querySelectorAll(`[${BG_MEDIA_ATTR}]`).forEach((n) => n.remove());
+
+  if (!bg.enabled || !bg.dataUrl) {
+    el.style.display = "none";
+    el.style.backgroundImage = "";
+    el.style.filter = "";
+    clearMedia();
+    setDarkenOverlay(el, 0);
+    return;
+  }
+
+  el.style.display = "block";
+  const blur = bg.blur > 0 ? `blur(${Math.max(0, Math.min(40, bg.blur))}px)` : "";
+  const darken = Math.max(0, Math.min(1, bg.darken ?? 0));
+  const kind = detectBgKind(bg.dataUrl);
+
+  if (kind === "image") {
+    clearMedia();
     const safeUrl = bg.dataUrl.replace(/"/g, '\\"');
     const overlay =
-      darken > 0
-        ? `linear-gradient(rgba(0,0,0,${darken}), rgba(0,0,0,${darken})), `
-        : "";
+      darken > 0 ? `linear-gradient(rgba(0,0,0,${darken}), rgba(0,0,0,${darken})), ` : "";
     el.style.backgroundImage = `${overlay}url("${safeUrl}")`;
-    el.style.filter = bg.blur > 0 ? `blur(${Math.max(0, Math.min(40, bg.blur))}px)` : "";
-    el.style.display = "block";
-    // Override `--background` to transparent so every `bg-background`
-    // consumer (body, #root, App shell, panes) lets the layer beneath
-    // show through. Panels keep their own `--card` / `--sidebar` opacity,
-    // so only the canvas gaps reveal the wallpaper.
-    root.dataset.tediBg = "on";
-    root.style.setProperty("--background", "transparent");
-    // Terminal + code editor + diff surfaces tint themselves to this alpha
-    // so the wallpaper bleeds through their canvas (controlled by the
-    // "Surface opacity" slider in Theme settings).
-    root.style.setProperty(
-      "--tedi-canvas-alpha",
-      String(Math.max(0, Math.min(1, bg.surfaceOpacity ?? 0.85))),
-    );
-    // Paint the user's chosen base color on `<html>` so the image's
-    // opacity blends with their theme, not with the webview chrome.
-    root.style.backgroundColor = baseColor ?? "";
-  } else {
-    el.style.backgroundImage = "";
-    el.style.display = "none";
-    delete root.dataset.tediBg;
-    // No wallpaper → canvas surfaces are fully opaque again.
-    root.style.setProperty("--tedi-canvas-alpha", "1");
-    root.style.backgroundColor = "";
+    el.style.filter = blur;
+    return;
   }
+
+  // Video / YouTube render inside the webview so they survive transparency.
+  el.style.backgroundImage = "";
+  el.style.filter = "";
+  const src = kind === "video" ? bg.dataUrl : (youtubeEmbedUrl(bg.dataUrl) ?? "");
+  if (!src) {
+    clearMedia();
+    el.style.display = "none";
+    return;
+  }
+
+  // Reuse the element when the source is unchanged so playback doesn't restart
+  // on every theme re-apply (mode flip, opacity commit, etc.).
+  let media = el.querySelector<HTMLElement>(`[${BG_MEDIA_ATTR}]`);
+  if (!media || media.dataset.kind !== kind || media.getAttribute("data-src") !== src) {
+    media?.remove();
+    if (kind === "video") {
+      const v = document.createElement("video");
+      v.autoplay = true;
+      v.loop = true;
+      v.muted = true;
+      v.setAttribute("muted", "");
+      v.setAttribute("playsinline", "");
+      v.src = src;
+      v.style.cssText =
+        "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;";
+      v.dataset.kind = "video";
+      v.setAttribute("data-src", src);
+      v.setAttribute(BG_MEDIA_ATTR, "");
+      el.prepend(v);
+      void v.play?.().catch(() => {});
+      media = v;
+    } else {
+      const f = document.createElement("iframe");
+      f.src = src;
+      f.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
+      f.setAttribute("frameborder", "0");
+      // A 16:9 iframe can't `object-fit`; oversize + centre so it covers the
+      // viewport without letterbox bars (overflow clipped by the layer).
+      f.style.cssText =
+        "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);" +
+        "width:max(100vw,calc(100vh*16/9));height:max(100vh,calc(100vw*9/16));" +
+        "border:0;pointer-events:none;";
+      f.dataset.kind = "youtube";
+      f.setAttribute("data-src", src);
+      f.setAttribute(BG_MEDIA_ATTR, "");
+      el.prepend(f);
+      media = f;
+    }
+  }
+  media.style.filter = blur;
+  setDarkenOverlay(el, darken);
 }
 
 /**
- * Apply a `CustomTheme` to the document. Pass `null` to clear overrides and
- * let the base CSS variables (and `brandColor`) take over again.
+ * Apply a `CustomTheme`'s colours to the document. Pass `null` to clear
+ * overrides and let the base CSS variables (and `brandColor`) take over again.
+ * The wallpaper image is handled separately by `applyBackground` so it is not
+ * tied to whether the custom theme is enabled.
  */
 export function applyCustomTheme(theme: CustomTheme | null): void {
   if (typeof document === "undefined") return;
   if (!theme) {
     clearCssVars();
-    applyBackground(
-      {
-        enabled: false,
-        path: "",
-        dataUrl: "",
-        blur: 0,
-        surfaceOpacity: 0.85,
-        darken: 0,
-      },
-      null,
-    );
     writeShadow(null);
     return;
   }
@@ -400,7 +476,10 @@ export function applyCustomTheme(theme: CustomTheme | null): void {
       root.style.setProperty(v, value);
     }
   }
-  applyBackground(theme.background, colors.background);
+  // Canvas base colour the glass tint mixes against (editor/terminal rgba +
+  // the panel tints). Removed by clearCssVars when the custom theme turns off,
+  // so the base palette default in globals.css takes over.
+  root.style.setProperty("--tedi-canvas-bg", colors.background);
   writeShadow(theme);
 }
 
@@ -429,7 +508,11 @@ export function applyCustomThemeFastPath(): void {
       darken: 0,
     },
   };
-  applyCustomTheme(normalizeCustomTheme(cached, defaults));
+  const normalized = normalizeCustomTheme(cached, defaults);
+  applyCustomTheme(normalized);
+  // Paint the wallpaper on first frame too (URL images survive the slim
+  // shadow; local data: URLs are restored after the async store load).
+  applyBackground(normalized.background);
 }
 
 /**
@@ -557,10 +640,7 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
  * so consumers like `ThemeSection` and `applyCustomTheme` never see an
  * `undefined` token. Idempotent and side-effect-free.
  */
-export function normalizeCustomTheme(
-  loaded: unknown,
-  defaults: CustomTheme,
-): CustomTheme {
+export function normalizeCustomTheme(loaded: unknown, defaults: CustomTheme): CustomTheme {
   if (!loaded || typeof loaded !== "object") return defaults;
   const obj = loaded as Record<string, unknown>;
   const bg =
@@ -573,18 +653,16 @@ export function normalizeCustomTheme(
   // hint. Fan them out to both light + dark slots so the runtime always has
   // a variant ready when the resolved theme flips.
   const legacyColors =
-    obj.colors && typeof obj.colors === "object"
-      ? (obj.colors as Partial<ThemeColors>)
-      : null;
+    obj.colors && typeof obj.colors === "object" ? (obj.colors as Partial<ThemeColors>) : null;
   const legacyMode = obj.mode === "light" || obj.mode === "dark" ? obj.mode : null;
 
-  const rawLight = obj.light && typeof obj.light === "object" ? (obj.light as Partial<ThemeColors>) : null;
-  const rawDark = obj.dark && typeof obj.dark === "object" ? (obj.dark as Partial<ThemeColors>) : null;
+  const rawLight =
+    obj.light && typeof obj.light === "object" ? (obj.light as Partial<ThemeColors>) : null;
+  const rawDark =
+    obj.dark && typeof obj.dark === "object" ? (obj.dark as Partial<ThemeColors>) : null;
 
-  const lightSource =
-    rawLight ?? (legacyColors && legacyMode === "light" ? legacyColors : null);
-  const darkSource =
-    rawDark ?? (legacyColors && legacyMode === "dark" ? legacyColors : null);
+  const lightSource = rawLight ?? (legacyColors && legacyMode === "light" ? legacyColors : null);
+  const darkSource = rawDark ?? (legacyColors && legacyMode === "dark" ? legacyColors : null);
   // If only one was supplied (or only legacy), share it across both.
   const lightFinal = lightSource ?? darkSource ?? null;
   const darkFinal = darkSource ?? lightSource ?? null;

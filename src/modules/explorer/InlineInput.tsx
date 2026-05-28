@@ -58,6 +58,7 @@ export function InlineInput({ initial, placeholder, onCommit, onCancel }: Props)
       ref={ref}
       value={value}
       placeholder={placeholder}
+      aria-label={placeholder || "Name"}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {

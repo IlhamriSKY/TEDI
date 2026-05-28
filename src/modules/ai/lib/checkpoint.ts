@@ -133,6 +133,7 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
   const skipped: RestoreOutcome["skipped"] = [];
   let restoredCount = 0;
 
+  // sequential disk writes with running restoredCount/failures tallies
   for (const [path, snap] of cp.files) {
     try {
       if (snap.kind === "modify") {

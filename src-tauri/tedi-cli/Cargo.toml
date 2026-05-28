@@ -11,7 +11,7 @@
 # stub out of the GUI manifest entirely; only the Windows release step
 # (`cargo build --release -p tedi-cli`) builds it.
 name = "tedi-cli"
-version = "0.3.10"
+version = "0.3.11"
 description = "Console-subsystem launcher stub for the TEDI GUI app (Windows)."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"

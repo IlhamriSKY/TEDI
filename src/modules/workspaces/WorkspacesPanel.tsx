@@ -97,6 +97,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
                 {isEditing ? (
                   <input
                     autoFocus
+                    aria-label="Workspace name"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {

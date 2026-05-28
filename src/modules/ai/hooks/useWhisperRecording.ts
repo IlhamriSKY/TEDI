@@ -95,6 +95,8 @@ export function useWhisperRecording({ onResult }: { onResult: (text: string) => 
 
   useEffect(() => {
     return () => {
+      // Read at cleanup time on purpose: stops whatever recorder is active on
+      // unmount. Capturing recRef.current at mount would snapshot null.
       recRef.current?.stop();
       teardownStream();
     };

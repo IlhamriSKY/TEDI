@@ -73,15 +73,19 @@ export function useMentionSearch(opts: {
 
     // Open editor tabs render on first frame so the picker shows something
     // while the workspace glob is in flight.
-    const openItems: MentionItem[] = openFiles
-      .filter((f) => !q || fuzzyScore(q, f.name, relativize(f.path, workspaceRoot)) !== -1)
-      .map((f) => ({
-        kind: "file",
-        path: f.path,
-        rel: relativize(f.path, workspaceRoot),
-        name: f.name,
-        open: true,
-      }));
+    const openItems: MentionItem[] = openFiles.flatMap((f) =>
+      !q || fuzzyScore(q, f.name, relativize(f.path, workspaceRoot)) !== -1
+        ? [
+            {
+              kind: "file",
+              path: f.path,
+              rel: relativize(f.path, workspaceRoot),
+              name: f.name,
+              open: true,
+            },
+          ]
+        : [],
+    );
 
     setState({ items: openItems, loading: !!workspaceRoot });
 

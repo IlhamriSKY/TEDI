@@ -80,7 +80,7 @@ export function UpdaterPill() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label={label}
-          className={`inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
+          className={`inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
         >
           <HugeiconsIcon icon={Icon} size={11} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">{pillLabel}</span>

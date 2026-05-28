@@ -47,7 +47,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       <span
         role="img"
         aria-label={item.tooltip}
-        className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
+        className="relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
         {iconUrl ? (
           isSvg ? (
@@ -56,14 +56,8 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
               // CSS mask paints `background-color` where the SVG is opaque.
               // Connected uses `--foreground`, off uses muted at 40%.
               style={{
-                WebkitMaskImage: `url("${iconUrl}")`,
-                maskImage: `url("${iconUrl}")`,
-                WebkitMaskRepeat: "no-repeat",
-                maskRepeat: "no-repeat",
-                WebkitMaskPosition: "center",
-                maskPosition: "center",
-                WebkitMaskSize: "contain",
-                maskSize: "contain",
+                mask: `url("${iconUrl}") center / contain no-repeat`,
+                WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
               }}
               className={cn(
                 "size-4 transition-colors duration-200",

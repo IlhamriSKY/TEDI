@@ -188,7 +188,7 @@ function FormatterRow({
   // (or change, for the dropdown). The mirror reseeds whenever the prop
   // identity flips (e.g. after a different surface updates the config).
   const [draftCommand, setDraftCommand] = useState(config.command ?? "");
-  const [draftArgs, setDraftArgs] = useState(stringifyArgs(config.args));
+  const [draftArgs, setDraftArgs] = useState(() => stringifyArgs(config.args));
 
   const setType = (type: FormatterType) => {
     if (type === "builtin" && !builtinAvailable) return;
@@ -264,7 +264,7 @@ function FormatterRow({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="hover:bg-destructive/10 hover:text-destructive h-7 w-7"
+                className="hover:bg-destructive/10 hover:text-destructive size-7"
                 onClick={() => void patchFormatter(snapshot, language, null)}
                 aria-label="Remove formatter"
               >

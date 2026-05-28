@@ -317,7 +317,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
         <div className="flex min-w-0 items-center gap-2">
           <Badge
             variant={STATUS_VARIANT[changeStatus]}
-            className="px-2.5 py-2.5 text-[11px] capitalize"
+            className="p-2.5 text-[11px] capitalize"
           >
             {changeStatus}
           </Badge>

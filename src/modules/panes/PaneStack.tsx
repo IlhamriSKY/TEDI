@@ -1,12 +1,17 @@
 import type { EditorPaneHandle } from "@/modules/editor";
 import type { PaneTab, Tab } from "@/modules/tabs";
-import { leafIds } from "@/modules/terminal/lib/panes";
+import { leafIds, type PaneEdge } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
+import {
+  listConnections,
+  onConnectionsChanged,
+  type SshConnection,
+} from "@/modules/ssh/connections";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
 
 type Props = {
@@ -36,6 +41,14 @@ type Props = {
   mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
   onFocusLeaf: (tabId: number, leafId: number) => void;
+  /** Drag-and-drop a leaf onto an edge of another leaf in the same tab. */
+  onMovePaneLeaf?: (sourceLeafId: number, targetLeafId: number, edge: PaneEdge) => void;
+  /** Close button in each pane header. */
+  onCloseLeafRequest?: (leafId: number) => void;
+  /** Live SSH status per terminal leaf id. Colors the SSH header label, mirroring the tab strip. */
+  sshStatuses?: Map<number, SshStatus>;
+  /** Live AI CLI status per terminal leaf id. Tints the header icon, mirroring the tab strip. */
+  aiCliStatuses?: Map<number, AiCliStatus>;
 };
 
 export function PaneStack({
@@ -56,12 +69,27 @@ export function PaneStack({
   onCloseLeaf,
   mdPreviewLeafIds,
   onFocusLeaf,
+  onMovePaneLeaf,
+  onCloseLeafRequest,
+  sshStatuses,
+  aiCliStatuses,
 }: Props) {
   // Memoize the filter so the prune effect below sees a stable identity.
-  const paneTabs = useMemo(
-    () => tabs.filter((t): t is PaneTab => t.kind === "pane"),
-    [tabs],
-  );
+  const paneTabs = useMemo(() => tabs.filter((t): t is PaneTab => t.kind === "pane"), [tabs]);
+
+  // Resolve a leaf's `sshConnectionId` to a host for the `ssh:<host>` header
+  // label. Loaded here (not per-leaf) and refreshed on connection changes,
+  // mirroring the tab strip so both read identically.
+  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(() => new Map());
+  useEffect(() => {
+    const load = () =>
+      void listConnections().then((list) => setSshHosts(new Map(list.map((c) => [c.id, c]))));
+    load();
+    const unsub = onConnectionsChanged(load);
+    return () => {
+      void unsub.then((fn) => fn());
+    };
+  }, []);
 
   // Stable refs for per-leaf callbacks. Re-creating bundles would tear down PTY/editor state.
   const registerTerminalRef = useRef(registerTerminalHandle);
@@ -175,6 +203,11 @@ export function PaneStack({
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
               mdPreviewLeafIds={mdPreviewLeafIds}
+              onMovePaneLeaf={onMovePaneLeaf}
+              onCloseLeaf={onCloseLeafRequest}
+              sshHosts={sshHosts}
+              sshStatuses={sshStatuses}
+              aiCliStatuses={aiCliStatuses}
             />
           </div>
         );

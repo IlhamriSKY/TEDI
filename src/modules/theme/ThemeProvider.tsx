@@ -1,20 +1,16 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadPreferences,
   onPreferencesChange,
+  setAppOpacity,
+  setCustomThemeEnabled,
   setTheme as persistTheme,
   type ThemePref,
 } from "@/modules/settings/store";
 import { applyBrandColor, applyBrandColorFastPath } from "@/modules/settings/brandColor";
+import { applyAppOpacity, onAppOpacityPreview } from "@/modules/settings/appOpacity";
 import {
+  applyBackground,
   applyCustomTheme,
   normalizeCustomTheme,
   type CustomTheme,
@@ -95,6 +91,24 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
           theme: p.customTheme,
         };
         reconcileLayers(p.brandColor);
+        applyAppOpacity(p.appOpacity);
+        // Wallpaper image is independent of the colour theme so it always
+        // paints when set (won't vanish when the custom theme is off).
+        applyBackground(p.customTheme.background);
+        // Migration: a wallpaper only shows through translucent surfaces, and
+        // it only paints while the custom theme is on. The unified opacity
+        // defaults to 1 (solid), so a wallpaper saved before the unify would
+        // silently vanish. Main window only: if one is enabled, make sure the
+        // custom theme is on and opacity drops below solid so it reappears.
+        // Persisted, so it self-corrects just once.
+        if (
+          document.getElementById("settings-root") === null &&
+          p.customTheme.background.enabled &&
+          !!p.customTheme.background.dataUrl
+        ) {
+          if (!p.customThemeEnabled) void setCustomThemeEnabled(true);
+          if (p.appOpacity >= 1) void setAppOpacity(0.5);
+        }
       })
       .catch((err) => {
         console.error("ThemeProvider: loadPreferences failed", err);
@@ -118,11 +132,19 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
           theme: normalized,
         };
         if (customStateRef.current.enabled) applyCustomTheme(normalized);
+        // Repaint the wallpaper regardless of whether the custom theme is on.
+        applyBackground(normalized.background);
+      } else if (key === "appOpacity" && typeof value === "number") {
+        applyAppOpacity(value);
       }
     });
+    // Live drag preview from the settings opacity slider (transient, applies
+    // CSS only — no store write, so the slider thumb tracks smoothly).
+    const unlistenPreview = onAppOpacityPreview((v) => applyAppOpacity(v));
     return () => {
       alive = false;
       void unlistenP.then((fn) => fn());
+      void unlistenPreview.then((fn) => fn());
     };
   }, [reconcileLayers]);
 
@@ -165,7 +187,7 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
 }
 
 export function useTheme(): ThemeProviderState {
-  const ctx = useContext(ThemeProviderContext);
+  const ctx = use(ThemeProviderContext);
   if (!ctx) throw new Error("useTheme must be used within a <ThemeProvider>");
   return ctx;
 }

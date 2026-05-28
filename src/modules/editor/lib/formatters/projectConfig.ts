@@ -131,6 +131,7 @@ function matchesGlob(name: string, pattern: string): boolean {
 }
 
 async function loadFromDir(dir: string): Promise<PrettierConfigFile | null> {
+  // short-circuit search: returns on first config file found
   for (const name of CONFIG_FILENAMES) {
     const text = await tryReadText(joinPath(dir, name));
     if (text === null) continue;

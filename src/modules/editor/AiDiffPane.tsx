@@ -156,7 +156,7 @@ export function AiDiffPane({
     <div className="border-border/60 bg-background flex h-full min-h-0 flex-col rounded-md border">
       <div className="border-border/60 flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge className="px-2.5 py-2.5 text-[11px]" variant={STATUS_BADGE[status]}>
+          <Badge className="p-2.5 text-[11px]" variant={STATUS_BADGE[status]}>
             {STATUS_LABEL[status]}
           </Badge>
           {isNewFile ? (

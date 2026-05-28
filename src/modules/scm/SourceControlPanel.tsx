@@ -748,10 +748,19 @@ function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   const dir = dirname(change.relative);
   // pr-3 clears the Radix ScrollArea's 10px scrollbar overlay.
   return (
-    <li
-      className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
-      onClick={onClickDiff}
-    >
+    <li className="contents">
+      <div
+        className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
+        role="button"
+        tabIndex={0}
+        onClick={onClickDiff}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClickDiff();
+          }
+        }}
+      >
       <span
         className={cn(
           "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
@@ -786,6 +795,7 @@ function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
           <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={11} strokeWidth={2} />
         </Button>
       </span>
+      </div>
     </li>
   );
 }

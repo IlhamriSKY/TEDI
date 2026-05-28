@@ -4,6 +4,7 @@ import {
   hasLeaf,
   leafIds,
   leaves,
+  movePaneLeafToEdge as movePaneLeafToEdgeInTree,
   nextLeafId,
   normalizePaneTree,
   removeLeaf,
@@ -17,6 +18,7 @@ import {
   updateEditorLeaf,
   type EditorLeafState,
   type LeafState,
+  type PaneEdge,
   type PaneLeaf,
   type PaneNode,
   type SplitDir,
@@ -375,11 +377,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * `pin = false`: VSCode-style preview slot.
    */
   const openFileTab = useCallback(
-    (
-      path: string,
-      pin = true,
-      remote?: { sshSessionId: number; sshHostLabel: string },
-    ) => {
+    (path: string, pin = true, remote?: { sshSessionId: number; sshHostLabel: string }) => {
       let targetTabId: number | null = null;
       setTabs((curr) => {
         if (pin) {
@@ -427,12 +425,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
 
         // Preview open
-        const persistent = findEditorLeafIn(
-          curr,
-          path,
-          (l) => !l.preview,
-          remote?.sshSessionId,
-        );
+        const persistent = findEditorLeafIn(curr, path, (l) => !l.preview, remote?.sshSessionId);
         if (persistent) {
           targetTabId = persistent.tab.id;
           return curr.map((t) => {
@@ -1246,15 +1239,41 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * `beforeLeafId`, or at the end when null. No-op when the two leaves
    * aren't direct siblings. Use Move to New Tab / Join Group for cross-group.
    */
-  const reorderLeafInGroup = useCallback(
-    (leafId: number, beforeLeafId: number | null) => {
+  const reorderLeafInGroup = useCallback((leafId: number, beforeLeafId: number | null) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const paneTree = reorderLeafInTree(t.paneTree, leafId, beforeLeafId);
+        if (paneTree === t.paneTree) return t;
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
+
+  /**
+   * Drag-and-drop a leaf onto one edge of another leaf in the same tab.
+   * Repositions the source as a left/right/top/bottom sibling of the target,
+   * preserving its id (and thus its PTY / editor session). No-op across tabs
+   * or when the move can't apply.
+   */
+  const movePaneLeafToEdge = useCallback(
+    (sourceLeafId: number, targetLeafId: number, edge: PaneEdge) => {
+      if (sourceLeafId === targetLeafId) return;
       setTabs((curr) =>
         curr.map((t) => {
           if (t.kind !== "pane") return t;
-          if (!hasLeaf(t.paneTree, leafId)) return t;
-          const paneTree = reorderLeafInTree(t.paneTree, leafId, beforeLeafId);
-          if (paneTree === t.paneTree) return t;
-          return syncPaneMirror({ ...t, paneTree });
+          if (!hasLeaf(t.paneTree, sourceLeafId) || !hasLeaf(t.paneTree, targetLeafId)) return t;
+          const splitId = nextIdRef.current++;
+          const moved = movePaneLeafToEdgeInTree(
+            t.paneTree,
+            sourceLeafId,
+            targetLeafId,
+            edge,
+            splitId,
+          );
+          if (moved === null || moved === t.paneTree) return t;
+          return syncPaneMirror({ ...t, paneTree: moved, activeLeafId: sourceLeafId });
         }),
       );
     },
@@ -1309,6 +1328,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     allocId,
     reorderTabs,
     reorderLeafInGroup,
+    movePaneLeafToEdge,
     togglePrivate,
   };
 }

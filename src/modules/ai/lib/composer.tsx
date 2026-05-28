@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
@@ -67,7 +67,7 @@ type ComposerCtx = {
 const Ctx = createContext<ComposerCtx | null>(null);
 
 export function useComposer(): ComposerCtx {
-  const ctx = useContext(Ctx);
+  const ctx = use(Ctx);
   if (!ctx) throw new Error("useComposer must be used inside <AiComposerProvider>");
   return ctx;
 }
@@ -199,11 +199,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
   // deps from spurious fires.
   const addFiles = useCallback(async (list: FileList | null) => {
     if (!list) return;
-    const next: FileAttachment[] = [];
-    for (const f of Array.from(list)) {
-      const att = await readAttachment(f);
-      if (att) next.push(att);
-    }
+    // Reads are independent; run concurrently and keep input order.
+    const settled = await Promise.all(Array.from(list).map((f) => readAttachment(f)));
+    const next = settled.filter((att): att is FileAttachment => att !== null);
     if (next.length) setFiles((prev) => [...prev, ...next]);
   }, []);
 
@@ -378,12 +376,16 @@ export function AiComposerProvider({ children }: ProviderProps) {
     }
 
     const parts: MessagePart[] = [];
-    const fileBlocks = files
-      .filter((f) => f.kind === "text")
-      .map((f) => `<file name="${f.name}" mediaType="${f.mediaType}">\n${f.text ?? ""}\n</file>`);
-    const selectionBlocks = files
-      .filter((f) => f.kind === "selection")
-      .map((f) => `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`);
+    const fileBlocks = files.flatMap((f) =>
+      f.kind === "text"
+        ? [`<file name="${f.name}" mediaType="${f.mediaType}">\n${f.text ?? ""}\n</file>`]
+        : [],
+    );
+    const selectionBlocks = files.flatMap((f) =>
+      f.kind === "selection"
+        ? [`<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`]
+        : [],
+    );
     const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
       effectiveText,
       useSnippetsStore.getState().snippets,

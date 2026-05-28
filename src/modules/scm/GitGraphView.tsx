@@ -251,6 +251,7 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
   // get a full-height vertical line.
   const segments: ReactNode[] = [];
   const maxLanes = Math.max(laneIn.length, laneOut.length, lane + 1);
+  const branchedLanesSet = new Set(branchedLanes);
 
   for (let i = 0; i < maxLanes; i++) {
     const x = laneX(i);
@@ -323,7 +324,7 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
 
     // A new lane opened below for an extra parent: draw an L from the dot
     // out into that lane.
-    if (branchedLanes.includes(i) && outSha !== null) {
+    if (branchedLanesSet.has(i) && outSha !== null) {
       segments.push(
         <path
           key={`branch-${i}`}
@@ -341,14 +342,23 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
   void mergedLanes;
 
   return (
-    <li
-      className={cn(
-        "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-3",
-        selected && "bg-accent/60",
-      )}
-      onClick={onSelect}
-      title={`${commit.shortSha} - ${commit.subject}`}
-    >
+    <li className="contents">
+      <div
+        className={cn(
+          "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-3",
+          selected && "bg-accent/60",
+        )}
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+        title={`${commit.shortSha} - ${commit.subject}`}
+      >
       <div className="shrink-0" style={{ width: graphWidth, height: ROW_H }}>
         <svg
           width={graphWidth}
@@ -387,6 +397,7 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
         <span className="text-muted-foreground/70 w-14 shrink-0 text-right text-[10px] tabular-nums">
           {formatRelTime(commit.authorTime)}
         </span>
+      </div>
       </div>
     </li>
   );

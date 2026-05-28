@@ -92,8 +92,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
 
   const persist = async () => {
     const { workspaces, activeId } = get();
-    await store.set(KEY_LIST, workspaces);
-    await store.set(KEY_ACTIVE, activeId);
+    await Promise.all([store.set(KEY_LIST, workspaces), store.set(KEY_ACTIVE, activeId)]);
     await store.save();
   };
 

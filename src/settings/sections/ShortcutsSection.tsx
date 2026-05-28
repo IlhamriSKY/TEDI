@@ -22,7 +22,7 @@ import {
 } from "@/modules/shortcuts/shortcuts";
 import { ArrowTurnBackwardIcon, Search01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import {
   AlertDialog,
@@ -197,7 +197,19 @@ function ShortcutRow({
         ) : (
           <>
             <div
+              role={isReadOnly ? undefined : "button"}
+              tabIndex={isReadOnly ? undefined : 0}
               onClick={isReadOnly ? undefined : onStartRecording}
+              onKeyDown={
+                isReadOnly
+                  ? undefined
+                  : (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onStartRecording();
+                      }
+                    }
+              }
               className={
                 isReadOnly
                   ? "flex min-w-[100px] items-center justify-end gap-1"
@@ -273,13 +285,20 @@ function Recorder({
     meta: false,
   });
 
+  const onRecordRef = useRef(onRecord);
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onRecordRef.current = onRecord;
+    onCancelRef.current = onCancel;
+  });
+
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
       if (e.key === "Escape") {
-        onCancel();
+        onCancelRef.current();
         return;
       }
 
@@ -304,7 +323,7 @@ function Recorder({
       }
       // Record the canonical, layout-independent key. Option+Z on macOS or
       // Ctrl+T on a Cyrillic layout would otherwise store the glyph and never re-fire.
-      onRecord({
+      onRecordRef.current({
         key: canonicalKeyFromEvent(e),
         ctrl: e.ctrlKey,
         shift: e.shiftKey,
@@ -331,11 +350,11 @@ function Recorder({
       window.removeEventListener("keydown", onDown, { capture: true });
       window.removeEventListener("keyup", onUp, { capture: true });
     };
-  }, [onRecord, onCancel]);
+  }, []);
 
   return (
     <div className="bg-accent/50 ring-accent flex items-center gap-2 rounded px-2 py-1 text-[11px] ring-1">
-      <span className="animate-pulse font-medium">Recording...</span>
+      <span className="animate-pulse font-medium">Recording…</span>
       <span className="text-muted-foreground">(Esc to cancel)</span>
     </div>
   );
@@ -355,16 +374,23 @@ function ExtensionShortcutsGroup({ search }: { search: string }) {
 
   const rows = useMemo(() => {
     const lower = search.trim().toLowerCase();
-    return keybindingEntries
-      .map(({ extensionId, item }) => {
-        const command = commandEntries.find(
-          (c) => c.extensionId === extensionId && c.item.id === item.command,
-        );
-        const ext = extensions.find((e) => e.id === extensionId);
-        const title = command?.item.title ?? item.command;
-        const extName = ext?.manifest.name ?? extensionId;
-        const defaultBinding = parseKeybindingString(item.key);
-        return {
+    return keybindingEntries.flatMap(({ extensionId, item }) => {
+      const command = commandEntries.find(
+        (c) => c.extensionId === extensionId && c.item.id === item.command,
+      );
+      const ext = extensions.find((e) => e.id === extensionId);
+      const title = command?.item.title ?? item.command;
+      const extName = ext?.manifest.name ?? extensionId;
+      if (
+        lower.length > 0 &&
+        !title.toLowerCase().includes(lower) &&
+        !extName.toLowerCase().includes(lower)
+      ) {
+        return [];
+      }
+      const defaultBinding = parseKeybindingString(item.key);
+      return [
+        {
           // Composite key in case two extensions share a command id.
           rowId: `${extensionId}:${item.command}`,
           extensionId,
@@ -372,13 +398,9 @@ function ExtensionShortcutsGroup({ search }: { search: string }) {
           title,
           extName,
           defaultBinding,
-        };
-      })
-      .filter((r) =>
-        lower.length === 0
-          ? true
-          : r.title.toLowerCase().includes(lower) || r.extName.toLowerCase().includes(lower),
-      );
+        },
+      ];
+    });
   }, [keybindingEntries, commandEntries, extensions, search]);
 
   if (rows.length === 0) return null;

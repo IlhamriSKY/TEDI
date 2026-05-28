@@ -10,13 +10,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { SearchAddon } from "@xterm/addon-search";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
   useState,
+  type Ref,
 } from "react";
 
 /**
@@ -64,12 +64,10 @@ type Props = {
   target: SearchTarget;
   /** Collapse to an icon-only button until opened. */
   compact?: boolean;
+  ref?: Ref<SearchInlineHandle>;
 };
 
-export const SearchInline = forwardRef<SearchInlineHandle, Props>(function SearchInline(
-  { target, compact },
-  ref,
-) {
+export function SearchInline({ target, compact, ref }: Props) {
   const [q, setQ] = useState("");
   // Compact mode hides the field behind an icon until activated.
   const [openInCompact, setOpenInCompact] = useState(false);
@@ -93,13 +91,8 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
     return tokens.join(KEY_SEP);
   }, [userShortcuts]);
 
-  const placeholder = useMemo(() => {
-    return shortcutText ? `Search (${shortcutText})` : "Search";
-  }, [shortcutText]);
-
-  const tooltipTitle = useMemo(() => {
-    return shortcutText ? `Search (${shortcutText})` : "Search";
-  }, [shortcutText]);
+  const placeholder = shortcutText ? `Search (${shortcutText})` : "Search";
+  const tooltipTitle = shortcutText ? `Search (${shortcutText})` : "Search";
 
   const expanded = !compact || openInCompact;
 
@@ -246,4 +239,4 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(function Searc
       </AnimatePresence>
     </motion.div>
   );
-});
+}

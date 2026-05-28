@@ -12,15 +12,15 @@ import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
 import {
-  CONTENT_ZOOM_DEFAULT,
-  CONTENT_ZOOM_MAX,
-  CONTENT_ZOOM_MIN,
-  CONTENT_ZOOM_STEP,
+  UI_ZOOM_DEFAULT,
+  UI_ZOOM_MAX,
+  UI_ZOOM_MIN,
+  UI_ZOOM_STEP,
   TERMINAL_FONT_SIZES,
   setAiNotificationsEnabled,
   setAutostart,
-  setContentZoom,
   setRestoreWindowState,
+  setUiZoom,
   setShowHiddenFiles,
   setShowSourceControl,
   setSourceControlInRightPanel,
@@ -61,14 +61,14 @@ export function GeneralSection() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
-  const contentZoom = usePreferencesStore((s) => s.contentZoom);
+  const uiZoom = usePreferencesStore((s) => s.uiZoom);
   // Local mirror for live drag. Persisted on slider release so we don't
   // hit the prefs store + cross-window emit on every mousemove tick.
-  const [zoomDraft, setZoomDraft] = useState(contentZoom);
+  const [zoomDraft, setZoomDraft] = useState(uiZoom);
   const zoomDragging = useRef(false);
   useEffect(() => {
-    if (!zoomDragging.current) setZoomDraft(contentZoom);
-  }, [contentZoom]);
+    if (!zoomDragging.current) setZoomDraft(uiZoom);
+  }, [uiZoom]);
   const zoomPct = Math.round(zoomDraft * 100);
 
   // Reconcile autostart pref with actual OS state on mount; the user may have
@@ -152,25 +152,24 @@ export function GeneralSection() {
         <Label>Zoom</Label>
         <SettingRow
           title="UI zoom level"
-          description="Scales the terminal font and code editor / diff content. Range 50%–300%."
+          description="Scales the app interface only: header, tabs, sidebar, panels and status bar. The terminal and code editor zoom with Ctrl + / Ctrl - instead. Range 50%–200%."
         >
           <div className="flex w-64 items-center gap-2.5">
             <Slider
-              min={CONTENT_ZOOM_MIN}
-              max={CONTENT_ZOOM_MAX}
-              step={CONTENT_ZOOM_STEP}
+              min={UI_ZOOM_MIN}
+              max={UI_ZOOM_MAX}
+              step={UI_ZOOM_STEP}
               value={[zoomDraft]}
               onValueChange={(values) => {
                 const next = values[0];
                 if (typeof next !== "number") return;
                 zoomDragging.current = true;
                 setZoomDraft(next);
-                document.documentElement.style.setProperty("--content-zoom", String(next));
               }}
               onValueCommit={(values) => {
                 const next = values[0];
                 zoomDragging.current = false;
-                if (typeof next === "number") void setContentZoom(next);
+                if (typeof next === "number") void setUiZoom(next);
               }}
               aria-label="UI zoom level"
             />
@@ -182,14 +181,10 @@ export function GeneralSection() {
               variant="ghost"
               size="sm"
               className="h-7 shrink-0 px-2 text-[11px]"
-              disabled={zoomDraft === CONTENT_ZOOM_DEFAULT}
+              disabled={zoomDraft === UI_ZOOM_DEFAULT}
               onClick={() => {
-                setZoomDraft(CONTENT_ZOOM_DEFAULT);
-                document.documentElement.style.setProperty(
-                  "--content-zoom",
-                  String(CONTENT_ZOOM_DEFAULT),
-                );
-                void setContentZoom(CONTENT_ZOOM_DEFAULT);
+                setZoomDraft(UI_ZOOM_DEFAULT);
+                void setUiZoom(UI_ZOOM_DEFAULT);
               }}
               aria-label="Reset zoom"
             >

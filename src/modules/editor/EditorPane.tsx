@@ -4,7 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
@@ -67,6 +67,7 @@ type Props = {
    *  user preferences. Set by PaneStack on editor leaves inside a private
    *  tab so file content never reaches a model provider. */
   aiDisabled?: boolean;
+  ref?: Ref<EditorPaneHandle>;
 };
 
 function formatBytes(n: number): string {
@@ -136,10 +137,16 @@ function computeMarkers(
   };
 }
 
-export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPane(
-  { path, onDirtyChange, onSaved, onClose, mdPreview, sshSessionId, aiDisabled },
+export function EditorPane({
+  path,
+  onDirtyChange,
+  onSaved,
+  onClose,
+  mdPreview,
+  sshSessionId,
+  aiDisabled,
   ref,
-) {
+}: Props) {
   const { doc, liveContent, onChange, save, reload } = useDocument({
     path,
     onDirtyChange,
@@ -622,4 +629,4 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(function EditorPan
       )}
     </div>
   );
-});
+}

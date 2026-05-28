@@ -87,6 +87,8 @@ export function SessionHistoryDialog() {
                 return (
                   <li key={s.id}>
                     <div
+                      role="button"
+                      tabIndex={0}
                       className={cn(
                         "group hover:bg-accent flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-[12px]",
                         isActive && "bg-accent/60",
@@ -94,6 +96,13 @@ export function SessionHistoryDialog() {
                       onClick={() => {
                         switchSession(s.id);
                         close();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          switchSession(s.id);
+                          close();
+                        }
                       }}
                     >
                       <div className="flex min-w-0 flex-1 flex-col gap-0.5">

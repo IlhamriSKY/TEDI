@@ -411,7 +411,12 @@ export function FileExplorer({
   );
 
   return (
-    <div className="flex h-full flex-col outline-none" tabIndex={0} onKeyDown={handleKeyDown}>
+    <div
+      className="flex h-full flex-col outline-none"
+      role="tree"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         <Tooltip>
           <TooltipTrigger asChild>

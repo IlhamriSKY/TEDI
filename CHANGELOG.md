@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.11] - 28-05-2026
+
+### Added
+
+- **Drag-and-drop pane repositioning, with a header on every pane.** [`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx) gives each split pane a top bar (drag handle, type icon, label, close button) and uses `@dnd-kit` pointer sensors to drop one pane onto another pane's edge (top / right / bottom / left) and re-split there. [`panes.ts`](src/modules/terminal/lib/panes.ts) adds `movePaneLeafToEdge` / `insertLeafBeside`, which move a leaf while preserving its id so the underlying PTY / editor / preview survives the move instead of being torn down and recreated. [`useTabs.ts`](src/modules/tabs/lib/useTabs.ts) exposes the mutation and [`PaneStack.tsx`](src/modules/panes/PaneStack.tsx) threads SSH-host / AI-CLI / private state into each header. HTML5 drag is avoided on purpose (unreliable under the Tauri WebView), so the whole interaction runs on pointer sensors.
+- **App-wide glassmorphic transparency driven by a single Theme setting.** [`ThemeSection.tsx`](src/settings/sections/ThemeSection.tsx) merges wallpaper and transparency into one "Background & transparency" block: a single opacity slider (fully transparent through solid), a background picker, and Blur / Darken. [`appOpacity.ts`](src/modules/settings/appOpacity.ts) plus the glass rules in [`globals.css`](src/styles/globals.css) fade every surface uniformly toward whatever sits behind the window - shell, sidebar, header, tabs, status bar, panels, popovers / menus, the editor and terminal canvases, and first-party extensions such as SQL Explorer - while text, borders, buttons, accents, and selections stay opaque so the UI is still legible at any opacity. The wallpaper supports a static image, a looping video, and an in-app YouTube embed ([`customTheme.ts`](src/modules/settings/customTheme.ts)); the slider previews live during the drag and persists on commit, and the change propagates across windows via the prefs event. The top header bar is intentionally kept more opaque than the rest so it stays a clear, grabbable drag handle, and no `backdrop-filter` is used (it renders as a dark fill over a transparent window on Windows) - the frosted look comes from the wallpaper's own Blur slider.
+
+### Changed
+
+- **Tab and pane indicators now match for the same leaf state.** A private leaf reads red, an SSH leaf shows the cloud icon with an `ssh:<host>` label, and the AI-CLI working status (idle / working / blocking) is mirrored identically in both the tab strip ([`TabBar.tsx`](src/modules/tabs/TabBar.tsx)) and the per-pane header ([`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx)), so a leaf looks the same whether you read it from the tab or the pane.
+- **The update pill moved to the far-left of the status bar.** [`StatusBar.tsx`](src/modules/statusbar/StatusBar.tsx) pins `UpdaterPill` as the first item in the left cluster (before the OS badge and the path breadcrumb) so an available update is the first thing on the bar.
+
+### Fixed
+
+- **Sticky header bars no longer bleed under glass.** SQL Explorer's table header, result toolbar, and schema-tree head, plus the AI chat "jump to message" pin, painted with the now-translucent surface token and let the rows / messages scrolling beneath them show through. [`globals.css`](src/styles/globals.css) pins those sticky bars to a solid canvas backing (SQL Explorer) or the boosted header tint (chat pin) under glass, and drops the chat pin's `backdrop-filter` so it no longer renders as a dark fill on Windows.
+
 ## [0.3.10] - 28-05-2026
 
 ### Added

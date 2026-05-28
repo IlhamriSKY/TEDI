@@ -224,6 +224,7 @@ export async function deactivate(id: string): Promise<void> {
  *  failures are logged, not thrown. */
 export async function bootAll(): Promise<InstalledExtension[]> {
   const installed = await listInstalled();
+  // sequential activation: extensions may register contributions others depend on
   for (const ext of installed) {
     if (!ext.enabled) continue;
     try {

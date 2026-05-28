@@ -232,7 +232,6 @@ function isLeafPrivate(ctx: LiveTerminalCtx, leafId: number): boolean {
   return false;
 }
 
-
 /** Resolves a TerminalTarget to a leaf id. Order: leafId, tabId, ordinal, title substring. Empty target picks the active terminal. */
 function resolveTerminalLeaf(target: TerminalTarget, ctx: LiveTerminalCtx): number | null {
   const list = snapshotTerminals(ctx);
@@ -305,6 +304,7 @@ export default function App() {
     allocId,
     reorderTabs,
     reorderLeafInGroup,
+    movePaneLeafToEdge,
     togglePrivate,
   } = useTabs();
 
@@ -595,6 +595,16 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty("--content-zoom", String(contentZoom));
   }, [contentZoom]);
+  // UI zoom scales the chrome only (header / tabs, sidebar, side panels, status
+  // bar) plus portaled overlays, which mount on `document.body` outside `#root`.
+  // Applied as CSS `zoom` on the body; the workspace pane counter-zooms back to
+  // 1 (see `workspaceCounterZoom` below) so terminal / editor / preview keep
+  // native resolution and their own `--content-zoom`. Cleared at 100% so we
+  // don't leave a stray inline style.
+  const uiZoom = usePreferencesStore((s) => s.uiZoom);
+  useEffect(() => {
+    document.body.style.zoom = uiZoom === 1 ? "" : String(uiZoom);
+  }, [uiZoom]);
   const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   useEffect(() => {
     const key = apiKeys["openai-compatible"];
@@ -715,6 +725,7 @@ export default function App() {
     prefDefaultModel,
     prefDefaultProvider,
     setSelectedModelId,
+    apiKeys,
   ]);
   // Persist the active model and provider on change (after boot restore
   // settles). Lets the next launch land on the same model and provider,
@@ -981,7 +992,14 @@ export default function App() {
       workspaceCount,
       terminalCountAll,
     });
-  }, [explorerRoot, activeFileName, terminalCount, activeTabKind, workspaceCount, terminalCountAll]);
+  }, [
+    explorerRoot,
+    activeFileName,
+    terminalCount,
+    activeTabKind,
+    workspaceCount,
+    terminalCountAll,
+  ]);
 
   // Wire the tabsBridge so `ctx.tabs.openExtensionTab(...)` in the host
   // API can push a new tab. `openExtensionTab` is stable across renders.
@@ -1108,9 +1126,7 @@ export default function App() {
   useEffect(() => {
     const hider = rightSidebarHiderRef.current;
     if (!hider) return;
-    const stillOpen = tabs.some(
-      (t) => t.kind === "ext" && t.extensionId === hider.extensionId,
-    );
+    const stillOpen = tabs.some((t) => t.kind === "ext" && t.extensionId === hider.extensionId);
     const replay = (): void => {
       const prior = hider.prior;
       if (!prior) return;
@@ -1125,8 +1141,7 @@ export default function App() {
       rightSidebarHiderRef.current = null;
       return;
     }
-    const onHiderTab =
-      activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
+    const onHiderTab = activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
     if (onHiderTab) {
       const chat = useChatStore.getState();
       const rightPanel = useRightPanelStore.getState();
@@ -1149,17 +1164,14 @@ export default function App() {
     const p = sidebarRef.current;
     if (!p) return;
     const visibleNow = p.getSize().asPercentage > 0;
-    const stillOpen = tabs.some(
-      (t) => t.kind === "ext" && t.extensionId === hider.extensionId,
-    );
+    const stillOpen = tabs.some((t) => t.kind === "ext" && t.extensionId === hider.extensionId);
     if (!stillOpen) {
       if (hider.prior && !visibleNow) p.expand();
       else if (!hider.prior && visibleNow) p.collapse();
       sidebarHiderRef.current = null;
       return;
     }
-    const onHiderTab =
-      activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
+    const onHiderTab = activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
     if (onHiderTab) {
       if (visibleNow) p.collapse();
     } else {
@@ -2065,6 +2077,21 @@ export default function App() {
     [closePaneByLeaf, handleClose],
   );
 
+  // Pane header close button: drop the leaf when it shares a tab, otherwise
+  // close the whole tab (mirrors the tab-strip leaf close semantics).
+  const handlePaneHeaderClose = useCallback(
+    (leafId: number) => {
+      const tab = tabsRef.current.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
+      if (!tab || tab.kind !== "pane") return;
+      if (leafIds(tab.paneTree).length > 1) {
+        closePaneByLeaf(leafId);
+      } else {
+        handleClose(tab.id);
+      }
+    },
+    [closePaneByLeaf, handleClose],
+  );
+
   const searchTarget = useMemo<SearchTarget>(() => {
     if (isTerminalLike && activeSearchAddon)
       return {
@@ -2508,19 +2535,14 @@ export default function App() {
     },
     [focusPane, pinTab],
   );
-  const handleHeaderOpenExtensions = useCallback(
-    () => void openSettingsWindow("extensions"),
-    [],
-  );
+  const handleHeaderOpenExtensions = useCallback(() => void openSettingsWindow("extensions"), []);
   const handleHeaderOpenSettings = useCallback(() => void openSettingsWindow(), []);
   const handleHeaderConnectSsh = useCallback(
-    (conn: SshConnection, opts?: { private?: boolean }) =>
-      newSshTab(conn.id, conn.name, opts),
+    (conn: SshConnection, opts?: { private?: boolean }) => newSshTab(conn.id, conn.name, opts),
     [newSshTab],
   );
   const headerCanSplit = useMemo(
-    () =>
-      activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB,
+    () => activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB,
     [activePaneTab],
   );
 
@@ -2654,7 +2676,13 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel id="workspace" defaultSize="58%" minSize="25%">
-                <div className="flex h-full min-h-0 flex-col">
+                {/* Counter the body-level UI zoom so the panes (terminal,
+                    editor, preview, diffs) render at their native scale.
+                    Net effective zoom here is uiZoom * (1 / uiZoom) = 1. */}
+                <div
+                  className="flex h-full min-h-0 flex-col"
+                  style={uiZoom === 1 ? undefined : { zoom: 1 / uiZoom }}
+                >
                   <div className="relative min-h-0 flex-1">
                     <div
                       className={cn(
@@ -2681,6 +2709,10 @@ export default function App() {
                         onCloseLeaf={handleEditorCloseLeaf}
                         mdPreviewLeafIds={mdPreviewLeafIds}
                         onFocusLeaf={handleFocusLeaf}
+                        onMovePaneLeaf={movePaneLeafToEdge}
+                        onCloseLeafRequest={handlePaneHeaderClose}
+                        sshStatuses={sshStatuses}
+                        aiCliStatuses={aiCliStatuses}
                       />
                     </div>
                     <div

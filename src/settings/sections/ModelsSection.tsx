@@ -219,7 +219,7 @@ export function ModelsSection() {
             align="start"
             className="max-h-105 w-(--radix-dropdown-menu-trigger-width) min-w-72 overflow-hidden p-0"
           >
-            <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
+            <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
               <Input
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
@@ -247,9 +247,8 @@ export function ModelsSection() {
                 // The previous behaviour listed all 10 providers as "no key"
                 // rows, padding the dropdown with affordances for accounts
                 // the user has not (and may never) sign up for.
-                const blocks = PROVIDERS.filter(
-                  (p) => providerNeedsKey(p.id) && !!keys[p.id],
-                ).map((p) => {
+                const blocks = PROVIDERS.flatMap((p) => {
+                  if (!(providerNeedsKey(p.id) && !!keys[p.id])) return [];
                   const all =
                     p.id === "sumopod"
                       ? sumopodModels.models
@@ -377,7 +376,7 @@ export function ModelsSection() {
        *  picking the model. */}
       <div className="flex flex-col gap-2">
         <Label>Defaults</Label>
-        <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border px-3 py-3">
+        <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border p-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
               Chat model
@@ -422,7 +421,7 @@ export function ModelsSection() {
                 avoidCollisions={false}
                 className="w-64 overflow-hidden p-0"
               >
-                <div className="border-border/60 bg-popover sticky top-0 z-10 border-b px-1.5 py-1.5">
+                <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
                   <Input
                     value={addProviderQuery}
                     onChange={(e) => setAddProviderQuery(e.target.value)}

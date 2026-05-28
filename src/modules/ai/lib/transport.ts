@@ -108,6 +108,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       const augmented = injectContext(messages, live);
 
       let lastError: unknown;
+      // retry loop: each attempt depends on the previous failing
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (abortSignal?.aborted) {
           throw toChatError(

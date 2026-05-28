@@ -7,7 +7,7 @@ import { Cancel01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-i
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "motion/react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { fileIconUrl } from "./lib/iconResolver";
 
 type SearchHit = {
@@ -26,6 +26,7 @@ type Props = {
   open: boolean;
   onRequestClose: () => void;
   onActiveChange?: (active: boolean) => void;
+  ref?: Ref<ExplorerSearchHandle>;
 };
 
 export type ExplorerSearchHandle = {
@@ -101,10 +102,7 @@ function Highlighted({
   );
 }
 
-export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function ExplorerSearch(
-  { rootPath, onOpenFile, open, onRequestClose, onActiveChange }: Props,
-  ref,
-) {
+export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onActiveChange, ref }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -316,4 +314,4 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
       ) : null}
     </div>
   );
-});
+}

@@ -568,9 +568,7 @@ function ExtensionCard({
 }) {
   // Live view of contributed settings. Updates when the extension calls `tedi.contribute.settings`.
   const all = useRegistry(settingsRegistry);
-  const contributed = all
-    .filter((entry) => entry.extensionId === ext.id)
-    .map((entry) => entry.item);
+  const contributed = all.flatMap((entry) => (entry.extensionId === ext.id ? [entry.item] : []));
 
   const isGithub = ext.source.startsWith("github:");
   const updateAvailable =

@@ -333,13 +333,17 @@ function extractFileMutation(part: AnyPart): FileMutation | null {
     const input = (p.input ?? {}) as { path?: unknown; edits?: unknown };
     const path = typeof input.path === "string" ? input.path : "";
     if (!path || !Array.isArray(input.edits)) return null;
-    const edits: EditOp[] = (input.edits as Record<string, unknown>[])
-      .map((e) => ({
-        old_string: typeof e.old_string === "string" ? e.old_string : "",
-        new_string: typeof e.new_string === "string" ? e.new_string : "",
-        replace_all: Boolean(e.replace_all),
-      }))
-      .filter((e) => e.old_string.length > 0);
+    const edits: EditOp[] = (input.edits as Record<string, unknown>[]).flatMap((e) => {
+      const old_string = typeof e.old_string === "string" ? e.old_string : "";
+      if (old_string.length === 0) return [];
+      return [
+        {
+          old_string,
+          new_string: typeof e.new_string === "string" ? e.new_string : "",
+          replace_all: Boolean(e.replace_all),
+        },
+      ];
+    });
     if (edits.length === 0) return null;
     return { state, approvalId, path, derive: { kind: "edits", edits } };
   }

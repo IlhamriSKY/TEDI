@@ -51,6 +51,8 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+        {/* Update pill pinned to the far-left of the status bar. */}
+        <UpdaterPill />
         <OsBadge />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
@@ -62,7 +64,6 @@ function StatusBarInner({
         <RightPanelCompactToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
-        <UpdaterPill />
         {detectedPreviewUrl && onOpenPreview ? (
           <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">
             <button
@@ -132,12 +133,7 @@ function ScmRightOpenButton() {
           "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
         )}
       >
-        <HugeiconsIcon
-          icon={GitBranchIcon}
-          size={16}
-          strokeWidth={1.75}
-          className="shrink-0"
-        />
+        <HugeiconsIcon icon={GitBranchIcon} size={16} strokeWidth={1.75} className="shrink-0" />
       </motion.button>
     </IconTooltip>
   );

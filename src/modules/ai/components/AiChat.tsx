@@ -356,7 +356,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
             // Sticky inside the scroll container so wheel events bubble to the
             // scrollable ancestor. `-mx-4` cancels ConversationContent's `px-4`
             // so the pin is flush with the chat's edges.
-            "sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
+            "tedi-chat-pin sticky top-0 z-10 -mx-4 flex cursor-pointer items-center gap-2",
             "border-border/60 bg-background/95 border-b px-3 py-1.5 text-left text-[11.5px] shadow-sm backdrop-blur",
             "text-foreground/85 hover:bg-accent hover:text-accent-foreground transition-colors",
           )}

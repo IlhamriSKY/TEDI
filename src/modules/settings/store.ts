@@ -88,6 +88,15 @@ export type Preferences = {
    * Driven by the `view.zoomIn` / `view.zoomOut` / `view.zoomReset` shortcuts.
    */
   contentZoom: number;
+  /**
+   * UI zoom for the application chrome only: header / tabs, sidebar, side
+   * panels, status bar, and portaled overlays (dialogs, menus, command
+   * palette). 1.0 = 100%. Applied as CSS `zoom` on `document.body`; the
+   * workspace pane counter-zooms back to 1 so terminal / editor / preview keep
+   * native resolution and their own `contentZoom`. Driven by the
+   * Settings -> General "UI zoom" slider, not the keyboard shortcuts.
+   */
+  uiZoom: number;
   /** Pinned model ids. Shown as "Pinned" at the top of the AI model dropdown. Newest first. */
   pinnedModelIds: string[];
   /**
@@ -117,6 +126,14 @@ export type Preferences = {
    */
   customThemeEnabled: boolean;
   customTheme: CustomTheme;
+  /**
+   * Whole-app transparency (0..1). The OS window is already transparent, so
+   * lowering this fades EVERY surface (editor, terminal, SSH, diff, panels,
+   * menus, extensions) toward the wallpaper image — or the desktop when no
+   * image is set. 0 = fully see-through, 1 = solid (default). Main window
+   * only; the settings window stays solid for readability.
+   */
+  appOpacity: number;
   /**
    * User-saved theme presets. Appear in the Theme settings preset grid
    * alongside the built-in `THEME_PRESETS`. The user "saves" the current
@@ -198,10 +215,12 @@ const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
+const KEY_UI_ZOOM = "uiZoom";
 const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
 const KEY_BRAND_COLOR = "brandColor";
 const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
+const KEY_APP_OPACITY = "appOpacity";
 const KEY_USER_THEME_PRESETS = "userThemePresets";
 const KEY_FORMAT_ON_SAVE = "formatOnSave";
 const KEY_FORMATTERS = "formatters";
@@ -211,9 +230,20 @@ export const CONTENT_ZOOM_MIN = 0.5;
 export const CONTENT_ZOOM_MAX = 3.0;
 export const CONTENT_ZOOM_STEP = 0.1;
 
+export const UI_ZOOM_DEFAULT = 1.0;
+export const UI_ZOOM_MIN = 0.5;
+export const UI_ZOOM_MAX = 2.0;
+export const UI_ZOOM_STEP = 0.1;
+
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
 export const TERMINAL_FONT_SIZE_MAX = 32;
+
+export const APP_OPACITY_DEFAULT = 1;
+// 0 = fully transparent (app dissolves into the wallpaper / desktop), 1 = solid.
+export const APP_OPACITY_MIN = 0;
+export const APP_OPACITY_MAX = 1;
+export const APP_OPACITY_STEP = 0.05;
 
 export const TERMINAL_FONT_SIZES = [10, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const;
 
@@ -271,10 +301,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastModelId: null,
   lastProviderId: null,
   contentZoom: CONTENT_ZOOM_DEFAULT,
+  uiZoom: UI_ZOOM_DEFAULT,
   aiNotificationsEnabled: true,
   brandColor: BRAND_COLOR_DEFAULT,
   customThemeEnabled: false,
   customTheme: DEFAULT_CUSTOM_THEME,
+  appOpacity: APP_OPACITY_DEFAULT,
   userThemePresets: [],
   formatOnSave: false,
   formatters: DEFAULT_FORMATTERS,
@@ -289,8 +321,7 @@ const PREFS_CHANGED_EVENT = "tedi://prefs-changed";
 
 async function writePref<T>(key: string, value: T): Promise<void> {
   await store.set(key, value);
-  await store.save();
-  await emit(PREFS_CHANGED_EVENT, { key, value });
+  await Promise.all([store.save(), emit(PREFS_CHANGED_EVENT, { key, value })]);
 }
 
 export async function loadPreferences(): Promise<Preferences> {
@@ -340,6 +371,7 @@ export async function loadPreferences(): Promise<Preferences> {
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
     lastProviderId: get<string | null>(KEY_LAST_PROVIDER) ?? DEFAULT_PREFERENCES.lastProviderId,
     contentZoom: clampZoom(get<number>(KEY_CONTENT_ZOOM) ?? DEFAULT_PREFERENCES.contentZoom),
+    uiZoom: clampUiZoom(get<number>(KEY_UI_ZOOM) ?? DEFAULT_PREFERENCES.uiZoom),
     aiNotificationsEnabled:
       get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
     brandColor: normalizeBrandColor(get<string>(KEY_BRAND_COLOR)),
@@ -349,14 +381,16 @@ export async function loadPreferences(): Promise<Preferences> {
       get<unknown>(KEY_CUSTOM_THEME),
       DEFAULT_PREFERENCES.customTheme,
     ),
+    appOpacity: clampOpacity(get<number>(KEY_APP_OPACITY) ?? DEFAULT_PREFERENCES.appOpacity),
     userThemePresets: (() => {
       const raw = get<unknown>(KEY_USER_THEME_PRESETS);
       if (!Array.isArray(raw)) return DEFAULT_PREFERENCES.userThemePresets;
       // Normalise each entry through `normalizeCustomTheme` so a corrupt
       // / partial preset doesn't crash the settings page on load.
-      return raw
-        .map((entry) => normalizeCustomTheme(entry, DEFAULT_PREFERENCES.customTheme))
-        .filter((p) => typeof p.name === "string" && p.name.length > 0);
+      return raw.flatMap((entry) => {
+        const p = normalizeCustomTheme(entry, DEFAULT_PREFERENCES.customTheme);
+        return typeof p.name === "string" && p.name.length > 0 ? [p] : [];
+      });
     })(),
     formatOnSave: get<boolean>(KEY_FORMAT_ON_SAVE) ?? DEFAULT_PREFERENCES.formatOnSave,
     formatters: normalizeFormatters(get<unknown>(KEY_FORMATTERS)),
@@ -389,8 +423,22 @@ function clampZoom(value: number): number {
   return Math.min(CONTENT_ZOOM_MAX, Math.max(CONTENT_ZOOM_MIN, value));
 }
 
+function clampUiZoom(value: number): number {
+  if (!Number.isFinite(value)) return UI_ZOOM_DEFAULT;
+  return Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, value));
+}
+
+export function clampOpacity(value: number): number {
+  if (!Number.isFinite(value)) return APP_OPACITY_DEFAULT;
+  return Math.min(APP_OPACITY_MAX, Math.max(APP_OPACITY_MIN, value));
+}
+
 export async function setTheme(value: ThemePref): Promise<void> {
   await writePref(KEY_THEME, value);
+}
+
+export async function setAppOpacity(value: number): Promise<void> {
+  await writePref(KEY_APP_OPACITY, clampOpacity(value));
 }
 
 export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
@@ -511,6 +559,10 @@ export async function setContentZoom(value: number): Promise<void> {
   await writePref(KEY_CONTENT_ZOOM, clampZoom(value));
 }
 
+export async function setUiZoom(value: number): Promise<void> {
+  await writePref(KEY_UI_ZOOM, clampUiZoom(value));
+}
+
 export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_AI_NOTIFICATIONS_ENABLED, value);
 }
@@ -590,9 +642,7 @@ export async function consumePendingPresetRequest(): Promise<string | null> {
  */
 export async function _writeAny(key: string, value: unknown): Promise<void> {
   if (!key.startsWith("ext:")) {
-    throw new Error(
-      `settings._writeAny can only write namespaced extension keys, got "${key}"`,
-    );
+    throw new Error(`settings._writeAny can only write namespaced extension keys, got "${key}"`);
   }
   await writePref(key, value);
 }
@@ -600,22 +650,20 @@ export async function _writeAny(key: string, value: unknown): Promise<void> {
 /** Reader for ext-namespaced keys. `loadPreferences()` ignores them. */
 export async function _readAny<T = unknown>(key: string): Promise<T | undefined> {
   if (!key.startsWith("ext:")) {
-    throw new Error(
-      `settings._readAny can only read namespaced extension keys, got "${key}"`,
-    );
+    throw new Error(`settings._readAny can only read namespaced extension keys, got "${key}"`);
   }
   const v = await store.get<T>(key);
   return v ?? undefined;
 }
 
 /** Subscribe to changes of any key, typed or namespaced. Used by the extension host's `tedi.settings.onChange`. */
-export async function _onAnyChange(
-  cb: (key: string, value: unknown) => void,
-): Promise<UnlistenFn> {
-  const unsubLocal = await store.onChange<unknown>((key, value) => cb(key, value));
-  const unsubEvent = await listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
-    cb(e.payload.key, e.payload.value);
-  });
+export async function _onAnyChange(cb: (key: string, value: unknown) => void): Promise<UnlistenFn> {
+  const [unsubLocal, unsubEvent] = await Promise.all([
+    store.onChange<unknown>((key, value) => cb(key, value)),
+    listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
+      cb(e.payload.key, e.payload.value);
+    }),
+  ]);
   return () => {
     unsubLocal();
     unsubEvent();
@@ -671,6 +719,7 @@ export async function onPreferencesChange(
     [KEY_LAST_MODEL]: "lastModelId",
     [KEY_LAST_PROVIDER]: "lastProviderId",
     [KEY_CONTENT_ZOOM]: "contentZoom",
+    [KEY_UI_ZOOM]: "uiZoom",
     [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
     [KEY_BRAND_COLOR]: "brandColor",
     [KEY_CUSTOM_THEME_ENABLED]: "customThemeEnabled",
@@ -679,14 +728,16 @@ export async function onPreferencesChange(
     [KEY_FORMATTERS]: "formatters",
   };
   // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
-  const unsubLocal = await store.onChange<unknown>((key, value) => {
-    const mapped = map[key];
-    if (mapped) cb(mapped, value);
-  });
-  const unsubEvent = await listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
-    const mapped = map[e.payload.key];
-    if (mapped) cb(mapped, e.payload.value);
-  });
+  const [unsubLocal, unsubEvent] = await Promise.all([
+    store.onChange<unknown>((key, value) => {
+      const mapped = map[key];
+      if (mapped) cb(mapped, value);
+    }),
+    listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
+      const mapped = map[e.payload.key];
+      if (mapped) cb(mapped, e.payload.value);
+    }),
+  ]);
   return () => {
     unsubLocal();
     unsubEvent();

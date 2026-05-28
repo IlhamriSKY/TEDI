@@ -69,11 +69,13 @@ export function buildTerminalTheme(): ITheme {
 function resolveCanvasBackground(fallback: string): string {
   if (typeof document === "undefined") return fallback;
   const root = document.documentElement;
-  if (root.dataset.tediBg !== "on") return fallback;
+  // Transparency is owned by the single "App opacity" control
+  // (`data-tedi-glass` + `--tedi-app-opacity`). When off, the canvas is solid.
+  if (root.dataset.tediGlass !== "on") return fallback;
   const cs = getComputedStyle(root);
   const canvasBg = cs.getPropertyValue("--tedi-canvas-bg").trim();
-  const alpha = parseFloat(cs.getPropertyValue("--tedi-canvas-alpha").trim() || "1");
   if (!canvasBg) return fallback;
+  const alpha = parseFloat(cs.getPropertyValue("--tedi-app-opacity").trim() || "1");
   const a = isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1;
   return hexToRgba(canvasBg, a) ?? fallback;
 }

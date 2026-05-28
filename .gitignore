@@ -36,6 +36,9 @@ Thumbs.db
 !.env.example
 .claude
 
+# react-doctor: local-only scan config (rule policy kept off the repo)
+react-doctor.config.json
+
 # Project-local working files
 /icon.png
 TODO.MD

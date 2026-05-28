@@ -26,7 +26,11 @@ import {
 } from "@/modules/ssh/connections";
 import { openSsh, isHostKeyMismatchError } from "@/modules/ssh/bridge";
 import type { SshStatus } from "@/modules/ssh/status";
-import { createAiCliDetector, cursorLineLooksLikeShellPrompt, type AiCliDetector } from "./aiCliDetector";
+import {
+  createAiCliDetector,
+  cursorLineLooksLikeShellPrompt,
+  type AiCliDetector,
+} from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
 
 export type { TediOpenInput, TediSpawnTabInput };
@@ -210,10 +214,15 @@ function effectiveTerminalFontSize(base: number, zoom: number): number {
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, raw));
 }
 
-/** True when the Theme tab's wallpaper is currently painted. */
+/**
+ * True when the terminal canvas should be semi-transparent, i.e. the single
+ * "App opacity" control is active (`data-tedi-glass`). Drives the switch to
+ * the DOM renderer + an rgba background (the WebGL renderer dims foreground
+ * glyphs when the background has alpha < 1, xterm.js #4054).
+ */
 function wallpaperActive(): boolean {
   if (typeof document === "undefined") return false;
-  return document.documentElement.dataset.tediBg === "on";
+  return document.documentElement.dataset.tediGlass === "on";
 }
 
 /**
@@ -248,6 +257,27 @@ function syncRendererForWallpaper(s: Session): void {
     }
     s.webglAddon = null;
   }
+}
+
+// Live-refresh every terminal's rgba background when the "App opacity" slider
+// moves (`appOpacity.ts` dispatches `tedi:canvas-opacity`). rAF-throttled so a
+// fast drag re-themes at most once per frame, and the renderer only toggles
+// when crossing the glass on/off edge (not during a 0..1 drag). Keeps the
+// terminal in sync with the CSS surfaces without a write/IPC per pixel.
+if (typeof window !== "undefined") {
+  let scheduled = false;
+  window.addEventListener("tedi:canvas-opacity", () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      for (const s of sessions.values()) {
+        syncRendererForWallpaper(s);
+        s.term.options.theme = buildTerminalTheme();
+        s.term.refresh(0, s.term.rows - 1);
+      }
+    });
+  });
 }
 
 function ensureSession(

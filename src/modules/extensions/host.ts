@@ -364,8 +364,10 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     iconRoots.clear();
   });
 
-  const { getAppContext, subscribeAppContext } = await import("./appBridge");
-  const os = await detectOs();
+  const [{ getAppContext, subscribeAppContext }, os] = await Promise.all([
+    import("./appBridge"),
+    detectOs(),
+  ]);
 
   const context: ExtensionContext = {
     id: ext.id,

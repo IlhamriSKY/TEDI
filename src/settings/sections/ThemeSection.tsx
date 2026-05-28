@@ -7,10 +7,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
+  APP_OPACITY_MAX,
+  APP_OPACITY_MIN,
+  APP_OPACITY_STEP,
+  setAppOpacity,
   setCustomTheme,
   setCustomThemeEnabled,
   setUserThemePresets,
 } from "@/modules/settings/store";
+import { previewAppOpacity } from "@/modules/settings/appOpacity";
 import {
   parseThemeFile,
   serializeThemeFile,
@@ -111,13 +116,11 @@ type Group = (typeof GROUPS)[number];
 
 const HEX6_RE = /^#[0-9a-fA-F]{6}$/;
 
-function ColorSwatch({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-}) {
+// Opacity to drop to when a wallpaper is first activated while the app is
+// fully solid, so the image is clearly visible without manual fiddling.
+const WALLPAPER_REVEAL_OPACITY = 0.5;
+
+function ColorSwatch({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   // Defensive default: if a freshly added token is missing from a legacy
   // stored theme, surface as black instead of throwing on `HEX6_RE.test`.
   const safeValue = typeof value === "string" && value.length > 0 ? value : "#000000";
@@ -153,6 +156,7 @@ function ColorSwatch({
   };
   useEffect(() => {
     return () => {
+      // Read at cleanup time on purpose: cancels whichever frame is pending.
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -182,7 +186,7 @@ function ColorSwatch({
             setDraft(v);
             scheduleCommit(v);
           }}
-          className="h-24 w-full cursor-pointer border border-border/60 bg-transparent p-0"
+          className="border-border/60 h-24 w-full cursor-pointer border bg-transparent p-0"
           aria-label="Color picker"
         />
         <Input
@@ -213,6 +217,12 @@ export function ThemeSection() {
   const enabled = usePreferencesStore((s) => s.customThemeEnabled);
   const theme = usePreferencesStore((s) => s.customTheme);
   const userPresets = usePreferencesStore((s) => s.userThemePresets);
+  const appOpacity = usePreferencesStore((s) => s.appOpacity);
+  // Live % while dragging the transparency slider (committed value persists).
+  const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
+  // Throttle the persist-while-dragging so the value sticks even if the
+  // commit event is missed, without writing on every tick.
+  const lastOpacityPersistRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bgError, setBgError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -250,6 +260,16 @@ export function ThemeSection() {
       background: { ...theme.background, ...patch },
     };
     void setCustomTheme(next);
+  };
+
+  // A wallpaper only shows through translucent surfaces, and surfaces are only
+  // translucent when the custom theme is on AND opacity < 100%. So whenever a
+  // wallpaper becomes active, enable the custom theme and (if still fully
+  // solid) drop opacity so the image is visible right away instead of looking
+  // like nothing happened.
+  const ensureWallpaperVisible = () => {
+    if (!enabled) void setCustomThemeEnabled(true);
+    if (appOpacity >= APP_OPACITY_MAX) void setAppOpacity(WALLPAPER_REVEAL_OPACITY);
   };
 
   const onPickPreset = (preset: CustomTheme) => {
@@ -330,6 +350,7 @@ export function ThemeSection() {
       const result = await invoke<ReadResult>("fs_read_file", { path });
       if (result.kind === "image") {
         updateBackground({ enabled: true, path, dataUrl: result.dataUrl });
+        ensureWallpaperVisible();
       } else if (result.kind === "toolarge") {
         setBgError(
           `Image is ${(result.size / (1024 * 1024)).toFixed(1)} MB, over the ${(
@@ -363,6 +384,7 @@ export function ThemeSection() {
       return;
     }
     updateBackground({ enabled: true, path: url, dataUrl: url });
+    ensureWallpaperVisible();
     setBgUrlDraft("");
   };
 
@@ -441,7 +463,10 @@ export function ThemeSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionHeader title="Theme" description="Customise every color and add a background image." />
+      <SectionHeader
+        title="Theme"
+        description="Customise every color and add a background image."
+      />
 
       <SettingRow
         title="Enable custom theme"
@@ -534,35 +559,43 @@ export function ThemeSection() {
                   onClick={() => onPickPreset(p)}
                   aria-pressed={active}
                   className={cn(
-                    "flex w-full items-center gap-2 border bg-card/60 px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "bg-card/60 focus-visible:ring-ring/40 flex w-full items-center gap-2 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
                     active
-                      ? "border-primary ring-1 ring-primary/40"
+                      ? "border-primary ring-primary/40 ring-1"
                       : "border-border/60 hover:border-border",
                   )}
                 >
                   <div
                     aria-hidden
-                    className="flex flex-col shrink-0 overflow-hidden border border-border/40"
+                    className="border-border/40 flex shrink-0 flex-col overflow-hidden border"
                     style={{ width: 52, height: 24 }}
                   >
                     <div className="flex h-1/2 w-full">
                       {[p.light.background, p.light.button, p.light.accent, p.light.foreground].map(
                         (c, i) => (
-                          <span key={`l-${i}`} className="h-full flex-1" style={{ background: c }} />
+                          <span
+                            key={`l-${i}`}
+                            className="h-full flex-1"
+                            style={{ background: c }}
+                          />
                         ),
                       )}
                     </div>
                     <div className="flex h-1/2 w-full">
                       {[p.dark.background, p.dark.button, p.dark.accent, p.dark.foreground].map(
                         (c, i) => (
-                          <span key={`d-${i}`} className="h-full flex-1" style={{ background: c }} />
+                          <span
+                            key={`d-${i}`}
+                            className="h-full flex-1"
+                            style={{ background: c }}
+                          />
                         ),
                       )}
                     </div>
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[12px] font-medium">{p.name}</span>
-                    <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                    <span className="text-muted-foreground text-[10px] tracking-wider uppercase">
                       {deletable ? "your preset" : "light / dark"}
                     </span>
                   </div>
@@ -576,7 +609,7 @@ export function ThemeSection() {
                           e.stopPropagation();
                           onDeleteUserPreset(p.name);
                         }}
-                        className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border border-border/60 transition-colors group-hover:flex"
+                        className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex"
                         aria-label={`Delete preset ${p.name}`}
                       >
                         <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
@@ -637,10 +670,7 @@ export function ThemeSection() {
         </div>
         <div className="border-border/60 bg-card/60 grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
           {visibleFields.map((field) => (
-            <div
-              key={field.key}
-              className="flex items-center justify-between gap-3 px-2 py-1.5"
-            >
+            <div key={field.key} className="flex items-center justify-between gap-3 px-2 py-1.5">
               <span className="text-[11.5px]">{field.label}</span>
               <ColorSwatch
                 value={activeColors[field.key]}
@@ -652,7 +682,40 @@ export function ThemeSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Background image</Label>
+        <Label>Background &amp; transparency</Label>
+        {/* One opacity control for the whole app. 0% = fully see-through
+         *  (reveals the image below, or the desktop when none is set),
+         *  100% = solid. Each step writes + broadcasts the value, so the main
+         *  window fades live as you drag and the value sticks. */}
+        <div className="border-border/60 bg-card/60 flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
+          <CompactSliderRow
+            label="Opacity"
+            valueLabel={`${Math.round((opacityPreview ?? appOpacity) * 100)}%`}
+            value={appOpacity}
+            min={APP_OPACITY_MIN}
+            max={APP_OPACITY_MAX}
+            step={APP_OPACITY_STEP}
+            onPreview={(n) => {
+              setOpacityPreview(n); // live % label
+              previewAppOpacity(n); // live main-window fade (CSS only, no store write)
+              // Persist at most ~5x/sec so the value sticks even if the commit
+              // event is missed, without flooding/fighting the drag.
+              const now = Date.now();
+              if (now - lastOpacityPersistRef.current >= 200) {
+                lastOpacityPersistRef.current = now;
+                void setAppOpacity(n);
+              }
+            }}
+            onCommit={(n) => {
+              setOpacityPreview(null);
+              void setAppOpacity(n);
+            }}
+          />
+          <span className="text-muted-foreground text-[10.5px]">
+            0% = fully transparent (shows the image below, or your desktop). Applies to everything:
+            editor, terminal, SSH, diff, panels, menus, and extensions.
+          </span>
+        </div>
         {/* Unified source row: ONE input that accepts either a local file
          *  (via Browse) or a remote URL. Only one source is active at a
          *  time - picking a file replaces the URL; pasting a URL replaces
@@ -669,7 +732,7 @@ export function ThemeSection() {
                   onImportBackgroundUrl();
                 }
               }}
-              placeholder="Paste an image URL or click Browse for a local file"
+              placeholder="Paste an image, video (.mp4/.webm), or YouTube URL — or Browse for a local image"
               spellCheck={false}
               autoCapitalize="off"
               autoCorrect="off"
@@ -692,8 +755,8 @@ export function ThemeSection() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                Load the URL above as the wallpaper. URLs are fetched on demand
-                (not stored as base64).
+                Load the URL above as the wallpaper. URLs are fetched on demand (not stored as
+                base64).
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -709,8 +772,8 @@ export function ThemeSection() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                Pick a local image (PNG / JPG / WebP, max 10 MB). Inlined as a
-                data URI in your prefs.
+                Pick a local image (PNG / JPG / WebP, max 10 MB). Inlined as a data URI in your
+                prefs.
               </TooltipContent>
             </Tooltip>
             {theme.background.dataUrl ? (
@@ -732,7 +795,10 @@ export function ThemeSection() {
             <Switch
               checked={theme.background.enabled && !!theme.background.dataUrl}
               disabled={!theme.background.dataUrl}
-              onCheckedChange={(v) => updateBackground({ enabled: v })}
+              onCheckedChange={(v) => {
+                updateBackground({ enabled: v });
+                if (v) ensureWallpaperVisible();
+              }}
               aria-label="Toggle background image"
             />
           </div>
@@ -764,18 +830,6 @@ export function ThemeSection() {
                 if (el) el.style.filter = n > 0 ? `blur(${n}px)` : "";
               }}
               onCommit={(n) => updateBackground({ blur: n })}
-            />
-            <CompactSliderRow
-              label="Surface opacity"
-              valueLabel={`${Math.round(theme.background.surfaceOpacity * 100)}%`}
-              value={theme.background.surfaceOpacity}
-              min={0}
-              max={1}
-              step={0.05}
-              onPreview={(n) => {
-                document.documentElement.style.setProperty("--tedi-canvas-alpha", String(n));
-              }}
-              onCommit={(n) => updateBackground({ surfaceOpacity: n })}
             />
             <CompactSliderRow
               label="Darken"
@@ -834,6 +888,7 @@ export function ThemeSection() {
               ref={fileInputRef}
               type="file"
               accept=".tedi,.json,application/json"
+              aria-label="Import theme file"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -843,9 +898,7 @@ export function ThemeSection() {
             />
           </div>
         </SettingRow>
-        {importError ? (
-          <span className="text-destructive text-[10.5px]">{importError}</span>
-        ) : null}
+        {importError ? <span className="text-destructive text-[10.5px]">{importError}</span> : null}
         {importStatus ? (
           <span className="text-muted-foreground text-[10.5px]">{importStatus}</span>
         ) : null}
@@ -856,9 +909,7 @@ export function ThemeSection() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">
-      {children}
-    </span>
+    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }
 
@@ -886,7 +937,7 @@ function LiveSlider({
 }) {
   const safe = (v: unknown): number =>
     typeof v === "number" && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : min;
-  const [local, setLocal] = useState<number>(safe(value));
+  const [local, setLocal] = useState<number>(() => safe(value));
   const dragging = useRef(false);
   useEffect(() => {
     if (!dragging.current) setLocal(safe(value));
@@ -918,10 +969,12 @@ function LiveSlider({
 }
 
 function slug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "theme";
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "theme"
+  );
 }
 
 /**

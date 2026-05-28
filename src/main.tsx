@@ -11,6 +11,7 @@ import App from "./app/App";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
+import { applyAppOpacityFastPath } from "@/modules/settings/appOpacity";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
@@ -20,6 +21,9 @@ applyBrandColorFastPath();
 // Custom theme overrides brand color when active. Run after the brand fast
 // path so its CSS variables win on first paint.
 applyCustomThemeFastPath();
+// Whole-app glass: fade the canvas toward the desktop on first paint so there
+// is no opaque flash before hydration re-applies the stored value.
+applyAppOpacityFastPath();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);
 

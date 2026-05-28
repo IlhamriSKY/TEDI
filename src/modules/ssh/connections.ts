@@ -52,8 +52,7 @@ export async function listConnections(): Promise<SshConnection[]> {
 
 async function persist(list: SshConnection[]): Promise<void> {
   await store.set(STORE_KEY, list);
-  await store.save();
-  await emit(CHANGED_EVENT);
+  await Promise.all([store.save(), emit(CHANGED_EVENT)]);
 }
 
 export function newConnectionId(): string {

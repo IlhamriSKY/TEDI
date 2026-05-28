@@ -5,6 +5,9 @@ export type PaneId = number;
 
 export type SplitDir = "row" | "col";
 
+/** Drop edge for drag-and-drop pane moves. */
+export type PaneEdge = "left" | "right" | "top" | "bottom";
+
 export type TerminalLeafState = {
   leafKind: "terminal";
   cwd?: string;
@@ -336,6 +339,85 @@ export function reorderLeafInTree(
   });
   if (!changed) return tree;
   return { ...tree, children: newChildren };
+}
+
+/**
+ * Insert an existing `source` leaf as a sibling of `targetLeafId` on the
+ * given side. When the target's enclosing split already runs in `dir`, the
+ * leaf joins as a direct sibling; otherwise the target is wrapped in a fresh
+ * sub-split of that direction. `before` controls which side of the target the
+ * leaf lands on.
+ */
+function insertLeafBeside(
+  tree: PaneNode,
+  targetLeafId: PaneId,
+  source: PaneLeaf,
+  dir: SplitDir,
+  before: boolean,
+  newSplitId: PaneId,
+): PaneNode {
+  if (isLeaf(tree)) {
+    if (tree.id !== targetLeafId) return tree;
+    return {
+      kind: "split",
+      id: newSplitId,
+      dir,
+      children: before ? [source, tree] : [tree, source],
+    };
+  }
+  const idx = tree.children.findIndex((c) => isLeaf(c) && c.id === targetLeafId);
+  if (idx >= 0) {
+    if (tree.dir === dir) {
+      const insertAt = before ? idx : idx + 1;
+      return {
+        ...tree,
+        children: [...tree.children.slice(0, insertAt), source, ...tree.children.slice(insertAt)],
+      };
+    }
+    const wrapped: PaneNode = {
+      kind: "split",
+      id: newSplitId,
+      dir,
+      children: before ? [source, tree.children[idx]] : [tree.children[idx], source],
+    };
+    const next = [...tree.children];
+    next[idx] = wrapped;
+    return { ...tree, children: next };
+  }
+  return {
+    ...tree,
+    children: tree.children.map((c) =>
+      insertLeafBeside(c, targetLeafId, source, dir, before, newSplitId),
+    ),
+  };
+}
+
+/**
+ * Drag-and-drop move: relocate `sourceLeafId` so it sits on the `edge` side of
+ * `targetLeafId`. The leaf keeps its id and full state, so its attached PTY /
+ * editor session survives the move. `left`/`right` land in a row split,
+ * `top`/`bottom` in a column split; a target already inside a split of that
+ * direction gains the leaf as a direct sibling rather than nesting deeper. The
+ * result is normalized. Returns null on no-op (same leaf, missing id, or the
+ * removal would also drop the target).
+ */
+export function movePaneLeafToEdge(
+  tree: PaneNode,
+  sourceLeafId: PaneId,
+  targetLeafId: PaneId,
+  edge: PaneEdge,
+  newSplitId: PaneId,
+): PaneNode | null {
+  if (sourceLeafId === targetLeafId) return null;
+  const source = findLeaf(tree, sourceLeafId);
+  if (!source) return null;
+  if (!hasLeaf(tree, targetLeafId)) return null;
+  const without = removeLeaf(tree, sourceLeafId);
+  if (without === null || !hasLeaf(without, targetLeafId)) return null;
+  const dir: SplitDir = edge === "left" || edge === "right" ? "row" : "col";
+  const before = edge === "left" || edge === "top";
+  const inserted = insertLeafBeside(without, targetLeafId, source, dir, before, newSplitId);
+  return normalizePaneTree(inserted);
 }
 
 /**

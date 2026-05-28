@@ -184,15 +184,14 @@ function HeaderImpl({
   return (
     <div
       ref={rootRef}
+      data-tedi-header
       className="border-border/60 bg-card flex shrink-0 flex-col border-b select-none"
     >
       {/* Row 1: toolbar. Window controls and drag region scoped to this row. */}
       <div
         data-tauri-drag-region
         onMouseDown={onHeaderMouseDown}
-        className={`flex h-9 shrink-0 items-center gap-2 ${
-          IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"
-        }`}
+        className={`flex h-9 shrink-0 items-center gap-2 ${IS_MAC ? "pr-2 pl-20" : "pr-0 pl-2"}`}
       >
         <div className="flex shrink-0 items-center gap-0.5">
           <IconTooltip label="Toggle sidebar">
@@ -218,7 +217,6 @@ function HeaderImpl({
               <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
-
         </div>
 
         {/* Drag spacer between the left and right icon clusters. */}
@@ -238,7 +236,9 @@ function HeaderImpl({
               aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
               aria-pressed={mdPreviewToggle.active}
               className={`hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md ${
-                mdPreviewToggle.active ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+                mdPreviewToggle.active
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground"
               }`}
             >
               <HugeiconsIcon

@@ -143,7 +143,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     return out;
   }, [messages]);
   const allSnippets = useSnippetsStore((s) => s.snippets);
-  const [histIndex, setHistIndex] = useState<number | null>(null);
+  const histIndexRef = useRef<number | null>(null);
   const draftRef = useRef<{
     value: string;
     files: FileAttachment[];
@@ -152,7 +152,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const messageCount = messages?.length ?? 0;
   useEffect(() => {
     // New message or reset: clear nav cursor so the next ArrowUp starts at the newest.
-    setHistIndex(null);
+    histIndexRef.current = null;
   }, [messageCount]);
 
   useEffect(() => {
@@ -185,23 +185,26 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     //   `#` -> snippets plus tag-style commands (`init`, `plan`); they behave
     //          like persistent session tags, not one-shot actions.
     if (trigger.kind === "slash") {
-      return VISIBLE_SLASH_COMMANDS.filter(
-        (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
-      ).map((command) => ({ kind: "command", command }));
+      return VISIBLE_SLASH_COMMANDS.flatMap((command) =>
+        !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
+          ? [{ kind: "command" as const, command }]
+          : [],
+      );
     }
     // trigger.kind === "hash"
-    const hashCmds: PickerItem[] = HASH_COMMANDS.filter(
-      (c) => !q || c.name.includes(q) || c.label.toLowerCase().includes(q),
-    ).map((command) => ({ kind: "command", command }));
-    const snipItems: PickerItem[] = snippets
-      .filter(
-        (s) =>
-          !q ||
-          s.handle.includes(q) ||
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q),
-      )
-      .map((snippet) => ({ kind: "snippet", snippet }));
+    const hashCmds: PickerItem[] = HASH_COMMANDS.flatMap((command) =>
+      !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
+        ? [{ kind: "command", command }]
+        : [],
+    );
+    const snipItems: PickerItem[] = snippets.flatMap((snippet) =>
+      !q ||
+      snippet.handle.includes(q) ||
+      snippet.name.toLowerCase().includes(q) ||
+      snippet.description.toLowerCase().includes(q)
+        ? [{ kind: "snippet", snippet }]
+        : [],
+    );
     return [...hashCmds, ...snipItems];
   }, [trigger, snippets]);
 
@@ -330,32 +333,33 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   /** Returns true if the key was consumed. */
   const navHistory = (dir: "older" | "newer"): boolean => {
     if (history.length === 0) return false;
-    if (histIndex === null) {
+    const cur = histIndexRef.current;
+    if (cur === null) {
       if (dir !== "older") return false;
       draftRef.current = {
         value: c.value,
         files: c.files,
         snippets: c.pickedSnippets,
       };
-      setHistIndex(0);
+      histIndexRef.current = 0;
       applyEntry(history[0]);
       return true;
     }
     if (dir === "older") {
-      const next = Math.min(histIndex + 1, history.length - 1);
-      if (next === histIndex) return true; // at oldest; swallow key
-      setHistIndex(next);
+      const next = Math.min(cur + 1, history.length - 1);
+      if (next === cur) return true; // at oldest; swallow key
+      histIndexRef.current = next;
       applyEntry(history[next]);
       return true;
     }
     // newer
-    if (histIndex === 0) {
-      setHistIndex(null);
+    if (cur === 0) {
+      histIndexRef.current = null;
       applyEntry(null);
       return true;
     }
-    const next = histIndex - 1;
-    setHistIndex(next);
+    const next = cur - 1;
+    histIndexRef.current = next;
     applyEntry(history[next]);
     return true;
   };
@@ -377,7 +381,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       : null;
 
   return (
-    <div className="border-border/60 bg-background/40 shrink-0 border-t px-2 py-2">
+    <div className="border-border/60 bg-background/40 shrink-0 border-t p-2">
       <SessionHistoryDialog />
       <InfoModal />
       <div
@@ -414,10 +418,12 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
               <textarea
                 ref={c.textareaRef}
                 value={c.value}
+                aria-label="Message to the agent"
                 onChange={(e) => {
                   // Editing away from the historical text exits history-nav mode.
-                  if (histIndex !== null && e.target.value !== history[histIndex].body) {
-                    setHistIndex(null);
+                  const cur = histIndexRef.current;
+                  if (cur !== null && e.target.value !== history[cur].body) {
+                    histIndexRef.current = null;
                   }
                   c.setValue(e.target.value);
                 }}
@@ -477,7 +483,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                     !e.metaKey &&
                     !e.ctrlKey &&
                     !e.altKey &&
-                    histIndex !== null &&
+                    histIndexRef.current !== null &&
                     caretOnLastLine()
                   ) {
                     if (navHistory("newer")) {
@@ -485,16 +491,16 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                       return;
                     }
                   }
-                  if (e.key === "Escape" && histIndex !== null) {
+                  if (e.key === "Escape" && histIndexRef.current !== null) {
                     e.preventDefault();
-                    setHistIndex(null);
+                    histIndexRef.current = null;
                     applyEntry(null);
                     return;
                   }
                   if (e.key === "Enter" && !e.shiftKey) {
                     const isModEnter = e.ctrlKey || e.metaKey;
                     e.preventDefault();
-                    setHistIndex(null);
+                    histIndexRef.current = null;
                     if (c.isBusy) {
                       // Busy: only Ctrl/Cmd+Enter queues. Plain Enter is a
                       // no-op so key-mashing during streaming doesn't drop the draft.
