@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.10] - 28-05-2026
+
+### Added
+
+- **`manifest.engines.tedi` is enforced at install and at activate.** The Rust install pipeline ([`commands.rs`](src-tauri/src/modules/extensions/commands.rs), [`install.rs`](src-tauri/src/modules/extensions/install.rs)) now checks `satisfies()` right after parsing the manifest and refuses the extension with a `requires TEDI X.Y.Z` error - the staging directory is removed before returning so a half-installed extension can't linger. The frontend loader ([`loader.ts`](src/modules/extensions/loader.ts)) mirrors the same check at `activate()`, so a stale extension installed on an older build that's since been downgraded surfaces a toast and skips activation instead of silently breaking against a missing host API. A small shared semver helper ([`semver.ts`](src/modules/extensions/semver.ts) + `commands::satisfies`) accepts the constraint shapes every shipped extension actually uses (empty / `*`, `">=X.Y.Z"`, `">X.Y.Z"`, `"<=X.Y.Z"`, `"<X.Y.Z"`, and `"=X.Y.Z"` / plain `"X.Y.Z"` for exact). No npm semver dep pulled in.
+
+### Changed
+
+- **`mountFolderTree` split: `FolderTreeShell` lives in its own component file.** [`FolderTreeShell.tsx`](src/modules/extensions/components/FolderTreeShell.tsx) now owns the React tree, picker persistence, and workspace-switch reset that an extension mounts via `ctx.ui.mountFolderTree`. [`mountFolderTree.tsx`](src/modules/extensions/components/mountFolderTree.tsx) is reduced to a one-screen factory that creates the React root and forwards options. No behaviour change for extension authors.
+- **`react-doctor` dead-code sweep across UI primitives and modules.** Drops unused exports from the UI primitive barrels (`badgeVariants`, `buttonVariants`, `tabsListVariants`, `buttonGroupVariants`, `toggleVariants`), removes the `messagesToMarkdown` helper from `conversation.tsx`, deletes the unused `formatRelative` export from `SshStatusPill`, and tightens [`NewEditorDialog.tsx`](src/modules/editor/NewEditorDialog.tsx)'s focus-timeout to return a cleanup so a quick close/open cycle can't fire a stale focus. Tailwind class order normalised in `SshStatusPill` while passing through. `react-doctor` is pinned via `pnpm devDependency` with a `pnpm doctor` script so the next sweep is one command away. `pnpm-workspace.yaml` marks `msgpackr-extract` as a non-build dep to silence corepack's install nag.
+
 ## [0.3.9] - 28-05-2026
 
 ### Fixed
