@@ -450,6 +450,13 @@ export const OPENAI_COMPATIBLE_PRESETS: ReadonlyArray<{
 export const MAX_AGENT_STEPS = 15;
 export const TERMINAL_BUFFER_LINES = 300;
 
+/** Default plan-mode appendix. Lives here (with the other base prompt text) so
+ *  both the agent runtime and the prompt-override settings UI can reference it
+ *  as the reset-to-default baseline. The agent joins it to the system prompt
+ *  with a blank-line separator; the stored override holds only this body. */
+export const PLAN_MODE_PROMPT_BODY = `## PLAN MODE - ACTIVE
+Mutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
+
 export const SYSTEM_PROMPT = `You are TEDI, an AI engineer in a developer terminal. Do the work; don't narrate.
 
 # Environment
@@ -523,13 +530,14 @@ const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
 const LITE_MODEL_PATTERN =
   /\b(mini|nano|flash|haiku|lite|small|tiny|gemma|gpt-oss|qwen2?\.5-coder|coder-(?:1\.5|3|7)b|[1-9]b)\b/i;
 
-/** Pick the lite system prompt for small/fast/cheap models. Full ~3kB (~740
- *  tokens), lite ~1.5kB (~370 tokens). Anthropic caches the system message
- *  so it only matters on the first turn there; cache-less providers
- *  (Groq/Cerebras) feel it every turn. */
-export function getSystemPrompt(modelId: string | undefined): string {
-  if (!modelId) return SYSTEM_PROMPT;
-  if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return SYSTEM_PROMPT_LITE;
-  if (LITE_MODEL_PATTERN.test(modelId)) return SYSTEM_PROMPT_LITE;
-  return SYSTEM_PROMPT;
+/** Which system-prompt variant a model id resolves to. Full ~3kB (~740 tokens),
+ *  lite ~1.5kB (~370 tokens). Anthropic caches the system message so it only
+ *  matters on the first turn there; cache-less providers (Groq/Cerebras) feel
+ *  it every turn. The agent runtime keys the matching prompt-override default
+ *  (core vs core-lite) off this and resolves the actual text.  */
+export function pickSystemPromptVariant(modelId: string | undefined): "full" | "lite" {
+  if (!modelId) return "full";
+  if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return "lite";
+  if (LITE_MODEL_PATTERN.test(modelId)) return "lite";
+  return "full";
 }

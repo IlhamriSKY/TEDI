@@ -55,6 +55,7 @@ function tabToSaved(tab: Tab): SavedTab | null {
   if (tab.kind === "ai-diff") return null; // session-only
   if (tab.kind === "git-diff") return null; // session-only
   if (tab.kind === "ext") return null; // session-only — extension re-opens on demand
+  if (tab.kind === "scm") return null; // session-only — re-open from the panel / shortcut
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {

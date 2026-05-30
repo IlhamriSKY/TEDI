@@ -93,6 +93,29 @@ export type GitDiffTab = {
   changeStatus: GitChangeStatusTab;
   /** Bumps on Refresh so the pane re-reads HEAD and working tree. */
   reloadKey: number;
+  /**
+   * Per-commit diff mode. When `commitSha` is set the pane diffs the file at
+   * `commitSha` against `baseRev` (its first parent, or null for the root
+   * commit) instead of HEAD vs the working tree.
+   */
+  commitSha?: string;
+  baseRev?: string | null;
+  /** Previous repo-relative path for a renamed/copied file (left side at `baseRev`). */
+  oldRelative?: string | null;
+  /** Short SHA shown in the diff header. */
+  commitLabel?: string;
+};
+
+/**
+ * Full Source Control surface hosted in a tab (branch + working-tree changes,
+ * commit/push, and a commit-history graph with per-commit detail + diffs).
+ * Deduped to one instance; `openScmTab` focuses the existing tab. Content is
+ * driven by the live workspace root, so the tab carries no repo state itself.
+ */
+export type ScmTab = {
+  id: number;
+  kind: "scm";
+  title: string;
 };
 
 /**
@@ -131,7 +154,7 @@ export type ExtensionTab = {
   state?: ExtensionTabState;
 };
 
-export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab | ExtensionTab;
+export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab;
 
 export type TabPatch = Partial<{
   title: string;
@@ -563,15 +586,25 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       relative: string;
       repoPath: string;
       changeStatus: GitChangeStatusTab;
+      commitSha?: string;
+      baseRev?: string | null;
+      oldRelative?: string | null;
+      commitLabel?: string;
     }) => {
+      const commitSha = input.commitSha ?? undefined;
       let targetId: number | null = null;
       setTabs((curr) => {
+        // Working-tree diffs dedupe on (relative, repo); per-commit diffs also
+        // key on the commit so the same file at different commits coexist.
         const existing = curr.find(
           (t) =>
-            t.kind === "git-diff" && t.relative === input.relative && t.repoPath === input.repoPath,
+            t.kind === "git-diff" &&
+            t.relative === input.relative &&
+            t.repoPath === input.repoPath &&
+            (t.commitSha ?? undefined) === commitSha,
         );
         if (existing) {
-          // Bump reloadKey so the pane re-reads HEAD and working tree.
+          // Bump reloadKey so the pane re-reads its two sides.
           targetId = existing.id;
           return curr.map((t) =>
             t.id === existing.id && t.kind === "git-diff"
@@ -585,7 +618,9 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
         const id = nextIdRef.current++;
         targetId = id;
-        const title = `${basename(input.path)} (diff)`;
+        const title = commitSha
+          ? `${basename(input.path)} @ ${input.commitLabel ?? commitSha.slice(0, 7)}`
+          : `${basename(input.path)} (diff)`;
         return [
           ...curr,
           {
@@ -597,6 +632,14 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             repoPath: input.repoPath,
             changeStatus: input.changeStatus,
             reloadKey: 0,
+            ...(commitSha
+              ? {
+                  commitSha,
+                  baseRev: input.baseRev ?? null,
+                  oldRelative: input.oldRelative ?? null,
+                  commitLabel: input.commitLabel,
+                }
+              : {}),
           },
         ];
       });
@@ -605,6 +648,23 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     },
     [],
   );
+
+  /**
+   * Open (or focus) the single Source Control tab. Dedupes against
+   * `tabsRef.current` so `setActiveId` always lands even when the caller
+   * schedules other state updates first (see `openExtensionTab`).
+   */
+  const openScmTab = useCallback(() => {
+    const existing = tabsRef.current.find((t) => t.kind === "scm");
+    if (existing) {
+      setActiveId(existing.id);
+      return existing.id;
+    }
+    const id = nextIdRef.current++;
+    setTabs((curr) => [...curr, { id, kind: "scm", title: "Source Control" } satisfies ScmTab]);
+    setActiveId(id);
+    return id;
+  }, []);
 
   const newPreviewTab = useCallback((url: string) => {
     const id = nextIdRef.current++;
@@ -738,6 +798,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           };
         }
         if (x.kind === "ext") {
+          return {
+            ...x,
+            ...(patch.title !== undefined && { title: patch.title }),
+          };
+        }
+        if (x.kind === "scm") {
           return {
             ...x,
             ...(patch.title !== undefined && { title: patch.title }),
@@ -1309,6 +1375,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,
+    openScmTab,
     closeTab,
     updateTab,
     selectByIndex,

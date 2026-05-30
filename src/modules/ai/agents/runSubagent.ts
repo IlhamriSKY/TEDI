@@ -3,6 +3,13 @@ import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
 import { buildLanguageModel } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import type { ProviderKeys } from "../lib/keyring";
+import {
+  resolvePromptModel,
+  resolvePromptTemperature,
+  resolvePromptText,
+  type PromptId,
+} from "../lib/prompts";
+import { getPromptOverrides } from "../store/promptsStore";
 import type { ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
 import { buildSearchTools } from "../tools/search";
@@ -51,13 +58,22 @@ export async function runSubagent({
     if (t in readOnly) filtered[t] = readOnly[t];
   }
 
+  // User overrides: system prompt, model, and (opt-in) temperature per sub-agent.
+  const overrides = getPromptOverrides();
+  const promptId = `subagent:${type}` as PromptId;
+  const systemPrompt = resolvePromptText(overrides, promptId, def.systemPrompt);
+  // Model override defaults to the parent's model id so unconfigured sub-agents
+  // behave exactly as before.
+  const effectiveModelId = resolvePromptModel(overrides, promptId, modelId);
+  const temperature = resolvePromptTemperature(overrides, promptId);
+
   // Unknown ids fall back to SumoPod (runtime discovery via /v1/models).
   const info: ModelInfo =
-    tryGetModel(modelId) ??
+    tryGetModel(effectiveModelId) ??
     ({
-      id: modelId,
+      id: effectiveModelId,
       provider: "sumopod",
-      label: modelId,
+      label: effectiveModelId,
       hint: "SumoPod",
     } as ModelInfo);
 
@@ -68,7 +84,7 @@ export async function runSubagent({
 
   // Explicit messages so we can attach provider-cache markers (Experimental_Agent hides this).
   const baseMessages: ModelMessage[] = [
-    { role: "system", content: def.systemPrompt },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ];
   const messages = applyCacheBreakpoints(baseMessages, info.provider);
@@ -80,6 +96,7 @@ export async function runSubagent({
     messages,
     tools: filtered as never,
     stopWhen: stepCountIs(SUBAGENT_MAX_STEPS) as never,
+    ...(temperature !== undefined ? { temperature } : {}),
     abortSignal,
   } as never);
   const durationMs = Date.now() - start;

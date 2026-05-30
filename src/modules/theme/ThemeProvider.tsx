@@ -7,12 +7,21 @@ import {
   setTheme as persistTheme,
   type ThemePref,
 } from "@/modules/settings/store";
-import { applyBrandColor, applyBrandColorFastPath } from "@/modules/settings/brandColor";
-import { applyAppOpacity, onAppOpacityPreview } from "@/modules/settings/appOpacity";
+import {
+  applyBrandColor,
+  applyBrandColorFastPath,
+  readBrandShadow,
+} from "@/modules/settings/brandColor";
+import {
+  applyAppOpacity,
+  applyAppOpacityPreviewCss,
+  onAppOpacityPreview,
+} from "@/modules/settings/appOpacity";
 import {
   applyBackground,
   applyCustomTheme,
   normalizeCustomTheme,
+  onWallpaperPreview,
   type CustomTheme,
 } from "@/modules/settings/customTheme";
 import { DEFAULT_CUSTOM_THEME } from "@/modules/settings/themePresets";
@@ -121,10 +130,11 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         reconcileLayers(value);
       } else if (key === "customThemeEnabled" && typeof value === "boolean") {
         customStateRef.current = { ...customStateRef.current, enabled: value };
-        // Re-read brand from the store snapshot only when we need to fall back.
-        loadPreferences()
-          .then((p) => reconcileLayers(p.brandColor))
-          .catch((err) => console.error("ThemeProvider: enable-toggle reload failed", err));
+        // Reconcile synchronously: the disable/fallback branch only needs the
+        // brand hex, which is mirrored in localStorage by applyBrandColor and
+        // kept current by this same listener - so read the shadow instead of a
+        // full loadPreferences() IPC roundtrip on every toggle.
+        reconcileLayers(readBrandShadow());
       } else if (key === "customTheme" && value && typeof value === "object") {
         const normalized = normalizeCustomTheme(value, DEFAULT_CUSTOM_THEME);
         customStateRef.current = {
@@ -139,12 +149,23 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
       }
     });
     // Live drag preview from the settings opacity slider (transient, applies
-    // CSS only — no store write, so the slider thumb tracks smoothly).
-    const unlistenPreview = onAppOpacityPreview((v) => applyAppOpacity(v));
+    // CSS only — no store write, so the slider thumb tracks smoothly and we
+    // don't churn the localStorage shadow on every tick).
+    const unlistenPreview = onAppOpacityPreview((v) => applyAppOpacityPreviewCss(v));
+    // Live drag preview for the wallpaper blur/darken/opacity sliders. The
+    // settings window has no wallpaper layer of its own, so it broadcasts just
+    // the numbers; we merge them onto the wallpaper we already hold (no image
+    // blob crosses IPC) and re-run the same applyBackground path the commit uses.
+    const unlistenWallpaper = onWallpaperPreview((p) => {
+      const bg = customStateRef.current.theme?.background;
+      if (!bg) return;
+      applyBackground({ ...bg, blur: p.blur, darken: p.darken, opacity: p.opacity });
+    });
     return () => {
       alive = false;
       void unlistenP.then((fn) => fn());
       void unlistenPreview.then((fn) => fn());
+      void unlistenWallpaper.then((fn) => fn());
     };
   }, [reconcileLayers]);
 

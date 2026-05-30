@@ -5,8 +5,13 @@ import {
 } from "@/modules/ai/config";
 import { buildLanguageModel } from "@/modules/ai/lib/agent";
 import { EMPTY_PROVIDER_KEYS } from "@/modules/ai/lib/keyring";
+import { resolvePromptTemperature, resolvePromptText } from "@/modules/ai/lib/prompts";
+import { getPromptOverrides } from "@/modules/ai/store/promptsStore";
 import { generateText } from "ai";
 import { buildUserPrompt, COMPLETION_SYSTEM_PROMPT, type CompletionRequest } from "./prompt";
+
+/** Default visible-output temperature. Override-able per the prompt settings. */
+const DEFAULT_COMPLETION_TEMPERATURE = 0.2;
 
 export type CompletionDeps = {
   provider: AutocompleteProviderId;
@@ -41,14 +46,19 @@ export async function requestCompletion(
       }
     : undefined;
 
+  const overrides = getPromptOverrides();
+  const systemPrompt = resolvePromptText(overrides, "autocomplete", COMPLETION_SYSTEM_PROMPT);
+  const temperature =
+    resolvePromptTemperature(overrides, "autocomplete") ?? DEFAULT_COMPLETION_TEMPERATURE;
+
   const { text } = await generateText({
     model,
-    system: COMPLETION_SYSTEM_PROMPT,
+    system: systemPrompt,
     prompt: buildUserPrompt(req),
     maxOutputTokens: isReasoning ? MAX_OUTPUT_TOKENS_REASONING : MAX_OUTPUT_TOKENS_DEFAULT,
     maxRetries: 0,
     abortSignal: signal,
-    temperature: 0.2,
+    temperature,
     ...(providerOptions ? { providerOptions } : {}),
   });
 

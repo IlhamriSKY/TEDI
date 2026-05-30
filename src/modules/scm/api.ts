@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { GitCommit, GitStatus } from "./types";
+import type { CommitDetail, GitCommit, GitStatus } from "./types";
 
 /** Mirrors Rust `fs::file::ReadResult`. Kept in sync manually. */
 export type FileReadResult =
@@ -14,6 +14,15 @@ export function gitStatus(repoPath: string): Promise<GitStatus> {
 
 export function gitFileHead(repoPath: string, relative: string): Promise<FileReadResult> {
   return invoke<FileReadResult>("git_file_head", { repoPath, relative });
+}
+
+/** Read a file's blob at an arbitrary commit (`rev` is a hex SHA). */
+export function gitFileAt(
+  repoPath: string,
+  rev: string,
+  relative: string,
+): Promise<FileReadResult> {
+  return invoke<FileReadResult>("git_file_at", { repoPath, rev, relative });
 }
 
 export function gitDiscardFile(repoPath: string, relative: string): Promise<void> {
@@ -38,4 +47,8 @@ export function gitDiffFull(repoPath: string, maxBytes?: number): Promise<string
 
 export function gitLog(repoPath: string, limit?: number): Promise<GitCommit[]> {
   return invoke<GitCommit[]>("git_log", { repoPath, limit });
+}
+
+export function gitCommitDetail(repoPath: string, sha: string): Promise<CommitDetail> {
+  return invoke<CommitDetail>("git_commit_detail", { repoPath, sha });
 }

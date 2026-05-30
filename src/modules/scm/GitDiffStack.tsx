@@ -26,6 +26,10 @@ export function GitDiffStack({ tabs, activeId }: Props) {
               repoPath={t.repoPath}
               changeStatus={t.changeStatus}
               reloadKey={t.reloadKey}
+              commitSha={t.commitSha}
+              baseRev={t.baseRev}
+              oldRelative={t.oldRelative}
+              commitLabel={t.commitLabel}
             />
           </div>
         );

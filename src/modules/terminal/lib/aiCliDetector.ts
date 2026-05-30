@@ -305,6 +305,13 @@ function detectBlocking(content: string, lowerContent: string): boolean {
   return false;
 }
 
+// Background-agent / workflow progress line, e.g. "26/43 agents done". Claude
+// Code (and similar tools) hand control back to an interactive prompt while a
+// background workflow runs, so the spinner + "esc to interrupt" hints above the
+// input box are gone even though agents are still working. This line renders
+// *below* the input box, so detectWorking (above-box only) never sees it.
+const BACKGROUND_AGENTS_RE = /\b\d+\/\d+\s+agents?\s+done\b/i;
+
 // Live token counter like "↓ 279 tokens". Near-universal during streaming.
 const TOKEN_COUNTER_RE = /[↓↑⬇⬆]\s*\d[\d.,]*\s*(?:k|m)?\s*tokens?/i;
 // Status verb plus ellipsis or "(". Covers "Thinking..." without needing the spinner glyph.
@@ -543,6 +550,18 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       // Restores working detection for inline tools (claude v2.1+, opencode).
       const rateHit = isStreamingOutput();
 
+      // Background agents/workflows render their "N/M agents done" progress
+      // below the input box while the main prompt stays interactive, so
+      // detectWorking (above-box only) can't see them. Match the viewport and
+      // the recent PTY output (pane may be hidden), gated on fresh output so a
+      // stale completed line still in scrollback can't pin the badge to working.
+      let bgAgentsHit = false;
+      if (hasFreshOutput()) {
+        bgAgentsHit =
+          BACKGROUND_AGENTS_RE.test(content) ||
+          (recentOutput.length > 0 && BACKGROUND_AGENTS_RE.test(getRecentOutput()));
+      }
+
       // Blocking is checked against both the viewport and the recent PTY
       // output. The output buffer is the fallback when the pane is hidden
       // and xterm's write queue lags. Skip the fallback while the AI is
@@ -561,7 +580,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         // prompt while still showing "esc to cancel" or a token counter, so
         // both signals can fire together. `workingHit` only clears blocking
         // when blocking is absent; `blockingHit` refreshes last so it wins.
-        if (workingHit || rateHit) {
+        if (workingHit || rateHit || bgAgentsHit) {
           lastWorkingAt = now;
           hasSeenWorking = true;
           if (!blockingHit) lastBlockingAt = 0;

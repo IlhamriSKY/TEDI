@@ -10,6 +10,8 @@
  * `--primary` / `--ring` / `--accent`.
  */
 
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+
 export type ThemeColors = {
   /** App-wide canvas (`--background`). */
   background: string;
@@ -127,17 +129,18 @@ type ThemeBackground = {
   /** Gaussian blur on the wallpaper (0..40 px). */
   blur: number;
   /**
-   * How opaque the terminal + code editor + diff surface remain on top of
-   * the wallpaper (0..1). 1 = fully solid (image hidden in those panes),
-   * 0 = fully transparent (image fully visible behind text). Default 0.85.
-   */
-  surfaceOpacity: number;
-  /**
    * Dark overlay strength painted on top of the wallpaper (0..1). 0 = no
    * overlay, 1 = fully black. Higher values darken the image so light
    * text reads better over a busy picture.
    */
   darken: number;
+  /**
+   * Opacity of the wallpaper IMAGE layer itself (0..1). 1 = the image fully
+   * hides the desktop behind the (transparent) window; lower lets the desktop
+   * show THROUGH the image. Distinct from the app-wide `appOpacity`, which
+   * fades the UI surfaces toward this layer. Default 1.
+   */
+  opacity: number;
 };
 
 export type CustomTheme = {
@@ -372,18 +375,38 @@ export function applyBackground(bg: ThemeBackground): void {
   const el = ensureBgElement();
   if (!el) return;
 
+  // Opacity of the whole image layer: lets the desktop behind the (transparent)
+  // window show THROUGH the wallpaper. Applied to the layer so it covers the
+  // image, the darken overlay, and any video/iframe child uniformly.
+  el.style.opacity = String(Math.max(0, Math.min(1, bg.opacity ?? 1)));
+
   const clearMedia = () => el.querySelectorAll(`[${BG_MEDIA_ATTR}]`).forEach((n) => n.remove());
 
   if (!bg.enabled || !bg.dataUrl) {
-    el.style.display = "none";
     el.style.backgroundImage = "";
     el.style.filter = "";
     clearMedia();
     setDarkenOverlay(el, 0);
+    if (bg.enabled && !bg.dataUrl) {
+      // Wallpaper is configured but its data: blob hasn't been restored yet:
+      // the localStorage fast-path shadow strips data: URLs (see writeShadow),
+      // so the first frame after a reload has no image. Paint the theme canvas
+      // colour as a placeholder so glass surfaces fade toward the THEME
+      // background instead of the bare desktop bleeding through, until the
+      // async store load re-applies the real image. `--tedi-canvas-bg` is set
+      // synchronously on :root before this runs in the fast path.
+      el.style.display = "block";
+      el.style.backgroundColor = "var(--tedi-canvas-bg)";
+    } else {
+      el.style.display = "none";
+      el.style.backgroundColor = "";
+    }
     return;
   }
 
   el.style.display = "block";
+  // Clear any placeholder colour now that a real wallpaper is painting.
+  el.style.backgroundColor = "";
   const blur = bg.blur > 0 ? `blur(${Math.max(0, Math.min(40, bg.blur))}px)` : "";
   const darken = Math.max(0, Math.min(1, bg.darken ?? 0));
   const kind = detectBgKind(bg.dataUrl);
@@ -452,6 +475,38 @@ export function applyBackground(bg: ThemeBackground): void {
 }
 
 /**
+ * Transient cross-window channel for live wallpaper blur / darken / opacity
+ * dragging.
+ *
+ * The Theme settings UI runs in its OWN webview, which has no wallpaper layer
+ * (`applyBackground` removes it there). So a settings-side slider can't paint
+ * the real wallpaper directly - it broadcasts only the in-flight numeric values
+ * and the main window re-applies them against the wallpaper it already holds,
+ * mirroring the opacity slider's `previewAppOpacity` channel. Deliberately
+ * carries NO `dataUrl`: the image blob can be multiple MB, and serialising it
+ * over IPC on every drag tick (~60/s) would be very heavy - the main window
+ * already has it cached. No store write happens while dragging; the committed
+ * value persists on release via the normal `customTheme` path.
+ */
+const WALLPAPER_PREVIEW_EVENT = "tedi://wallpaper-preview";
+
+export type WallpaperPreview = {
+  blur: number;
+  darken: number;
+  opacity: number;
+};
+
+/** Settings window: broadcast in-flight blur/darken/opacity for the main window. */
+export function previewWallpaper(p: WallpaperPreview): void {
+  void emit(WALLPAPER_PREVIEW_EVENT, p);
+}
+
+/** Main window: subscribe to live wallpaper blur/darken/opacity previews. */
+export function onWallpaperPreview(cb: (p: WallpaperPreview) => void): Promise<UnlistenFn> {
+  return listen<WallpaperPreview>(WALLPAPER_PREVIEW_EVENT, (e) => cb(e.payload));
+}
+
+/**
  * Apply a `CustomTheme`'s colours to the document. Pass `null` to clear
  * overrides and let the base CSS variables (and `brandColor`) take over again.
  * The wallpaper image is handled separately by `applyBackground` so it is not
@@ -504,8 +559,8 @@ export function applyCustomThemeFastPath(): void {
       path: "",
       dataUrl: "",
       blur: 0,
-      surfaceOpacity: 0.85,
       darken: 0,
+      opacity: 1,
     },
   };
   const normalized = normalizeCustomTheme(cached, defaults);
@@ -676,8 +731,8 @@ export function normalizeCustomTheme(loaded: unknown, defaults: CustomTheme): Cu
       path: typeof bg.path === "string" ? bg.path : defaults.background.path,
       dataUrl: typeof bg.dataUrl === "string" ? bg.dataUrl : defaults.background.dataUrl,
       blur: clampRange(bg.blur, 0, 40, defaults.background.blur),
-      surfaceOpacity: clamp01(bg.surfaceOpacity, defaults.background.surfaceOpacity),
       darken: clamp01(bg.darken, defaults.background.darken),
+      opacity: clamp01(bg.opacity, defaults.background.opacity),
     },
   };
 }

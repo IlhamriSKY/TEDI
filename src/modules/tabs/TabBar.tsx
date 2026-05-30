@@ -39,6 +39,7 @@ import {
   CloudServerIcon,
   ComputerTerminal02Icon,
   Database01Icon,
+  GitBranchIcon,
   GitCompareIcon,
   Globe02Icon,
   LayoutTwoColumnIcon,
@@ -105,7 +106,7 @@ type PaneEntry = EntryBase & {
 };
 
 type StandaloneEntry = EntryBase & {
-  kind: "preview" | "ai-diff" | "git-diff";
+  kind: "preview" | "ai-diff" | "git-diff" | "scm";
 };
 
 type ExtensionEntry = EntryBase & {
@@ -144,6 +145,7 @@ function tabAccentClass(e: Entry): string {
   if (e.kind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
   if (e.kind === "git-diff") return "bg-[color:var(--tedi-tab-git-diff)]";
+  if (e.kind === "scm") return "bg-[color:var(--tedi-tab-git-diff)]";
   // Extension tab. Reuse the SSH accent (sky blue) so workbench-style
   // extensions read as "remote-ish dev tools" next to terminal tabs.
   return "bg-[color:var(--tedi-tab-ssh)]";
@@ -263,6 +265,15 @@ function buildEntries(
     if (t.kind === "git-diff") {
       out.push({
         kind: "git-diff",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    if (t.kind === "scm") {
+      out.push({
+        kind: "scm",
         key: `tab-${t.id}`,
         tabId: t.id,
         label: t.title,
@@ -1459,6 +1470,16 @@ function EntryIcon({ entry }: { entry: Entry }) {
     const found = m ? tryGetHugeIcon(m[1]) : null;
     const iconValue: Parameters<typeof HugeiconsIcon>[0]["icon"] = found ?? Database01Icon;
     return <HugeiconsIcon icon={iconValue} size={14} strokeWidth={2} className="shrink-0" />;
+  }
+  if (entry.kind === "scm") {
+    return (
+      <HugeiconsIcon
+        icon={GitBranchIcon}
+        size={14}
+        strokeWidth={2}
+        className="text-icon-working shrink-0"
+      />
+    );
   }
   return (
     <HugeiconsIcon

@@ -7,6 +7,8 @@ import {
   tryGetModel,
   type ProviderId,
 } from "@/modules/ai/config";
+import { resolvePromptText } from "@/modules/ai/lib/prompts";
+import { getPromptOverrides } from "@/modules/ai/store/promptsStore";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ProviderKeys } from "@/modules/ai/lib/keyring";
@@ -25,7 +27,7 @@ const MAX_OUTPUT_TOKENS = 4096;
 /** Model call timeout. Falls back to a deterministic message rather than hang. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-const SYSTEM_PROMPT = `You write a single Conventional Commit message for the diff provided by the user.
+export const COMMIT_SYSTEM_PROMPT = `You write a single Conventional Commit message for the diff provided by the user.
 
 OUTPUT RULES (must follow exactly):
 - ONE line only - no body, no bullet points, no preamble, no closing remarks.
@@ -240,7 +242,7 @@ export async function generateCommitMessage(input: {
     // backends reject sampling params with a 400.
     const result = await generateText({
       model,
-      system: SYSTEM_PROMPT,
+      system: resolvePromptText(getPromptOverrides(), "commit", COMMIT_SYSTEM_PROMPT),
       prompt: `<diff>\n${diff}\n</diff>`,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: controller.signal,

@@ -43,10 +43,11 @@ function isSettingsWindow(): boolean {
  * toggle `data-tedi-glass`, which globals.css uses to fade the canvas +
  * surfaces. Settings window opts out so its controls stay readable.
  */
-export function applyAppOpacity(opacity: number): void {
-  if (typeof document === "undefined") return;
-  const value = clampOpacity(opacity);
-  writeShadow(value);
+/**
+ * CSS-only apply: set the var + glass attr + nudge the terminal canvases. No
+ * persistence. Settings window opts out so its controls stay solid/readable.
+ */
+function applyOpacityCss(value: number): void {
   if (isSettingsWindow()) return;
   const root = document.documentElement;
   root.style.setProperty("--tedi-app-opacity", String(value));
@@ -55,6 +56,26 @@ export function applyAppOpacity(opacity: number): void {
   // Surfaces follow the CSS var instantly; nudge the terminal canvases too
   // (their rgba background is JS-rendered). Listener is rAF-throttled.
   window.dispatchEvent(new Event("tedi:canvas-opacity"));
+}
+
+export function applyAppOpacity(opacity: number): void {
+  if (typeof document === "undefined") return;
+  const value = clampOpacity(opacity);
+  // Persist the fast-path shadow before the settings-window opt-out so the
+  // next-boot first paint reflects the committed value regardless of which
+  // window wrote it.
+  writeShadow(value);
+  applyOpacityCss(value);
+}
+
+/**
+ * Transient drag-preview apply: CSS only, NEVER persisted. The shadow only
+ * needs the committed value (written by `setAppOpacity` on release), so the
+ * live-drag path skips the per-tick localStorage write.
+ */
+export function applyAppOpacityPreviewCss(value: number): void {
+  if (typeof document === "undefined") return;
+  applyOpacityCss(clampOpacity(value));
 }
 
 /**

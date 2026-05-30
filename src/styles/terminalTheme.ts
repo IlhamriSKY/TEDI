@@ -45,7 +45,10 @@ export function buildTerminalTheme(): ITheme {
     background: bg,
     foreground: t.foreground,
     cursor: t.foreground,
-    cursorAccent: t.background,
+    // The glyph under a block cursor must stay OPAQUE. Under glass `--background`
+    // is forced transparent, so reading `t.background` here would make the
+    // character invisible; resolve the SOLID canvas colour instead (no alpha).
+    cursorAccent: resolveCanvasSolid(t.background),
     selectionBackground: t.accent,
     black: t["tedi-ansi-black"],
     red: t["tedi-ansi-red"],
@@ -66,7 +69,7 @@ export function buildTerminalTheme(): ITheme {
   };
 }
 
-function resolveCanvasBackground(fallback: string): string {
+export function resolveCanvasBackground(fallback: string): string {
   if (typeof document === "undefined") return fallback;
   const root = document.documentElement;
   // Transparency is owned by the single "App opacity" control
@@ -78,6 +81,19 @@ function resolveCanvasBackground(fallback: string): string {
   const alpha = parseFloat(cs.getPropertyValue("--tedi-app-opacity").trim() || "1");
   const a = isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1;
   return hexToRgba(canvasBg, a) ?? fallback;
+}
+
+/**
+ * Solid (alpha = 1) canvas colour for the active theme. Unlike
+ * `resolveCanvasBackground` this never applies the opacity alpha - used for the
+ * block-cursor glyph fill which must stay opaque even under glass.
+ */
+function resolveCanvasSolid(fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const canvasBg = getComputedStyle(document.documentElement)
+    .getPropertyValue("--tedi-canvas-bg")
+    .trim();
+  return canvasBg || fallback;
 }
 
 /** `#rrggbb` -> `rgba(r, g, b, alpha)`. Returns null when not a 6-digit hex. */

@@ -11,15 +11,26 @@ import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
 import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
 import type { GitChangeStatusTab } from "@/modules/tabs";
-import { gitFileHead, type FileReadResult } from "./api";
+import { gitFileAt, gitFileHead, type FileReadResult } from "./api";
 
 type Props = {
   path: string;
   relative: string;
   repoPath: string;
   changeStatus: GitChangeStatusTab;
-  /** Bump to force re-read of HEAD and working-tree content. */
+  /** Bump to force re-read of both sides. */
   reloadKey: number;
+  /**
+   * Per-commit diff mode. When set, the left side reads the file at `baseRev`
+   * (the commit's first parent, or null for the root commit) and the right
+   * side reads it at `commitSha`, instead of HEAD vs the working tree.
+   */
+  commitSha?: string;
+  baseRev?: string | null;
+  /** Previous path for a renamed/copied file (left side at `baseRev`). */
+  oldRelative?: string | null;
+  /** Short SHA shown in the header. */
+  commitLabel?: string;
 };
 
 const EMPTY_TEXT: FileReadResult = { kind: "text", content: "", size: 0 };
@@ -72,7 +83,17 @@ const STATUS_VARIANT: Record<
   ignored: "outline",
 };
 
-export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey }: Props) {
+export function GitDiffPane({
+  path,
+  relative,
+  repoPath,
+  changeStatus,
+  reloadKey,
+  commitSha,
+  baseRev,
+  oldRelative,
+  commitLabel,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mergeRef = useRef<MergeView | null>(null);
   const langA = useRef(new Compartment()).current;
@@ -113,19 +134,29 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
   const [rulerWidthA, setRulerWidthA] = useState(0);
   const [rulerWidthB, setRulerWidthB] = useState(0);
 
-  // Load HEAD and working-tree content on target or reloadKey change.
+  // Load both diff sides on target or reloadKey change. Working-tree mode:
+  // HEAD blob vs the on-disk file. Per-commit mode: the file at the parent
+  // vs the file at the commit.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    const loadOriginal: Promise<FileReadResult> =
-      changeStatus === "untracked" || changeStatus === "added"
+    const loadOriginal: Promise<FileReadResult> = commitSha
+      ? baseRev && changeStatus !== "added"
+        ? gitFileAt(repoPath, baseRev, oldRelative ?? relative).catch(() => EMPTY_TEXT)
+        : Promise.resolve(EMPTY_TEXT)
+      : changeStatus === "untracked" || changeStatus === "added"
         ? Promise.resolve(EMPTY_TEXT)
         : gitFileHead(repoPath, relative).catch(() => EMPTY_TEXT);
 
-    const loadCurrent: Promise<FileReadResult> =
-      changeStatus === "deleted" ? Promise.resolve(EMPTY_TEXT) : readFileFull(path);
+    const loadCurrent: Promise<FileReadResult> = commitSha
+      ? changeStatus !== "deleted"
+        ? gitFileAt(repoPath, commitSha, relative).catch(() => EMPTY_TEXT)
+        : Promise.resolve(EMPTY_TEXT)
+      : changeStatus === "deleted"
+        ? Promise.resolve(EMPTY_TEXT)
+        : readFileFull(path);
 
     Promise.all([loadOriginal, loadCurrent])
       .then(([orig, curr]) => {
@@ -142,7 +173,7 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
     return () => {
       cancelled = true;
     };
-  }, [repoPath, relative, path, changeStatus, reloadKey]);
+  }, [repoPath, relative, path, changeStatus, reloadKey, commitSha, baseRev, oldRelative]);
 
   const nonText = useMemo(() => {
     if (!content) return false;
@@ -348,9 +379,9 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
           ) : null}
         </div>
         <div className="text-muted-foreground/70 flex shrink-0 items-center gap-3 text-[10px] tracking-wide uppercase">
-          <span>HEAD</span>
+          <span>{commitSha ? (baseRev ? baseRev.slice(0, 7) : "(root)") : "HEAD"}</span>
           <span className="text-muted-foreground/30">→</span>
-          <span>Working tree</span>
+          <span>{commitSha ? (commitLabel ?? commitSha.slice(0, 7)) : "Working tree"}</span>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -363,7 +394,13 @@ export function GitDiffPane({ path, relative, repoPath, changeStatus, reloadKey 
             {error}
           </div>
         ) : nonText && content ? (
-          <NonTextDiff orig={content.orig} curr={content.curr} />
+          <NonTextDiff
+            orig={content.orig}
+            curr={content.curr}
+            commitSha={commitSha}
+            baseRev={baseRev}
+            commitLabel={commitLabel}
+          />
         ) : (
           <div ref={hostRef} className="h-full w-full" />
         )}
@@ -419,11 +456,33 @@ function formatBytes(n: number): string {
 }
 
 /** Side-by-side pane for images and binary blobs. Empty text (size 0) means "absent on this side". */
-function NonTextDiff({ orig, curr }: { orig: FileReadResult; curr: FileReadResult }) {
+function NonTextDiff({
+  orig,
+  curr,
+  commitSha,
+  baseRev,
+  commitLabel,
+}: {
+  orig: FileReadResult;
+  curr: FileReadResult;
+  commitSha?: string;
+  baseRev?: string | null;
+  commitLabel?: string;
+}) {
+  // Match the header's revision labels so an added/deleted binary names the
+  // right side: parent vs commit in per-commit mode, HEAD vs working tree otherwise.
+  const leftEmpty = commitSha
+    ? baseRev
+      ? `Not in ${baseRev.slice(0, 7)}`
+      : "Not in parent (root commit)"
+    : "No HEAD version";
+  const rightEmpty = commitSha
+    ? `Not in ${commitLabel ?? commitSha.slice(0, 7)}`
+    : "No working-tree file";
   return (
     <div className="grid h-full min-h-0 grid-cols-2 divide-x">
-      <NonTextSide side={orig} emptyLabel="No HEAD version" />
-      <NonTextSide side={curr} emptyLabel="No working-tree file" />
+      <NonTextSide side={orig} emptyLabel={leftEmpty} />
+      <NonTextSide side={curr} emptyLabel={rightEmpty} />
     </div>
   );
 }

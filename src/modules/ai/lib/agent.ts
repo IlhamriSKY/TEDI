@@ -11,12 +11,15 @@ import {
 import {
   DEFAULT_MODEL_ID,
   getModelContextLimit,
-  getSystemPrompt,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
+  pickSystemPromptVariant,
+  PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
   resolveOpenAICompatibleModel,
   SUMOPOD_BASE_URL,
+  SYSTEM_PROMPT,
+  SYSTEM_PROMPT_LITE,
   tryGetModel,
   type DynamicModelId,
   type ModelInfo,
@@ -27,6 +30,8 @@ import { buildTools, type ToolContext } from "../tools/tools";
 import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed, type CompactStages } from "./compact";
 import { HOST_PROMPT_LINE } from "./osTag";
+import { resolvePromptText, resolvePromptTemperature } from "./prompts";
+import { getPromptOverrides } from "../store/promptsStore";
 
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -191,8 +196,6 @@ export async function buildLanguageModel(
   return built;
 }
 
-const PLAN_MODE_PROMPT = `\n\n## PLAN MODE - ACTIVE\nMutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
-
 /** Fingerprint for a tool call. Sorts arg keys so equivalent inputs match. */
 function toolCallFingerprint(toolName: string, input: unknown): string {
   if (!input || typeof input !== "object") return `${toolName}::${JSON.stringify(input)}`;
@@ -268,7 +271,12 @@ function buildSystemPrompt(opts: {
   projectMemory?: string | null;
   planMode?: boolean;
 }): string {
-  const base = getSystemPrompt(opts.modelId);
+  // Resolve the core prompt: the user can override the full or compact variant
+  // independently, so the byte-stable lite/full token split survives overrides.
+  const overrides = getPromptOverrides();
+  const variant = pickSystemPromptVariant(opts.modelId);
+  const builtinBase = variant === "lite" ? SYSTEM_PROMPT_LITE : SYSTEM_PROMPT;
+  const base = resolvePromptText(overrides, variant === "lite" ? "core-lite" : "core", builtinBase);
   // Host tag is captured once at boot; prepending it keeps the prefix
   // byte-stable across turns for prompt caching.
   const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
@@ -282,7 +290,8 @@ function buildSystemPrompt(opts: {
     opts.projectMemory && opts.projectMemory.trim().length > 0
       ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
       : "";
-  const planBlock = opts.planMode ? PLAN_MODE_PROMPT : "";
+  const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
+  const planBlock = opts.planMode ? `\n\n${planBody}` : "";
   return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
 }
 
@@ -322,6 +331,10 @@ export async function runAgentStream(opts: RunAgentOptions) {
     projectMemory: opts.projectMemory,
     planMode: opts.planMode,
   });
+
+  // Optional main-agent temperature override. Only sent when the user set one,
+  // so reasoning models that reject sampling params stay untouched by default.
+  const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
   const history = await convertToModelMessages(opts.uiMessages);
   const compact = compactModelMessagesDetailed(history, getModelContextLimit(modelInfo.id));
@@ -378,6 +391,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
   return streamText({
     model,
     messages: finalMessages,
+    ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
     tools: buildTools(toolContextWithAbort),
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so

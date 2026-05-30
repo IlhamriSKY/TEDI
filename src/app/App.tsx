@@ -30,6 +30,7 @@ import {
 import { getOpenAICompatibleInstanceKey } from "@/modules/ai/lib/keyring";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
+import { usePromptsStore } from "@/modules/ai/store/promptsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import { setAppContext } from "@/modules/extensions/appBridge";
 import {
@@ -127,6 +128,9 @@ const SourceControlPanel = lazy(() =>
 );
 const GitDiffStack = lazy(() =>
   import("@/modules/scm/GitDiffStack").then((m) => ({ default: m.GitDiffStack })),
+);
+const ScmStack = lazy(() =>
+  import("@/modules/scm/ScmStack").then((m) => ({ default: m.ScmStack })),
 );
 const AiDiffStack = lazy(() =>
   import("@/modules/editor/AiDiffStack").then((m) => ({ default: m.AiDiffStack })),
@@ -286,6 +290,7 @@ export default function App() {
     openAiDiffTab,
     setAiDiffStatus,
     openGitDiffTab,
+    openScmTab,
     closeTab,
     updateTab,
     selectByIndex,
@@ -338,6 +343,7 @@ export default function App() {
   const hasPreviewTab = useMemo(() => tabs.some((t) => t.kind === "preview"), [tabs]);
   const hasAiDiffTab = useMemo(() => tabs.some((t) => t.kind === "ai-diff"), [tabs]);
   const hasGitDiffTab = useMemo(() => tabs.some((t) => t.kind === "git-diff"), [tabs]);
+  const hasScmTab = useMemo(() => tabs.some((t) => t.kind === "scm"), [tabs]);
   const hasExtensionTab = useMemo(() => tabs.some((t) => t.kind === "ext"), [tabs]);
 
   // Active leaf says what's focused in the current tab. Drives Search,
@@ -771,6 +777,10 @@ export default function App() {
   useEffect(() => {
     void hydrateSessions();
     void useAgentsStore.getState().hydrate();
+    // The agent runs in THIS (main) window; prompt overrides are saved from the
+    // separate Settings webview. Hydrate here so getPromptOverrides() sees them
+    // at runtime without waiting for the Settings panel to mount.
+    void usePromptsStore.getState().hydrate();
     void useSnippetsStore.getState().hydrate();
   }, [hydrateSessions]);
 
@@ -1856,6 +1866,9 @@ export default function App() {
       },
       "ai.toggle": togglePanelAndFocus,
       "ai.askSelection": askFromSelection,
+      "scm.open": () => {
+        openScmTab();
+      },
       "shortcuts.open": () => void openSettingsWindow("shortcuts"),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
@@ -1953,6 +1966,7 @@ export default function App() {
       togglePanelAndFocus,
       askFromSelection,
       toggleSidebar,
+      openScmTab,
     ],
   );
 
@@ -2692,6 +2706,7 @@ export default function App() {
                               rootPath={explorerRoot}
                               onPathDeleted={handlePathDeleted}
                               onOpenDiff={openGitDiffTab}
+                              onOpenInTab={openScmTab}
                             />
                           </Suspense>
                         </ResizablePanel>
@@ -2799,6 +2814,24 @@ export default function App() {
                         </Suspense>
                       ) : null}
                     </div>
+                    <div
+                      className={cn(
+                        "absolute inset-0 px-3 pt-2 pb-2",
+                        activeTab?.kind !== "scm" && "pointer-events-none invisible",
+                      )}
+                      aria-hidden={activeTab?.kind === "scm" ? "false" : "true"}
+                    >
+                      {hasScmTab ? (
+                        <Suspense fallback={null}>
+                          <ScmStack
+                            tabs={tabs}
+                            activeId={activeId}
+                            rootPath={explorerRoot}
+                            onPathDeleted={handlePathDeleted}
+                          />
+                        </Suspense>
+                      ) : null}
+                    </div>
                     {hasExtensionTab ? (
                       <div
                         className={cn(
@@ -2826,13 +2859,14 @@ export default function App() {
                     {rightPanelActive ? (
                       <RightPanelHost />
                     ) : scmRightOpen ? (
-                      <div className="border-border/60 bg-card/60 flex h-full min-h-0 flex-col border-l">
+                      <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
                         <Suspense fallback={null}>
                           <SourceControlPanel
                             rootPath={explorerRoot}
                             onPathDeleted={handlePathDeleted}
                             onOpenDiff={openGitDiffTab}
                             onClose={closeScmRight}
+                            onOpenInTab={openScmTab}
                           />
                         </Suspense>
                       </div>
@@ -2841,7 +2875,7 @@ export default function App() {
                         <AiSidebarPanel />
                       </Suspense>
                     ) : (
-                      <div className="border-border/60 bg-card/60 flex h-full flex-col border-l">
+                      <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full flex-col border-l">
                         <AiInputBarConnect onAdd={handleAddProviderKey} />
                       </div>
                     )}

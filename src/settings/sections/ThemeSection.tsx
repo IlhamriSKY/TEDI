@@ -18,6 +18,7 @@ import {
 import { previewAppOpacity } from "@/modules/settings/appOpacity";
 import {
   parseThemeFile,
+  previewWallpaper,
   serializeThemeFile,
   type CustomTheme,
   type ThemeColors,
@@ -218,11 +219,9 @@ export function ThemeSection() {
   const theme = usePreferencesStore((s) => s.customTheme);
   const userPresets = usePreferencesStore((s) => s.userThemePresets);
   const appOpacity = usePreferencesStore((s) => s.appOpacity);
-  // Live % while dragging the transparency slider (committed value persists).
+  // Live % while dragging the transparency slider (committed value persists on
+  // release; the live fade comes from the previewAppOpacity CSS channel).
   const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
-  // Throttle the persist-while-dragging so the value sticks even if the
-  // commit event is missed, without writing on every tick.
-  const lastOpacityPersistRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bgError, setBgError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -269,7 +268,14 @@ export function ThemeSection() {
   // like nothing happened.
   const ensureWallpaperVisible = () => {
     if (!enabled) void setCustomThemeEnabled(true);
-    if (appOpacity >= APP_OPACITY_MAX) void setAppOpacity(WALLPAPER_REVEAL_OPACITY);
+    if (appOpacity >= APP_OPACITY_MAX) {
+      // Reveal instantly via the transient preview channel (CSS only, reaches
+      // the main window immediately regardless of store-event routing), then
+      // persist the same value so it survives reload. Both are 0.5, so there is
+      // no drift between the live preview and the stored value.
+      previewAppOpacity(WALLPAPER_REVEAL_OPACITY);
+      void setAppOpacity(WALLPAPER_REVEAL_OPACITY);
+    }
   };
 
   const onPickPreset = (preset: CustomTheme) => {
@@ -435,14 +441,16 @@ export function ThemeSection() {
       if (!target) return;
       // Keep HTTP(S) URLs in the export so recipients reuse the same
       // wallpaper. Drop inline `data:` blobs because they are typically
-      // multi-MB base64 and bloat the theme file with non-portable bytes.
+      // multi-MB base64 and bloat the theme file with non-portable bytes. When
+      // stripping a local data: image, also blank `path` (it holds the
+      // exporter's absolute OS file path - a privacy leak) and turn the layer
+      // off so the recipient doesn't get an enabled-but-empty wallpaper.
       const isDataUri = theme.background.dataUrl.startsWith("data:");
       const slim: CustomTheme = {
         ...theme,
-        background: {
-          ...theme.background,
-          dataUrl: isDataUri ? "" : theme.background.dataUrl,
-        },
+        background: isDataUri
+          ? { ...theme.background, enabled: false, path: "", dataUrl: "" }
+          : theme.background,
       };
       const json = serializeThemeFile(slim);
       await invoke<void>("fs_write_file", { path: target, content: json });
@@ -698,17 +706,10 @@ export function ThemeSection() {
             onPreview={(n) => {
               setOpacityPreview(n); // live % label
               previewAppOpacity(n); // live main-window fade (CSS only, no store write)
-              // Persist at most ~5x/sec so the value sticks even if the commit
-              // event is missed, without flooding/fighting the drag.
-              const now = Date.now();
-              if (now - lastOpacityPersistRef.current >= 200) {
-                lastOpacityPersistRef.current = now;
-                void setAppOpacity(n);
-              }
             }}
             onCommit={(n) => {
               setOpacityPreview(null);
-              void setAppOpacity(n);
+              void setAppOpacity(n); // persist once on release (Radix fires this reliably)
             }}
           />
           <span className="text-muted-foreground text-[10.5px]">
@@ -772,8 +773,8 @@ export function ThemeSection() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                Pick a local image (PNG / JPG / WebP, max 10 MB). Inlined as a data URI in your
-                prefs.
+                Pick a local image (PNG / JPG / GIF / WebP / AVIF, max 10 MB). Animated GIFs play as
+                a live wallpaper. Inlined as a data URI in your prefs.
               </TooltipContent>
             </Tooltip>
             {theme.background.dataUrl ? (
@@ -825,10 +826,19 @@ export function ThemeSection() {
               min={0}
               max={40}
               step={1}
-              onPreview={(n) => {
-                const el = document.getElementById("tedi-bg-layer");
-                if (el) el.style.filter = n > 0 ? `blur(${n}px)` : "";
-              }}
+              onPreview={(n) =>
+                // Live-preview on the main window's real wallpaper layer
+                // (kind-aware via applyBackground). The old code poked
+                // `#tedi-bg-layer` directly, but that element doesn't exist in
+                // the Settings webview, so the preview was a no-op. We send only
+                // the numbers; the main window merges them onto the wallpaper it
+                // already holds (no image blob over IPC).
+                previewWallpaper({
+                  blur: n,
+                  darken: theme.background.darken ?? 0,
+                  opacity: theme.background.opacity ?? 1,
+                })
+              }
               onCommit={(n) => updateBackground({ blur: n })}
             />
             <CompactSliderRow
@@ -838,16 +848,35 @@ export function ThemeSection() {
               min={0}
               max={1}
               step={0.05}
-              onPreview={(n) => {
-                const el = document.getElementById("tedi-bg-layer");
-                if (!el || !theme.background.dataUrl) return;
-                const safeUrl = theme.background.dataUrl.replace(/"/g, '\\"');
-                const overlay =
-                  n > 0 ? `linear-gradient(rgba(0,0,0,${n}), rgba(0,0,0,${n})), ` : "";
-                el.style.backgroundImage = `${overlay}url("${safeUrl}")`;
-              }}
+              onPreview={(n) =>
+                previewWallpaper({
+                  blur: theme.background.blur,
+                  darken: n,
+                  opacity: theme.background.opacity ?? 1,
+                })
+              }
               onCommit={(n) => updateBackground({ darken: n })}
             />
+            <CompactSliderRow
+              label="Image opacity"
+              valueLabel={`${Math.round((theme.background.opacity ?? 1) * 100)}%`}
+              value={theme.background.opacity ?? 1}
+              min={0}
+              max={1}
+              step={0.05}
+              onPreview={(n) =>
+                previewWallpaper({
+                  blur: theme.background.blur,
+                  darken: theme.background.darken ?? 0,
+                  opacity: n,
+                })
+              }
+              onCommit={(n) => updateBackground({ opacity: n })}
+            />
+            <span className="text-muted-foreground text-[10.5px]">
+              Image opacity lets your desktop show through the wallpaper itself (100% = the image
+              fully hides the desktop). Combine with App opacity above to layer both.
+            </span>
           </div>
         ) : null}
       </div>

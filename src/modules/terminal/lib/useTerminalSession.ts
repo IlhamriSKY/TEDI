@@ -1,7 +1,7 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "@/modules/settings/store";
-import { buildTerminalTheme } from "@/styles/terminalTheme";
+import { buildTerminalTheme, resolveCanvasBackground } from "@/styles/terminalTheme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -280,9 +280,19 @@ if (opacityWin && !opacityWin.__tediCanvasOpacityBound) {
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
+      // Only the canvas background alpha changes during an opacity drag; the
+      // ANSI + chrome palette is identical. Resolve the background ONCE per
+      // frame and patch each session's theme.background, instead of calling
+      // buildTerminalTheme() per session (which forces ~27 getComputedStyle
+      // probe reads each). The full rebuild still runs on real palette changes
+      // (ensureSession + the React re-theme effect in TerminalPane).
+      const solid =
+        getComputedStyle(document.documentElement).getPropertyValue("--tedi-canvas-bg").trim() ||
+        "#1e1e1e";
+      const background = resolveCanvasBackground(solid);
       for (const s of sessions.values()) {
         syncRendererForWallpaper(s);
-        s.term.options.theme = buildTerminalTheme();
+        s.term.options.theme = { ...s.term.options.theme, background };
         s.term.refresh(0, s.term.rows - 1);
       }
     });

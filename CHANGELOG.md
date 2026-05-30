@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.15] - 31-05-2026
+
+### Added
+
+- **User-editable system prompts for every built-in AI agent.** A new _Settings -> Agents -> System prompts_ card (behind a "Show all" toggle) lets you override the core agent prompt (full + compact variants), the plan-mode appendix, the four read-only sub-agents (explore / code-review / security / general), the editor's inline-completion prompt, and the commit-message prompt. Each override is optional and persisted in its own store ([`tedi-prompts.json`](src/modules/ai/lib/prompts.ts)); sub-agents can additionally run on their own model, and the core agent / sub-agents / inline-completion expose an opt-in temperature. Overrides resolve at runtime via [`prompts.ts`](src/modules/ai/lib/prompts.ts) + [`promptsStore.ts`](src/modules/ai/store/promptsStore.ts) and are consumed in [`agent.ts`](src/modules/ai/lib/agent.ts), [`runSubagent.ts`](src/modules/ai/agents/runSubagent.ts), [`autocomplete/provider.ts`](src/modules/editor/lib/autocomplete/provider.ts), and [`commitAi.ts`](src/modules/scm/commitAi.ts). When nothing is overridden the byte-for-byte built-in defaults are used, so existing prompt-caching behaviour is unchanged.
+
+### Fixed
+
+- **Prompt overrides now apply at runtime, not just in Settings.** The Settings window is a separate webview with its own store instance; [`App.tsx`](src/app/App.tsx) now hydrates the prompts store at boot (alongside agents / snippets / sessions) and the store listens for a cross-window change event, so a saved prompt override takes effect for the agent, sub-agents, autocomplete, and commit messages without needing to open the Settings panel first.
+
+### Changed
+
+- **AI-native dead-code and duplicate cleanup.** Removed the orphaned `getSystemPrompt()` wrapper from [`config.ts`](src/modules/ai/config.ts) (replaced by `pickSystemPromptVariant()`), the unused `stripContextBlock()` / `CONTEXT_BLOCK_RE` chain from [`transport.ts`](src/modules/ai/lib/transport.ts), and an unused store method; the two identical `findLastIndex` / `lastIndex` array helpers in [`cache.ts`](src/modules/ai/lib/cache.ts) and [`transport.ts`](src/modules/ai/lib/transport.ts) are merged into a single `findLastIndex` in [`utils.ts`](src/lib/utils.ts).
+
 ## [0.3.13] - 30-05-2026
 
 ### Changed

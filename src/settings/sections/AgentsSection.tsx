@@ -28,6 +28,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
+import { SystemPromptsCard } from "./components/SystemPromptsCard";
 
 const ICON_OPTIONS: AgentIconId[] = [
   "coder",
@@ -121,6 +122,8 @@ export function AgentsSection() {
           })}
         </div>
       </section>
+
+      <SystemPromptsCard />
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -263,7 +266,7 @@ function AgentCard({
               </span>
             ) : null}
             {overridden ? (
-              <span className="rounded bg-icon-working/15 px-1 py-0.5 text-[9px] tracking-wide text-icon-working uppercase text-icon-working">
+              <span className="bg-icon-working/15 text-icon-working text-icon-working rounded px-1 py-0.5 text-[9px] tracking-wide uppercase">
                 Edited
               </span>
             ) : null}

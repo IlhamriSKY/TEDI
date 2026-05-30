@@ -24,6 +24,7 @@ import {
   CloudUploadIcon,
   GitBranchIcon,
   GitCommitIcon,
+  LinkSquare02Icon,
   Refresh01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
@@ -34,24 +35,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
-import type { GitChange, GitChangeStatus, GitStatus } from "./types";
+import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
 
 type Props = {
   rootPath: string | null;
   onPathDeleted?: (path: string) => void;
-  /** Open a git diff in a new editor tab. */
-  onOpenDiff?: (input: {
-    path: string;
-    relative: string;
-    repoPath: string;
-    changeStatus: GitChangeStatus;
-  }) => void;
+  /** Open a diff in a new tab (working-tree or per-commit). */
+  onOpenDiff?: (input: OpenDiffInput) => void;
   /**
    * When set, renders a close button in the header. Used when the panel is
    * hosted in the right slot so the user can dismiss it without going to
    * settings.
    */
   onClose?: () => void;
+  /**
+   * When set, renders an "open in a tab" button in the header. Used by the
+   * sidebar / right-slot instances to promote the panel into a full
+   * Source Control tab.
+   */
+  onOpenInTab?: () => void;
+  /**
+   * History-only mode for the tab host: drops the Changes/commit UI and shows
+   * just the commit history graph, with commit detail floating at the cursor.
+   */
+  historyOnly?: boolean;
 };
 
 const STATUS_LETTER: Record<GitChangeStatus, string> = {
@@ -142,7 +149,14 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
   return raw || `Failed to ${op}.`;
 }
 
-export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClose }: Props) {
+export function SourceControlPanel({
+  rootPath,
+  onPathDeleted,
+  onOpenDiff,
+  onClose,
+  onOpenInTab,
+  historyOnly = false,
+}: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -497,7 +511,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
           </span>
         ) : null}
         <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
-        {status?.isRepo && sorted.length > 0 ? (
+        {!historyOnly && status?.isRepo && sorted.length > 0 ? (
           <IconTooltip label="Discard all changes" side="bottom">
             <Button
               variant="ghost"
@@ -522,6 +536,19 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
             <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        {onOpenInTab ? (
+          <IconTooltip label="Open in a tab" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+              onClick={onOpenInTab}
+              aria-label="Open Source Control in a tab"
+            >
+              <HugeiconsIcon icon={LinkSquare02Icon} size={12} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
         {onClose ? (
           <IconTooltip label="Close panel" side="bottom">
             <Button
@@ -545,6 +572,15 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
         <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
           Not a git repository.
         </div>
+      ) : historyOnly ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <GitGraphView
+            rootPath={status.root}
+            isRepo={status.isRepo}
+            refreshToken={graphRefreshToken}
+            anchorMode="mouse"
+          />
+        </div>
       ) : (
         <Tabs
           value={tab}
@@ -559,7 +595,7 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
               Changes
             </TabsTrigger>
             <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-              Graph
+              History
             </TabsTrigger>
           </TabsList>
 
@@ -679,6 +715,8 @@ export function SourceControlPanel({ rootPath, onPathDeleted, onOpenDiff, onClos
               rootPath={status.root}
               isRepo={status.isRepo}
               refreshToken={graphRefreshToken}
+              anchorMode="row"
+              onOpenDiff={onOpenDiff}
             />
           </TabsContent>
         </Tabs>

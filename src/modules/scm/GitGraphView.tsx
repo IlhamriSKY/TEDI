@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { gitLog } from "./api";
+import { CommitDetailPane } from "./CommitDetailPane";
+import type { OpenDiffInput } from "./types";
 import type { GitCommit } from "./types";
 
 type Props = {
@@ -10,6 +14,14 @@ type Props = {
   isRepo: boolean;
   /** Bump this number to force a refetch (e.g. after commit/push). */
   refreshToken?: number;
+  /** Open a per-commit file diff in a tab (from the detail card). When
+   *  omitted, the detail card lists changed files read-only. */
+  onOpenDiff?: (input: OpenDiffInput) => void;
+  /**
+   * Where the commit detail card anchors. "row" pins it to the clicked row
+   * (side panel); "mouse" floats it at the cursor (the spacious tab view).
+   */
+  anchorMode?: "row" | "mouse";
 };
 
 const ROW_H = 26;
@@ -147,11 +159,46 @@ function parseRefs(refs: string[]): RefChip[] {
   return out;
 }
 
-export function GitGraphView({ rootPath, isRepo, refreshToken = 0 }: Props) {
+export function GitGraphView({
+  rootPath,
+  isRepo,
+  refreshToken = 0,
+  onOpenDiff,
+  anchorMode = "row",
+}: Props) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // The open detail carries the repo root it was opened under (so a workspace
+  // switch invalidates it synchronously during render, no stale fetch) and,
+  // in "mouse" mode, the viewport point to float the card at.
+  const [open, setOpen] = useState<{
+    root: string;
+    sha: string;
+    point?: { x: number; y: number };
+  } | null>(null);
+  const openSha = open && open.root === rootPath ? open.sha : null;
+  const toggle = useCallback(
+    (sha: string, point?: { x: number; y: number }) => {
+      setOpen((cur) =>
+        cur && cur.sha === sha && cur.root === rootPath
+          ? null
+          : rootPath
+            ? { root: rootPath, sha, point }
+            : null,
+      );
+    },
+    [rootPath],
+  );
+  const handleOpenDiff = useCallback(
+    (input: OpenDiffInput) => {
+      onOpenDiff?.(input);
+      // Opening a diff switches tabs; close the floating popover so it doesn't
+      // linger (it is portaled to the body and would otherwise stay visible).
+      setOpen(null);
+    },
+    [onOpenDiff],
+  );
   const rootRef = useRef(rootPath);
 
   useEffect(() => {
@@ -170,6 +217,10 @@ export function GitGraphView({ rootPath, isRepo, refreshToken = 0 }: Props) {
       if (rootRef.current === cur) {
         setCommits(list);
         setError(null);
+        // Drop the open detail card if its commit is no longer in history
+        // (e.g. amend/rebase/reset from a terminal then a refresh) so we don't
+        // leave a frozen card fetching a missing SHA.
+        setOpen((o) => (o && list.some((c) => c.sha === o.sha) ? o : null));
       }
     } catch (e) {
       if (rootRef.current === cur) {
@@ -177,7 +228,8 @@ export function GitGraphView({ rootPath, isRepo, refreshToken = 0 }: Props) {
         setCommits([]);
       }
     } finally {
-      setLoading(false);
+      // Don't clear a newer fetch's spinner: only the latest root's run owns it.
+      if (rootRef.current === cur) setLoading(false);
     }
   }, [isRepo]);
 
@@ -217,19 +269,65 @@ export function GitGraphView({ rootPath, isRepo, refreshToken = 0 }: Props) {
   const graphWidth = LANE_PAD_X * 2 + Math.max(1, laneCount) * LANE_W;
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <ul className="py-0.5">
-        {rows.map((row) => (
-          <GraphRow
-            key={row.commit.sha}
-            row={row}
-            graphWidth={graphWidth}
-            selected={selected === row.commit.sha}
-            onSelect={() => setSelected(row.commit.sha)}
+    <Popover
+      open={openSha !== null}
+      onOpenChange={(o) => {
+        if (!o) setOpen(null);
+      }}
+    >
+      <ScrollArea className="min-h-0 flex-1">
+        <ul className="py-0.5">
+          {rows.map((row) => (
+            <GraphRow
+              key={row.commit.sha}
+              row={row}
+              graphWidth={graphWidth}
+              selected={openSha === row.commit.sha}
+              anchorMode={anchorMode}
+              onSelect={(point) => toggle(row.commit.sha, point)}
+            />
+          ))}
+        </ul>
+      </ScrollArea>
+      {/* "mouse" mode anchors the card to a 0-size element pinned at the
+          cursor point where the commit was clicked. */}
+      {anchorMode === "mouse" && openSha && open?.point ? (
+        <PopoverAnchor asChild>
+          <div
+            aria-hidden
+            style={{
+              position: "fixed",
+              left: open.point.x,
+              top: open.point.y,
+              width: 0,
+              height: 0,
+            }}
           />
-        ))}
-      </ul>
-    </ScrollArea>
+        </PopoverAnchor>
+      ) : null}
+      {openSha && rootPath ? (
+        <PopoverContent
+          side="right"
+          align="start"
+          collisionPadding={8}
+          className="w-[min(88vw,460px)] gap-0 overflow-hidden rounded-xl p-0"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => {
+            // A click on another commit row is handled by that row's own
+            // toggle; don't also let the dismissable layer fire (it would
+            // race the toggle into a close/reopen flicker).
+            const target = e.target as HTMLElement | null;
+            if (target?.closest("[data-scm-commit-row]")) e.preventDefault();
+          }}
+        >
+          <CommitDetailPane
+            repoPath={rootPath}
+            sha={openSha}
+            onOpenDiff={onOpenDiff ? handleOpenDiff : undefined}
+          />
+        </PopoverContent>
+      ) : null}
+    </Popover>
   );
 }
 
@@ -237,10 +335,12 @@ type RowProps = {
   row: LaidOut;
   graphWidth: number;
   selected: boolean;
-  onSelect: () => void;
+  anchorMode: "row" | "mouse";
+  /** Receives the viewport point of the activating event (used in mouse mode). */
+  onSelect: (point: { x: number; y: number }) => void;
 };
 
-function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
+function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps) {
   const { commit, lane, laneIn, laneOut, mergedLanes, branchedLanes } = row;
   const midY = ROW_H / 2;
   const myX = laneX(lane);
@@ -341,24 +441,24 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
   // implicitly walked above via `inSha === commit.sha`.
   void mergedLanes;
 
-  return (
-    <li className="contents">
-      <div
-        className={cn(
-          "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-3",
-          selected && "bg-accent/60",
-        )}
-        role="button"
-        tabIndex={0}
-        onClick={onSelect}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onSelect();
-          }
-        }}
-        title={`${commit.shortSha} - ${commit.subject}`}
-      >
+  const rowEl = (
+    <div
+      data-scm-commit-row=""
+      className={cn(
+        "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-3",
+        selected && "bg-accent/60",
+      )}
+      role="button"
+      tabIndex={0}
+      onClick={(e) => onSelect({ x: e.clientX, y: e.clientY })}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          onSelect({ x: r.right, y: r.top });
+        }
+      }}
+    >
       <div className="shrink-0" style={{ width: graphWidth, height: ROW_H }}>
         <svg
           width={graphWidth}
@@ -398,7 +498,31 @@ function GraphRow({ row, graphWidth, selected, onSelect }: RowProps) {
           {formatRelTime(commit.authorTime)}
         </span>
       </div>
-      </div>
+    </div>
+  );
+  // The open row is the popover anchor (row mode) or just highlighted while
+  // the card floats at the cursor (mouse mode); either way its hover tooltip
+  // is suppressed so the peek doesn't fight the open detail card.
+  if (selected) {
+    return (
+      <li className="contents">
+        {anchorMode === "row" ? <PopoverAnchor asChild>{rowEl}</PopoverAnchor> : rowEl}
+      </li>
+    );
+  }
+  return (
+    <li className="contents">
+      <Tooltip>
+        <TooltipTrigger asChild>{rowEl}</TooltipTrigger>
+        <TooltipContent side="right" className="max-w-xs">
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium break-words">{commit.subject}</span>
+            <span className="text-muted-foreground text-[10.5px]">
+              {commit.authorName} · {formatRelTime(commit.authorTime)} · {commit.shortSha}
+            </span>
+          </div>
+        </TooltipContent>
+      </Tooltip>
     </li>
   );
 }

@@ -74,6 +74,17 @@ fn to_forward(s: &str) -> String {
     s.replace('\\', "/")
 }
 
+/// Git's well-known empty-tree object. Diffing a root commit against this
+/// renders every file as added, matching `git show --root`.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// Accept only hex revisions (full / abbreviated SHAs). Guards the commit
+/// commands against a frontend-supplied value that begins with `-` being
+/// reinterpreted as a git option, and rejects refspecs we never pass.
+fn is_valid_rev(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn classify(code: u8) -> &'static str {
     match code {
         b'M' => "modified",
@@ -365,29 +376,59 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     })
 }
 
-/// Return the HEAD blob for a working-tree path, classified like
-/// `fs_read_file` (text / image / binary). Newly added or untracked files
-/// have no HEAD blob and get an empty `Text` so the diff side stays empty.
-/// Raw stdout bytes are preserved so PNG/JPEG blobs survive the Tauri
-/// boundary without lossy UTF-8 decoding.
+/// Read a blob at `rev` for a repo-relative path (`git show <rev>:<path>`),
+/// classified like `fs_read_file` (text / image / binary). A path absent at
+/// that revision (added later, deleted, or a rename's other side) yields an
+/// empty `Text` so the diff side renders blank. Raw stdout bytes are
+/// preserved so PNG/JPEG blobs survive the Tauri boundary without lossy
+/// UTF-8 decoding.
+fn show_blob(root: &Path, rev: &str, relative: &str) -> ReadResult {
+    let mut cmd = git(root);
+    cmd.arg("show").arg(format!("{rev}:{relative}"));
+    let out = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => {
+            return ReadResult::Text {
+                content: String::new(),
+                size: 0,
+            }
+        }
+    };
+    if !out.status.success() {
+        return ReadResult::Text {
+            content: String::new(),
+            size: 0,
+        };
+    }
+    // `classify_bytes` only uses the path for extension-based MIME hints
+    // (SVG/AVIF); the repo-relative path is enough.
+    classify_bytes(Path::new(relative), out.stdout)
+}
+
+/// Return the HEAD blob for a working-tree path. Backs the working-tree side
+/// of the Source Control diff viewer.
 #[tauri::command]
 pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
     };
-    let mut cmd = git(&root);
-    cmd.arg("show").arg(format!("HEAD:{}", relative));
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Ok(ReadResult::Text {
-            content: String::new(),
-            size: 0,
-        });
+    Ok(show_blob(&root, "HEAD", &relative))
+}
+
+/// Return a file's blob at an arbitrary commit (`rev` is a hex SHA). Backs the
+/// per-commit diff viewer, which reads the file at the commit and at its
+/// parent to render a side-by-side history diff.
+#[tauri::command]
+pub fn git_file_at(repo_path: String, rev: String, relative: String) -> Result<ReadResult, String> {
+    if !is_valid_rev(&rev) {
+        return Err("invalid revision".into());
     }
-    // `classify_bytes` only uses the path for extension-based MIME hints
-    // (SVG/AVIF); the repo-relative path is enough.
-    Ok(classify_bytes(Path::new(&relative), out.stdout))
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+    Ok(show_blob(&root, &rev, &relative))
 }
 
 /// Discard working-tree changes for a single file. Untracked files are
@@ -612,7 +653,7 @@ pub fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, 
             Vec::new()
         } else {
             refs_raw
-                .split(',')
+                .split(", ")
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect()
@@ -629,6 +670,221 @@ pub fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, 
         });
     }
     Ok(out)
+}
+
+/// A single file touched by a commit, relative to the commit's first parent
+/// (or the empty tree for the root commit).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    /// Forward-slash repo-relative path at the commit (the new side).
+    pub path: String,
+    /// Previous path for renames/copies, else null.
+    pub old_path: Option<String>,
+    /// "modified" | "added" | "deleted" | "renamed" | "copied".
+    pub status: String,
+    /// Lines added vs the parent. 0 when binary or not applicable.
+    pub added: u32,
+    /// Lines removed vs the parent. 0 when binary or not applicable.
+    pub removed: u32,
+    /// True when git reported the entry as binary.
+    pub binary: bool,
+}
+
+/// Full metadata + changed-file list for one commit. Powers the Source
+/// Control history detail pane.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitDetail {
+    pub sha: String,
+    pub short_sha: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    pub author_time: i64,
+    pub committer_name: String,
+    pub committer_email: String,
+    pub commit_time: i64,
+    /// First line of the commit message.
+    pub subject: String,
+    /// Message body (everything after the subject), trailing newline trimmed.
+    pub body: String,
+    pub files: Vec<CommitFile>,
+}
+
+/// Parse `git diff --name-status -M -z`. With `-z`, fields are NUL-terminated
+/// and paths are emitted raw (no quoting/munging). Renames/copies carry an
+/// extra path: `R100\0old\0new`; everything else is `STATUS\0path`.
+fn parse_name_status_z(raw: &str) -> Vec<(String, String, Option<String>)> {
+    let mut out = Vec::new();
+    let mut it = raw.split('\0').filter(|s| !s.is_empty());
+    while let Some(status) = it.next() {
+        let code = status.as_bytes().first().copied().unwrap_or(b'M');
+        if code == b'R' || code == b'C' {
+            let (Some(old), Some(new)) = (it.next(), it.next()) else {
+                break;
+            };
+            out.push((classify(code).to_string(), to_forward(new), Some(to_forward(old))));
+        } else {
+            let Some(path) = it.next() else { break };
+            out.push((classify(code).to_string(), to_forward(path), None));
+        }
+    }
+    out
+}
+
+/// Parse `git diff --numstat -M -z` into per-(new)path line counts. With `-z`
+/// a normal record is one `added\tremoved\tpath` token; a rename is three:
+/// `added\tremoved\t` (empty path), then `old`, then `new`.
+fn parse_numstat_z(raw: &str) -> HashMap<String, NumstatEntry> {
+    let mut out: HashMap<String, NumstatEntry> = HashMap::new();
+    let tokens: Vec<&str> = raw.split('\0').collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i];
+        if tok.is_empty() {
+            i += 1;
+            continue;
+        }
+        let mut parts = tok.splitn(3, '\t');
+        let a = parts.next().unwrap_or("");
+        let r = parts.next().unwrap_or("");
+        let p = parts.next().unwrap_or("");
+        let binary = a == "-" || r == "-";
+        let added = if binary { 0 } else { a.parse().unwrap_or(0) };
+        let removed = if binary { 0 } else { r.parse().unwrap_or(0) };
+        let entry = NumstatEntry {
+            added,
+            removed,
+            binary,
+        };
+        if p.is_empty() {
+            // Rename: the next two tokens are the old and new paths.
+            let new = tokens.get(i + 2).copied().unwrap_or("");
+            if !new.is_empty() {
+                out.insert(to_forward(new), entry);
+            }
+            i += 3;
+        } else {
+            out.insert(to_forward(p), entry);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Return full metadata and the changed-file list for a single commit. The
+/// file set is computed against the first parent (`--first-parent` semantics
+/// via `git diff <parent> <sha>`); the root commit diffs against the empty
+/// tree so all files read as added.
+#[tauri::command]
+pub fn git_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail, String> {
+    if !is_valid_rev(&sha) {
+        return Err("invalid commit id".into());
+    }
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Err("not a git repository".into());
+    };
+
+    // NUL-separated so embedded tabs/newlines in the message can't desync the
+    // parse; body (%b) is last and may contain anything.
+    let fmt = "%H%x00%h%x00%P%x00%D%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%s%x00%b";
+    let mut meta = git(&root);
+    meta.args(["show", "-s", &format!("--format={fmt}"), sha.as_str()]);
+    let raw = run(meta)?;
+    let raw = raw.strip_suffix('\n').unwrap_or(&raw);
+    let mut f = raw.splitn(12, '\u{0}');
+    let full_sha = f.next().unwrap_or("").to_string();
+    let short_sha = f.next().unwrap_or("").to_string();
+    let parents_raw = f.next().unwrap_or("");
+    let refs_raw = f.next().unwrap_or("");
+    let author_name = f.next().unwrap_or("").to_string();
+    let author_email = f.next().unwrap_or("").to_string();
+    let author_time: i64 = f.next().and_then(|s| s.parse().ok()).unwrap_or_default();
+    let committer_name = f.next().unwrap_or("").to_string();
+    let committer_email = f.next().unwrap_or("").to_string();
+    let commit_time: i64 = f.next().and_then(|s| s.parse().ok()).unwrap_or_default();
+    let subject = f.next().unwrap_or("").to_string();
+    let body = f.next().unwrap_or("").trim_end().to_string();
+    if full_sha.is_empty() {
+        return Err("commit not found".into());
+    }
+
+    let parents: Vec<String> = parents_raw
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    let refs: Vec<String> = if refs_raw.is_empty() {
+        Vec::new()
+    } else {
+        refs_raw
+            .split(", ")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    // Diff against the first parent; the root commit has none, so use the
+    // empty tree (every file then reads as added).
+    let base = parents
+        .first()
+        .cloned()
+        .unwrap_or_else(|| EMPTY_TREE.to_string());
+
+    let mut ns = git(&root);
+    ns.args([
+        "diff",
+        "--name-status",
+        "-M",
+        "-z",
+        base.as_str(),
+        full_sha.as_str(),
+    ]);
+    let name_status_raw = run(ns).unwrap_or_default();
+
+    let mut nm = git(&root);
+    nm.args([
+        "diff",
+        "--numstat",
+        "-M",
+        "-z",
+        base.as_str(),
+        full_sha.as_str(),
+    ]);
+    let stats = parse_numstat_z(&run(nm).unwrap_or_default());
+
+    let files: Vec<CommitFile> = parse_name_status_z(&name_status_raw)
+        .into_iter()
+        .map(|(status, path, old_path)| {
+            let s = stats.get(&path).copied().unwrap_or_default();
+            CommitFile {
+                path,
+                old_path,
+                status,
+                added: s.added,
+                removed: s.removed,
+                binary: s.binary,
+            }
+        })
+        .collect();
+
+    Ok(CommitDetail {
+        sha: full_sha,
+        short_sha,
+        parents,
+        refs,
+        author_name,
+        author_email,
+        author_time,
+        committer_name,
+        committer_email,
+        commit_time,
+        subject,
+        body,
+        files,
+    })
 }
 
 /// Push the current branch to its upstream. With no upstream configured,

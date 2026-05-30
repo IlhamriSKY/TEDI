@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { findLastIndex } from "@/lib/utils";
 import type { ProviderId } from "../config";
 
 /**
@@ -66,9 +67,4 @@ function withAnthropicCacheMark(msg: ModelMessage): ModelMessage {
       },
     },
   } as ModelMessage;
-}
-
-function findLastIndex<T>(arr: T[], pred: (x: T) => boolean): number {
-  for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) return i;
-  return -1;
 }

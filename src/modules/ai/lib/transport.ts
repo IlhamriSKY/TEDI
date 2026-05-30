@@ -1,5 +1,6 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
+import { findLastIndex } from "@/lib/utils";
 import type { TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
@@ -148,10 +149,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
           const code = classifyError(err);
           // Only retry on transient errors. Auth failures, no-key, etc.
           // should fail fast so the user can fix the root cause.
-          if (
-            code !== TediErrorCode.RATE_LIMITED &&
-            code !== TediErrorCode.PROVIDER_UNAVAILABLE
-          ) {
+          if (code !== TediErrorCode.RATE_LIMITED && code !== TediErrorCode.PROVIDER_UNAVAILABLE) {
             break;
           }
 
@@ -188,7 +186,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
 function injectContext(messages: UIMessage[], live: LiveSnapshot): UIMessage[] {
   const block = formatEnvBlock(live);
   if (!block) return messages;
-  const lastUserIdx = lastIndex(messages, (m) => m.role === "user");
+  const lastUserIdx = findLastIndex(messages, (m) => m.role === "user");
   if (lastUserIdx === -1) return messages;
 
   return messages.map((m, i) => {
@@ -223,18 +221,4 @@ function formatEnvBlock(live: LiveSnapshot): string | null {
   }
   if (lines.length === 0) return null;
   return `<env>\n${lines.join("\n")}\n</env>\n\n`;
-}
-
-function lastIndex<T>(arr: T[], pred: (x: T) => boolean): number {
-  for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) return i;
-  return -1;
-}
-
-/** Matches the current <env> block and the legacy <terminal-context> so
- *  history rendering can strip both. */
-export const CONTEXT_BLOCK_RE =
-  /^(?:<env>[\s\S]*?<\/env>|<terminal-context[^>]*>[\s\S]*?<\/terminal-context>)\n*/;
-
-export function stripContextBlock(text: string): string {
-  return text.replace(CONTEXT_BLOCK_RE, "");
 }

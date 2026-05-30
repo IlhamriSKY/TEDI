@@ -19,7 +19,7 @@
 //!   tedi theme bg <url|file-path>    # set wallpaper from URL or local file
 //!   tedi theme bg off                # disable wallpaper
 //!   tedi theme blur <0..40>          # set wallpaper blur (px)
-//!   tedi theme opacity <0..1>        # set terminal/editor surface opacity
+//!   tedi theme opacity <0..1>        # whole-app transparency (1 = solid, 0 = clear)
 //!   tedi theme darken <0..1>         # set wallpaper darken overlay
 //!
 //! Concurrency: the GUI may also write `tedi-settings.json` (last writer
@@ -213,7 +213,7 @@ pub fn help_text() -> String {
          {p_reset}     Restore the Default preset\n  \
          {p_bg} <url|file|off>   Set or clear wallpaper\n  \
          {p_blur} <0..40>      Wallpaper blur (px)\n  \
-         {p_opacity} <0..1>   Terminal / editor surface opacity\n  \
+         {p_opacity} <0..1>   Whole-app transparency (1 solid .. 0 clear)\n  \
          {p_darken} <0..1>    Wallpaper darken overlay\n\
          \n\
          {presets}\n\
@@ -271,12 +271,11 @@ pub fn handle_theme_command_and_exit() {
         "reset" => reset_to_default(),
         "bg" => set_bg(arg.as_deref(), arg2.as_deref()),
         "blur" => set_number_field(&["customTheme", "background", "blur"], arg.as_deref(), 0.0, 40.0),
-        "opacity" => set_number_field(
-            &["customTheme", "background", "surfaceOpacity"],
-            arg.as_deref(),
-            0.0,
-            1.0,
-        ),
+        // Whole-app transparency: the live control is the top-level `appOpacity`
+        // pref (drives `--tedi-app-opacity` + `data-tedi-glass`). The old target
+        // `customTheme.background.surfaceOpacity` was read by no render path, so
+        // the command silently did nothing.
+        "opacity" => set_number_field(&["appOpacity"], arg.as_deref(), 0.0, 1.0),
         "darken" => set_number_field(&["customTheme", "background", "darken"], arg.as_deref(), 0.0, 1.0),
         _ => {
             eprint(&format!("unknown subcommand: {sub}\n"));

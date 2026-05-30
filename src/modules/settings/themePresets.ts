@@ -5,8 +5,8 @@ const EMPTY_BG = {
   path: "",
   dataUrl: "",
   blur: 0,
-  surfaceOpacity: 0.85,
   darken: 0,
+  opacity: 1,
 } as const;
 
 /**
@@ -248,6 +248,23 @@ const TOKYO_LIGHT: ThemeColors = {
   diffRemoved: "#f52a65",
   info: "#2e7de9",
   resizeHandle: "#a8aecb",
+  // Tokyo Night Day ANSI 16 (official light terminal palette).
+  ansiBlack: "#b4b5b9",
+  ansiRed: "#f52a65",
+  ansiGreen: "#587539",
+  ansiYellow: "#8c6c3e",
+  ansiBlue: "#2e7de9",
+  ansiMagenta: "#9854f1",
+  ansiCyan: "#007197",
+  ansiWhite: "#6172b0",
+  ansiBrightBlack: "#a1a6c5",
+  ansiBrightRed: "#f52a65",
+  ansiBrightGreen: "#587539",
+  ansiBrightYellow: "#8c6c3e",
+  ansiBrightBlue: "#2e7de9",
+  ansiBrightMagenta: "#9854f1",
+  ansiBrightCyan: "#007197",
+  ansiBrightWhite: "#3760bf",
 };
 
 // Nord family.
@@ -335,6 +352,26 @@ const NORD_LIGHT: ThemeColors = {
   diffRemoved: "#bf616a",
   info: "#5e81ac",
   resizeHandle: "#d8dee9",
+  // Nord has no official light terminal palette; the standard Nord ANSI is
+  // tuned for dark surfaces (green/yellow/cyan wash out on #eceff4). These are
+  // the same Nord hues deepened to read on the light background while keeping
+  // the Frost/Aurora character. Brights restore the canonical Nord tones.
+  ansiBlack: "#2e3440",
+  ansiRed: "#99313b",
+  ansiGreen: "#4f6a43",
+  ansiYellow: "#9a7227",
+  ansiBlue: "#5e81ac",
+  ansiMagenta: "#8a5d80",
+  ansiCyan: "#3b7e8e",
+  ansiWhite: "#4c566a",
+  ansiBrightBlack: "#434c5e",
+  ansiBrightRed: "#bf616a",
+  ansiBrightGreen: "#5e7a50",
+  ansiBrightYellow: "#b58a3a",
+  ansiBrightBlue: "#5e81ac",
+  ansiBrightMagenta: "#a3789a",
+  ansiBrightCyan: "#4f93a3",
+  ansiBrightWhite: "#2e3440",
 };
 
 // Catppuccin family (Mocha + Latte).
@@ -427,6 +464,23 @@ const CATPPUCCIN_LIGHT: ThemeColors = {
   diffRemoved: "#d20f39",
   info: "#04a5e5",
   resizeHandle: "#bcc0cc",
+  // Catppuccin Latte ANSI 16 (official light terminal palette).
+  ansiBlack: "#5c5f77",
+  ansiRed: "#d20f39",
+  ansiGreen: "#40a02b",
+  ansiYellow: "#df8e1d",
+  ansiBlue: "#1e66f5",
+  ansiMagenta: "#ea76cb",
+  ansiCyan: "#179299",
+  ansiWhite: "#acb0be",
+  ansiBrightBlack: "#6c6f85",
+  ansiBrightRed: "#d20f39",
+  ansiBrightGreen: "#40a02b",
+  ansiBrightYellow: "#df8e1d",
+  ansiBrightBlue: "#1e66f5",
+  ansiBrightMagenta: "#ea76cb",
+  ansiBrightCyan: "#179299",
+  ansiBrightWhite: "#bcc0cc",
 };
 
 // Solarized family.
@@ -636,6 +690,25 @@ const MONOKAI_LIGHT: ThemeColors = {
   diffRemoved: "#f92672",
   info: "#006d75",
   resizeHandle: "#d1d1d1",
+  // Monokai has no canonical light terminal palette; these keep the Monokai
+  // hues but deepened so red/green/yellow/cyan read on the #fafafa background.
+  // Brights restore the familiar neon Monokai tones.
+  ansiBlack: "#272822",
+  ansiRed: "#c2185b",
+  ansiGreen: "#5a7d00",
+  ansiYellow: "#a6770a",
+  ansiBlue: "#1c7e8e",
+  ansiMagenta: "#7c4dbd",
+  ansiCyan: "#0a8a8a",
+  ansiWhite: "#5a5848",
+  ansiBrightBlack: "#75715e",
+  ansiBrightRed: "#f92672",
+  ansiBrightGreen: "#7aab00",
+  ansiBrightYellow: "#c89a2a",
+  ansiBrightBlue: "#0099a8",
+  ansiBrightMagenta: "#9a6fe0",
+  ansiBrightCyan: "#3aa9a0",
+  ansiBrightWhite: "#272822",
 };
 
 // Matrix family (dark green phosphor + a "light" inverted variant).
@@ -735,6 +808,25 @@ const MATRIX_LIGHT: ThemeColors = {
   tabAccentAiDiff: "#5a8f00",
   tabAccentGitDiff: "#b58900",
   resizeHandle: "#bfd9bf",
+  // Matrix "light" inverts the phosphor look: dark greens on a pale-green page.
+  // Generic blue ANSI would clash, so use a dark-green-dominant set that reads
+  // on #f4fff4 and keeps the Matrix identity.
+  ansiBlack: "#003b00",
+  ansiRed: "#c2185b",
+  ansiGreen: "#006400",
+  ansiYellow: "#8a6d00",
+  ansiBlue: "#1565c0",
+  ansiMagenta: "#5a8f00",
+  ansiCyan: "#0a7a6a",
+  ansiWhite: "#2c722c",
+  ansiBrightBlack: "#0a4d0a",
+  ansiBrightRed: "#c2185b",
+  ansiBrightGreen: "#008000",
+  ansiBrightYellow: "#a07a00",
+  ansiBrightBlue: "#1976d2",
+  ansiBrightMagenta: "#6a9f00",
+  ansiBrightCyan: "#0a8a76",
+  ansiBrightWhite: "#003b00",
 };
 
 export const THEME_PRESETS: CustomTheme[] = [

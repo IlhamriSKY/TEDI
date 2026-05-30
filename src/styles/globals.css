@@ -358,48 +358,91 @@ html[data-chrome="borderless"] #settings-root {
  * `transparent: true`); the app only looks solid because surfaces paint
  * opaque colours. When the Theme → Background "Opacity" slider lowers
  * `--tedi-app-opacity` below 1, `appOpacity.ts` sets `data-tedi-glass="on"`
- * and we fade EVERY surface uniformly toward whatever sits behind the window:
- * the wallpaper image when one is set, else the desktop. That covers the
- * shell, sidebar, header, tabs, status bar, panels, popovers / dropdowns /
- * menus, the editor's find panel, and the editor / terminal canvases — plus
- * extensions (e.g. SQL Explorer) since they paint with these same tokens.
+ * and we fade surfaces toward whatever sits behind the window: the wallpaper
+ * image when one is set, else the desktop. That covers the shell, sidebar,
+ * header, tabs, status bar, panels, popovers / dropdowns / menus, the editor's
+ * find panel, and the editor / terminal canvases — plus extensions (e.g. SQL
+ * Explorer) since they paint with these same tokens.
+ *
+ * LEGIBILITY: only the content canvas (`--background`, the editor `.cm-editor`
+ * tint, and the terminal rgba) follows the slider all the way to fully
+ * transparent. Every text/icon-bearing chrome surface is FLOORED so it never
+ * drops below a readable backing: cards/sidebar/secondary/muted ride
+ * `--tedi-glass-surface` (0.5..1), the header rides `--tedi-glass-header`
+ * (0.5..1), and floating menus ride `--tedi-glass-menu` (0.82..1). So text,
+ * icons, and buttons stay clearly visible at any opacity.
+ *
  * `!important` beats the inline `--background` / `--card` a custom theme sets
  * on `<html>`. Left solid on purpose: text/borders (legibility), `--accent` /
  * `--sidebar-accent` (active tab, selected rows, terminal selection), and
  * `--primary` / `--destructive` (buttons stay crisp). Main window only; the
  * settings window opts out for readability (see `appOpacity.ts`). */
 html[data-tedi-glass="on"] {
+  /* Text- and icon-bearing chrome (cards, sidebar, secondary, muted) keeps a
+   * legibility FLOOR so labels, icons, and buttons stay clearly visible over
+   * the wallpaper even at the low end of the slider. The 0..1 slider maps to
+   * 0.5..1 alpha here (an "acrylic/vibrancy"-style tint, ~the same floor the
+   * header uses); the canvas itself (--background, editor/terminal) still goes
+   * fully see-through below, so the "dissolve into the wallpaper" look is
+   * preserved for the content panes while chrome never becomes unreadable. */
   --tedi-glass-surface: color-mix(
     in srgb,
-    var(--tedi-canvas-bg) calc(var(--tedi-app-opacity) * 100%),
+    var(--tedi-canvas-bg) calc((var(--tedi-app-opacity) * 0.5 + 0.5) * 100%),
     transparent
   );
-  /* Header is intentionally more opaque (alpha maps 0..1 -> 0.5..1) so the
-   * top bar stays a clear, grabbable drag handle, while still fading with the
-   * slider. */
+  /* Header is the drag handle: a slightly stronger floor (alpha maps 0..1 ->
+   * 0.5..1) so the top bar stays clearly grabbable, while still fading. */
   --tedi-glass-header: color-mix(
     in srgb,
     var(--tedi-canvas-bg) calc((var(--tedi-app-opacity) * 0.5 + 0.5) * 100%),
+    transparent
+  );
+  /* Floating menus (dropdowns, context menus, popovers, tooltips, command
+   * palette) carry the densest small text and have NO scrim/backdrop (blur is
+   * banned on Windows/WebView2, see note below), so they get the strongest
+   * floor (alpha maps 0..1 -> 0.82..1). They still fade with the slider but
+   * never below a clearly readable level. */
+  --tedi-glass-menu: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) calc((var(--tedi-app-opacity) * 0.18 + 0.82) * 100%),
     transparent
   );
   /* The app canvas (shell, pane gaps, editor/terminal frames) goes FULLY
    * see-through so you look straight at the wallpaper / desktop — no dark
    * tint over the whole window. */
   --background: transparent !important;
-  /* Panels keep a translucent backing scaled by the opacity slider so chrome,
-   * menus, and the editor/terminal text stay readable while still showing
-   * what's behind. The editor (.cm-editor) and terminal canvas use the same
-   * `--tedi-app-opacity` for their own rgba tint (see rules above + JS). */
+  /* Panels keep a floored translucent backing (see --tedi-glass-surface) so
+   * chrome and the editor/terminal text stay readable while still showing
+   * what's behind. Floating menus ride the stronger --tedi-glass-menu floor.
+   * The editor (.cm-editor) and terminal canvas use the raw --tedi-app-opacity
+   * for their own rgba tint (see rules above + JS). */
   --card: var(--tedi-glass-surface) !important;
-  --popover: var(--tedi-glass-surface) !important;
+  --popover: var(--tedi-glass-menu) !important;
   --secondary: var(--tedi-glass-surface) !important;
   --muted: var(--tedi-glass-surface) !important;
   --sidebar: var(--tedi-glass-surface) !important;
+}
+/* High-traffic main-window panels that paint with a FRACTIONAL utility
+ * (e.g. `bg-card/60`) would multiply a second alpha on top of the already
+ * floored --card, washing their text/icons out faster than the slider value.
+ * Pin them to the full floored surface under glass so the slider is the single
+ * source of truth. Solid (non-glass) themes keep their original fractional
+ * tint because this rule is gated on the glass attribute. */
+html[data-tedi-glass="on"] .tedi-glass-panel {
+  background-color: var(--tedi-glass-surface) !important;
 }
 /* Top header bar: more opaque than the rest (still follows the slider) so it
  * reads as a solid title/drag bar. `bg-card` makes it inherit the translucent
  * `--card` above, so override it back to the boosted header tint. */
 html[data-tedi-glass="on"] [data-tedi-header] {
+  background-color: var(--tedi-glass-header) !important;
+}
+/* Bottom status bar (the only `<footer>` in the app shell): it paints
+ * `bg-card/60`, which under glass would multiply a 0.6 alpha on top of the
+ * already floored `--card`, fading its cwd / git / zoom / AI text far faster
+ * than the slider implies. Pin it to the floored header tint so it reads as a
+ * solid-enough bar like the header, never below a readable floor. */
+html[data-tedi-glass="on"] footer {
   background-color: var(--tedi-glass-header) !important;
 }
 
@@ -419,11 +462,15 @@ html[data-tedi-glass="on"] .tsql-grid thead th.tsql-grid-th:hover {
 }
 /* The conversation "jump to message" pin is sticky over the scrolling message
  * list. Its `bg-background` would go fully see-through under glass (we force
- * `--background` transparent), letting messages bleed through it. Give it the
- * boosted header tint so it stays a readable bar that still follows the slider,
- * and drop its backdrop blur (dark fill on Windows). */
+ * `--background` transparent), letting messages bleed through it. Unlike the
+ * header (which only sits over the wallpaper), this pin sits over scrolling
+ * message TEXT, so a floored-but-translucent tint still lets text collide
+ * through it. Pin it to the SOLID canvas colour (same as the SQL sticky bars
+ * above) so the jump label is always readable; drop its backdrop blur (dark
+ * fill on Windows). It is a single sticky row, so solid costs no transparency
+ * the user cares about. */
 html[data-tedi-glass="on"] .tedi-chat-pin {
-  background-color: var(--tedi-glass-header) !important;
+  background-color: var(--tedi-canvas-bg) !important;
   backdrop-filter: none !important;
 }
 /* No `backdrop-filter`: over a transparent window WebView2 (Windows) renders

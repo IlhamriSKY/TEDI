@@ -814,6 +814,14 @@ export async function onPreferencesChange(
     [KEY_BRAND_COLOR]: "brandColor",
     [KEY_CUSTOM_THEME_ENABLED]: "customThemeEnabled",
     [KEY_CUSTOM_THEME]: "customTheme",
+    // Theme transparency + saved presets are written from the Settings window
+    // but consumed live by the main window (ThemeProvider applies opacity; the
+    // zustand store mirrors presets into the Theme settings grid). Without
+    // these two entries the committed opacity never reaches the main window
+    // (so a freshly-set wallpaper stays hidden behind solid surfaces) and a
+    // saved preset doesn't appear until reload.
+    [KEY_APP_OPACITY]: "appOpacity",
+    [KEY_USER_THEME_PRESETS]: "userThemePresets",
     [KEY_FORMAT_ON_SAVE]: "formatOnSave",
     [KEY_FORMATTERS]: "formatters",
   };

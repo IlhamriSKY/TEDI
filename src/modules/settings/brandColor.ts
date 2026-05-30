@@ -56,6 +56,16 @@ function readShadow(): string {
   return v ? normalizeBrandColor(v) : BRAND_COLOR_DEFAULT;
 }
 
+/**
+ * Read the last-applied brand hex synchronously from the localStorage shadow.
+ * Kept current by `applyBrandColor` (writeShadow) within the window, so callers
+ * that only need the fallback brand can avoid a full `loadPreferences()` IPC
+ * roundtrip.
+ */
+export function readBrandShadow(): string {
+  return readShadow();
+}
+
 function writeShadow(value: string): void {
   try {
     window.localStorage.setItem(FAST_PATH_KEY, value);
