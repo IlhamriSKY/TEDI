@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.13] - 30-05-2026
+
+### Changed
+
+- **Status-bar "Open preview" action is now an icon-only button pinned to the far left.** [`StatusBar.tsx`](src/modules/statusbar/StatusBar.tsx) drops the wide labelled "Open preview · host" pill in favour of a single globe icon (URL carried in the tooltip + `aria-label`) placed at the leftmost slot, so it reads consistently with the other status-bar icon buttons (SCM / AI / panel toggles).
+
+### Fixed
+
+- **WCAG AA text contrast across all 7 theme presets.** Audited every preset (Default, Tokyo Night, Nord, Catppuccin, Solarized, Monokai, Matrix) in both light and dark and lifted every failing text pair to >= 4.5:1 in [`themePresets.ts`](src/modules/settings/themePresets.ts): muted text (Default/light, Solarized/light, Nord/dark, Matrix/light), button labels (Tokyo Night/light, Nord/light, Solarized light + dark; Monokai/light's lime button now uses a dark label), and Nord/dark selection + accent text. Small non-text accent glyphs (status icons, diff stripes) keep their brand values; they sit below the 3:1 UI guideline by design to preserve each palette's identity.
+
 ## [0.3.12] - 30-05-2026
 
 ### Security

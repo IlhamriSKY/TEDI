@@ -51,6 +51,21 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+        {/* "Open preview" detected-URL action, pinned leftmost as an icon-only
+            button (the URL lives in the tooltip + aria-label) so it reads the
+            same as the other status-bar icon buttons. */}
+        {detectedPreviewUrl && onOpenPreview ? (
+          <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">
+            <button
+              type="button"
+              onClick={onOpenPreview}
+              aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
+              className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80"
+            >
+              <HugeiconsIcon icon={Globe02Icon} size={16} strokeWidth={1.75} className="shrink-0" />
+            </button>
+          </IconTooltip>
+        ) : null}
         {/* Update pill pinned to the far-left of the status bar. */}
         <UpdaterPill />
         <OsBadge />
@@ -64,27 +79,6 @@ function StatusBarInner({
         <RightPanelCompactToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
-        {detectedPreviewUrl && onOpenPreview ? (
-          <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">
-            <button
-              type="button"
-              onClick={onOpenPreview}
-              aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
-              className="border-border/70 bg-accent/40 text-foreground/90 hover:bg-accent hover:text-accent-foreground flex h-6 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors"
-            >
-              <HugeiconsIcon
-                icon={Globe02Icon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground shrink-0"
-              />
-              <span className="truncate">Open preview</span>
-              <span className="text-muted-foreground truncate">
-                {hostFromUrl(detectedPreviewUrl)}
-              </span>
-            </button>
-          </IconTooltip>
-        ) : null}
         <AgentStatusPill onClick={onOpenMini} />
         {/* Full-label right-panel toggles (text + Kbd) sit with the other
             "open X" buttons so the bordered row reads consistently. */}
@@ -137,12 +131,4 @@ function ScmRightOpenButton() {
       </motion.button>
     </IconTooltip>
   );
-}
-
-function hostFromUrl(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
 }

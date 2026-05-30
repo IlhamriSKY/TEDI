@@ -6531,7 +6531,7 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6578,7 +6578,7 @@ dependencies = [
 
 [[package]]
 name = "tedi-cli"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "tedi",
 ]
