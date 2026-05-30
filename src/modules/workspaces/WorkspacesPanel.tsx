@@ -3,6 +3,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import {
   Cancel01Icon,
   DashboardSquare02Icon,
@@ -143,7 +144,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, liveTabsCount }: Pr
                       aria-label="Rename workspace"
                       variant="ghost"
                       size="icon-sm"
-                      className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-5 rounded"
+                      className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
                     >
                       <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
                     </Button>

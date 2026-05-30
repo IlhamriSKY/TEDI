@@ -8,6 +8,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { ArrowDown01Icon, ArrowUp01Icon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
@@ -75,7 +76,7 @@ function ToolButton({ title, children }: { title: string; children: React.ReactN
         variant="ghost"
         size="icon"
         aria-label={title}
-        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 rounded-md"
+        className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 rounded-md`}
       >
         {children}
       </Button>
@@ -91,7 +92,7 @@ function ModelSelector() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-muted-foreground hover:bg-accent hover:text-accent-foreground h-7 gap-1 rounded-md px-1.5 text-xs"
+          className={`text-muted-foreground ${TOOLBAR_HOVER} h-7 gap-1 rounded-md px-1.5 text-xs`}
         >
           {selected.label}
           <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2} className="opacity-70" />

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { APPROVAL_MODE_META, setApprovalMode, type ApprovalMode } from "@/modules/settings/store";
@@ -70,8 +71,9 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               aria-label={agentTooltip}
               className={cn(
                 !isMiniWindow
-                  ? "border-border/60 bg-card text-muted-foreground hover:border-border hover:bg-accent hover:text-accent-foreground flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
+                  ? "border-border/60 bg-card text-muted-foreground hover:border-border flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
                   : "mr-1 text-xs",
+                !isMiniWindow && TOOLBAR_HOVER,
               )}
             >
               <HugeiconsIcon icon={ActiveIcon} size={11} strokeWidth={1.75} className="shrink-0" />

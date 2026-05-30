@@ -26,6 +26,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteConnection,
@@ -97,7 +98,12 @@ export function SshMenu({ onConnect }: Props) {
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+              className={cn(
+                "text-muted-foreground",
+                TOOLBAR_HOVER,
+                TOOLBAR_EXPANDED,
+                "size-7 shrink-0 rounded-md",
+              )}
               aria-label="SSH connections"
             >
               <HugeiconsIcon icon={CloudServerIcon} size={15} strokeWidth={1.75} />

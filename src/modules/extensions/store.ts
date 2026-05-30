@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { toast } from "@/components/ui/toast";
 import { evictExtensionIcon } from "./icon";
 import * as loader from "./loader";
 import type { InstalledExtension, UpdateCheckResult } from "./loader";
@@ -182,7 +183,17 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
       set({ list });
       if (isMainWindow()) {
         const fresh = list.find((e) => e.id === id);
-        if (fresh) await loader.activate(fresh).catch((e) => console.error(e));
+        if (fresh) {
+          await loader.activate(fresh).catch((e) => {
+            console.error(e);
+            // Surface enable-time activation failures the same way boot does,
+            // so toggling an extension on gives immediate feedback.
+            const msg = e instanceof Error ? e.message : String(e);
+            toast(`Extension "${fresh.manifest.name}" failed to activate: ${msg}`, {
+              variant: "error",
+            });
+          });
+        }
       }
       await announce({ kind: "installed", id });
     } else {

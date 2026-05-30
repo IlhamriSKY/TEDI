@@ -264,7 +264,16 @@ function syncRendererForWallpaper(s: Session): void {
 // fast drag re-themes at most once per frame, and the renderer only toggles
 // when crossing the glass on/off edge (not during a 0..1 drag). Keeps the
 // terminal in sync with the CSS surfaces without a write/IPC per pixel.
-if (typeof window !== "undefined") {
+// Guard against duplicate registration. This is a module-level singleton, but
+// a dev HMR re-eval (or any re-import) would otherwise stack a second listener
+// that keeps another closure over the `sessions` Map alive. The flag makes the
+// bind idempotent.
+const opacityWin =
+  typeof window !== "undefined"
+    ? (window as Window & { __tediCanvasOpacityBound?: boolean })
+    : null;
+if (opacityWin && !opacityWin.__tediCanvasOpacityBound) {
+  opacityWin.__tediCanvasOpacityBound = true;
   let scheduled = false;
   window.addEventListener("tedi:canvas-opacity", () => {
     if (scheduled) return;
@@ -421,11 +430,15 @@ function ensureSession(
   session.aiCliDetector = detector;
   session.cleanups.push(() => detector.dispose());
 
-  // Route through session.pty so respawn doesn't rebind.
-  term.onData((data) => {
+  // Route through session.pty so respawn doesn't rebind. Capture the
+  // disposable and release it in `disposeSession` (via cleanups) so the
+  // closure over `session` isn't retained between dispose and GC - matches
+  // the prompt/cwd/osc handlers pushed below.
+  const onDataDisposable = term.onData((data) => {
     session.aiCliDetector?.pushInput(data);
     session.pty?.write(data);
   });
+  session.cleanups.push(() => onDataDisposable.dispose());
 
   // PTY opens lazily after the first fit so the shell starts at the real terminal size.
   session.ready = (async () => {
@@ -565,22 +578,55 @@ function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySess
     return openSshForSession(s, s.sshConnectionId, spawnCols, spawnRows, onData, onExit);
   }
 
-  // Restore path: a saved daemon UUID exists. Try `reattachPty` first; on
-  // failure the daemon has lost the session (crash or PC reboot) and we
-  // spawn a fresh shell at the saved cwd instead. Either way the UUID is
-  // consumed - subsequent retries / respawns must go through `openPty`.
+  // Restore path: a saved daemon UUID exists. Try `reattachPty` first. Two
+  // ways it can miss, both ending in a fresh spawn at the saved cwd:
+  //   1. `reattachPty` rejects - the daemon lost the session entirely
+  //      (daemon crash or PC reboot since the workspace was saved).
+  //   2. `reattachPty` resolves but `alive === false` - the daemon still
+  //      holds the session, but its shell already exited while this GUI was
+  //      detached. Reattaching it would only replay frozen scrollback into a
+  //      pane that can't take input (the "blank tab that never opens a
+  //      terminal" symptom). Discard it and spawn fresh so the tab works.
+  // Either way the UUID is consumed - later retries / respawns go through
+  // `openPty`. Done in one async fn (not a `.catch` after `.then`) so the
+  // fresh-spawn fallback can't be double-fired by the reattach branch.
   const reattachId = s.savedPtyId;
   if (reattachId) {
     s.savedPtyId = undefined;
     return withSpawnTimeout(
-      reattachPty(reattachId, spawnCols, spawnRows, { onData, onExit }).catch((e) => {
-        if (isDebugPty()) {
-          console.info(
-            `[tedi-pty] reattach failed for ${reattachId}, falling back to fresh spawn: ${describeError(e)}`,
-          );
+      (async (): Promise<PtySession> => {
+        let attached: PtySession;
+        try {
+          attached = await reattachPty(reattachId, spawnCols, spawnRows, { onData, onExit });
+        } catch (e) {
+          if (isDebugPty()) {
+            console.info(
+              `[tedi-pty] reattach failed for ${reattachId}, falling back to fresh spawn: ${describeError(e)}`,
+            );
+          }
+          return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
         }
-        return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
-      }),
+        if (attached.alive === false) {
+          if (isDebugPty()) {
+            console.info(
+              `[tedi-pty] reattach ${reattachId} resolved dead (shell already exited); respawning fresh`,
+            );
+          }
+          // Tell the daemon to drop the dead session (also reaps its
+          // scrollback) and wipe the replayed dead output so the fresh
+          // shell paints onto a clean viewport.
+          void attached.close().catch(() => {});
+          s.term.reset();
+          s.placeholderShown = false;
+          // The dead session's replayed scrollback already stamped
+          // `firstByteEpoch` for this spawn epoch, which would suppress the
+          // no-data watchdog for the fresh shell. Clear it so the watchdog
+          // can still catch a fresh spawn that stalls during init.
+          s.firstByteEpoch = 0;
+          return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
+        }
+        return attached;
+      })(),
     );
   }
 
@@ -742,6 +788,7 @@ async function openSshForSession(
   return {
     id: sshSession.id,
     sessionId: "",
+    alive: true,
     write: (data) => sshSession.write(data),
     resize: (cols, rows) => sshSession.resize(cols, rows),
     close: () => sshSession.close(),

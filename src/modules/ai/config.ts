@@ -237,6 +237,19 @@ export function setDetectedModels(provider: ProviderId, models: ModelInfo[]): vo
   for (const m of models) dynamicModels.set(m.id, m);
 }
 
+/** Replace the detected models for ONE openai-compatible instance, leaving
+ *  other instances' models untouched. Instance ownership is read from each
+ *  model id's `<instanceId>::` namespace. Use this instead of
+ *  `setDetectedModels("openai-compatible", …)` so multiple endpoints coexist. */
+export function setDetectedModelsForInstance(instanceId: string, models: ModelInfo[]): void {
+  for (const [id, info] of dynamicModels) {
+    if (info.provider !== "openai-compatible") continue;
+    const parsed = parseOpenAICompatibleModelId(id);
+    if (parsed?.instanceId === instanceId) dynamicModels.delete(id);
+  }
+  for (const m of models) dynamicModels.set(m.id, m);
+}
+
 export function getDetectedModels(provider: ProviderId): ModelInfo[] {
   const out: ModelInfo[] = [];
   for (const m of dynamicModels.values()) {
@@ -313,6 +326,93 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+/**
+ * A single user-configured OpenAI-compatible endpoint. Multiple instances can
+ * coexist (e.g. one for OpenRouter, one for a local router, one for a company
+ * gateway). The provider TYPE stays `"openai-compatible"`; instances are the
+ * concrete endpoints behind that type. `id` is stable and used to key the
+ * keychain account (`openai-compatible-api-key:<id>`) and to namespace detected
+ * model ids. `label` and `baseURL` are persisted in the settings store; the API
+ * key lives only in the OS keychain.
+ */
+export type OpenAICompatibleInstance = {
+  id: string;
+  label: string;
+  baseURL: string;
+};
+
+/** Stable id of the migrated single-endpoint instance. Keeps the legacy
+ *  keychain account (`openai-compatible-api-key`, no suffix) addressable so a
+ *  user who configured the single endpoint before this change keeps working. */
+export const OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID = "default";
+
+/** Keychain account for an instance's API key. The legacy/default instance
+ *  reuses the original unsuffixed account so the pre-existing key is preserved;
+ *  every other instance gets a per-id suffix. */
+export function openaiCompatibleKeyringAccount(instanceId: string): string {
+  return instanceId === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID
+    ? "openai-compatible-api-key"
+    : `openai-compatible-api-key:${instanceId}`;
+}
+
+/** Separator between an instance id and the raw model id in a namespaced id.
+ *  Picked as `::` to avoid colliding with provider-style `/` paths in model
+ *  ids (e.g. `openai/gpt-oss-20b`) and the `:` some ids carry (e.g. `:free`). */
+const OAI_COMPAT_MODEL_SEP = "::";
+
+/** Build the namespaced runtime model id for a detected model on an instance. */
+export function openaiCompatibleModelId(instanceId: string, rawModelId: string): string {
+  return `${instanceId}${OAI_COMPAT_MODEL_SEP}${rawModelId}`;
+}
+
+/** Split a namespaced model id back into `{ instanceId, rawModelId }`, or
+ *  `null` when the id is not namespaced (a plain model id). */
+export function parseOpenAICompatibleModelId(
+  modelId: string,
+): { instanceId: string; rawModelId: string } | null {
+  const idx = modelId.indexOf(OAI_COMPAT_MODEL_SEP);
+  if (idx === -1) return null;
+  return {
+    instanceId: modelId.slice(0, idx),
+    rawModelId: modelId.slice(idx + OAI_COMPAT_MODEL_SEP.length),
+  };
+}
+
+/** Runtime resolution data for one openai-compatible instance: the base URL
+ *  and (in-memory only) API key needed to build the language model. Populated
+ *  by the detection layer when models are refreshed; never persisted here. */
+type OpenAICompatibleRuntime = { baseURL: string; apiKey: string };
+const oaiCompatRuntime = new Map<string, OpenAICompatibleRuntime>();
+
+/** Register (or update) the runtime base URL + key for an instance so the
+ *  agent can resolve them from a namespaced model id. Key stays in memory; it
+ *  is sourced from the OS keychain by the caller, never written back to disk. */
+export function setOpenAICompatibleRuntime(
+  instanceId: string,
+  baseURL: string,
+  apiKey: string,
+): void {
+  oaiCompatRuntime.set(instanceId, { baseURL, apiKey });
+}
+
+/** Drop an instance's runtime resolution data (on key removal / instance delete). */
+export function clearOpenAICompatibleRuntime(instanceId: string): void {
+  oaiCompatRuntime.delete(instanceId);
+}
+
+/** Resolve `{ baseURL, apiKey }` for a namespaced openai-compatible model id.
+ *  Returns `null` when the id isn't namespaced or the instance is unknown, so
+ *  the caller can fall back to the legacy single-endpoint values. */
+export function resolveOpenAICompatibleModel(
+  modelId: string,
+): (OpenAICompatibleRuntime & { instanceId: string; rawModelId: string }) | null {
+  const parsed = parseOpenAICompatibleModelId(modelId);
+  if (!parsed) return null;
+  const rt = oaiCompatRuntime.get(parsed.instanceId);
+  if (!rt) return null;
+  return { ...rt, ...parsed };
+}
 
 /** Preset endpoints surfaced as quick-pick chips inside the OpenAI
  *  Compatible block in Settings → Models. Each entry pre-fills the base

@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { KEY_SEP } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -227,7 +229,7 @@ export function SearchInline({ target, compact, ref }: Props) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+                className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
                 onClick={focus}
                 aria-label={tooltipTitle}
               >

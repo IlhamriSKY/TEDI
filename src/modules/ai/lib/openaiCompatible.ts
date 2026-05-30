@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { setDetectedModels, type ModelInfo } from "../config";
+import {
+  OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+  clearOpenAICompatibleRuntime,
+  openaiCompatibleModelId,
+  setDetectedModelsForInstance,
+  setOpenAICompatibleRuntime,
+  type ModelInfo,
+} from "../config";
 
 type ModelsResponse = {
   data?: Array<{ id?: string; owned_by?: string }>;
@@ -20,23 +27,23 @@ const INITIAL: FetchState = {
   fetchedAt: null,
 };
 
-let state: FetchState = INITIAL;
-const listeners = new Set<(s: FetchState) => void>();
+// Per-instance fetch state. Keyed by instance id so multiple endpoints each
+// track their own detection status independently.
+const states = new Map<string, FetchState>();
+const listeners = new Set<() => void>();
 
 function emit() {
-  for (const l of listeners) l(state);
+  for (const l of listeners) l();
 }
 
-export function getOpenAICompatibleModelsState(): FetchState {
-  return state;
+function stateFor(instanceId: string): FetchState {
+  return states.get(instanceId) ?? INITIAL;
 }
 
-export function subscribeOpenAICompatibleModels(cb: (s: FetchState) => void): () => void {
-  listeners.add(cb);
-  cb(state);
-  return () => {
-    listeners.delete(cb);
-  };
+export function getOpenAICompatibleModelsState(
+  instanceId: string = OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+): FetchState {
+  return stateFor(instanceId);
 }
 
 function labelFor(id: string): string {
@@ -58,18 +65,29 @@ function hintFor(raw: { owned_by?: string }): string {
   return raw.owned_by ? `via ${raw.owned_by}` : "OpenAI Compatible";
 }
 
-export async function refreshOpenAICompatibleModels(
+/**
+ * Fetch one instance's `/models` catalogue and publish it into the dynamic
+ * registry under namespaced ids (`<instanceId>::<rawId>`) so models from
+ * different endpoints never collide. Also records the instance's base URL + key
+ * in the runtime resolver so the agent can build the right client for a picked
+ * model. Safe to call repeatedly. Pass `signal` to cancel.
+ */
+export async function refreshOpenAICompatibleInstance(
+  instanceId: string,
   apiKey: string,
   baseURL: string,
   signal?: AbortSignal,
 ): Promise<ModelInfo[]> {
   const trimmedURL = baseURL.replace(/\/$/, "");
   if (!trimmedURL) {
-    state = { ...state, status: "error", error: "Base URL is empty" };
+    states.set(instanceId, { ...stateFor(instanceId), status: "error", error: "Base URL is empty" });
     emit();
     return [];
   }
-  state = { ...state, status: "loading", error: null };
+  // Register runtime resolution up-front so a model picked before detection
+  // finishes still resolves to the right endpoint.
+  setOpenAICompatibleRuntime(instanceId, trimmedURL, apiKey);
+  states.set(instanceId, { ...stateFor(instanceId), status: "loading", error: null });
   emit();
   try {
     const res = await fetch(`${trimmedURL}/models`, {
@@ -93,7 +111,9 @@ export async function refreshOpenAICompatibleModels(
     }
     const detected: ModelInfo[] = raws
       .map((raw) => ({
-        id: raw.id,
+        // Namespace the id so the agent can route the model to this instance,
+        // and so two endpoints exposing the same model id stay distinct.
+        id: openaiCompatibleModelId(instanceId, raw.id),
         provider: "openai-compatible" as const,
         label: labelFor(raw.id),
         hint: hintFor(raw),
@@ -101,42 +121,74 @@ export async function refreshOpenAICompatibleModels(
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
 
-    setDetectedModels("openai-compatible", detected);
-    state = {
+    setDetectedModelsForInstance(instanceId, detected);
+    states.set(instanceId, {
       status: "ok",
       error: null,
       models: detected,
       fetchedAt: Date.now(),
-    };
+    });
     emit();
     return detected;
   } catch (e) {
     if ((e as { name?: string })?.name === "AbortError") {
-      return state.models;
+      return stateFor(instanceId).models;
     }
-    state = {
-      ...state,
+    states.set(instanceId, {
+      ...stateFor(instanceId),
       status: "error",
       error: e instanceof Error ? e.message : String(e),
-    };
+    });
     emit();
     return [];
   }
 }
 
-export function clearOpenAICompatibleModels(): void {
-  setDetectedModels("openai-compatible", []);
-  state = {
-    status: "idle",
-    error: null,
-    models: [],
-    fetchedAt: null,
-  };
+/** Reset one instance's detection state and registry entries (on key removal
+ *  or instance delete). */
+export function clearOpenAICompatibleInstance(instanceId: string): void {
+  setDetectedModelsForInstance(instanceId, []);
+  clearOpenAICompatibleRuntime(instanceId);
+  states.set(instanceId, { status: "idle", error: null, models: [], fetchedAt: null });
   emit();
 }
 
-export function useOpenAICompatibleModels(): FetchState {
-  const [snapshot, setSnapshot] = useState<FetchState>(state);
-  useEffect(() => subscribeOpenAICompatibleModels(setSnapshot), []);
-  return snapshot;
+// --- Backward-compatible single-endpoint API --------------------------------
+// Older call sites (App.tsx, ModelsSection.tsx) used these without an instance
+// id. They now target the default instance.
+
+export async function refreshOpenAICompatibleModels(
+  apiKey: string,
+  baseURL: string,
+  signal?: AbortSignal,
+): Promise<ModelInfo[]> {
+  return refreshOpenAICompatibleInstance(
+    OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+    apiKey,
+    baseURL,
+    signal,
+  );
+}
+
+export function clearOpenAICompatibleModels(): void {
+  clearOpenAICompatibleInstance(OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID);
+}
+
+/** Subscribe to detection-state changes for any instance. The callback fires
+ *  on every instance's update; consumers read the instances they care about. */
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
+  cb();
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+/** React hook for one instance's fetch state. */
+export function useOpenAICompatibleModels(
+  instanceId: string = OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+): FetchState {
+  const [, force] = useState(0);
+  useEffect(() => subscribe(() => force((n) => n + 1)), []);
+  return stateFor(instanceId);
 }

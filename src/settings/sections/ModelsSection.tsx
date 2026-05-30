@@ -12,19 +12,31 @@ import { cn } from "@/lib/utils";
 import {
   AUTOCOMPLETE_PROVIDERS,
   DEFAULT_AUTOCOMPLETE_MODEL,
+  getDetectedModels,
   MODELS,
+  OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   OPENAI_COMPATIBLE_PRESETS,
   PROVIDERS,
   getProvider,
   providerNeedsKey,
   tryGetModel,
   type AutocompleteProviderId,
+  type OpenAICompatibleInstance,
   type ProviderId,
 } from "@/modules/ai/config";
-import { clearKey, getAllKeys, setKey } from "@/modules/ai/lib/keyring";
 import {
-  clearOpenAICompatibleModels,
-  refreshOpenAICompatibleModels,
+  clearKey,
+  clearOpenAICompatibleInstanceKey,
+  getAllKeys,
+  getOpenAICompatibleInstanceKey,
+  setKey,
+  setOpenAICompatibleInstanceKey,
+} from "@/modules/ai/lib/keyring";
+import {
+  clearOpenAICompatibleInstance,
+  getOpenAICompatibleModelsState,
+  refreshOpenAICompatibleInstance,
   useOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
 import {
@@ -40,10 +52,15 @@ import {
   setAutocompleteProvider,
   setDefaultModel,
   setLmstudioBaseURL,
-  setOpenAICompatibleBaseURL,
+  setOpenAICompatibleInstances,
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
-import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Edit02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
@@ -62,13 +79,39 @@ function matchesQuery(m: { id: string; label: string; hint: string }, q: string)
   );
 }
 
+/** Combine per-instance detection statuses into one for the dropdown header:
+ *  "loading" if any instance is loading, "ok" if any resolved, else "error"
+ *  when at least one failed, else "idle". */
+function aggregateOaiCompatStatus(
+  instances: ReadonlyArray<OpenAICompatibleInstance>,
+): "idle" | "loading" | "ok" | "error" {
+  let sawError = false;
+  let sawOk = false;
+  for (const inst of instances) {
+    const s = getOpenAICompatibleModelsState(inst.id).status;
+    if (s === "loading") return "loading";
+    if (s === "ok") sawOk = true;
+    if (s === "error") sawError = true;
+  }
+  if (sawOk) return "ok";
+  if (sawError) return "error";
+  return "idle";
+}
+
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
   const defaultProvider = usePreferencesStore((s) => s.defaultProviderId);
-  const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
+  const oaiCompatInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
+  // Per-instance API keys, loaded from the OS keychain (never persisted to the
+  // settings store). Keyed by instance id. Mirrors `keys["openai-compatible"]`
+  // for the default instance so existing gating still works.
+  const [instanceKeys, setInstanceKeys] = useState<Record<string, string | null>>({});
   const sumopodModels = useSumopodModels();
-  const oaiCompatModels = useOpenAICompatibleModels();
+  // Subscribe to openai-compatible detection-state changes (any instance) so
+  // the dropdown re-renders when a catalogue resolves. The return value isn't
+  // read directly; per-instance state is pulled via getOpenAICompatibleModelsState.
+  useOpenAICompatibleModels();
   const [modelQuery, setModelQuery] = useState("");
   // Search filter for the "+ Add provider" dropdown. Cleared when the
   // dropdown closes so reopening starts fresh.
@@ -92,14 +135,39 @@ export function ModelsSection() {
     void getAllKeys().then((k) => {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
-      if (k["openai-compatible"] && openaiCompatibleBaseURL) {
-        void refreshOpenAICompatibleModels(k["openai-compatible"], openaiCompatibleBaseURL);
-      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onSave = async (provider: ProviderId, value: string, urlOverride?: string) => {
+  // Load each openai-compatible instance's key from the keychain and kick off
+  // detection. Runs when the instances list changes (add/remove/edit URL).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        oaiCompatInstances.map(
+          async (inst) => [inst.id, await getOpenAICompatibleInstanceKey(inst.id)] as const,
+        ),
+      );
+      if (cancelled) return;
+      setInstanceKeys((prev) => {
+        const next = { ...prev };
+        for (const [id, key] of entries) next[id] = key;
+        return next;
+      });
+      for (const inst of oaiCompatInstances) {
+        const key = entries.find(([id]) => id === inst.id)?.[1] ?? null;
+        if (key && inst.baseURL) {
+          void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [oaiCompatInstances]);
+
+  const onSave = async (provider: ProviderId, value: string) => {
     await setKey(provider, value);
     setKeys((prev) => (prev ? { ...prev, [provider]: value } : prev));
     await emitKeysChanged();
@@ -107,16 +175,6 @@ export function ModelsSection() {
     // in-progress add slot so the configured-providers list takes over.
     setAddingProvider((cur) => (cur === provider ? null : cur));
     if (provider === "sumopod") void refreshSumopodModels(value);
-    if (provider === "openai-compatible") {
-      // Prefer the URL the block just committed (passed explicitly) over the
-      // store value, which a closure may still see as the previous default
-      // if React hasn't re-rendered yet. Without this, saving a key right
-      // after typing a new URL fired /models against the OLD endpoint -
-      // OpenRouter key sent to api.openai.com → 401 → "Detection failed",
-      // surfacing as "input AI terdetect tapi model tidak muncul".
-      const url = urlOverride ?? openaiCompatibleBaseURL;
-      if (url) void refreshOpenAICompatibleModels(value, url);
-    }
   };
 
   const onClear = async (provider: ProviderId) => {
@@ -124,12 +182,85 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") clearSumopodModels();
-    if (provider === "openai-compatible") clearOpenAICompatibleModels();
+  };
+
+  // Persist (or update) one openai-compatible endpoint: writes label + base URL
+  // to the instances list, stores the key in the keychain, then refreshes the
+  // catalogue. `instanceId` is supplied when editing an existing endpoint;
+  // omit it to mint a new one. Returns the resolved instance id.
+  const onSaveInstance = async (
+    input: { instanceId?: string; label: string; baseURL: string; apiKey: string },
+  ): Promise<string> => {
+    const baseURL = input.baseURL.trim();
+    const apiKey = input.apiKey.trim();
+    const isFirst = oaiCompatInstances.length === 0;
+    // First endpoint claims the legacy id so it reuses the original keychain
+    // account and the migrated base URL; later ones get a unique id.
+    const instanceId =
+      input.instanceId ??
+      (isFirst ? OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID : `oc-${Date.now().toString(36)}`);
+    const label = input.label.trim() || "OpenAI Compatible";
+
+    // Reject a duplicate API key: two endpoints sharing the same key surface the
+    // identical model catalogue, cluttering the model dropdown. Same base URL is
+    // fine (two accounts on one gateway), but the key must differ. Checked
+    // against every OTHER instance's key loaded from the keychain.
+    if (apiKey) {
+      const clash = oaiCompatInstances.find(
+        (i) => i.id !== instanceId && (instanceKeys[i.id] ?? "").trim() === apiKey,
+      );
+      if (clash) {
+        throw new Error(`API key already used by "${clash.label}". Use a different key.`);
+      }
+    }
+
+    const existing = oaiCompatInstances.find((i) => i.id === instanceId);
+    const nextInstances: OpenAICompatibleInstance[] = existing
+      ? oaiCompatInstances.map((i) => (i.id === instanceId ? { ...i, label, baseURL } : i))
+      : [...oaiCompatInstances, { id: instanceId, label, baseURL }];
+
+    await setOpenAICompatibleInstances(nextInstances);
+    if (apiKey) await setOpenAICompatibleInstanceKey(instanceId, apiKey);
+    setInstanceKeys((prev) => ({ ...prev, [instanceId]: apiKey || prev[instanceId] || null }));
+    // Mirror connectivity into the shared keys map so dropdown gating treats
+    // "openai-compatible" as connected when any instance has a key.
+    setKeys((prev) => (prev ? { ...prev, "openai-compatible": apiKey || prev["openai-compatible"] } : prev));
+    await emitKeysChanged();
+    setAddingProvider((cur) => (cur === "openai-compatible" ? null : cur));
+    const keyForRefresh = apiKey || instanceKeys[instanceId];
+    if (keyForRefresh && baseURL) {
+      void refreshOpenAICompatibleInstance(instanceId, keyForRefresh, baseURL);
+    }
+    return instanceId;
+  };
+
+  // Remove one openai-compatible endpoint entirely: drop it from the list,
+  // delete its keychain key, and clear its detected models.
+  const onRemoveInstance = async (instanceId: string): Promise<void> => {
+    const nextInstances = oaiCompatInstances.filter((i) => i.id !== instanceId);
+    await setOpenAICompatibleInstances(nextInstances);
+    await clearOpenAICompatibleInstanceKey(instanceId);
+    clearOpenAICompatibleInstance(instanceId);
+    setInstanceKeys((prev) => {
+      const next = { ...prev };
+      delete next[instanceId];
+      return next;
+    });
+    // If no endpoints remain, mark openai-compatible disconnected in the gate map.
+    if (nextInstances.length === 0) {
+      setKeys((prev) => (prev ? { ...prev, "openai-compatible": null } : prev));
+    }
+    await emitKeysChanged();
   };
 
   if (!keys) {
     return <div className="text-muted-foreground text-[12px]">Loading…</div>;
   }
+
+  // All detected openai-compatible models across every instance. Aggregated
+  // from the dynamic registry so the dropdown lists each endpoint's catalogue
+  // under one "OpenAI Compatible" section.
+  const oaiCompatModels = getDetectedModels("openai-compatible");
 
   // Resolve display info using the saved provider when present. Disambiguates ids shared across providers.
   const defaultModelInfo = (() => {
@@ -138,7 +269,7 @@ export function ModelsSection() {
         defaultProvider === "sumopod"
           ? sumopodModels.models
           : defaultProvider === "openai-compatible"
-            ? oaiCompatModels.models
+            ? oaiCompatModels
             : MODELS.filter((m) => m.provider === defaultProvider);
       const hit = pool.find((m) => m.id === defaultModel);
       if (hit) return hit;
@@ -167,17 +298,17 @@ export function ModelsSection() {
     (p) => providerNeedsKey(p.id) && p.id !== "openai-compatible",
   );
   const configuredKeyed = keyedProviders.filter((p) => !!keys[p.id]);
-  const oaiCompatConfigured = !!keys["openai-compatible"];
+  const oaiCompatConfigured = oaiCompatInstances.length > 0;
   const oaiCompatAdding = addingProvider === "openai-compatible";
   // Providers eligible to appear in the "+ Add provider" dropdown: every
   // provider needing a key, minus the ones already connected and minus the
-  // one mid-add. OpenAI Compatible is included because it's still a
-  // separate gateway choice; LM Studio is excluded because it's keyless
-  // and configured from the Editor autocomplete block below instead.
+  // one mid-add. OpenAI Compatible is special: it's always addable (each pick
+  // mints a NEW endpoint, since multiple are supported). LM Studio is excluded
+  // because it's keyless and configured from the Editor autocomplete block.
   const addableProviders = PROVIDERS.filter(
     (p) =>
       providerNeedsKey(p.id) &&
-      !keys[p.id] &&
+      (p.id === "openai-compatible" || !keys[p.id]) &&
       p.id !== addingProvider,
   );
 
@@ -203,6 +334,11 @@ export function ModelsSection() {
               <span className="flex min-w-0 items-center gap-2 truncate">
                 <ProviderIcon provider={defaultModelInfo.provider} size={14} />
                 <span className="truncate font-medium">{defaultModelInfo.label}</span>
+                {/* Mark this as THE app default: it drives the native AI agent
+                 *  and the "AI write commit message" action. */}
+                <span className="border-primary/40 bg-primary/10 text-primary shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase">
+                  Default
+                </span>
                 <span className="text-muted-foreground truncate">
                   · {defaultModelInfo.hint}
                 </span>
@@ -253,24 +389,26 @@ export function ModelsSection() {
                     p.id === "sumopod"
                       ? sumopodModels.models
                       : p.id === "openai-compatible"
-                        ? oaiCompatModels.models
+                        ? oaiCompatModels
                         : MODELS.filter((m) => m.provider === p.id);
                   const filtered = all.filter((m) => matchesQuery(m, modelQuery));
                   totalMatches += filtered.length;
                   if (filtered.length === 0 && searching) return null;
                   const hasKey = !!keys[p.id];
-                  const dynamicState =
+                  // Aggregate detection status: SumoPod has one stream;
+                  // openai-compatible combines every instance's status.
+                  const dynamicStatus =
                     p.id === "sumopod"
-                      ? sumopodModels
+                      ? sumopodModels.status
                       : p.id === "openai-compatible"
-                        ? oaiCompatModels
+                        ? aggregateOaiCompatStatus(oaiCompatInstances)
                         : null;
-                  const isDynamicEmpty = !!dynamicState && hasKey && filtered.length === 0;
+                  const isDynamicEmpty = !!dynamicStatus && hasKey && filtered.length === 0;
                   const dynamicNote =
-                    dynamicState && hasKey
-                      ? dynamicState.status === "loading"
+                    dynamicStatus && hasKey
+                      ? dynamicStatus === "loading"
                         ? "Detecting models…"
-                        : dynamicState.status === "error"
+                        : dynamicStatus === "error"
                           ? "Detection failed - check key / URL"
                           : null
                       : null;
@@ -377,11 +515,19 @@ export function ModelsSection() {
       <div className="flex flex-col gap-2">
         <Label>Defaults</Label>
         <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
-              Chat model
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
+                Default model
+              </span>
+              <div className="min-w-0 flex-1">{defaultModelDropdown}</div>
+            </div>
+            {/* Clarify that this picker sets the app-wide default model: it
+             *  drives the native AI agent and the SCM "AI write commit message"
+             *  action. */}
+            <span className="text-muted-foreground/80 text-[10.5px] sm:pl-[calc(6rem+0.75rem)]">
+              Used by the AI agent and to generate Git commit messages.
             </span>
-            <div className="min-w-0 flex-1">{defaultModelDropdown}</div>
           </div>
 
           <AutocompleteBlock keys={keys} />
@@ -536,34 +682,43 @@ export function ModelsSection() {
         ) : null}
       </div>
 
-      {/* OpenAI Compatible: shown only when configured OR being added. */}
+      {/* OpenAI Compatible endpoints: one block per configured instance, plus
+       *  a block for the one being added. Multiple independent endpoints are
+       *  supported (OpenRouter, a local router, a company gateway, …). */}
       {oaiCompatConfigured || oaiCompatAdding ? (
         <div className="flex flex-col gap-2">
-          {oaiCompatAdding && !oaiCompatConfigured ? (
-            <div className="flex items-center gap-2 text-[10.5px]">
-              <div className="border-border/60 h-px flex-1 border-t" />
-              <span className="text-muted-foreground">
-                Connecting OpenAI Compatible endpoint
-              </span>
-              <button
-                type="button"
-                onClick={() => setAddingProvider(null)}
-                className="text-muted-foreground hover:text-foreground cursor-pointer underline-offset-2 hover:underline"
-              >
-                Cancel
-              </button>
-              <div className="border-border/60 h-px flex-1 border-t" />
-            </div>
+          <Label>OpenAI Compatible endpoints</Label>
+          {oaiCompatInstances.map((inst) => {
+            const st = getOpenAICompatibleModelsState(inst.id);
+            return (
+              <OpenAICompatibleBlock
+                key={inst.id}
+                instance={inst}
+                apiKey={instanceKeys[inst.id] ?? null}
+                status={st.status}
+                error={st.error}
+                modelsCount={st.models.length}
+                onSave={(label, url, key) =>
+                  onSaveInstance({ instanceId: inst.id, label, baseURL: url, apiKey: key })
+                }
+                onRemove={() => onRemoveInstance(inst.id)}
+              />
+            );
+          })}
+          {oaiCompatAdding ? (
+            <OpenAICompatibleBlock
+              instance={null}
+              apiKey={null}
+              status="idle"
+              error={null}
+              modelsCount={0}
+              onSave={(label, url, key) => onSaveInstance({ label, baseURL: url, apiKey: key })}
+              onRemove={() => {
+                setAddingProvider(null);
+                return Promise.resolve();
+              }}
+            />
           ) : null}
-          <OpenAICompatibleBlock
-            apiKey={keys["openai-compatible"]}
-            baseURL={openaiCompatibleBaseURL}
-            status={oaiCompatModels.status}
-            error={oaiCompatModels.error}
-            modelsCount={oaiCompatModels.models.length}
-            onSaveKey={(v, url) => onSave("openai-compatible", v, url)}
-            onClearKey={() => onClear("openai-compatible")}
-          />
         </div>
       ) : null}
     </div>
@@ -741,74 +896,80 @@ function AutocompleteBlock({ keys }: { keys: KeysMap }) {
   );
 }
 
+/**
+ * One OpenAI-compatible endpoint card: label + base URL + API key + presets +
+ * test/detect. `instance` is `null` while adding a new endpoint (the user fills
+ * the fields, then Save mints it via the parent's `onSave`); otherwise it edits
+ * an existing instance. The key lives in the OS keychain; only `apiKey`
+ * (presence) is passed in so the card can show a masked value.
+ */
 function OpenAICompatibleBlock({
+  instance,
   apiKey,
-  baseURL,
   status,
   error,
   modelsCount,
-  onSaveKey,
-  onClearKey,
+  onSave,
+  onRemove,
 }: {
+  instance: OpenAICompatibleInstance | null;
   apiKey: string | null;
-  baseURL: string;
   status: "idle" | "loading" | "ok" | "error";
   error: string | null;
   modelsCount: number;
-  /** `url` is the URL the block just committed; parent should prefer it
-   *  over its own (possibly stale-by-one-render) `openaiCompatibleBaseURL`. */
-  onSaveKey: (key: string, url: string) => Promise<void>;
-  onClearKey: () => Promise<void>;
+  /** Persist label + base URL + key for this endpoint (mint when adding). */
+  onSave: (label: string, baseURL: string, apiKey: string) => Promise<string>;
+  /** Remove the endpoint (or cancel the add when `instance` is null). */
+  onRemove: () => Promise<void>;
 }) {
-  const [urlDraft, setUrlDraft] = useState(baseURL);
+  const initialURL = instance?.baseURL ?? OPENAI_COMPATIBLE_DEFAULT_BASE_URL;
+  const initialLabel = instance?.label ?? "";
+  const configured = !!instance && !!apiKey;
+
+  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const [urlDraft, setUrlDraft] = useState(initialURL);
   const [keyDraft, setKeyDraft] = useState("");
   const [revealKey, setRevealKey] = useState(false);
-  const [savingKey, setSavingKey] = useState(false);
-  const [keyError, setKeyError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState(!apiKey);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [testError, setTestError] = useState<string | null>(null);
 
-  useEffect(() => setUrlDraft(baseURL), [baseURL]);
+  useEffect(() => setUrlDraft(initialURL), [initialURL]);
+  useEffect(() => setLabelDraft(initialLabel), [initialLabel]);
   useEffect(() => {
     setKeyDraft("");
     setRevealKey(false);
-    setKeyError(null);
+    setSaveError(null);
+    setEditingKey(!apiKey);
   }, [apiKey]);
 
-  const commitURL = () => {
-    const v = urlDraft.trim();
-    if (v && v !== baseURL) {
-      void setOpenAICompatibleBaseURL(v);
-      if (apiKey) void refreshOpenAICompatibleModels(apiKey, v);
-    }
-  };
-
-  const saveKey = async () => {
+  // Save persists label + URL + key in one shot. For an existing endpoint with
+  // a key already stored, the key field may stay blank (keeping the old key);
+  // for a new endpoint a key is required.
+  const save = async () => {
     const trimmedKey = keyDraft.trim();
-    if (!trimmedKey) {
-      setKeyError("Enter your API key.");
+    const trimmedUrl = urlDraft.trim();
+    if (!trimmedUrl) {
+      setSaveError("Enter a base URL.");
       return;
     }
-    setSavingKey(true);
-    setKeyError(null);
-    // Commit the URL FIRST when it has changed. Without this, a user who
-    // types a new base URL (e.g. OpenRouter) then immediately hits Save on
-    // the key field never blurs the URL input - `baseURL` in the store stays
-    // at the old default (api.openai.com/v1) and the auto-refresh inside
-    // `onSave` fires /models against the wrong endpoint with the new key,
-    // returns 401, and surfaces as "Detection failed - check key / URL".
-    // Pass `trimmedUrl` explicitly to onSaveKey so the parent's refresh
-    // uses the value we just committed, regardless of React render timing.
-    const trimmedUrl = urlDraft.trim();
+    if (!instance && !trimmedKey) {
+      setSaveError("Enter your API key.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
     try {
-      if (trimmedUrl && trimmedUrl !== baseURL) {
-        await setOpenAICompatibleBaseURL(trimmedUrl);
-      }
-      await onSaveKey(trimmedKey, trimmedUrl || baseURL);
+      await onSave(labelDraft.trim(), trimmedUrl, trimmedKey);
+      setKeyDraft("");
+      setRevealKey(false);
+      setEditingKey(false);
     } catch (e) {
-      setKeyError(`Failed to save: ${String(e)}`);
+      setSaveError(e instanceof Error ? e.message : `Failed to save: ${String(e)}`);
     } finally {
-      setSavingKey(false);
+      setSaving(false);
     }
   };
 
@@ -828,8 +989,8 @@ function OpenAICompatibleBlock({
   };
 
   const refresh = () => {
-    if (!apiKey) return;
-    void refreshOpenAICompatibleModels(apiKey, urlDraft.trim() || baseURL);
+    if (!instance || !apiKey) return;
+    void refreshOpenAICompatibleInstance(instance.id, apiKey, urlDraft.trim() || initialURL);
   };
 
   const maskedKey =
@@ -839,200 +1000,211 @@ function OpenAICompatibleBlock({
         ? "•".repeat(apiKey.length)
         : "";
 
-  // Highlight the chip whose baseURL matches the current draft. Trims
-  // trailing slashes so "/v1" and "/v1/" both stay matched.
+  // Highlight the chip whose baseURL matches the current draft. Trims trailing
+  // slashes so "/v1" and "/v1/" both stay matched.
   const activePresetId = (() => {
     const norm = urlDraft.trim().replace(/\/$/, "");
     return OPENAI_COMPATIBLE_PRESETS.find((p) => p.baseURL.replace(/\/$/, "") === norm)?.id;
   })();
 
   return (
-    <div className="flex flex-col gap-2">
-      <Label>OpenAI Compatible endpoint</Label>
-      <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <ProviderIcon provider="openai-compatible" size={14} />
-          <span className="text-[12px] font-medium">OpenAI Compatible</span>
-          {apiKey ? (
-            <span className="rounded border border-diff-added/40 bg-diff-added/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-diff-added uppercase text-diff-added">
-              Configured
-            </span>
+    <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <ProviderIcon provider="openai-compatible" size={14} />
+        <span className="text-[12px] font-medium">{instance?.label || "OpenAI Compatible"}</span>
+        {configured ? (
+          <span className="rounded border border-diff-added/40 bg-diff-added/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-diff-added uppercase">
+            Configured
+          </span>
+        ) : (
+          <span className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px] tracking-wide uppercase">
+            Not set
+          </span>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-auto size-7"
+              onClick={() => void onRemove()}
+              aria-label={instance ? "Remove endpoint" : "Cancel"}
+            >
+              ×
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{instance ? "Remove endpoint" : "Cancel"}</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Quick-pick presets - OpenAI / OpenRouter / 9Router. Clicking a chip
+       *  drops its URL into the field. Shown while editing the endpoint. */}
+      {editingKey ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[10px]">Quick start</span>
+          <div className="flex flex-wrap gap-1">
+            {OPENAI_COMPATIBLE_PRESETS.map((preset) => {
+              const active = preset.id === activePresetId;
+              return (
+                <Tooltip key={preset.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUrlDraft(preset.baseURL);
+                        if (!labelDraft.trim()) setLabelDraft(preset.label);
+                      }}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                        active
+                          ? "border-foreground/40 bg-accent/60"
+                          : "border-border/60 hover:bg-accent/30 bg-transparent",
+                      )}
+                    >
+                      <span>{preset.label}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{preset.description}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1">
+        <span className="text-muted-foreground text-[10px]">Label</span>
+        <Input
+          value={labelDraft}
+          onChange={(e) => setLabelDraft(e.target.value)}
+          placeholder="e.g. OpenRouter"
+          spellCheck={false}
+          className="h-7 text-[11px]"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-2">
+        <div className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[10px]">Base URL</span>
+          <Input
+            value={urlDraft}
+            onChange={(e) => setUrlDraft(e.target.value)}
+            placeholder="https://api.openai.com/v1"
+            spellCheck={false}
+            className="h-7 font-mono text-[11px]"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[10px]">API key</span>
+          {apiKey && !editingKey ? (
+            <div className="flex items-center gap-1">
+              <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[10.5px]">
+                {maskedKey}
+              </code>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-muted-foreground hover:bg-accent size-7"
+                    onClick={() => setEditingKey(true)}
+                    aria-label="Replace key"
+                  >
+                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Replace key</TooltipContent>
+              </Tooltip>
+            </div>
           ) : (
-            <span className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px] tracking-wide uppercase">
-              Not set
-            </span>
+            <div className="relative">
+              <Input
+                type={revealKey ? "text" : "password"}
+                value={keyDraft}
+                disabled={saving}
+                onChange={(e) => {
+                  setKeyDraft(e.target.value);
+                  if (saveError) setSaveError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void save();
+                  }
+                }}
+                placeholder={apiKey ? "Paste a new key (or leave blank)" : "Paste API key"}
+                autoComplete="off"
+                spellCheck={false}
+                className="h-7 pr-12 font-mono text-[11px]"
+              />
+              <button
+                type="button"
+                onClick={() => setRevealKey((v) => !v)}
+                tabIndex={-1}
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px]"
+                aria-label={revealKey ? "Hide key" : "Show key"}
+              >
+                {revealKey ? "Hide" : "Show"}
+              </button>
+            </div>
           )}
         </div>
+      </div>
 
-        {/* Quick-pick presets - OpenAI / OpenRouter / 9Router. Clicking a
-         *  chip drops its URL into the field. Saves the user from
-         *  remembering "is it /v1 or /api/v1?" or 9Router's local port.
-         *  Hidden once a key is configured to keep the configured row tight. */}
-        {!apiKey ? (
-          <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-[10px]">Quick start</span>
-            <div className="flex flex-wrap gap-1">
-              {OPENAI_COMPATIBLE_PRESETS.map((preset) => {
-                const active = preset.id === activePresetId;
-                return (
-                  <Tooltip key={preset.id}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUrlDraft(preset.baseURL);
-                          if (preset.baseURL !== baseURL) {
-                            void setOpenAICompatibleBaseURL(preset.baseURL);
-                          }
-                        }}
-                        className={cn(
-                          "flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                          active
-                            ? "border-foreground/40 bg-accent/60"
-                            : "border-border/60 hover:bg-accent/30 bg-transparent",
-                        )}
-                      >
-                        <span>{preset.label}</span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">{preset.description}</TooltipContent>
-                  </Tooltip>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
+      {saveError ? <span className="text-destructive text-[10px]">{saveError}</span> : null}
 
-        <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-[10px]">Base URL</span>
-            <Input
-              value={urlDraft}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={commitURL}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitURL();
-                }
-              }}
-              placeholder="https://api.openai.com/v1"
-              spellCheck={false}
-              className="h-7 font-mono text-[11px]"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-[10px]">API key</span>
-            {apiKey ? (
-              <div className="flex items-center gap-1">
-                <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[10.5px]">
-                  {maskedKey}
-                </code>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
-                      onClick={() => void onClearKey()}
-                      aria-label="Remove key"
-                    >
-                      ×
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Remove key</TooltipContent>
-                </Tooltip>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <div className="relative flex-1">
-                  <Input
-                    type={revealKey ? "text" : "password"}
-                    value={keyDraft}
-                    disabled={savingKey}
-                    onChange={(e) => {
-                      setKeyDraft(e.target.value);
-                      if (keyError) setKeyError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void saveKey();
-                      }
-                    }}
-                    placeholder="Paste API key"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="h-7 pr-12 font-mono text-[11px]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRevealKey((v) => !v)}
-                    tabIndex={-1}
-                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px]"
-                    aria-label={revealKey ? "Hide key" : "Show key"}
-                  >
-                    {revealKey ? "Hide" : "Show"}
-                  </button>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void saveKey()}
-                  disabled={!keyDraft.trim() || savingKey}
-                  className="h-7 px-2.5 text-[10.5px]"
-                >
-                  {savingKey ? "Saving…" : "Save"}
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {keyError ? <span className="text-destructive text-[10px]">{keyError}</span> : null}
-
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground flex-1 truncate text-[10px]">
-            {testStatus === "ok" ? (
-              <span className="text-diff-added">Endpoint reachable.</span>
-            ) : testStatus === "fail" ? (
-              <span className="text-destructive">
-                Unreachable{testError ? ` (${testError})` : ""}.
-              </span>
-            ) : testStatus === "testing" ? (
-              "Testing…"
-            ) : !apiKey ? (
-              "Add key & URL to detect models."
-            ) : status === "loading" ? (
-              "Detecting models…"
-            ) : status === "error" ? (
-              <span className="text-destructive">
-                Detection failed{error ? ` · ${error}` : ""}.
-              </span>
-            ) : status === "ok" ? (
-              `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected · pick one in the dropdown above.`
-            ) : (
-              "Click Detect to fetch the catalogue."
-            )}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void testEndpoint()}
-            className="h-7 px-2 text-[10.5px]"
-          >
-            Test
-          </Button>
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted-foreground flex-1 truncate text-[10px]">
+          {testStatus === "ok" ? (
+            <span className="text-diff-added">Endpoint reachable.</span>
+          ) : testStatus === "fail" ? (
+            <span className="text-destructive">
+              Unreachable{testError ? ` (${testError})` : ""}.
+            </span>
+          ) : testStatus === "testing" ? (
+            "Testing…"
+          ) : !configured ? (
+            "Add key & URL, then Save to detect models."
+          ) : status === "loading" ? (
+            "Detecting models…"
+          ) : status === "error" ? (
+            <span className="text-destructive">
+              Detection failed{error ? ` · ${error}` : ""}.
+            </span>
+          ) : status === "ok" ? (
+            `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected · pick one above.`
+          ) : (
+            "Click Detect to fetch the catalogue."
+          )}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void testEndpoint()}
+          className="h-7 px-2 text-[10.5px]"
+        >
+          Test
+        </Button>
+        {configured && !editingKey ? (
           <Button
             size="sm"
             variant="outline"
             onClick={refresh}
-            disabled={!apiKey}
             className="h-7 px-2 text-[10.5px]"
           >
             Detect
           </Button>
-        </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void save()}
+            disabled={saving || !urlDraft.trim() || (!instance && !keyDraft.trim())}
+            className="h-7 px-2.5 text-[10.5px]"
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        )}
       </div>
     </div>
   );

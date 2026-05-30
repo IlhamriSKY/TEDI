@@ -12,6 +12,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   Add01Icon,
@@ -38,6 +39,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setPinnedModelIds } from "@/modules/settings/store";
 import {
+  getDetectedModels,
   getModel,
   MODELS,
   providerNeedsKey,
@@ -48,7 +50,10 @@ import {
   type ProviderInfo,
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
-import { useOpenAICompatibleModels } from "../lib/openaiCompatible";
+import {
+  getOpenAICompatibleModelsState,
+  useOpenAICompatibleModels,
+} from "../lib/openaiCompatible";
 import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 
@@ -285,7 +290,25 @@ function ModelDropdown() {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const sumopodModels = useSumopodModels();
-  const oaiCompatModels = useOpenAICompatibleModels();
+  // Subscribe to openai-compatible detection changes (any instance) so the
+  // dropdown re-renders as catalogues resolve. The aggregated model list is
+  // read from the dynamic registry; per-instance status drives the note.
+  useOpenAICompatibleModels();
+  const oaiCompatInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
+  const oaiCompatModels = getDetectedModels("openai-compatible");
+  const oaiCompatAggStatus = (() => {
+    let sawError = false;
+    let sawOk = false;
+    for (const inst of oaiCompatInstances) {
+      const s = getOpenAICompatibleModelsState(inst.id).status;
+      if (s === "loading") return "loading" as const;
+      if (s === "ok") sawOk = true;
+      if (s === "error") sawError = true;
+    }
+    if (sawOk) return "ok" as const;
+    if (sawError) return "error" as const;
+    return "idle" as const;
+  })();
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
   // Sections start expanded; component-local state resets each open.
@@ -354,12 +377,12 @@ function ModelDropdown() {
           p.id === "sumopod"
             ? sumopodModels.models
             : p.id === "openai-compatible"
-              ? oaiCompatModels.models
+              ? oaiCompatModels
               : MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
         return [{ provider: p, all, filtered }];
       }),
-    [query, apiKeys, sumopodModels.models, oaiCompatModels.models],
+    [query, apiKeys, sumopodModels.models, oaiCompatModels],
   );
 
   // Resolve pinned ids to ModelInfo. Two lookups: qualified (provider::modelId)
@@ -404,7 +427,8 @@ function ModelDropdown() {
               size="sm"
               aria-label={modelTooltip}
               className={cn(
-                "hover:bg-accent hover:text-accent-foreground my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
+                TOOLBAR_HOVER,
+                "my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
                 currentProviderHasKey
                   ? "text-muted-foreground"
                   : "text-icon-working",
@@ -481,9 +505,9 @@ function ModelDropdown() {
                       ? "No models detected"
                       : null
                 : p.id === "openai-compatible" && hasKey
-                  ? oaiCompatModels.status === "loading"
+                  ? oaiCompatAggStatus === "loading"
                     ? "Detecting models…"
-                    : oaiCompatModels.status === "error"
+                    : oaiCompatAggStatus === "error"
                       ? "Detection failed"
                       : filtered.length === 0
                         ? "No models detected · open Settings → Models"

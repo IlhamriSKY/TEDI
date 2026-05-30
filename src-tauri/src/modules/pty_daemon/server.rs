@@ -40,6 +40,15 @@ use super::protocol::{ClientMsg, DaemonMsg, SessionInfo, PROTOCOL_VERSION};
 /// without holding gigabytes when an `npm install` blasts the buffer.
 const SCROLLBACK_CAP: usize = 1024 * 1024;
 
+/// Slack the scrollback is allowed to overrun `SCROLLBACK_CAP` by before it's
+/// trimmed back down. `VecDeque::drain` shifts every surviving byte, so
+/// trimming on each chunk while sitting at the cap turns every ~16 KiB read
+/// into a ~1 MiB memmove under sustained output (build / install log floods).
+/// Letting a slack burst accumulate first amortizes that to roughly one
+/// memmove per `SCROLLBACK_SLACK` bytes. The buffer stays bounded at
+/// `SCROLLBACK_CAP + SCROLLBACK_SLACK`.
+const SCROLLBACK_SLACK: usize = 256 * 1024;
+
 /// Mpsc capacity per client writer. Burst protection - if the writer
 /// task falls behind (e.g. socket congested), back-pressure surfaces at
 /// `try_send` and the daemon drops a `Data` event rather than buffering
@@ -126,8 +135,11 @@ impl crate::modules::pty::session::PtyEventSink for ServerSink {
         {
             let mut sb = s.scrollback.lock().unwrap();
             sb.extend(bytes.iter().copied());
-            let overflow = sb.len().saturating_sub(SCROLLBACK_CAP);
-            if overflow > 0 {
+            // Trim only once we've overrun the cap by SCROLLBACK_SLACK, then
+            // trim all the way back to the cap. Amortizes the O(n) drain - see
+            // SCROLLBACK_SLACK.
+            if sb.len() > SCROLLBACK_CAP + SCROLLBACK_SLACK {
+                let overflow = sb.len() - SCROLLBACK_CAP;
                 sb.drain(..overflow);
             }
         }

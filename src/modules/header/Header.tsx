@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { WindowControls } from "@/components/WindowControls";
+import { cn } from "@/lib/utils";
+import { TOOLBAR_ACTIVE, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -158,7 +160,7 @@ function HeaderImpl({
       <Button
         variant="ghost"
         size="icon"
-        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+        className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
         onClick={onOpenExtensions}
         aria-label="Extensions"
       >
@@ -172,7 +174,7 @@ function HeaderImpl({
       <Button
         variant="ghost"
         size="icon"
-        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+        className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
         onClick={onOpenSettings}
         aria-label="Settings"
       >
@@ -200,7 +202,7 @@ function HeaderImpl({
               aria-label="Toggle sidebar"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 rounded-md"
+              className={cn("text-muted-foreground", TOOLBAR_HOVER, "shrink-0 rounded-md")}
             >
               <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
             </Button>
@@ -212,7 +214,7 @@ function HeaderImpl({
               aria-label="Open folder"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 rounded-md"
+              className={cn("text-muted-foreground", TOOLBAR_HOVER, "shrink-0 rounded-md")}
             >
               <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
             </Button>
@@ -235,11 +237,11 @@ function HeaderImpl({
               onClick={mdPreviewToggle.toggle}
               aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
               aria-pressed={mdPreviewToggle.active}
-              className={`hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md ${
-                mdPreviewToggle.active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground"
-              }`}
+              className={cn(
+                TOOLBAR_HOVER,
+                "size-7 shrink-0 rounded-md",
+                mdPreviewToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
+              )}
             >
               <HugeiconsIcon
                 icon={mdPreviewToggle.active ? DocumentCodeIcon : BookOpenIcon}
@@ -262,9 +264,11 @@ function HeaderImpl({
               onClick={lineWrapToggle.toggle}
               aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
               aria-pressed={lineWrapToggle.active}
-              className={`hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md ${
-                lineWrapToggle.active ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-              }`}
+              className={cn(
+                TOOLBAR_HOVER,
+                "size-7 shrink-0 rounded-md",
+                lineWrapToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
+              )}
             >
               <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
             </Button>

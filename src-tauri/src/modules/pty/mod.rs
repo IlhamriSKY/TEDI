@@ -92,11 +92,20 @@ impl Default for PtyState {
 /// subsequent write/resize/close calls (legacy numeric handle), and
 /// `sessionId` for persistence across GUI restarts (daemon mode only -
 /// empty string when running in-process).
+///
+/// `alive` is always true for a fresh `pty_open`. For `pty_attach` it
+/// reflects whether the daemon's underlying shell is still running: the
+/// daemon keeps a session around after its shell exits (so a detached GUI
+/// can still read the final scrollback), and a reattach to such a session
+/// would only replay frozen output into a pane that can't accept input.
+/// The frontend uses this to respawn a fresh shell instead of presenting a
+/// dead pane on workspace restore.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyOpenResult {
     pub id: u32,
     pub session_id: String,
+    pub alive: bool,
 }
 
 #[tauri::command]
@@ -127,6 +136,7 @@ pub fn pty_open(
             Ok(PtyOpenResult {
                 id,
                 session_id: uuid.to_string(),
+                alive: true,
             })
         }
         PtyBackend::InProcess(map) => {
@@ -145,6 +155,7 @@ pub fn pty_open(
             Ok(PtyOpenResult {
                 id,
                 session_id: String::new(),
+                alive: true,
             })
         }
     }
@@ -169,13 +180,14 @@ pub fn pty_attach(
     let uuid: Uuid = session_id
         .parse()
         .map_err(|e| format!("invalid session_id: {e}"))?;
-    let _alive = client.attach(uuid, cols, rows, on_event)?;
+    let alive = client.attach(uuid, cols, rows, on_event)?;
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     sessions.write().unwrap().insert(id, uuid);
-    log::info!("pty attached id={id} uuid={uuid}");
+    log::info!("pty attached id={id} uuid={uuid} alive={alive}");
     Ok(PtyOpenResult {
         id,
         session_id: uuid.to_string(),
+        alive,
     })
 }
 

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -78,7 +79,8 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
           }
         }}
         className={cn(
-          "hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md",
+          TOOLBAR_HOVER,
+          "size-7 shrink-0 rounded-md",
           hugeIcon && toneColorClass,
           tone === "warning" && "animate-pulse",
         )}

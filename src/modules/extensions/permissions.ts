@@ -23,9 +23,25 @@ export class PermissionDeniedError extends Error {
   }
 }
 
+// Keychain commands the gated `ctx.invoke()` path refuses outright, even with
+// `invoke:*`. Extensions must use the `ctx.secrets.*` facade, which namespaces
+// every key under `tedi-ext:<id>` so an extension can neither enumerate the
+// keychain nor read the main app's provider keys (stored under service
+// `tedi`). `secrets_get`/`set`/`delete` are denied alongside `secrets_get_all`
+// because a raw `secrets_get({ service: "tedi", account })` would otherwise
+// sidestep that namespace one key at a time.
+//
+// NOTE: this gate covers the host-provided `ctx.invoke` only. The v1 trust
+// model (see module doc) is install-time permission review: extension JS runs
+// in the main webview and can `import { invoke } from "@tauri-apps/api/core"`
+// directly, bypassing this set. Hardening that fully requires sandboxing
+// extension code (iframe/worker) - tracked separately. This list still raises
+// the bar for well-behaved extensions and documents intent.
 const HARD_DENY_INVOKE: ReadonlySet<string> = new Set([
-  // Block keychain dump even with `invoke:*`. Use `tedi.secrets.get(name)`.
   "secrets_get_all",
+  "secrets_get",
+  "secrets_set",
+  "secrets_delete",
 ]);
 
 const GLOB_ESCAPE_RE = /[.+?^${}()|[\]\\]/g;

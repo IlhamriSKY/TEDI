@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { fileIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { leafIds, leaves, type PaneLeaf } from "@/modules/terminal/lib/panes";
 import { MAX_PANES_PER_TAB, type ExtensionTabState } from "./lib/useTabs";
@@ -715,7 +716,7 @@ export function TabBar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+                    className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
                     aria-label="New"
                   >
                     <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />

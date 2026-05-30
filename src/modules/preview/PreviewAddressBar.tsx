@@ -8,6 +8,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import {
   ArrowReloadHorizontalIcon,
   Globe02Icon,
@@ -129,7 +130,7 @@ export function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, 
               size="icon"
               onClick={onReload}
               aria-label="Reload"
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+              className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
             >
               <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={14} strokeWidth={1.75} />
             </Button>
@@ -143,7 +144,7 @@ export function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, 
                     variant="ghost"
                     size="sm"
                     aria-label="Common dev-server ports"
-                    className="text-muted-foreground hover:bg-accent hover:text-accent-foreground h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px]"
+                    className={`text-muted-foreground ${TOOLBAR_HOVER} h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px]`}
                   >
                     <HugeiconsIcon icon={Globe02Icon} size={13} strokeWidth={1.75} />
                     <span className="hidden sm:inline">Ports</span>
@@ -208,8 +209,8 @@ export function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, 
                 aria-pressed={proxied}
                 className={
                   proxied
-                    ? "hover:bg-accent size-7 shrink-0 rounded-md text-diff-added"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+                    ? "hover:bg-accent dark:hover:bg-accent size-7 shrink-0 rounded-md text-diff-added"
+                    : `text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`
                 }
               >
                 <HugeiconsIcon
@@ -229,7 +230,7 @@ export function PreviewAddressBar({ url, proxied, canProxy, onSubmit, onReload, 
                 if (url) void openUrl(url).catch(console.error);
               }}
               aria-label="Open in system browser"
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground size-7 shrink-0 rounded-md"
+              className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
               disabled={!url}
             >
               <HugeiconsIcon icon={LinkSquare02Icon} size={14} strokeWidth={1.75} />

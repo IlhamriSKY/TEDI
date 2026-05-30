@@ -231,6 +231,14 @@ export async function bootAll(): Promise<InstalledExtension[]> {
       await activate(ext);
     } catch (err) {
       console.error(`[extensions] activate ${ext.id} failed`, err);
+      // Surface the failure so a developer iterating on their extension sees
+      // it without opening DevTools. Manifest contributions stay applied (see
+      // `activate`'s catch), so the settings card still renders for
+      // disable/uninstall.
+      const msg = err instanceof Error ? err.message : String(err);
+      toast(`Extension "${ext.manifest.name}" failed to activate: ${msg}`, {
+        variant: "error",
+      });
     }
   }
   return installed;

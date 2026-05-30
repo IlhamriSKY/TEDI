@@ -24,9 +24,10 @@ import { AiInputBarConnect } from "@/modules/ai/components/AiInputBar";
 import { providerNeedsKey, type ProviderId } from "@/modules/ai/config";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
 import {
-  clearOpenAICompatibleModels,
-  refreshOpenAICompatibleModels,
+  clearOpenAICompatibleInstance,
+  refreshOpenAICompatibleInstance,
 } from "@/modules/ai/lib/openaiCompatible";
+import { getOpenAICompatibleInstanceKey } from "@/modules/ai/lib/keyring";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
@@ -605,16 +606,34 @@ export default function App() {
   useEffect(() => {
     document.body.style.zoom = uiZoom === 1 ? "" : String(uiZoom);
   }, [uiZoom]);
-  const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
+  const openaiCompatibleInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
   useEffect(() => {
-    const key = apiKeys["openai-compatible"];
-    if (!key) {
-      clearOpenAICompatibleModels();
-      return;
-    }
-    if (!openaiCompatibleBaseURL) return;
-    void refreshOpenAICompatibleModels(key, openaiCompatibleBaseURL);
-  }, [apiKeys, openaiCompatibleBaseURL]);
+    // Detect models for every configured openai-compatible endpoint. Each
+    // instance's key is read from the OS keychain by its instance id (the
+    // default instance reuses the legacy unsuffixed account). An instance with
+    // no key or no base URL is cleared rather than fetched.
+    let cancelled = false;
+    void (async () => {
+      for (const inst of openaiCompatibleInstances) {
+        if (!inst.baseURL) {
+          clearOpenAICompatibleInstance(inst.id);
+          continue;
+        }
+        const key = await getOpenAICompatibleInstanceKey(inst.id);
+        if (cancelled) return;
+        if (!key) {
+          clearOpenAICompatibleInstance(inst.id);
+          continue;
+        }
+        void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `apiKeys` kept as a dependency so a key change in the same window
+    // re-triggers detection (keychain writes don't otherwise notify here).
+  }, [openaiCompatibleInstances, apiKeys]);
   useEffect(() => {
     void initPrefs();
   }, [initPrefs]);
@@ -882,6 +901,22 @@ export default function App() {
       // closing workspace's live tabs don't clobber the neighbor's saved
       // tabs.
       if (wasActive) skipNextSnapshotRef.current = true;
+      // Dispose the closed workspace's terminal sessions before dropping the
+      // cache. For a NON-active workspace these leaves live only in this cache
+      // (not in `tabs`), so the `[tabs]`-keyed orphan-reconcile effect never
+      // runs for them - their xterm + 5k-line scrollback (~6 MB each) would
+      // otherwise leak in the module `sessions` Map until the app exits.
+      // disposeSession is idempotent, so this is safe even when the reconcile
+      // pass (active-workspace close) also covers them.
+      const closing = liveTabsByWorkspace.current.get(workspaceId);
+      if (closing) {
+        for (const t of closing.tabs) {
+          if (t.kind !== "pane") continue;
+          for (const leaf of leaves(t.paneTree)) {
+            if (leaf.leafKind === "terminal") disposeSession(leaf.id);
+          }
+        }
+      }
       // Drop the cached live tabs so the closed workspace's leaves stop
       // being "live" and the next tabs-effect pass disposes their PTYs.
       liveTabsByWorkspace.current.delete(workspaceId);

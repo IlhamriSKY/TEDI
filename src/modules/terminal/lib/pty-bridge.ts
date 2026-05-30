@@ -15,13 +15,19 @@ export type PtySession = {
    *  fallback backend; persisted in `SavedTerminalLeaf.ptyId` so the next
    *  GUI launch can call `reattachPty` to resume the shell. */
   sessionId: string;
+  /** Whether the underlying shell is still running. Always true for a fresh
+   *  `openPty`. On `reattachPty` it can be false: the daemon retains a
+   *  session after its shell exits, so reattaching one only replays frozen
+   *  scrollback. The caller respawns a fresh shell in that case instead of
+   *  presenting a dead pane. */
+  alive: boolean;
   write: (data: string) => Promise<void>;
   resize: (cols: number, rows: number) => Promise<void>;
   close: () => Promise<void>;
 };
 
 /** Shape returned by the Rust `pty_open` / `pty_attach` commands. */
-type PtyOpenResult = { id: number; sessionId: string };
+type PtyOpenResult = { id: number; sessionId: string; alive: boolean };
 
 function decodeBase64(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -46,10 +52,11 @@ function makeChannel(handlers: PtyHandlers): Channel<PtyEvent> {
 }
 
 function buildSession(result: PtyOpenResult): PtySession {
-  const { id, sessionId } = result;
+  const { id, sessionId, alive } = result;
   return {
     id,
     sessionId,
+    alive,
     write: (data) => invoke("pty_write", { id, data }),
     resize: (c, r) => invoke("pty_resize", { id, cols: c, rows: r }),
     close: () => invoke("pty_close", { id }),

@@ -5,9 +5,11 @@ import {
   DEFAULT_MODEL_ID,
   LMSTUDIO_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   tryGetModel,
   type AutocompleteProviderId,
   type DynamicModelId,
+  type OpenAICompatibleInstance,
   type ProviderId,
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
@@ -57,7 +59,22 @@ export type Preferences = {
   autocompleteProvider: AutocompleteProviderId;
   autocompleteModelId: string;
   lmstudioBaseURL: string;
+  /**
+   * Base URL for the FIRST (legacy / default) OpenAI-compatible endpoint. Kept
+   * as a top-level field for backward compatibility: older builds and the
+   * runtime fallback still read it. New code should prefer
+   * `openaiCompatibleInstances[0]`, which mirrors this value for the default
+   * instance. Migration keeps the two in sync.
+   */
   openaiCompatibleBaseURL: string;
+  /**
+   * All configured OpenAI-compatible endpoints. Each entry is
+   * `{ id, label, baseURL }`; its API key lives in the OS keychain under
+   * `openai-compatible-api-key[:<id>]`. The first instance has the reserved id
+   * `"default"` and mirrors `openaiCompatibleBaseURL` for back-compat. Empty
+   * only on a brand-new install with no openai-compatible endpoint configured.
+   */
+  openaiCompatibleInstances: OpenAICompatibleInstance[];
   vimMode: boolean;
   lineWrap: boolean;
   /** Show the code editor minimap. Default true. */
@@ -200,6 +217,7 @@ const KEY_AUTOCOMPLETE_PROVIDER = "autocompleteProvider";
 const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
 const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
 const KEY_OPENAI_COMPATIBLE_BASE_URL = "openaiCompatibleBaseURL";
+const KEY_OPENAI_COMPATIBLE_INSTANCES = "openaiCompatibleInstances";
 const KEY_VIM_MODE = "vimMode";
 const KEY_LINE_WRAP = "lineWrap";
 const KEY_SHOW_MINIMAP = "showMinimap";
@@ -286,6 +304,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   autocompleteModelId: DEFAULT_AUTOCOMPLETE_MODEL.cerebras,
   lmstudioBaseURL: LMSTUDIO_DEFAULT_BASE_URL,
   openaiCompatibleBaseURL: OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  openaiCompatibleInstances: [],
   vimMode: false,
   lineWrap: false,
   showMinimap: true,
@@ -349,6 +368,10 @@ export async function loadPreferences(): Promise<Preferences> {
     lmstudioBaseURL: get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
     openaiCompatibleBaseURL:
       get<string>(KEY_OPENAI_COMPATIBLE_BASE_URL) ?? DEFAULT_PREFERENCES.openaiCompatibleBaseURL,
+    openaiCompatibleInstances: normalizeOpenAICompatibleInstances(
+      get<unknown>(KEY_OPENAI_COMPATIBLE_INSTANCES),
+      get<string>(KEY_OPENAI_COMPATIBLE_BASE_URL),
+    ),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     lineWrap: get<boolean>(KEY_LINE_WRAP) ?? DEFAULT_PREFERENCES.lineWrap,
     showMinimap: get<boolean>(KEY_SHOW_MINIMAP) ?? DEFAULT_PREFERENCES.showMinimap,
@@ -395,6 +418,54 @@ export async function loadPreferences(): Promise<Preferences> {
     formatOnSave: get<boolean>(KEY_FORMAT_ON_SAVE) ?? DEFAULT_PREFERENCES.formatOnSave,
     formatters: normalizeFormatters(get<unknown>(KEY_FORMATTERS)),
   };
+}
+
+/**
+ * Normalise and migrate the persisted OpenAI-compatible instances list.
+ *
+ * - Drops malformed entries (non-object, missing/empty id or baseURL).
+ * - Migration: when the list is absent/empty but a legacy
+ *   `openaiCompatibleBaseURL` is present, synthesise the default instance from
+ *   it so a user who configured the single endpoint before this change keeps
+ *   their base URL (and, via the unsuffixed keychain account, their key).
+ * - Always returns the default instance first when present, so it lines up
+ *   with the legacy `openaiCompatibleBaseURL` field.
+ *
+ * Idempotent and safe: re-running on an already-migrated store is a no-op.
+ */
+function normalizeOpenAICompatibleInstances(
+  raw: unknown,
+  legacyBaseURL: string | undefined,
+): OpenAICompatibleInstance[] {
+  const out: OpenAICompatibleInstance[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      const id = typeof e.id === "string" ? e.id.trim() : "";
+      const baseURL = typeof e.baseURL === "string" ? e.baseURL.trim() : "";
+      if (!id || !baseURL || seen.has(id)) continue;
+      const label = typeof e.label === "string" && e.label.trim() ? e.label.trim() : id;
+      seen.add(id);
+      out.push({ id, label, baseURL });
+    }
+  }
+  // Migration: nothing persisted yet but a legacy single endpoint exists.
+  if (out.length === 0 && legacyBaseURL && legacyBaseURL.trim()) {
+    out.push({
+      id: OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+      label: "OpenAI Compatible",
+      baseURL: legacyBaseURL.trim(),
+    });
+  }
+  // Keep the default instance first so it mirrors `openaiCompatibleBaseURL`.
+  out.sort((a, b) => {
+    if (a.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) return -1;
+    if (b.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) return 1;
+    return 0;
+  });
+  return out;
 }
 
 function normalizeFormatters(raw: unknown): Record<string, FormatterConfig> {
@@ -484,6 +555,24 @@ export async function setLmstudioBaseURL(value: string): Promise<void> {
 
 export async function setOpenAICompatibleBaseURL(value: string): Promise<void> {
   await writePref(KEY_OPENAI_COMPATIBLE_BASE_URL, value);
+}
+
+/**
+ * Persist the full list of OpenAI-compatible endpoints. Also mirrors the
+ * default instance's base URL into the legacy `openaiCompatibleBaseURL` field
+ * so the runtime fallback and older code paths keep resolving the first
+ * endpoint. Both writes go through `writePref`, so cross-window listeners and
+ * the on-disk store stay consistent.
+ */
+export async function setOpenAICompatibleInstances(
+  value: OpenAICompatibleInstance[],
+): Promise<void> {
+  await writePref(KEY_OPENAI_COMPATIBLE_INSTANCES, value);
+  const def =
+    value.find((i) => i.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) ?? value[0];
+  if (def && def.baseURL) {
+    await writePref(KEY_OPENAI_COMPATIBLE_BASE_URL, def.baseURL);
+  }
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -704,6 +793,7 @@ export async function onPreferencesChange(
     [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
     [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
     [KEY_OPENAI_COMPATIBLE_BASE_URL]: "openaiCompatibleBaseURL",
+    [KEY_OPENAI_COMPATIBLE_INSTANCES]: "openaiCompatibleInstances",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_LINE_WRAP]: "lineWrap",
     [KEY_SHOW_MINIMAP]: "showMinimap",

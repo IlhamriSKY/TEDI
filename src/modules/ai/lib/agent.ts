@@ -15,6 +15,7 @@ import {
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   providerNeedsKey,
+  resolveOpenAICompatibleModel,
   SUMOPOD_BASE_URL,
   tryGetModel,
   type DynamicModelId,
@@ -83,7 +84,15 @@ export async function buildLanguageModel(
   const key = keys[provider] ?? "";
   const baseURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
   const oaiCompatBase = options.openaiCompatibleBaseURL ?? "";
-  const cacheKey = `${provider}|${key}|${resolvedModelId}|${baseURL}|${oaiCompatBase}`;
+  // For openai-compatible, fold the resolved instance's base URL + key into the
+  // cache key so rotating one instance's key (or editing its URL) invalidates
+  // its cached client without disturbing other instances.
+  const oaiCompatResolved =
+    provider === "openai-compatible" ? resolveOpenAICompatibleModel(resolvedModelId) : null;
+  const oaiCompatCacheTag = oaiCompatResolved
+    ? `|${oaiCompatResolved.instanceId}|${oaiCompatResolved.baseURL}|${oaiCompatResolved.apiKey}`
+    : "";
+  const cacheKey = `${provider}|${key}|${resolvedModelId}|${baseURL}|${oaiCompatBase}${oaiCompatCacheTag}`;
   const hit = modelCache.get(cacheKey);
   if (hit) {
     modelCache.delete(cacheKey);
@@ -138,17 +147,25 @@ export async function buildLanguageModel(
     }
     case "openai-compatible": {
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      const url = (oaiCompatBase || "").replace(/\/$/, "");
+      // Resolve the concrete endpoint for this model. Namespaced ids
+      // (`<instanceId>::<rawId>`) carry their instance; the resolver returns
+      // that instance's base URL + key and the raw model id to send upstream.
+      // A plain (non-namespaced) id falls back to the legacy single-endpoint
+      // base URL + the `openai-compatible` key, preserving old behaviour.
+      const resolved = oaiCompatResolved;
+      const url = (resolved?.baseURL ?? oaiCompatBase ?? "").replace(/\/$/, "");
       if (!url) {
         throw new Error(
           "OpenAI Compatible base URL is not set. Open Settings → Models to configure it.",
         );
       }
+      const apiKey = resolved?.apiKey || key;
+      const upstreamModelId = resolved?.rawModelId ?? resolvedModelId;
       built = createOpenAICompatible({
         name: "openai-compatible",
         baseURL: url,
-        apiKey: key,
-      })(resolvedModelId);
+        apiKey,
+      })(upstreamModelId);
       break;
     }
     case "groq": {
@@ -272,14 +289,25 @@ function buildSystemPrompt(opts: {
 /** Runs one streaming agent step. Returns a `streamText` result whose
  *  `.toUIMessageStream()` plugs into `@ai-sdk/react`'s Chat. */
 export async function runAgentStream(opts: RunAgentOptions) {
+  const requestedModelId = opts.modelId ?? DEFAULT_MODEL_ID;
   const modelInfo: ModelInfo =
-    tryGetModel(opts.modelId ?? DEFAULT_MODEL_ID) ??
-    ({
-      id: opts.modelId ?? DEFAULT_MODEL_ID,
-      provider: "sumopod",
-      label: opts.modelId ?? DEFAULT_MODEL_ID,
-      hint: "SumoPod",
-    } as ModelInfo);
+    tryGetModel(requestedModelId) ??
+    // Unknown id: if it carries an openai-compatible namespace, route it back
+    // through that provider so the agent resolves the right endpoint instead of
+    // mislabelling it as SumoPod.
+    (resolveOpenAICompatibleModel(requestedModelId)
+      ? ({
+          id: requestedModelId,
+          provider: "openai-compatible",
+          label: requestedModelId,
+          hint: "OpenAI Compatible",
+        } as ModelInfo)
+      : ({
+          id: requestedModelId,
+          provider: "sumopod",
+          label: requestedModelId,
+          hint: "SumoPod",
+        } as ModelInfo));
 
   const provider = modelInfo.provider;
   const model = await buildLanguageModel(provider, opts.keys, modelInfo.id, {

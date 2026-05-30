@@ -10,6 +10,7 @@
 //! `MAX_FILE_BYTES`. Manifest is parsed before committing so a malformed
 //! package never replaces a working install.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -298,6 +299,14 @@ fn extract_into(
 
     let total_entries = archive.len();
     let mut total_bytes: u64 = 0;
+    // Reject archives that carry the same file path twice. `extract_into`
+    // writes entries in order with `File::create`, so a later duplicate
+    // silently overwrites an earlier one on disk - while `peek_bytes` (the
+    // install-review dialog) reads the FIRST `manifest.json` it finds. A
+    // crafted zip with two `manifest.json` (or two `main` scripts) could
+    // therefore show a benign manifest in the review dialog yet install a
+    // different, malicious one. Refusing duplicate paths closes that gap.
+    let mut seen_files: HashSet<PathBuf> = HashSet::new();
     for i in 0..total_entries {
         let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
         let Some(raw_path) = entry.enclosed_name() else {
@@ -333,6 +342,12 @@ fn extract_into(
         if entry.is_dir() {
             fs::create_dir_all(&target).map_err(|e| format!("mkdir {}: {e}", target.display()))?;
             continue;
+        }
+
+        // Duplicate file paths are a manifest-spoofing vector (see note above
+        // the loop). Reject before writing anything.
+        if !seen_files.insert(rel.clone()) {
+            return Err(format!("duplicate zip entry: {}", rel.display()));
         }
 
         if let Some(parent) = target.parent() {

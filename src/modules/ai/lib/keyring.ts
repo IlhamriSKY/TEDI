@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   getProvider,
   KEYRING_SERVICE,
+  openaiCompatibleKeyringAccount,
   PROVIDERS,
   providerNeedsKey,
   type ProviderId,
@@ -82,4 +83,46 @@ export async function getAllKeys(): Promise<ProviderKeys> {
 
 export function hasAnyKey(keys: ProviderKeys): boolean {
   return PROVIDERS.some((p) => providerNeedsKey(p.id) && !!keys[p.id]);
+}
+
+// --- Per-instance OpenAI-compatible keys -----------------------------------
+// Each openai-compatible endpoint stores its key under its own keychain
+// account. The default instance reuses the original unsuffixed account
+// (`openai-compatible-api-key`) so a pre-existing single-endpoint key is
+// preserved; other instances use `openai-compatible-api-key:<id>`.
+
+export async function getOpenAICompatibleInstanceKey(instanceId: string): Promise<string | null> {
+  try {
+    const v = await invoke<string | null>("secrets_get", {
+      service: KEYRING_SERVICE,
+      account: openaiCompatibleKeyringAccount(instanceId),
+    });
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setOpenAICompatibleInstanceKey(
+  instanceId: string,
+  key: string,
+): Promise<void> {
+  const trimmed = key.trim();
+  if (!trimmed) throw new Error("API key is empty");
+  await invoke("secrets_set", {
+    service: KEYRING_SERVICE,
+    account: openaiCompatibleKeyringAccount(instanceId),
+    password: trimmed,
+  });
+}
+
+export async function clearOpenAICompatibleInstanceKey(instanceId: string): Promise<void> {
+  try {
+    await invoke("secrets_delete", {
+      service: KEYRING_SERVICE,
+      account: openaiCompatibleKeyringAccount(instanceId),
+    });
+  } catch {
+    // already absent - fine
+  }
 }

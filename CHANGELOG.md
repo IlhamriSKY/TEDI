@@ -4,6 +4,29 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.12] - 30-05-2026
+
+### Security
+
+- **Extension keychain isolation hardened.** [`permissions.ts`](src/modules/extensions/permissions.ts) extends `HARD_DENY_INVOKE` to refuse `secrets_get` / `secrets_set` / `secrets_delete` over the gated `ctx.invoke()` path, not just `secrets_get_all`. An extension granted `invoke:secrets_*` could otherwise read the main app keychain (service `tedi`, where provider API keys live) one account at a time, sidestepping its own `tedi-ext:<id>` namespace; the documented `ctx.secrets.*` facade is unaffected. The comment now states plainly that the runtime gate is install-time-review defence in depth, not a sandbox - raw `@tauri-apps/api` invoke still bypasses it, and full isolation would need an iframe / worker (tracked separately).
+- **Extension installer rejects duplicate zip entries.** [`install.rs`](src-tauri/src/modules/extensions/install.rs) refuses an archive that carries the same file path twice. `extract_into` writes entries in order with `File::create`, so a later duplicate silently overwrote an earlier one on disk while the install-review dialog (`peek_bytes`) reads the first `manifest.json` - a crafted zip could show a benign manifest yet install a different, malicious one. Rejecting duplicate paths closes that spoofing / code-execution vector.
+
+### Fixed
+
+- **Blank terminal on workspace restore that never opened a shell.** The PTY daemon keeps a session alive after its shell exits so a detached GUI can still read the final scrollback; on restore, `pty_attach` discarded the daemon's `alive` flag, so reattaching a dead session replayed frozen scrollback into a pane that could not take input. [`pty/mod.rs`](src-tauri/src/modules/pty/mod.rs) threads `alive` through `PtyOpenResult`, [`pty-bridge.ts`](src/modules/terminal/lib/pty-bridge.ts) surfaces it on `PtySession`, and [`useTerminalSession.ts`](src/modules/terminal/lib/useTerminalSession.ts) now closes a dead reattached session (reaping it daemon-side), resets the terminal, and respawns a fresh shell at the saved cwd - clearing `firstByteEpoch` so the no-data watchdog still guards the respawn.
+- **Closing a non-active workspace leaked its terminal sessions.** [`App.tsx`](src/app/App.tsx) `closeWorkspace` disposes the closed workspace's terminal sessions before dropping its live-tab cache. Those leaves lived only in the cache, so the `[tabs]`-keyed reconcile never ran for them and each xterm + 5k-line scrollback (~6 MB) lingered in the module session map until the app exited.
+- **Terminal session listeners released deterministically.** [`useTerminalSession.ts`](src/modules/terminal/lib/useTerminalSession.ts) captures and disposes the `term.onData` handler in `disposeSession`, and makes the module-level `tedi:canvas-opacity` window listener idempotent so a dev HMR re-eval cannot stack duplicate listeners holding the session map.
+
+### Performance
+
+- **Daemon scrollback trim amortized.** [`server.rs`](src-tauri/src/modules/pty_daemon/server.rs) trims the per-session scrollback ring only once it overruns the 1 MiB cap by a 256 KiB slack, then back down to the cap - amortizing the O(n) `VecDeque::drain` that previously shifted ~1 MiB on every output chunk while sitting at the cap (build / install log floods). Memory stays bounded at cap + slack.
+
+### Changed
+
+- **Extension activation failures are now surfaced.** [`loader.ts`](src/modules/extensions/loader.ts) + [`store.ts`](src/modules/extensions/store.ts) toast when an extension's `activate()` throws (at boot and on enable) instead of only logging to the console, so a developer iterating on an extension gets immediate feedback; manifest contributions stay applied so the settings card still renders.
+- **Multiple OpenAI-compatible provider instances.** The single `openaiCompatibleBaseURL` preference is replaced by `openaiCompatibleInstances[]`, each with its own base URL and keychain-stored key, with model detection run per instance ([`openaiCompatible.ts`](src/modules/ai/lib/openaiCompatible.ts), [`config.ts`](src/modules/ai/config.ts), [`keyring.ts`](src/modules/ai/lib/keyring.ts), [`ModelsSection.tsx`](src/settings/sections/ModelsSection.tsx), [`agent.ts`](src/modules/ai/lib/agent.ts), plus the AI status-bar and agent-switcher surfaces).
+- **Consistent toolbar button theming.** New [`toolbarButton.ts`](src/lib/toolbarButton.ts) exports a shared `TOOLBAR_HOVER` token applied across the top toolbar / header surfaces ([`Header.tsx`](src/modules/header/Header.tsx), [`SearchInline.tsx`](src/modules/header/SearchInline.tsx), [`SshMenu.tsx`](src/modules/ssh/SshMenu.tsx), [`ExtensionHeaderItems.tsx`](src/modules/extensions/components/ExtensionHeaderItems.tsx), [`TabBar.tsx`](src/modules/tabs/TabBar.tsx), [`WorkspacesPanel.tsx`](src/modules/workspaces/WorkspacesPanel.tsx), [`PreviewAddressBar.tsx`](src/modules/preview/PreviewAddressBar.tsx)) so ghost buttons keep the correct hover in dark mode.
+
 ## [0.3.11] - 28-05-2026
 
 ### Added
