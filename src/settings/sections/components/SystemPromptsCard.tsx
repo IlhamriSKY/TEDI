@@ -69,6 +69,11 @@ export function SystemPromptsCard() {
   // they changed (and can't lose track of an edit hidden behind the switch).
   const hasAnyEdit = useMemo(() => PROMPT_META.some((m) => overrides[m.id]), [overrides]);
   const [showAll, setShowAll] = useState(false);
+  // An existing override force-shows the list; keep `showAll` in sync so the
+  // list doesn't collapse the moment the user resets the last override.
+  useEffect(() => {
+    if (hasAnyEdit) setShowAll(true);
+  }, [hasAnyEdit]);
   const listVisible = showAll || hasAnyEdit;
 
   // Snapshot the initial draft at open time so re-renders from the store
