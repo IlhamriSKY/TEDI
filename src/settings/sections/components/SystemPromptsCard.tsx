@@ -111,9 +111,13 @@ export function SystemPromptsCard() {
             Edit the built-in instructions for TEDI's AI agents. Reset restores the default.
           </span>
         </div>
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 pt-0.5">
+        <label
+          htmlFor="show-all-prompts"
+          className="flex shrink-0 cursor-pointer items-center gap-2 pt-0.5"
+        >
           <span className="text-muted-foreground text-[10.5px]">Show all</span>
           <Switch
+            id="show-all-prompts"
             size="sm"
             checked={listVisible}
             disabled={hasAnyEdit}
