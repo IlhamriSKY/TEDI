@@ -579,6 +579,7 @@ export function SourceControlPanel({
             isRepo={status.isRepo}
             refreshToken={graphRefreshToken}
             anchorMode="mouse"
+            onOpenDiff={onOpenDiff}
           />
         </div>
       ) : (

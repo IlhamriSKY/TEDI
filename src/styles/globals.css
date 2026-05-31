@@ -407,10 +407,17 @@ html[data-tedi-glass="on"] {
     var(--tedi-canvas-bg) calc((var(--tedi-app-opacity) * 0.18 + 0.82) * 100%),
     transparent
   );
-  /* The app canvas (shell, pane gaps, editor/terminal frames) goes FULLY
-   * see-through so you look straight at the wallpaper / desktop — no dark
-   * tint over the whole window. */
-  --background: transparent !important;
+  /* The app canvas (shell, pane gaps, editor/terminal frames) follows the
+   * slider DIRECTLY instead of snapping to fully transparent the moment glass
+   * turns on. Same formula as the editor canvas (.cm-editor) below, so a 98%
+   * slide reads as ~98% opaque and only the low end dissolves toward the
+   * wallpaper. Chrome stays floored separately via --tedi-glass-surface, so it
+   * is always at least as opaque as the canvas. */
+  --background: color-mix(
+    in srgb,
+    var(--tedi-canvas-bg) calc(var(--tedi-app-opacity) * 100%),
+    transparent
+  ) !important;
   /* Panels keep a floored translucent backing (see --tedi-glass-surface) so
    * chrome and the editor/terminal text stay readable while still showing
    * what's behind. Floating menus ride the stronger --tedi-glass-menu floor.
@@ -446,12 +453,24 @@ html[data-tedi-glass="on"] footer {
   background-color: var(--tedi-glass-header) !important;
 }
 
-/* SQL Explorer (first-party extension) paints its STICKY bars (table header,
- * result toolbar, schema-tree head) with the now-translucent `--card`; under
- * glass that lets the rows / tree scrolling beneath them bleed through. Pin
- * those sticky bars to the SOLID canvas colour so they read as clean header
- * bars (the rows/tree themselves stay glass). The hover tint mixes against the
- * same solid. Non-sticky SQL surfaces keep the normal translucent `--card`. */
+/* SQL Explorer (first-party extension) renders into a `.tsql-host` container
+ * whose BASE paints `--background`, the same token we force fully transparent
+ * under glass for the editor/terminal canvas. That made the WHOLE panel (schema
+ * tree, grid rows, query box, gaps) dissolve into the wallpaper instead of
+ * staying a readable surface like the file-tree sidebar does. Floor the host to
+ * the chrome surface (`--tedi-glass-surface`, the same 0.5..1 floor that
+ * cards/sidebar ride) so the tool stays translucent but legible: data + tree
+ * keep a readable backing while the panel still shows the wallpaper through it.
+ * The chrome bars below ride `--card` (also floored) and stack on top for the
+ * usual header/body depth. */
+html[data-tedi-glass="on"] .tsql-host {
+  background: var(--tedi-glass-surface) !important;
+}
+/* SQL Explorer's STICKY bars (table header, result toolbar, schema-tree head)
+ * paint `--card`; under glass that lets the rows / tree scrolling beneath them
+ * bleed through. Pin those sticky bars to the SOLID canvas colour so they read
+ * as clean header bars (the rows/tree themselves stay glass). The hover tint
+ * mixes against the same solid. Non-sticky SQL surfaces keep translucent `--card`. */
 html[data-tedi-glass="on"] .tsql-grid thead th,
 html[data-tedi-glass="on"] .tsql-meta--sticky,
 html[data-tedi-glass="on"] .tsql-tree-head {
@@ -460,9 +479,17 @@ html[data-tedi-glass="on"] .tsql-tree-head {
 html[data-tedi-glass="on"] .tsql-grid thead th.tsql-grid-th:hover {
   background: color-mix(in srgb, var(--foreground) 6%, var(--tedi-canvas-bg)) !important;
 }
+/* The floating connection-form modal also hard-codes the `--background` canvas,
+ * so under glass it went fully see-through while floating OVER the tree/grid,
+ * colliding the form fields with the rows behind it. Floor it to the
+ * floating-menu surface (`--popover`, same as `.tsql-dialog`) so the form that
+ * the user has to read and type into stays legible. */
+html[data-tedi-glass="on"] .tsql-conn-modal {
+  background: var(--popover) !important;
+}
 /* The conversation "jump to message" pin is sticky over the scrolling message
- * list. Its `bg-background` would go fully see-through under glass (we force
- * `--background` transparent), letting messages bleed through it. Unlike the
+ * list. Its `bg-background` dissolves under glass at the low end of the slider
+ * (`--background` tracks the opacity), letting messages bleed through it. Unlike the
  * header (which only sits over the wallpaper), this pin sits over scrolling
  * message TEXT, so a floored-but-translucent tint still lets text collide
  * through it. Pin it to the SOLID canvas colour (same as the SQL sticky bars
@@ -473,11 +500,23 @@ html[data-tedi-glass="on"] .tedi-chat-pin {
   background-color: var(--tedi-canvas-bg) !important;
   backdrop-filter: none !important;
 }
-/* No `backdrop-filter`: over a transparent window WebView2 (Windows) renders
- * the blurred backdrop as a dark fill, which made panes look black instead of
- * see-through. The frosted-glass look comes from the wallpaper's own "Blur"
- * slider (it blurs the image layer directly), so the transparency stays clean
- * and predictable on every platform. */
+/* No `backdrop-filter` under glass: over a transparent window WebView2
+ * (Windows) renders the blurred backdrop as an opaque dark fill, which made
+ * floating chrome look black instead of see-through. Strip it from EVERY
+ * element while glass is on so nothing (find panel, composer/mention/snippet
+ * pickers, scheduler pill, scroll-to-bottom button, drag ghosts, plan-review
+ * overlay, modal scrims) can reintroduce the artifact. Components still request
+ * `backdrop-blur` for the solid-window case; this only fires when the window is
+ * see-through. The frosted-glass look instead comes from the wallpaper's own
+ * "Blur" slider (it blurs the image layer directly), so the transparency stays
+ * clean and predictable on every platform. Scrims keep their dark tint (just
+ * without the blur), which still dims fine. */
+html[data-tedi-glass="on"] *,
+html[data-tedi-glass="on"] *::before,
+html[data-tedi-glass="on"] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
 /* ===== Unified scrollbar style =====
  *

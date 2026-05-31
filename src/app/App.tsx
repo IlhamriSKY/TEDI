@@ -2828,6 +2828,7 @@ export default function App() {
                             activeId={activeId}
                             rootPath={explorerRoot}
                             onPathDeleted={handlePathDeleted}
+                            onOpenDiff={openGitDiffTab}
                           />
                         </Suspense>
                       ) : null}

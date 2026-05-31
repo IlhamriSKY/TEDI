@@ -139,7 +139,6 @@ export function cursorLineLooksLikeShellPrompt(line: string): boolean {
   return false;
 }
 
-
 // Spinner glyph alphabet. Combined with the herdr "+ space + ellipsis +
 // alphanumeric" pattern to avoid false matches on stray glyphs in chat history.
 // Middle-dot `·` is excluded; it's used as a regular separator in paths.
@@ -200,6 +199,24 @@ function contentAbovePromptBox(content: string): string {
   }
   const trim = Math.max(3, Math.floor(lines.length * 0.3));
   return lines.slice(0, Math.max(0, lines.length - trim)).join("\n");
+}
+
+/**
+ * Returns viewport content *below* the TUI input box - the region where tools
+ * like Claude Code paint live background-task progress ("N/M agents done")
+ * underneath the prompt and footer. Mirrors `contentAbovePromptBox`: returns
+ * everything after the last horizontal-rule line (the box's bottom border);
+ * falls back to the bottom 30% of lines when no box is drawn. Scanning only
+ * this region keeps a historical "agents" mention in the conversation
+ * scrollback (above the box) from being mistaken for a live progress line.
+ */
+function contentBelowPromptBox(content: string): string {
+  const lines = content.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (isBorderLine(lines[i])) return lines.slice(i + 1).join("\n");
+  }
+  const trim = Math.max(3, Math.floor(lines.length * 0.3));
+  return lines.slice(Math.max(0, lines.length - trim)).join("\n");
 }
 
 // "AI is waiting for the user" markers, matched case-insensitively against
@@ -305,12 +322,31 @@ function detectBlocking(content: string, lowerContent: string): boolean {
   return false;
 }
 
-// Background-agent / workflow progress line, e.g. "26/43 agents done". Claude
-// Code (and similar tools) hand control back to an interactive prompt while a
-// background workflow runs, so the spinner + "esc to interrupt" hints above the
-// input box are gone even though agents are still working. This line renders
-// *below* the input box, so detectWorking (above-box only) never sees it.
-const BACKGROUND_AGENTS_RE = /\b\d+\/\d+\s+agents?\s+done\b/i;
+// Background-agent / workflow progress line, e.g. "26/43 agents done" or
+// "1/6 agents". Claude Code (and similar tools) hand control back to an
+// interactive prompt while a background workflow runs, so the spinner +
+// "esc to interrupt" hints above the input box are gone even though agents are
+// still working. This line renders *below* the input box, so detectWorking
+// (above-box only) never sees it.
+//
+// The fraction is captured so we can tell in-progress (done < total, still
+// working) from complete (done === total, the line that lingers on screen
+// after the run finishes). Only the in-progress form is a working signal -
+// a finished "43/43 agents done" must NOT pin the badge to "working", which
+// is what previously required a fresh-output gate as a crude staleness proxy.
+const BACKGROUND_AGENTS_RE = /\b(\d+)\s*\/\s*(\d+)\s+agents?\b/gi;
+
+/** True when any "N/M agents" fraction in `text` is still in progress (N < M). */
+function hasInProgressBackgroundAgents(text: string): boolean {
+  for (const m of text.matchAll(BACKGROUND_AGENTS_RE)) {
+    const done = Number(m[1]);
+    const total = Number(m[2]);
+    if (Number.isFinite(done) && Number.isFinite(total) && total > 0 && done < total) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Live token counter like "↓ 279 tokens". Near-universal during streaming.
 const TOKEN_COUNTER_RE = /[↓↑⬇⬆]\s*\d[\d.,]*\s*(?:k|m)?\s*tokens?/i;
@@ -552,14 +588,19 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
 
       // Background agents/workflows render their "N/M agents done" progress
       // below the input box while the main prompt stays interactive, so
-      // detectWorking (above-box only) can't see them. Match the viewport and
-      // the recent PTY output (pane may be hidden), gated on fresh output so a
-      // stale completed line still in scrollback can't pin the badge to working.
-      let bgAgentsHit = false;
-      if (hasFreshOutput()) {
-        bgAgentsHit =
-          BACKGROUND_AGENTS_RE.test(content) ||
-          (recentOutput.length > 0 && BACKGROUND_AGENTS_RE.test(getRecentOutput()));
+      // detectWorking (above-box only) can't see them. We scan the below-box
+      // region of the viewport (plus the recent PTY output as a hidden-pane
+      // fallback) and treat only an *in-progress* fraction (N < M) as working.
+      //
+      // This is intentionally NOT gated on hasFreshOutput(): a workflow's
+      // progress can update only once per completed agent - minutes apart -
+      // which is far longer than the sub-second fresh-output window, so gating
+      // on it dropped the signal during the quiet gaps and fired a premature
+      // "finished". The N < M check (not freshness) is what now rules out a
+      // completed "M/M agents done" line lingering on screen.
+      let bgAgentsHit = hasInProgressBackgroundAgents(contentBelowPromptBox(content));
+      if (!bgAgentsHit && recentOutput.length > 0) {
+        bgAgentsHit = hasInProgressBackgroundAgents(getRecentOutput());
       }
 
       // Blocking is checked against both the viewport and the recent PTY
@@ -575,7 +616,10 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         }
       }
 
-      if (!explicitIdle) {
+      // An in-progress "N/M agents" line outranks an explicit-idle hint: if a
+      // background workflow is genuinely still running, a stray search box or
+      // toggle hint elsewhere on screen must not flip the badge to idle.
+      if (!explicitIdle || bgAgentsHit) {
         // Blocking takes priority over working. Many CLIs render an approval
         // prompt while still showing "esc to cancel" or a token counter, so
         // both signals can fire together. `workingHit` only clears blocking

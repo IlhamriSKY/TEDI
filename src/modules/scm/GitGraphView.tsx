@@ -539,7 +539,12 @@ function RefBadge({ chip }: { chip: RefChip }) {
   return (
     <span
       className={cn(
-        "inline-flex h-[14px] items-center rounded-sm border px-1 text-[9.5px] leading-none font-medium",
+        // No fixed micro-height + `leading-none`: the labels have no descenders,
+        // so that combo parks the glyphs at the top of the line box (empty
+        // descender space below) and reads as "stuck to the top". Size to content
+        // with symmetric vertical padding + a balanced line-height so the text
+        // sits optically centered in the pill.
+        "inline-flex items-center rounded-sm border px-1 py-px text-[9.5px] leading-[1.35] font-medium",
         tone,
       )}
     >

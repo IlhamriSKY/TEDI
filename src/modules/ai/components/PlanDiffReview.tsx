@@ -54,7 +54,7 @@ export function PlanDiffReview() {
   };
 
   return (
-    <div className="bg-background/85 absolute inset-0 z-10 flex flex-col backdrop-blur-xl">
+    <div className="bg-card/85 tedi-glass-panel absolute inset-0 z-10 flex flex-col backdrop-blur-xl">
       <div className="border-border/40 flex items-center justify-between border-b px-3 py-2">
         <div className="flex flex-col">
           <span className="text-[13px] font-semibold tracking-tight">Plan review</span>
