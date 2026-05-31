@@ -60,10 +60,27 @@ const WRITER_QUEUE: usize = 1024;
 /// connections. Overridable via `TEDI_PTYD_IDLE_SECS` env var for testing.
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 24 * 60 * 60;
 
-/// Frame size cap for async reads. Matches the sync `MAX_FRAME_SIZE`
-/// in `transport.rs`. Duplicated here so the async read path doesn't
-/// depend on the sync `read_frame` plumbing.
-const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
+/// Cap for CLIENT->daemon frames. The only large frame in the protocol
+/// is the daemon->client `AttachOk` scrollback (~1.25 MiB); every inbound
+/// frame (Hello/Open/Write/Resize/Close/...) is small. Refusing to preallocate
+/// up to 16 MiB per inbound frame bounds a peer that sends a huge length
+/// prefix purely to pin memory.
+const MAX_CLIENT_FRAME_SIZE: usize = 4 * 1024 * 1024;
+
+/// Hard cap on concurrently live PTY sessions. Each is a real shell process
+/// plus reader/flusher/waiter threads and a scrollback ring, so an unbounded
+/// `Open` loop could otherwise exhaust process/thread/FD/memory limits.
+const MAX_SESSIONS: usize = 256;
+
+/// Hard cap on concurrent client connections. On a single-user machine the
+/// only legitimate client is the GUI; the cap stops a local peer from spawning
+/// unbounded handler tasks each holding a read buffer.
+const MAX_CLIENTS: u64 = 64;
+
+/// Max EXITED sessions retained for scrollback replay before the oldest are
+/// reaped on the next `Open`. Bounds memory from sessions the GUI never
+/// explicitly closes (force-quit / crash, non-persisted OSC-spawned tabs).
+const MAX_RETAINED_DEAD_SESSIONS: usize = 16;
 
 // ── shared state ────────────────────────────────────────────────────────
 
@@ -357,6 +374,12 @@ async fn handle_client(
 ) -> std::io::Result<()> {
     use interprocess::local_socket::traits::tokio::Stream as _;
     let client_id = Uuid::new_v4();
+    // Connection cap: refuse past MAX_CLIENTS so a local peer can't spawn
+    // unbounded handler tasks each holding an inbound read buffer.
+    if state.client_count.load(Ordering::Acquire) >= MAX_CLIENTS {
+        log::warn!("daemon at connection cap ({MAX_CLIENTS}); refusing client {client_id}");
+        return Ok(());
+    }
     state.add_client();
     log::info!("client connected id={client_id}");
 
@@ -387,14 +410,15 @@ async fn handle_client(
     let dispatch_state = state.clone();
     let dispatch_tx = tx.clone();
     let read_loop = async move {
+        let mut handshaked = false;
         loop {
             let mut prefix = [0u8; 4];
             if recv.read_exact(&mut prefix).await.is_err() {
                 break;
             }
             let len = u32::from_be_bytes(prefix) as usize;
-            if len > MAX_FRAME_SIZE {
-                log::warn!("client frame too large: {len}");
+            if len > MAX_CLIENT_FRAME_SIZE {
+                log::warn!("client frame too large: {len} (cap {MAX_CLIENT_FRAME_SIZE})");
                 break;
             }
             let mut body = vec![0u8; len];
@@ -408,6 +432,18 @@ async fn handle_client(
                     continue;
                 }
             };
+            // Mandatory handshake gate: serve nothing until a valid Hello has
+            // been received. Without this the version `Hello` is purely
+            // advisory and any peer that opened the socket could immediately
+            // Open/Attach/Write/KillAll. The GUI always sends Hello first.
+            let is_hello = matches!(msg, ClientMsg::Hello { .. });
+            if !handshaked && !is_hello {
+                log::warn!("client {client_id} sent a command before Hello; closing");
+                break;
+            }
+            if is_hello {
+                handshaked = true;
+            }
             dispatch(&dispatch_state, &dispatch_tx, client_id, msg).await;
         }
     };
@@ -589,6 +625,33 @@ async fn dispatch(
 
 // ── session operations ──────────────────────────────────────────────────
 
+/// Drop EXITED sessions beyond `MAX_RETAINED_DEAD_SESSIONS`, oldest first.
+/// Routed through `close_session` so the (already-dead) PTY's teardown runs on
+/// the same detached SPAWN_LOCK-guarded drop path. Called on `Open` so a
+/// daemon that survives many GUI restarts can't accumulate orphaned exited
+/// sessions (each holding a ~1.25 MiB scrollback ring) without bound.
+fn reap_dead_sessions(state: &Arc<DaemonState>) {
+    let mut dead: Vec<(u64, Uuid)> = {
+        let sessions = state.sessions.read().unwrap();
+        sessions
+            .iter()
+            .filter(|(_, s)| !s.alive.load(Ordering::Acquire))
+            .map(|(id, s)| {
+                let ts = s.info.lock().map(|i| i.created_at_ms).unwrap_or(0);
+                (ts, *id)
+            })
+            .collect()
+    };
+    if dead.len() <= MAX_RETAINED_DEAD_SESSIONS {
+        return;
+    }
+    dead.sort_unstable_by_key(|(ts, _)| *ts);
+    let drop_count = dead.len() - MAX_RETAINED_DEAD_SESSIONS;
+    for (_, id) in dead.into_iter().take(drop_count) {
+        close_session(state, id);
+    }
+}
+
 fn open_session(
     state: &Arc<DaemonState>,
     client_tx: mpsc::Sender<DaemonMsg>,
@@ -597,6 +660,12 @@ fn open_session(
     rows: u16,
     cwd: Option<String>,
 ) -> Result<Uuid, String> {
+    // Reap old dead sessions, then enforce the live-session cap before
+    // spawning another shell so an `Open` loop can't exhaust resources.
+    reap_dead_sessions(state);
+    if state.sessions.read().unwrap().len() >= MAX_SESSIONS {
+        return Err(format!("session limit reached ({MAX_SESSIONS})"));
+    }
     let id = Uuid::new_v4();
     let info = SessionInfo {
         id,

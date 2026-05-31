@@ -10,6 +10,7 @@ import type { UIMessage } from "ai";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, use, useCallback, useEffect, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
+import { safeUrlTransform } from "@/lib/markdownSafety";
 import { ChatStreamingProvider } from "./chat-code";
 import { MarkdownCode } from "./markdown-code";
 
@@ -277,6 +278,7 @@ export const MessageResponse = memo(
       <Streamdown
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
         components={streamdownComponents}
+        urlTransform={safeUrlTransform}
         {...props}
       />
     </ChatStreamingProvider>

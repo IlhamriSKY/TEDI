@@ -3,6 +3,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
+import { safeUrlTransform } from "@/lib/markdownSafety";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Extension } from "@codemirror/state";
@@ -622,7 +623,10 @@ export function EditorPane({
       )}
       {showMdPreview && (
         <div className="bg-background absolute inset-0 overflow-auto p-6">
-          <Streamdown className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <Streamdown
+            className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            urlTransform={safeUrlTransform}
+          >
             {liveContent}
           </Streamdown>
         </div>

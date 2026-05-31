@@ -146,6 +146,15 @@ export function buildScheduleTools(ctx: ToolContext) {
         const safety = checkShellCommand(text);
         if (!safety.ok) return { error: safety.reason };
         const trimmed = text.replace(/[\r\n]+$/, "");
+        // Raw PTY write with no bracketed-paste wrapper: an embedded newline
+        // would auto-run the following lines with no approval. Type-only text
+        // never needs one; use run_in_terminal_by_id (approval-gated) to run.
+        if (/[\r\n]/.test(trimmed)) {
+          return {
+            error:
+              "Refused: text contains an embedded newline. send_to_terminal only types without running. Use run_in_terminal_by_id (which requires approval) to execute.",
+          };
+        }
         const t = normalizeTarget(target);
         const ok = ctx.injectIntoTerminal(t, trimmed);
         if (!ok)

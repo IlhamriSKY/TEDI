@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -104,13 +104,44 @@ fn run_blocking(
         e.to_string()
     })?;
 
+    // Windows: assign the child to a kill-on-close Job Object so a timeout
+    // kill (or normal return) takes down the WHOLE process tree. `child.kill()`
+    // only kills the direct shell; a backgrounded grandchild that inherits the
+    // stdout/stderr pipe would otherwise keep the pipe open forever, so the
+    // drain threads below would never see EOF. The job handle drops at end of
+    // scope, killing any survivors.
+    #[cfg(windows)]
+    let _job = crate::modules::pty::job::PtyJob::create_for(child.id()).ok();
+
     let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
     let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
 
     // Drain stdout/stderr on background threads so a full pipe buffer cannot
-    // deadlock the child.
-    let stdout_handle = thread::spawn(move || drain(&mut stdout_pipe));
-    let stderr_handle = thread::spawn(move || drain(&mut stderr_pipe));
+    // deadlock the child. The threads write into shared buffers and signal
+    // completion over a channel, so we can collect output WITHOUT a blocking
+    // `join()` that would pin this Tokio blocking-pool slot forever if a
+    // grandchild keeps the pipe open after a timeout kill.
+    let stdout_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
+    let stderr_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    {
+        let buf = stdout_buf.clone();
+        let tx = done_tx.clone();
+        thread::spawn(move || {
+            let res = drain(&mut stdout_pipe);
+            *buf.lock().unwrap() = res;
+            let _ = tx.send(());
+        });
+    }
+    {
+        let buf = stderr_buf.clone();
+        let tx = done_tx;
+        thread::spawn(move || {
+            let res = drain(&mut stderr_pipe);
+            *buf.lock().unwrap() = res;
+            let _ = tx.send(());
+        });
+    }
 
     let started = Instant::now();
     let mut timed_out = false;
@@ -129,8 +160,16 @@ fn run_blocking(
         thread::sleep(POLL_INTERVAL);
     };
 
-    let (stdout_bytes, stdout_truncated) = stdout_handle.join().unwrap_or((Vec::new(), false));
-    let (stderr_bytes, stderr_truncated) = stderr_handle.join().unwrap_or((Vec::new(), false));
+    // Wait for the drain threads to flush, but never block forever: a killed
+    // shell's backgrounded grandchild can hold the pipe open. On a clean exit
+    // both signals arrive immediately; on a stuck pipe we proceed with what was
+    // buffered and let the detached thread exit whenever the pipe finally
+    // closes (the Windows Job above makes that prompt by killing the tree).
+    const DRAIN_GRACE: Duration = Duration::from_secs(2);
+    let _ = done_rx.recv_timeout(DRAIN_GRACE);
+    let _ = done_rx.recv_timeout(DRAIN_GRACE);
+    let (stdout_bytes, stdout_truncated) = stdout_buf.lock().unwrap().clone();
+    let (stderr_bytes, stderr_truncated) = stderr_buf.lock().unwrap().clone();
 
     Ok(CommandOutput {
         stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
@@ -215,6 +254,31 @@ pub fn shell_session_close(state: tauri::State<ShellState>, id: u32) -> Result<(
     Ok(())
 }
 
+/// Max EXITED background procs retained for post-mortem log inspection.
+/// Beyond this, the oldest exited entries are dropped on the next spawn so a
+/// long agent session that churns dev servers/watchers cannot grow `bg`
+/// without bound. Live procs are never reaped.
+const MAX_RETAINED_EXITED: usize = 32;
+
+/// Drop exited background procs beyond `MAX_RETAINED_EXITED`, oldest first
+/// (handle id ascends with spawn order). Dropping the `Arc` frees the ring
+/// buffer and OS/Job handles via `BackgroundProc::Drop`. Live procs are kept.
+fn reap_exited_bg(map: &mut HashMap<u32, Arc<BackgroundProc>>) {
+    let mut exited: Vec<u32> = map
+        .iter()
+        .filter(|(_, p)| p.exited.load(Ordering::Acquire))
+        .map(|(id, _)| *id)
+        .collect();
+    if exited.len() <= MAX_RETAINED_EXITED {
+        return;
+    }
+    exited.sort_unstable();
+    let drop_count = exited.len() - MAX_RETAINED_EXITED;
+    for id in exited.into_iter().take(drop_count) {
+        map.remove(&id);
+    }
+}
+
 #[tauri::command]
 pub fn shell_bg_spawn(
     state: tauri::State<ShellState>,
@@ -223,7 +287,9 @@ pub fn shell_bg_spawn(
 ) -> Result<u32, String> {
     let proc = background::spawn(command, cwd)?;
     let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
-    state.bg.write().unwrap().insert(id, proc);
+    let mut map = state.bg.write().unwrap();
+    reap_exited_bg(&mut map);
+    map.insert(id, proc);
     Ok(id)
 }
 
@@ -241,7 +307,9 @@ pub fn shell_bg_spawn_direct(
 ) -> Result<u32, String> {
     let proc = background::spawn_direct(program, args.unwrap_or_default(), cwd)?;
     let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
-    state.bg.write().unwrap().insert(id, proc);
+    let mut map = state.bg.write().unwrap();
+    reap_exited_bg(&mut map);
+    map.insert(id, proc);
     Ok(id)
 }
 
@@ -266,6 +334,16 @@ pub fn shell_bg_kill(state: tauri::State<ShellState>, handle: u32) -> Result<(),
     if let Some(proc) = state.bg.read().unwrap().get(&handle).cloned() {
         proc.kill();
     }
+    Ok(())
+}
+
+/// Drop a background proc from the registry. The `Arc` drop kills the child (a
+/// no-op if already exited) and frees its ring buffer + OS/Job handles via
+/// `BackgroundProc::Drop`. Use after the caller no longer needs its logs;
+/// exited entries are also reaped automatically on the next spawn.
+#[tauri::command]
+pub fn shell_bg_remove(state: tauri::State<ShellState>, handle: u32) -> Result<(), String> {
+    state.bg.write().unwrap().remove(&handle);
     Ok(())
 }
 

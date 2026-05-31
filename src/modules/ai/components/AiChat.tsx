@@ -21,6 +21,7 @@ import {
 import { PROVIDERS } from "../config";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
 import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
 import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "ai";
@@ -426,12 +427,24 @@ const RenderedMessage = memo(function RenderedMessage({
       <MessageContent>
         <div className="flex flex-col gap-3">
           {message.parts.map((part, i) => (
-            <RenderedPart
+            // Contain a malformed model part so one bad part can't crash the
+            // whole chat panel (RenderedPart reads untrusted model output).
+            <ErrorBoundary
               key={`${message.id}-${i}`}
-              part={part as AnyPart}
-              onApproval={onApproval}
-              streaming={streaming && i === lastTextIdx}
-            />
+              label="message part"
+              resetKeys={[part]}
+              fallback={() => (
+                <div className="text-muted-foreground bg-muted/40 rounded-md px-2 py-1 text-[11px]">
+                  (a part of this message failed to render)
+                </div>
+              )}
+            >
+              <RenderedPart
+                part={part as AnyPart}
+                onApproval={onApproval}
+                streaming={streaming && i === lastTextIdx}
+              />
+            </ErrorBoundary>
           ))}
         </div>
       </MessageContent>

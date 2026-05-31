@@ -27,7 +27,18 @@ export function buildTerminalTools(ctx: ToolContext) {
       execute: async ({ command, explanation }) => {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
-        const trimmed = command.replace(/\n+$/, "");
+        const trimmed = command.replace(/[\r\n]+$/, "");
+        // suggest_command TYPES into the terminal via a raw PTY write (no
+        // bracketed-paste wrapper), so an embedded \n/\r would auto-run every
+        // line with no approval. A type-only command never needs an interior
+        // newline; multi-line execution must go through the approval-gated
+        // run_in_terminal.
+        if (/[\r\n]/.test(trimmed)) {
+          return {
+            error:
+              "Refused: command contains an embedded newline. suggest_command only types a single line without running it. Use run_in_terminal (which requires approval) to execute a multi-line command.",
+          };
+        }
         const effective = applyShellTransformers(trimmed, "terminal");
 
         if (!ctx.isTerminalBusy()) {

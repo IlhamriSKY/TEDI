@@ -8,6 +8,7 @@ import "./styles/globals.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
@@ -25,7 +26,36 @@ applyCustomThemeFastPath();
 // is no opaque flash before hydration re-applies the stored value.
 applyAppOpacityFastPath();
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <ErrorBoundary
+    fallback={(error, reset) => (
+      <div className="bg-background text-foreground flex h-screen w-screen flex-col items-center justify-center gap-3 p-6">
+        <span className="text-sm font-semibold">TEDI hit an unexpected error.</span>
+        <pre className="text-muted-foreground max-h-48 max-w-xl overflow-auto font-mono text-[11px] whitespace-pre-wrap">
+          {error.message}
+        </pre>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={reset}
+            className="border-border hover:bg-accent rounded-md border px-3 py-1.5 text-xs"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="border-border hover:bg-accent rounded-md border px-3 py-1.5 text-xs"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    )}
+  >
+    <App />
+  </ErrorBoundary>,
+);
 
 // Window starts hidden (per tauri.conf.json) so users never see a transparent
 // shadow-only frame before React paints. Use setTimeout - rAF is throttled

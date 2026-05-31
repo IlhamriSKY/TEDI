@@ -61,6 +61,8 @@ export const native = {
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
   deletePath: (path: string) => invoke<void>("fs_delete", { path }),
   readDir: (path: string) => invoke<DirEntry[]>("fs_read_dir", { path }),
+  /** Resolve symlinks to the real absolute path. Throws if the path is missing. */
+  canonicalize: (path: string) => invoke<string>("fs_canonicalize", { path }),
   grep: (params: {
     pattern: string;
     root: string;
@@ -116,6 +118,7 @@ export const native = {
       exit_code: number | null;
     }>("shell_bg_logs", { handle, sinceOffset: sinceOffset ?? null }),
   shellBgKill: (handle: number) => invoke<void>("shell_bg_kill", { handle }),
+  shellBgRemove: (handle: number) => invoke<void>("shell_bg_remove", { handle }),
   shellBgList: () =>
     invoke<
       {

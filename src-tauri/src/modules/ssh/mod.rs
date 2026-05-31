@@ -3,9 +3,13 @@
 //! Mirrors the local PTY module's command shape (`ssh_open`/`ssh_write`/
 //! `ssh_resize`/`ssh_close`) so the frontend can swap a local PTY for a
 //! remote shell with minimal plumbing. Auth supports password or private
-//! key. Host-key handling is trust-on-first-use with an accept-any policy;
-//! TEDI does not yet persist a known_hosts file. The server key fingerprint
-//! is logged on connect until a known_hosts UI lands.
+//! key. Host-key handling: SHA-256 fingerprint pinning. The first connect to
+//! a new host is trust-on-first-use (the seen fingerprint is reported to the
+//! frontend, which persists it as `lastFingerprint` in the connection store).
+//! Every later connect passes that fingerprint as `expected_fingerprint`; a
+//! mismatch aborts the handshake with a "host key mismatch / possible MITM"
+//! error (see `session::HostKeyVerifier`). To re-trust a legitimately rotated
+//! key the user clears the saved fingerprint on the connection.
 
 mod session;
 pub mod sftp;

@@ -22,6 +22,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
@@ -155,38 +156,42 @@ const LeafBody = memo(function LeafBody({
 }) {
   if (node.leafKind === "terminal") {
     return (
-      <div className="h-full w-full p-1.5">
-        <TerminalPane
-          leafId={node.id}
-          visible={tabVisible}
-          focused={focused}
-          initialCwd={node.cwd}
-          sshConnectionId={node.sshConnectionId}
-          savedPtyId={node.savedPtyId}
-          ref={b.setTerminalRef}
-          onSearchReady={(_id, addon) => b.onSearchReady(addon)}
-          onCwd={(_id, cwd) => b.onCwd(cwd)}
-          onDetectedLocalUrl={(_id, url) => b.onDetectedLocalUrl(url)}
-          onExit={(_id, code) => b.onExit(code)}
-          onTediOpen={(_id, input) => b.onTediOpen(input)}
-          onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
-          onSshStatus={(_id, status) => b.onSshStatus(status)}
-          onAiCliStatus={(_id, status) => b.onAiCliStatus(status)}
-          onPtyId={(_id, ptyId) => b.onPtyId(ptyId)}
-        />
-      </div>
+      <ErrorBoundary label="terminal pane" resetKeys={[node.id]}>
+        <div className="h-full w-full p-1.5">
+          <TerminalPane
+            leafId={node.id}
+            visible={tabVisible}
+            focused={focused}
+            initialCwd={node.cwd}
+            sshConnectionId={node.sshConnectionId}
+            savedPtyId={node.savedPtyId}
+            ref={b.setTerminalRef}
+            onSearchReady={(_id, addon) => b.onSearchReady(addon)}
+            onCwd={(_id, cwd) => b.onCwd(cwd)}
+            onDetectedLocalUrl={(_id, url) => b.onDetectedLocalUrl(url)}
+            onExit={(_id, code) => b.onExit(code)}
+            onTediOpen={(_id, input) => b.onTediOpen(input)}
+            onTediSpawnTab={(_id, input) => b.onTediSpawnTab(input)}
+            onSshStatus={(_id, status) => b.onSshStatus(status)}
+            onAiCliStatus={(_id, status) => b.onAiCliStatus(status)}
+            onPtyId={(_id, ptyId) => b.onPtyId(ptyId)}
+          />
+        </div>
+      </ErrorBoundary>
     );
   }
   return (
-    <EditorPane
-      ref={b.setEditorRef}
-      path={node.path}
-      onDirtyChange={b.onDirtyChange}
-      onClose={b.onCloseLeaf}
-      mdPreview={mdPreview}
-      sshSessionId={node.sshSessionId}
-      aiDisabled={node.private === true}
-    />
+    <ErrorBoundary label="editor pane" resetKeys={[node.id, node.path]}>
+      <EditorPane
+        ref={b.setEditorRef}
+        path={node.path}
+        onDirtyChange={b.onDirtyChange}
+        onClose={b.onCloseLeaf}
+        mdPreview={mdPreview}
+        sshSessionId={node.sshSessionId}
+        aiDisabled={node.private === true}
+      />
+    </ErrorBoundary>
   );
 });
 

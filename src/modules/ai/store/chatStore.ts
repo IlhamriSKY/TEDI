@@ -369,6 +369,15 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSessionId: () => sessionId,
   };
 
+  // `agentMeta` is a single global field the UI renders for the ACTIVE session
+  // only (switchSession resets it). These transport callbacks keep firing while
+  // a non-active session streams in the background, so every write/toast must
+  // be gated by the producing session id, or switching away mid-turn corrupts
+  // the now-active session's step label, token counter, compaction badge, and
+  // error pill. An error on a background session is not lost: AgentRunBridge
+  // re-derives status from that chat when the user switches back to it.
+  const isActiveSession = () => useChatStore.getState().activeSessionId === sessionId;
+
   const transport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
@@ -393,9 +402,11 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
     getPlanMode: () => usePlanStore.getState().active,
     onStep: (step) => {
+      if (!isActiveSession()) return;
       useChatStore.getState().patchAgentMeta({ step });
     },
     onUsage: (delta) => {
+      if (!isActiveSession()) return;
       // Accumulate per-step usage so the UI can show cache hit ratio.
       useChatStore.setState((state) => ({
         agentMeta: {
@@ -409,6 +420,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       }));
     },
     onCompact: ({ stages }) => {
+      if (!isActiveSession()) return;
       const now = Date.now();
       // Reflect every pass in agentMeta so the pulse badge fires each time.
       useChatStore.getState().patchAgentMeta({ lastCompact: { at: now, stages } });
@@ -431,6 +443,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       }
     },
     onFinishMeta: (info) => {
+      if (!isActiveSession()) return;
       // Surface non-normal stop reasons so the user sees why the agent paused.
       if (info.stopReason === "step-cap") {
         toast("Stopped after reaching the per-turn step limit. Reply to continue.", {
@@ -457,6 +470,10 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onError: (e) => {
+      // Only reflect the error on the global meta if this is the active
+      // session; a background session's error surfaces via AgentRunBridge when
+      // the user switches to it (it re-derives status from the chat).
+      if (!isActiveSession()) return;
       useChatStore.getState().patchAgentMeta({
         status: "error",
         error: e instanceof Error ? e.message : String(e),

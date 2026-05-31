@@ -45,6 +45,15 @@ fn spawn_daemon_from(exe: &Path) -> io::Result<()> {
     // cannot be opened we fall back to `Stdio::null()` rather than refusing
     // to spawn - losing logs is degraded, not broken.
     let log_path = super::paths::daemon_log_path();
+    // Rotate once when the log grows large so append-mode across many daemon
+    // runs can't grow it without bound. Best-effort: keep a single previous
+    // file (`tedi-ptyd.log.old`).
+    const MAX_LOG_BYTES: u64 = 8 * 1024 * 1024;
+    if let Ok(meta) = std::fs::metadata(&log_path) {
+        if meta.len() > MAX_LOG_BYTES {
+            let _ = std::fs::rename(&log_path, log_path.with_extension("log.old"));
+        }
+    }
     match std::fs::OpenOptions::new()
         .create(true)
         .append(true)

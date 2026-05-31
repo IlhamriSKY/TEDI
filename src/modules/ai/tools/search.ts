@@ -60,16 +60,27 @@ export function buildSearchTools(ctx: ToolContext) {
             caseInsensitive: case_insensitive,
             maxResults: max_results,
           });
-          return {
-            root: r.path,
-            hits: res.hits.map((h) => ({
+          // Apply the secret deny-list per matched file, mirroring read_file:
+          // the walker can return the contents of NON-hidden secret files
+          // (*.pem, *.key, id_rsa, credentials, secrets.{json,yaml,toml}, ...)
+          // that read_file would refuse, so drop those hits before they reach
+          // the model. checkReadable on the root alone does not cover them.
+          const all = res.hits;
+          const hits = all
+            .filter((h) => checkReadable(h.path).ok)
+            .map((h) => ({
               path: h.path,
               rel: h.rel,
               line: h.line,
               text: h.text,
-            })),
+            }));
+          const redacted = all.length - hits.length;
+          return {
+            root: r.path,
+            hits,
             truncated: res.truncated,
             files_scanned: res.files_scanned,
+            ...(redacted > 0 ? { redacted_secret_files: redacted } : {}),
           };
         } catch (e) {
           return { error: scrubErrorPath(e, ctx), root: r.path };
@@ -96,10 +107,14 @@ export function buildSearchTools(ctx: ToolContext) {
             root: r.path,
             maxResults: max_results,
           });
+          // Same per-hit deny-list as grep: do not surface secret file paths.
+          const hits = res.hits.filter((h) => checkReadable(h.path).ok);
+          const redacted = res.hits.length - hits.length;
           return {
             root: r.path,
-            hits: res.hits,
+            hits,
             truncated: res.truncated,
+            ...(redacted > 0 ? { redacted_secret_files: redacted } : {}),
           };
         } catch (e) {
           return { error: scrubErrorPath(e, ctx), root: r.path };

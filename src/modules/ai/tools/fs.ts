@@ -13,6 +13,26 @@ const DEFAULT_LINE_LIMIT = 2000;
 /** Skip undo snapshot above this size; IPC cost outweighs the value. */
 const SNAPSHOT_SIZE_CAP = 1_000_000;
 
+/**
+ * Run the secret deny-list against the symlink-resolved real target, not the
+ * literal path string. A string-only check is blind to an innocuously-named
+ * symlink (notes.txt -> ~/.ssh/id_rsa); the backend follows symlinks on read,
+ * so without this an auto-approved read could exfiltrate the target. Falls
+ * back to the literal path if canonicalization fails (e.g. the path does not
+ * exist yet) - the read itself surfaces any real error.
+ */
+async function checkReadableResolved(abs: string): Promise<ReturnType<typeof checkReadable>> {
+  const literal = checkReadable(abs);
+  if (!literal.ok) return literal;
+  try {
+    const real = await native.canonicalize(abs);
+    if (real && real !== abs) return checkReadable(real);
+  } catch {
+    // Path missing / not resolvable: literal check already passed.
+  }
+  return literal;
+}
+
 export function buildFsTools(ctx: ToolContext) {
   return {
     read_file: tool({
@@ -29,7 +49,7 @@ export function buildFsTools(ctx: ToolContext) {
       }),
       execute: async ({ path, offset, limit }) => {
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkReadable(abs);
+        const safety = await checkReadableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {
           const startLine = offset ?? 0;
@@ -94,7 +114,7 @@ export function buildFsTools(ctx: ToolContext) {
       }),
       execute: async ({ path }) => {
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkReadable(abs);
+        const safety = await checkReadableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {
           const entries = await native.readDir(abs);

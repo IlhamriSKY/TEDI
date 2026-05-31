@@ -91,6 +91,22 @@ pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
     Ok(classify_bytes(&p, bytes))
 }
 
+/// Resolve a path to its real, symlink-free absolute form (frontend
+/// forward-slash form). Used by the AI read tools so the secret deny-list
+/// sees through an innocuously-named symlink (e.g. `notes.txt` ->
+/// `~/.ssh/id_rsa`) to the actual target before deciding whether to allow the
+/// read. Errors (e.g. the path does not exist) are propagated so the caller
+/// can fall back to checking the literal path string.
+#[tauri::command]
+pub fn fs_canonicalize(path: String) -> Result<String, String> {
+    let p = PathBuf::from(&path);
+    let canon = std::fs::canonicalize(&p).map_err(|e| {
+        log::debug!("fs_canonicalize({}) failed: {e}", p.display());
+        e.to_string()
+    })?;
+    Ok(super::to_canon(&canon))
+}
+
 /// Classify a byte buffer into a `ReadResult`. `path` only drives
 /// extension-based MIME hints (SVG, AVIF); callers reading a git blob can
 /// pass the repo-relative path. Size is `bytes.len()`.

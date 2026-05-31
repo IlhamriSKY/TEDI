@@ -663,7 +663,25 @@ pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
         }
         return Err(format!("GET {url}: HTTP {status}"));
     }
-    resp.text().await.map_err(|e| format!("read body: {e}"))
+    // Cap the body so a compromised/MITM'd endpoint can't stream an unbounded
+    // response into memory (the sibling byte path caps via MAX_DOWNLOAD_BYTES;
+    // this text path previously buffered without limit). Manifests / release
+    // JSON are tiny, so a few MiB is generous.
+    const MAX_TEXT_BYTES: usize = 8 * 1024 * 1024;
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_TEXT_BYTES {
+            return Err(format!("response body too large: {len} bytes (cap {MAX_TEXT_BYTES})"));
+        }
+    }
+    let mut resp = resp;
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("read body: {e}"))? {
+        if buf.len() + chunk.len() > MAX_TEXT_BYTES {
+            return Err(format!("response body exceeds cap ({MAX_TEXT_BYTES} bytes)"));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    String::from_utf8(buf).map_err(|e| format!("response body not valid UTF-8: {e}"))
 }
 
 /// Resolve `(tag, zip_url)` for the latest release of `owner_repo`. Tries

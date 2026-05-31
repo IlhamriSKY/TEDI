@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import { safeUrlTransform } from "@/lib/markdownSafety";
 
 import { Shimmer } from "./shimmer";
 
@@ -196,7 +197,7 @@ export const ReasoningContent = memo(({ className, children, ...props }: Reasoni
     )}
     {...props}
   >
-    <Streamdown>{children}</Streamdown>
+    <Streamdown urlTransform={safeUrlTransform}>{children}</Streamdown>
   </CollapsibleContent>
 ));
 

@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -90,6 +91,12 @@ fn run_blocking(
         format!("spawn failed: {e}")
     })?;
 
+    // Windows: kill-on-close Job so a timeout kill takes down the whole tree.
+    // Without it a grandchild holding the stdout/stderr pipe would keep the
+    // pipe open and the drain threads would never reach EOF.
+    #[cfg(windows)]
+    let _job = crate::modules::pty::job::PtyJob::create_for(child.id()).ok();
+
     if let (Some(content), Some(mut pipe)) = (stdin_content, child.stdin.take()) {
         // Spawn a thread to write stdin so a huge payload can't block while
         // the child is still spinning up.
@@ -102,8 +109,30 @@ fn run_blocking(
     let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
     let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
 
-    let stdout_handle = thread::spawn(move || drain(&mut stdout_pipe));
-    let stderr_handle = thread::spawn(move || drain(&mut stderr_pipe));
+    // Drain into shared buffers + signal over a channel so we never block on a
+    // `join()` that would pin this Tokio blocking-pool slot forever when a
+    // grandchild keeps the pipe open past a timeout kill.
+    let stdout_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
+    let stderr_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    {
+        let buf = stdout_buf.clone();
+        let tx = done_tx.clone();
+        thread::spawn(move || {
+            let res = drain(&mut stdout_pipe);
+            *buf.lock().unwrap() = res;
+            let _ = tx.send(());
+        });
+    }
+    {
+        let buf = stderr_buf.clone();
+        let tx = done_tx;
+        thread::spawn(move || {
+            let res = drain(&mut stderr_pipe);
+            *buf.lock().unwrap() = res;
+            let _ = tx.send(());
+        });
+    }
 
     let started = Instant::now();
     let mut timed_out = false;
@@ -122,8 +151,12 @@ fn run_blocking(
         thread::sleep(POLL_INTERVAL);
     };
 
-    let (stdout_bytes, stdout_truncated) = stdout_handle.join().unwrap_or((Vec::new(), false));
-    let (stderr_bytes, stderr_truncated) = stderr_handle.join().unwrap_or((Vec::new(), false));
+    // Bounded wait for the drains to flush; never block forever.
+    const DRAIN_GRACE: Duration = Duration::from_secs(2);
+    let _ = done_rx.recv_timeout(DRAIN_GRACE);
+    let _ = done_rx.recv_timeout(DRAIN_GRACE);
+    let (stdout_bytes, stdout_truncated) = stdout_buf.lock().unwrap().clone();
+    let (stderr_bytes, stderr_truncated) = stderr_buf.lock().unwrap().clone();
 
     Ok(FormatOutput {
         stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),

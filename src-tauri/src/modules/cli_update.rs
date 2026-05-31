@@ -258,7 +258,12 @@ fn run_update() -> Result<(), String> {
         println!("{}", paint_header("Release notes:"));
         // 30-line cap keeps the prompt visible on long changelogs.
         for line in manifest.notes.lines().take(30) {
-            println!("  {line}");
+            // Strip control / escape bytes: `notes` comes from the
+            // network-fetched (unsigned) latest.json, so an embedded ESC/OSC
+            // sequence could spoof the terminal (title, OSC 8 links, OSC 52
+            // clipboard). Keep tab; drop every other control char.
+            let safe: String = line.chars().filter(|c| !c.is_control() || *c == '\t').collect();
+            println!("  {safe}");
         }
         let extra = manifest.notes.lines().count().saturating_sub(30);
         if extra > 0 {
@@ -364,11 +369,25 @@ fn verify_signature(data: &[u8], signature_b64: &str) -> Result<(), String> {
 /// holds no handles on the running EXE, so it can replace `TEDI.exe`.
 #[cfg(target_os = "windows")]
 fn install_bundle(bytes: &[u8], url: &str) -> Result<String, String> {
-    let filename = url
+    // Derive the installer filename from the (network-controlled) URL, but
+    // sanitize it: strip any query/fragment and reject path separators or a
+    // non-.exe name so a crafted URL can't steer the write outside %TEMP% or
+    // produce an invalid path. The bytes are already minisign-verified, so
+    // this is hardening, not the RCE gate.
+    let raw = url
         .rsplit('/')
         .find(|s| !s.is_empty())
         .unwrap_or("tedi-update.exe");
-    let path = std::env::temp_dir().join(filename);
+    let cleaned = raw.split(['?', '#']).next().unwrap_or("");
+    let safe_name = if cleaned.is_empty()
+        || cleaned.chars().any(|c| matches!(c, '/' | '\\' | ':'))
+        || !cleaned.to_ascii_lowercase().ends_with(".exe")
+    {
+        "tedi-update.exe"
+    } else {
+        cleaned
+    };
+    let path = std::env::temp_dir().join(safe_name);
     std::fs::write(&path, bytes).map_err(|e| format!("write installer: {e}"))?;
     // `/PASSIVE` shows a non-interactive progress dialog; `/UPDATE` tells
     // the NSIS hook to skip the "already installed" check and overwrite.

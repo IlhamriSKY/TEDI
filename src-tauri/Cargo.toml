@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.14"
+version = "0.3.15"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -93,9 +93,11 @@ russh-sftp = "2.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
 async-trait = "0.1"
 # Extension system: zip extraction with path-traversal guards via
-# `ZipFile::enclosed_name()`. Pinned to a recent line; default features
-# bring deflate/bzip2/zstd which cover GitHub-released zips.
-zip = { version = "2", default-features = false, features = ["deflate"] }
+# `ZipFile::enclosed_name()`. Tracks the same major line that
+# `tauri-plugin-updater` already pulls in (zip 4.x) so the build ships one
+# copy of the crate and the untrusted-archive parser stays on the maintained
+# line. Default features bring deflate/bzip2/zstd which cover released zips.
+zip = { version = "4", default-features = false, features = ["deflate"] }
 # SHA-256 for extension integrity hashing (used to surface a stable
 # fingerprint in the install-review dialog; not used as a trust anchor).
 sha2 = "0.10"
