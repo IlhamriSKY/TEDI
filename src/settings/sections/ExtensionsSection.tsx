@@ -10,7 +10,8 @@ import { useExtensionsStore } from "@/modules/extensions";
 import { safeParseManifest } from "@/modules/extensions/manifest";
 
 import { SectionHeader } from "../components/SectionHeader";
-import { ExtensionCard, checkSingleUpdate, updateOne } from "./components/ExtensionCard";
+import { ExtensionCard } from "./components/ExtensionCard";
+import { checkSingleUpdate, updateOne } from "./components/extensionUpdate";
 import {
   InstallReviewDialog,
   type Pending,

@@ -25,12 +25,11 @@ export function HighlightLine({
   if (!needle || !re) return <>{trimmed}</>;
   const out: React.ReactNode[] = [];
   let lastIdx = 0;
-  let k = 0;
   for (const m of trimmed.matchAll(re)) {
     const start = m.index ?? 0;
     if (start > lastIdx) out.push(trimmed.slice(lastIdx, start));
     out.push(
-      <span key={k++} className={HIGHLIGHT_CLASS}>
+      <span key={start} className={HIGHLIGHT_CLASS}>
         {m[0]}
       </span>,
     );
