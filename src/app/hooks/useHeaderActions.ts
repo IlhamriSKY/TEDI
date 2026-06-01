@@ -1,0 +1,109 @@
+import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { type SshConnection } from "@/modules/ssh/connections";
+import { MAX_PANES_PER_TAB, type PaneTab } from "@/modules/tabs";
+import { leafIds } from "@/modules/terminal";
+import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
+import { type TabsApi } from "./tabsApi";
+
+type Params = {
+  activePaneTab: PaneTab | null;
+  detectedPreviewUrl: string | null;
+  openPreviewTab: (url: string) => number | null;
+  handleClose: (id: number) => void;
+  setNewEditorOpen: Dispatch<SetStateAction<boolean>>;
+} & Pick<TabsApi, "setActiveId" | "focusPane" | "closePaneByLeaf" | "pinTab" | "newSshTab">;
+
+/**
+ * Stable handlers for the memoised `<Header/>`. Each was previously an inline
+ * arrow in the JSX, so the memo wrapper saw a fresh prop identity on every App
+ * re-render. Bundled here verbatim with identical dependency arrays;
+ * `handleClose` / `openPreviewTab` / `detectedPreviewUrl` are threaded in from
+ * App.
+ */
+export function useHeaderActions({
+  activePaneTab,
+  detectedPreviewUrl,
+  openPreviewTab,
+  handleClose,
+  setNewEditorOpen,
+  setActiveId,
+  focusPane,
+  closePaneByLeaf,
+  pinTab,
+  newSshTab,
+}: Params): {
+  handleOpenDetectedPreview: () => void;
+  handleAddProviderKey: () => void;
+  handleHeaderSelectEntry: (tabId: number, leafId: number | null) => void;
+  handleHeaderCloseEntry: (tabId: number, leafId: number | null) => void;
+  handleHeaderNewPreview: () => void;
+  handleHeaderNewEditor: () => void;
+  handleHeaderPinLeaf: (tabId: number, leafId: number) => void;
+  handleHeaderOpenExtensions: () => void;
+  handleHeaderOpenSettings: () => void;
+  handleHeaderConnectSsh: (conn: SshConnection, opts?: { private?: boolean }) => void;
+  headerCanSplit: boolean;
+} {
+  // Stable props for memoised footer/sidebar children so unrelated state
+  // churn (AI streaming, PaneStack ticks) doesn't re-render them. Inline
+  // arrows or per-render expressions would defeat memo equality.
+  const handleOpenDetectedPreview = useCallback(() => {
+    if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
+  }, [detectedPreviewUrl, openPreviewTab]);
+  const handleAddProviderKey = useCallback(() => void openSettingsWindow("models"), []);
+
+  // Stable handlers for the memoised <Header/>. Each was previously an inline
+  // arrow in the JSX, so the memo wrapper saw a fresh prop identity on every
+  // App re-render (AI streaming tokens, statusbar ticks, etc.) and re-rendered
+  // the header + tab strip even when no header-relevant state changed.
+  const handleHeaderSelectEntry = useCallback(
+    (tabId: number, leafId: number | null) => {
+      setActiveId(tabId);
+      if (leafId !== null) focusPane(tabId, leafId);
+    },
+    [setActiveId, focusPane],
+  );
+  const handleHeaderCloseEntry = useCallback(
+    (tabId: number, leafId: number | null) => {
+      if (leafId !== null) {
+        closePaneByLeaf(leafId);
+      } else {
+        handleClose(tabId);
+      }
+    },
+    [closePaneByLeaf, handleClose],
+  );
+  const handleHeaderNewPreview = useCallback(() => openPreviewTab(""), [openPreviewTab]);
+  const handleHeaderNewEditor = useCallback(() => setNewEditorOpen(true), []);
+  const handleHeaderPinLeaf = useCallback(
+    (tabId: number, leafId: number) => {
+      focusPane(tabId, leafId);
+      pinTab(tabId);
+    },
+    [focusPane, pinTab],
+  );
+  const handleHeaderOpenExtensions = useCallback(() => void openSettingsWindow("extensions"), []);
+  const handleHeaderOpenSettings = useCallback(() => void openSettingsWindow(), []);
+  const handleHeaderConnectSsh = useCallback(
+    (conn: SshConnection, opts?: { private?: boolean }) => newSshTab(conn.id, conn.name, opts),
+    [newSshTab],
+  );
+  const headerCanSplit = useMemo(
+    () => activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB,
+    [activePaneTab],
+  );
+
+  return {
+    handleOpenDetectedPreview,
+    handleAddProviderKey,
+    handleHeaderSelectEntry,
+    handleHeaderCloseEntry,
+    handleHeaderNewPreview,
+    handleHeaderNewEditor,
+    handleHeaderPinLeaf,
+    handleHeaderOpenExtensions,
+    handleHeaderOpenSettings,
+    handleHeaderConnectSsh,
+    headerCanSplit,
+  };
+}
