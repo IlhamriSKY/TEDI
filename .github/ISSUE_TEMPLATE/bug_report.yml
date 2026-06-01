@@ -14,7 +14,7 @@ body:
     attributes:
       label: TEDI version
       description: From Settings → About, or the title bar.
-      placeholder: "0.5.9"
+      placeholder: "0.3.15"
     validations:
       required: true
 

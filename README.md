@@ -62,7 +62,7 @@ Windows, macOS, and Linux (`.deb`, `.rpm`, `.AppImage`). Download the artifact f
 
 **AI (BYOK)**
 
-- OpenAI, Anthropic, Google, Groq, xAI, Cerebras, OpenAI-compatible (LM Studio for offline)
+- OpenAI, Anthropic, Google, Groq, xAI, Cerebras, DeepSeek, SumoPod, plus any OpenAI-compatible endpoint and LM Studio (local/offline). Full list: `PROVIDERS` in [src/modules/ai/config.ts](src/modules/ai/config.ts)
 - Voice input, multi-agent / sub-agents, snippets, custom system prompt
 - Tools: read / write / grep / glob / shell with explicit approval
 - Project memory via `TEDI.md` at workspace root
@@ -100,6 +100,7 @@ Settings → Extensions → From file       (pick a local .zip)
 Settings → Extensions → From GitHub     (paste owner/repo)
 Settings → Extensions → Check updates   (re-hit releases/latest on every github-sourced extension)
 ```
+
 ## CLI Usage
 
 TEDI ships with a CLI that lets you open folders and files directly from the terminal.
@@ -108,6 +109,8 @@ TEDI ships with a CLI that lets you open folders and files directly from the ter
 tedi [PATH]          # Open a folder or file in TEDI
 tedi .               # Open the current directory
 tedi <file>          # Open a file in the editor (parent folder loads in explorer)
+tedi ext <subcmd>    # Manage extensions headlessly (install / list / update / enable / ...)
+tedi theme <subcmd>  # Manage themes from the terminal
 tedi --help          # Print help message and exit
 tedi --version       # Print version and exit
 tedi --update        # Check for updates and open the update dialog
@@ -119,25 +122,32 @@ If TEDI is already running, the request is forwarded to the existing window - a 
 
 On macOS and Linux AppImage, the `tedi` command is not on `PATH` by default. Go to **Settings → General → "Install `tedi` command in PATH"** to create a shim at `~/.local/bin/tedi`. On Windows, the NSIS installer handles this automatically.
 
+## Architecture
+
+TEDI is a Tauri 2 app: a React 19 webview (`src/`) talks to a Rust backend (`src-tauri/`) through `invoke()` commands and streaming `Channel`s. Start with **[ARCHITECTURE.md](ARCHITECTURE.md)** for a one-page map with a diagram and end-to-end data-flow walkthroughs, then see [TEDI.md](TEDI.md) for the exhaustive per-module reference.
+
 ## Build from source
 
 Prereqs:
 
 - Rust stable: https://rustup.rs
-- Node 20+ and [pnpm](https://pnpm.io)
+- Node 20.19+ or 22.12+ and [pnpm](https://pnpm.io) (CI builds on Node 24; a `.nvmrc` pins it)
 - Tauri platform prereqs: https://tauri.app/start/prerequisites/
 
 ```bash
 pnpm install
-pnpm tauri dev     # dev
+pnpm tauri:dev     # dev (isolated data dir, won't touch your installed TEDI's data)
 pnpm tauri build   # production bundle
 ```
 
-Checks:
+Checks (see [CONTRIBUTING.md](CONTRIBUTING.md) for the full pre-PR list):
 
 ```bash
 pnpm exec tsc --noEmit          # frontend type-check
+pnpm lint:imports               # module import discipline
+pnpm format:check               # Prettier
 cd src-tauri && cargo clippy    # Rust lint
+cd src-tauri && cargo fmt       # Rust format
 ```
 
 ## Notes per platform

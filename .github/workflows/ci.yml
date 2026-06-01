@@ -32,6 +32,9 @@ jobs:
       - name: Type-check
         run: pnpm exec tsc --noEmit
 
+      - name: Check module import discipline
+        run: pnpm run lint:imports
+
       - name: Build frontend
         run: pnpm build
 
@@ -64,3 +67,10 @@ jobs:
       - name: cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets --locked -- -D warnings
+
+      # Runs the 27 backend unit tests, including pubkey_constant_decodes which
+      # guards the embedded updater pubkey. The network-hitting live updater test
+      # is #[ignore]d, so the default run stays offline and fast.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --locked

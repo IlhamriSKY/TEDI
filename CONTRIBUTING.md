@@ -2,14 +2,18 @@
 
 Thanks for wanting to help. Issues, PRs, and ideas are all welcome.
 
+New here? Skim [ARCHITECTURE.md](ARCHITECTURE.md) for the lay of the land, then browse the [good first issues](https://github.com/IlhamriSKY/TEDI/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for a curated on-ramp.
+
 ## Quick start
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri:dev
 ```
 
-Prereqs: Rust (stable), Node 20+, pnpm, plus your platform's [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+`pnpm tauri:dev` uses an isolated dev data dir (its own bundle id), so you never touch your production TEDI's settings, workspaces, or extensions. Use plain `pnpm tauri dev` only when you intentionally want to share prod data.
+
+Prereqs: Rust (stable), Node 20.19+ or 22.12+ (CI builds on Node 24; a `.nvmrc` pins it - run `nvm use`), pnpm, plus your platform's [Tauri prerequisites](https://tauri.app/start/prerequisites/).
 
 ## Before opening a PR
 
@@ -17,9 +21,11 @@ Run these and make sure they pass:
 
 ```bash
 pnpm exec tsc --noEmit          # frontend types
+pnpm lint:imports               # module import discipline (no cross-module relative imports)
 pnpm format:check               # frontend format (Prettier)
 cd src-tauri && cargo clippy    # Rust lint
 cd src-tauri && cargo fmt       # Rust format
+cd src-tauri && cargo test      # Rust unit tests (CI runs these too)
 ```
 
 To auto-fix formatting:
@@ -62,7 +68,7 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 - **Bug fixes** - always.
 - **Features** - open an issue first if it's non-trivial. We'd rather discuss the approach than reject a finished PR.
 - **Docs / typos / small UX fixes** - just send the PR.
-- **New AI providers** - see `src/modules/ai/providers/`. Keep BYOK; no hardcoded keys.
+- **New AI providers** - add an entry to the `PROVIDERS` and `MODELS` arrays in `src/modules/ai/config.ts` (and the `ProviderId` union). Keep BYOK; no hardcoded keys.
 - **Themes / icon packs** - yes, but keep the bundle size in check.
 
 ## What we don't want
@@ -111,7 +117,7 @@ Formatting is enforced by tooling - don't hand-format. The repo ships with:
 
 - Don't disable Prettier or rustfmt on chunks of code without a written justification in the PR description.
 - Don't mix unrelated reformatting into a feature PR - see "What gets bounced back" below.
-- File names: `kebab-case.ts` for utilities, `PascalCase.tsx` for React components, `snake_case.rs` for Rust modules - match the convention already used in the surrounding folder.
+- File names: `camelCase.ts` for TS utilities/hooks (the dominant convention; a few older `kebab-case.ts` utils remain), `PascalCase.tsx` for React components, `snake_case.rs` for Rust modules - match the convention already used in the surrounding folder.
 - One blank line between top-level declarations; no consecutive blank lines.
 - Group imports: stdlib / external / `@/*` aliases / relative - separated by a blank line (Prettier preserves this; you place the breaks).
 
@@ -154,20 +160,25 @@ Within a PR, individual commit messages can be whatever - they get squashed.
 
 ## Project layout
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture (the two-process model, a diagram, and end-to-end data-flow walkthroughs). The short version:
+
 ```
-src-tauri/        Rust backend - PTY, FS, shell, plugins
+src-tauri/        Rust backend (every #[tauri::command] is registered in src/lib.rs)
+  src/modules/    pty, pty_daemon, fs, shell, git, ssh, extensions (+ cli*.rs,
+                  format.rs, preview.rs, secrets.rs, net.rs)
+  tedi-cli/       Windows console-subsystem `tedi` launcher
 src/
-  modules/
-    terminal/     xterm.js sessions + OSC handlers
-    editor/       CodeMirror stack
-    explorer/     File tree
-    tabs/         Tab model
-    ai/           Agents, sessions, tools, mini-window
-    header/       Top bar + search
-    statusbar/    Bottom bar
-    shortcuts/    Keymap
-  components/     shadcn/ui + AI Elements
+  app/App.tsx     Top-level coordinator (cross-module wiring, not feature logic)
+  settings/       Settings UI (a SEPARATE Tauri webview; distinct from src/modules/settings/)
+  components/      shadcn/ui + Vercel AI Elements (generated; don't hand-edit)
+  lib/            Shared helpers
+  modules/        18 self-contained features:
+                  terminal, editor, explorer, panes, tabs, workspaces, header,
+                  statusbar, shortcuts, settings, theme, ai, scm, ssh, preview,
+                  scheduler, updater, extensions
 ```
+
+For the exhaustive per-file reference (every command, every gotcha) see [TEDI.md](TEDI.md).
 
 ## Security issues
 
