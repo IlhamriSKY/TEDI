@@ -1,0 +1,228 @@
+import { basename } from "@/lib/path";
+import { type PaneLeaf, leaves } from "@/modules/terminal/lib/panes";
+import { type ExtensionTabState } from "./useTabs";
+import { type SshConnection } from "@/modules/ssh/connections";
+import { type SshStatus } from "@/modules/ssh/status";
+import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import type { Tab } from "./useTabs";
+
+/**
+ * Tab strip entries: one per pane for pane tabs, one per tab for preview
+ * and ai-diff. Clicking a pane entry focuses that pane; clicking a
+ * preview/ai-diff entry activates that tab.
+ */
+type EntryBase = {
+  /** Composite key like "tab-3" or "leaf-7". */
+  key: string;
+  /** Owning tab id. */
+  tabId: number;
+  /** Display label. */
+  label: string;
+  /** Italic for preview/transient. */
+  italic?: boolean;
+  /** Yellow dot for unsaved edits. */
+  dirty?: boolean;
+};
+
+export type PaneEntry = EntryBase & {
+  kind: "pane-leaf";
+  leafId: number;
+  leafKind: "terminal" | "editor";
+  /** 1-based FIFO badge number. Same identifier the AI sees in `<env>`. */
+  terminalOrdinal?: number;
+  /** Set on terminal leaves bound to a saved SSH host. */
+  sshConnectionId?: string;
+  /** Latest SSH session status. Drives the colored dot. */
+  sshStatus?: SshStatus;
+  /** Latest AI CLI status for terminal leaves. Null when no AI CLI is active. */
+  aiCliStatus?: AiCliStatus;
+  /** Set on editor leaves backed by SFTP. Flips the file icon to a remote variant. */
+  remoteHost?: string;
+  /** Inherited from the owning tab. Drives the red badge + lock icon. */
+  isPrivate?: boolean;
+};
+
+type StandaloneEntry = EntryBase & {
+  kind: "preview" | "ai-diff" | "git-diff" | "scm";
+};
+
+type ExtensionEntry = EntryBase & {
+  kind: "ext";
+  extensionId: string;
+  panelId: string;
+  /** Icon hint from the extension. Either `hugeicon:<Name>` for an
+   *  inline HugeIcon or a relative asset path. */
+  icon?: string;
+  /** Lifecycle tone set by the extension via
+   *  `ctx.tabs.setExtensionTabState(...)`. Drives the title text colour. */
+  state?: ExtensionTabState;
+};
+
+export type Entry = PaneEntry | StandaloneEntry | ExtensionEntry;
+
+/**
+ * Background color for the per-tab accent stripe. Emerald for local shell,
+ * sky for SSH, brand blue for editor, cyan for preview, violet for AI diff,
+ * amber for git diff. Rendered as a `<span>` (not `::after`) because the
+ * primitive `TabsTrigger` already uses `::after` with equal specificity.
+ * Keep strings as full literals for Tailwind's JIT.
+ */
+export function tabAccentClass(e: Entry): string {
+  if (e.kind === "pane-leaf") {
+    // Private tabs win the accent regardless of leaf kind so the red stripe
+    // is the dominant signal. AI cannot see this tab.
+    if (e.isPrivate) return "bg-icon-blocked";
+    if (e.leafKind === "terminal") {
+      return e.sshConnectionId
+        ? "bg-[color:var(--tedi-tab-ssh)]"
+        : "bg-[color:var(--tedi-tab-terminal)]";
+    }
+    return "bg-[color:var(--tedi-tab-editor)]";
+  }
+  if (e.kind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
+  if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
+  if (e.kind === "git-diff") return "bg-[color:var(--tedi-tab-git-diff)]";
+  if (e.kind === "scm") return "bg-[color:var(--tedi-tab-git-diff)]";
+  // Extension tab. Reuse the SSH accent (sky blue) so workbench-style
+  // extensions read as "remote-ish dev tools" next to terminal tabs.
+  return "bg-[color:var(--tedi-tab-ssh)]";
+}
+
+/** Tailwind `text-*` class for an extension tab title. Mirrors the SSH
+ *  palette so workbench-style extensions read consistently: connecting
+ *  pulses yellow, connected is green, disconnected/error is red. Returns
+ *  "" for idle/unknown so the label inherits the tab's default colour. */
+export function extensionStateLabelClass(state: ExtensionTabState | undefined): string {
+  if (!state) return "";
+  switch (state) {
+    case "connecting":
+    case "reconnecting":
+      return "text-icon-working animate-pulse";
+    case "connected":
+      return "text-icon-idle";
+    case "disconnected":
+    case "error":
+      return "text-icon-blocked";
+    case "idle":
+      return "";
+  }
+}
+
+function entryLabel(
+  leaf: PaneLeaf,
+  fallbackCwd: string | undefined,
+  sshHosts: Map<string, SshConnection>,
+): string {
+  if (leaf.leafKind === "editor") return basename(leaf.path);
+  // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
+  if (leaf.sshConnectionId) {
+    const host = sshHosts.get(leaf.sshConnectionId);
+    return host ? `ssh:${host.host}` : "ssh";
+  }
+  if (leaf.cwd) {
+    const b = basename(leaf.cwd);
+    if (b) return b;
+  }
+  if (fallbackCwd) {
+    const b = basename(fallbackCwd);
+    if (b) return b;
+  }
+  return "shell";
+}
+
+export function buildEntries(
+  tabs: Tab[],
+  sshHosts: Map<string, SshConnection>,
+  sshStatuses?: Map<number, SshStatus>,
+  aiCliStatuses?: Map<number, AiCliStatus>,
+): Entry[] {
+  const out: Entry[] = [];
+  for (const t of tabs) {
+    if (t.kind === "pane") {
+      for (const leaf of leaves(t.paneTree)) {
+        const label = entryLabel(leaf, t.cwd, sshHosts);
+        const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
+        // FIFO ordinal assigned at leaf creation. Preserved through drag,
+        // reorder, move-to-group, and workspace restarts. Same number the AI
+        // sees in the per-turn `<env>` block.
+        const ord =
+          leaf.leafKind === "terminal" && typeof leaf.terminalOrdinal === "number"
+            ? leaf.terminalOrdinal
+            : undefined;
+        const remoteHost =
+          leaf.leafKind === "editor" && leaf.sshSessionId !== undefined
+            ? (leaf.sshHostLabel ?? "remote")
+            : undefined;
+        out.push({
+          kind: "pane-leaf",
+          key: `leaf-${leaf.id}`,
+          tabId: t.id,
+          leafId: leaf.id,
+          leafKind: leaf.leafKind,
+          label,
+          terminalOrdinal: ord,
+          italic:
+            leaf.leafKind === "editor" &&
+            (leaf as PaneLeaf & { preview?: boolean }).preview === true,
+          dirty:
+            leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
+          sshConnectionId,
+          sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
+          // AI CLI status on SSH leaves too. Detector runs on the byte stream regardless of PTY locality.
+          aiCliStatus: leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
+          remoteHost,
+          isPrivate: leaf.private === true,
+        });
+      }
+      continue;
+    }
+    if (t.kind === "preview") {
+      out.push({
+        kind: "preview",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    if (t.kind === "ai-diff") {
+      out.push({
+        kind: "ai-diff",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    if (t.kind === "git-diff") {
+      out.push({
+        kind: "git-diff",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    if (t.kind === "scm") {
+      out.push({
+        kind: "scm",
+        key: `tab-${t.id}`,
+        tabId: t.id,
+        label: t.title,
+      });
+      continue;
+    }
+    // ext: extension-owned tab. Carry icon + ext id forward for rendering.
+    out.push({
+      kind: "ext",
+      key: `tab-${t.id}`,
+      tabId: t.id,
+      label: t.title,
+      extensionId: t.extensionId,
+      panelId: t.panelId,
+      icon: t.icon,
+      state: t.state,
+    });
+  }
+  return out;
+}

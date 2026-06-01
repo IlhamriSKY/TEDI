@@ -6,22 +6,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
-  AUTOCOMPLETE_PROVIDERS,
-  DEFAULT_AUTOCOMPLETE_MODEL,
-  getDetectedModels,
-  MODELS,
-  OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
-  OPENAI_COMPATIBLE_PRESETS,
   PROVIDERS,
   getProvider,
   providerNeedsKey,
-  tryGetModel,
-  type AutocompleteProviderId,
   type OpenAICompatibleInstance,
   type ProviderId,
 } from "@/modules/ai/config";
@@ -45,58 +34,17 @@ import {
   useSumopodModels,
 } from "@/modules/ai/lib/sumopod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  emitKeysChanged,
-  setAutocompleteEnabled,
-  setAutocompleteModelId,
-  setAutocompleteProvider,
-  setDefaultModel,
-  setLmstudioBaseURL,
-  setOpenAICompatibleInstances,
-} from "@/modules/settings/store";
-import { invoke } from "@tauri-apps/api/core";
-import {
-  Add01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Edit02Icon,
-} from "@hugeicons/core-free-icons";
+import { emitKeysChanged, setOpenAICompatibleInstances } from "@/modules/settings/store";
+import { Add01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ProviderKeyCard } from "../components/ProviderKeyCard";
 import { SectionHeader } from "../components/SectionHeader";
-
-type KeysMap = Record<ProviderId, string | null>;
-
-function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
-  if (!q) return true;
-  const t = q.toLowerCase();
-  return (
-    m.id.toLowerCase().includes(t) ||
-    m.label.toLowerCase().includes(t) ||
-    m.hint.toLowerCase().includes(t)
-  );
-}
-
-/** Combine per-instance detection statuses into one for the dropdown header:
- *  "loading" if any instance is loading, "ok" if any resolved, else "error"
- *  when at least one failed, else "idle". */
-function aggregateOaiCompatStatus(
-  instances: ReadonlyArray<OpenAICompatibleInstance>,
-): "idle" | "loading" | "ok" | "error" {
-  let sawError = false;
-  let sawOk = false;
-  for (const inst of instances) {
-    const s = getOpenAICompatibleModelsState(inst.id).status;
-    if (s === "loading") return "loading";
-    if (s === "ok") sawOk = true;
-    if (s === "error") sawError = true;
-  }
-  if (sawOk) return "ok";
-  if (sawError) return "error";
-  return "idle";
-}
+import { AutocompleteBlock } from "./components/AutocompleteBlock";
+import { DefaultModelDropdown } from "./components/DefaultModelDropdown";
+import type { KeysMap } from "./components/modelsTypes";
+import { OpenAICompatibleBlock } from "./components/OpenAICompatibleBlock";
 
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
@@ -112,7 +60,6 @@ export function ModelsSection() {
   // the dropdown re-renders when a catalogue resolves. The return value isn't
   // read directly; per-instance state is pulled via getOpenAICompatibleModelsState.
   useOpenAICompatibleModels();
-  const [modelQuery, setModelQuery] = useState("");
   // Search filter for the "+ Add provider" dropdown. Cleared when the
   // dropdown closes so reopening starts fresh.
   const [addProviderQuery, setAddProviderQuery] = useState("");
@@ -121,15 +68,6 @@ export function ModelsSection() {
   // the connected list until the key is saved (which clears this back to
   // null). For OpenAI Compatible the "card" is the full URL+key block.
   const [addingProvider, setAddingProvider] = useState<ProviderId | null>(null);
-  // Open provider accordions. Reset on dropdown open to start with the current default expanded.
-  const [expandedProviders, setExpandedProviders] = useState<Set<ProviderId>>(new Set());
-  const toggleProvider = (id: ProviderId) =>
-    setExpandedProviders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   useEffect(() => {
     void getAllKeys().then((k) => {
@@ -188,9 +126,12 @@ export function ModelsSection() {
   // to the instances list, stores the key in the keychain, then refreshes the
   // catalogue. `instanceId` is supplied when editing an existing endpoint;
   // omit it to mint a new one. Returns the resolved instance id.
-  const onSaveInstance = async (
-    input: { instanceId?: string; label: string; baseURL: string; apiKey: string },
-  ): Promise<string> => {
+  const onSaveInstance = async (input: {
+    instanceId?: string;
+    label: string;
+    baseURL: string;
+    apiKey: string;
+  }): Promise<string> => {
     const baseURL = input.baseURL.trim();
     const apiKey = input.apiKey.trim();
     const isFirst = oaiCompatInstances.length === 0;
@@ -224,7 +165,9 @@ export function ModelsSection() {
     setInstanceKeys((prev) => ({ ...prev, [instanceId]: apiKey || prev[instanceId] || null }));
     // Mirror connectivity into the shared keys map so dropdown gating treats
     // "openai-compatible" as connected when any instance has a key.
-    setKeys((prev) => (prev ? { ...prev, "openai-compatible": apiKey || prev["openai-compatible"] } : prev));
+    setKeys((prev) =>
+      prev ? { ...prev, "openai-compatible": apiKey || prev["openai-compatible"] } : prev,
+    );
     await emitKeysChanged();
     setAddingProvider((cur) => (cur === "openai-compatible" ? null : cur));
     const keyForRefresh = apiKey || instanceKeys[instanceId];
@@ -257,40 +200,6 @@ export function ModelsSection() {
     return <div className="text-muted-foreground text-[12px]">Loading…</div>;
   }
 
-  // All detected openai-compatible models across every instance. Aggregated
-  // from the dynamic registry so the dropdown lists each endpoint's catalogue
-  // under one "OpenAI Compatible" section.
-  const oaiCompatModels = getDetectedModels("openai-compatible");
-
-  // Resolve display info using the saved provider when present. Disambiguates ids shared across providers.
-  const defaultModelInfo = (() => {
-    if (defaultProvider) {
-      const pool =
-        defaultProvider === "sumopod"
-          ? sumopodModels.models
-          : defaultProvider === "openai-compatible"
-            ? oaiCompatModels
-            : MODELS.filter((m) => m.provider === defaultProvider);
-      const hit = pool.find((m) => m.id === defaultModel);
-      if (hit) return hit;
-      const providerLabel =
-        PROVIDERS.find((p) => p.id === defaultProvider)?.label ?? defaultProvider;
-      return {
-        id: defaultModel,
-        provider: defaultProvider,
-        label: defaultModel,
-        hint: providerLabel,
-      };
-    }
-    return (
-      tryGetModel(defaultModel) ?? {
-        id: defaultModel,
-        provider: "sumopod" as ProviderId,
-        label: defaultModel,
-        hint: "SumoPod",
-      }
-    );
-  })();
   // Native key providers (excluding OpenAI Compatible, which has its own
   // URL+key block). Each appears as a card only when configured OR when
   // currently being added from the dropdown below.
@@ -310,194 +219,6 @@ export function ModelsSection() {
       providerNeedsKey(p.id) &&
       (p.id === "openai-compatible" || !keys[p.id]) &&
       p.id !== addingProvider,
-  );
-
-  // Default-model dropdown rendered both at the top (rare path) and at the
-  // bottom in the AI defaults card. Extracted into a small JSX const so the
-  // markup stays in one place. The card itself owns the surrounding layout
-  // (label, description, hr) - this is the trigger + popover only.
-  const defaultModelDropdown = (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) {
-          setExpandedProviders(defaultProvider ? new Set([defaultProvider]) : new Set());
-        } else {
-          setModelQuery("");
-        }
-      }}
-    >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-9 w-full justify-between gap-2 px-2.5 text-[12px]"
-            >
-              <span className="flex min-w-0 items-center gap-2 truncate">
-                <ProviderIcon provider={defaultModelInfo.provider} size={14} />
-                <span className="truncate font-medium">{defaultModelInfo.label}</span>
-                {/* Mark this as THE app default: it drives the native AI agent
-                 *  and the "AI write commit message" action. */}
-                <span className="border-primary/40 bg-primary/10 text-primary shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase">
-                  Default
-                </span>
-                <span className="text-muted-foreground truncate">
-                  · {defaultModelInfo.hint}
-                </span>
-              </span>
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={12}
-                strokeWidth={2}
-                className="shrink-0 opacity-70"
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="max-h-105 w-(--radix-dropdown-menu-trigger-width) min-w-72 overflow-hidden p-0"
-          >
-            <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
-              <Input
-                value={modelQuery}
-                onChange={(e) => setModelQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key !== "Escape" &&
-                    e.key !== "ArrowDown" &&
-                    e.key !== "ArrowUp" &&
-                    e.key !== "Enter"
-                  ) {
-                    e.stopPropagation();
-                  }
-                }}
-                placeholder="Search models…"
-                spellCheck={false}
-                autoFocus
-                className="h-7 text-[11.5px]"
-              />
-            </div>
-            <div className="max-h-92 overflow-y-auto">
-              {(() => {
-                const searching = modelQuery.length > 0;
-                let totalMatches = 0;
-                // Only iterate providers the user has actually configured.
-                // The previous behaviour listed all 10 providers as "no key"
-                // rows, padding the dropdown with affordances for accounts
-                // the user has not (and may never) sign up for.
-                const blocks = PROVIDERS.flatMap((p) => {
-                  if (!(providerNeedsKey(p.id) && !!keys[p.id])) return [];
-                  const all =
-                    p.id === "sumopod"
-                      ? sumopodModels.models
-                      : p.id === "openai-compatible"
-                        ? oaiCompatModels
-                        : MODELS.filter((m) => m.provider === p.id);
-                  const filtered = all.filter((m) => matchesQuery(m, modelQuery));
-                  totalMatches += filtered.length;
-                  if (filtered.length === 0 && searching) return null;
-                  const hasKey = !!keys[p.id];
-                  // Aggregate detection status: SumoPod has one stream;
-                  // openai-compatible combines every instance's status.
-                  const dynamicStatus =
-                    p.id === "sumopod"
-                      ? sumopodModels.status
-                      : p.id === "openai-compatible"
-                        ? aggregateOaiCompatStatus(oaiCompatInstances)
-                        : null;
-                  const isDynamicEmpty = !!dynamicStatus && hasKey && filtered.length === 0;
-                  const dynamicNote =
-                    dynamicStatus && hasKey
-                      ? dynamicStatus === "loading"
-                        ? "Detecting models…"
-                        : dynamicStatus === "error"
-                          ? "Detection failed - check key / URL"
-                          : null
-                      : null;
-                  // While searching, expand every provider with matches.
-                  const isOpen = searching || expandedProviders.has(p.id);
-                  return (
-                    <div key={p.id} className="px-1 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => !searching && toggleProvider(p.id)}
-                        aria-expanded={isOpen}
-                        disabled={searching}
-                        className={cn(
-                          "hover:bg-accent/50 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[10px] font-medium tracking-wide uppercase transition-colors",
-                          "text-muted-foreground",
-                          searching && "cursor-default hover:bg-transparent",
-                        )}
-                      >
-                        <HugeiconsIcon
-                          icon={isOpen ? ArrowDown01Icon : ArrowRight01Icon}
-                          size={10}
-                          strokeWidth={2}
-                          className={cn("opacity-60", searching && "invisible")}
-                        />
-                        <ProviderIcon provider={p.id} size={11} />
-                        <span>{p.label}</span>
-                        <span className="text-muted-foreground/60 tracking-normal normal-case">
-                          ({filtered.length})
-                        </span>
-                        {!hasKey && (
-                          <span className="text-muted-foreground/70 ml-auto tracking-normal normal-case">
-                            no key
-                          </span>
-                        )}
-                      </button>
-                      {isOpen ? (
-                        <div className="pt-0.5 pb-1">
-                          {dynamicNote ? (
-                            <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
-                              {dynamicNote}
-                            </div>
-                          ) : null}
-                          {isDynamicEmpty && !dynamicNote ? (
-                            <div className="text-muted-foreground/80 px-2 pb-1 text-[10px] normal-case">
-                              No models detected.
-                            </div>
-                          ) : null}
-                          {filtered.map((m) => (
-                            <DropdownMenuItem
-                              key={`${m.provider}::${m.id}`}
-                              disabled={!hasKey}
-                              onSelect={() => hasKey && void setDefaultModel(m.id, m.provider)}
-                              className={cn(
-                                "flex items-center justify-between gap-2 text-[12px]",
-                                m.id === defaultModel &&
-                                  m.provider === defaultModelInfo.provider &&
-                                  "bg-accent/50",
-                              )}
-                            >
-                              <span className="flex flex-col">
-                                <span>{m.label}</span>
-                                <span className="text-muted-foreground text-[10px]">{m.hint}</span>
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                });
-                return (
-                  <>
-                    {blocks}
-                    {!searching && blocks.length === 0 ? (
-                      <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
-                        No providers connected yet. Add one below.
-                      </div>
-                    ) : null}
-                    {searching && totalMatches === 0 ? (
-                      <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
-                        No models match “{modelQuery}”.
-                      </div>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
   );
 
   return (
@@ -520,7 +241,15 @@ export function ModelsSection() {
               <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
                 Default model
               </span>
-              <div className="min-w-0 flex-1">{defaultModelDropdown}</div>
+              <div className="min-w-0 flex-1">
+                <DefaultModelDropdown
+                  keys={keys}
+                  defaultModel={defaultModel}
+                  defaultProvider={defaultProvider}
+                  sumopodModels={sumopodModels}
+                  oaiCompatInstances={oaiCompatInstances}
+                />
+              </div>
             </div>
             {/* Clarify that this picker sets the app-wide default model: it
              *  drives the native AI agent and the SCM "AI write commit message"
@@ -624,9 +353,7 @@ export function ModelsSection() {
         </div>
 
         {/* Empty-state: no providers connected AND no add in progress. */}
-        {configuredKeyed.length === 0 &&
-        !oaiCompatConfigured &&
-        addingProvider === null ? (
+        {configuredKeyed.length === 0 && !oaiCompatConfigured && addingProvider === null ? (
           <div className="border-border/50 bg-card/30 flex flex-col items-center gap-1 rounded-lg border border-dashed px-3 py-6 text-center">
             <span className="text-foreground text-[12.5px]">No providers connected yet.</span>
             <span className="text-muted-foreground text-[10.5px]">
@@ -721,491 +448,6 @@ export function ModelsSection() {
           ) : null}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function AutocompleteBlock({ keys }: { keys: KeysMap }) {
-  const enabled = usePreferencesStore((s) => s.autocompleteEnabled);
-  const provider = usePreferencesStore((s) => s.autocompleteProvider);
-  const modelId = usePreferencesStore((s) => s.autocompleteModelId);
-  const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
-
-  const [urlDraft, setUrlDraft] = useState(lmstudioBaseURL);
-  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
-
-  useEffect(() => setUrlDraft(lmstudioBaseURL), [lmstudioBaseURL]);
-
-  const onProviderChange = (next: AutocompleteProviderId) => {
-    void setAutocompleteProvider(next);
-    const knownDefaults = Object.values(DEFAULT_AUTOCOMPLETE_MODEL);
-    if (knownDefaults.includes(modelId)) {
-      void setAutocompleteModelId(DEFAULT_AUTOCOMPLETE_MODEL[next]);
-    }
-  };
-
-  const providerInfo = getProvider(provider);
-  const hasKey = providerNeedsKey(provider) ? !!keys[provider] : true;
-
-  const testLmStudio = async () => {
-    setTestStatus("testing");
-    try {
-      const url = urlDraft.replace(/\/$/, "") + "/models";
-      const auth = keys[provider] ?? null;
-      const status = await invoke<number>("http_ping", { url, auth });
-      setTestStatus(status >= 200 && status < 400 ? "ok" : "fail");
-    } catch {
-      setTestStatus("fail");
-    }
-  };
-
-  // Display name for the currently-selected autocomplete combo. Walks the
-  // static MODELS list first (gets the pretty label + hint), falls back to
-  // the raw model id when the user has typed a custom one (LM Studio with
-  // a local model not in the registry, mostly).
-  const currentDisplay = (() => {
-    const fromRegistry = MODELS.find((m) => m.id === modelId);
-    if (fromRegistry) return { label: fromRegistry.label, hint: fromRegistry.hint };
-    return { label: modelId, hint: providerInfo.label };
-  })();
-
-  // No outer container - the parent (the Defaults card) wraps both rows in
-  // a single bordered panel. Returning a fragment keeps the markup compact
-  // and matches the screenshot's "Chat model / Autocomplete" row layout.
-  return (
-    <>
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-        <span className="text-muted-foreground text-[11.5px] sm:w-24 sm:shrink-0">
-          Autocomplete
-        </span>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(v) => void setAutocompleteEnabled(v)}
-          className="shrink-0"
-        />
-        <div
-          className={cn(
-            "min-w-0 flex-1",
-            !enabled && "pointer-events-none opacity-55",
-          )}
-        >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="h-9 w-full justify-between gap-2 px-2.5 text-[12px]"
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <ProviderIcon provider={provider} size={14} />
-                  <span className="truncate font-medium">{currentDisplay.label}</span>
-                  <span className="text-muted-foreground truncate">· {currentDisplay.hint}</span>
-                </span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="w-(--radix-dropdown-menu-trigger-width) min-w-72"
-            >
-              {AUTOCOMPLETE_PROVIDERS.map((id) => {
-                const info = getProvider(id);
-                const defaultModel = DEFAULT_AUTOCOMPLETE_MODEL[id];
-                const modelInfo = MODELS.find((m) => m.id === defaultModel);
-                const label = modelInfo?.label ?? defaultModel;
-                const itemHasKey = providerNeedsKey(id) ? !!keys[id] : true;
-                return (
-                  <DropdownMenuItem
-                    key={id}
-                    onSelect={() => onProviderChange(id)}
-                    className={cn(
-                      "flex items-center gap-2 text-[12px]",
-                      id === provider && "bg-accent/50",
-                    )}
-                  >
-                    <ProviderIcon provider={id} size={14} />
-                    <span className="flex flex-col">
-                      <span className="font-medium">{label}</span>
-                      <span className="text-muted-foreground text-[10px]">
-                        {info.label}
-                        {!itemHasKey ? " · not connected" : ""}
-                      </span>
-                    </span>
-                    {!itemHasKey ? (
-                      <span className="text-muted-foreground/70 ml-auto text-[10px]">no key</span>
-                    ) : null}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* Warning when the selected autocomplete provider has no API key.
-       *  Indented under the dropdown so it reads as a sub-message of the
-       *  picker row above. */}
-      {enabled && !hasKey ? (
-        <div className="text-muted-foreground/80 text-center text-[10.5px] sm:pl-[calc(6rem+1.5rem+0.75rem)] sm:text-left">
-          {providerInfo.label} isn&rsquo;t connected - add it below.
-        </div>
-      ) : null}
-
-      {/* LM Studio URL field - only shown when LM Studio is the selected
-       *  autocomplete provider. Indented to align with the dropdown. */}
-      {enabled && provider === "lmstudio" ? (
-        <div className="flex flex-col gap-1.5 sm:pl-[calc(6rem+1.5rem+0.75rem)]">
-          <span className="text-muted-foreground text-[10px]">LM Studio base URL</span>
-          <div className="flex gap-1.5">
-            <Input
-              value={urlDraft}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={() => {
-                const v = urlDraft.trim();
-                if (v && v !== lmstudioBaseURL) void setLmstudioBaseURL(v);
-              }}
-              placeholder="http://localhost:1234/v1"
-              spellCheck={false}
-              className="h-8 flex-1 font-mono text-[11.5px]"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void testLmStudio()}
-              className="h-8 px-2.5 text-[11px]"
-            >
-              Test
-            </Button>
-          </div>
-          {testStatus === "ok" ? (
-            <span className="text-[10.5px] text-diff-added">Connected - server responded.</span>
-          ) : testStatus === "fail" ? (
-            <span className="text-destructive text-[10.5px]">
-              Could not reach the server. Is LM Studio running?
-            </span>
-          ) : testStatus === "testing" ? (
-            <span className="text-muted-foreground text-[10.5px]">Testing…</span>
-          ) : null}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/**
- * One OpenAI-compatible endpoint card: label + base URL + API key + presets +
- * test/detect. `instance` is `null` while adding a new endpoint (the user fills
- * the fields, then Save mints it via the parent's `onSave`); otherwise it edits
- * an existing instance. The key lives in the OS keychain; only `apiKey`
- * (presence) is passed in so the card can show a masked value.
- */
-function OpenAICompatibleBlock({
-  instance,
-  apiKey,
-  status,
-  error,
-  modelsCount,
-  onSave,
-  onRemove,
-}: {
-  instance: OpenAICompatibleInstance | null;
-  apiKey: string | null;
-  status: "idle" | "loading" | "ok" | "error";
-  error: string | null;
-  modelsCount: number;
-  /** Persist label + base URL + key for this endpoint (mint when adding). */
-  onSave: (label: string, baseURL: string, apiKey: string) => Promise<string>;
-  /** Remove the endpoint (or cancel the add when `instance` is null). */
-  onRemove: () => Promise<void>;
-}) {
-  const initialURL = instance?.baseURL ?? OPENAI_COMPATIBLE_DEFAULT_BASE_URL;
-  const initialLabel = instance?.label ?? "";
-  const configured = !!instance && !!apiKey;
-
-  const [labelDraft, setLabelDraft] = useState(initialLabel);
-  const [urlDraft, setUrlDraft] = useState(initialURL);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [revealKey, setRevealKey] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState(!apiKey);
-  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
-  const [testError, setTestError] = useState<string | null>(null);
-
-  useEffect(() => setUrlDraft(initialURL), [initialURL]);
-  useEffect(() => setLabelDraft(initialLabel), [initialLabel]);
-  useEffect(() => {
-    setKeyDraft("");
-    setRevealKey(false);
-    setSaveError(null);
-    setEditingKey(!apiKey);
-  }, [apiKey]);
-
-  // Save persists label + URL + key in one shot. For an existing endpoint with
-  // a key already stored, the key field may stay blank (keeping the old key);
-  // for a new endpoint a key is required.
-  const save = async () => {
-    const trimmedKey = keyDraft.trim();
-    const trimmedUrl = urlDraft.trim();
-    if (!trimmedUrl) {
-      setSaveError("Enter a base URL.");
-      return;
-    }
-    if (!instance && !trimmedKey) {
-      setSaveError("Enter your API key.");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await onSave(labelDraft.trim(), trimmedUrl, trimmedKey);
-      setKeyDraft("");
-      setRevealKey(false);
-      setEditingKey(false);
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : `Failed to save: ${String(e)}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const testEndpoint = async () => {
-    setTestStatus("testing");
-    setTestError(null);
-    try {
-      const url = urlDraft.trim().replace(/\/$/, "") + "/models";
-      const auth = keyDraft.trim() || apiKey;
-      const code = await invoke<number>("http_ping", { url, auth });
-      setTestStatus(code >= 200 && code < 400 ? "ok" : "fail");
-      if (!(code >= 200 && code < 400)) setTestError(`HTTP ${code}`);
-    } catch (e) {
-      setTestStatus("fail");
-      setTestError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const refresh = () => {
-    if (!instance || !apiKey) return;
-    void refreshOpenAICompatibleInstance(instance.id, apiKey, urlDraft.trim() || initialURL);
-  };
-
-  const maskedKey =
-    apiKey && apiKey.length > 8
-      ? `${apiKey.slice(0, 4)}${"•".repeat(8)}${apiKey.slice(-4)}`
-      : apiKey
-        ? "•".repeat(apiKey.length)
-        : "";
-
-  // Highlight the chip whose baseURL matches the current draft. Trims trailing
-  // slashes so "/v1" and "/v1/" both stay matched.
-  const activePresetId = (() => {
-    const norm = urlDraft.trim().replace(/\/$/, "");
-    return OPENAI_COMPATIBLE_PRESETS.find((p) => p.baseURL.replace(/\/$/, "") === norm)?.id;
-  })();
-
-  return (
-    <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <ProviderIcon provider="openai-compatible" size={14} />
-        <span className="text-[12px] font-medium">{instance?.label || "OpenAI Compatible"}</span>
-        {configured ? (
-          <span className="rounded border border-diff-added/40 bg-diff-added/10 px-1.5 py-0.5 text-[9.5px] tracking-wide text-diff-added uppercase">
-            Configured
-          </span>
-        ) : (
-          <span className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px] tracking-wide uppercase">
-            Not set
-          </span>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-auto size-7"
-              onClick={() => void onRemove()}
-              aria-label={instance ? "Remove endpoint" : "Cancel"}
-            >
-              ×
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{instance ? "Remove endpoint" : "Cancel"}</TooltipContent>
-        </Tooltip>
-      </div>
-
-      {/* Quick-pick presets - OpenAI / OpenRouter / 9Router. Clicking a chip
-       *  drops its URL into the field. Shown while editing the endpoint. */}
-      {editingKey ? (
-        <div className="flex flex-col gap-1">
-          <span className="text-muted-foreground text-[10px]">Quick start</span>
-          <div className="flex flex-wrap gap-1">
-            {OPENAI_COMPATIBLE_PRESETS.map((preset) => {
-              const active = preset.id === activePresetId;
-              return (
-                <Tooltip key={preset.id}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUrlDraft(preset.baseURL);
-                        if (!labelDraft.trim()) setLabelDraft(preset.label);
-                      }}
-                      className={cn(
-                        "flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                        active
-                          ? "border-foreground/40 bg-accent/60"
-                          : "border-border/60 hover:bg-accent/30 bg-transparent",
-                      )}
-                    >
-                      <span>{preset.label}</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{preset.description}</TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex flex-col gap-1">
-        <span className="text-muted-foreground text-[10px]">Label</span>
-        <Input
-          value={labelDraft}
-          onChange={(e) => setLabelDraft(e.target.value)}
-          placeholder="e.g. OpenRouter"
-          spellCheck={false}
-          className="h-7 text-[11px]"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-muted-foreground text-[10px]">Base URL</span>
-          <Input
-            value={urlDraft}
-            onChange={(e) => setUrlDraft(e.target.value)}
-            placeholder="https://api.openai.com/v1"
-            spellCheck={false}
-            className="h-7 font-mono text-[11px]"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-muted-foreground text-[10px]">API key</span>
-          {apiKey && !editingKey ? (
-            <div className="flex items-center gap-1">
-              <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[10.5px]">
-                {maskedKey}
-              </code>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground hover:bg-accent size-7"
-                    onClick={() => setEditingKey(true)}
-                    aria-label="Replace key"
-                  >
-                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Replace key</TooltipContent>
-              </Tooltip>
-            </div>
-          ) : (
-            <div className="relative">
-              <Input
-                type={revealKey ? "text" : "password"}
-                value={keyDraft}
-                disabled={saving}
-                onChange={(e) => {
-                  setKeyDraft(e.target.value);
-                  if (saveError) setSaveError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void save();
-                  }
-                }}
-                placeholder={apiKey ? "Paste a new key (or leave blank)" : "Paste API key"}
-                autoComplete="off"
-                spellCheck={false}
-                className="h-7 pr-12 font-mono text-[11px]"
-              />
-              <button
-                type="button"
-                onClick={() => setRevealKey((v) => !v)}
-                tabIndex={-1}
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px]"
-                aria-label={revealKey ? "Hide key" : "Show key"}
-              >
-                {revealKey ? "Hide" : "Show"}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {saveError ? <span className="text-destructive text-[10px]">{saveError}</span> : null}
-
-      <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground flex-1 truncate text-[10px]">
-          {testStatus === "ok" ? (
-            <span className="text-diff-added">Endpoint reachable.</span>
-          ) : testStatus === "fail" ? (
-            <span className="text-destructive">
-              Unreachable{testError ? ` (${testError})` : ""}.
-            </span>
-          ) : testStatus === "testing" ? (
-            "Testing…"
-          ) : !configured ? (
-            "Add key & URL, then Save to detect models."
-          ) : status === "loading" ? (
-            "Detecting models…"
-          ) : status === "error" ? (
-            <span className="text-destructive">
-              Detection failed{error ? ` · ${error}` : ""}.
-            </span>
-          ) : status === "ok" ? (
-            `${modelsCount} model${modelsCount === 1 ? "" : "s"} detected · pick one above.`
-          ) : (
-            "Click Detect to fetch the catalogue."
-          )}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void testEndpoint()}
-          className="h-7 px-2 text-[10.5px]"
-        >
-          Test
-        </Button>
-        {configured && !editingKey ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={refresh}
-            className="h-7 px-2 text-[10.5px]"
-          >
-            Detect
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void save()}
-            disabled={saving || !urlDraft.trim() || (!instance && !keyDraft.trim())}
-            className="h-7 px-2.5 text-[10.5px]"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        )}
-      </div>
     </div>
   );
 }

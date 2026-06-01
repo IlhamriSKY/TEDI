@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,25 +14,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  ArrowDown01Icon,
-  ArrowTurnBackwardIcon,
-  ArrowUp01Icon,
-  Cancel01Icon,
-  CloudUploadIcon,
-  GitBranchIcon,
-  GitCommitIcon,
-  LinkSquare02Icon,
-  Refresh01Icon,
-  SparklesIcon,
-} from "@hugeicons/core-free-icons";
-import { Spinner } from "@/components/ui/spinner";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { cn } from "@/lib/utils";
+import { basename } from "@/lib/path";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
+import { ChangeRow } from "./components/ChangeRow";
+import { CommitBox } from "./components/CommitBox";
+import { PanelHeader } from "./components/PanelHeader";
 import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
 
 type Props = {
@@ -61,28 +50,6 @@ type Props = {
   historyOnly?: boolean;
 };
 
-const STATUS_LETTER: Record<GitChangeStatus, string> = {
-  modified: "M",
-  added: "A",
-  deleted: "D",
-  renamed: "R",
-  copied: "C",
-  untracked: "U",
-  conflicted: "!",
-  ignored: "I",
-};
-
-const STATUS_TONE: Record<GitChangeStatus, string> = {
-  modified: "text-icon-working",
-  added: "text-diff-added",
-  deleted: "text-diff-removed",
-  renamed: "text-info",
-  copied: "text-info",
-  untracked: "text-diff-added",
-  conflicted: "text-destructive",
-  ignored: "text-muted-foreground",
-};
-
 const STATUS_ORDER: Record<GitChangeStatus, number> = {
   conflicted: 0,
   modified: 1,
@@ -95,16 +62,6 @@ const STATUS_ORDER: Record<GitChangeStatus, number> = {
 };
 
 const AUTO_REFRESH_MS = 2500;
-
-function basename(p: string): string {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : p;
-}
-
-function dirname(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i <= 0 ? "" : p.slice(0, i);
-}
 
 /** Map raw git stderr to actionable text. Common cases get plain-language hints; unknown errors fall through unchanged. */
 function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string {
@@ -467,102 +424,16 @@ export function SourceControlPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col outline-none">
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
-        <HugeiconsIcon
-          icon={GitBranchIcon}
-          size={13}
-          strokeWidth={2}
-          className="text-muted-foreground shrink-0"
-        />
-        {status?.branch ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
-                {status.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
-                {status.isRepo && sorted.length > 0 ? (
-                  <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
-                    ({sorted.length})
-                  </span>
-                ) : null}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{status.branch}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
-            {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
-            {status?.isRepo && sorted.length > 0 ? (
-              <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
-                ({sorted.length})
-              </span>
-            ) : null}
-          </span>
-        )}
-        {status?.isRepo && status.ahead > 0 ? (
-          <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
-            <HugeiconsIcon icon={ArrowUp01Icon} size={10} strokeWidth={2.25} />
-            {status.ahead}
-          </span>
-        ) : null}
-        {status?.isRepo && status.behind > 0 ? (
-          <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
-            <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2.25} />
-            {status.behind}
-          </span>
-        ) : null}
-        <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
-        {!historyOnly && status?.isRepo && sorted.length > 0 ? (
-          <IconTooltip label="Discard all changes" side="bottom">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-destructive size-6"
-              onClick={() => setConfirmAll(true)}
-              aria-label="Discard all changes"
-            >
-              <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={13} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-        ) : null}
-        <IconTooltip label="Refresh" side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={() => void refresh()}
-            aria-label="Refresh"
-            disabled={loading}
-          >
-            <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
-        {onOpenInTab ? (
-          <IconTooltip label="Open in a tab" side="bottom">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground size-6"
-              onClick={onOpenInTab}
-              aria-label="Open Source Control in a tab"
-            >
-              <HugeiconsIcon icon={LinkSquare02Icon} size={12} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-        ) : null}
-        {onClose ? (
-          <IconTooltip label="Close panel" side="bottom">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
-              onClick={onClose}
-              aria-label="Close Source Control panel"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-        ) : null}
-      </div>
+      <PanelHeader
+        status={status}
+        changeCount={sorted.length}
+        historyOnly={historyOnly}
+        loading={loading}
+        refresh={refresh}
+        onDiscardAll={() => setConfirmAll(true)}
+        onOpenInTab={onOpenInTab}
+        onClose={onClose}
+      />
 
       {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
@@ -589,10 +460,7 @@ export function SourceControlPanel({
           className="flex min-h-0 flex-1 flex-col gap-0"
         >
           <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
-            <TabsTrigger
-              value="changes"
-              className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]"
-            >
+            <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
               Changes
             </TabsTrigger>
             <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
@@ -601,95 +469,16 @@ export function SourceControlPanel({
           </TabsList>
 
           <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
-            <div
-              className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-2.5"
-              aria-busy={busy !== null}
-            >
-              <div className="relative flex-1">
-                <Input
-                  placeholder="Commit message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (message.trim() && sorted.length > 0 && busy === null) {
-                        void doCommit();
-                      }
-                    }
-                  }}
-                  className="h-7 w-full rounded-md pr-7 pl-2 text-[11.5px]"
-                  disabled={busy !== null}
-                />
-                <IconTooltip
-                  label={
-                    busy === "ai"
-                      ? "Generating…"
-                      : sorted.length === 0
-                        ? "No changes to summarize"
-                        : "Generate commit message with AI"
-                  }
-                  side="bottom"
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-0.5 size-6 -translate-y-1/2 rounded-md active:-translate-y-1/2!"
-                    onClick={() => void doGenerate()}
-                    disabled={sorted.length === 0 || busy !== null}
-                    aria-label="Generate commit message"
-                  >
-                    {busy === "ai" ? (
-                      <Spinner className="size-3" />
-                    ) : (
-                      <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={2} />
-                    )}
-                  </Button>
-                </IconTooltip>
-              </div>
-              <IconTooltip
-                label={busy === "commit" ? "Committing…" : "Commit (Enter)"}
-                side="bottom"
-              >
-                <Button
-                  size="icon"
-                  className="size-7 rounded-md"
-                  onClick={() => void doCommit()}
-                  disabled={!message.trim() || sorted.length === 0 || busy !== null}
-                  aria-label="Commit"
-                >
-                  <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={2} />
-                </Button>
-              </IconTooltip>
-              <IconTooltip
-                label={
-                  busy === "push"
-                    ? "Pushing…"
-                    : status.upstream
-                      ? `Push to ${status.upstream}` +
-                        (status.behind > 0 ? ` (${status.behind} behind)` : "")
-                      : `Publish ${status.branch ?? "HEAD"} to origin`
-                }
-                side="bottom"
-              >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className={cn(
-                    "h-7 rounded-md",
-                    status.ahead > 0 ? "w-auto gap-0.5 px-1.5" : "size-7",
-                  )}
-                  onClick={() => void doPush()}
-                  disabled={busy !== null}
-                  aria-label="Push"
-                >
-                  <HugeiconsIcon icon={CloudUploadIcon} size={12} strokeWidth={2} />
-                  {status.ahead > 0 ? (
-                    <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
-                  ) : null}
-                </Button>
-              </IconTooltip>
-            </div>
+            <CommitBox
+              status={status}
+              message={message}
+              setMessage={setMessage}
+              changeCount={sorted.length}
+              busy={busy}
+              doCommit={doCommit}
+              doGenerate={doGenerate}
+              doPush={doPush}
+            />
 
             {sorted.length === 0 ? (
               <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
@@ -773,91 +562,5 @@ export function SourceControlPanel({
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-}
-
-type RowProps = {
-  change: GitChange;
-  onClickDiff: () => void;
-  onDiscard: () => void;
-};
-
-function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
-  const name = basename(change.relative);
-  const dir = dirname(change.relative);
-  // pr-3 clears the Radix ScrollArea's 10px scrollbar overlay.
-  return (
-    <li className="contents">
-      <div
-        className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
-        role="button"
-        tabIndex={0}
-        onClick={onClickDiff}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onClickDiff();
-          }
-        }}
-      >
-      <span
-        className={cn(
-          "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
-          STATUS_TONE[change.status],
-        )}
-      >
-        {STATUS_LETTER[change.status]}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span
-          className={cn(
-            "truncate text-[11.5px]",
-            change.status === "deleted" && "line-through opacity-70",
-          )}
-        >
-          {name}
-        </span>
-        {dir ? <span className="text-muted-foreground truncate text-[10px]">{dir}</span> : null}
-      </span>
-      <DiffStats change={change} />
-      <span className="ml-1 hidden shrink-0 items-center group-hover:flex">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-destructive size-5"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDiscard();
-          }}
-          aria-label="Discard file"
-        >
-          <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={11} strokeWidth={2} />
-        </Button>
-      </span>
-      </div>
-    </li>
-  );
-}
-
-// Compact `+N -M` chip after the file name. Hidden on hover so the discard
-// button has room. Binary entries show "bin"; rows with no stats render nothing.
-function DiffStats({ change }: { change: GitChange }) {
-  if (change.binary) {
-    return (
-      <span className="text-muted-foreground ml-1 shrink-0 text-[10px] group-hover:hidden">
-        bin
-      </span>
-    );
-  }
-  if (change.added === 0 && change.removed === 0) return null;
-  return (
-    <span className="ml-1 flex shrink-0 items-center gap-1 text-[10px] tabular-nums group-hover:hidden">
-      {change.added > 0 ? (
-        <span className="text-diff-added">+{change.added}</span>
-      ) : null}
-      {change.removed > 0 ? (
-        <span className="text-diff-removed">−{change.removed}</span>
-      ) : null}
-    </span>
   );
 }

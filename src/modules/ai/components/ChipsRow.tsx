@@ -1,0 +1,138 @@
+import { Cancel01Icon, CodeIcon, HashtagIcon, TerminalIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { AnimatePresence, motion } from "motion/react";
+import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { FileAttachment } from "../lib/composer";
+import type { Snippet } from "../lib/snippets";
+
+export function ChipsRow({
+  files,
+  onRemoveFile,
+  snippets,
+  onRemoveSnippet,
+  commands,
+  onRemoveCommand,
+}: {
+  files: FileAttachment[];
+  onRemoveFile: (id: string) => void;
+  snippets: Snippet[];
+  onRemoveSnippet: (id: string) => void;
+  commands: { name: string; label: string; icon: typeof HashtagIcon }[];
+  onRemoveCommand: (name: string) => void;
+}) {
+  if (files.length === 0 && snippets.length === 0 && commands.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      <AnimatePresence initial={false}>
+        {commands.map((cmd) => (
+          <Tooltip key={`cmd-${cmd.name}`}>
+            <TooltipTrigger asChild>
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+              >
+                <HugeiconsIcon
+                  icon={cmd.icon}
+                  size={11}
+                  strokeWidth={1.75}
+                  className="text-muted-foreground"
+                />
+                <span className="font-medium">#{cmd.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveCommand(cmd.name)}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Remove command"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="top">{cmd.label}</TooltipContent>
+          </Tooltip>
+        ))}
+        {snippets.map((s) => (
+          <Tooltip key={`snip-${s.id}`}>
+            <TooltipTrigger asChild>
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+              >
+                <HugeiconsIcon
+                  icon={HashtagIcon}
+                  size={11}
+                  strokeWidth={2}
+                  className="opacity-80"
+                />
+                <span className="font-medium">{s.handle}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveSnippet(s.id)}
+                  className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Remove snippet"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            </TooltipTrigger>
+            <TooltipContent side="top">{s.description || s.name}</TooltipContent>
+          </Tooltip>
+        ))}
+        {files.map((f) => (
+          <motion.div
+            key={f.id}
+            layout
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.12 }}
+            className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+          >
+            {f.kind === "image" && f.url ? (
+              <img src={f.url} alt="" className="size-4 rounded object-cover" />
+            ) : f.kind === "selection" ? (
+              <HugeiconsIcon
+                icon={f.source === "editor" ? CodeIcon : TerminalIcon}
+                size={11}
+                strokeWidth={1.75}
+                className="text-muted-foreground"
+              />
+            ) : (
+              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
+            )}
+            <span className="max-w-35 truncate">
+              {f.name}
+              {f.kind === "selection" && f.text ? (
+                <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={() => onRemoveFile(f.id)}
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+              aria-label="Remove"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+            </button>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function selLineCount(text: string): number {
+  if (!text) return 0;
+  const trimmed = text.replace(/\n+$/, "");
+  if (!trimmed) return 0;
+  return trimmed.split("\n").length;
+}

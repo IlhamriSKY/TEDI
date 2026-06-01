@@ -2,89 +2,30 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-  Clock01Icon,
-  CodeIcon,
-  HashtagIcon,
-  Key01Icon,
-  PlusSignIcon,
-  TerminalIcon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Key01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UIMessage } from "@ai-sdk/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
+import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
 import { HASH_COMMANDS, VISIBLE_SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
-import { useChatStore, type OpenEditorFile } from "../store/chatStore";
+import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiStatusBarControls } from "./AiStatusBarControls";
+import { ChipsRow } from "./ChipsRow";
 import { ContextIndicator } from "./ContextIndicator";
 import { InfoModal } from "./InfoModal";
 import { MentionPickerContent, type MentionItem } from "./MentionPicker";
+import { OpenFilesRow } from "./OpenFilesRow";
+import { QueueRow } from "./QueueRow";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
-
-type PickerTrigger = {
-  start: number;
-  end: number;
-  query: string;
-  /** Sigil that triggered the picker. `slash` is commands-only, `hash` is snippets plus commands, `mention` is file/folder. */
-  kind: "slash" | "hash" | "mention";
-};
-
-/** Mention scanner. Allows path chars (`/`, `.`, `_`, `-`) so `@src/foo/bar` works.
- *  Scans backward for `@`; bails on other sigils or whitespace. */
-function detectMentionTrigger(value: string, caret: number): PickerTrigger | null {
-  for (let i = caret - 1; i >= 0; i--) {
-    const ch = value[i];
-    if (ch === "@") {
-      const prev = i === 0 ? " " : value[i - 1];
-      if (!/\s/.test(prev)) return null;
-      const slice = value.slice(i + 1, caret);
-      return { start: i, end: caret, query: slice, kind: "mention" };
-    }
-    if (/\s/.test(ch)) return null;
-    if (!/[a-zA-Z0-9_\-./]/.test(ch)) return null;
-  }
-  return null;
-}
-
-/** Command scanner. `/` or `#` followed by `[a-z0-9-]*`. Returns null on any
- *  non-command char so it never collides with the mention scanner. */
-function detectCommandTrigger(value: string, caret: number): PickerTrigger | null {
-  for (let i = caret - 1; i >= 0; i--) {
-    const ch = value[i];
-    if (ch === "#" || ch === "/") {
-      const prev = i === 0 ? " " : value[i - 1];
-      if (!/\s/.test(prev)) return null;
-      const slice = value.slice(i + 1, caret);
-      if (!/^[a-z0-9-]*$/i.test(slice)) return null;
-      return {
-        start: i,
-        end: caret,
-        query: slice.toLowerCase(),
-        kind: ch === "/" ? "slash" : "hash",
-      };
-    }
-    if (/\s/.test(ch)) return null;
-    if (!/[a-z0-9-]/i.test(ch)) return null;
-  }
-  return null;
-}
-
-function detectPickerTrigger(value: string, caret: number): PickerTrigger | null {
-  // Mention wins over command on `@src/foo` (both `@` and `/` in scope).
-  return detectMentionTrigger(value, caret) ?? detectCommandTrigger(value, caret);
-}
 
 export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
@@ -596,229 +537,6 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       </div>
     </div>
   );
-}
-
-function OpenFilesRow({
-  files,
-  onAttach,
-}: {
-  files: OpenEditorFile[];
-  onAttach: (path: string) => void;
-}) {
-  if (files.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      <AnimatePresence initial={false}>
-        {files.map((f) => (
-          <Tooltip key={`open-${f.path}`}>
-            <TooltipTrigger asChild>
-              <motion.button
-                type="button"
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ duration: 0.12 }}
-                onClick={() => onAttach(f.path)}
-                aria-label={`Attach ${f.name}`}
-                className={cn(
-                  "group border-border/60 text-muted-foreground flex cursor-pointer items-center gap-1 rounded-md border border-dashed bg-transparent px-1.5 py-0.5 text-[11px]",
-                  "hover:border-foreground/40 hover:bg-card hover:text-foreground transition-colors",
-                )}
-              >
-                <HugeiconsIcon
-                  icon={PlusSignIcon}
-                  size={10}
-                  strokeWidth={2}
-                  className="opacity-70 transition-opacity group-hover:opacity-100"
-                />
-                <span className="max-w-35 truncate">{f.name}</span>
-              </motion.button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{`Click to attach ${f.path}`}</TooltipContent>
-          </Tooltip>
-        ))}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function ChipsRow({
-  files,
-  onRemoveFile,
-  snippets,
-  onRemoveSnippet,
-  commands,
-  onRemoveCommand,
-}: {
-  files: FileAttachment[];
-  onRemoveFile: (id: string) => void;
-  snippets: Snippet[];
-  onRemoveSnippet: (id: string) => void;
-  commands: { name: string; label: string; icon: typeof HashtagIcon }[];
-  onRemoveCommand: (name: string) => void;
-}) {
-  if (files.length === 0 && snippets.length === 0 && commands.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1">
-      <AnimatePresence initial={false}>
-        {commands.map((cmd) => (
-          <Tooltip key={`cmd-${cmd.name}`}>
-            <TooltipTrigger asChild>
-              <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ duration: 0.12 }}
-                className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-              >
-                <HugeiconsIcon
-                  icon={cmd.icon}
-                  size={11}
-                  strokeWidth={1.75}
-                  className="text-muted-foreground"
-                />
-                <span className="font-medium">#{cmd.name}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemoveCommand(cmd.name)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Remove command"
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-                </button>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side="top">{cmd.label}</TooltipContent>
-          </Tooltip>
-        ))}
-        {snippets.map((s) => (
-          <Tooltip key={`snip-${s.id}`}>
-            <TooltipTrigger asChild>
-              <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ duration: 0.12 }}
-                className="group border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-              >
-                <HugeiconsIcon
-                  icon={HashtagIcon}
-                  size={11}
-                  strokeWidth={2}
-                  className="opacity-80"
-                />
-                <span className="font-medium">{s.handle}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemoveSnippet(s.id)}
-                  className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Remove snippet"
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-                </button>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side="top">{s.description || s.name}</TooltipContent>
-          </Tooltip>
-        ))}
-        {files.map((f) => (
-          <motion.div
-            key={f.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-          >
-            {f.kind === "image" && f.url ? (
-              <img src={f.url} alt="" className="size-4 rounded object-cover" />
-            ) : f.kind === "selection" ? (
-              <HugeiconsIcon
-                icon={f.source === "editor" ? CodeIcon : TerminalIcon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground"
-              />
-            ) : (
-              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
-            )}
-            <span className="max-w-35 truncate">
-              {f.name}
-              {f.kind === "selection" && f.text ? (
-                <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={() => onRemoveFile(f.id)}
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function QueueRow({
-  queue,
-  onRemove,
-}: {
-  queue: { id: string; text: string }[];
-  onRemove: (id: string) => void;
-}) {
-  if (queue.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      <HugeiconsIcon
-        icon={Clock01Icon}
-        size={10}
-        strokeWidth={2}
-        className="text-muted-foreground shrink-0"
-      />
-      <AnimatePresence initial={false}>
-        {queue.map((q) => (
-          <Tooltip key={q.id}>
-            <TooltipTrigger asChild>
-              <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ duration: 0.12 }}
-                className="group flex max-w-60 items-center gap-1 rounded-md border border-icon-working/30 bg-icon-working/10 px-1.5 py-0.5 text-[11px]"
-              >
-                <span className="text-foreground/90 truncate">{q.text}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemove(q.id)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Remove from queue"
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-                </button>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side="top">{q.text}</TooltipContent>
-          </Tooltip>
-        ))}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function selLineCount(text: string): number {
-  if (!text) return 0;
-  const trimmed = text.replace(/\n+$/, "");
-  if (!trimmed) return 0;
-  return trimmed.split("\n").length;
 }
 
 function autoresize(el: HTMLTextAreaElement | null) {

@@ -1,63 +1,17 @@
-import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  FileAddIcon,
-  FileSearchIcon,
-  Folder01Icon,
-  FolderAddIcon,
-  Refresh01Icon,
-  Search01Icon,
-  Sorting02Icon,
-  UnfoldLessIcon,
-} from "@hugeicons/core-free-icons";
+import { Folder01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExplorerGrep, type ExplorerGrepHandle } from "./ExplorerGrep";
-import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
-import { FileTreeNode } from "./FileTreeNode";
-import { InlineInput } from "./InlineInput";
-import { copyToClipboard, revealInFinder } from "./lib/contextActions";
-import { fileIconUrl, folderIconUrl, useExplorerIconsReady } from "./lib/iconResolver";
-import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
+import { type ExplorerGrepHandle } from "./ExplorerGrep";
+import { type ExplorerSearchHandle } from "./ExplorerSearch";
+import { ExplorerHeader, SORT_MODES } from "./components/ExplorerHeader";
+import { ExplorerTreeList } from "./components/ExplorerTreeList";
+import { useExplorerIconsReady } from "./lib/iconResolver";
 import { useFileTree, type SortMode } from "./lib/useFileTree";
+import { toForwardSlash } from "@/lib/path";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
 const SORT_STORAGE_KEY = "tedi:explorer:sortMode";
-const SORT_MODES: ReadonlyArray<SortMode> = [
-  "default",
-  "name-asc",
-  "name-desc",
-  "modified-desc",
-  "modified-asc",
-];
-const SORT_LABELS: Record<SortMode, string> = {
-  default: "Default (folders first)",
-  "name-asc": "Name (A → Z)",
-  "name-desc": "Name (Z → A)",
-  "modified-desc": "Modified (newest first)",
-  "modified-asc": "Modified (oldest first)",
-};
 
 function readStoredSortMode(): SortMode {
   if (typeof window === "undefined") return "default";
@@ -99,15 +53,6 @@ type Props = {
    *  collapses are not undone on the next tab repaint. */
   activeFilePath?: string | null;
 };
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : path;
-}
-
-function toForwardSlash(p: string): string {
-  return p.replace(/\\/g, "/");
-}
 
 /**
  * Folders to expand so `filePath` becomes visible under `rootPath`. Returns
@@ -319,9 +264,6 @@ export function FileExplorer({
     );
   }
 
-  const root = tree.nodes[rootPath];
-  const pendingAtRoot = tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (collapsed) return;
     if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen) return;
@@ -388,28 +330,6 @@ export function FileExplorer({
     }
   };
 
-  const accordion = !!onToggleCollapsed;
-  const titleNode = (
-    <span className="text-foreground/80 flex min-w-0 flex-1 items-center truncate text-xs font-medium">
-      {accordion ? (
-        <HugeiconsIcon
-          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
-          size={10}
-          strokeWidth={2.25}
-          className="text-muted-foreground mr-1 shrink-0"
-        />
-      ) : null}
-      <img
-        src={folderIconUrl(basename(rootPath), false)}
-        alt=""
-        height={15}
-        width={15}
-        className="mx-1.5 shrink-0"
-      />
-      <span className="truncate">{basename(rootPath)}</span>
-    </span>
-  );
-
   return (
     <div
       className="flex h-full flex-col outline-none"
@@ -417,268 +337,52 @@ export function FileExplorer({
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {accordion ? (
-              <button
-                type="button"
-                onClick={onToggleCollapsed}
-                className="hover:text-foreground flex min-w-0 flex-1 cursor-pointer items-center truncate outline-none"
-                aria-expanded={!collapsed}
-                aria-label={collapsed ? "Expand local files" : "Collapse local files"}
-              >
-                {titleNode}
-              </button>
-            ) : (
-              titleNode
-            )}
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{rootPath}</TooltipContent>
-        </Tooltip>
-
-        {collapsed ? null : (
-          <>
-            <IconTooltip label="Search files" side="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-foreground size-6"
-                onClick={() => {
-                  setIsGrepOpen(false);
-                  setIsSearchOpen((v) => !v);
-                }}
-                aria-label="Search files"
-              >
-                <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
-
-            {hideGrep ? null : (
-              <IconTooltip label="Search in files" side="bottom">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-foreground size-6"
-                  onClick={() => {
-                    setIsSearchOpen(false);
-                    setIsGrepOpen((v) => !v);
-                  }}
-                  aria-label="Search in files"
-                >
-                  <HugeiconsIcon icon={FileSearchIcon} size={13} strokeWidth={2} />
-                </Button>
-              </IconTooltip>
-            )}
-
-            {hideCreateActions ? null : (
-              <>
-                <IconTooltip label="New file" side="bottom">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-foreground size-6"
-                    onClick={() => tree.beginCreate(rootPath, "file")}
-                    aria-label="New file"
-                  >
-                    <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
-                  </Button>
-                </IconTooltip>
-                <IconTooltip label="New folder" side="bottom">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-foreground size-6"
-                    onClick={() => tree.beginCreate(rootPath, "dir")}
-                    aria-label="New folder"
-                  >
-                    <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
-                  </Button>
-                </IconTooltip>
-              </>
-            )}
-            <IconTooltip label="Refresh" side="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-foreground size-6"
-                onClick={() => tree.refresh(rootPath)}
-                aria-label="Refresh"
-              >
-                <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
-            <IconTooltip label="Collapse folders" side="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={tree.expanded.size === 0}
-                className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-40"
-                onClick={() => tree.collapseAll()}
-                aria-label="Collapse folders"
-              >
-                <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
-            {!hideSort && (
-              <DropdownMenu>
-                <IconTooltip label={`Sort: ${SORT_LABELS[sortMode]}`} side="bottom">
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Sort entries"
-                      className={
-                        sortMode === "default"
-                          ? "text-muted-foreground hover:text-foreground size-6"
-                          : "text-foreground hover:text-foreground size-6"
-                      }
-                    >
-                      <HugeiconsIcon icon={Sorting02Icon} size={13} strokeWidth={2} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </IconTooltip>
-                <DropdownMenuContent align="end" className="min-w-56">
-                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={sortMode}
-                    onValueChange={(v) => setSortMode(v as SortMode)}
-                  >
-                    {SORT_MODES.map((mode) => (
-                      <DropdownMenuRadioItem key={mode} value={mode}>
-                        {SORT_LABELS[mode]}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {headerExtras}
-          </>
-        )}
-      </div>
+      <ExplorerHeader
+        rootPath={rootPath}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        hideCreateActions={hideCreateActions}
+        hideGrep={hideGrep}
+        hideSort={hideSort}
+        headerExtras={headerExtras}
+        sortMode={sortMode}
+        setSortMode={setSortMode}
+        expandedSize={tree.expanded.size}
+        onToggleSearch={() => {
+          setIsGrepOpen(false);
+          setIsSearchOpen((v) => !v);
+        }}
+        onToggleGrep={() => {
+          setIsSearchOpen(false);
+          setIsGrepOpen((v) => !v);
+        }}
+        onNewFile={() => tree.beginCreate(rootPath, "file")}
+        onNewFolder={() => tree.beginCreate(rootPath, "dir")}
+        onRefresh={() => tree.refresh(rootPath)}
+        onCollapseAll={() => tree.collapseAll()}
+      />
 
       {collapsed ? null : (
-        <>
-          <ExplorerSearch
-            ref={searchRef}
-            rootPath={rootPath}
-            onOpenFile={onOpenFile}
-            open={isSearchOpen}
-            onRequestClose={() => setIsSearchOpen(false)}
-            onActiveChange={setIsSearchActive}
-          />
-
-          <ExplorerGrep
-            ref={grepRef}
-            rootPath={rootPath}
-            onOpenFile={onOpenFile}
-            open={isGrepOpen}
-            onRequestClose={() => setIsGrepOpen(false)}
-            onActiveChange={setIsGrepActive}
-          />
-
-          {!isSearchActive && !isGrepActive ? (
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <ScrollArea className="min-h-0 flex-1">
-                  <div className="py-1" ref={listRef}>
-                    {pendingAtRoot && (
-                      <div
-                        className="flex w-full items-center gap-2 px-1.5 py-0.5 text-[13px]"
-                        style={{ paddingLeft: 6 }}
-                      >
-                        <span className="size-3.5 shrink-0" />
-                        <img
-                          src={
-                            pendingAtRoot.kind === "dir"
-                              ? folderIconUrl("", false)
-                              : fileIconUrl("untitled")
-                          }
-                          alt=""
-                          className="size-4 shrink-0 opacity-70"
-                        />
-                        <InlineInput
-                          initial=""
-                          placeholder={pendingAtRoot.kind === "dir" ? "New folder" : "New file"}
-                          onCommit={tree.commitCreate}
-                          onCancel={tree.cancelCreate}
-                        />
-                      </div>
-                    )}
-                    {root?.status === "loading" && (
-                      <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
-                    )}
-                    {root?.status === "error" && (
-                      <div className="text-destructive px-3 py-2 text-[11px]">{root.message}</div>
-                    )}
-                    {root?.status === "loaded" &&
-                      root.entries.map((entry) => (
-                        <FileTreeNode
-                          key={entry.name}
-                          entry={entry}
-                          parentPath={rootPath}
-                          rootPath={rootPath}
-                          depth={0}
-                          tree={tree}
-                          onOpenFile={onOpenFile}
-                          onRevealInTerminal={onRevealInTerminal}
-                          onAttachToAgent={onAttachToAgent}
-                          selectedPath={selectedPath}
-                          onSelectPath={setSelectedPath}
-                        />
-                      ))}
-                  </div>
-                </ScrollArea>
-              </ContextMenuTrigger>
-              <ContextMenuContent
-                className={COMPACT_CONTENT}
-                onCloseAutoFocus={(e) => {
-                  if (tree.renaming || tree.pendingCreate) e.preventDefault();
-                }}
-              >
-                {onRevealInTerminal && (
-                  <ContextMenuItem
-                    className={COMPACT_ITEM}
-                    onSelect={() => onRevealInTerminal(rootPath)}
-                  >
-                    Open in Terminal
-                  </ContextMenuItem>
-                )}
-                <ContextMenuItem
-                  className={COMPACT_ITEM}
-                  onSelect={() => void revealInFinder(rootPath)}
-                >
-                  Reveal in Finder
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className={COMPACT_ITEM}
-                  onSelect={() => tree.beginCreate(rootPath, "file")}
-                >
-                  New File
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className={COMPACT_ITEM}
-                  onSelect={() => tree.beginCreate(rootPath, "dir")}
-                >
-                  New Folder
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className={COMPACT_ITEM}
-                  onSelect={() => void copyToClipboard(rootPath)}
-                >
-                  Copy Path
-                </ContextMenuItem>
-                <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refresh(rootPath)}>
-                  Refresh
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          ) : null}
-        </>
+        <ExplorerTreeList
+          rootPath={rootPath}
+          tree={tree}
+          onOpenFile={onOpenFile}
+          onRevealInTerminal={onRevealInTerminal}
+          onAttachToAgent={onAttachToAgent}
+          selectedPath={selectedPath}
+          onSelectPath={setSelectedPath}
+          searchRef={searchRef}
+          grepRef={grepRef}
+          listRef={listRef}
+          isSearchOpen={isSearchOpen}
+          isGrepOpen={isGrepOpen}
+          isSearchActive={isSearchActive}
+          isGrepActive={isGrepActive}
+          onSearchRequestClose={() => setIsSearchOpen(false)}
+          onGrepRequestClose={() => setIsGrepOpen(false)}
+          onSearchActiveChange={setIsSearchActive}
+          onGrepActiveChange={setIsGrepActive}
+        />
       )}
     </div>
   );
