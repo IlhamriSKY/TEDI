@@ -195,8 +195,7 @@ export function ensureFsDragListener(): void {
       // off the highlighted target in the final frame.
       const under = document.elementFromPoint(e.clientX, e.clientY);
       const leafEl =
-        ((under?.closest?.("[data-terminal-leaf-id]") ?? null) as HTMLElement | null) ??
-        targetLeaf;
+        (under?.closest("[data-terminal-leaf-id]") as HTMLElement | null) ?? targetLeaf;
       if (!leafEl) return;
       const leafIdAttr = leafEl.getAttribute("data-terminal-leaf-id");
       const leafId = leafIdAttr ? Number(leafIdAttr) : NaN;

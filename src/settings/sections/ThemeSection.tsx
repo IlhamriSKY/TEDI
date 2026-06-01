@@ -39,12 +39,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/modules/theme";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+import type { FsReadResult } from "@/lib/ipc";
 
-type ReadResult =
-  | { kind: "text"; content: string; size: number }
-  | { kind: "image"; dataUrl: string; mime: string; size: number }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
+type ReadResult = FsReadResult;
 
 const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: string }[] = [
   { key: "background", label: "Background", group: "Base" },
@@ -117,32 +114,204 @@ type Group = (typeof GROUPS)[number];
 
 const HEX6_RE = /^#[0-9a-fA-F]{6}$/;
 
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+// --- HEX <-> RGB <-> HSV helpers ---------------------------------------------
+// The picker stores HSV locally so dragging through a grey value (s=0 or v=0)
+// doesn't lose the hue. Output to the store is always 6-digit HEX (theme tokens
+// are HEX6, no alpha).
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = HEX6_RE.test(hex) ? hex : "#000000";
+  return {
+    r: parseInt(h.slice(1, 3), 16),
+    g: parseInt(h.slice(3, 5), 16),
+    b: parseInt(h.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const c = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+
+function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: number } {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === rn) h = ((gn - bn) / d) % 6;
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : d / max, v: max };
+}
+
+function hsvToRgb(h: number, s: number, v: number): { r: number; g: number; b: number } {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let rp = 0;
+  let gp = 0;
+  let bp = 0;
+  if (h < 60) [rp, gp, bp] = [c, x, 0];
+  else if (h < 120) [rp, gp, bp] = [x, c, 0];
+  else if (h < 180) [rp, gp, bp] = [0, c, x];
+  else if (h < 240) [rp, gp, bp] = [0, x, c];
+  else if (h < 300) [rp, gp, bp] = [x, 0, c];
+  else [rp, gp, bp] = [c, 0, x];
+  return { r: (rp + m) * 255, g: (gp + m) * 255, b: (bp + m) * 255 };
+}
+
+type Hsv = { h: number; s: number; v: number };
+
+function hexToHsv(hex: string): Hsv {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHsv(r, g, b);
+}
+
+function hsvToHex({ h, s, v }: Hsv): string {
+  const { r, g, b } = hsvToRgb(h, s, v);
+  return rgbToHex(r, g, b);
+}
+
 // Opacity to drop to when a wallpaper is first activated while the app is
 // fully solid, so the image is clearly visible without manual fiddling.
 const WALLPAPER_REVEAL_OPACITY = 0.5;
+
+/**
+ * Saturation/brightness square. Drag (or click) anywhere inside to set S (x
+ * axis) and V (y axis); the hue comes from the parent so the gradient base
+ * tracks the hue slider. Pointer-capture keeps tracking when the cursor leaves
+ * the box. Squared corners + theme border match the rest of the app.
+ */
+function SaturationArea({ hsv, onChange }: { hsv: Hsv; onChange: (s: number, v: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const apply = (clientX: number, clientY: number) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    onChange(clamp01((clientX - r.left) / r.width), clamp01(1 - (clientY - r.top) / r.height));
+  };
+  return (
+    <div
+      ref={ref}
+      role="slider"
+      aria-label="Saturation and brightness"
+      aria-valuetext={`saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
+      tabIndex={0}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        apply(e.clientX, e.clientY);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons === 0) return;
+        apply(e.clientX, e.clientY);
+      }}
+      className="border-border/60 focus-visible:ring-ring/40 relative h-28 w-full cursor-crosshair touch-none border focus-visible:ring-2 focus-visible:outline-none"
+      style={{
+        backgroundColor: `hsl(${hsv.h} 100% 50%)`,
+        backgroundImage:
+          "linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="ring-foreground/40 pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 border border-white shadow ring-1"
+        style={{
+          left: `${hsv.s * 100}%`,
+          top: `${(1 - hsv.v) * 100}%`,
+          backgroundColor: hsvToHex(hsv),
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Horizontal hue bar (0-360). Same pointer-capture drag behaviour as the
+ * saturation area; rainbow gradient track with a squared draggable marker.
+ */
+function HueSlider({ hue, onChange }: { hue: number; onChange: (h: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const apply = (clientX: number) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    onChange(clamp01((clientX - r.left) / r.width) * 360);
+  };
+  return (
+    <div
+      ref={ref}
+      role="slider"
+      aria-label="Hue"
+      aria-valuemin={0}
+      aria-valuemax={360}
+      aria-valuenow={Math.round(hue)}
+      tabIndex={0}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        apply(e.clientX);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons === 0) return;
+        apply(e.clientX);
+      }}
+      className="border-border/60 focus-visible:ring-ring/40 relative h-3 w-full cursor-ew-resize touch-none border focus-visible:ring-2 focus-visible:outline-none"
+      style={{
+        backgroundImage: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="ring-foreground/40 pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 border border-white shadow ring-1"
+        style={{ left: `${(hue / 360) * 100}%`, backgroundColor: `hsl(${hue} 100% 50%)` }}
+      />
+    </div>
+  );
+}
 
 function ColorSwatch({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   // Defensive default: if a freshly added token is missing from a legacy
   // stored theme, surface as black instead of throwing on `HEX6_RE.test`.
   const safeValue = typeof value === "string" && value.length > 0 ? value : "#000000";
   const [draft, setDraft] = useState(safeValue);
+  // Local HSV is the source of truth while the user drags the picker, so the
+  // hue is preserved when S or V hit zero (a grey colour has no derivable hue).
+  const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(safeValue));
   const inputRef = useRef<HTMLInputElement>(null);
   const isValid = HEX6_RE.test(draft);
 
-  // Re-seed local draft when the parent value changes externally (preset
-  // switch, .tedi import). Skip while the hex input is focused so typing
-  // isn't clobbered.
+  // Re-seed local draft + HSV when the parent value changes externally (preset
+  // switch, .tedi import). Skip the draft while the hex input is focused so
+  // typing isn't clobbered. The HSV is only re-derived when it actually
+  // diverges from `safeValue`, so a value that round-tripped through our own
+  // commit doesn't reset the hue mid-drag.
   useEffect(() => {
-    if (document.activeElement === inputRef.current) return;
-    if (draft.toLowerCase() !== safeValue.toLowerCase()) setDraft(safeValue);
-    // We deliberately exclude `draft` from the dep array: this effect should
-    // only fire when the parent value changes, not on every local keystroke.
+    if (
+      document.activeElement !== inputRef.current &&
+      draft.toLowerCase() !== safeValue.toLowerCase()
+    )
+      setDraft(safeValue);
+    if (hsvToHex(hsv).toLowerCase() !== safeValue.toLowerCase()) setHsv(hexToHsv(safeValue));
+    // We deliberately exclude `draft`/`hsv` from the dep array: this effect
+    // should only fire when the parent value changes, not on every local edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeValue]);
 
-  // The native `<input type="color">` fires onChange continuously while the
-  // user drags inside the picker (~200 Hz on some platforms). Coalesce to
-  // one update per frame so the cross-window store write does not stall.
+  // Dragging the saturation/hue controls fires onChange continuously (~60-120
+  // Hz). Coalesce to one update per frame so the cross-window store write does
+  // not stall.
   const pendingRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
   const scheduleCommit = (next: string) => {
@@ -162,6 +331,14 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (next: stri
     };
   }, []);
 
+  // Drive the picker: update local HSV + hex draft, then commit (coalesced).
+  const commitHsv = (next: Hsv) => {
+    setHsv(next);
+    const hex = hsvToHex(next);
+    setDraft(hex);
+    scheduleCommit(hex);
+  };
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -178,37 +355,38 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (next: stri
           <span className="text-muted-foreground font-mono uppercase">{safeValue}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-56 gap-2 p-2.5">
-        <input
-          type="color"
-          value={HEX6_RE.test(safeValue) ? safeValue : "#000000"}
-          onChange={(e) => {
-            const v = e.target.value;
-            setDraft(v);
-            scheduleCommit(v);
-          }}
-          className="border-border/60 h-24 w-full cursor-pointer border bg-transparent p-0"
-          aria-label="Color picker"
-        />
-        <Input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => {
-            const v = e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`;
-            setDraft(v);
-            if (HEX6_RE.test(v)) onChange(v);
-          }}
-          onBlur={() => {
-            if (!isValid) setDraft(safeValue);
-          }}
-          maxLength={7}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          className="h-8 px-2 font-mono text-[11.5px] uppercase"
-          placeholder="#000000"
-          aria-label="Hex color"
-        />
+      <PopoverContent align="end" sideOffset={6} className="w-56 gap-2.5 p-2.5">
+        <SaturationArea hsv={hsv} onChange={(s, v) => commitHsv({ ...hsv, s, v })} />
+        <HueSlider hue={hsv.h} onChange={(h) => commitHsv({ ...hsv, h })} />
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className="border-border/60 size-8 shrink-0 border"
+            style={{ background: HEX6_RE.test(draft) ? draft : safeValue }}
+          />
+          <Input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => {
+              const v = e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`;
+              setDraft(v);
+              if (HEX6_RE.test(v)) {
+                setHsv(hexToHsv(v));
+                onChange(v);
+              }
+            }}
+            onBlur={() => {
+              if (!isValid) setDraft(safeValue);
+            }}
+            maxLength={7}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            className="h-8 px-2 font-mono text-[11.5px] uppercase"
+            placeholder="#000000"
+            aria-label="Hex color"
+          />
+        </div>
       </PopoverContent>
     </Popover>
   );
