@@ -108,10 +108,7 @@ pub enum DaemonMsg {
     },
     // ── push events (no req_id) ─────────────────────────────────────────
     /// PTY produced output. `data_b64` is base64-encoded raw bytes.
-    Data {
-        session_id: Uuid,
-        data_b64: String,
-    },
+    Data { session_id: Uuid, data_b64: String },
     /// Shell process exited. Subsequent `Write` to this id will error.
     Exit { session_id: Uuid, code: i32 },
 }

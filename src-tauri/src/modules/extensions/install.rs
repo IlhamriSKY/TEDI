@@ -16,12 +16,29 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
-use super::commands::PeekResult;
 use super::manifest::Manifest;
 use super::state::{now_ms, save as save_state, ExtensionEntry};
+
+/// Read-only preview of an extension package. The pre-install dialog calls
+/// `ext_peek_*` to populate icon, name, and permissions without writing the
+/// package to disk. `ext_install_from_*` commits the install once the user
+/// confirms. Produced by [`peek_bytes`]; the Tauri commands in
+/// `commands.rs` re-expose it as their return type.
+#[derive(Debug, Serialize, Clone)]
+pub struct PeekResult {
+    pub manifest: Manifest,
+    /// Base64-encoded icon bytes when the manifest declares `icon` and the
+    /// file is present. Frontend builds a `data:` URL for the dialog `<img>`.
+    pub icon_base64: Option<String>,
+    pub icon_rel_path: Option<String>,
+    /// Same shape as `ListEntry.source` (`local:<path>` or `github:<o/r>`).
+    /// Echoed so the dialog can label where the install came from.
+    pub source: String,
+}
 
 /// 50 MiB cap on the whole package. Fits a JS bundle plus theme assets
 /// without letting a runaway archive fill the user's disk.
@@ -150,10 +167,10 @@ pub fn install_from_bytes_with_progress(
     // Engine-compat gate. Refuse to install an extension that asks for a
     // newer host than this binary. The host version comes from Cargo.toml
     // at compile time; the constraint comes from `manifest.engines.tedi`
-    // and is parsed by [`super::commands::satisfies`].
+    // and is parsed by [`super::version::satisfies`].
     if let Some(req) = manifest.engines.as_ref().and_then(|e| e.tedi.as_deref()) {
         let host = env!("CARGO_PKG_VERSION");
-        if !super::commands::satisfies(req, host) {
+        if !super::version::satisfies(req, host) {
             let _ = fs::remove_dir_all(&staging);
             return Err(format!(
                 "{} requires TEDI {req}, but this host is {host}. Update TEDI to install.",

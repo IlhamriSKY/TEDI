@@ -27,22 +27,19 @@
 //! the same race today.
 
 use std::fs;
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde_json::{json, Value};
 
 use crate::modules::cli;
+use crate::modules::cli_paint::{
+    color_enabled, paint_active, paint_bold, paint_dim, paint_header, paint_id, paint_ok,
+    paint_warn,
+};
+use crate::modules::ids::BUNDLE_ID;
 
-/// Bundle id from `tauri.conf.json`. Kept in sync with `cli_ext::BUNDLE_ID`.
-/// Debug builds use the `.dev` suffix so dev runs land in a separate
-/// data dir from installed releases.
-#[cfg(debug_assertions)]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi.dev";
-#[cfg(not(debug_assertions))]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 /// Store file managed by `tauri-plugin-store` (see `store.ts`).
 const STORE_FILE: &str = "tedi-settings.json";
 
@@ -120,45 +117,6 @@ const PRESETS: &[Preset] = &[
     },
 ];
 
-// ----- ANSI helpers -----------------------------------------------------
-// Emit codes only when stdout is a TTY so pipes / CI / file redirection
-// stay clean. Mirrors the gating in `cli_ext.rs`.
-
-fn color_enabled() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
-}
-
-fn ansi(code: &str, text: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-fn paint_bold(s: &str) -> String {
-    ansi("1", s)
-}
-fn paint_dim(s: &str) -> String {
-    ansi("2", s)
-}
-fn paint_header(s: &str) -> String {
-    ansi("36;1", s)
-}
-fn paint_id(s: &str) -> String {
-    ansi("33;1", s)
-}
-fn paint_active(s: &str) -> String {
-    ansi("32;1", s)
-}
-fn paint_ok(s: &str) -> String {
-    ansi("32", s)
-}
-fn paint_warn(s: &str) -> String {
-    ansi("33", s)
-}
-
 fn hex_to_rgb(hex: &str) -> Option<(u8, u8, u8)> {
     let s = hex.strip_prefix('#').unwrap_or(hex);
     if s.len() != 6 {
@@ -194,11 +152,7 @@ fn swatch_strip(p: &Preset) -> String {
 }
 
 pub fn help_text() -> String {
-    let ids = PRESETS
-        .iter()
-        .map(|p| p.id)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let ids = PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ");
     format!(
         "{title}\n\
          \n\
@@ -270,13 +224,23 @@ pub fn handle_theme_command_and_exit() {
         "off" => set_enabled(false),
         "reset" => reset_to_default(),
         "bg" => set_bg(arg.as_deref(), arg2.as_deref()),
-        "blur" => set_number_field(&["customTheme", "background", "blur"], arg.as_deref(), 0.0, 40.0),
+        "blur" => set_number_field(
+            &["customTheme", "background", "blur"],
+            arg.as_deref(),
+            0.0,
+            40.0,
+        ),
         // Whole-app transparency: the live control is the top-level `appOpacity`
         // pref (drives `--tedi-app-opacity` + `data-tedi-glass`). The old target
         // `customTheme.background.surfaceOpacity` was read by no render path, so
         // the command silently did nothing.
         "opacity" => set_number_field(&["appOpacity"], arg.as_deref(), 0.0, 1.0),
-        "darken" => set_number_field(&["customTheme", "background", "darken"], arg.as_deref(), 0.0, 1.0),
+        "darken" => set_number_field(
+            &["customTheme", "background", "darken"],
+            arg.as_deref(),
+            0.0,
+            1.0,
+        ),
         _ => {
             eprint(&format!("unknown subcommand: {sub}\n"));
             print(&help_text());
@@ -397,13 +361,21 @@ fn show_current() -> Result<(), String> {
         }
     };
     print(&format!("{}\n", paint_bold("Current theme")));
-    print(&format!("  {:<14} {}\n", paint_dim("Custom theme"), on_off(enabled)));
+    print(&format!(
+        "  {:<14} {}\n",
+        paint_dim("Custom theme"),
+        on_off(enabled)
+    ));
     print(&format!(
         "  {:<14} {}\n",
         paint_dim("Active preset"),
         paint_id(name),
     ));
-    print(&format!("  {:<14} {}\n", paint_dim("Wallpaper"), on_off(bg_enabled)));
+    print(&format!(
+        "  {:<14} {}\n",
+        paint_dim("Wallpaper"),
+        on_off(bg_enabled)
+    ));
     if let Some(p) = pending {
         print(&format!(
             "  {:<14} {} {}\n",
@@ -418,12 +390,9 @@ fn show_current() -> Result<(), String> {
 fn set_preset(id: Option<&str>) -> Result<(), String> {
     let id = id.ok_or("missing preset id (try `tedi theme list`)")?;
     let normalized = slugify(id);
-    let preset = PRESETS
-        .iter()
-        .find(|p| p.id == normalized)
-        .ok_or_else(|| {
-            format!("unknown preset `{id}`. Run `tedi theme list` to see the available ids.")
-        })?;
+    let preset = PRESETS.iter().find(|p| p.id == normalized).ok_or_else(|| {
+        format!("unknown preset `{id}`. Run `tedi theme list` to see the available ids.")
+    })?;
     update_store(|store| {
         store.insert(
             "customThemePresetRequest".into(),
@@ -611,12 +580,8 @@ fn update_store<F: FnOnce(&mut serde_json::Map<String, Value>)>(f: F) -> Result<
     f(&mut store);
     let bytes = serde_json::to_vec_pretty(&Value::Object(store))
         .map_err(|e| format!("serialize settings: {e}"))?;
-    let tmp = path.with_extension("tedi.tmp");
-    fs::write(&tmp, &bytes).map_err(|e| format!("stage write: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        format!("commit write: {e}")
-    })?;
+    crate::modules::fs::atomic::atomic_write(&path, &bytes)
+        .map_err(|e| format!("commit write: {e}"))?;
     Ok(())
 }
 

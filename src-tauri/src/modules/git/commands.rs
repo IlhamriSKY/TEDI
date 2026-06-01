@@ -725,7 +725,11 @@ fn parse_name_status_z(raw: &str) -> Vec<(String, String, Option<String>)> {
             let (Some(old), Some(new)) = (it.next(), it.next()) else {
                 break;
             };
-            out.push((classify(code).to_string(), to_forward(new), Some(to_forward(old))));
+            out.push((
+                classify(code).to_string(),
+                to_forward(new),
+                Some(to_forward(old)),
+            ));
         } else {
             let Some(path) = it.next() else { break };
             out.push((classify(code).to_string(), to_forward(path), None));

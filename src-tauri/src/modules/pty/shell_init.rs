@@ -56,7 +56,6 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
 
 #[cfg(unix)]
 mod unix {
-    use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -193,20 +192,13 @@ mod unix {
             }
         }
         // Atomic replace so a parallel shell startup never sources a half-written file.
-        let mut tmp: OsString = path.as_os_str().to_owned();
-        tmp.push(".__tedi_tmp__");
-        let tmp = PathBuf::from(tmp);
-        fs::write(&tmp, content).map_err(|e| format!("write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, path).map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            format!("rename {} -> {}: {e}", tmp.display(), path.display())
-        })
+        crate::modules::fs::atomic::atomic_write(path, content.as_bytes())
+            .map_err(|e| format!("write {}: {e}", path.display()))
     }
 }
 
 #[cfg(windows)]
 mod windows {
-    use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -269,14 +261,8 @@ mod windows {
                 return Ok(());
             }
         }
-        let mut tmp: OsString = path.as_os_str().to_owned();
-        tmp.push(".__tedi_tmp__");
-        let tmp = PathBuf::from(tmp);
-        fs::write(&tmp, content).map_err(|e| format!("write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, path).map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            format!("rename {} -> {}: {e}", tmp.display(), path.display())
-        })
+        crate::modules::fs::atomic::atomic_write(path, content.as_bytes())
+            .map_err(|e| format!("write {}: {e}", path.display()))
     }
 }
 

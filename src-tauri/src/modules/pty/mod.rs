@@ -124,7 +124,10 @@ pub fn pty_open(
     match &state.backend {
         PtyBackend::Daemon { client, sessions } => {
             let uuid = client.open(cols, rows, cwd, on_event).map_err(|e| {
-                log::error!("pty_open daemon failed after {}ms: {e}", t0.elapsed().as_millis());
+                log::error!(
+                    "pty_open daemon failed after {}ms: {e}",
+                    t0.elapsed().as_millis()
+                );
                 e
             })?;
             let id = state.next_id.fetch_add(1, Ordering::Relaxed);
@@ -195,15 +198,10 @@ pub fn pty_attach(
 pub fn pty_write(state: tauri::State<PtyState>, id: u32, data: String) -> Result<(), String> {
     match &state.backend {
         PtyBackend::Daemon { client, sessions } => {
-            let uuid = sessions
-                .read()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .ok_or_else(|| {
-                    log::warn!("pty_write: unknown id={id}");
-                    "no session".to_string()
-                })?;
+            let uuid = sessions.read().unwrap().get(&id).copied().ok_or_else(|| {
+                log::warn!("pty_write: unknown id={id}");
+                "no session".to_string()
+            })?;
             client
                 .write(uuid, B64.encode(data.as_bytes()))
                 .map_err(|e| {
@@ -212,15 +210,10 @@ pub fn pty_write(state: tauri::State<PtyState>, id: u32, data: String) -> Result
                 })
         }
         PtyBackend::InProcess(map) => {
-            let session = map
-                .read()
-                .unwrap()
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| {
-                    log::warn!("pty_write: unknown id={id}");
-                    "no session".to_string()
-                })?;
+            let session = map.read().unwrap().get(&id).cloned().ok_or_else(|| {
+                log::warn!("pty_write: unknown id={id}");
+                "no session".to_string()
+            })?;
             // Bind to a local so the MutexGuard temporary drops before
             // `session` - see rustc note on tail-expr drop order.
             let result = session
@@ -247,30 +240,20 @@ pub fn pty_resize(
 ) -> Result<(), String> {
     match &state.backend {
         PtyBackend::Daemon { client, sessions } => {
-            let uuid = sessions
-                .read()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .ok_or_else(|| {
-                    log::warn!("pty_resize: unknown id={id}");
-                    "no session".to_string()
-                })?;
+            let uuid = sessions.read().unwrap().get(&id).copied().ok_or_else(|| {
+                log::warn!("pty_resize: unknown id={id}");
+                "no session".to_string()
+            })?;
             client.resize(uuid, cols, rows).map_err(|e| {
                 log::warn!("pty_resize id={id} failed: {e}");
                 e
             })
         }
         PtyBackend::InProcess(map) => {
-            let session = map
-                .read()
-                .unwrap()
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| {
-                    log::warn!("pty_resize: unknown id={id}");
-                    "no session".to_string()
-                })?;
+            let session = map.read().unwrap().get(&id).cloned().ok_or_else(|| {
+                log::warn!("pty_resize: unknown id={id}");
+                "no session".to_string()
+            })?;
             let master = session.master.lock().unwrap();
             let result = master
                 .resize(PtySize {

@@ -178,7 +178,11 @@ impl PtyClient {
             DaemonMsg::OpenOk { session_id, .. } => {
                 // Register the channel BEFORE returning so the very first
                 // `Data` event the daemon emits has a place to land.
-                self.state.sessions.write().unwrap().insert(session_id, channel);
+                self.state
+                    .sessions
+                    .write()
+                    .unwrap()
+                    .insert(session_id, channel);
                 Ok(session_id)
             }
             DaemonMsg::Err { message, .. } => Err(message),
@@ -390,7 +394,6 @@ fn response_req_id(msg: &DaemonMsg) -> Option<ReqId> {
 // trait is actually used via `transport::write_msg`.
 #[allow(dead_code)]
 fn _ensure_write_trait_in_scope() {
-    let _: fn(&mut &interprocess::local_socket::Stream, &[u8]) -> std::io::Result<()> = |s, b| {
-        Write::write_all(s, b)
-    };
+    let _: fn(&mut &interprocess::local_socket::Stream, &[u8]) -> std::io::Result<()> =
+        |s, b| Write::write_all(s, b);
 }

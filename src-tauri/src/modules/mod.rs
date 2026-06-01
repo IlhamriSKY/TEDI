@@ -1,11 +1,15 @@
 pub mod cli;
 pub mod cli_ext;
+pub mod cli_paint;
 pub mod cli_theme;
 pub mod cli_update;
+pub mod events;
 pub mod extensions;
 pub mod format;
 pub mod fs;
 pub mod git;
+pub mod ids;
+pub mod lockext;
 pub mod net;
 pub mod preview;
 pub mod pty;

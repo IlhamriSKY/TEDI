@@ -73,13 +73,7 @@ pub fn save(state_path: &Path, state: &ExtensionsStateFile) -> Result<(), String
     // state.json behind. `load()` falls back to defaults on parse failure,
     // so a torn write would silently wipe every user's enabled flags; worth
     // the extra syscall to avoid.
-    let tmp = state_path.with_extension("json.tmp");
-    fs::write(&tmp, body).map_err(|e| format!("write state tmp: {e}"))?;
-    fs::rename(&tmp, state_path).map_err(|e| {
-        // Best-effort cleanup. On Windows a leftover .tmp sits next to
-        // state.json until the next save overwrites it.
-        let _ = fs::remove_file(&tmp);
-        format!("commit state: {e}")
-    })?;
+    crate::modules::fs::atomic::atomic_write(state_path, &body)
+        .map_err(|e| format!("commit state: {e}"))?;
     Ok(())
 }

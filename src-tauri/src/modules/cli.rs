@@ -43,10 +43,11 @@ pub fn is_update_flag(s: &str) -> bool {
 }
 
 pub fn help_text() -> String {
-    let dim = |s: &str| ansi_help("2", s);
-    let header = |s: &str| ansi_help("36;1", s);
-    let cmd = |s: &str| ansi_help("33;1", s);
-    let brand = |s: &str| ansi_help("34;1", s);
+    use crate::modules::cli_paint::ansi;
+    let dim = |s: &str| ansi("2", s);
+    let header = |s: &str| ansi("36;1", s);
+    let cmd = |s: &str| ansi("33;1", s);
+    let brand = |s: &str| ansi("34;1", s);
 
     format!(
         "{title}  {tag}\n\
@@ -106,19 +107,6 @@ pub fn help_text() -> String {
         ),
         dim_registry = dim("Registry: https://tedi.ilhamriski.com/extensions/"),
     )
-}
-
-/// Local ANSI helper that mirrors the gating in `cli_ext.rs` / `cli_theme.rs`.
-/// Kept inline here so `help_text()` can be called even before the rest of
-/// the CLI modules link (the Windows tedi-cli launcher reuses this fn).
-fn ansi_help(code: &str, text: &str) -> String {
-    use std::io::IsTerminal;
-    let enabled = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    if enabled {
-        format!("\x1b[{code}m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
 }
 
 /// Re-attach this process to the parent terminal's console on Windows so the
@@ -459,19 +447,25 @@ mod tests {
 
     /// Lock the `--plain` flag out of the help text and ensure the new
     /// section headers stay present. Tests run with stdout piped, so
-    /// `ansi_help` falls back to plain text - the assertions match plain
-    /// substrings.
+    /// `cli_paint::ansi` falls back to plain text - the assertions match
+    /// plain substrings.
     #[test]
     fn help_text_has_no_plain_flag_and_keeps_sections() {
         let h = help_text();
-        assert!(!h.contains("--plain"), "expected --plain to be removed from help");
-        assert!(!h.contains("-p)"), "expected the legacy `-p` short flag to be gone");
-        assert!(h.contains(env!("CARGO_PKG_VERSION")), "version missing from help");
+        assert!(
+            !h.contains("--plain"),
+            "expected --plain to be removed from help"
+        );
+        assert!(
+            !h.contains("-p)"),
+            "expected the legacy `-p` short flag to be gone"
+        );
+        assert!(
+            h.contains(env!("CARGO_PKG_VERSION")),
+            "version missing from help"
+        );
         for section in ["USAGE", "FLAGS", "EXTENSIONS", "THEME"] {
-            assert!(
-                h.contains(section),
-                "expected `{section}` section in help",
-            );
+            assert!(h.contains(section), "expected `{section}` section in help",);
         }
         for flag in ["--help", "--version", "--update"] {
             assert!(h.contains(flag), "expected `{flag}` in help");

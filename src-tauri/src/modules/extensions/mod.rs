@@ -13,8 +13,10 @@
 //! downloads only follow `https://`.
 
 pub mod commands;
+pub mod github;
 pub mod install;
 pub mod manifest;
 pub mod state;
+pub mod version;
 
 pub use commands::ExtensionsState;

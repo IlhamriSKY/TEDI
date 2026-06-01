@@ -73,7 +73,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
             // emit() serializes via JSON, so no string-escape footgun.
             // Frontend listens via Tauri event API.
-            let _ = window.emit("tedi:settings-tab", t);
+            let _ = window.emit(crate::modules::events::SETTINGS_TAB, t);
         }
         return Ok(());
     }
@@ -245,10 +245,10 @@ pub fn run() {
             let _ = window.show();
             let _ = window.set_focus();
             if let Some(t) = target {
-                let _ = window.emit("tedi:open-cli-target", t);
+                let _ = window.emit(crate::modules::events::OPEN_CLI_TARGET, t);
             }
             if update_requested {
-                let _ = window.emit("tedi:trigger-update", ());
+                let _ = window.emit(crate::modules::events::TRIGGER_UPDATE, ());
             }
         }
     }));

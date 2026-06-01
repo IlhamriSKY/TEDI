@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod file;
 pub mod grep;
 pub mod mutate;

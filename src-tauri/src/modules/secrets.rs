@@ -75,25 +75,12 @@ fn read_store(app: &AppHandle) -> Result<HashMap<String, String>, String> {
 
 #[cfg(target_os = "linux")]
 fn write_store(app: &AppHandle, map: &HashMap<String, String>) -> Result<(), String> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-
     let path = store_path(app)?;
-    let tmp = path.with_extension("json.tmp");
     let bytes = serde_json::to_vec(map).map_err(|e| e.to_string())?;
-
-    // 0600: only the owning user can read or write the secrets file.
-    let mut f = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&tmp)
-        .map_err(|e| e.to_string())?;
-    f.write_all(&bytes).map_err(|e| e.to_string())?;
-    f.sync_all().map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
+    // 0600: only the owning user can read or write the secrets file. The temp
+    // is created with that mode up front so the plaintext is never briefly
+    // world-readable on disk.
+    crate::modules::fs::atomic::atomic_write_mode(&path, &bytes, 0o600).map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -192,12 +179,9 @@ fn read_store(app: &AppHandle) -> Result<HashMap<String, String>, String> {
 #[cfg(target_os = "windows")]
 fn write_store(app: &AppHandle, map: &HashMap<String, String>) -> Result<(), String> {
     let path = store_path(app)?;
-    let tmp = path.with_extension("bin.tmp");
     let plain = serde_json::to_vec(map).map_err(|e| e.to_string())?;
     let cipher = dpapi_protect(&plain)?;
-    fs::write(&tmp, &cipher).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
+    crate::modules::fs::atomic::atomic_write(&path, &cipher).map_err(|e| e.to_string())
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]

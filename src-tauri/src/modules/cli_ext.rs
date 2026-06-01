@@ -25,76 +25,21 @@
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use dialoguer::theme::{ColorfulTheme, Theme};
 
 use crate::modules::cli;
-use crate::modules::extensions::commands as ext_cmd;
+use crate::modules::cli_paint::{
+    color_enabled, paint_bold, paint_brand, paint_dim, paint_err, paint_header, paint_id,
+    paint_installed, paint_off, paint_official, paint_ok, paint_on, paint_unofficial,
+    paint_update_hint,
+};
 use crate::modules::extensions::install::{
     install_from_bytes_with_progress, InstallOutcome, InstallPhase, InstallProgress, NoopProgress,
 };
 use crate::modules::extensions::manifest::{validate_id, Manifest};
 use crate::modules::extensions::state::{load as load_state, now_ms, save as save_state};
-
-/// ANSI SGR helpers. Emit codes only when stdout is a TTY so piped output
-/// (CI logs, file redirection) stays clean.
-fn color_enabled() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
-}
-
-fn ansi(code: &str, text: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-fn paint_official(label: &str) -> String {
-    ansi("36;1", label)
-}
-fn paint_unofficial(label: &str) -> String {
-    ansi("33;1", label)
-}
-fn paint_on() -> String {
-    ansi("32;1", "[on] ")
-}
-fn paint_off() -> String {
-    ansi("90", "[off]")
-}
-fn paint_dim(text: &str) -> String {
-    ansi("2", text)
-}
-fn paint_update_hint(text: &str) -> String {
-    ansi("33", text)
-}
-fn paint_installed(text: &str) -> String {
-    ansi("32;1", text)
-}
-
-// Shared paint vocabulary used by help text + runtime output. Same palette
-// as `cli.rs` / `cli_theme.rs` so `tedi --help`, `tedi ext help`, and
-// `tedi theme help` look like a single CLI rather than three styles.
-fn paint_header(text: &str) -> String {
-    ansi("36;1", text)
-}
-fn paint_id(text: &str) -> String {
-    ansi("33;1", text)
-}
-fn paint_bold(text: &str) -> String {
-    ansi("1", text)
-}
-fn paint_ok(text: &str) -> String {
-    ansi("32", text)
-}
-fn paint_err(text: &str) -> String {
-    ansi("31", text)
-}
-fn paint_brand(text: &str) -> String {
-    ansi("34;1", text)
-}
+use crate::modules::extensions::{github, version};
 
 /// `ColorfulTheme` brings dialoguer's coloured prompt + active-item ">"
 /// indicator. Wrapped in a small selector so non-TTY shells still get the
@@ -106,17 +51,6 @@ fn picker_theme() -> Box<dyn Theme> {
         Box::new(dialoguer::theme::SimpleTheme)
     }
 }
-
-/// Bundle id from `tauri.conf.json`. Tauri 2's `app_data_dir` returns
-/// `<dirs::data_dir()>/<bundle_id>` on every desktop platform, so we can
-/// reproduce the path without an `AppHandle`. Keep in sync with the
-/// `identifier` field in `tauri.conf.json`. Debug builds switch to the
-/// `.dev` suffix so `pnpm tauri dev` operates on a separate data dir
-/// (see `pty_daemon/paths.rs` for the matching constant).
-#[cfg(debug_assertions)]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi.dev";
-#[cfg(not(debug_assertions))]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
 
 /// Public extension registry. Shape:
 /// `{ official: [{id,name,publisher,description,repository,icon,license}], unofficial: [...] }`.
@@ -294,7 +228,7 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
     }
 
     if looks_like_github_ref(&reference) {
-        let normalized = ext_cmd::normalize_owner_repo(&reference)?;
+        let normalized = github::normalize_owner_repo(&reference)?;
         return install_github(&runtime, &normalized, &root, &state_path);
     }
 
@@ -305,7 +239,7 @@ fn cmd_install(args: &[String]) -> Result<(), String> {
         .chain(doc.unofficial.iter())
         .find(|e| e.id == reference)
         .ok_or_else(|| registry_not_found_msg(&reference, &doc))?;
-    let normalized = ext_cmd::normalize_owner_repo(&entry.repository)?;
+    let normalized = github::normalize_owner_repo(&entry.repository)?;
     install_github(&runtime, &normalized, &root, &state_path)
 }
 
@@ -444,7 +378,7 @@ fn cmd_list(args: &[String]) -> Result<(), String> {
     let pick = entries[idx].1.clone();
     let root = extensions_root()?;
     let state_path = root.join("state.json");
-    let normalized = ext_cmd::normalize_owner_repo(&pick.repository)?;
+    let normalized = github::normalize_owner_repo(&pick.repository)?;
     install_github(&runtime, &normalized, &root, &state_path)
 }
 
@@ -519,7 +453,7 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
             continue;
         };
         let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-        let json = match runtime.block_on(ext_cmd::http_get_text(&api)) {
+        let json = match runtime.block_on(github::http_get_text(&api)) {
             Ok(j) => j,
             Err(e) => {
                 println!(
@@ -530,7 +464,7 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
                 continue;
             }
         };
-        let Some(tag) = ext_cmd::pick_release_tag(&json) else {
+        let Some(tag) = github::pick_release_tag(&json) else {
             println!(
                 "{} {}",
                 paint_dim(&format!("[{id}]")),
@@ -538,9 +472,9 @@ fn cmd_update(args: &[String]) -> Result<(), String> {
             );
             continue;
         };
-        let latest = ext_cmd::strip_v_prefix(&tag);
+        let latest = version::strip_v_prefix(&tag);
         let has_update =
-            ext_cmd::compare_versions(&current_version, &latest) == std::cmp::Ordering::Less;
+            version::compare_versions(&current_version, &latest) == std::cmp::Ordering::Less;
         if let Some(e) = state_w.entries.get_mut(&id) {
             e.latest_version = Some(latest.clone());
             e.last_checked_at_ms = Some(now);
@@ -898,16 +832,15 @@ fn find_installed_for<'a>(
     if let Some(&i) = by_id.get(&e.id) {
         return Some(&rows[i]);
     }
-    let normalized = ext_cmd::normalize_owner_repo(&e.repository).ok()?;
+    let normalized = github::normalize_owner_repo(&e.repository).ok()?;
     by_repo
         .get(&normalized.to_ascii_lowercase())
         .map(|&i| &rows[i])
 }
 
 fn extensions_root() -> Result<PathBuf, String> {
-    let mut p = dirs::data_dir().ok_or_else(|| "could not determine data_dir".to_string())?;
-    p.push(BUNDLE_ID);
-    p.push("extensions");
+    let p = crate::modules::ids::extensions_root()
+        .ok_or_else(|| "could not determine data_dir".to_string())?;
     fs::create_dir_all(&p).map_err(|e| format!("mkdir {}: {e}", p.display()))?;
     Ok(p)
 }
@@ -920,7 +853,7 @@ fn build_runtime() -> Result<tokio::runtime::Runtime, String> {
 }
 
 fn fetch_registry(runtime: &tokio::runtime::Runtime) -> Result<RegistryDoc, String> {
-    let json = runtime.block_on(ext_cmd::http_get_text(REGISTRY_URL))?;
+    let json = runtime.block_on(github::http_get_text(REGISTRY_URL))?;
     serde_json::from_str(&json).map_err(|e| format!("parse registry JSON: {e}"))
 }
 
@@ -1040,8 +973,8 @@ fn install_github(
     state_path: &std::path::Path,
 ) -> Result<(), String> {
     let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-    let json = runtime.block_on(ext_cmd::http_get_text(&api))?;
-    let zip_url = ext_cmd::pick_release_zip(&json)
+    let json = runtime.block_on(github::http_get_text(&api))?;
+    let zip_url = github::pick_release_zip(&json)
         .ok_or_else(|| format!("no .zip asset in latest release of {owner_repo}"))?;
     println!("{} {zip_url}", paint_dim("Downloading"));
     let progress: Box<dyn InstallProgress> = if interactive() {
@@ -1049,7 +982,7 @@ fn install_github(
     } else {
         Box::new(NoopProgress)
     };
-    let bytes = runtime.block_on(ext_cmd::http_get_bytes_with_progress(
+    let bytes = runtime.block_on(github::http_get_bytes_with_progress(
         &zip_url,
         |done, total| {
             progress.phase(InstallPhase::Downloading {
@@ -1155,9 +1088,8 @@ fn help_text() -> String {
         dim_hint1 = paint_dim(
             "Subcommands prompt with an arrow-key picker when the target arg is omitted."
         ),
-        dim_hint2 = paint_dim(
-            "Non-TTY shells (CI, pipes) print a hint instead of stalling on the picker."
-        ),
+        dim_hint2 =
+            paint_dim("Non-TTY shells (CI, pipes) print a hint instead of stalling on the picker."),
         subs = paint_header("SUBCOMMANDS"),
         c_install = paint_id("install   "),
         c_list = paint_id("list             "),
@@ -1184,7 +1116,10 @@ mod tests {
     fn help_text_keeps_sections_and_subcommands() {
         let h = help_text();
         for section in ["USAGE", "INTERACTIVE", "SUBCOMMANDS"] {
-            assert!(h.contains(section), "expected `{section}` in `tedi ext help`");
+            assert!(
+                h.contains(section),
+                "expected `{section}` in `tedi ext help`"
+            );
         }
         for sub in [
             "install",
@@ -1326,7 +1261,7 @@ mod tests {
                 "entry {} has empty repository",
                 e.id
             );
-            ext_cmd::normalize_owner_repo(&e.repository).unwrap_or_else(|err| {
+            github::normalize_owner_repo(&e.repository).unwrap_or_else(|err| {
                 panic!(
                     "registry entry {}: repository `{}` failed to normalize as owner/repo: {err}",
                     e.id, e.repository

@@ -33,6 +33,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::modules::lockext::LockExt;
+
 use super::protocol::{ClientMsg, DaemonMsg, SessionInfo, PROTOCOL_VERSION};
 
 /// Scrollback ring capacity per session. 1 MiB is roughly 12k lines of
@@ -150,7 +152,7 @@ impl crate::modules::pty::session::PtyEventSink for ServerSink {
         // Scrollback ring — drop from the front to keep the tail (recent
         // output is what an attacher needs to see).
         {
-            let mut sb = s.scrollback.lock().unwrap();
+            let mut sb = s.scrollback.lock_or_recover();
             sb.extend(bytes.iter().copied());
             // Trim only once we've overrun the cap by SCROLLBACK_SLACK, then
             // trim all the way back to the cap. Amortizes the O(n) drain - see
@@ -161,7 +163,7 @@ impl crate::modules::pty::session::PtyEventSink for ServerSink {
             }
         }
         // Fan out to subscribers. Encode once; `Send` clones the String.
-        let subs = s.subscribers.lock().unwrap();
+        let subs = s.subscribers.lock_or_recover();
         if !subs.is_empty() {
             let data_b64 = B64.encode(bytes);
             for (_cid, tx) in subs.iter() {
@@ -184,7 +186,7 @@ impl crate::modules::pty::session::PtyEventSink for ServerSink {
         if let Ok(mut info) = s.info.lock() {
             info.alive = false;
         }
-        let subs = s.subscribers.lock().unwrap();
+        let subs = s.subscribers.lock_or_recover();
         for (_cid, tx) in subs.iter() {
             let _ = tx.try_send(DaemonMsg::Exit {
                 session_id: s.id,
@@ -497,11 +499,10 @@ async fn dispatch(
             // otherwise stall both workers in a default multi-thread runtime.
             let state_clone = state.clone();
             let client_tx = tx.clone();
-            let outcome =
-                tokio::task::spawn_blocking(move || {
-                    open_session(&state_clone, client_tx, client_id, cols, rows, cwd)
-                })
-                .await;
+            let outcome = tokio::task::spawn_blocking(move || {
+                open_session(&state_clone, client_tx, client_id, cols, rows, cwd)
+            })
+            .await;
             match outcome {
                 Ok(Ok(id)) => {
                     let _ = tx
@@ -512,12 +513,7 @@ async fn dispatch(
                         .await;
                 }
                 Ok(Err(e)) => {
-                    let _ = tx
-                        .send(DaemonMsg::Err {
-                            req_id,
-                            message: e,
-                        })
-                        .await;
+                    let _ = tx.send(DaemonMsg::Err { req_id, message: e }).await;
                 }
                 Err(join_err) => {
                     let _ = tx
@@ -546,12 +542,7 @@ async fn dispatch(
                     .await;
             }
             Err(e) => {
-                let _ = tx
-                    .send(DaemonMsg::Err {
-                        req_id,
-                        message: e,
-                    })
-                    .await;
+                let _ = tx.send(DaemonMsg::Err { req_id, message: e }).await;
             }
         },
         ClientMsg::Detach { req_id, session_id } => {
@@ -567,12 +558,7 @@ async fn dispatch(
                 let _ = tx.send(DaemonMsg::Ok { req_id }).await;
             }
             Err(e) => {
-                let _ = tx
-                    .send(DaemonMsg::Err {
-                        req_id,
-                        message: e,
-                    })
-                    .await;
+                let _ = tx.send(DaemonMsg::Err { req_id, message: e }).await;
             }
         },
         ClientMsg::Resize {
@@ -585,12 +571,7 @@ async fn dispatch(
                 let _ = tx.send(DaemonMsg::Ok { req_id }).await;
             }
             Err(e) => {
-                let _ = tx
-                    .send(DaemonMsg::Err {
-                        req_id,
-                        message: e,
-                    })
-                    .await;
+                let _ = tx.send(DaemonMsg::Err { req_id, message: e }).await;
             }
         },
         ClientMsg::Close { req_id, session_id } => {
@@ -712,25 +693,30 @@ fn attach_session(
         .cloned()
         .ok_or_else(|| format!("unknown session {session_id}"))?;
     // Resize to the attaching client's viewport so its terminal renders correctly.
-    let _ = shell.pty().master.lock().unwrap().resize(portable_pty::PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    });
+    let _ = shell
+        .pty()
+        .master
+        .lock()
+        .unwrap()
+        .resize(portable_pty::PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
     if let Ok(mut info) = shell.info.lock() {
         info.cols = cols;
         info.rows = rows;
     }
     let scrollback_b64 = {
-        let sb = shell.scrollback.lock().unwrap();
+        let sb = shell.scrollback.lock_or_recover();
         let bytes: Vec<u8> = sb.iter().copied().collect();
         B64.encode(&bytes)
     };
     let alive = shell.alive.load(Ordering::Acquire);
     // Subscribe — replace any prior subscription for this client to keep
     // the list one-per-session-per-client.
-    let mut subs = shell.subscribers.lock().unwrap();
+    let mut subs = shell.subscribers.lock_or_recover();
     subs.retain(|(cid, _)| *cid != client_id);
     subs.push((client_id, client_tx));
     Ok((scrollback_b64, alive))
@@ -740,7 +726,7 @@ fn detach_session(state: &Arc<DaemonState>, client_id: Uuid, session_id: Uuid) {
     let Some(shell) = state.sessions.read().unwrap().get(&session_id).cloned() else {
         return;
     };
-    let mut subs = shell.subscribers.lock().unwrap();
+    let mut subs = shell.subscribers.lock_or_recover();
     subs.retain(|(cid, _)| *cid != client_id);
 }
 
@@ -805,7 +791,7 @@ fn close_session(state: &Arc<DaemonState>, session_id: Uuid) {
     // until conhost drains output). Scope the lock so it releases before
     // the move into the spawn closure.
     {
-        let subs = shell.subscribers.lock().unwrap();
+        let subs = shell.subscribers.lock_or_recover();
         for (_cid, tx) in subs.iter() {
             let _ = tx.try_send(DaemonMsg::Exit {
                 session_id,
@@ -835,9 +821,10 @@ fn close_session(state: &Arc<DaemonState>, session_id: Uuid) {
 }
 
 fn unsubscribe_client(state: &Arc<DaemonState>, client_id: Uuid) {
-    let sessions: Vec<Arc<DaemonSession>> = state.sessions.read().unwrap().values().cloned().collect();
+    let sessions: Vec<Arc<DaemonSession>> =
+        state.sessions.read().unwrap().values().cloned().collect();
     for s in sessions {
-        let mut subs = s.subscribers.lock().unwrap();
+        let mut subs = s.subscribers.lock_or_recover();
         subs.retain(|(cid, _)| *cid != client_id);
     }
 }
@@ -848,4 +835,3 @@ fn now_ms() -> u64 {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
-

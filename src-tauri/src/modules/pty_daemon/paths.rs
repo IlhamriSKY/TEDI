@@ -5,20 +5,7 @@
 
 use std::path::PathBuf;
 
-/// Bundle id - must match `tauri.conf.json`'s `identifier`. Used to locate
-/// the per-user app-data directory without an `AppHandle` (the daemon
-/// boots before Tauri builds, so it has no `AppHandle`). Mirrored from
-/// `cli_ext::BUNDLE_ID`; keep them in sync.
-///
-/// Debug builds use the `.dev` suffix so `pnpm tauri dev` reads from a
-/// separate data dir than the installed release - no more dev runs
-/// inheriting workspaces or PTY sessions from yesterday's prod use.
-/// `tauri.dev.conf.json` overrides the matching Tauri identifier so
-/// `app_data_dir()` lines up with what the daemon writes here.
-#[cfg(debug_assertions)]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi.dev";
-#[cfg(not(debug_assertions))]
-const BUNDLE_ID: &str = "id.ilhamrisky.tedi";
+use crate::modules::ids::BUNDLE_ID;
 
 /// Per-day-ish log file the daemon writes to. The spawning GUI configures
 /// the child process's stderr to point here so `log::info!` / `log::error!`

@@ -23,43 +23,10 @@
 //! because `generate_context!` only exposes them post-boot.
 
 use std::io::{IsTerminal, Write};
-use std::sync::OnceLock;
 
 use crate::modules::cli;
-use crate::modules::extensions::commands as ext_cmd;
-
-// ----- ANSI helpers -----------------------------------------------------
-// Mirrors the gating in `cli.rs` / `cli_ext.rs` / `cli_theme.rs` so all
-// four `tedi` CLI surfaces speak the same palette and respect NO_COLOR.
-
-fn color_enabled() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
-}
-
-fn ansi(code: &str, text: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-fn paint_dim(s: &str) -> String {
-    ansi("2", s)
-}
-fn paint_id(s: &str) -> String {
-    ansi("33;1", s)
-}
-fn paint_ok(s: &str) -> String {
-    ansi("32", s)
-}
-fn paint_warn(s: &str) -> String {
-    ansi("33", s)
-}
-fn paint_header(s: &str) -> String {
-    ansi("36;1", s)
-}
+use crate::modules::cli_paint::{paint_dim, paint_header, paint_id, paint_ok, paint_warn};
+use crate::modules::extensions::{github, version};
 
 /// Update manifest URL. Mirrors `plugins.updater.endpoints[0]` in
 /// `tauri.conf.json`. Tauri normally fetches this from inside the app; we
@@ -177,10 +144,7 @@ fn another_gui_instance_is_running() -> bool {
                         .position(|&c| c == 0)
                         .unwrap_or(entry.szExeFile.len());
                     let name = OsString::from_wide(&entry.szExeFile[..name_len]);
-                    if name
-                        .to_string_lossy()
-                        .eq_ignore_ascii_case("TEDIApp.exe")
-                    {
+                    if name.to_string_lossy().eq_ignore_ascii_case("TEDIApp.exe") {
                         found = true;
                         break;
                     }
@@ -218,12 +182,12 @@ fn run_update() -> Result<(), String> {
         .build()
         .map_err(|e| format!("tokio runtime: {e}"))?;
 
-    let json = runtime.block_on(ext_cmd::http_get_text(ENDPOINT))?;
+    let json = runtime.block_on(github::http_get_text(ENDPOINT))?;
     let manifest: Manifest =
         serde_json::from_str(&json).map_err(|e| format!("parse latest.json: {e}"))?;
 
-    let latest = ext_cmd::strip_v_prefix(&manifest.version);
-    let cmp = ext_cmd::compare_versions(current, &latest);
+    let latest = version::strip_v_prefix(&manifest.version);
+    let cmp = version::compare_versions(current, &latest);
     if cmp != std::cmp::Ordering::Less {
         println!(
             "{} Already on the latest version {}.",
@@ -262,12 +226,18 @@ fn run_update() -> Result<(), String> {
             // network-fetched (unsigned) latest.json, so an embedded ESC/OSC
             // sequence could spoof the terminal (title, OSC 8 links, OSC 52
             // clipboard). Keep tab; drop every other control char.
-            let safe: String = line.chars().filter(|c| !c.is_control() || *c == '\t').collect();
+            let safe: String = line
+                .chars()
+                .filter(|c| !c.is_control() || *c == '\t')
+                .collect();
             println!("  {safe}");
         }
         let extra = manifest.notes.lines().count().saturating_sub(30);
         if extra > 0 {
-            println!("  {}", paint_dim(&format!("({extra} more line(s) omitted)")));
+            println!(
+                "  {}",
+                paint_dim(&format!("({extra} more line(s) omitted)"))
+            );
         }
         println!();
     }
@@ -289,11 +259,14 @@ fn run_update() -> Result<(), String> {
             return Ok(());
         }
     } else {
-        println!("{}", paint_dim("Non-interactive shell; proceeding with download."));
+        println!(
+            "{}",
+            paint_dim("Non-interactive shell; proceeding with download.")
+        );
     }
 
     println!("{} {}", paint_dim("Downloading"), platform.url);
-    let bytes = runtime.block_on(ext_cmd::http_get_bytes(&platform.url))?;
+    let bytes = runtime.block_on(github::http_get_bytes(&platform.url))?;
     println!(
         "{} {}",
         paint_dim("Downloaded"),
@@ -605,7 +578,7 @@ mod tests {
             .build()
             .expect("tokio runtime");
         let json = runtime
-            .block_on(ext_cmd::http_get_text(ENDPOINT))
+            .block_on(github::http_get_text(ENDPOINT))
             .expect("fetch latest.json");
         let m: Manifest = serde_json::from_str(&json).expect("parse manifest");
         let key = current_platform_key().expect("platform key");
@@ -633,7 +606,7 @@ mod tests {
             .build()
             .expect("tokio runtime");
         let json = runtime
-            .block_on(ext_cmd::http_get_text(ENDPOINT))
+            .block_on(github::http_get_text(ENDPOINT))
             .expect("fetch latest.json");
         eprintln!("manifest first 200 chars: {}", &json[..json.len().min(200)]);
         let m: Manifest = serde_json::from_str(&json).expect("parse manifest");
@@ -647,7 +620,7 @@ mod tests {
             return;
         };
         let bytes = runtime
-            .block_on(ext_cmd::http_get_bytes(&platform.url))
+            .block_on(github::http_get_bytes(&platform.url))
             .expect("download bundle");
         eprintln!("downloaded {} bytes from {}", bytes.len(), platform.url);
         verify_signature(&bytes, &platform.signature).expect("signature verify");

@@ -37,7 +37,9 @@ pub fn spawn_daemon_detached() -> io::Result<()> {
 
 fn spawn_daemon_from(exe: &Path) -> io::Result<()> {
     let mut cmd = Command::new(exe);
-    cmd.arg(DAEMON_FLAG).stdin(Stdio::null()).stdout(Stdio::null());
+    cmd.arg(DAEMON_FLAG)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
 
     // Route the daemon's stderr to a log file so its `log::*` macros
     // (installed in `server::init_logging`) survive past launch. Open in

@@ -9,6 +9,8 @@ use portable_pty::{native_pty_system, ChildKiller, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::ipc::Channel;
 
+use crate::modules::lockext::LockExt;
+
 use super::shell_init;
 
 /// Sink the PTY reader/flusher/waiter threads push into. Decouples session
@@ -99,7 +101,7 @@ static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 /// `mod::pty_close` instead of a bare `drop(s)`. Visible to `pty_daemon`
 /// so the daemon's `close_session` can use the same SPAWN_LOCK protection.
 pub fn drop_session(session: Arc<Session>) {
-    let _guard = SPAWN_LOCK.lock().unwrap();
+    let _guard = SPAWN_LOCK.lock_or_recover();
     drop(session);
 }
 
@@ -123,7 +125,7 @@ pub fn spawn_with_sink(
     cwd: Option<String>,
     sink: Arc<dyn PtyEventSink>,
 ) -> Result<(Arc<Session>, PtySize), String> {
-    let _spawn_guard = SPAWN_LOCK.lock().unwrap();
+    let _spawn_guard = SPAWN_LOCK.lock_or_recover();
 
     let pty_system = native_pty_system();
     let size = PtySize {
@@ -181,7 +183,7 @@ pub fn spawn_with_sink(
                             logged_first = true;
                             log::info!("pty first byte after {}ms", spawn_at.elapsed().as_millis());
                         }
-                        let mut g = pending_r.lock().unwrap();
+                        let mut g = pending_r.lock_or_recover();
                         if g.len() + n > MAX_PENDING {
                             // Discard the whole backlog rather than slicing
                             // through escape sequences. Emit a hard reset so
@@ -215,7 +217,7 @@ pub fn spawn_with_sink(
         .spawn(move || loop {
             thread::sleep(FLUSH_INTERVAL);
             let chunk = {
-                let mut g = pending_f.lock().unwrap();
+                let mut g = pending_f.lock_or_recover();
                 if g.is_empty() {
                     if done_f.load(Ordering::Acquire) {
                         break;
@@ -258,7 +260,7 @@ pub fn spawn_with_sink(
             if let Err(e) = reader_thread.join() {
                 log::error!("pty reader thread panicked: {e:?}");
             }
-            let tail = std::mem::take(&mut *pending_e.lock().unwrap());
+            let tail = std::mem::take(&mut *pending_e.lock_or_recover());
             if !tail.is_empty() {
                 sink_exit.data(&tail);
             }

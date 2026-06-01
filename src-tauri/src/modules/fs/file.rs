@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -280,38 +280,8 @@ pub fn fs_read_file_portion(
 #[tauri::command]
 pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
-    let parent = target
-        .parent()
-        .ok_or_else(|| "path has no parent".to_string())?;
-    let file_name = target
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| "path has no file name".to_string())?;
-
-    let tmp = parent.join(format!(".{file_name}.tedi.tmp"));
-
-    {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| {
-            log::debug!("fs_write_file create({}) failed: {e}", tmp.display());
-            e.to_string()
-        })?;
-        f.write_all(content.as_bytes()).map_err(|e| {
-            log::debug!("fs_write_file write({}) failed: {e}", tmp.display());
-            e.to_string()
-        })?;
-        f.sync_all().map_err(|e| e.to_string())?;
-    }
-
-    std::fs::rename(&tmp, &target).map_err(|e| {
-        log::warn!(
-            "fs_write_file rename({} -> {}) failed: {e}",
-            tmp.display(),
-            target.display()
-        );
-        // Best-effort cleanup of the staged temp.
-        let _ = std::fs::remove_file(&tmp);
+    crate::modules::fs::atomic::atomic_write(&target, content.as_bytes()).map_err(|e| {
+        log::warn!("fs_write_file({}) failed: {e}", target.display());
         e.to_string()
-    })?;
-
-    Ok(())
+    })
 }

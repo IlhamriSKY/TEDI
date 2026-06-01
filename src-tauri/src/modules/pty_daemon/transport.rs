@@ -12,14 +12,14 @@
 
 use std::io::{self, Read, Write};
 
-use interprocess::local_socket::{
-    traits::{ListenerExt, Stream as _StreamTrait},
-    ListenerOptions, Stream,
-};
 #[cfg(unix)]
 use interprocess::local_socket::GenericFilePath;
 #[cfg(windows)]
 use interprocess::local_socket::GenericNamespaced;
+use interprocess::local_socket::{
+    traits::{ListenerExt, Stream as _StreamTrait},
+    ListenerOptions, Stream,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;

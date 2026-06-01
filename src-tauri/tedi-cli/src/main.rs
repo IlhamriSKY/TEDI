@@ -111,10 +111,7 @@ fn resolve_gui_exe() -> Option<PathBuf> {
 /// (rather than open a window). Mirrors the routing in `lib::run`'s
 /// `handle_*_and_exit` short-circuits.
 fn is_cli_invocation(rest: &[String]) -> bool {
-    if rest
-        .iter()
-        .any(|a| matches!(a.as_str(), "--update" | "-u"))
-    {
+    if rest.iter().any(|a| matches!(a.as_str(), "--update" | "-u")) {
         return true;
     }
     if rest.iter().any(|a| a == "--extension") {
