@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { basename, toForwardSlash } from "@/lib/path";
 import { native } from "../lib/native";
 import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import type { MentionItem } from "../components/MentionPicker";
@@ -17,16 +18,10 @@ type State = {
   loading: boolean;
 };
 
-function basename(path: string): string {
-  const norm = path.replace(/\\/g, "/");
-  const i = norm.lastIndexOf("/");
-  return i === -1 ? norm : norm.slice(i + 1);
-}
-
 function relativize(abs: string, root: string | null): string {
   if (!root) return abs;
-  const a = abs.replace(/\\/g, "/");
-  const r = root.replace(/\\/g, "/").replace(/\/$/, "");
+  const a = toForwardSlash(abs);
+  const r = toForwardSlash(root).replace(/\/$/, "");
   if (!r) return a;
   return a.startsWith(r + "/") ? a.slice(r.length + 1) : a;
 }

@@ -3,7 +3,6 @@ import { z } from "zod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { runSubagent } from "../agents/runSubagent";
 import { SUBAGENTS, type SubagentType } from "../agents/registry";
-import { useChatStore } from "../store/chatStore";
 import { scrubErrorPath, type ToolContext } from "./context";
 
 const TYPE_KEYS = Object.keys(SUBAGENTS) as [SubagentType, ...SubagentType[]];
@@ -30,7 +29,8 @@ Auto.`,
           .describe("Short label shown in the chat UI for the spawn card."),
       }),
       execute: async ({ type, prompt, description }) => {
-        const { apiKeys, selectedModelId } = useChatStore.getState();
+        const apiKeys = ctx.getApiKeys();
+        const selectedModelId = ctx.getSelectedModelId();
         const prefs = usePreferencesStore.getState();
         try {
           const r = await runSubagent({

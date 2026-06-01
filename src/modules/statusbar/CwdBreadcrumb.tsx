@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { basename, toForwardSlash } from "@/lib/path";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowRight01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { segmentsFromCwd, type Segment } from "./lib/pathUtils";
@@ -30,11 +31,6 @@ function dirname(path: string): string {
   return path.slice(0, i);
 }
 
-function basename(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i === -1 ? path : path.slice(i + 1);
-}
-
 // Pill/badge styles for the breadcrumb segments. Clickable segments use the
 // outline-style badge (muted text, fills on hover); the current folder uses
 // the filled secondary badge so it visually anchors the trail.
@@ -46,7 +42,7 @@ const SEGMENT_BADGE_ACTIVE =
 function joinPath(parent: string, name: string): string {
   // Normalize Windows backslashes from the backend so the resulting path
   // matches the forward-slash convention used by segmentsFromCwd.
-  const norm = parent.replace(/\\/g, "/");
+  const norm = toForwardSlash(parent);
   return norm.endsWith("/") ? `${norm}${name}` : `${norm}/${name}`;
 }
 

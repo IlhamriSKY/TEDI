@@ -1,4 +1,5 @@
 import { IS_LINUX } from "@/lib/platform";
+import { IPC_EVENTS } from "@/lib/ipc";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -212,7 +213,7 @@ export function useUpdater() {
   }, [checkForUpdate]);
 
   useEffect(() => {
-    const unlistenP = listen<unknown>("tedi:trigger-update", () => {
+    const unlistenP = listen<unknown>(IPC_EVENTS.TRIGGER_UPDATE, () => {
       setForceOpenSeq((n) => n + 1);
       void checkForUpdate();
     });

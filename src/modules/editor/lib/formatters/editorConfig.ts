@@ -28,6 +28,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { FsReadResult } from "@/lib/ipc";
 import type { PartialPrettierOptions } from "./projectConfig";
 
 type Section = {
@@ -58,12 +59,7 @@ function joinPath(dir: string, child: string): string {
 
 async function tryReadText(path: string): Promise<string | null> {
   try {
-    const res = await invoke<
-      | { kind: "text"; content: string }
-      | { kind: "image" }
-      | { kind: "binary" }
-      | { kind: "toolarge" }
-    >("fs_read_file", { path });
+    const res = await invoke<FsReadResult>("fs_read_file", { path });
     if (res.kind !== "text") return null;
     return res.content;
   } catch {
@@ -192,9 +188,7 @@ async function loadFromDir(dir: string): Promise<Parsed | null> {
  * upward, accumulates matching sections, and stops at the first
  * `root = true` file (per spec).
  */
-export async function resolveEditorConfig(
-  filepath: string,
-): Promise<PartialPrettierOptions> {
+export async function resolveEditorConfig(filepath: string): Promise<PartialPrettierOptions> {
   const stack: Parsed[] = [];
   let dir = parentDir(filepath);
   while (dir) {

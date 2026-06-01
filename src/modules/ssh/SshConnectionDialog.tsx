@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import type { FsReadResult } from "@/lib/ipc";
 import {
   clearFingerprint,
   getConnectionSecrets,
@@ -224,12 +225,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         title: "Pick SSH private key",
       });
       if (typeof picked !== "string") return;
-      const result = await invoke<
-        | { kind: "text"; content: string; size: number }
-        | { kind: "binary"; size: number }
-        | { kind: "image"; dataUrl: string; mime: string; size: number }
-        | { kind: "toolarge"; size: number; limit: number }
-      >("fs_read_file", { path: picked });
+      const result = await invoke<FsReadResult>("fs_read_file", { path: picked });
       if (result.kind !== "text") {
         setImported({
           kind: "error",
@@ -418,10 +414,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             <Field label="Recorded server key">
               {pinnedFingerprint ? (
                 <div className="border-border/60 bg-muted/30 flex items-center justify-between gap-2 rounded-md border px-2 py-1">
-                  <span
-                    className="truncate font-mono text-[10.5px]"
-                    title={pinnedFingerprint}
-                  >
+                  <span className="truncate font-mono text-[10.5px]" title={pinnedFingerprint}>
                     {pinnedFingerprint}
                   </span>
                   <Button
@@ -447,7 +440,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           {test.kind === "running" ? (
             <p className="text-muted-foreground text-[11px]">Testing connection…</p>
           ) : test.kind === "ok" ? (
-            <p className="text-[11px] text-diff-added">
+            <p className="text-diff-added text-[11px]">
               Connected · server key {test.fingerprint || "(unavailable)"} · {test.durationMs}ms
             </p>
           ) : test.kind === "fail" ? (

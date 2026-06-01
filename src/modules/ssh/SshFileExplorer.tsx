@@ -19,6 +19,7 @@ import {
 } from "@/modules/explorer/lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
+import { basename } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   ArrowDown01Icon,
@@ -54,13 +55,6 @@ type Props = {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 };
-
-function basename(path: string): string {
-  if (path === "/") return "/";
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
-  const idx = trimmed.lastIndexOf("/");
-  return idx >= 0 ? trimmed.slice(idx + 1) || trimmed : trimmed;
-}
 
 export function SshFileExplorer({
   sessionId,

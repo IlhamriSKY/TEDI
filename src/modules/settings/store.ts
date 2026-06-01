@@ -568,8 +568,7 @@ export async function setOpenAICompatibleInstances(
   value: OpenAICompatibleInstance[],
 ): Promise<void> {
   await writePref(KEY_OPENAI_COMPATIBLE_INSTANCES, value);
-  const def =
-    value.find((i) => i.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) ?? value[0];
+  const def = value.find((i) => i.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) ?? value[0];
   if (def && def.baseURL) {
     await writePref(KEY_OPENAI_COMPATIBLE_BASE_URL, def.baseURL);
   }
@@ -780,51 +779,54 @@ export type PrefKey = keyof Preferences;
 export async function onPreferencesChange(
   cb: (key: PrefKey, value: unknown) => void,
 ): Promise<UnlistenFn> {
-  const map: Record<string, PrefKey> = {
-    [KEY_THEME]: "theme",
-    [KEY_DEFAULT_MODEL]: "defaultModelId",
-    [KEY_DEFAULT_PROVIDER]: "defaultProviderId",
-    [KEY_EDITOR_THEME]: "editorTheme",
-    [KEY_CUSTOM_INSTRUCTIONS]: "customInstructions",
-    [KEY_AUTOSTART]: "autostart",
-    [KEY_RESTORE_WINDOW]: "restoreWindowState",
-    [KEY_AUTOCOMPLETE_ENABLED]: "autocompleteEnabled",
-    [KEY_AUTOCOMPLETE_PROVIDER]: "autocompleteProvider",
-    [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
-    [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
-    [KEY_OPENAI_COMPATIBLE_BASE_URL]: "openaiCompatibleBaseURL",
-    [KEY_OPENAI_COMPATIBLE_INSTANCES]: "openaiCompatibleInstances",
-    [KEY_VIM_MODE]: "vimMode",
-    [KEY_LINE_WRAP]: "lineWrap",
-    [KEY_SHOW_MINIMAP]: "showMinimap",
-    [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
-    [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
-    [KEY_SHOW_HIDDEN_FILES]: "showHiddenFiles",
-    [KEY_SHOW_SOURCE_CONTROL]: "showSourceControl",
-    [KEY_SOURCE_CONTROL_IN_RIGHT_PANEL]: "sourceControlInRightPanel",
-    [KEY_SHORTCUTS]: "shortcuts",
-    [KEY_EXTENSION_SHORTCUTS]: "extensionShortcuts",
-    [KEY_PINNED_MODELS]: "pinnedModelIds",
-    [KEY_APPROVAL_MODE]: "approvalMode",
-    [KEY_LAST_MODEL]: "lastModelId",
-    [KEY_LAST_PROVIDER]: "lastProviderId",
-    [KEY_CONTENT_ZOOM]: "contentZoom",
-    [KEY_UI_ZOOM]: "uiZoom",
-    [KEY_AI_NOTIFICATIONS_ENABLED]: "aiNotificationsEnabled",
-    [KEY_BRAND_COLOR]: "brandColor",
-    [KEY_CUSTOM_THEME_ENABLED]: "customThemeEnabled",
-    [KEY_CUSTOM_THEME]: "customTheme",
-    // Theme transparency + saved presets are written from the Settings window
-    // but consumed live by the main window (ThemeProvider applies opacity; the
-    // zustand store mirrors presets into the Theme settings grid). Without
-    // these two entries the committed opacity never reaches the main window
-    // (so a freshly-set wallpaper stays hidden behind solid surfaces) and a
-    // saved preset doesn't appear until reload.
-    [KEY_APP_OPACITY]: "appOpacity",
-    [KEY_USER_THEME_PRESETS]: "userThemePresets",
-    [KEY_FORMAT_ON_SAVE]: "formatOnSave",
-    [KEY_FORMATTERS]: "formatters",
-  };
+  // One entry per PrefKey. `satisfies Record<PrefKey, string>` turns a forgotten
+  // key into a COMPILE error instead of a silently-dropped cross-window update -
+  // a missing entry here was the documented root cause of the opacity/preset
+  // cross-window bugs (appOpacity + userThemePresets were the entries that got
+  // dropped). The reverse lookup the listeners need is derived below.
+  const prefToStoreKey = {
+    theme: KEY_THEME,
+    defaultModelId: KEY_DEFAULT_MODEL,
+    defaultProviderId: KEY_DEFAULT_PROVIDER,
+    editorTheme: KEY_EDITOR_THEME,
+    customInstructions: KEY_CUSTOM_INSTRUCTIONS,
+    autostart: KEY_AUTOSTART,
+    restoreWindowState: KEY_RESTORE_WINDOW,
+    autocompleteEnabled: KEY_AUTOCOMPLETE_ENABLED,
+    autocompleteProvider: KEY_AUTOCOMPLETE_PROVIDER,
+    autocompleteModelId: KEY_AUTOCOMPLETE_MODEL,
+    lmstudioBaseURL: KEY_LMSTUDIO_BASE_URL,
+    openaiCompatibleBaseURL: KEY_OPENAI_COMPATIBLE_BASE_URL,
+    openaiCompatibleInstances: KEY_OPENAI_COMPATIBLE_INSTANCES,
+    vimMode: KEY_VIM_MODE,
+    lineWrap: KEY_LINE_WRAP,
+    showMinimap: KEY_SHOW_MINIMAP,
+    terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,
+    terminalFontSize: KEY_TERMINAL_FONT_SIZE,
+    showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
+    showSourceControl: KEY_SHOW_SOURCE_CONTROL,
+    sourceControlInRightPanel: KEY_SOURCE_CONTROL_IN_RIGHT_PANEL,
+    shortcuts: KEY_SHORTCUTS,
+    extensionShortcuts: KEY_EXTENSION_SHORTCUTS,
+    pinnedModelIds: KEY_PINNED_MODELS,
+    approvalMode: KEY_APPROVAL_MODE,
+    lastModelId: KEY_LAST_MODEL,
+    lastProviderId: KEY_LAST_PROVIDER,
+    contentZoom: KEY_CONTENT_ZOOM,
+    uiZoom: KEY_UI_ZOOM,
+    aiNotificationsEnabled: KEY_AI_NOTIFICATIONS_ENABLED,
+    brandColor: KEY_BRAND_COLOR,
+    customThemeEnabled: KEY_CUSTOM_THEME_ENABLED,
+    customTheme: KEY_CUSTOM_THEME,
+    // Written from the Settings window, consumed live by the main window.
+    appOpacity: KEY_APP_OPACITY,
+    userThemePresets: KEY_USER_THEME_PRESETS,
+    formatOnSave: KEY_FORMAT_ON_SAVE,
+    formatters: KEY_FORMATTERS,
+  } satisfies Record<PrefKey, string>;
+  const map = Object.fromEntries(
+    Object.entries(prefToStoreKey).map(([pref, storeKey]) => [storeKey, pref as PrefKey]),
+  ) as Record<string, PrefKey>;
   // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
   const [unsubLocal, unsubEvent] = await Promise.all([
     store.onChange<unknown>((key, value) => {

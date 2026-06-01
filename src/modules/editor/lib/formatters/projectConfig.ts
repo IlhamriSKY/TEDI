@@ -30,6 +30,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { FsReadResult } from "@/lib/ipc";
 
 export type PartialPrettierOptions = Partial<{
   semi: boolean;
@@ -75,12 +76,7 @@ function joinPath(dir: string, child: string): string {
 
 async function tryReadText(path: string): Promise<string | null> {
   try {
-    const res = await invoke<
-      | { kind: "text"; content: string; size: number }
-      | { kind: "image" }
-      | { kind: "binary" }
-      | { kind: "toolarge" }
-    >("fs_read_file", { path });
+    const res = await invoke<FsReadResult>("fs_read_file", { path });
     if (res.kind !== "text") return null;
     return res.content;
   } catch {

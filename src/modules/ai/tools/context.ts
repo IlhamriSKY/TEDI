@@ -1,4 +1,6 @@
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { ProviderKeys } from "../lib/keyring";
+import type { DynamicModelId } from "../config";
 
 export type ToolContext = {
   /** Active terminal cwd for resolving relative paths. Null means home. */
@@ -54,6 +56,11 @@ export type ToolContext = {
   readCache: Set<string>;
   /** Active chat session id. Used by tools that persist per-session state. */
   getSessionId: () => string | null;
+  /** Provider API keys + selected model, read lazily so tools never import the
+   *  chat store (which would close a store -> lib -> tools -> store import cycle).
+   *  Used by `run_subagent` to spawn with the parent agent's credentials. */
+  getApiKeys: () => ProviderKeys;
+  getSelectedModelId: () => DynamicModelId;
   /** Fires when the agent loop is cancelled (Stop, session deleted, provider
    *  error). Tools should bail early. Undefined means never-aborted. */
   abortSignal?: AbortSignal;

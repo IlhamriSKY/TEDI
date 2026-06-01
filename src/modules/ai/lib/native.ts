@@ -1,21 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { FsReadResult, FsReadPortionResult } from "@/lib/ipc";
 
-export type ReadResult =
-  | { kind: "text"; content: string; size: number }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
-
-export type ReadPortionResult =
-  | {
-      kind: "text";
-      content: string;
-      size: number;
-      totalLines: number;
-      startLine: number;
-      endLine: number;
-    }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
+/** @deprecated Import `FsReadResult` from `@/lib/ipc` instead. */
+export type ReadResult = FsReadResult;
+/** @deprecated Import `FsReadPortionResult` from `@/lib/ipc` instead. */
+export type ReadPortionResult = FsReadPortionResult;
 
 export type DirEntry = {
   name: string;

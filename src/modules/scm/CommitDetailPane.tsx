@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { basename } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { gitCommitDetail } from "./api";
 import type { CommitDetail, CommitFile, GitChangeStatus, OpenDiffInput } from "./types";
@@ -34,11 +35,6 @@ const STATUS_TONE: Record<GitChangeStatus, string> = {
   conflicted: "text-destructive",
   ignored: "text-muted-foreground",
 };
-
-function basename(p: string): string {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : p;
-}
 
 function dirname(p: string): string {
   const i = p.lastIndexOf("/");
@@ -116,61 +112,61 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff }: Props) {
   return (
     <div className="flex max-h-[min(70vh,520px)] flex-col overflow-y-auto">
       <div className="border-border/60 border-b px-3 py-2.5">
-          <div className="text-foreground/90 text-[12.5px] leading-snug font-medium break-words">
-            {detail.subject || "(no commit message)"}
-          </div>
-          {detail.body ? (
-            <pre className="text-muted-foreground mt-1.5 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap">
-              {detail.body}
-            </pre>
-          ) : null}
-          <div className="text-muted-foreground mt-2 flex flex-col gap-0.5 text-[10.5px]">
-            <span>
-              <span className="text-foreground/70">{detail.authorName}</span>
-              {detail.authorEmail ? (
-                <span className="text-muted-foreground/70"> &lt;{detail.authorEmail}&gt;</span>
-              ) : null}
+        <div className="text-foreground/90 text-[12.5px] leading-snug font-medium break-words">
+          {detail.subject || "(no commit message)"}
+        </div>
+        {detail.body ? (
+          <pre className="text-muted-foreground mt-1.5 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap">
+            {detail.body}
+          </pre>
+        ) : null}
+        <div className="text-muted-foreground mt-2 flex flex-col gap-0.5 text-[10.5px]">
+          <span>
+            <span className="text-foreground/70">{detail.authorName}</span>
+            {detail.authorEmail ? (
+              <span className="text-muted-foreground/70"> &lt;{detail.authorEmail}&gt;</span>
+            ) : null}
+            {" · "}
+            {formatTime(detail.authorTime)}
+          </span>
+          {committerDiffers ? (
+            <span className="text-muted-foreground/80">
+              committed by {detail.committerName}
               {" · "}
-              {formatTime(detail.authorTime)}
+              {formatTime(detail.commitTime)}
             </span>
-            {committerDiffers ? (
-              <span className="text-muted-foreground/80">
-                committed by {detail.committerName}
-                {" · "}
-                {formatTime(detail.commitTime)}
+          ) : null}
+          <span className="text-muted-foreground/70 flex items-center gap-1.5 font-mono">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="tabular-nums">{detail.shortSha}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{detail.sha}</TooltipContent>
+            </Tooltip>
+            {detail.parents.length > 1 ? (
+              <span className="text-muted-foreground/60">
+                (merge of {detail.parents.length} parents)
               </span>
             ) : null}
-            <span className="text-muted-foreground/70 flex items-center gap-1.5 font-mono">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="tabular-nums">{detail.shortSha}</span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{detail.sha}</TooltipContent>
-              </Tooltip>
-              {detail.parents.length > 1 ? (
-                <span className="text-muted-foreground/60">
-                  (merge of {detail.parents.length} parents)
-                </span>
-              ) : null}
-            </span>
-          </div>
+          </span>
         </div>
+      </div>
 
-        <div className="text-muted-foreground/70 px-3 py-1.5 text-[10px] tracking-wide uppercase">
-          {detail.files.length === 0
-            ? "No file changes"
-            : `${detail.files.length} file${detail.files.length === 1 ? "" : "s"} changed`}
-        </div>
+      <div className="text-muted-foreground/70 px-3 py-1.5 text-[10px] tracking-wide uppercase">
+        {detail.files.length === 0
+          ? "No file changes"
+          : `${detail.files.length} file${detail.files.length === 1 ? "" : "s"} changed`}
+      </div>
 
-        <ul className="pb-1">
-          {detail.files.map((f) => (
-            <FileRow
-              key={`${f.path}:${f.status}`}
-              file={f}
-              onClick={openFile ? () => openFile(f) : undefined}
-            />
-          ))}
-        </ul>
+      <ul className="pb-1">
+        {detail.files.map((f) => (
+          <FileRow
+            key={`${f.path}:${f.status}`}
+            file={f}
+            onClick={openFile ? () => openFile(f) : undefined}
+          />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -218,9 +214,7 @@ function FileRow({ file, onClick }: { file: CommitFile; onClick?: () => void }) 
             {name}
           </span>
           {file.oldPath && file.oldPath !== file.path ? (
-            <span className="text-muted-foreground truncate text-[10px]">
-              ← {file.oldPath}
-            </span>
+            <span className="text-muted-foreground truncate text-[10px]">← {file.oldPath}</span>
           ) : dir ? (
             <span className="text-muted-foreground truncate text-[10px]">{dir}</span>
           ) : null}

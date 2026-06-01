@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
+import { IPC_EVENTS } from "@/lib/ipc";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -166,7 +167,7 @@ export function SettingsApp() {
         setActive(detail as SettingsTab);
       }
     };
-    const unlistenPromise = getCurrentWebviewWindow().listen<string>("tedi:settings-tab", (e) =>
+    const unlistenPromise = getCurrentWebviewWindow().listen<string>(IPC_EVENTS.SETTINGS_TAB, (e) =>
       apply(e.payload),
     );
     return () => {

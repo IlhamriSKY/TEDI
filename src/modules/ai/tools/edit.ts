@@ -21,6 +21,7 @@ async function applyEdits(
 ): Promise<EditResult> {
   const r = await native.readFile(abs);
   if (r.kind === "binary") return { error: "binary file refused", path: abs };
+  if (r.kind === "image") return { error: "image file refused", path: abs };
   if (r.kind === "toolarge") return { error: `file too large (${r.size} bytes)`, path: abs };
 
   const original = r.content;

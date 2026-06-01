@@ -6,6 +6,7 @@ import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { toast } from "@/components/ui/toast";
+import type { FsReadResult } from "@/lib/ipc";
 import { getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
@@ -222,9 +223,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const addCommand = useCallback(
     (cmd: SlashCommandMeta) =>
-      setPickedCommands((prev) =>
-        prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd],
-      ),
+      setPickedCommands((prev) => (prev.some((p) => p.name === cmd.name) ? prev : [...prev, cmd])),
     [],
   );
   const removeCommand = useCallback(
@@ -234,18 +233,30 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const attachFileByPath = useCallback(async (path: string) => {
     try {
-      type ReadResult =
-        | { kind: "text"; content: string; size: number }
-        | { kind: "binary"; size: number }
-        | { kind: "toolarge"; size: number; limit: number };
-      const result = await invoke<ReadResult>("fs_read_file", { path });
+      const result = await invoke<FsReadResult>("fs_read_file", { path });
+      const name = normalizeBasename(path);
+      const id = `path-${path}`;
+      if (result.kind === "image") {
+        setFiles((prev) => {
+          if (prev.some((f) => f.id === id)) return prev;
+          const att: FileAttachment = {
+            id,
+            name,
+            kind: "image",
+            mediaType: result.mime,
+            url: result.dataUrl,
+            size: result.size,
+          };
+          return [...prev, att];
+        });
+        useChatStore.getState().focusInput();
+        return;
+      }
       if (result.kind !== "text") {
         // Binary/oversize files: skip.
         console.warn("attachFileByPath: skipped non-text file", path, result);
         return;
       }
-      const name = normalizeBasename(path);
-      const id = `path-${path}`;
       setFiles((prev) => {
         if (prev.some((f) => f.id === id)) return prev;
         const att: FileAttachment = {

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { basename } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import {
   ArrowDown01Icon,
@@ -12,11 +13,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { useChatStore } from "../store/chatStore";
 import { usePlanStore, type QueuedEdit } from "../store/planStore";
-
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
 
 function diffStats(original: string, proposed: string): { added: number; removed: number } {
   const a = original.split("\n");
@@ -127,9 +123,7 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 font-mono text-[11.5px]">
             <span className="text-foreground truncate">{basename(item.path)}</span>
-            {isNew ? (
-              <span className="text-diff-added text-[10px]">new</span>
-            ) : null}
+            {isNew ? <span className="text-diff-added text-[10px]">new</span> : null}
           </div>
           <div className="text-muted-foreground truncate font-mono text-[10px]">{item.path}</div>
           {stats ? (

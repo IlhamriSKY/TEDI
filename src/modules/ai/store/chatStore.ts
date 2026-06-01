@@ -367,6 +367,8 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     isTerminalBusy: (target) => useChatStore.getState().live.isTerminalBusy(target),
     readCache,
     getSessionId: () => sessionId,
+    getApiKeys: () => useChatStore.getState().apiKeys,
+    getSelectedModelId: () => useChatStore.getState().selectedModelId,
   };
 
   // `agentMeta` is a single global field the UI renders for the ACTIVE session

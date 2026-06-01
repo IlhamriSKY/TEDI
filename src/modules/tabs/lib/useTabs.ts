@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { basename } from "@/lib/path";
 import {
   findLeaf,
   hasLeaf,
@@ -163,11 +164,6 @@ export type TabPatch = Partial<{
   dirty: boolean;
   url: string;
 }>;
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : path;
-}
 
 function titleFromUrl(url: string): string {
   try {

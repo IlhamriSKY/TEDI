@@ -10,6 +10,8 @@
  * silently exfiltrating obvious secrets.
  */
 
+import { basename, toForwardSlash } from "@/lib/path";
+
 const SECRET_BASENAME_PATTERNS: RegExp[] = [
   /^\.env(\..+)?$/i, // .env, .env.local, .env.production
   /^.*\.pem$/i,
@@ -51,17 +53,8 @@ const FORBIDDEN_PREFIXES = [
 
 export type SafetyResult = { ok: true } | { ok: false; reason: string };
 
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
-
-function normalize(p: string): string {
-  return p.replace(/\\/g, "/");
-}
-
 export function checkReadable(path: string): SafetyResult {
-  const norm = normalize(path);
+  const norm = toForwardSlash(path);
   const base = basename(norm);
 
   for (const re of SECRET_BASENAME_PATTERNS) {
@@ -90,7 +83,7 @@ export function checkWritable(path: string): SafetyResult {
   const r = checkReadable(path);
   if (!r.ok) return r;
 
-  const norm = normalize(path);
+  const norm = toForwardSlash(path);
   for (const prefix of FORBIDDEN_PREFIXES) {
     if (norm.startsWith(prefix)) {
       return {

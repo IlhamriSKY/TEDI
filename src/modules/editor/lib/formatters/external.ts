@@ -21,6 +21,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { FsReadResult } from "@/lib/ipc";
 
 type FormatOutput = {
   stdout: string;
@@ -64,12 +65,7 @@ async function writeFile(path: string, content: string): Promise<void> {
 }
 
 async function readFile(path: string): Promise<string> {
-  const res = await invoke<
-    | { kind: "text"; content: string; size: number }
-    | { kind: "image" }
-    | { kind: "binary" }
-    | { kind: "toolarge" }
-  >("fs_read_file", { path });
+  const res = await invoke<FsReadResult>("fs_read_file", { path });
   if (res.kind !== "text") throw new Error(`formatter produced non-text output (${res.kind})`);
   return res.content;
 }

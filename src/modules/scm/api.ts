@@ -1,12 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { CommitDetail, GitCommit, GitStatus } from "./types";
+import type { FsReadResult } from "@/lib/ipc";
 
-/** Mirrors Rust `fs::file::ReadResult`. Kept in sync manually. */
-export type FileReadResult =
-  | { kind: "text"; content: string; size: number }
-  | { kind: "image"; dataUrl: string; mime: string; size: number }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
+/** Mirrors Rust `fs::file::ReadResult` (git_file_head / git_file_at reuse it). */
+export type FileReadResult = FsReadResult;
 
 export function gitStatus(repoPath: string): Promise<GitStatus> {
   return invoke<GitStatus>("git_status", { repoPath });
