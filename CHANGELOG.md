@@ -4,6 +4,42 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.16] - 02-06-2026
+
+> Internal architecture cleanup. This release is behaviour-preserving: no features were added or removed and no public behaviour changed. The goal is a codebase a new open-source contributor can navigate, with the large "god files" decomposed into focused units.
+
+### Added
+
+- **`ARCHITECTURE.md` and a zero-dependency module import guard.** A new top-level [`ARCHITECTURE.md`](ARCHITECTURE.md) maps the two-process Tauri model (React webview <-> Rust backend), the `src/modules/*` feature layout, and the IPC boundary so a new contributor can orient without reading every file first. [`scripts/check-imports.mjs`](scripts/check-imports.mjs) (wired into [`ci.yml`](.github/workflows/ci.yml)) fails the build when a module reaches across a forbidden boundary, so the layering is enforced rather than aspirational. The onboarding docs ([`README.md`](README.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`TEDI.md`](TEDI.md)) were corrected where they had drifted from the code, and a [`.nvmrc`](.nvmrc) pins the supported Node line (Vite 8 requires Node >= 20.19).
+
+### Changed
+
+- **`App.tsx` decomposed into domain hooks plus a dialogs host.** The ~3,000-line [`App.tsx`](src/app/App.tsx) coordinator drops to ~1,650 lines by extracting its logic verbatim into focused hooks under [`src/app/hooks/`](src/app/hooks) (`useWorkspaceSwitching`, `usePaneHandles`, `useTabActions`, `useFileActions`, `useHeaderActions`, `useExtensionSidebarBridges`, `useAppContextBridge`, `useApplyZoom`, `useSshLeafState`, `useRightPanelExclusion`, `tabsApi`) and pure helpers under [`src/app/lib/`](src/app/lib) (`terminalSnapshot`, `shortcutHandlers`, `buildLiveContext`), with every dialog tree lifted into [`AppDialogs.tsx`](src/app/components/AppDialogs.tsx). Hook call order and dependency arrays are preserved exactly, so runtime behaviour is unchanged.
+- **The remaining large UI views split into subcomponents.** Each oversized single-file view is broken into reusable pieces without changing its rendered output: [`TabBar.tsx`](src/modules/tabs/TabBar.tsx), [`ModelsSection.tsx`](src/settings/sections/ModelsSection.tsx), [`ExtensionsSection.tsx`](src/settings/sections/ExtensionsSection.tsx), [`FileExplorer.tsx`](src/modules/explorer/FileExplorer.tsx), [`ExplorerGrep.tsx`](src/modules/explorer/ExplorerGrep.tsx), [`SourceControlPanel.tsx`](src/modules/scm/SourceControlPanel.tsx), [`AiStatusBarControls.tsx`](src/modules/ai/components/AiStatusBarControls.tsx), and [`AiInputBar.tsx`](src/modules/ai/components/AiInputBar.tsx) now delegate to new `components/` siblings (tab entries, model dropdowns, extension cards, grep rows, SCM change rows, AI chips / model section, and more) plus shared `lib/` helpers.
+- **Backend modules centralized.** Cross-cutting Rust helpers that had been copy-pasted are extracted into single sources of truth: id generation ([`ids.rs`](src-tauri/src/modules/ids.rs)), atomic write-tmp-fsync-rename ([`fs/atomic.rs`](src-tauri/src/modules/fs/atomic.rs)), CLI ANSI painting ([`cli_paint.rs`](src-tauri/src/modules/cli_paint.rs)), cross-window events ([`events.rs`](src-tauri/src/modules/events.rs)), poison-recovering lock access ([`lockext.rs`](src-tauri/src/modules/lockext.rs)), and the extension GitHub / version-compare logic ([`extensions/github.rs`](src-tauri/src/modules/extensions/github.rs), [`extensions/version.rs`](src-tauri/src/modules/extensions/version.rs)), which shrinks [`extensions/commands.rs`](src-tauri/src/modules/extensions/commands.rs) from ~400 lines of mixed concerns.
+- **Frontend IPC and path helpers unified.** A new [`ipc.ts`](src/lib/ipc.ts) gives the filesystem read path a single discriminated-union result type (text / image / binary / too-large) mirroring the Rust enum, and hosts the shared cross-window event names; a new [`path.ts`](src/lib/path.ts) consolidates the duplicated `basename` / `dirname` / segment helpers. An AI module import cycle was broken and the preferences change-map hardened so newly added live-propagating prefs cannot be silently dropped.
+
+### Fixed
+
+- **React diagnostics surfaced during the refactor.** Resolved the `react-doctor` findings introduced by the extraction (an unstable `key` from a mutated counter in [`HighlightLine.tsx`](src/modules/explorer/components/HighlightLine.tsx), and several `only-export-components` warnings) by moving non-component exports into dedicated `lib/` modules.
+
+## [0.3.15] - 31-05-2026
+
+> Security and reliability hardening across the BYOK AI agent, extension, and PTY-daemon surfaces (audit of 31 adversarially-verified findings). Gates: `tsc`, `cargo check`, and `cargo clippy --all-targets` all clean.
+
+### Security
+
+- **AI tools no longer accept embedded newlines in `suggest_command` / `send_to_terminal`,** closing an approval-free command-injection path via raw PTY writes ([`tools/terminal.ts`](src/modules/ai/tools/terminal.ts)).
+- **The secret deny-list is applied per grep / glob hit, and symlinks are canonicalized before the deny-list check on file reads,** so a symlinked or match-by-match path cannot leak secret files ([`tools/search.ts`](src/modules/ai/tools/search.ts), [`tools/fs.ts`](src/modules/ai/tools/fs.ts)).
+- **Markdown surfaces block remote images and restrict link schemes,** closing a zero-click beacon / exfiltration vector on every Streamdown render ([`markdownSafety.ts`](src/lib/markdownSafety.ts), [`message.tsx`](src/components/ai-elements/message.tsx), [`reasoning.tsx`](src/components/ai-elements/reasoning.tsx)).
+- **The PTY daemon enforces a mandatory Hello handshake, session and connection caps, and a tighter inbound frame cap,** with exited-session reuse rejected ([`pty_daemon/server.rs`](src-tauri/src/modules/pty_daemon/server.rs), [`pty_daemon/spawn.rs`](src-tauri/src/modules/pty_daemon/spawn.rs)).
+- **Updater release notes and the installer filename are sanitized, manifest fetches are capped, and the daemon log rotates** ([`cli_update.rs`](src-tauri/src/modules/cli_update.rs), [`extensions/commands.rs`](src-tauri/src/modules/extensions/commands.rs)).
+
+### Fixed
+
+- **Background processes are reaped with bounded memory** (Windows Job Object plus a grace-bounded drain join on owner exit), and `shell_bg_remove` no longer leaks ([`shell/mod.rs`](src-tauri/src/modules/shell/mod.rs)).
+- **React error boundaries** were added at the root, per-pane, and per-message-part levels so a single render failure can no longer blank the app ([`ErrorBoundary.tsx`](src/components/ErrorBoundary.tsx), [`main.tsx`](src/main.tsx), [`AiChat.tsx`](src/modules/ai/components/AiChat.tsx)).
+
 ## [0.3.14] - 31-05-2026
 
 ### Added
