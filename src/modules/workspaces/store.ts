@@ -85,6 +85,8 @@ type Actions = {
   removeWorkspace: (id: string) => void;
   /** Replace a workspace's saved tabs. Used before a switch. */
   saveWorkspaceTabs: (id: string, tabs: SavedTab[], activeTabIndex: number) => void;
+  /** Reorder via drag-and-drop: move `activeId` into `overId`'s slot. */
+  reorderWorkspaces: (activeId: string, overId: string) => void;
 };
 
 export const useWorkspacesStore = create<State & Actions>((set, get) => {
@@ -178,6 +180,20 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       set({
         workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, tabs, activeTabIndex } : w)),
       });
+      void persist();
+    },
+
+    reorderWorkspaces(activeId, overId) {
+      if (activeId === overId) return;
+      const list = get().workspaces;
+      const from = list.findIndex((w) => w.id === activeId);
+      const to = list.findIndex((w) => w.id === overId);
+      if (from < 0 || to < 0 || from === to) return;
+      // arrayMove: pull `from` out, splice it back in at `to`.
+      const next = list.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      set({ workspaces: next });
       void persist();
     },
   };

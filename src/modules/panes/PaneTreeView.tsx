@@ -22,6 +22,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
@@ -279,23 +280,35 @@ function PaneLeafFrame({
     >
       {/* Per-pane navigation header: drag handle + label + close. */}
       <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
-        <button
-          type="button"
-          ref={setDragRef}
-          {...listeners}
-          {...attributes}
-          disabled={!draggable}
-          aria-label="Drag to move pane"
-          title={draggable ? "Drag to move pane" : undefined}
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
-            draggable
-              ? "text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
-              : "text-muted-foreground/40 cursor-default",
-          )}
-        >
-          <HugeiconsIcon icon={DragDropVerticalIcon} size={14} strokeWidth={2} />
-        </button>
+        {(() => {
+          const dragHandle = (
+            <button
+              type="button"
+              ref={setDragRef}
+              {...listeners}
+              {...attributes}
+              disabled={!draggable}
+              aria-label="Drag to move pane"
+              className={cn(
+                "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+                draggable
+                  ? "text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
+                  : "text-muted-foreground/40 cursor-default",
+              )}
+            >
+              <HugeiconsIcon icon={DragDropVerticalIcon} size={14} strokeWidth={2} />
+            </button>
+          );
+          // Only the draggable state earns a tooltip; a disabled button can't
+          // receive the pointer events Radix needs to open one anyway.
+          return draggable ? (
+            <IconTooltip label="Drag to move pane" side="bottom">
+              {dragHandle}
+            </IconTooltip>
+          ) : (
+            dragHandle
+          );
+        })()}
         <HugeiconsIcon
           icon={Icon}
           size={13}
@@ -319,18 +332,19 @@ function PaneLeafFrame({
           <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
         )}
         {onCloseLeaf && (
-          <button
-            type="button"
-            aria-label="Close pane"
-            title="Close pane"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloseLeaf(node.id);
-            }}
-            className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-          </button>
+          <IconTooltip label="Close pane" side="bottom">
+            <button
+              type="button"
+              aria-label="Close pane"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseLeaf(node.id);
+              }}
+              className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+            </button>
+          </IconTooltip>
         )}
       </div>
       <div className="relative min-h-0 flex-1">

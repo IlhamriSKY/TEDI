@@ -1361,10 +1361,19 @@ export default function App() {
     setOpenEditorFiles(openFiles);
   }, [setOpenEditorFiles, tabs]);
 
-  const liveTabsCount = useMemo(
-    () => tabs.filter((t) => t.kind === "pane" || t.kind === "preview").length,
-    [tabs],
-  );
+  // Live tab counts per workspace, keyed by id. The active workspace's entry
+  // tracks the real open-tab total (every kind, including the session-only
+  // diff / scm / extension tabs the persisted snapshot drops), so the sidebar
+  // badge matches the tab strip exactly. Workspaces visited this session keep
+  // their last live count while inactive (no jump on switch-away); never-yet-
+  // visited ones fall back to the persisted `tabs.length` in WorkspacesPanel.
+  const [liveTabCounts, setLiveTabCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!wsActiveId) return;
+    setLiveTabCounts((m) =>
+      m[wsActiveId] === tabs.length ? m : { ...m, [wsActiveId]: tabs.length },
+    );
+  }, [tabs.length, wsActiveId]);
 
   const {
     handleOpenDetectedPreview,
@@ -1514,7 +1523,7 @@ export default function App() {
                         onSwitch={switchToWorkspace}
                         onCreate={createNewWorkspace}
                         onClose={closeWorkspace}
-                        liveTabsCount={liveTabsCount}
+                        tabCounts={liveTabCounts}
                       />
                     </ResizablePanel>
                   </ResizablePanelGroup>

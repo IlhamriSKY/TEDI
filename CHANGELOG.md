@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.17] - 02-06-2026
+
+### Added
+
+- **Workspaces can be reordered by drag-and-drop.** The sidebar workspace list now uses the same `@dnd-kit/sortable` pattern as the tab strip: grab any row and drop it into a new position (vertical list, 5px activation distance so a plain click still switches and a double-click still renames). A floating drag overlay previews the row, the new order persists to `tedi-workspaces.json`, and editing a name suspends drag for that row so the input stays interactive ([`WorkspacesPanel.tsx`](src/modules/workspaces/WorkspacesPanel.tsx), new `reorderWorkspaces` action in [`store.ts`](src/modules/workspaces/store.ts)).
+
+### Fixed
+
+- **Workspace tab counter now reflects every open tab.** The sidebar badge only counted `pane` and `preview` tabs, so opening a Source Control, git-diff, AI-diff, or extension tab left the count too low, and switching away from a workspace dropped its count because session-only tabs are never persisted. The active workspace now reports its real open-tab total and each workspace visited this session keeps that live count while inactive, with the persisted `tabs.length` as a fallback for not-yet-opened ones ([`App.tsx`](src/app/App.tsx), [`WorkspacesPanel.tsx`](src/modules/workspaces/WorkspacesPanel.tsx)).
+- **Pane header tooltips match the rest of the app.** The split-pane drag handle and close button used the native browser `title` attribute, so they rendered the OS default tooltip (different style, delay, and position) instead of the styled popover every other control uses. Both now route through the shared [`IconTooltip`](src/components/ui/icon-tooltip.tsx) ([`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx)); the scheduler pill's "Cancel" button had the same native-`title` slip and was converted too ([`SchedulerStatusPill.tsx`](src/modules/scheduler/components/SchedulerStatusPill.tsx)).
+
 ## [0.3.16] - 02-06-2026
 
 > Internal architecture cleanup. This release is behaviour-preserving: no features were added or removed and no public behaviour changed. The goal is a codebase a new open-source contributor can navigate, with the large "god files" decomposed into focused units.

@@ -1,16 +1,9 @@
 import { useEffect, useState } from "react";
-import {
-  Cancel01Icon,
-  Clock04Icon,
-  ComputerTerminal02Icon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Clock04Icon, ComputerTerminal02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { scheduler } from "../lib/engine";
 import { useSchedules } from "../store";
@@ -56,7 +49,7 @@ export function SchedulerStatusPill() {
           // max-h-72 + overflow-y-auto: vertical scroll when more than ~6 rows
           // fit. The unified scrollbar style in globals.css picks this up
           // automatically (borderless chrome), so we don't override colors.
-          className="flex max-h-72 min-h-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden p-1"
+          className="flex max-h-72 min-h-0 flex-col gap-0.5 overflow-x-hidden overflow-y-auto p-1"
         >
           {pending.map((s) => (
             <ScheduleRow key={s.id} schedule={s} />
@@ -100,19 +93,20 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
           <span className="tracking-wide uppercase">{schedule.action}</span>
         </div>
       </div>
-      <button
-        type="button"
-        aria-label="Cancel scheduled command"
-        title="Cancel"
-        onClick={() => {
-          void scheduler.cancel(schedule.id);
-        }}
-        // Visible at 40% by default so touch users can still tap it; full
-        // opacity on row-hover or button-focus for keyboard users.
-        className="hover:bg-destructive/10 hover:text-destructive focus-visible:ring-ring/40 text-muted-foreground inline-flex size-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none"
-      >
-        <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-      </button>
+      <IconTooltip label="Cancel" side="top">
+        <button
+          type="button"
+          aria-label="Cancel scheduled command"
+          onClick={() => {
+            void scheduler.cancel(schedule.id);
+          }}
+          // Visible at 40% by default so touch users can still tap it; full
+          // opacity on row-hover or button-focus for keyboard users.
+          className="hover:bg-destructive/10 hover:text-destructive focus-visible:ring-ring/40 text-muted-foreground inline-flex size-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+        </button>
+      </IconTooltip>
     </li>
   );
 }
