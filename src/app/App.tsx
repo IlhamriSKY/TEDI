@@ -60,7 +60,7 @@ import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
@@ -232,6 +232,26 @@ export default function App() {
     extensionId: string;
     prior: RightAuxSnapshot;
   } | null>(null);
+  // Last user-intended sidebar width in px, so a window minimize -> restore can
+  // put it back. react-resizable-panels recomputes its layout against the 0px
+  // container a minimized window reports, which leaves the sidebar shrunk (or
+  // collapsed) once the window comes back. We snapshot the good width on every
+  // resize *while the window is live*, then re-apply it on restore. `frozen`
+  // pauses tracking across the minimize->restore window so the corrupt 0px-era
+  // sizes never overwrite the good value.
+  const lastSidebarPxRef = useRef<number | null>(null);
+  const sidebarTrackingFrozenRef = useRef(false);
+  const handleSidebarResize = useCallback((size: PanelSize) => {
+    if (sidebarTrackingFrozenRef.current) return;
+    // A minimized/hidden window reports a degenerate layout; ignore it. Guards
+    // the race where the DOM resize fires before our Tauri minimize listener.
+    if (document.visibilityState !== "visible") return;
+    // While the window is live the panel enforces its `minSize`, so any width
+    // below it is a 0px-container transition artifact, not a real user width.
+    // Belt-and-suspenders for the same race. Keep in sync with AppSidebar's
+    // `minSize="130px"`.
+    if (size.inPixels >= 130) lastSidebarPxRef.current = size.inPixels;
+  }, []);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
@@ -246,10 +266,11 @@ export default function App() {
   }, []);
 
   // Minimizing the window reports a 0px container to react-resizable-panels,
-  // which collapses the collapsible sidebar and leaves it collapsed once the
-  // window is restored/maximized. On the minimize->restore transition, re-open
-  // the sidebar - but only undo a spurious collapse, never one the user made
-  // (userCollapsedSidebarRef) or an extension made by hiding it
+  // which recomputes its layout and leaves the sidebar either collapsed or just
+  // shrunk to an arbitrary smaller width once the window is restored/maximized.
+  // On the minimize->restore transition, re-open and re-size the sidebar back to
+  // the user's last width - but only undo a spurious change, never one the user
+  // made (userCollapsedSidebarRef) or an extension made by hiding it
   // (sidebarHiderRef).
   useEffect(() => {
     const w = getCurrentWindow();
@@ -259,18 +280,26 @@ export default function App() {
       .onResized(async () => {
         const minimized = await w.isMinimized();
         if (minimized) {
+          // Freeze size tracking so the 0px-container resizes that follow don't
+          // overwrite the good width we want to restore.
+          sidebarTrackingFrozenRef.current = true;
           wasMinimized = true;
           return;
         }
         if (!wasMinimized) return;
         wasMinimized = false;
         // Defer past the panel library's own post-restore layout pass so our
-        // expand() is the final word.
+        // expand()/resize() is the final word, then resume tracking.
         setTimeout(() => {
           const p = sidebarRef.current;
-          if (!p || !p.isCollapsed()) return;
-          if (userCollapsedSidebarRef.current || sidebarHiderRef.current) return;
-          p.expand();
+          if (p && !userCollapsedSidebarRef.current && !sidebarHiderRef.current) {
+            if (p.isCollapsed()) p.expand();
+            const want = lastSidebarPxRef.current;
+            if (want != null && Math.abs(p.getSize().inPixels - want) > 1) {
+              p.resize(`${want}px`);
+            }
+          }
+          sidebarTrackingFrozenRef.current = false;
         }, 120);
       })
       .then((u) => {
@@ -703,6 +732,7 @@ export default function App() {
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <AppSidebar
                 sidebarRef={sidebarRef}
+                onSidebarResize={handleSidebarResize}
                 explorerRoot={explorerRoot}
                 hasAnySshLeaf={hasAnySshLeaf}
                 localFilesCollapsed={localFilesCollapsed}

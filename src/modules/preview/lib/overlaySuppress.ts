@@ -9,12 +9,42 @@ import { useSyncExternalStore } from "react";
  * This module is the cheap gate: a shallow `<body>` observer flips
  * {@link useAnyOverlayOpen} when any overlay element is mounted, so the
  * per-frame geometric test ({@link anyOverlayIntersects}) only runs while
- * something is actually open. Overlays positioned *away* from the webview
- * (e.g. the toolbar tooltips, which open `side="top"`) never match the
- * geometric test, so hovering the toolbar doesn't flicker the page.
+ * something is actually open.
+ *
+ * **Tooltips are deliberately excluded.** Radix tooltips are popper-based, so
+ * they also match `[data-radix-popper-content-wrapper]`, but they are
+ * non-interactive (`pointer-events: none`) and transient. The status-bar icon
+ * buttons open their tooltips `side="top"` - i.e. straight up over the preview
+ * pane - so counting them as overlays made the whole browser page flash away on
+ * a plain hover, then reappear on hover-out. Real, interactive surfaces (menus,
+ * dialogs, popovers, selects) still suppress the webview so they stay clickable
+ * on top of it; only tooltips are ignored. The trade-off is a tooltip that
+ * happens to overlap the pane renders *behind* the webview, which is far less
+ * disruptive than the page vanishing.
  */
 const OVERLAY_SELECTOR =
   '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [role="menu"]';
+
+/**
+ * A tooltip popper to be ignored. Every app tooltip renders
+ * `[data-slot="tooltip-content"]` inside its `[data-radix-popper-content-wrapper]`
+ * (see {@link file://../../../components/ui/tooltip.tsx}), and radix only puts
+ * `role="tooltip"` on a visually-hidden a11y span - so the `data-slot` marker is
+ * the reliable signal for the *visible* bubble. Non-tooltip overlays (menus,
+ * dialogs, popovers, selects) never carry it, so they still count.
+ */
+function isTooltipPopper(el: Element): boolean {
+  return el.querySelector('[data-slot="tooltip-content"]') !== null;
+}
+
+/** True when at least one *non-tooltip* overlay is currently mounted. */
+function hasRealOverlay(): boolean {
+  const els = document.querySelectorAll(OVERLAY_SELECTOR);
+  for (let i = 0; i < els.length; i++) {
+    if (!isTooltipPopper(els[i])) return true;
+  }
+  return false;
+}
 
 let isOpen = false;
 let rafId = 0;
@@ -24,7 +54,7 @@ const listeners = new Set<() => void>();
 
 function recompute() {
   rafId = 0;
-  const next = document.querySelector(OVERLAY_SELECTOR) !== null;
+  const next = hasRealOverlay();
   if (next === isOpen) return;
   isOpen = next;
   listeners.forEach((l) => l());
@@ -74,6 +104,7 @@ export function useAnyOverlayOpen(): boolean {
 export function anyOverlayIntersects(rect: DOMRect): boolean {
   const overlays = document.querySelectorAll(OVERLAY_SELECTOR);
   for (let i = 0; i < overlays.length; i++) {
+    if (isTooltipPopper(overlays[i])) continue;
     const o = overlays[i].getBoundingClientRect();
     if (o.width < 1 || o.height < 1) continue;
     if (o.left < rect.right && o.right > rect.left && o.top < rect.bottom && o.bottom > rect.top) {

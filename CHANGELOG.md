@@ -4,6 +4,14 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.20] - 03-06-2026
+
+### Fixed
+
+- **`read_browser` waits for the page to finish rendering before extracting.** A read fired right after `open_preview` / navigate could hit a blank or half-loaded DOM, return almost nothing, and the agent would re-read several times (and wander into unrelated tools) while it waited for content. `preview_embed_read` now polls a tiny readiness probe (document `complete` plus body text that has stopped growing) for up to ~3s, so the first read returns the loaded page in one call ([`preview_embed_read`](src-tauri/src/modules/preview/embed.rs)).
+- **The file-explorer sidebar keeps its width across a window minimize then restore.** The 0.3.19 fix re-opened a spuriously collapsed sidebar, but a minimize against the 0px container Windows reports could still leave it shrunk to an arbitrary smaller width. App now snapshots the user's last sidebar width while the window is live and re-applies it on the minimize->restore transition, without overriding a collapse the user or an extension made ([`App.tsx`](src/app/App.tsx), [`AppSidebar.tsx`](src/app/components/AppSidebar.tsx)).
+- **Browser preview no longer flickers away on a plain tooltip hover.** The overlay-suppression that hides the native preview webview behind TEDI's own menus and dialogs now ignores non-interactive Radix tooltips (matched by their `[data-slot="tooltip-content"]` marker), so hovering a status-bar icon whose tooltip opens over the pane no longer makes the page vanish and reappear. Real overlays (menus, dialogs, popovers, selects) still suppress the webview so they stay clickable on top of it ([`overlaySuppress.ts`](src/modules/preview/lib/overlaySuppress.ts)).
+
 ## [0.3.19] - 03-06-2026
 
 ### Fixed

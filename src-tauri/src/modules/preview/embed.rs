@@ -238,11 +238,14 @@ pub async fn preview_embed_dispatch(
 }
 
 /// Read the live, JS-rendered text of an embedded browser pane (title + visible
-/// body text, capped). Lets the AI get page content - view counts, article
-/// text, search results - that a plain HTTP fetch (curl) can't see on JS-heavy
-/// sites. Runs at the webview level via `eval_with_callback`, so it works on any
-/// loaded page (no Tauri IPC needed in the page) and only reads visible text
-/// (innerText, never executes page-supplied code into the host).
+/// body text + a `Values:` list of form-field values, capped). Lets the AI get
+/// page content - view counts, article text, search results, converter/calculator
+/// outputs - that a plain HTTP fetch (curl) can't see on JS-heavy sites. Waits
+/// (bounded) for the page to render stable content first, so a read fired right
+/// after open/navigate returns the loaded page in one call instead of empty text.
+/// Runs at the webview level via `eval_with_callback`, so it works on any loaded
+/// page (no Tauri IPC needed in the page) and only reads visible text (innerText,
+/// never executes page-supplied code into the host).
 ///
 /// Token-light by construction (the result is fed to the AI every read): it
 /// prefers the page's `<main>`/`<article>` content over the whole body to drop
@@ -258,11 +261,45 @@ pub async fn preview_embed_read(
     let wv = app
         .get_webview(&embed_label(tab_id))
         .ok_or_else(|| "no open browser pane with that id".to_string())?;
+    // Wait (bounded ~3s) for the page to actually have rendered, stable content
+    // before extracting, so a read fired right after open_preview / navigate
+    // returns the LOADED page in ONE call. Without this the first read often hit
+    // a blank or half-loaded DOM, returned almost nothing, and the agent re-read
+    // several times (wandering into unrelated tools while it waited) before the
+    // content appeared. Cheap when already loaded: two quick probes confirm the
+    // body text has stopped growing, then we read.
+    let mut prev: i64 = -2;
+    for _ in 0..15 {
+        let cur = eval_for_string(wv.clone(), PROBE_JS.to_string())
+            .await
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(-1);
+        // cur >= 0 => readyState complete; equal to the previous probe => body
+        // text stopped growing. -1 => still loading/navigating, keep waiting.
+        if cur >= 0 && cur == prev {
+            break;
+        }
+        prev = cur;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     // Prepend the FIELDS flag the script reads; concat (not format!) so the
     // script's many `{}` need no escaping.
     let js = format!("var FIELDS={fields};") + READ_JS;
     eval_for_string(wv, js).await
 }
+
+/// Tiny readiness probe for `preview_embed_read`'s wait loop: the body's
+/// non-whitespace text length once `document.readyState === "complete"` AND that
+/// length is past a small floor, else "-1" (still loading, navigating, blank, or
+/// errored - keep waiting). The floor matters because a freshly created webview
+/// can report `complete` on an empty document before the real page paints; the
+/// caller treats two equal non-negative results as "loaded and stable".
+const PROBE_JS: &str = r#"(function(){try{
+  if(document.readyState!=="complete")return "-1";
+  var n=document.body?document.body.innerText.replace(/\s+/g,"").length:0;
+  return n<30?"-1":(""+n);
+}catch(e){return "-1";}})()"#;
 
 /// Title + reader-mode body text + a `Values:` list of form-control values
 /// (innerText omits input/select values, where currency/unit converters,

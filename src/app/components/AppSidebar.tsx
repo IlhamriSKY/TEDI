@@ -3,12 +3,15 @@ import { cn } from "@/lib/utils";
 import { FileExplorer } from "@/modules/explorer";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { Suspense, type RefObject } from "react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 
 type Props = {
   sidebarRef: RefObject<PanelImperativeHandle | null>;
+  /** Reports the sidebar panel's size on every resize (drag + window resize),
+   *  so App can snapshot the user's width and restore it after a minimize. */
+  onSidebarResize: (size: PanelSize) => void;
   explorerRoot: string | null;
   hasAnySshLeaf: boolean;
   localFilesCollapsed: boolean;
@@ -45,6 +48,7 @@ type Props = {
  */
 export function AppSidebar({
   sidebarRef,
+  onSidebarResize,
   explorerRoot,
   hasAnySshLeaf,
   localFilesCollapsed,
@@ -72,6 +76,7 @@ export function AppSidebar({
     <ResizablePanel
       id="sidebar"
       panelRef={sidebarRef}
+      onResize={onSidebarResize}
       defaultSize="225px"
       minSize="130px"
       maxSize="450px"
