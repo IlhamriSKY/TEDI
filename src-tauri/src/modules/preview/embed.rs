@@ -513,18 +513,23 @@ pub async fn preview_embed_screenshot(
         use xcap::image::{codecs::jpeg::JpegEncoder, imageops, DynamicImage, ExtendedColorType};
         let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
         let (cx, cy) = (sx + bw / 2, sy + bh / 2);
-        let mon = monitors
-            .into_iter()
-            .find(|m| {
-                cx >= m.x()
-                    && cx < m.x() + m.width() as i32
-                    && cy >= m.y()
-                    && cy < m.y() + m.height() as i32
-            })
-            .ok_or_else(|| "pane is off-screen".to_string())?;
+        // xcap 0.9's geometry accessors are fallible, so resolve each monitor's
+        // origin up front and keep the one whose rect contains the pane center.
+        let mut chosen: Option<(xcap::Monitor, i32, i32)> = None;
+        for m in monitors {
+            let mx = m.x().map_err(|e| e.to_string())?;
+            let my = m.y().map_err(|e| e.to_string())?;
+            let mw = m.width().map_err(|e| e.to_string())? as i32;
+            let mh = m.height().map_err(|e| e.to_string())? as i32;
+            if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
+                chosen = Some((m, mx, my));
+                break;
+            }
+        }
+        let (mon, mx, my) = chosen.ok_or_else(|| "pane is off-screen".to_string())?;
         let shot = mon.capture_image().map_err(|e| e.to_string())?;
-        let rx = (sx - mon.x()).max(0) as u32;
-        let ry = (sy - mon.y()).max(0) as u32;
+        let rx = (sx - mx).max(0) as u32;
+        let ry = (sy - my).max(0) as u32;
         let rw = (bw as u32).min(shot.width().saturating_sub(rx));
         let rh = (bh as u32).min(shot.height().saturating_sub(ry));
         if rw == 0 || rh == 0 {

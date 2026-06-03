@@ -33,8 +33,9 @@ jobs:
 
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-22.04'
-        # libdbus-1-dev / libxcb1-dev / libxcb-randr0-dev are for `xcap`, used by
-        # the browser-screenshot command on Linux (links dbus + xcb randr).
+        # The xcb / pipewire / clang packages are for `xcap` (browser-screenshot
+        # capture on Linux): X11 via xcb+randr and Wayland via pipewire, whose
+        # -sys crate needs clang for bindgen.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -45,6 +46,8 @@ jobs:
             libdbus-1-dev \
             libxcb1-dev \
             libxcb-randr0-dev \
+            libpipewire-0.3-dev \
+            clang \
             patchelf
 
       # Pinned to v4: pnpm/action-setup@v6's self-installer crashes on
