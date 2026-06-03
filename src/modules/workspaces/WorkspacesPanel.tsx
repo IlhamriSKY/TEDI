@@ -24,6 +24,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { memo, useMemo, useState } from "react";
+import { countSavedTabEntries } from "./serialize";
 import { useWorkspacesStore, type Workspace } from "./store";
 
 type Props = {
@@ -34,11 +35,11 @@ type Props = {
   /** Close a workspace. Caller discards its live tabs and rehydrates the neighbor. */
   onClose: (workspaceId: string) => void;
   /**
-   * Live open-tab count per workspace id (every tab kind, including the
-   * session-only diff / scm / extension tabs the persisted snapshot drops).
-   * Covers every workspace visited this session. Workspaces not present here
-   * (restored from disk, not yet opened) fall back to their persisted
-   * `tabs.length`.
+   * Live tab-strip entry count per workspace id (one per pane leaf, so a split
+   * group tab counts its panes; plus every standalone/session-only diff / scm /
+   * extension tab the persisted snapshot drops). Covers every workspace visited
+   * this session. Workspaces not present here (restored from disk, not yet
+   * opened) fall back to `countSavedTabEntries` over their persisted tabs.
    */
   tabCounts?: Record<string, number>;
 };
@@ -122,7 +123,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
                   isActive={w.id === activeId}
                   isEditing={editingId === w.id}
                   draft={draft}
-                  tabCount={tabCounts?.[w.id] ?? w.tabs.length}
+                  tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
                   canClose={workspaces.length > 1}
                   // Editing a name needs an interactive input, so suspend drag for that row.
                   sortable={editingId !== w.id}

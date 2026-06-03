@@ -40,7 +40,7 @@ import {
 } from "../lib/sessions";
 import type { CompactStages } from "../lib/compact";
 import { disposeSessionShell } from "../tools/shell";
-import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
 
@@ -73,6 +73,22 @@ type Live = {
   ) =>
     | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
     | { ok: false; error: string; movedBeforeFailure?: number };
+  /** Merge given pane leaves (any kind: terminal/editor/browser) into one tab
+   *  as splits. Refuses past the per-tab pane cap. */
+  groupLeavesIntoTab: (
+    leafIds: number[],
+    targetTabId?: number,
+  ) =>
+    | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
+    | { ok: false; error: string };
+  /** Change a pane's split orientation in its group (row = beside, col =
+   *  stacked). With `direction` it sets that orientation; without it, toggles. */
+  rotatePaneSplit: (
+    leafId: number,
+    direction?: "row" | "col",
+  ) =>
+    | { ok: true; orientation: "row" | "col"; changed: boolean }
+    | { ok: false; error: string };
   /** Close one terminal leaf. Refuses the last leaf so at least one tab remains. */
   closeTerminalLeaf: (
     leafId: number,
@@ -83,6 +99,26 @@ type Live = {
   runInActiveTerminal: (command: string) => boolean;
   /** Snapshot every terminal leaf with ordinal/title/cwd. */
   listTerminals: () => TerminalInfo[];
+  /** Snapshot every open in-app browser pane with its current URL. */
+  listBrowsers: () => BrowserInfo[];
+  /** Navigate an existing browser pane (by leaf id) to a URL. False if that leaf isn't a browser. */
+  navigateBrowser: (leafId: number, url: string) => boolean;
+  /** Drive an existing browser pane's history: back / forward / reload. */
+  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload") => boolean;
+  /** Read an existing browser pane's rendered text (title + visible body).
+   *  With `fields` also lists tagged interactive controls as `[N]`. */
+  readBrowser: (leafId: number, fields?: boolean) => Promise<string | null>;
+  /** Type into / click an interactive control (by `[N]` index) of a browser
+   *  pane. Returns the raw result string, or null if not a browser. */
+  actBrowser: (
+    leafId: number,
+    index: number,
+    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
+    text: string,
+    submit: boolean,
+  ) => Promise<string | null>;
+  /** Capture a browser pane as a base64 JPEG (last-resort visual). */
+  screenshotBrowser: (leafId: number) => Promise<string | null>;
   /** Inject text into a specific terminal (no Enter). */
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
   /** Submit a command (Enter appended) to a specific terminal. */
@@ -240,9 +276,17 @@ const NOOP_LIVE: Live = {
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
   consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),
+  groupLeavesIntoTab: () => ({ ok: false, error: "live bridge not ready" }),
+  rotatePaneSplit: () => ({ ok: false, error: "live bridge not ready" }),
   closeTerminalLeaf: () => ({ ok: false, error: "live bridge not ready" }),
   runInActiveTerminal: () => false,
   listTerminals: () => [],
+  listBrowsers: () => [],
+  navigateBrowser: () => false,
+  dispatchBrowser: () => false,
+  readBrowser: async () => null,
+  actBrowser: async () => null,
+  screenshotBrowser: async () => null,
   injectIntoTerminal: () => false,
   runInTerminal: () => false,
   isTerminalBusy: () => true,
@@ -354,10 +398,21 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
+    navigateBrowser: (leafId, url) => useChatStore.getState().live.navigateBrowser(leafId, url),
+    dispatchBrowser: (leafId, action) =>
+      useChatStore.getState().live.dispatchBrowser(leafId, action),
+    readBrowser: (leafId, fields) => useChatStore.getState().live.readBrowser(leafId, fields),
+    actBrowser: (leafId, index, action, text, submit) =>
+      useChatStore.getState().live.actBrowser(leafId, index, action, text, submit),
+    screenshotBrowser: (leafId) => useChatStore.getState().live.screenshotBrowser(leafId),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
     openTerminalAdvanced: (opts) => useChatStore.getState().live.openTerminalAdvanced(opts),
     consolidateTerminalsIntoGroup: (targetTabId) =>
       useChatStore.getState().live.consolidateTerminalsIntoGroup(targetTabId),
+    groupLeavesIntoTab: (leafIds, targetTabId) =>
+      useChatStore.getState().live.groupLeavesIntoTab(leafIds, targetTabId),
+    rotatePaneSplit: (leafId, direction) =>
+      useChatStore.getState().live.rotatePaneSplit(leafId, direction),
     closeTerminalLeaf: (leafId) => useChatStore.getState().live.closeTerminalLeaf(leafId),
     runInActiveTerminal: (command) => useChatStore.getState().live.runInActiveTerminal(command),
     listTerminals: () => useChatStore.getState().live.listTerminals(),
@@ -400,6 +455,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
         workspaceRoot: live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
         terminals: live.listTerminals(),
+        browsers: live.listBrowsers(),
       };
     },
     getPlanMode: () => usePlanStore.getState().active,

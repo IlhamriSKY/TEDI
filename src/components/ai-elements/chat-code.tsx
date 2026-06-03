@@ -28,6 +28,11 @@ const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
 const StreamingCtx = createContext(false);
 export const ChatStreamingProvider = StreamingCtx.Provider;
 
+/** True while the enclosing message is still streaming. Outside a provider
+ *  (e.g. the editor's markdown file preview) this is always false, so the
+ *  content is treated as finalized and renders immediately. */
+export const useIsStreaming = () => use(StreamingCtx);
+
 function shellPrompt(lang: string): string {
   if (WINDOWS_SHELL.has(lang))
     return lang === "cmd" || lang === "bat" || lang === "batch" ? ">" : "PS>";

@@ -6,4 +6,12 @@ export {
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 export { useTerminalFileDrop, ensureFsDragListener } from "./lib/useTerminalFileDrop";
-export { hasLeaf, leafIds, leaves, findLeaf, type PaneNode, type PaneLeaf } from "./lib/panes";
+export {
+  hasLeaf,
+  leafIds,
+  leaves,
+  findLeaf,
+  leafParentDir,
+  type PaneNode,
+  type PaneLeaf,
+} from "./lib/panes";

@@ -1,6 +1,5 @@
 import { toast } from "@/components/ui/toast";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/preview/lib/proxy";
-import { type PreviewPaneHandle } from "@/modules/preview";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
 import { leafIds, type TerminalPaneHandle } from "@/modules/terminal";
 import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
@@ -11,9 +10,8 @@ type Params = {
   activeId: number;
   tabsRef: RefObject<Tab[]>;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
-  previewRefs: RefObject<Map<number, PreviewPaneHandle>>;
   activeLeafIdInTab: number | null;
-  activeLeafKindCurrent: "terminal" | "editor" | null;
+  activeLeafKindCurrent: "terminal" | "editor" | "preview" | null;
   explorerRoot: string | null;
   inheritedCwdForNewTab: () => string | undefined;
   setPickedRoot: Dispatch<SetStateAction<string | null>>;
@@ -40,7 +38,6 @@ export function useTabActions({
   activeId,
   tabsRef,
   terminalRefs,
-  previewRefs,
   activeLeafIdInTab,
   activeLeafKindCurrent,
   explorerRoot,
@@ -65,7 +62,10 @@ export function useTabActions({
   sendCd: (path: string) => void;
   cdInNewTab: (path: string) => void;
   openPreviewTab: (url: string) => number | null;
-  splitActivePaneInActiveTab: (dir: "row" | "col") => void;
+  splitActivePaneInActiveTab: (
+    dir: "row" | "col",
+    kind?: "terminal" | "editor" | "preview",
+  ) => void;
   moveLeafToGroup: (leafId: number, targetTabId: number) => void;
   handleCloseTabOrPane: () => void;
 } {
@@ -170,11 +170,7 @@ export function useTabActions({
         toast(SELF_REFERENCE_NOTICE, { variant: "warning" });
         return null;
       }
-      const id = newPreviewTab(url);
-      if (!url) {
-        setTimeout(() => previewRefs.current.get(id)?.focusAddressBar(), 0);
-      }
-      return id;
+      return newPreviewTab(url);
     },
     [newPreviewTab],
   );
@@ -185,11 +181,13 @@ export function useTabActions({
    * leaf becomes active. Capped at `MAX_PANES_PER_TAB`.
    */
   const splitActivePaneInActiveTab = useCallback(
-    (dir: "row" | "col") => {
+    (dir: "row" | "col", kind?: "terminal" | "editor" | "preview") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
       if (!t || t.kind !== "pane") return;
-      // New pane uses the explorer's root, matching the new-tab flow.
-      splitActivePane(activeId, dir, undefined, explorerRoot ?? undefined);
+      // Terminal/editor splits inherit the explorer root; a browser split
+      // starts blank (no cwd) so its address bar shows.
+      const cwd = kind === "preview" ? undefined : (explorerRoot ?? undefined);
+      splitActivePane(activeId, dir, kind, cwd);
     },
     [activeId, splitActivePane, explorerRoot],
   );

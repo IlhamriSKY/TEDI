@@ -1,6 +1,7 @@
 import type { EditorPaneHandle } from "@/modules/editor";
+import { previewEmbedClose } from "@/modules/preview";
 import type { PaneTab, Tab } from "@/modules/tabs";
-import { leafIds, type PaneEdge } from "@/modules/terminal/lib/panes";
+import { leaves, type PaneEdge } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
@@ -37,6 +38,8 @@ type Props = {
   registerEditorHandle: (leafId: number, handle: EditorPaneHandle | null) => void;
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
+  // Preview (browser) leaf callbacks
+  onPreviewUrlChange: (leafId: number, url: string) => void;
   /** Editor leaf ids rendered as markdown preview instead of source. */
   mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
@@ -67,6 +70,7 @@ export function PaneStack({
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
+  onPreviewUrlChange,
   mdPreviewLeafIds,
   onFocusLeaf,
   onMovePaneLeaf,
@@ -105,6 +109,7 @@ export function PaneStack({
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
+  const previewUrlRef = useRef(onPreviewUrlChange);
   useEffect(() => {
     registerTerminalRef.current = registerTerminalHandle;
   }, [registerTerminalHandle]);
@@ -144,6 +149,9 @@ export function PaneStack({
   useEffect(() => {
     closeLeafRef.current = onCloseLeaf;
   }, [onCloseLeaf]);
+  useEffect(() => {
+    previewUrlRef.current = onPreviewUrlChange;
+  }, [onPreviewUrlChange]);
 
   const bundles = useRef(new Map<number, LeafBundle>());
   const getBundle = (leafId: number): LeafBundle => {
@@ -163,18 +171,35 @@ export function PaneStack({
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),
+        onPreviewUrlChange: (url) => previewUrlRef.current(leafId, url),
       };
       bundles.current.set(leafId, b);
     }
     return b;
   };
 
+  // Prune per-leaf bundles, and destroy the native browser webview of any
+  // preview leaf that has truly disappeared (closed) - NOT one merely remounted
+  // by a move/reorder, which keeps the leaf id present here. This is why
+  // PreviewPane no longer closes on unmount: it lets a dragged browser pane
+  // keep its page instead of reloading.
+  const prevPreviewLeaves = useRef<Set<number>>(new Set());
   useEffect(() => {
     const live = new Set<number>();
-    for (const t of paneTabs) for (const id of leafIds(t.paneTree)) live.add(id);
+    const livePreview = new Set<number>();
+    for (const t of paneTabs) {
+      for (const l of leaves(t.paneTree)) {
+        live.add(l.id);
+        if (l.leafKind === "preview") livePreview.add(l.id);
+      }
+    }
     for (const id of bundles.current.keys()) {
       if (!live.has(id)) bundles.current.delete(id);
     }
+    for (const id of prevPreviewLeaves.current) {
+      if (!livePreview.has(id)) void previewEmbedClose(id).catch(() => {});
+    }
+    prevPreviewLeaves.current = livePreview;
   }, [paneTabs]);
 
   return (

@@ -1,7 +1,20 @@
 import { type RefObject } from "react";
+import {
+  previewEmbedAct,
+  previewEmbedDispatch,
+  previewEmbedRead,
+  previewEmbedScreenshot,
+} from "@/modules/preview";
 import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs";
-import { findLeaf, hasLeaf, leafIds, leaves, type TerminalPaneHandle } from "@/modules/terminal";
-import type { TerminalTarget } from "@/modules/scheduler/types";
+import {
+  findLeaf,
+  hasLeaf,
+  leafIds,
+  leafParentDir,
+  leaves,
+  type TerminalPaneHandle,
+} from "@/modules/terminal";
+import type { BrowserInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { isLeafPrivate, resolveTerminalLeaf, snapshotTerminals } from "./terminalSnapshot";
 
 type TabsApi = ReturnType<typeof useTabs>;
@@ -18,11 +31,13 @@ export interface LiveContext {
   explorerRoot: string | null;
   home: string | null;
   openPreviewTab: (url: string) => number | null;
+  setPreviewLeafUrl: TabsApi["setPreviewLeafUrl"];
   newTab: TabsApi["newTab"];
   inheritedCwdForNewTab: () => string | undefined;
   splitActivePane: TabsApi["splitActivePane"];
   setActiveId: TabsApi["setActiveId"];
   moveLeafToTab: TabsApi["moveLeafToTab"];
+  rotateLeafSplit: TabsApi["rotateLeafSplit"];
   closePaneByLeaf: TabsApi["closePaneByLeaf"];
 }
 
@@ -103,6 +118,90 @@ export function buildLiveContext(deps: LiveContextDeps) {
     },
     openPreview: (url: string) => {
       return liveContextRef.current.openPreviewTab(url) !== null;
+    },
+    // Drive an existing browser pane (by leaf id from listBrowsers). navigate
+    // just sets the leaf url - PreviewPane navigates the live webview and syncs
+    // the address bar, and a not-yet-shown pane loads the new url when opened.
+    navigateBrowser: (leafId: number, url: string): boolean => {
+      const { tabs, setPreviewLeafUrl } = liveContextRef.current;
+      const isPreview = tabs.some(
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+      );
+      // Private browser panes are hidden from the AI, like private terminals.
+      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
+      setPreviewLeafUrl(leafId, url);
+      return true;
+    },
+    dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload"): boolean => {
+      const { tabs } = liveContextRef.current;
+      const isPreview = tabs.some(
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+      );
+      // Private browser panes are hidden from the AI, like private terminals.
+      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
+      void previewEmbedDispatch(leafId, action).catch(() => {});
+      return true;
+    },
+    readBrowser: async (leafId: number, fields = false): Promise<string | null> => {
+      const { tabs } = liveContextRef.current;
+      const isPreview = tabs.some(
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+      );
+      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      try {
+        return await previewEmbedRead(leafId, fields);
+      } catch {
+        return null;
+      }
+    },
+    actBrowser: async (
+      leafId: number,
+      index: number,
+      action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
+      text: string,
+      submit: boolean,
+    ): Promise<string | null> => {
+      const { tabs } = liveContextRef.current;
+      const isPreview = tabs.some(
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+      );
+      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      try {
+        return await previewEmbedAct(leafId, index, action, text, submit);
+      } catch (e) {
+        return `error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+    screenshotBrowser: async (leafId: number): Promise<string | null> => {
+      const { tabs } = liveContextRef.current;
+      const isPreview = tabs.some(
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+      );
+      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      try {
+        return await previewEmbedScreenshot(leafId);
+      } catch {
+        return null;
+      }
+    },
+    listBrowsers: (): BrowserInfo[] => {
+      const { tabs, activeId } = liveContextRef.current;
+      const out: BrowserInfo[] = [];
+      for (const t of tabs) {
+        if (t.kind !== "pane") continue;
+        for (const l of leaves(t.paneTree)) {
+          // Skip private browser panes so they stay invisible to the AI.
+          if (l.leafKind === "preview" && !l.private) {
+            out.push({
+              tabId: t.id,
+              leafId: l.id,
+              url: l.url,
+              isActive: t.id === activeId && t.activeLeafId === l.id,
+            });
+          }
+        }
+      }
+      return out;
     },
     openTerminal: (cwd?: string | null) => {
       const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;
@@ -245,6 +344,66 @@ export function buildLiveContext(deps: LiveContextDeps) {
       // Focus the consolidated group.
       setActiveId(targetTabId);
       return { ok: true, targetTabId, moved, alreadyInGroup };
+    },
+    groupLeavesIntoTab: (
+      ids: number[],
+      targetTabId?: number,
+    ):
+      | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
+      | { ok: false; error: string } => {
+      const { tabs, moveLeafToTab, setActiveId } = liveContextRef.current;
+      // Resolve each requested leaf to the pane tab that owns it; ignore unknown
+      // ids and private leaves (those are hidden from the AI).
+      const found: { leafId: number; tabId: number }[] = [];
+      for (const id of ids) {
+        if (isLeafPrivate(liveContextRef.current, id)) continue;
+        const owner = tabs.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, id));
+        if (owner) found.push({ leafId: id, tabId: owner.id });
+      }
+      if (found.length < 2)
+        return { ok: false, error: "need at least 2 existing panes (by leaf_id) to group" };
+      // Destination: explicit target (must be a pane tab) or the first leaf's tab.
+      const dest = targetTabId ?? found[0].tabId;
+      const destTab = tabs.find((t) => t.id === dest);
+      if (!destTab || destTab.kind !== "pane")
+        return { ok: false, error: `tab ${dest} is not a pane tab` };
+      const incoming = found.filter((f) => f.tabId !== dest);
+      if (leafIds(destTab.paneTree).length + incoming.length > MAX_PANES_PER_TAB)
+        return {
+          ok: false,
+          error: `grouping would exceed the ${MAX_PANES_PER_TAB}-pane-per-tab cap`,
+        };
+      let moved = 0;
+      for (const f of incoming) {
+        const r = moveLeafToTab(f.leafId, dest);
+        if (r === "ok") moved += 1;
+        else if (r === "full")
+          return { ok: false, error: `target group filled up (max ${MAX_PANES_PER_TAB})` };
+        else return { ok: false, error: `could not move pane leaf=${f.leafId}` };
+      }
+      setActiveId(dest);
+      return { ok: true, targetTabId: dest, moved, alreadyInGroup: found.length - incoming.length };
+    },
+    rotatePaneSplit: (
+      leafId: number,
+      direction?: "row" | "col",
+    ):
+      | { ok: true; orientation: "row" | "col"; changed: boolean }
+      | { ok: false; error: string } => {
+      const { tabs, rotateLeafSplit } = liveContextRef.current;
+      if (isLeafPrivate(liveContextRef.current, leafId))
+        return { ok: false, error: `leaf ${leafId} not found` };
+      const owner = tabs.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
+      if (!owner || owner.kind !== "pane") return { ok: false, error: `leaf ${leafId} not found` };
+      const current = leafParentDir(owner.paneTree, leafId);
+      if (current === null)
+        return { ok: false, error: "this pane is alone in its tab; split or group it first" };
+      // With an explicit target, rotate only when it differs (idempotent);
+      // without one, just toggle to the opposite orientation.
+      if (direction && direction === current)
+        return { ok: true, orientation: current, changed: false };
+      rotateLeafSplit(leafId);
+      return { ok: true, orientation: current === "row" ? "col" : "row", changed: true };
     },
     closeTerminalLeaf: (
       leafId: number,

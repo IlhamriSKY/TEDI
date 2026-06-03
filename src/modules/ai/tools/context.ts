@@ -15,6 +15,28 @@ export type ToolContext = {
   injectIntoActivePty: (text: string) => boolean;
   /** Open an in-app preview tab at `url`. */
   openPreview: (url: string) => boolean;
+  /** Navigate an existing browser pane (leaf id from `listBrowsers`) to a URL.
+   *  False if that leaf isn't a browser. */
+  navigateBrowser: (leafId: number, url: string) => boolean;
+  /** Drive an existing browser pane's history: back / forward / reload. */
+  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload") => boolean;
+  /** Read an existing browser pane's rendered text (title + visible body).
+   *  With `fields` also lists tagged interactive controls as `[N]`. Null if
+   *  that leaf isn't a browser. */
+  readBrowser: (leafId: number, fields?: boolean) => Promise<string | null>;
+  /** Type into / click an interactive control (by its `[N]` index from a
+   *  `readBrowser(_, true)`) of a browser pane. Returns the raw result string
+   *  ("ok" / "not-found" / ...), or null if that leaf isn't a browser. */
+  actBrowser: (
+    leafId: number,
+    index: number,
+    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
+    text: string,
+    submit: boolean,
+  ) => Promise<string | null>;
+  /** Capture a browser pane as a base64 JPEG (last-resort visual). Null if that
+   *  leaf isn't a browser. */
+  screenshotBrowser: (leafId: number) => Promise<string | null>;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd. */
   openTerminal: (cwd?: string | null) => boolean;
   /** Advanced terminal-open: tab vs split, target tab, split direction. */
@@ -33,6 +55,24 @@ export type ToolContext = {
   ) =>
     | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
     | { ok: false; error: string; movedBeforeFailure?: number };
+  /** Merge the given pane leaves (any kind: terminal/editor/browser) into one
+   *  tab as splits - the AI-driven form of the user's "Join Group". Destination
+   *  defaults to the first leaf's tab. Refuses past the per-tab pane cap. */
+  groupLeavesIntoTab: (
+    leafIds: number[],
+    targetTabId?: number,
+  ) =>
+    | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
+    | { ok: false; error: string };
+  /** Change a pane's split orientation within its group (the user's "Rotate
+   *  split"). With `direction` ("row" = beside, "col" = stacked) it sets that
+   *  orientation idempotently; without it, toggles. */
+  rotatePaneSplit: (
+    leafId: number,
+    direction?: "row" | "col",
+  ) =>
+    | { ok: true; orientation: "row" | "col"; changed: boolean }
+    | { ok: false; error: string };
   /** Close one terminal leaf; drops the tab if it was the only leaf. Refuses
    *  the last tab. */
   closeTerminalLeaf: (

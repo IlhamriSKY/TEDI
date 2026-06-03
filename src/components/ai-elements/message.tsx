@@ -12,7 +12,7 @@ import { createContext, memo, use, useCallback, useEffect, useMemo, useState } f
 import { Streamdown } from "streamdown";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { ChatStreamingProvider } from "./chat-code";
-import { MarkdownCode } from "./markdown-code";
+import { markdownComponents } from "./markdown-code";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -270,14 +270,12 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
   streaming?: boolean;
 };
 
-const streamdownComponents = { code: MarkdownCode };
-
 export const MessageResponse = memo(
   ({ className, streaming = false, ...props }: MessageResponseProps) => (
     <ChatStreamingProvider value={streaming}>
       <Streamdown
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-        components={streamdownComponents}
+        components={markdownComponents}
         urlTransform={safeUrlTransform}
         {...props}
       />

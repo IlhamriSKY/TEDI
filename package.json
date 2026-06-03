@@ -1,7 +1,7 @@
 {
   "name": "tedi",
   "private": true,
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces.",
   "author": "IlhamriSKY",
   "license": "Apache-2.0",
@@ -99,6 +99,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "mermaid": "^11.15.0",
     "motion": "^12.40.0",
     "prettier": "^3.8.3",
     "radix-ui": "^1.4.3",

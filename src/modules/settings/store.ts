@@ -14,6 +14,11 @@ import {
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { normalizeCustomTheme, type CustomTheme } from "./customTheme";
+import {
+  DEFAULT_SEARCH_ENGINE_ID,
+  searchEngineById,
+  type SearchEngineId,
+} from "./searchEngines";
 import { DEFAULT_CUSTOM_THEME } from "./themePresets";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -152,6 +157,12 @@ export type Preferences = {
    */
   appOpacity: number;
   /**
+   * Default search engine for the browser address bar. Typing a non-URL term
+   * (e.g. "youtube") runs it as a query through this engine instead of failing
+   * to navigate. See `searchEngines.ts`.
+   */
+  searchEngine: SearchEngineId;
+  /**
    * User-saved theme presets. Appear in the Theme settings preset grid
    * alongside the built-in `THEME_PRESETS`. The user "saves" the current
    * custom-theme state as a preset (with a chosen name); subsequent
@@ -239,6 +250,7 @@ const KEY_BRAND_COLOR = "brandColor";
 const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
 const KEY_APP_OPACITY = "appOpacity";
+const KEY_SEARCH_ENGINE = "searchEngine";
 const KEY_USER_THEME_PRESETS = "userThemePresets";
 const KEY_FORMAT_ON_SAVE = "formatOnSave";
 const KEY_FORMATTERS = "formatters";
@@ -326,6 +338,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customThemeEnabled: false,
   customTheme: DEFAULT_CUSTOM_THEME,
   appOpacity: APP_OPACITY_DEFAULT,
+  searchEngine: DEFAULT_SEARCH_ENGINE_ID,
   userThemePresets: [],
   formatOnSave: false,
   formatters: DEFAULT_FORMATTERS,
@@ -405,6 +418,7 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.customTheme,
     ),
     appOpacity: clampOpacity(get<number>(KEY_APP_OPACITY) ?? DEFAULT_PREFERENCES.appOpacity),
+    searchEngine: searchEngineById(get<string>(KEY_SEARCH_ENGINE)).id,
     userThemePresets: (() => {
       const raw = get<unknown>(KEY_USER_THEME_PRESETS);
       if (!Array.isArray(raw)) return DEFAULT_PREFERENCES.userThemePresets;
@@ -510,6 +524,10 @@ export async function setTheme(value: ThemePref): Promise<void> {
 
 export async function setAppOpacity(value: number): Promise<void> {
   await writePref(KEY_APP_OPACITY, clampOpacity(value));
+}
+
+export async function setSearchEngine(value: SearchEngineId): Promise<void> {
+  await writePref(KEY_SEARCH_ENGINE, value);
 }
 
 export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
@@ -820,6 +838,7 @@ export async function onPreferencesChange(
     customTheme: KEY_CUSTOM_THEME,
     // Written from the Settings window, consumed live by the main window.
     appOpacity: KEY_APP_OPACITY,
+    searchEngine: KEY_SEARCH_ENGINE,
     userThemePresets: KEY_USER_THEME_PRESETS,
     formatOnSave: KEY_FORMAT_ON_SAVE,
     formatters: KEY_FORMATTERS,

@@ -67,13 +67,13 @@ export function useAppContextBridge({
   const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;
-    if (activeTab.kind === "preview") return "preview";
     if (activeTab.kind === "ai-diff" || activeTab.kind === "git-diff") return "diff";
     if (activeTab.kind === "ext") return "ext";
     if (activeTab.kind === "pane") {
       const leaf = activeLeaf(activeTab);
       if (!leaf) return null;
       if (leaf.leafKind === "editor") return "editor";
+      if (leaf.leafKind === "preview") return "preview";
       // SSH leaves are marked by `sshConnectionId` at create time. The kind
       // only reflects how the leaf was opened, not its current status.
       if (leaf.leafKind === "terminal") {

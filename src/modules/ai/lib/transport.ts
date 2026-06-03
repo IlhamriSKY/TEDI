@@ -1,7 +1,7 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { findLastIndex } from "@/lib/utils";
-import type { TerminalInfo } from "@/modules/scheduler/types";
+import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { CompactStages } from "./compact";
@@ -52,6 +52,9 @@ type LiveSnapshot = {
   /** Every terminal in tab order. Surfaced in the per-turn <env> so the AI
    *  can address terminals by ordinal/title without `list_terminals`. */
   terminals: TerminalInfo[];
+  /** Every open in-app browser pane, so the AI can see what the user is
+   *  viewing (URL + tab/leaf ids) without a tool call. */
+  browsers: BrowserInfo[];
 };
 
 type Deps = {
@@ -217,6 +220,15 @@ function formatEnvBlock(live: LiveSnapshot): string | null {
       lines.push(
         `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}`,
       );
+    }
+  }
+  if (live.browsers.length > 0) {
+    // In-app browser panes the user is viewing. The asterisk marks the focused
+    // one. The agent can open/reuse a browser with `open_preview`.
+    lines.push("browsers:");
+    for (const b of live.browsers) {
+      const star = b.isActive ? "*" : " ";
+      lines.push(`  ${star} tab=${b.tabId} leaf=${b.leafId} ${b.url || "(blank)"}`);
     }
   }
   if (lines.length === 0) return null;

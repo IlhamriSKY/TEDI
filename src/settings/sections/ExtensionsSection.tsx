@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import { useExtensionsStore } from "@/modules/extensions";
+import type { InstalledExtension } from "@/modules/extensions";
 import { safeParseManifest } from "@/modules/extensions/manifest";
 
 import { SectionHeader } from "../components/SectionHeader";
@@ -263,6 +264,10 @@ export function ExtensionsSection() {
         iconUrl = `data:${mimeForIconPath(raw.icon_rel_path)};base64,${raw.icon_base64}`;
       }
 
+      // If this id is already installed, this is an update / re-install:
+      // pass the previously-approved permissions so the dialog can highlight
+      // what's NEW and the user re-approves any escalation.
+      const installed = list.find((e) => e.id === parsed.manifest.id);
       setPending({
         source,
         preview: {
@@ -270,6 +275,7 @@ export function ExtensionsSection() {
           sourceLabel,
           manifest: parsed.manifest,
           iconUrl,
+          priorApproved: installed ? installed.approved_permissions : null,
         },
       });
     } catch (err) {
@@ -313,6 +319,33 @@ export function ExtensionsSection() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Per-card "Update". Peeks the latest release first: if it requests
+  // permissions the user hasn't already approved, route through the review
+  // dialog (which highlights the new permissions) so the user re-approves the
+  // escalation. Otherwise update directly - routine updates stay one-click.
+  const handleCardUpdate = async (ext: InstalledExtension) => {
+    const repo = ext.source.startsWith("github:") ? ext.source.slice("github:".length) : null;
+    if (!repo) {
+      // Local-zip installs can't auto-update; updateOne surfaces the guidance toast.
+      await updateOne(ext, updateExtension);
+      return;
+    }
+    try {
+      const raw = await invoke<RawPeek>("ext_peek_github", { repo });
+      const parsed = safeParseManifest(raw.manifest);
+      const requested = parsed.ok ? parsed.manifest.permissions : [];
+      const newPerms = requested.filter((p) => !ext.approved_permissions.includes(p));
+      if (newPerms.length > 0) {
+        await startReview({ kind: "github", repo }, `${ext.manifest.name} · ${repo} (update)`);
+        return;
+      }
+    } catch {
+      // Peek failed (network/repo). Fall through to the direct update, which
+      // surfaces the same error through its own toast.
+    }
+    await updateOne(ext, updateExtension);
   };
 
   const onCheckAll = async () => {
@@ -459,7 +492,7 @@ export function ExtensionsSection() {
                 void uninstall(ext.id).then(() => toast(`Uninstalled ${ext.manifest.name}`))
               }
               onCheckUpdate={() => void checkSingleUpdate(ext, checkUpdate)}
-              onUpdate={() => void updateOne(ext, updateExtension)}
+              onUpdate={() => void handleCardUpdate(ext)}
             />
           ))
         )}

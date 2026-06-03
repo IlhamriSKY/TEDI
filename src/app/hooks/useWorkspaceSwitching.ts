@@ -2,6 +2,7 @@ import { leaves, disposeSession } from "@/modules/terminal";
 import { type Tab } from "@/modules/tabs";
 import {
   defaultTabForEmptyWorkspace,
+  savedActiveTabIndex,
   savedToTab,
   serializeTabs,
   useWorkspacesStore,
@@ -61,16 +62,7 @@ export function useWorkspaceSwitching({
       if (wsActiveId) {
         // Disk snapshot for restart. Drops live ids, keeps cwd/path.
         const saved = serializeTabs(tabs);
-        let savedIdx = 0;
-        let i = -1;
-        for (const t of tabs) {
-          if (t.kind !== "ai-diff") i++;
-          if (t.id === activeId) {
-            savedIdx = i;
-            break;
-          }
-        }
-        wsSaveTabs(wsActiveId, saved, Math.max(0, savedIdx));
+        wsSaveTabs(wsActiveId, saved, savedActiveTabIndex(tabs, activeId));
         // Live snapshot for in-session switches. Keeps leaf ids so the
         // existing PTY/xterm sessions stay attached on return.
         liveTabsByWorkspace.current.set(wsActiveId, {

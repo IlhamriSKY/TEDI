@@ -1,5 +1,6 @@
-// Unified pane tree. Leaves are terminal or editor. `kind: "leaf"` stays
-// for back-compat; the new discriminator is `leafKind`.
+// Unified pane tree. Leaves are terminal, editor, or preview (an embedded
+// native browser). `kind: "leaf"` stays for back-compat; the discriminator is
+// `leafKind`.
 
 export type PaneId = number;
 
@@ -62,7 +63,18 @@ export type EditorLeafState = {
   private?: boolean;
 };
 
-export type LeafState = TerminalLeafState | EditorLeafState;
+export type PreviewLeafState = {
+  leafKind: "preview";
+  /** Current page URL of the embedded browser. Empty = show the address bar. */
+  url: string;
+  /** Live `document.title` of the page, reported by the webview. Drives the
+   *  tab/pane label; falls back to the URL host when empty. */
+  title?: string;
+  /** Privacy flag, kept for uniformity with the other leaf kinds. */
+  private?: boolean;
+};
+
+export type LeafState = TerminalLeafState | EditorLeafState | PreviewLeafState;
 
 export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
 
@@ -82,6 +94,19 @@ export function isLeaf(n: PaneNode): n is PaneLeaf {
 export function leafIds(n: PaneNode): PaneId[] {
   if (isLeaf(n)) return [n.id];
   return n.children.flatMap(leafIds);
+}
+
+/** Direction of the split that directly contains `leafId`: `"row"` = the leaf
+ *  sits beside its sibling (left/right), `"col"` = stacked (above/below). Null
+ *  when the leaf is the tab's only pane, so there is no split to rotate. */
+export function leafParentDir(n: PaneNode, leafId: PaneId): SplitDir | null {
+  if (n.kind !== "split") return null;
+  if (n.children.some((c) => c.kind === "leaf" && c.id === leafId)) return n.dir;
+  for (const c of n.children) {
+    const d = leafParentDir(c, leafId);
+    if (d) return d;
+  }
+  return null;
 }
 
 export function leaves(n: PaneNode): PaneLeaf[] {
@@ -152,6 +177,24 @@ export function setLeafPrivate(n: PaneNode, id: PaneId, value: boolean): PaneNod
   return { ...n, children: n.children.map((c) => setLeafPrivate(c, id, value)) };
 }
 
+/** Update a preview leaf's current URL. No-op for other leaves or mismatched ids. */
+export function updatePreviewLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "preview" || n.url === url) return n;
+    return { ...n, url };
+  }
+  return { ...n, children: n.children.map((c) => updatePreviewLeaf(c, id, url)) };
+}
+
+/** Update a preview leaf's page title. No-op for other leaves or mismatched ids. */
+export function updatePreviewLeafTitle(n: PaneNode, id: PaneId, title: string): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "preview" || n.title === title) return n;
+    return { ...n, title };
+  }
+  return { ...n, children: n.children.map((c) => updatePreviewLeafTitle(c, id, title)) };
+}
+
 /** Patch an editor leaf's mutable state. */
 export function updateEditorLeaf(
   n: PaneNode,
@@ -165,6 +208,40 @@ export function updateEditorLeaf(
   return {
     ...n,
     children: n.children.map((c) => updateEditorLeaf(c, id, patch)),
+  };
+}
+
+/**
+ * Clone a leaf's state (without its id) for a live move/extract, so the leaf's
+ * attached PTY / editor session / browser webview travels with it. Drops the
+ * serialization-only `ptyId`/`savedPtyId` (the live session re-stamps them).
+ */
+export function cloneLeafState(leaf: PaneLeaf): LeafState {
+  if (leaf.leafKind === "terminal") {
+    return {
+      leafKind: "terminal",
+      cwd: leaf.cwd,
+      sshConnectionId: leaf.sshConnectionId,
+      terminalOrdinal: leaf.terminalOrdinal,
+      ...(leaf.private ? { private: true } : {}),
+    };
+  }
+  if (leaf.leafKind === "editor") {
+    return {
+      leafKind: "editor",
+      path: leaf.path,
+      dirty: leaf.dirty,
+      preview: leaf.preview,
+      sshSessionId: leaf.sshSessionId,
+      sshHostLabel: leaf.sshHostLabel,
+      ...(leaf.private ? { private: true } : {}),
+    };
+  }
+  return {
+    leafKind: "preview",
+    url: leaf.url,
+    ...(leaf.title ? { title: leaf.title } : {}),
+    ...(leaf.private ? { private: true } : {}),
   };
 }
 

@@ -1,0 +1,75 @@
+import { type ThemeColors } from "@/modules/settings/customTheme";
+
+/**
+ * Every editable theme color, grouped for the tabbed color editor in
+ * ThemeSection. The ANSI 16 feed the xterm palette directly. Order within a
+ * group is the display order.
+ */
+export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: string }[] = [
+  { key: "background", label: "Background", group: "Base" },
+  { key: "foreground", label: "Foreground", group: "Base" },
+  { key: "card", label: "Card", group: "Base" },
+  { key: "cardForeground", label: "Card text", group: "Base" },
+  { key: "popover", label: "Popover", group: "Base" },
+  { key: "popoverForeground", label: "Popover text", group: "Base" },
+  { key: "button", label: "Button", group: "Buttons" },
+  { key: "buttonForeground", label: "Button text", group: "Buttons" },
+  { key: "buttonBorder", label: "Button border", group: "Buttons" },
+  { key: "secondary", label: "Secondary", group: "Buttons" },
+  { key: "secondaryForeground", label: "Secondary text", group: "Buttons" },
+  { key: "border", label: "Border", group: "Borders" },
+  { key: "input", label: "Input border", group: "Borders" },
+  { key: "ring", label: "Focus / tab bar", group: "Borders" },
+  { key: "resizeHandle", label: "Split-pane divider", group: "Borders" },
+  { key: "accent", label: "Accent", group: "Highlights" },
+  { key: "accentForeground", label: "Accent text", group: "Highlights" },
+  { key: "muted", label: "Muted", group: "Highlights" },
+  { key: "mutedForeground", label: "Muted text", group: "Highlights" },
+  { key: "destructive", label: "Destructive", group: "Highlights" },
+  { key: "sidebar", label: "Sidebar", group: "Sidebar" },
+  { key: "sidebarForeground", label: "Sidebar text", group: "Sidebar" },
+  { key: "sidebarBorder", label: "Sidebar border", group: "Sidebar" },
+  { key: "sidebarAccent", label: "Selected workspace / file", group: "Sidebar" },
+  { key: "sidebarAccentForeground", label: "Selected workspace / file text", group: "Sidebar" },
+  { key: "iconWorking", label: "Icon working", group: "Icons" },
+  { key: "iconIdle", label: "Icon idle", group: "Icons" },
+  { key: "iconBlocked", label: "Icon blocked", group: "Icons" },
+  { key: "diffAdded", label: "Diff added (+)", group: "Highlights" },
+  { key: "diffRemoved", label: "Diff removed (-)", group: "Highlights" },
+  { key: "info", label: "Info", group: "Highlights" },
+  { key: "tabAccentTerminal", label: "Active terminal stripe", group: "Tabs" },
+  { key: "tabAccentSsh", label: "Active SSH stripe", group: "Tabs" },
+  { key: "tabAccentEditor", label: "Active editor stripe", group: "Tabs" },
+  { key: "tabAccentPreview", label: "Active preview stripe", group: "Tabs" },
+  { key: "tabAccentAiDiff", label: "AI diff stripe", group: "Tabs" },
+  { key: "tabAccentGitDiff", label: "Git diff stripe", group: "Tabs" },
+  // Full ANSI 16 - feeds the xterm palette directly.
+  { key: "ansiBlack", label: "ANSI black", group: "Terminal" },
+  { key: "ansiRed", label: "ANSI red", group: "Terminal" },
+  { key: "ansiGreen", label: "ANSI green", group: "Terminal" },
+  { key: "ansiYellow", label: "ANSI yellow", group: "Terminal" },
+  { key: "ansiBlue", label: "ANSI blue", group: "Terminal" },
+  { key: "ansiMagenta", label: "ANSI magenta", group: "Terminal" },
+  { key: "ansiCyan", label: "ANSI cyan", group: "Terminal" },
+  { key: "ansiWhite", label: "ANSI white", group: "Terminal" },
+  { key: "ansiBrightBlack", label: "ANSI bright black", group: "Terminal" },
+  { key: "ansiBrightRed", label: "ANSI bright red", group: "Terminal" },
+  { key: "ansiBrightGreen", label: "ANSI bright green", group: "Terminal" },
+  { key: "ansiBrightYellow", label: "ANSI bright yellow", group: "Terminal" },
+  { key: "ansiBrightBlue", label: "ANSI bright blue", group: "Terminal" },
+  { key: "ansiBrightMagenta", label: "ANSI bright magenta", group: "Terminal" },
+  { key: "ansiBrightCyan", label: "ANSI bright cyan", group: "Terminal" },
+  { key: "ansiBrightWhite", label: "ANSI bright white", group: "Terminal" },
+];
+
+export const GROUPS = [
+  "Base",
+  "Buttons",
+  "Borders",
+  "Highlights",
+  "Sidebar",
+  "Icons",
+  "Tabs",
+  "Terminal",
+] as const;
+export type Group = (typeof GROUPS)[number];

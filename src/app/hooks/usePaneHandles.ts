@@ -1,5 +1,4 @@
 import { type EditorPaneHandle } from "@/modules/editor";
-import { type PreviewPaneHandle } from "@/modules/preview";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import {
   hasLeaf,
@@ -16,14 +15,12 @@ import { type TabsApi } from "./tabsApi";
 type Params = {
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
   editorRefs: RefObject<Map<number, EditorPaneHandle>>;
-  previewRefs: RefObject<Map<number, PreviewPaneHandle>>;
   tabsRef: RefObject<Tab[]>;
   activeLeafIdInTab: number | null;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
   handleClose: (id: number) => void;
 } & Pick<
   TabsApi,
-  | "updateTab"
   | "setLeafCwd"
   | "setLeafPtyId"
   | "focusPane"
@@ -43,11 +40,9 @@ type Params = {
 export function usePaneHandles({
   terminalRefs,
   editorRefs,
-  previewRefs,
   tabsRef,
   activeLeafIdInTab,
   setActiveEditorHandle,
-  updateTab,
   setLeafCwd,
   setLeafPtyId,
   focusPane,
@@ -60,8 +55,6 @@ export function usePaneHandles({
 }: Params): {
   registerTerminalHandle: (leafId: number, h: TerminalPaneHandle | null) => void;
   registerEditorHandle: (leafId: number, h: EditorPaneHandle | null) => void;
-  registerPreviewHandle: (id: number, h: PreviewPaneHandle | null) => void;
-  handlePreviewUrl: (id: number, url: string) => void;
   handleTerminalCwd: (leafId: number, cwd: string) => void;
   handlePtyId: (leafId: number, ptyId: string) => void;
   handleFocusLeaf: (tabId: number, leafId: number) => void;
@@ -84,16 +77,6 @@ export function usePaneHandles({
       if (leafId === activeLeafIdInTab) setActiveEditorHandle(h);
     },
     [activeLeafIdInTab],
-  );
-
-  const registerPreviewHandle = useCallback((id: number, h: PreviewPaneHandle | null) => {
-    if (h) previewRefs.current.set(id, h);
-    else previewRefs.current.delete(id);
-  }, []);
-
-  const handlePreviewUrl = useCallback(
-    (id: number, url: string) => updateTab(id, { url }),
-    [updateTab],
   );
 
   const handleTerminalCwd = useCallback(
@@ -239,8 +222,6 @@ export function usePaneHandles({
   return {
     registerTerminalHandle,
     registerEditorHandle,
-    registerPreviewHandle,
-    handlePreviewUrl,
     handleTerminalCwd,
     handlePtyId,
     handleFocusLeaf,

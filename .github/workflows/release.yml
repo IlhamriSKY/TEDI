@@ -33,6 +33,8 @@ jobs:
 
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-22.04'
+        # libdbus-1-dev / libxcb1-dev / libxcb-randr0-dev are for `xcap`, used by
+        # the browser-screenshot command on Linux (links dbus + xcb randr).
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -40,6 +42,9 @@ jobs:
             libgtk-3-dev \
             librsvg2-dev \
             libssl-dev \
+            libdbus-1-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev \
             patchelf
 
       # Pinned to v4: pnpm/action-setup@v6's self-installer crashes on

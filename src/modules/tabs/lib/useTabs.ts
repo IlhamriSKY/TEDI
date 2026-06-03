@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { basename } from "@/lib/path";
 import {
+  cloneLeafState,
   findLeaf,
   hasLeaf,
   leafIds,
@@ -17,216 +18,48 @@ import {
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
+  updatePreviewLeaf as updatePreviewLeafInTree,
   type EditorLeafState,
   type LeafState,
   type PaneEdge,
   type PaneLeaf,
   type PaneNode,
+  type PreviewLeafState,
   type SplitDir,
   type TerminalLeafState,
 } from "@/modules/terminal/lib/panes";
+import { type PaneTab, type Tab, type TabPatch } from "./tabTypes";
+import { syncPaneMirror } from "./tabHelpers";
+import { useAuxTabs } from "./useAuxTabs";
+
+// Re-export the tab types from their new home so existing imports of
+// `@/modules/tabs/lib/useTabs` (and the `@/modules/tabs` barrel) keep working.
+export type {
+  PaneTab,
+  AiDiffStatus,
+  AiDiffTab,
+  GitChangeStatusTab,
+  GitDiffTab,
+  ScmTab,
+  ExtensionTabState,
+  ExtensionTab,
+  Tab,
+  TabPatch,
+} from "./tabTypes";
+
+// Re-export the active-leaf discriminators from their new home so callers that
+// import them from this module (or the barrel) are unaffected by the move.
+export {
+  activeLeaf,
+  activeLeafKind,
+  isTerminalLikeTab,
+  isEditorLikeTab,
+  isPreviewLikeTab,
+} from "./tabHelpers";
 
 // Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
 // 6 panes per tab leaves headroom for multiple tabs.
 export const MAX_PANES_PER_TAB = 6;
-
-/**
- * A pane tab holds a tmux-style pane tree of terminal or editor leaves.
- * Splitting (Ctrl+D / Ctrl+Shift+D) adds a new leaf next to the focused one.
- * Trees can mix horizontal and vertical orientations.
- * `title` / `cwd` / `path` / `dirty` / `preview` mirror the active leaf and
- * resync whenever the tree or active leaf changes.
- */
-export type PaneTab = {
-  id: number;
-  kind: "pane";
-  title: string;
-  paneTree: PaneNode;
-  activeLeafId: number;
-  // Mirrors of the active leaf, populated by `syncPaneMirror`.
-  cwd?: string;
-  path?: string;
-  dirty?: boolean;
-  preview?: boolean;
-};
-
-export type PreviewTab = {
-  id: number;
-  kind: "preview";
-  title: string;
-  url: string;
-};
-
-export type AiDiffStatus = "pending" | "approved" | "rejected";
-
-export type AiDiffTab = {
-  id: number;
-  kind: "ai-diff";
-  title: string;
-  path: string;
-  originalContent: string;
-  proposedContent: string;
-  approvalId: string;
-  status: AiDiffStatus;
-  isNewFile: boolean;
-};
-
-export type GitChangeStatusTab =
-  | "modified"
-  | "added"
-  | "deleted"
-  | "renamed"
-  | "copied"
-  | "untracked"
-  | "conflicted"
-  | "ignored";
-
-export type GitDiffTab = {
-  id: number;
-  kind: "git-diff";
-  title: string;
-  /** Absolute working-tree path. */
-  path: string;
-  /** Repo-relative forward-slash path. */
-  relative: string;
-  /** Absolute repo root. */
-  repoPath: string;
-  changeStatus: GitChangeStatusTab;
-  /** Bumps on Refresh so the pane re-reads HEAD and working tree. */
-  reloadKey: number;
-  /**
-   * Per-commit diff mode. When `commitSha` is set the pane diffs the file at
-   * `commitSha` against `baseRev` (its first parent, or null for the root
-   * commit) instead of HEAD vs the working tree.
-   */
-  commitSha?: string;
-  baseRev?: string | null;
-  /** Previous repo-relative path for a renamed/copied file (left side at `baseRev`). */
-  oldRelative?: string | null;
-  /** Short SHA shown in the diff header. */
-  commitLabel?: string;
-};
-
-/**
- * Full Source Control surface hosted in a tab (branch + working-tree changes,
- * commit/push, and a commit-history graph with per-commit detail + diffs).
- * Deduped to one instance; `openScmTab` focuses the existing tab. Content is
- * driven by the live workspace root, so the tab carries no repo state itself.
- */
-export type ScmTab = {
-  id: number;
-  kind: "scm";
-  title: string;
-};
-
-/**
- * Lifecycle hint an extension can attach to its tab so the title text
- * colour reflects connection / job state. Mirrors the SSH tab palette so
- * "remote-ish" extensions read consistently next to terminal tabs:
- * `connecting`/`reconnecting` → pulsing yellow, `connected` → green,
- * `disconnected`/`error` → red, `idle`/undefined → default.
- */
-export type ExtensionTabState =
-  | "idle"
-  | "connecting"
-  | "reconnecting"
-  | "connected"
-  | "disconnected"
-  | "error";
-
-/**
- * Extension-owned tab. The content is mounted by `ExtensionTabStack`
- * which calls the renderer registered by `ctx.registerPanelRenderer`.
- * Opened via `ctx.tabs.openExtensionTab({ extensionId, panelId, title })`.
- */
-export type ExtensionTab = {
-  id: number;
-  kind: "ext";
-  title: string;
-  extensionId: string;
-  panelId: string;
-  /** Optional icon path relative to the extension root (or `data:` URL). */
-  icon?: string;
-  /** Caller-supplied stable id for dedup (so re-opening focuses the
-   *  existing tab instead of pushing a new one). */
-  reuseKey?: string;
-  /** Optional lifecycle tone for the tab title text. Updated by the
-   *  extension via `ctx.tabs.setExtensionTabState(...)`. */
-  state?: ExtensionTabState;
-};
-
-export type Tab = PaneTab | PreviewTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab;
-
-export type TabPatch = Partial<{
-  title: string;
-  cwd: string;
-  path: string;
-  dirty: boolean;
-  url: string;
-}>;
-
-function titleFromUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return u.host || url;
-  } catch {
-    return url || "preview";
-  }
-}
-
-/** Derive a tab title from its active leaf. */
-function titleFromLeaf(leaf: PaneLeaf): string {
-  if (leaf.leafKind === "editor") return basename(leaf.path);
-  // SSH leaves get a real title via updateTab after newSshTab. This is the interim fallback.
-  if (leaf.sshConnectionId) return "ssh";
-  // Terminal: cwd basename, falling back to "shell".
-  if (leaf.cwd) {
-    const b = basename(leaf.cwd);
-    if (b) return b;
-  }
-  return "shell";
-}
-
-/** Recompute the top-level mirrors from the active leaf. */
-function syncPaneMirror(tab: PaneTab): PaneTab {
-  const leaf = findLeaf(tab.paneTree, tab.activeLeafId);
-  if (!leaf) return tab;
-  const next: PaneTab = {
-    ...tab,
-    title: titleFromLeaf(leaf),
-  };
-  if (leaf.leafKind === "terminal") {
-    next.cwd = leaf.cwd;
-    delete next.path;
-    delete next.dirty;
-    delete next.preview;
-  } else {
-    delete next.cwd;
-    next.path = leaf.path;
-    next.dirty = leaf.dirty;
-    next.preview = leaf.preview;
-  }
-  return next;
-}
-
-/** Helpers for discriminating on the active leaf kind. */
-export function activeLeaf(tab: Tab): PaneLeaf | null {
-  if (tab.kind !== "pane") return null;
-  return findLeaf(tab.paneTree, tab.activeLeafId);
-}
-
-export function activeLeafKind(tab: Tab): "terminal" | "editor" | null {
-  const leaf = activeLeaf(tab);
-  return leaf ? leaf.leafKind : null;
-}
-
-export function isTerminalLikeTab(tab: Tab): boolean {
-  return tab.kind === "pane" && activeLeafKind(tab) === "terminal";
-}
-
-export function isEditorLikeTab(tab: Tab): boolean {
-  return tab.kind === "pane" && activeLeafKind(tab) === "editor";
-}
 
 export function useTabs(initial?: { cwd?: string; title?: string }) {
   const [tabs, setTabs] = useState<Tab[]>(() => {
@@ -260,6 +93,21 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   // any path pick the next unused integer. Drag/reorder doesn't bump this;
   // the ordinal belongs to the leaf, not its position.
   const nextOrdinalRef = useRef(2);
+
+  // Non-pane tab openers + preview-leaf URL/title updaters. Extracted into a
+  // sub-hook for size; the callbacks close over the same setters/refs and are
+  // spread into this hook's return object below with identical keys.
+  const {
+    openAiDiffTab,
+    setAiDiffStatus,
+    openGitDiffTab,
+    openScmTab,
+    newPreviewTab,
+    openExtensionTab,
+    setExtensionTabState,
+    setPreviewLeafUrl,
+    setPreviewLeafTitle,
+  } = useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef });
 
   /** Highest `terminalOrdinal` currently in use. */
   const peekMaxOrdinal = useCallback((curr: Tab[]): number => {
@@ -529,232 +377,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     );
   }, []);
 
-  const openAiDiffTab = useCallback(
-    (input: {
-      path: string;
-      originalContent: string;
-      proposedContent: string;
-      approvalId: string;
-      isNewFile: boolean;
-    }) => {
-      let targetId: number | null = null;
-      setTabs((curr) => {
-        const existing = curr.find(
-          (t) => t.kind === "ai-diff" && t.approvalId === input.approvalId,
-        );
-        if (existing) {
-          targetId = existing.id;
-          return curr;
-        }
-        const id = nextIdRef.current++;
-        targetId = id;
-        const title = `${basename(input.path)} (AI diff)`;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "ai-diff",
-            title,
-            path: input.path,
-            originalContent: input.originalContent,
-            proposedContent: input.proposedContent,
-            approvalId: input.approvalId,
-            status: "pending",
-            isNewFile: input.isNewFile,
-          },
-        ];
-      });
-      if (targetId !== null) setActiveId(targetId);
-      return targetId as number | null;
-    },
-    [],
-  );
-
-  const setAiDiffStatus = useCallback((approvalId: string, status: AiDiffStatus) => {
-    setTabs((curr) =>
-      curr.map((t) => (t.kind === "ai-diff" && t.approvalId === approvalId ? { ...t, status } : t)),
-    );
-  }, []);
-
-  const openGitDiffTab = useCallback(
-    (input: {
-      path: string;
-      relative: string;
-      repoPath: string;
-      changeStatus: GitChangeStatusTab;
-      commitSha?: string;
-      baseRev?: string | null;
-      oldRelative?: string | null;
-      commitLabel?: string;
-    }) => {
-      const commitSha = input.commitSha ?? undefined;
-      let targetId: number | null = null;
-      setTabs((curr) => {
-        // Working-tree diffs dedupe on (relative, repo); per-commit diffs also
-        // key on the commit so the same file at different commits coexist.
-        const existing = curr.find(
-          (t) =>
-            t.kind === "git-diff" &&
-            t.relative === input.relative &&
-            t.repoPath === input.repoPath &&
-            (t.commitSha ?? undefined) === commitSha,
-        );
-        if (existing) {
-          // Bump reloadKey so the pane re-reads its two sides.
-          targetId = existing.id;
-          return curr.map((t) =>
-            t.id === existing.id && t.kind === "git-diff"
-              ? {
-                  ...t,
-                  reloadKey: t.reloadKey + 1,
-                  changeStatus: input.changeStatus,
-                }
-              : t,
-          );
-        }
-        const id = nextIdRef.current++;
-        targetId = id;
-        const title = commitSha
-          ? `${basename(input.path)} @ ${input.commitLabel ?? commitSha.slice(0, 7)}`
-          : `${basename(input.path)} (diff)`;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "git-diff",
-            title,
-            path: input.path,
-            relative: input.relative,
-            repoPath: input.repoPath,
-            changeStatus: input.changeStatus,
-            reloadKey: 0,
-            ...(commitSha
-              ? {
-                  commitSha,
-                  baseRev: input.baseRev ?? null,
-                  oldRelative: input.oldRelative ?? null,
-                  commitLabel: input.commitLabel,
-                }
-              : {}),
-          },
-        ];
-      });
-      if (targetId !== null) setActiveId(targetId);
-      return targetId as number | null;
-    },
-    [],
-  );
-
-  /**
-   * Open (or focus) the single Source Control tab. Dedupes against
-   * `tabsRef.current` so `setActiveId` always lands even when the caller
-   * schedules other state updates first (see `openExtensionTab`).
-   */
-  const openScmTab = useCallback(() => {
-    const existing = tabsRef.current.find((t) => t.kind === "scm");
-    if (existing) {
-      setActiveId(existing.id);
-      return existing.id;
-    }
-    const id = nextIdRef.current++;
-    setTabs((curr) => [...curr, { id, kind: "scm", title: "Source Control" } satisfies ScmTab]);
-    setActiveId(id);
-    return id;
-  }, []);
-
-  const newPreviewTab = useCallback((url: string) => {
-    const id = nextIdRef.current++;
-    setTabs((t) => [...t, { id, kind: "preview", title: titleFromUrl(url), url }]);
-    setActiveId(id);
-    return id;
-  }, []);
-
-  /**
-   * Open (or focus) an extension-owned tab. Caller passes a `reuseKey` to
-   * dedupe; if a tab with the same `(extensionId, panelId, reuseKey)`
-   * already exists, we activate it instead of pushing a new one. The
-   * extension's panel renderer (registered via `ctx.registerPanelRenderer`)
-   * is mounted by `ExtensionTabStack`.
-   *
-   * Reuse detection + id allocation runs against `tabsRef.current` (not
-   * inside the `setTabs` updater) so `setActiveId(id)` always receives a
-   * concrete value. Mutating a closure variable from inside the updater
-   * only works when React performs eager state computation; callers that
-   * schedule unrelated state updates first (e.g. SQL Explorer hiding both
-   * sidebars before opening its tab) force React to defer the updater,
-   * and the active-id then stays on the previous tab.
-   */
-  const openExtensionTab = useCallback(
-    (opts: {
-      extensionId: string;
-      panelId: string;
-      title: string;
-      icon?: string;
-      reuseKey?: string;
-    }) => {
-      const reuse = opts.reuseKey
-        ? tabsRef.current.find(
-            (t) =>
-              t.kind === "ext" &&
-              t.extensionId === opts.extensionId &&
-              t.panelId === opts.panelId &&
-              t.reuseKey === opts.reuseKey,
-          )
-        : null;
-      if (reuse) {
-        setActiveId(reuse.id);
-        return reuse.id;
-      }
-      const id = nextIdRef.current++;
-      setTabs((curr) => [
-        ...curr,
-        {
-          id,
-          kind: "ext",
-          title: opts.title,
-          extensionId: opts.extensionId,
-          panelId: opts.panelId,
-          icon: opts.icon,
-          reuseKey: opts.reuseKey,
-        } satisfies ExtensionTab,
-      ]);
-      setActiveId(id);
-      return id;
-    },
-    [],
-  );
-
-  /**
-   * Update the lifecycle tone on an extension tab. Matches the tab on
-   * `(extensionId, panelId, reuseKey)`; `reuseKey` is optional and matches
-   * tabs opened without one when omitted. Pass `null` for `state` to clear.
-   */
-  const setExtensionTabState = useCallback(
-    (opts: {
-      extensionId: string;
-      panelId: string;
-      reuseKey?: string;
-      state: ExtensionTabState | null;
-    }) => {
-      setTabs((curr) =>
-        curr.map((t) => {
-          if (t.kind !== "ext") return t;
-          if (t.extensionId !== opts.extensionId) return t;
-          if (t.panelId !== opts.panelId) return t;
-          if ((t.reuseKey ?? undefined) !== (opts.reuseKey ?? undefined)) return t;
-          const next: ExtensionTab = { ...t };
-          if (opts.state === null) {
-            delete next.state;
-          } else {
-            next.state = opts.state;
-          }
-          return next;
-        }),
-      );
-    },
-    [],
-  );
-
   const closeTab = useCallback((id: number) => {
     setTabs((curr) => {
       if (curr.length <= 1) return curr;
@@ -769,16 +391,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     setTabs((t) =>
       t.map((x) => {
         if (x.id !== id) return x;
-        if (x.kind === "preview") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.url !== undefined && {
-              url: patch.url,
-              title: patch.title ?? titleFromUrl(patch.url),
-            }),
-          };
-        }
         if (x.kind === "ai-diff") {
           return {
             ...x,
@@ -823,6 +435,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         } else if (leaf.leafKind === "terminal") {
           if (patch.cwd !== undefined) {
             tree = setLeafCwdInTree(tree, leaf.id, patch.cwd);
+          }
+        } else if (leaf.leafKind === "preview") {
+          if (patch.url !== undefined) {
+            tree = updatePreviewLeafInTree(tree, leaf.id, patch.url);
           }
         }
         return syncPaneMirror({
@@ -932,7 +548,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     (
       tabId: number,
       dir: SplitDir,
-      newKind?: "terminal" | "editor",
+      newKind?: "terminal" | "editor" | "preview",
       cwdOverride?: string,
     ): number | null => {
       let newLeafId: number | null = null;
@@ -944,7 +560,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           if (!active) return t;
 
           // Default to terminal so Ctrl+D from an editor still produces a shell.
-          const kind: "terminal" | "editor" = newKind ?? "terminal";
+          const kind: "terminal" | "editor" | "preview" = newKind ?? "terminal";
 
           const splitId = nextIdRef.current++;
           const leafId = nextIdRef.current++;
@@ -959,7 +575,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               terminalOrdinal: allocOrdinal(curr),
             };
             state = ts;
-          } else {
+          } else if (kind === "editor") {
             // Duplicate the active editor's path; fall back to any editor in the tab.
             // No editor in the tab means no path to clone, so the split is a no-op.
             const sourcePath =
@@ -979,6 +595,11 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               preview: false,
             };
             state = es;
+          } else {
+            // Browser leaf. Starts blank so the address bar shows; a URL can be
+            // passed via the override (e.g. "split with this localhost URL").
+            const ps: PreviewLeafState = { leafKind: "preview", url: cwdOverride ?? "" };
+            state = ps;
           }
           const paneTree = splitLeaf(t.paneTree, t.activeLeafId, splitId, leafId, dir, state);
           return syncPaneMirror({ ...t, paneTree, activeLeafId: leafId });
@@ -1119,24 +740,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         // Reuse the leaf's state verbatim so cwd, sshConnectionId, ordinal,
         // dirty, and preview travel with it. Leaf id is preserved so App.tsx's
         // per-leaf refs keep their mapping.
-        const state: LeafState =
-          leaf.leafKind === "terminal"
-            ? {
-                leafKind: "terminal",
-                cwd: leaf.cwd,
-                sshConnectionId: leaf.sshConnectionId,
-                terminalOrdinal: leaf.terminalOrdinal,
-                ...(leaf.private ? { private: true } : {}),
-              }
-            : {
-                leafKind: "editor",
-                path: leaf.path,
-                dirty: leaf.dirty,
-                preview: leaf.preview,
-                sshSessionId: leaf.sshSessionId,
-                sshHostLabel: leaf.sshHostLabel,
-                ...(leaf.private ? { private: true } : {}),
-              };
+        const state: LeafState = cloneLeafState(leaf);
         const newSourceTree = removeLeaf(source.paneTree, leafId);
         const splitId = nextIdRef.current++;
         const newTargetTree = splitLeaf(
@@ -1212,24 +816,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       if (sourceLeafIds.length < 2) return curr;
       const leaf = findLeaf(source.paneTree, leafId);
       if (!leaf) return curr;
-      const state: LeafState =
-        leaf.leafKind === "terminal"
-          ? {
-              leafKind: "terminal",
-              cwd: leaf.cwd,
-              sshConnectionId: leaf.sshConnectionId,
-              terminalOrdinal: leaf.terminalOrdinal,
-              ...(leaf.private ? { private: true } : {}),
-            }
-          : {
-              leafKind: "editor",
-              path: leaf.path,
-              dirty: leaf.dirty,
-              preview: leaf.preview,
-              sshSessionId: leaf.sshSessionId,
-              sshHostLabel: leaf.sshHostLabel,
-              ...(leaf.private ? { private: true } : {}),
-            };
+      const state: LeafState = cloneLeafState(leaf);
       const newSourceTree = removeLeaf(source.paneTree, leafId);
       // Source has 2+ leaves so removing one leaves something. Guard anyway.
       if (newSourceTree === null) return curr;
@@ -1376,6 +963,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setPreviewLeafUrl,
+    setPreviewLeafTitle,
     setLeafPtyId,
     setEditorLeafDirty,
     setEditorLeafPath,

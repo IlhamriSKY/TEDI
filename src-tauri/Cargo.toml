@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.17"
+version = "0.3.18"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -58,7 +58,9 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` enables the multi-webview API (`Window::add_child`) used to embed
+# a real native browser webview inside the preview tab.
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -142,6 +144,22 @@ windows-sys = { version = "0.59", features = [
 	"Win32_System_Threading",
 	"Win32_Graphics_Dwm",
 ] }
+# Capture the focused tab's webview content directly (just the tab, no window
+# chrome) via ICoreWebView2::CapturePreview. A plain screen grab misses WebView2
+# on Windows because it composites through DirectComposition. Versions match the
+# copies wry already pulls in, so no duplicate crates are added.
+webview2-com = "0.38"
+windows = { version = "0.61", features = [
+	"Win32_Foundation",
+	"Win32_System_Com",
+	"Win32_System_Com_StructuredStorage",
+	"Win32_System_Memory",
+] }
+
+# macOS/Linux: their screen capture DOES include the webview surface, so the
+# on-demand browser screenshot grabs the composited screen and crops to the pane.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+xcap = "0.0.14"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"

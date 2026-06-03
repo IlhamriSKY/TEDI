@@ -21,6 +21,8 @@ use tauri::http::{Request, Response, StatusCode};
 use tauri::{Builder, Runtime};
 use url::Url;
 
+use super::util::{html_escape, js_string_literal};
+
 pub const SCHEME: &str = "tedi-frame";
 
 const STRIPPED_HEADERS: &[&str] = &[
@@ -56,7 +58,7 @@ const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 // page can fan out to 50+ assets).
 static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
-fn proxy_client() -> &'static reqwest::Client {
+pub(super) fn proxy_client() -> &'static reqwest::Client {
     PROXY_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
@@ -388,26 +390,18 @@ fn build_head_injection(target_url: &str) -> String {
     // inline `<style>`, dynamically created elements). Those go directly to
     // the upstream origin and may hit CORP; the rewriter handles the common
     // cases (`<img>`, `<link>`, `<script>`, `<source>`).
+    //
+    // The trailing reporter postMessages the real page URL up to the host so
+    // the preview address bar + back/forward history can track navigation the
+    // same way a browser does. It runs once per loaded document (every link
+    // click reloads the iframe through the proxy, so each page reports itself).
     format!(
-        "<base href=\"{}\"><script>{}</script>",
-        html_escape(target_url),
-        CLICK_PROXY_SCRIPT
+        "<base href=\"{base}\"><script>{script}</script>\
+         <script>(function(){{try{{window.parent.postMessage({{__tediPreview:true,type:'navigated',url:{url}}},'*');}}catch(e){{}}}})();</script>",
+        base = html_escape(target_url),
+        script = CLICK_PROXY_SCRIPT,
+        url = js_string_literal(target_url),
     )
-}
-
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 // Route top-level link clicks and GET form submissions back through the
@@ -427,6 +421,9 @@ const CLICK_PROXY_SCRIPT: &str = r#"
       return location.origin + '/?u=' + b64(abs);
     } catch (e) { return null; }
   }
+  function notify(type){
+    try { window.parent.postMessage({__tediPreview:true,type:type}, '*'); } catch (e) {}
+  }
   document.addEventListener('click', function(e){
     if (e.defaultPrevented || e.button !== 0) return;
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -441,6 +438,7 @@ const CLICK_PROXY_SCRIPT: &str = r#"
     var p = proxify(href);
     if (!p) return;
     e.preventDefault();
+    notify('navigating');
     window.location.href = p;
   }, true);
   document.addEventListener('submit', function(e){
@@ -467,6 +465,7 @@ const CLICK_PROXY_SCRIPT: &str = r#"
       if (!/^https?:\/\//i.test(url.href)) return;
       var p = location.origin + '/?u=' + b64(url.href);
       e.preventDefault();
+      notify('navigating');
       window.location.href = p;
     } catch (err) { /* fall through to native submit */ }
   }, true);

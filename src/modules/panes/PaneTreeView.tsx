@@ -17,6 +17,7 @@ import {
   CloudServerIcon,
   ComputerTerminal02Icon,
   DragDropVerticalIcon,
+  Globe02Icon,
   LockedIcon,
   PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
@@ -26,6 +27,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
+import { PreviewFavicon, PreviewPane, setPaneDragActive } from "@/modules/preview";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
@@ -51,6 +53,8 @@ export type LeafBundle = {
   setEditorRef: (h: EditorPaneHandle | null) => void;
   onDirtyChange: (dirty: boolean) => void;
   onCloseLeaf: () => void;
+  // preview-only
+  onPreviewUrlChange: (url: string) => void;
 };
 
 type Props = {
@@ -132,6 +136,14 @@ function baseName(p: string): string {
 
 function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): string {
   if (node.leafKind === "editor") return baseName(node.path);
+  if (node.leafKind === "preview") {
+    if (node.title) return node.title;
+    try {
+      return new URL(node.url).host || node.url || "browser";
+    } catch {
+      return node.url || "browser";
+    }
+  }
   // SSH terminal: mirror the tab strip's `ssh:<host>` (bare "ssh" if the
   // connection was deleted), so tab and pane read identically.
   if (node.sshConnectionId) {
@@ -178,6 +190,18 @@ const LeafBody = memo(function LeafBody({
             onPtyId={(_id, ptyId) => b.onPtyId(ptyId)}
           />
         </div>
+      </ErrorBoundary>
+    );
+  }
+  if (node.leafKind === "preview") {
+    return (
+      <ErrorBoundary label="browser pane" resetKeys={[node.id]}>
+        <PreviewPane
+          id={node.id}
+          url={node.url}
+          visible={tabVisible}
+          onUrlChange={b.onPreviewUrlChange}
+        />
       </ErrorBoundary>
     );
   }
@@ -256,7 +280,9 @@ function PaneLeafFrame({
       ? CloudServerIcon
       : node.leafKind === "terminal"
         ? ComputerTerminal02Icon
-        : PencilEdit02Icon;
+        : node.leafKind === "preview"
+          ? Globe02Icon
+          : PencilEdit02Icon;
   // Icon colour carries AI CLI state (idle/working/blocking, working+blocking
   // pulse) for every leaf including private. Private's red lives on the label,
   // so the lock colour stays free to show AI status (no ambiguity).
@@ -309,12 +335,16 @@ function PaneLeafFrame({
             dragHandle
           );
         })()}
-        <HugeiconsIcon
-          icon={Icon}
-          size={13}
-          strokeWidth={2}
-          className={cn("shrink-0", iconClass)}
-        />
+        {node.leafKind === "preview" && !isPrivate ? (
+          <PreviewFavicon url={node.url} size={13} className={iconClass} />
+        ) : (
+          <HugeiconsIcon
+            icon={Icon}
+            size={13}
+            strokeWidth={2}
+            className={cn("shrink-0", iconClass)}
+          />
+        )}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-xs",
@@ -459,11 +489,16 @@ export function PaneTreeView({
   const reset = () => {
     latestRef.current = { over: null, edge: null };
     setDrag({ sourceLeafId: null, overLeafId: null, edge: null });
+    // Restore any preview webviews hidden for the drag.
+    setPaneDragActive(false);
   };
 
   const handleDragStart = (ev: DragStartEvent) => {
     latestRef.current = { over: null, edge: null };
     setDrag({ sourceLeafId: parsePaneId(ev.active.id, DRAG_PREFIX), overLeafId: null, edge: null });
+    // Hide preview webviews so the DOM drop indicators show over a browser pane
+    // and the pointer reaches the DOM drop zones instead of the webview surface.
+    setPaneDragActive(true);
   };
 
   const handleDragMove = (ev: DragMoveEvent) => {
@@ -514,7 +549,9 @@ export function PaneTreeView({
         ? CloudServerIcon
         : draggedLeaf?.leafKind === "terminal"
           ? ComputerTerminal02Icon
-          : PencilEdit02Icon;
+          : draggedLeaf?.leafKind === "preview"
+            ? Globe02Icon
+            : PencilEdit02Icon;
   const draggedAiCli =
     draggedLeaf?.leafKind === "terminal" ? aiCliStatuses?.get(draggedLeaf.id) : undefined;
   // Icon colour follows AI status (even when private); private's red is on the label.
@@ -544,12 +581,16 @@ export function PaneTreeView({
       <DragOverlay dropAnimation={null}>
         {draggedLeaf && (
           <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 max-w-72 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm">
-            <HugeiconsIcon
-              icon={draggedIcon}
-              size={13}
-              strokeWidth={2}
-              className={draggedIconClass}
-            />
+            {draggedLeaf.leafKind === "preview" && draggedLeaf.private !== true ? (
+              <PreviewFavicon url={draggedLeaf.url} size={13} className={draggedIconClass} />
+            ) : (
+              <HugeiconsIcon
+                icon={draggedIcon}
+                size={13}
+                strokeWidth={2}
+                className={draggedIconClass}
+              />
+            )}
             <span className={cn("truncate", draggedLeaf.private === true && "text-destructive")}>
               {leafLabel(draggedLeaf, sshHosts)}
             </span>

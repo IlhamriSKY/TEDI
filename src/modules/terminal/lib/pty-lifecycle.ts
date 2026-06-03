@@ -1,0 +1,348 @@
+import { openPty, reattachPty, type PtySession } from "./pty-bridge";
+import { sessions, type Session } from "./sessionState";
+import {
+  MIN_PTY_DIM,
+  LOCAL_URL_RE,
+  SPAWN_GRACE_MS,
+  SPAWN_TIMEOUT_MS,
+  NO_DATA_WATCHDOG_MS,
+  isDebugPty,
+  describeError,
+  stripTrailingPunct,
+  containsSchemeSeparator,
+} from "./session-helpers";
+import { openSshForSession } from "./ssh-session";
+
+/**
+ * Push xterm dimensions to the live PTY, floored to MIN_PTY_DIM and
+ * deduplicated against `lastSentCols/Rows`. Returns true when an IPC resize
+ * was issued. Central to every callsite so behavior stays consistent.
+ */
+export function syncPtySize(s: Session): boolean {
+  if (!s.pty || s.disposed) return false;
+  const cols = Math.max(MIN_PTY_DIM, s.term.cols);
+  const rows = Math.max(MIN_PTY_DIM, s.term.rows);
+  if (cols === s.lastSentCols && rows === s.lastSentRows) return false;
+  s.lastSentCols = cols;
+  s.lastSentRows = rows;
+  void s.pty.resize(cols, rows);
+  return true;
+}
+
+export function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySession> {
+  // Capture spawn epoch. Late exit events for a superseded spawn bail before mutating newer state.
+  s.ptySpawnEpoch += 1;
+  const myEpoch = s.ptySpawnEpoch;
+
+  // Fresh decoder per pty so partial UTF-8 from a prior shell doesn't leak.
+  const urlDecoder = new TextDecoder("utf-8", { fatal: false });
+
+  // Diagnostic counters for the live-PTY-but-empty-pane case. Toggle via TEDI_DEBUG_PTY.
+  const debug = isDebugPty();
+  let firstByteLogged = false;
+  let totalBytes = 0;
+  const spawnedAtForLog = performance.now();
+
+  const onData = (bytes: Uint8Array) => {
+    if (debug && !firstByteLogged) {
+      firstByteLogged = true;
+      console.info(
+        `[tedi-pty] leaf=${s.term.cols}x${s.term.rows} epoch=${myEpoch} first byte after ${Math.round(
+          performance.now() - spawnedAtForLog,
+        )}ms (${bytes.length}B)`,
+      );
+    }
+    // First bytes from the shell. Disarm the watchdog and record the epoch
+    // so `armNoDataWatchdog` won't arm against a shell that already spoke.
+    s.firstByteEpoch = myEpoch;
+    if (s.noDataTimer !== null) {
+      clearTimeout(s.noDataTimer);
+      s.noDataTimer = null;
+    }
+    // Clear the "starting shell…" placeholder before the shell's first
+    // paint so it doesn't linger above the prompt as scrollback. Soft reset
+    // (cursor home + erase display) keeps SGR/cursor state owned by the
+    // shell's own output.
+    if (s.placeholderShown) {
+      s.placeholderShown = false;
+      s.term.write("\x1b[H\x1b[2J");
+    }
+    totalBytes += bytes.length;
+    s.term.write(bytes);
+    s.aiCliDetector?.pushOutput(bytes);
+    if (containsSchemeSeparator(bytes)) {
+      const text = urlDecoder.decode(bytes, { stream: true });
+      const matches = text.match(LOCAL_URL_RE);
+      if (matches && matches.length > 0) {
+        const url = stripTrailingPunct(matches[matches.length - 1]);
+        if (url && url !== s.lastDetectedUrl) {
+          s.lastDetectedUrl = url;
+          s.callbacks.onDetectedLocalUrl?.(url);
+        }
+      }
+    }
+  };
+  const onExit = (code: number) => {
+    if (debug) {
+      console.info(
+        `[tedi-pty] onExit epoch=${myEpoch} code=${code} totalBytes=${totalBytes} elapsed=${Math.round(performance.now() - spawnedAtForLog)}ms`,
+      );
+    }
+    // Late exit from a replaced pty. Ignore to avoid clobbering newer state.
+    if (myEpoch !== s.ptySpawnEpoch) return;
+
+    // Spawn-time crash detection. PTY death within SPAWN_GRACE_MS with non-zero
+    // exit means init failed. Hold the leaf with a retry banner instead of closing.
+    const spawnedAt = s.ptySpawnedAt;
+    const elapsed = spawnedAt !== null ? Date.now() - spawnedAt : Infinity;
+    if (
+      !s.disposed &&
+      !s.sshConnectionId &&
+      spawnedAt !== null &&
+      elapsed < SPAWN_GRACE_MS &&
+      code !== 0
+    ) {
+      s.pty = null;
+      s.ptySpawnedAt = null;
+      s.term.options.disableStdin = false;
+      const msg = `shell exited with code ${code} ${elapsed}ms after spawn`;
+      s.lastPtyError = msg;
+      writePtyError(s, msg);
+      return;
+    }
+    s.term.options.disableStdin = true;
+    s.aiCliDetector?.reset();
+    if (s.callbacks.onExit) s.callbacks.onExit(code);
+    else s.pendingExit = code;
+  };
+
+  // Spawn at floored dimensions so a mid-collapse pane doesn't hand the shell a 1x1 viewport.
+  const spawnCols = Math.max(MIN_PTY_DIM, s.term.cols);
+  const spawnRows = Math.max(MIN_PTY_DIM, s.term.rows);
+
+  if (s.sshConnectionId) {
+    return openSshForSession(s, s.sshConnectionId, spawnCols, spawnRows, onData, onExit);
+  }
+
+  // Restore path: a saved daemon UUID exists. Try `reattachPty` first. Two
+  // ways it can miss, both ending in a fresh spawn at the saved cwd:
+  //   1. `reattachPty` rejects - the daemon lost the session entirely
+  //      (daemon crash or PC reboot since the workspace was saved).
+  //   2. `reattachPty` resolves but `alive === false` - the daemon still
+  //      holds the session, but its shell already exited while this GUI was
+  //      detached. Reattaching it would only replay frozen scrollback into a
+  //      pane that can't take input (the "blank tab that never opens a
+  //      terminal" symptom). Discard it and spawn fresh so the tab works.
+  // Either way the UUID is consumed - later retries / respawns go through
+  // `openPty`. Done in one async fn (not a `.catch` after `.then`) so the
+  // fresh-spawn fallback can't be double-fired by the reattach branch.
+  const reattachId = s.savedPtyId;
+  if (reattachId) {
+    s.savedPtyId = undefined;
+    return withSpawnTimeout(
+      (async (): Promise<PtySession> => {
+        let attached: PtySession;
+        try {
+          attached = await reattachPty(reattachId, spawnCols, spawnRows, { onData, onExit });
+        } catch (e) {
+          if (isDebugPty()) {
+            console.info(
+              `[tedi-pty] reattach failed for ${reattachId}, falling back to fresh spawn: ${describeError(e)}`,
+            );
+          }
+          return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
+        }
+        if (attached.alive === false) {
+          if (isDebugPty()) {
+            console.info(
+              `[tedi-pty] reattach ${reattachId} resolved dead (shell already exited); respawning fresh`,
+            );
+          }
+          // Tell the daemon to drop the dead session (also reaps its
+          // scrollback) and wipe the replayed dead output so the fresh
+          // shell paints onto a clean viewport.
+          void attached.close().catch(() => {});
+          s.term.reset();
+          s.placeholderShown = false;
+          // The dead session's replayed scrollback already stamped
+          // `firstByteEpoch` for this spawn epoch, which would suppress the
+          // no-data watchdog for the fresh shell. Clear it so the watchdog
+          // can still catch a fresh spawn that stalls during init.
+          s.firstByteEpoch = 0;
+          return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
+        }
+        return attached;
+      })(),
+    );
+  }
+
+  return withSpawnTimeout(openPty(spawnCols, spawnRows, { onData, onExit }, cwd));
+}
+
+/**
+ * Rejects with a timeout error if `pty_open` doesn't settle within
+ * `SPAWN_TIMEOUT_MS`. Funnels a hung spawn into the retry-banner path. If
+ * the promise resolves later, closes the stray PTY so Rust doesn't leak it.
+ */
+function withSpawnTimeout(p: Promise<PtySession>): Promise<PtySession> {
+  return new Promise<PtySession>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`shell did not start within ${Math.round(SPAWN_TIMEOUT_MS / 1000)}s`));
+    }, SPAWN_TIMEOUT_MS);
+    p.then(
+      (pty) => {
+        if (settled) {
+          void pty.close().catch(() => {});
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(pty);
+      },
+      (e) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+export function writePtyError(s: Session, message: string): void {
+  s.term.reset();
+  s.placeholderShown = false;
+  s.term.options.disableStdin = false;
+  s.term.write(
+    "\x1b[31m\x1b[1m[tedi] failed to start shell\x1b[0m\r\n" +
+      `\x1b[31m${message.replace(/\r?\n/g, "\r\n")}\x1b[0m\r\n\r\n` +
+      "\x1b[2mPress Enter to retry, or close the tab.\x1b[0m\r\n",
+  );
+}
+
+/**
+ * Arm the no-data watchdog after a local PTY's open resolves. Fires when
+ * the shell produces no output within `NO_DATA_WATCHDOG_MS`. Disarmed by
+ * the first `onData`.
+ */
+export function armNoDataWatchdog(s: Session, epoch: number): void {
+  if (s.sshConnectionId) return; // SSH has its own status banner
+  // First byte may have arrived before `pty_open` resolved (channel onmessage is
+  // wired before the await). Don't arm in that case; the shell is already healthy.
+  if (s.firstByteEpoch === epoch) return;
+  if (s.noDataTimer !== null) clearTimeout(s.noDataTimer);
+  s.noDataTimer = setTimeout(() => {
+    s.noDataTimer = null;
+    if (s.disposed) return;
+    // Bail if a newer spawn has replaced this one.
+    if (epoch !== s.ptySpawnEpoch) return;
+    // Bail if bytes arrived between timer fire and callback.
+    if (!s.pty) return;
+    const dyingPty = s.pty;
+    s.pty = null;
+    s.ptySpawnedAt = null;
+    // Close the orphaned PTY so Rust doesn't leak it.
+    void dyingPty.close().catch(() => {});
+    const msg = `shell did not emit any output within ${Math.round(
+      NO_DATA_WATCHDOG_MS / 1000,
+    )}s of opening - likely stalled during init`;
+    s.lastPtyError = msg;
+    console.warn("[tedi-pty] no-data watchdog fired:", msg);
+    writePtyError(s, msg);
+  }, NO_DATA_WATCHDOG_MS);
+}
+
+/** Retry a PTY spawn. Wired to Enter for recovery. No-op if opening, alive, or disposed. */
+export async function retryPty(s: Session): Promise<void> {
+  if (s.disposed) return;
+  if (s.pty) return;
+  if (s.ptyOpening) return;
+  s.ptyOpening = true;
+  s.lastPtyError = null;
+  s.term.reset();
+  s.term.options.disableStdin = false;
+  s.term.write("\x1b[2m[tedi] retrying…\x1b[0m\r\n");
+  // Treat the retrying hint as the new placeholder so the first PTY byte
+  // wipes it instead of leaving "retrying…" stuck above the prompt.
+  s.placeholderShown = true;
+  // Seed to the values openPtyForSession spawns at (floored) so post-spawn syncPtySize no-ops.
+  s.lastSentCols = Math.max(MIN_PTY_DIM, s.term.cols);
+  s.lastSentRows = Math.max(MIN_PTY_DIM, s.term.rows);
+  let myEpoch = 0;
+  try {
+    const promise = openPtyForSession(s, s.initialCwd);
+    // Captured after the synchronous epoch bump so a later recovery won't be overwritten.
+    myEpoch = s.ptySpawnEpoch;
+    const pty = await promise;
+    if (s.disposed) {
+      void pty.close().catch(() => {});
+      return;
+    }
+    if (myEpoch !== s.ptySpawnEpoch) {
+      void pty.close().catch(() => {});
+      return;
+    }
+    s.ptyOpening = false;
+    s.pty = pty;
+    s.ptySpawnedAt = Date.now();
+    syncPtySize(s);
+    armNoDataWatchdog(s, s.ptySpawnEpoch);
+  } catch (e) {
+    // Drop stale failures. myEpoch === 0 means synchronous throw before counter bump.
+    if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
+    s.ptyOpening = false;
+    const msg = describeError(e);
+    s.lastPtyError = msg;
+    console.error("retryPty: openPty failed:", e);
+    writePtyError(s, msg);
+  }
+}
+
+export async function respawnSession(leafId: number, cwd?: string): Promise<void> {
+  const s = sessions.get(leafId);
+  if (!s || s.disposed) return;
+  s.pty?.close();
+  s.pty = null;
+  s.ptySpawnedAt = null;
+  s.term.reset();
+  s.placeholderShown = false;
+  s.term.options.disableStdin = false;
+  s.lastSentCols = 0;
+  s.lastSentRows = 0;
+  s.lastDetectedUrl = null;
+  s.pendingExit = null;
+  // Hold the flag so attachSession can't open a second PTY mid-await.
+  s.ptyOpening = true;
+  s.lastPtyError = null;
+  let pty: PtySession;
+  let myEpoch = 0;
+  try {
+    const promise = openPtyForSession(s, cwd);
+    myEpoch = s.ptySpawnEpoch;
+    pty = await promise;
+  } catch (e) {
+    if (myEpoch !== 0 && myEpoch !== s.ptySpawnEpoch) return;
+    s.ptyOpening = false;
+    const msg = describeError(e);
+    s.lastPtyError = msg;
+    console.error("respawnSession: openPty failed:", e);
+    writePtyError(s, msg);
+    return;
+  }
+  if (s.disposed) {
+    void pty.close().catch(() => {});
+    return;
+  }
+  if (myEpoch !== s.ptySpawnEpoch) {
+    void pty.close().catch(() => {});
+    return;
+  }
+  s.ptyOpening = false;
+  s.pty = pty;
+  s.ptySpawnedAt = Date.now();
+  if (s.observer) syncPtySize(s);
+  armNoDataWatchdog(s, s.ptySpawnEpoch);
+}

@@ -44,13 +44,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
+        # The last three are for `xcap`, used by the browser-screenshot command
+        # on Linux/macOS: it links dbus and xcb (with the randr extension).
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             librsvg2-dev \
-            libssl-dev
+            libssl-dev \
+            libdbus-1-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:

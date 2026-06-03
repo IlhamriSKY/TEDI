@@ -15,6 +15,24 @@ export function countSavedTerminalLeaves(node: SavedPaneNode): number {
   return n;
 }
 
+/** Count all leaves (terminal + editor) in a serialised pane tree. */
+export function countSavedLeaves(node: SavedPaneNode): number {
+  if (node.kind === "leaf") return 1;
+  let n = 0;
+  for (const child of node.children) n += countSavedLeaves(child);
+  return n;
+}
+
+/** Tab-strip entry count for a serialised (unvisited) workspace: every leaf of
+ *  each pane tab plus one per standalone (preview) tab. Mirrors the live
+ *  `countTabEntries` so the badge stays consistent once the workspace is
+ *  opened - a multi-pane group tab counts as its panes, not 1. */
+export function countSavedTabEntries(tabs: SavedTab[]): number {
+  let n = 0;
+  for (const t of tabs) n += t.kind === "pane" ? countSavedLeaves(t.paneTree) : 1;
+  return n;
+}
+
 // live -> saved
 
 function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
@@ -31,10 +49,18 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       ...(leaf.ptyId && !leaf.sshConnectionId ? { ptyId: leaf.ptyId } : {}),
     };
   }
+  if (leaf.leafKind === "editor") {
+    return {
+      kind: "leaf",
+      leafKind: "editor",
+      path: leaf.path,
+      ...(leaf.private ? { private: true } : {}),
+    };
+  }
   return {
     kind: "leaf",
-    leafKind: "editor",
-    path: leaf.path,
+    leafKind: "preview",
+    url: leaf.url,
     ...(leaf.private ? { private: true } : {}),
   };
 }
@@ -48,14 +74,20 @@ function nodeToSaved(node: PaneNode): SavedPaneNode {
   };
 }
 
+/**
+ * True for tabs that survive serialization. The session-only kinds (ai-diff,
+ * git-diff, ext, scm) are never persisted - only pane tabs are. Single source
+ * of truth for "which tabs are saved", shared by `tabToSaved` and
+ * `savedActiveTabIndex` so the saved active-index can't drift from the saved
+ * array.
+ */
+function isPersistedTab(tab: Tab): tab is PaneTab {
+  return tab.kind === "pane";
+}
+
 function tabToSaved(tab: Tab): SavedTab | null {
-  if (tab.kind === "preview") {
-    return { kind: "preview", url: tab.url, title: tab.title };
-  }
-  if (tab.kind === "ai-diff") return null; // session-only
-  if (tab.kind === "git-diff") return null; // session-only
-  if (tab.kind === "ext") return null; // session-only — extension re-opens on demand
-  if (tab.kind === "scm") return null; // session-only — re-open from the panel / shortcut
+  // ai-diff / git-diff / ext / scm are session-only (re-opened on demand).
+  if (!isPersistedTab(tab)) return null;
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {
@@ -64,6 +96,23 @@ function tabToSaved(tab: Tab): SavedTab | null {
     paneTree: nodeToSaved(tab.paneTree),
     activeLeafIndex: Math.max(0, idx),
   };
+}
+
+/**
+ * Index of the active tab within the serialized tab list (`serializeTabs`),
+ * used to restore focus. Counts only persisted tabs preceding the active one,
+ * so it stays aligned with the saved array even when a session-only
+ * (ai-diff / git-diff / scm / ext) tab sits before the active tab. The former
+ * per-call loops skipped only `ai-diff`, which mis-focused the restored
+ * workspace whenever another session-only kind preceded the active tab.
+ */
+export function savedActiveTabIndex(tabs: Tab[], activeId: number): number {
+  let idx = 0;
+  for (const t of tabs) {
+    if (t.id === activeId) break;
+    if (isPersistedTab(t)) idx++;
+  }
+  return idx;
 }
 
 export function serializeTabs(tabs: Tab[]): SavedTab[] {
@@ -96,13 +145,22 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         ...(node.ptyId ? { savedPtyId: node.ptyId } : {}),
       };
     }
+    if (node.leafKind === "editor") {
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "editor",
+        path: node.path,
+        dirty: false,
+        preview: false,
+        ...(node.private ? { private: true } : {}),
+      };
+    }
     return {
       kind: "leaf",
       id,
-      leafKind: "editor",
-      path: node.path,
-      dirty: false,
-      preview: false,
+      leafKind: "preview",
+      url: node.url,
       ...(node.private ? { private: true } : {}),
     };
   }
@@ -116,12 +174,17 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
 
 export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   if (saved.kind === "preview") {
-    const id = allocId();
+    // Legacy standalone preview tab -> migrate to a pane tab whose tree is a
+    // single browser leaf, matching the unified model.
+    const tabId = allocId();
+    const leafId = allocId();
+    const leaf: PaneNode = { kind: "leaf", id: leafId, leafKind: "preview", url: saved.url };
     return {
-      id,
-      kind: "preview",
+      id: tabId,
+      kind: "pane",
       title: saved.title ?? saved.url,
-      url: saved.url,
+      paneTree: leaf,
+      activeLeafId: leafId,
     };
   }
   const id = allocId();

@@ -27,7 +27,9 @@ type EntryBase = {
 export type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
-  leafKind: "terminal" | "editor";
+  leafKind: "terminal" | "editor" | "preview";
+  /** Current page URL for preview leaves. Drives the tab-strip favicon. */
+  previewUrl?: string;
   /** 1-based FIFO badge number. Same identifier the AI sees in `<env>`. */
   terminalOrdinal?: number;
   /** Set on terminal leaves bound to a saved SSH host. */
@@ -43,7 +45,7 @@ export type PaneEntry = EntryBase & {
 };
 
 type StandaloneEntry = EntryBase & {
-  kind: "preview" | "ai-diff" | "git-diff" | "scm";
+  kind: "ai-diff" | "git-diff" | "scm";
 };
 
 type ExtensionEntry = EntryBase & {
@@ -77,9 +79,9 @@ export function tabAccentClass(e: Entry): string {
         ? "bg-[color:var(--tedi-tab-ssh)]"
         : "bg-[color:var(--tedi-tab-terminal)]";
     }
+    if (e.leafKind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
     return "bg-[color:var(--tedi-tab-editor)]";
   }
-  if (e.kind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
   if (e.kind === "git-diff") return "bg-[color:var(--tedi-tab-git-diff)]";
   if (e.kind === "scm") return "bg-[color:var(--tedi-tab-git-diff)]";
@@ -108,12 +110,21 @@ export function extensionStateLabelClass(state: ExtensionTabState | undefined): 
   }
 }
 
+function previewHost(url: string): string {
+  try {
+    return new URL(url).host || url || "browser";
+  } catch {
+    return url || "browser";
+  }
+}
+
 function entryLabel(
   leaf: PaneLeaf,
   fallbackCwd: string | undefined,
   sshHosts: Map<string, SshConnection>,
 ): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
+  if (leaf.leafKind === "preview") return leaf.title || previewHost(leaf.url);
   // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
     const host = sshHosts.get(leaf.sshConnectionId);
@@ -159,6 +170,7 @@ export function buildEntries(
           tabId: t.id,
           leafId: leaf.id,
           leafKind: leaf.leafKind,
+          previewUrl: leaf.leafKind === "preview" ? leaf.url : undefined,
           label,
           terminalOrdinal: ord,
           italic:
@@ -174,15 +186,6 @@ export function buildEntries(
           isPrivate: leaf.private === true,
         });
       }
-      continue;
-    }
-    if (t.kind === "preview") {
-      out.push({
-        kind: "preview",
-        key: `tab-${t.id}`,
-        tabId: t.id,
-        label: t.title,
-      });
       continue;
     }
     if (t.kind === "ai-diff") {
@@ -225,4 +228,17 @@ export function buildEntries(
     });
   }
   return out;
+}
+
+/**
+ * Number of tab-strip entries `buildEntries` would produce, without building
+ * them: every leaf of a pane tab (so a split "group" tab contributes all its
+ * panes, not 1) plus one for each standalone/extension tab. The workspace
+ * badge counts this so it matches the strip exactly instead of treating a
+ * multi-pane group as a single tab.
+ */
+export function countTabEntries(tabs: Tab[]): number {
+  let n = 0;
+  for (const t of tabs) n += t.kind === "pane" ? leaves(t.paneTree).length : 1;
+  return n;
 }

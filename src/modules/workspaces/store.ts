@@ -36,9 +36,18 @@ export type SavedEditorLeaf = {
   private?: boolean;
 };
 
+export type SavedPreviewLeaf = {
+  kind: "leaf";
+  leafKind: "preview";
+  /** Last URL the embedded browser showed. Reopened on restore. */
+  url: string;
+  private?: boolean;
+};
+
 export type SavedPaneNode =
   | SavedTerminalLeaf
   | SavedEditorLeaf
+  | SavedPreviewLeaf
   | {
       kind: "split";
       dir: "row" | "col";

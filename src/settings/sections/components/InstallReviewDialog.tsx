@@ -22,6 +22,14 @@ export type PendingPreview =
       sourceLabel: string;
       manifest: Manifest;
       iconUrl: string | null;
+      /**
+       * Permissions the user already approved for this id, when it is already
+       * installed (i.e. this is an update / re-install). `null`/absent for a
+       * fresh install. Drives the new-vs-approved permission diff so an update
+       * can never silently widen its grant - the user re-approves every
+       * escalation.
+       */
+      priorApproved?: readonly string[] | null;
     };
 
 export type Pending = {
@@ -47,14 +55,56 @@ export function InstallReviewDialog({
   // Disable Install while peek is loading/errored or install is in flight.
   const canInstall = preview?.status === "ready" && !busy;
 
+  // Update mode: the same id is already installed, so `priorApproved` holds the
+  // permissions the user approved before. Permissions new to this version are
+  // highlighted separately so an update can't silently widen its grant - the
+  // user stays in control of every escalation.
+  const ready = preview?.status === "ready" ? preview : null;
+  const isUpdate = ready != null && ready.priorApproved != null;
+  const requested = ready?.manifest.permissions ?? [];
+  const prior = ready?.priorApproved ?? [];
+  const newPerms = isUpdate ? requested.filter((p) => !prior.includes(p)) : requested;
+  const keptPerms = isUpdate ? requested.filter((p) => prior.includes(p)) : [];
+
+  // `*` or `invoke:*` is near-total access to the Rust command surface; warn
+  // explicitly on top of the (now red) per-permission badge.
+  const grantsNearTotal = requested.some((p) => p === "*" || /^invoke:\*/.test(p));
+  // Contribution categories that validate + install but have no consumer in
+  // this version, so an author isn't misled into thinking they took effect.
+  // (aiTools IS wired now, so it's intentionally not listed here.)
+  const reserved: string[] = [];
+  if (ready) {
+    const c = ready.manifest.contributes ?? {};
+    if (c.slashCommands?.length) reserved.push("slashCommands");
+    if (c.themes?.length) reserved.push("themes");
+    if (c.editorThemes?.length) reserved.push("editorThemes");
+  }
+  // AI tools the extension registers are callable by the assistant (and run the
+  // extension's code). Disclose them at install so the consent is informed.
+  const aiToolNames = ready?.manifest.contributes?.aiTools?.map((t) => t.name) ?? [];
+
+  const title = isUpdate ? "Update extension?" : "Install extension?";
+  const cta = busy
+    ? isUpdate
+      ? "Updating…"
+      : "Installing…"
+    : preview?.status === "loading"
+      ? "Loading…"
+      : isUpdate
+        ? newPerms.length > 0
+          ? "Approve & update"
+          : "Update"
+        : "Install";
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Install extension?</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Extensions run JavaScript inside the app. Review the manifest below and only install
-            from sources you trust.
+            Extensions run JavaScript with the app&rsquo;s full privileges (no sandbox); the
+            permissions below are an advisory summary, not a hard boundary. Review the manifest and
+            only install from sources you trust.
           </DialogDescription>
         </DialogHeader>
 
@@ -107,16 +157,75 @@ export function InstallReviewDialog({
           </div>
         ) : null}
 
-        {preview?.status === "ready" && preview.manifest.permissions.length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
-              Permissions requested
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {preview.manifest.permissions.map((p) => (
-                <PermissionBadge key={p} permission={p} />
-              ))}
+        {ready ? (
+          isUpdate ? (
+            <div className="flex flex-col gap-2">
+              {newPerms.length > 0 ? (
+                <div className="border-destructive/40 bg-destructive/5 flex flex-col gap-1.5 rounded-md border px-2.5 py-2">
+                  <span className="text-destructive text-[10.5px] font-medium tracking-tight uppercase">
+                    {newPerms.length} new permission{newPerms.length === 1 ? "" : "s"} requested by
+                    this update
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {newPerms.map((p) => (
+                      <PermissionBadge key={p} permission={p} />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <span className="text-muted-foreground text-[10.5px]">
+                  No new permissions requested by this update.
+                </span>
+              )}
+              {keptPerms.length > 0 ? (
+                <div className="flex flex-col gap-1.5 opacity-70">
+                  <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
+                    Already approved
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {keptPerms.map((p) => (
+                      <PermissionBadge key={p} permission={p} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
+          ) : requested.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
+                Permissions requested
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {requested.map((p) => (
+                  <PermissionBadge key={p} permission={p} />
+                ))}
+              </div>
+            </div>
+          ) : null
+        ) : null}
+
+        {grantsNearTotal ? (
+          <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
+            <span className="font-medium">Near-total access.</span> This extension can call almost
+            any internal command (filesystem, shell, SSH, git, …). Only install it if you trust the
+            publisher.
+          </div>
+        ) : null}
+
+        {aiToolNames.length > 0 ? (
+          <div className="border-icon-working/40 bg-icon-working/5 text-foreground/80 rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
+            <span className="text-foreground font-medium">
+              Registers {aiToolNames.length} AI tool{aiToolNames.length === 1 ? "" : "s"}
+            </span>{" "}
+            the assistant can call ({aiToolNames.join(", ")}). Each runs this extension&rsquo;s code
+            and is gated by your tool-approval flow.
+          </div>
+        ) : null}
+
+        {reserved.length > 0 ? (
+          <div className="border-border/60 bg-muted/30 text-muted-foreground rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
+            Declares <span className="text-foreground font-medium">{reserved.join(", ")}</span> —
+            these contribution types have no effect in this version (reserved) and will be ignored.
           </div>
         ) : null}
 
@@ -131,7 +240,7 @@ export function InstallReviewDialog({
             Cancel
           </Button>
           <Button size="sm" onClick={onConfirm} disabled={!canInstall}>
-            {busy ? "Installing…" : preview?.status === "loading" ? "Loading…" : "Install"}
+            {cta}
           </Button>
         </DialogFooter>
       </DialogContent>

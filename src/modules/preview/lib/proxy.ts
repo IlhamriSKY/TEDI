@@ -7,22 +7,6 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"
 export const SELF_REFERENCE_NOTICE =
   "Refusing to load TEDI inside its own preview (would recurse and leak memory).";
 
-export function isLocalUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    const h = u.hostname;
-    return (
-      h === "localhost" ||
-      h === "127.0.0.1" ||
-      h === "0.0.0.0" ||
-      h === "[::1]" ||
-      h.endsWith(".localhost")
-    );
-  } catch {
-    return false;
-  }
-}
-
 /**
  * True if `url` would load TEDI itself inside the iframe. Catches:
  *   - exact origin match against the running webview (covers dev
@@ -76,16 +60,4 @@ function base64UrlEncode(input: string): string {
 export function buildProxyUrl(targetUrl: string): string {
   const origin = convertFileSrc("", SCHEME);
   return `${origin}?u=${base64UrlEncode(targetUrl)}`;
-}
-
-/**
- * Resolves the iframe src. Local dev servers go direct (avoids latency and
- * preserves websockets); remote URLs go through the strip-XFO proxy unless
- * `bypassProxy` is set.
- */
-export function resolveIframeSrc(url: string, options: { bypassProxy?: boolean } = {}): string {
-  if (!url) return url;
-  if (options.bypassProxy) return url;
-  if (isLocalUrl(url)) return url;
-  return buildProxyUrl(url);
 }

@@ -8,10 +8,10 @@ import {
   Database01Icon,
   GitBranchIcon,
   GitCompareIcon,
-  Globe02Icon,
   LockedIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { PreviewFavicon } from "@/modules/preview/PreviewFavicon";
 import type { Entry } from "../lib/entries";
 
 /**
@@ -78,6 +78,9 @@ export function EntryIcon({ entry }: { entry: Entry }) {
       }
       return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
     }
+    if (entry.leafKind === "preview") {
+      return <PreviewFavicon url={entry.previewUrl ?? ""} />;
+    }
     // Terminal leaf. Pick the icon, then tint by AI CLI status. SSH status
     // colors the title text; the icon shows AI CLI state on both local and remote.
     const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
@@ -105,9 +108,6 @@ export function EntryIcon({ entry }: { entry: Entry }) {
       );
     }
     return terminalIcon;
-  }
-  if (entry.kind === "preview") {
-    return <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={2} className="shrink-0" />;
   }
   if (entry.kind === "ext") {
     // Extension tab icon: resolve `hugeicon:<Name>` if the extension hinted

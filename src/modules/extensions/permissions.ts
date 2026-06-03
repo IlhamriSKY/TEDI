@@ -72,10 +72,7 @@ export function checkPermission(declared: readonly string[], required: string): 
   return false;
 }
 
-export function isInvokeAllowed(
-  declared: readonly string[],
-  command: string,
-): boolean {
+export function isInvokeAllowed(declared: readonly string[], command: string): boolean {
   if (HARD_DENY_INVOKE.has(command)) return false;
   return checkPermission(declared, `invoke:${command}`);
 }
@@ -94,8 +91,26 @@ export function requirePermission(
 export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p === "*") return "high";
   if (p.startsWith("invoke:")) {
-    // FS/shell/secrets invokes are high; others medium.
-    if (p.startsWith("invoke:fs_") || p.startsWith("invoke:shell_") || p.startsWith("invoke:secrets_"))
+    const cmd = p.slice("invoke:".length);
+    // Any glob is HIGH. `invoke:*` grants near-total access; a family glob like
+    // `invoke:git_*` / `invoke:pty_*` / `invoke:s*` still spans a whole group of
+    // powerful (often destructive) commands. Globs over the app's command
+    // surface are inherently broad, so warn red and nudge authors toward exact,
+    // least-privilege `invoke:<command>` grants.
+    if (cmd.includes("*")) return "high";
+    // Code-execution / remote-shell / arbitrary-binary families are HIGH even as
+    // an exact single command: fs_ (disk), shell_ (process), secrets_ (keychain),
+    // pty_ (spawns a real shell = local code execution), ssh_ (remote shell +
+    // SFTP write/delete), and fmt_run_external (runs an arbitrary external
+    // binary, deliberately bypassing the shell).
+    if (
+      cmd.startsWith("fs_") ||
+      cmd.startsWith("shell_") ||
+      cmd.startsWith("secrets_") ||
+      cmd.startsWith("pty_") ||
+      cmd.startsWith("ssh_") ||
+      cmd === "fmt_run_external"
+    )
       return "high";
     return "medium";
   }

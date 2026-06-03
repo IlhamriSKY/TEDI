@@ -8,7 +8,6 @@ export {
   isTerminalLikeTab,
   type Tab,
   type PaneTab,
-  type PreviewTab,
   type AiDiffTab,
   type AiDiffStatus,
   type GitDiffTab,
@@ -17,3 +16,4 @@ export {
   type TabPatch,
 } from "./lib/useTabs";
 export { useWorkspaceCwd } from "./lib/useWorkspaceCwd";
+export { countTabEntries } from "./lib/entries";

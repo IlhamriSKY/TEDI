@@ -437,7 +437,7 @@ export function TabBar({
                   <div
                     className={cn(
                       "bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
-                      compact ? "max-w-48" : "max-w-80",
+                      compact ? "max-w-32" : "max-w-44",
                     )}
                   >
                     <EntryIcon entry={draggedEntry} />

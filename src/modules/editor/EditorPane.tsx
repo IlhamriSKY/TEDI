@@ -4,6 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
 import { safeUrlTransform } from "@/lib/markdownSafety";
+import { markdownComponents } from "@/components/ai-elements/markdown-code";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Extension } from "@codemirror/state";
@@ -626,6 +627,7 @@ export function EditorPane({
           <Streamdown
             className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
             urlTransform={safeUrlTransform}
+            components={markdownComponents}
           >
             {liveContent}
           </Streamdown>

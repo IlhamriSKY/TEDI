@@ -145,7 +145,9 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           // No `truncate` here; its `overflow:hidden` would clip the ordinal
           // badge. `min-w-0` keeps flex-shrink so the inner label can ellipsize.
           "flex min-w-0 items-center gap-1.5",
-          compact ? "max-w-48" : "max-w-80",
+          // Cap tab width so long page titles (browser panes) don't make tabs
+          // huge; the inner label `truncate`s with an ellipsis past this.
+          compact ? "max-w-32" : "max-w-44",
         )}
       >
         <EntryIcon entry={e} />
@@ -243,7 +245,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           {canMove && (
             <ContextMenuSub>
               <ContextMenuSubTrigger>Join Group</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
+              <ContextMenuSubContent className="max-w-52">
                 {moveTargets.map((g) => (
                   <ContextMenuItem
                     key={g.id}
@@ -252,8 +254,10 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
                       if (e.kind === "pane-leaf") onMoveLeafToGroup!(e.leafId, g.id);
                     }}
                   >
-                    <span className="flex-1 truncate">{g.title}</span>
-                    <span className="text-muted-foreground ml-2 text-xs">
+                    {/* min-w-0 lets the long page title ellipsize instead of
+                        stretching the menu; the count stays pinned. */}
+                    <span className="min-w-0 flex-1 truncate">{g.title}</span>
+                    <span className="text-muted-foreground ml-2 shrink-0 text-xs">
                       {g.full ? "Full" : `${g.count}/${MAX_PANES_PER_TAB}`}
                     </span>
                   </ContextMenuItem>

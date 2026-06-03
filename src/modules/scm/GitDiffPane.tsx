@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { MergeView, presentableDiff } from "@codemirror/merge";
+import { MergeView, type DiffConfig } from "@codemirror/merge";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,36 @@ async function readFileFull(path: string): Promise<FileReadResult> {
 function isNonText(r: FileReadResult): boolean {
   return r.kind !== "text";
 }
+
+// Bound the inline diff cost. Files past these per-side limits skip MergeView -
+// whose synchronous Myers diff over a huge document blocks the main thread for
+// seconds - and show a fallback with an opt-in "Show diff anyway". 10 MB is the
+// Rust read ceiling, so these sit well below it: large-but-readable text still
+// takes the fast path; lock files / minified bundles / generated code get the
+// fallback instead of freezing the window.
+const MAX_DIFF_BYTES = 1_500_000; // 1.5 MB per side
+const MAX_DIFF_LINES = 20_000; // per side
+
+// Cap the diff algorithm itself so a pathological (large + very different) input
+// can't spin: scanLimit drops to a coarse line diff past 500 changes, and the
+// timeout aborts to the imprecise algorithm after 5s. Without this, MergeView's
+// default has no time ceiling.
+const DIFF_CONFIG: DiffConfig = { scanLimit: 500, timeout: 5000 };
+
+/** Count newlines without allocating a split array (cheap on multi-MB text). */
+function countLines(s: string): number {
+  let n = 1;
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n += 1;
+  return n;
+}
+
+type SizeInfo = {
+  bytesA: number;
+  bytesB: number;
+  linesA: number;
+  linesB: number;
+  tooLarge: boolean;
+};
 
 // Match AiDiffPane's diff coloring. MergeView scroll wiring lives in
 // `globals.css` (.cm-mergeView); EditorView.theme can't reach the outer wrapper.
@@ -124,6 +154,10 @@ export function GitDiffPane({
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // User opt-in to render a diff that exceeded the size/line cap. Reset on every
+  // new content load (see the loader effect) so a heavy file never auto-renders
+  // after navigating away and back.
+  const [forceRender, setForceRender] = useState(false);
 
   // Overview ruler state. Marks derive from the diff after MergeView mounts;
   // pane refs and ruler widths drive the portal target and ruler width.
@@ -141,6 +175,7 @@ export function GitDiffPane({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setForceRender(false);
 
     const loadOriginal: Promise<FileReadResult> = commitSha
       ? baseRev && changeStatus !== "added"
@@ -180,11 +215,35 @@ export function GitDiffPane({
     return isNonText(content.orig) || isNonText(content.curr);
   }, [content]);
 
+  // Size/line profile of the two text sides, plus whether they exceed the
+  // inline-diff cap. Byte size (from the Rust read) short-circuits the line
+  // count so we never scan a multi-MB blob that's already over the byte cap.
+  const sizeInfo = useMemo<SizeInfo | null>(() => {
+    if (!content) return null;
+    const a = content.orig.kind === "text" ? content.orig.content : "";
+    const b = content.curr.kind === "text" ? content.curr.content : "";
+    const bytesA = content.orig.kind === "text" ? content.orig.size : 0;
+    const bytesB = content.curr.kind === "text" ? content.curr.size : 0;
+    let tooLarge = bytesA > MAX_DIFF_BYTES || bytesB > MAX_DIFF_BYTES;
+    let linesA = 0;
+    let linesB = 0;
+    if (!tooLarge) {
+      linesA = countLines(a);
+      linesB = countLines(b);
+      tooLarge = linesA > MAX_DIFF_LINES || linesB > MAX_DIFF_LINES;
+    }
+    return { bytesA, bytesB, linesA, linesB, tooLarge };
+  }, [content]);
+
+  // Skip the (blocking) MergeView build for oversized text diffs unless the
+  // user opted in via the fallback's "Show diff anyway".
+  const tooLargeForInline = (sizeInfo?.tooLarge ?? false) && !forceRender;
+
   // Refresh the MergeView on content or theme change, only for text on both
   // sides. Image and binary blobs go to <NonTextDiff/>.
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !content || nonText) return;
+    if (!host || !content || nonText || tooLargeForInline) return;
     const origText = content.orig.kind === "text" ? content.orig.content : "";
     const currText = content.curr.kind === "text" ? content.curr.content : "";
 
@@ -227,12 +286,14 @@ export function GitDiffPane({
       highlightChanges: true,
       gutter: true,
       revertControls: undefined,
+      diffConfig: DIFF_CONFIG,
     });
     mergeRef.current = view;
 
-    // globals.css uses per-pane scrolling, so the panes no longer share scrollTop.
-    // Reattach a 1:1 vertical sync. Since both panes render the full document,
-    // equal pixel offsets keep matching lines side-by-side.
+    // globals.css uses per-pane scrolling, so the panes no longer share scroll
+    // offsets. Reattach a 1:1 sync on both axes. Since both panes render the
+    // full document, equal pixel offsets keep matching lines side-by-side
+    // vertically; mirroring scrollLeft keeps long lines aligned horizontally too.
     const scrollA = view.a.scrollDOM;
     const scrollB = view.b.scrollDOM;
     let syncing = false;
@@ -240,6 +301,7 @@ export function GitDiffPane({
       if (syncing) return;
       syncing = true;
       to.scrollTop = from.scrollTop;
+      to.scrollLeft = from.scrollLeft;
       // rAF clears the guard without dropping legitimate scroll events.
       requestAnimationFrame(() => {
         syncing = false;
@@ -256,14 +318,18 @@ export function GitDiffPane({
     const docB = view.b.state.doc;
     const totalA = Math.max(docA.lines, 1);
     const totalB = Math.max(docB.lines, 1);
-    const chunks = presentableDiff(docA.toString(), docB.toString());
+    // Reuse the chunks MergeView already computed for the gutter instead of
+    // running a second full diff (presentableDiff) over the whole document.
+    // Chunk `to` offsets can point one past the document end, so clamp before
+    // `lineAt`.
+    const chunks = view.chunks;
     const newMarksA: RulerMark[] = [];
     const newMarksB: RulerMark[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
       if (c.toA > c.fromA) {
         const startLine = docA.lineAt(c.fromA).number;
-        const endLine = docA.lineAt(Math.max(c.fromA, c.toA - 1)).number;
+        const endLine = docA.lineAt(Math.min(docA.length, Math.max(c.fromA, c.toA - 1))).number;
         newMarksA.push({
           key: `a-${i}-${startLine}-${endLine}`,
           startLine,
@@ -280,7 +346,7 @@ export function GitDiffPane({
       }
       if (c.toB > c.fromB) {
         const startLine = docB.lineAt(c.fromB).number;
-        const endLine = docB.lineAt(Math.max(c.fromB, c.toB - 1)).number;
+        const endLine = docB.lineAt(Math.min(docB.length, Math.max(c.fromB, c.toB - 1))).number;
         newMarksB.push({
           key: `b-${i}-${startLine}-${endLine}`,
           startLine,
@@ -337,7 +403,7 @@ export function GitDiffPane({
       view.destroy();
       if (mergeRef.current === view) mergeRef.current = null;
     };
-  }, [content, nonText, themeExt, path, langA, langB]);
+  }, [content, nonText, tooLargeForInline, themeExt, path, langA, langB]);
 
   const isNewFile = changeStatus === "added" || changeStatus === "untracked";
   const isDeleted = changeStatus === "deleted";
@@ -346,10 +412,7 @@ export function GitDiffPane({
     <div className="border-border/60 bg-background flex h-full min-h-0 flex-col rounded-md border">
       <div className="border-border/60 flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge
-            variant={STATUS_VARIANT[changeStatus]}
-            className="p-2.5 text-[11px] capitalize"
-          >
+          <Badge variant={STATUS_VARIANT[changeStatus]} className="p-2.5 text-[11px] capitalize">
             {changeStatus}
           </Badge>
           {isNewFile ? (
@@ -401,16 +464,14 @@ export function GitDiffPane({
             baseRev={baseRev}
             commitLabel={commitLabel}
           />
+        ) : tooLargeForInline && sizeInfo ? (
+          <LargeDiffFallback info={sizeInfo} onRender={() => setForceRender(true)} />
         ) : (
           <div ref={hostRef} className="h-full w-full" />
         )}
       </div>
-      {paneAEl
-        ? createPortal(<DiffRuler width={rulerWidthA} marks={marksA} />, paneAEl)
-        : null}
-      {paneBEl
-        ? createPortal(<DiffRuler width={rulerWidthB} marks={marksB} />, paneBEl)
-        : null}
+      {paneAEl ? createPortal(<DiffRuler width={rulerWidthA} marks={marksA} />, paneAEl) : null}
+      {paneBEl ? createPortal(<DiffRuler width={rulerWidthB} marks={marksB} />, paneBEl) : null}
     </div>
   );
 }
@@ -453,6 +514,39 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Shown instead of the MergeView when a text diff exceeds the size/line cap.
+ * Rendering such a diff would block the main thread on the synchronous diff, so
+ * it stays opt-in: the user can choose to render it anyway.
+ */
+function LargeDiffFallback({ info, onRender }: { info: SizeInfo; onRender: () => void }) {
+  const maxLines = Math.max(info.linesA, info.linesB);
+  const maxBytes = Math.max(info.bytesA, info.bytesB);
+  return (
+    <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs">
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-foreground text-sm font-medium">Large diff</span>
+        <span>
+          Inline diff is disabled to keep the window responsive
+          {maxLines > 0
+            ? ` (${maxLines.toLocaleString()} lines, ${formatBytes(maxBytes)}).`
+            : ` (${formatBytes(maxBytes)}).`}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRender}
+        className="border-border/60 bg-accent/40 hover:bg-accent rounded border px-3 py-1.5 text-[11px] font-medium transition-colors"
+      >
+        Show diff anyway
+      </button>
+      <span className="text-[10px] opacity-70">
+        Rendering a diff this large may freeze the window briefly.
+      </span>
+    </div>
+  );
 }
 
 /** Side-by-side pane for images and binary blobs. Empty text (size 0) means "absent on this side". */
@@ -533,4 +627,3 @@ function NonTextSide({ side, emptyLabel }: { side: FileReadResult; emptyLabel: s
     </div>
   );
 }
-

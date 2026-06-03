@@ -26,6 +26,7 @@ import {
   type ProviderId,
 } from "../config";
 import type { ProviderKeys } from "./keyring";
+import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed, type CompactStages } from "./compact";
@@ -392,7 +393,9 @@ export async function runAgentStream(opts: RunAgentOptions) {
     model,
     messages: finalMessages,
     ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
-    tools: buildTools(toolContextWithAbort),
+    // Extension-contributed AI tools first, built-ins spread AFTER so an
+    // extension can never shadow a built-in tool name (e.g. bash_run).
+    tools: { ...buildExtensionTools(), ...buildTools(toolContextWithAbort) },
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.

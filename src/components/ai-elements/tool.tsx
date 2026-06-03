@@ -41,6 +41,8 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   glob: { label: "Glob", icon: Folder01Icon },
   suggest_command: { label: "Suggest", icon: SparklesIcon },
   open_preview: { label: "Preview", icon: EyeIcon },
+  read_browser: { label: "Read page", icon: EyeIcon },
+  browser_screenshot: { label: "Screenshot", icon: EyeIcon },
   run_subagent: { label: "Subagent", icon: RobotIcon },
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
@@ -150,7 +152,12 @@ const ToolImpl = ({
     output !== undefined &&
     output !== null &&
     typeof (output as { summary?: unknown }).summary === "string";
-  const open = defaultOpen ?? (isError || hasSubagentSummary);
+  const hasScreenshot =
+    toolName === "browser_screenshot" &&
+    output !== null &&
+    typeof output === "object" &&
+    typeof (output as { image?: unknown }).image === "string";
+  const open = defaultOpen ?? (isError || hasSubagentSummary || hasScreenshot);
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
   // Hide streamed input body for heavy tools; output always shows since it's
   // the final result, not per-token streaming.
@@ -559,6 +566,19 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
         )}
       </div>
     );
+  }
+
+  if (toolName === "browser_screenshot") {
+    const image = typeof o.image === "string" ? o.image : null;
+    if (image) {
+      return (
+        <img
+          src={`data:image/jpeg;base64,${image}`}
+          alt="Browser pane screenshot"
+          className="border-border/60 max-h-96 w-full rounded-md border object-contain"
+        />
+      );
+    }
   }
 
   if (toolName === "bash_background") {
