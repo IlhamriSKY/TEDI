@@ -44,9 +44,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
-        # The non-webkit packages are for `xcap` (browser-screenshot capture on
-        # Linux): X11 via xcb+randr and Wayland via pipewire, whose -sys crate
-        # needs clang for bindgen.
+        # libdbus-1-dev / libxcb1-dev / libxcb-randr0-dev are for `xcap` (the
+        # browser-screenshot capture on Linux), which links dbus + xcb (randr).
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -56,9 +55,7 @@ jobs:
             libssl-dev \
             libdbus-1-dev \
             libxcb1-dev \
-            libxcb-randr0-dev \
-            libpipewire-0.3-dev \
-            clang
+            libxcb-randr0-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:

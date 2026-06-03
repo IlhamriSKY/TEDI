@@ -181,11 +181,15 @@ pub async fn preview_embed_update(
         });
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
-    // toggling the setting applies to newly opened browser panes.
+    // toggling the setting applies to newly opened browser panes. The webview
+    // `transparent` setter needs Tauri's macos-private-api on macOS, so there we
+    // rely on the injected CSS alone (the surface stays opaque).
     if transparent {
-        builder = builder
-            .transparent(true)
-            .initialization_script(TRANSPARENT_BODY_SCRIPT);
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder = builder.transparent(true);
+        }
+        builder = builder.initialization_script(TRANSPARENT_BODY_SCRIPT);
     }
 
     window

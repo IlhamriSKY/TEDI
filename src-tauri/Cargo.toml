@@ -159,9 +159,14 @@ windows = { version = "0.61", features = [
 # macOS/Linux: their screen capture DOES include the webview surface, so the
 # on-demand browser screenshot grabs the composited screen and crops to the pane.
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-# `image` feature pulls the full image codecs (incl. JPEG) through xcap's
-# re-exported `image` crate; without it xcap defaults to PNG-only.
-xcap = { version = "0.9.6", features = ["image"] }
+# 0.4.0 is the last X11-only release (0.4.1+ pulls pipewire/Wayland, which needs
+# a newer libpipewire than ubuntu-22.04 ships). Fixes the macOS compile bug that
+# 0.0.14 had, while keeping the build light (xcb + dbus, no pipewire/clang).
+xcap = "=0.4.0"
+# Add only the JPEG codec to xcap's re-exported `image` crate (it defaults to
+# PNG-only). Feature-unifies with xcap's own `image` dep, so `xcap::image` gains
+# JPEG without image/default's heavy AVIF/webp encoders.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
