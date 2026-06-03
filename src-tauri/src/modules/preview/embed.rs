@@ -264,16 +264,43 @@ pub async fn preview_embed_read(
     eval_for_string(wv, js).await
 }
 
-/// Title + reader-mode body text + capped links, plus (when the prepended
-/// `FIELDS` flag is set) a tagged, indexed list of interactive controls the
-/// agent can then drive with `preview_embed_act`. Tagging writes a transient
-/// `data-tedi-idx` attribute on each control so the act command can re-find it.
+/// Title + reader-mode body text + a `Values:` list of form-control values
+/// (innerText omits input/select values, where currency/unit converters,
+/// calculators, and prefilled fields keep the number the user sees) + capped
+/// links, plus (when the prepended `FIELDS` flag is set) a tagged, indexed list
+/// of interactive controls the agent can then drive with `preview_embed_act`.
+/// Tagging writes a transient `data-tedi-idx` attribute on each control so the
+/// act command can re-find it.
 const READ_JS: &str = r#"(function(){try{
   var t=document.title||"";
-  var c=document.querySelector("main,article"),ct=c?c.innerText:"";
-  var body=ct.length>=200?ct:(document.body?document.body.innerText:"");
+  // Reader-view body: prefer the LARGEST <main>/<article> (a stray little news
+  // card shouldn't win), but ONLY when it actually dominates the page. A single
+  // SERP/feed <article> over ~200 chars used to shadow the real answer (Google
+  // results, the currency answer box, etc. live OUTSIDE it) - require >=50% of
+  // body text before trusting it, else fall back to the whole body.
+  var cs=document.querySelectorAll("main,article"),c=null,cmax=0;
+  for(var ci=0;ci<cs.length;ci++){var cl=(cs[ci].innerText||"").length;if(cl>cmax){cmax=cl;c=cs[ci];}}
+  var ct=c?c.innerText:"",ba=document.body?document.body.innerText:"";
+  var body=(ct.length>=200&&ct.length>=ba.length*0.5)?ct:ba;
   body=body.replace(/[ \t]+/g," ").replace(/ *\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
   var out=t+"\n\n"+body.slice(0,12000)+(body.length>12000?"\n[...truncated]":"");
+  // Form-control VALUES: innerText never includes an input/select/textarea value,
+  // so an answer the user plainly sees - Google's currency converter ("1 USD =
+  // 17.919,00 IDR" lives in <input>s), unit converters, calculators, prefilled
+  // search boxes, settings - is otherwise structurally invisible to this read.
+  // Whole-document, value-bearing controls only; password/hidden/button/checkbox/
+  // radio/file excluded (secret, stateless, or covered by FIELDS state).
+  var vals=[],vseen={},vc=document.querySelectorAll("input:not([type=hidden]):not([type=password]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=image]),textarea,select");
+  for(var vi=0;vi<vc.length&&vals.length<30;vi++){
+    var ve=vc[vi],vv="";
+    if(ve.tagName==="SELECT"){var vo=ve.options[ve.selectedIndex];vv=vo?(vo.text||vo.value||""):"";}
+    else vv=ve.value||"";
+    vv=(vv+"").trim();if(!vv)continue;
+    var vl=(ve.getAttribute("aria-label")||ve.getAttribute("name")||ve.getAttribute("placeholder")||ve.getAttribute("title")||"").trim();
+    var vline=(vl?vl+": ":"")+vv.slice(0,80);
+    if(vseen[vline])continue;vseen[vline]=1;vals.push("- "+vline);
+  }
+  if(vals.length)out+="\n\nValues:\n"+vals.join("\n");
   var seen={},links=[],as=document.querySelectorAll("a[href]");
   for(var i=0;i<as.length&&links.length<40;i++){
     var a=as[i],href=a.href,txt=((a.innerText||a.textContent||"").trim().replace(/\s+/g," "));

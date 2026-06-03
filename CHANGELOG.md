@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.19] - 03-06-2026
+
+### Fixed
+
+- **Maximized window no longer covers the Windows taskbar, and the taskbar button can minimize it.** With `decorations: false` the borderless main window lost two native behaviours: Windows only auto-clamps a maximized window to the monitor _work area_ for framed windows, so TEDI filled the whole monitor and ran off the bottom over the taskbar (an OS-level window screenshot then captured a window that genuinely extended to the bottom); and without `WS_MINIMIZEBOX` the taskbar button could not toggle minimize like every other app. A Windows-only window-proc subclass now clamps `WM_GETMINMAXINFO` to the work area (chaining the original proc first so TAO's `min_inner_size` survives) and re-adds `WS_MINIMIZEBOX | WS_MAXIMIZEBOX` without painting any chrome ([`apply_windows_frame_fixes`](src-tauri/src/lib.rs)).
+- **The file-explorer sidebar no longer collapses after minimize then restore/maximize.** Minimizing reports a 0px container to `react-resizable-panels`, which collapses the collapsible sidebar and left it collapsed once the window came back. The minimize-then-restore transition now re-opens the sidebar, but only undoes that spurious collapse - a sidebar the user collapsed via the toggle, or one an extension hid, stays collapsed ([`App.tsx`](src/app/App.tsx)).
+
+### Changed
+
+- **`read_browser` surfaces form-field values.** The browser reader now appends a `Values:` list of form-control values (converter / calculator results, input and select values) that the visible page text omits, so the agent reads a shown number straight from the live DOM instead of falling back to a screenshot ([`preview_embed_read`](src-tauri/src/modules/preview/embed.rs), prompt + tool description in [`config.ts`](src/modules/ai/config.ts) / [`terminal.ts`](src/modules/ai/tools/terminal.ts)).
+
 ## [0.3.17] - 02-06-2026
 
 ### Added

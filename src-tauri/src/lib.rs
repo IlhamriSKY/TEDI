@@ -46,6 +46,103 @@ fn disable_windows_corner_rounding(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "windows"))]
 fn disable_windows_corner_rounding(_window: &tauri::WebviewWindow) {}
 
+/// Make a borderless (`decorations: false`) window behave like a normal app on
+/// Windows. Two defects come from dropping the native frame:
+///
+///   1. **Maximize covers the taskbar.** Windows only auto-clamps a maximized
+///      window to the monitor *work area* when it carries a standard frame
+///      (`WS_THICKFRAME` + `WS_CAPTION`). A borderless window instead fills the
+///      whole monitor, so it runs off the bottom over the taskbar - and an
+///      OS-level window screenshot then faithfully captures a window that
+///      genuinely extends to the bottom of the screen.
+///   2. **Taskbar button can't minimize.** Without `WS_MINIMIZEBOX`, clicking
+///      the app's taskbar button does not toggle minimize the way every other
+///      window does (only the in-app control works).
+///
+/// Both are fixed without re-adding any visible chrome (`WS_CAPTION` /
+/// `WS_SYSMENU` stay off, so no title bar or system buttons are painted):
+///   - re-add `WS_MINIMIZEBOX | WS_MAXIMIZEBOX` so the taskbar button and Aero
+///     Snap work, and
+///   - subclass the window proc to clamp `WM_GETMINMAXINFO`'s maximized rect to
+///     the current monitor's work area. The original proc is called first so
+///     TAO's `min_inner_size` enforcement (also delivered via this message) is
+///     preserved; only the maximized position/size are overridden.
+#[cfg(target_os = "windows")]
+fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, GWLP_WNDPROC,
+        GWL_STYLE, MINMAXINFO, WM_GETMINMAXINFO, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+    };
+
+    // Single main window, so one slot for the original proc is enough.
+    static PREV_WNDPROC: AtomicIsize = AtomicIsize::new(0);
+
+    unsafe extern "system" fn wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        let prev = PREV_WNDPROC.load(Ordering::Relaxed);
+        let call_prev = |hwnd, msg, wparam, lparam| {
+            if prev != 0 {
+                let prev_proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
+                    std::mem::transmute(prev);
+                CallWindowProcW(Some(prev_proc), hwnd, msg, wparam, lparam)
+            } else {
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+        };
+
+        if msg == WM_GETMINMAXINFO {
+            // Let the original proc fill defaults first (TAO enforces the
+            // window's minimum size here), then clamp the maximized rect.
+            let result = call_prev(hwnd, msg, wparam, lparam);
+            let h_monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut mi: MONITORINFO = std::mem::zeroed();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if GetMonitorInfoW(h_monitor, &mut mi) != 0 {
+                let work: RECT = mi.rcWork;
+                let mon: RECT = mi.rcMonitor;
+                let info = &mut *(lparam as *mut MINMAXINFO);
+                // ptMaxPosition is relative to the monitor origin.
+                info.ptMaxPosition.x = work.left - mon.left;
+                info.ptMaxPosition.y = work.top - mon.top;
+                info.ptMaxSize.x = work.right - work.left;
+                info.ptMaxSize.y = work.bottom - work.top;
+            }
+            return result;
+        }
+
+        call_prev(hwnd, msg, wparam, lparam)
+    }
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = hwnd.0 as HWND;
+
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        let new_style = style | (WS_MINIMIZEBOX as isize) | (WS_MAXIMIZEBOX as isize);
+        if new_style != style {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, new_style);
+        }
+
+        // Install the subclass once; re-running would chain it onto itself.
+        if PREV_WNDPROC.load(Ordering::Relaxed) == 0 {
+            let prev = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, wndproc as *const () as isize);
+            PREV_WNDPROC.store(prev, Ordering::Relaxed);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_windows_frame_fixes(_window: &tauri::WebviewWindow) {}
+
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
@@ -267,6 +364,18 @@ pub fn run() {
             // Strip Windows 11 DWM rounded corners so the app reads as square.
             if let Some(window) = app.get_webview_window("main") {
                 disable_windows_corner_rounding(&window);
+                // Clamp borderless maximize to the work area + restore the
+                // taskbar minimize affordance (see fn docs).
+                apply_windows_frame_fixes(&window);
+                // A session saved while maximized may have been restored before
+                // the work-area clamp was installed, leaving it over the taskbar.
+                // Re-assert maximize now - the window is still hidden (the
+                // frontend calls show() after first paint), so there's no flicker.
+                #[cfg(target_os = "windows")]
+                if window.is_maximized().unwrap_or(false) {
+                    let _ = window.unmaximize();
+                    let _ = window.maximize();
+                }
             }
             // Heal a stale `~/.local/bin/tedi` shim after an update that moved
             // the binary (macOS .app relocation, AppImage filename change).

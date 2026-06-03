@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.18"
+version = "0.3.19"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -143,6 +143,8 @@ windows-sys = { version = "0.59", features = [
 	"Win32_System_JobObjects",
 	"Win32_System_Threading",
 	"Win32_Graphics_Dwm",
+	"Win32_Graphics_Gdi",
+	"Win32_UI_WindowsAndMessaging",
 ] }
 # Capture the focused tab's webview content directly (just the tab, no window
 # chrome) via ICoreWebView2::CapturePreview. A plain screen grab misses WebView2

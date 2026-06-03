@@ -201,6 +201,8 @@ Streamed transcription pipeline. Toggled from the composer.
 | Linux    | `tauri.linux.conf.json`   | `decorations: false` + `transparent: true`; re-asserted post-realize for GNOME/Mutter CSD |
 | Windows  | `tauri.windows.conf.json` | Same as Linux; React renders custom `WindowControls`                                      |
 
+**Windows borderless-frame fixes** ([lib.rs](src-tauri/src/lib.rs) `apply_windows_frame_fixes`, main window only): `decorations: false` drops the native frame, which costs two OS behaviors. (1) A maximized borderless window fills the whole monitor and covers the taskbar (Windows only auto-clamps to the work area for framed windows) - a `WM_GETMINMAXINFO` window-proc subclass overrides `ptMaxPosition`/`ptMaxSize` to the monitor `rcWork`. The original proc is chained first so TAO's `min_inner_size` (delivered via the same message) survives. (2) Without `WS_MINIMIZEBOX`, the taskbar button can't toggle minimize - re-added alongside `WS_MAXIMIZEBOX` (no chrome painted; `WS_CAPTION`/`WS_SYSMENU` stay off). The prev-proc pointer lives in a single `static AtomicIsize`, so this is **main-window-only** - don't reuse it for the settings window (also borderless) without a per-HWND map.
+
 ## Tauri capabilities
 
 [src-tauri/capabilities/default.json](src-tauri/capabilities/default.json) is the allowlist for plugin APIs exposed to the webview. Adding a plugin requires **3 steps**:

@@ -58,6 +58,7 @@ import { ThemeProvider } from "@/modules/theme";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
@@ -209,6 +210,12 @@ export default function App() {
   }, []);
 
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
+  // True only when the file-explorer sidebar is collapsed by explicit user
+  // intent (the toggle). Lets the minimize/restore guard below tell a real
+  // collapse apart from the spurious one react-resizable-panels does when a
+  // minimized window reports a 0px container - see the effect under
+  // `toggleSidebar`.
+  const userCollapsedSidebarRef = useRef(false);
   // Tracks an ext-requested sidebar hide so we can auto-restore the user's
   // prior visibility when they switch off that extension's tab, and re-hide
   // when they switch back. Cleared on any manual toggle or when the
@@ -229,8 +236,47 @@ export default function App() {
     const p = sidebarRef.current;
     if (!p) return;
     sidebarHiderRef.current = null;
-    if (p.getSize().asPercentage <= 0) p.expand();
-    else p.collapse();
+    if (p.getSize().asPercentage <= 0) {
+      userCollapsedSidebarRef.current = false;
+      p.expand();
+    } else {
+      userCollapsedSidebarRef.current = true;
+      p.collapse();
+    }
+  }, []);
+
+  // Minimizing the window reports a 0px container to react-resizable-panels,
+  // which collapses the collapsible sidebar and leaves it collapsed once the
+  // window is restored/maximized. On the minimize->restore transition, re-open
+  // the sidebar - but only undo a spurious collapse, never one the user made
+  // (userCollapsedSidebarRef) or an extension made by hiding it
+  // (sidebarHiderRef).
+  useEffect(() => {
+    const w = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let wasMinimized = false;
+    void w
+      .onResized(async () => {
+        const minimized = await w.isMinimized();
+        if (minimized) {
+          wasMinimized = true;
+          return;
+        }
+        if (!wasMinimized) return;
+        wasMinimized = false;
+        // Defer past the panel library's own post-restore layout pass so our
+        // expand() is the final word.
+        setTimeout(() => {
+          const p = sidebarRef.current;
+          if (!p || !p.isCollapsed()) return;
+          if (userCollapsedSidebarRef.current || sidebarHiderRef.current) return;
+          p.expand();
+        }, 120);
+      })
+      .then((u) => {
+        unlisten = u;
+      });
+    return () => unlisten?.();
   }, []);
 
   // Accordion sub-panels inside the merged Files section. Each section
