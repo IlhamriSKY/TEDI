@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   clearOpenAICompatibleRuntime,
+  normalizeOpenAICompatibleBaseURL,
   openaiCompatibleModelId,
   setDetectedModelsForInstance,
   setOpenAICompatibleRuntime,
@@ -61,7 +62,13 @@ function labelFor(id: string): string {
     .trim();
 }
 
-function hintFor(raw: { owned_by?: string }): string {
+// The dropdown subtitle. Prefer the provider's own configured label (e.g.
+// "Xiomi", "9Router") so the user sees WHICH endpoint a model came from;
+// `owned_by` from `/models` is a gateway-internal tag (often "cx") that means
+// nothing to them. Fall back to `owned_by`, then a generic label.
+function hintFor(raw: { owned_by?: string }, label?: string): string {
+  const trimmed = label?.trim();
+  if (trimmed) return `via ${trimmed}`;
   return raw.owned_by ? `via ${raw.owned_by}` : "OpenAI Compatible";
 }
 
@@ -76,9 +83,15 @@ export async function refreshOpenAICompatibleInstance(
   instanceId: string,
   apiKey: string,
   baseURL: string,
+  label?: string,
   signal?: AbortSignal,
 ): Promise<ModelInfo[]> {
-  const trimmedURL = baseURL.replace(/\/$/, "");
+  // Normalize here (not at the call sites) so every detection path - bootstrap,
+  // ModelsSection, the Detect button - and the runtime base URL registered just
+  // below all go through the same localhost->127.0.0.1 rewrite. Otherwise the
+  // WebView's native fetch below tries IPv6 ::1 first and fails with a bare
+  // "Failed to fetch" against IPv4-only local routers.
+  const trimmedURL = normalizeOpenAICompatibleBaseURL(baseURL);
   if (!trimmedURL) {
     states.set(instanceId, { ...stateFor(instanceId), status: "error", error: "Base URL is empty" });
     emit();
@@ -116,7 +129,7 @@ export async function refreshOpenAICompatibleInstance(
         id: openaiCompatibleModelId(instanceId, raw.id),
         provider: "openai-compatible" as const,
         label: labelFor(raw.id),
-        hint: hintFor(raw),
+        hint: hintFor(raw, label),
         ownedBy: raw.owned_by,
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -166,6 +179,7 @@ export async function refreshOpenAICompatibleModels(
     OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
     apiKey,
     baseURL,
+    undefined,
     signal,
   );
 }

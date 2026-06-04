@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_PRESETS,
+  normalizeOpenAICompatibleBaseURL,
   type OpenAICompatibleInstance,
 } from "@/modules/ai/config";
 import { refreshOpenAICompatibleInstance } from "@/modules/ai/lib/openaiCompatible";
@@ -95,7 +96,7 @@ export function OpenAICompatibleBlock({
     setTestStatus("testing");
     setTestError(null);
     try {
-      const url = urlDraft.trim().replace(/\/$/, "") + "/models";
+      const url = normalizeOpenAICompatibleBaseURL(urlDraft) + "/models";
       const auth = keyDraft.trim() || apiKey;
       const code = await invoke<number>("http_ping", { url, auth });
       setTestStatus(code >= 200 && code < 400 ? "ok" : "fail");
@@ -108,7 +109,12 @@ export function OpenAICompatibleBlock({
 
   const refresh = () => {
     if (!instance || !apiKey) return;
-    void refreshOpenAICompatibleInstance(instance.id, apiKey, urlDraft.trim() || initialURL);
+    void refreshOpenAICompatibleInstance(
+      instance.id,
+      apiKey,
+      urlDraft.trim() || initialURL,
+      instance.label,
+    );
   };
 
   const maskedKey =

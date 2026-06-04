@@ -26,15 +26,19 @@ const OVERLAY_SELECTOR =
   '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [role="menu"]';
 
 /**
- * A tooltip popper to be ignored. Every app tooltip renders
- * `[data-slot="tooltip-content"]` inside its `[data-radix-popper-content-wrapper]`
- * (see {@link file://../../../components/ui/tooltip.tsx}), and radix only puts
- * `role="tooltip"` on a visually-hidden a11y span - so the `data-slot` marker is
- * the reliable signal for the *visible* bubble. Non-tooltip overlays (menus,
- * dialogs, popovers, selects) never carry it, so they still count.
+ * A tooltip popper to be ignored. Two independent signals, either is enough:
+ *  - `[data-slot="tooltip-content"]`, the app's own marker on every
+ *    {@link file://../../../components/ui/tooltip.tsx} bubble, and
+ *  - `[role="tooltip"]`, which radix itself renders (a visually-hidden a11y
+ *    span) *inside* the popper wrapper for EVERY tooltip - so even a tooltip
+ *    that somehow lost the app marker (raw radix usage, prop-spread order) is
+ *    still recognised and never flickers the browser pane away.
+ * Both live as descendants of `[data-radix-popper-content-wrapper]`. Non-tooltip
+ * overlays (menus, dialogs, popovers, selects, hover-cards) carry neither, so
+ * they still count and keep suppressing the webview while open.
  */
 function isTooltipPopper(el: Element): boolean {
-  return el.querySelector('[data-slot="tooltip-content"]') !== null;
+  return el.querySelector('[data-slot="tooltip-content"], [role="tooltip"]') !== null;
 }
 
 /** True when at least one *non-tooltip* overlay is currently mounted. */

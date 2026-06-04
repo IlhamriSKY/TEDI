@@ -96,7 +96,7 @@ export function ModelsSection() {
       for (const inst of oaiCompatInstances) {
         const key = entries.find(([id]) => id === inst.id)?.[1] ?? null;
         if (key && inst.baseURL) {
-          void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL);
+          void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL, inst.label);
         }
       }
     })();
@@ -172,7 +172,7 @@ export function ModelsSection() {
     setAddingProvider((cur) => (cur === "openai-compatible" ? null : cur));
     const keyForRefresh = apiKey || instanceKeys[instanceId];
     if (keyForRefresh && baseURL) {
-      void refreshOpenAICompatibleInstance(instanceId, keyForRefresh, baseURL);
+      void refreshOpenAICompatibleInstance(instanceId, keyForRefresh, baseURL, label);
     }
     return instanceId;
   };

@@ -21,6 +21,82 @@ use url::Url;
 use super::proxy::proxy_client;
 use super::util::js_string_literal;
 
+/// Inject a trusted left click at CSS-viewport coordinates into THIS tab's
+/// embedded webview via the DevTools Protocol (`Input.dispatchMouseEvent`).
+///
+/// A synthetic JS `dispatchEvent` is `isTrusted: false` and is silently ignored
+/// by Gmail's `jsaction`, React controlled inputs, and many modal frameworks.
+/// CDP input is injected into the browser's REAL input pipeline, so the page
+/// sees a trusted click. It is a "virtual mouse": no on-screen cursor moves and
+/// no foreground window is required, so it keeps working while TEDI is in the
+/// background or MINIMIZED (the agent drives the pane without hijacking the
+/// user's mouse). `css_x`/`css_y` are CSS px in the page viewport - exactly what
+/// `read_browser` reports as `@x,y` - so there is no HWND lookup or DPI/screen
+/// mapping at all, and it targets this `wv` directly so the right tab is hit.
+///
+/// Returns `Ok(true)` on success, `Err` if the CDP call failed.
+#[cfg(target_os = "windows")]
+async fn native_click_at(wv: &Webview, css_x: f64, css_y: f64) -> Result<bool, String> {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows::core::{HSTRING, PCWSTR};
+
+    // A press + release pair at the viewport point. `buttons` is the bitmask of
+    // buttons currently held: 1 (left) while pressing, 0 once released;
+    // clickCount 1 so the page registers one full click.
+    let press = format!(
+        r#"{{"type":"mousePressed","x":{css_x},"y":{css_y},"button":"left","buttons":1,"clickCount":1}}"#
+    );
+    let release = format!(
+        r#"{{"type":"mouseReleased","x":{css_x},"y":{css_y},"button":"left","buttons":0,"clickCount":1}}"#
+    );
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    // The CDP call must run on the UI thread (COM STA); `with_webview` hops
+    // there. Send press then release in order; each `wait_for_async_operation`
+    // pumps until that command completes, so the click lands as down-then-up.
+    wv.with_webview(move |platform| {
+        let run = || -> Result<(), String> {
+            let core =
+                unsafe { platform.controller().CoreWebView2() }.map_err(|e| e.to_string())?;
+            let method = HSTRING::from("Input.dispatchMouseEvent");
+            for params in [press, release] {
+                let core = core.clone();
+                let method = method.clone();
+                let params = HSTRING::from(params);
+                CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
+                    Box::new(move |handler| unsafe {
+                        core.CallDevToolsProtocolMethod(
+                            PCWSTR(method.as_ptr()),
+                            PCWSTR(params.as_ptr()),
+                            &handler,
+                        )
+                        .map_err(webview2_com::Error::WindowsError)
+                    }),
+                    Box::new(move |res: windows::core::Result<()>, _json: String| res),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        };
+        let _ = tx.send(run());
+    })
+    .map_err(|e| e.to_string())?;
+
+    match tokio::time::timeout(Duration::from_secs(5), rx).await {
+        Ok(Ok(Ok(()))) => Ok(true),
+        Ok(Ok(Err(e))) => Err(e),
+        Ok(Err(_)) => Err("native click callback dropped".into()),
+        Err(_) => Err("native click timed out".into()),
+    }
+}
+
+/// Fallback for non-Windows: no native click injection available (caller falls
+/// back to JS dispatch).
+#[cfg(not(target_os = "windows"))]
+async fn native_click_at(_wv: &Webview, _css_x: f64, _css_y: f64) -> Result<bool, String> {
+    Ok(false)
+}
+
 const PREVIEW_NAV_EVENT: &str = "tedi:preview-nav";
 
 #[derive(Clone, serde::Serialize)]
@@ -85,6 +161,15 @@ const TRANSPARENT_BODY_SCRIPT: &str = r#"
   } catch (e) {}
 })();
 "#;
+
+/// WebView2 command-line flags for embedded browser panes. Keeps wry's defaults
+/// (disable the mini-menu / SmartScreen / PDF OOUI) and adds the bits that let a
+/// pane keep running while TEDI is minimized or occluded: turning off
+/// `CalculateNativeWinOcclusion` (so a minimized window isn't frozen) plus
+/// renderer/timer background-throttling, so CDP "virtual mouse" clicks and the
+/// page keep processing. Autoplay stays enabled (these are real browser tabs).
+#[cfg(target_os = "windows")]
+const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --autoplay-policy=no-user-gesture-required";
 
 /// Create (first visible call) or reposition/show the embedded browser webview
 /// for a preview tab. `x/y/width/height` are physical pixels measured by the
@@ -179,6 +264,13 @@ pub async fn preview_embed_update(
                 },
             );
         });
+    // WebView2 flags that keep this pane processing CDP clicks (and timers /
+    // rendering) while TEDI is minimized or occluded. Windows-only; the method
+    // is a no-op on the other platforms' webviews.
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.additional_browser_args(EMBED_BROWSER_ARGS);
+    }
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
     // toggling the setting applies to newly opened browser panes. The webview
@@ -445,6 +537,30 @@ pub async fn preview_embed_act(
     let wv = app
         .get_webview(&embed_label(tab_id))
         .ok_or_else(|| "no open browser pane with that id".to_string())?;
+    // ── Trusted "virtual mouse" click injection for `clickxy` ──────────
+    // Synthetic JS `dispatchEvent` produces events with `isTrusted: false`,
+    // which Gmail's `jsaction`, React controlled components, and many modal
+    // frameworks silently ignore. Inject the click through the DevTools
+    // Protocol instead: trusted input, no cursor movement, and it works even
+    // while TEDI is backgrounded or minimized. Fall back to JS dispatch only
+    // when the native path is unavailable (non-Windows) or errors.
+    if action == "clickxy" {
+        if let Some((xs, ys)) = text.split_once(',') {
+            if let (Ok(cx), Ok(cy)) = (xs.trim().parse::<f64>(), ys.trim().parse::<f64>()) {
+                match native_click_at(&wv, cx, cy).await {
+                    Ok(true) => {
+                        tokio::time::sleep(Duration::from_millis(120)).await;
+                        return Ok("ok".into());
+                    }
+                    Ok(false) => { /* native injection unavailable – fall through to JS */ }
+                    Err(e) => {
+                        log::warn!("native_click_at failed, falling back to JS: {e}");
+                    }
+                }
+            }
+        }
+    }
+
     let prelude = format!(
         "var IDX={};var ACTION={};var TEXT={};var SUBMIT={};",
         index,
@@ -644,13 +760,31 @@ const ACT_JS: &str = r#"(function(){try{
   }
   // Click at viewport CSS coordinates (TEXT "x,y") - the visual fallback for
   // anything not in the controls list (canvas, custom-drawn UI seen in a
-  // screenshot). Dispatches a real pointer+mouse click at that point.
+  // screenshot). Dispatches a full pointer+mouse click sequence at that point.
+  // NOTE: On Windows this action is intercepted at the Rust level and injected
+  // as a trusted DevTools-Protocol click (`isTrusted: true`, works minimized).
+  // The JS below only runs when that native path is unavailable (macOS, Linux)
+  // or it errored.
   if(ACTION==="clickxy"){
     var m=((TEXT||"")+"").split(","),cx=parseFloat(m[0]),cy=parseFloat(m[1]);
     if(isNaN(cx)||isNaN(cy))return "bad-coords";
     var tp2=document.elementFromPoint(cx,cy);
     if(!tp2)return "no-element-at-point";
-    ["pointerover","mousemove","pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(ev){try{tp2.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy}));}catch(e){}});
+    // Full event sequence matching real browser pointer flow. Use PointerEvent
+    // when available (Chrome, Edge, Firefox) for richer pointer properties, then
+    // fall back to MouseEvent.
+    try{
+      var pe=typeof PointerEvent!=="undefined"?function(t,o){return new PointerEvent(t,o)}:function(t,o){return new MouseEvent(t,o)};
+      var opts={bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,button:0,buttons:1,pointerId:1,pointerType:"mouse",isPrimary:true,width:1,height:1,pressure:0.5};
+      ["pointerover","pointerenter","mouseover","mouseenter","pointermove","mousemove","pointerdown","mousedown"].forEach(function(ev){try{tp2.dispatchEvent(pe(ev,Object.assign({},opts,{buttons:ev.indexOf("down")>0?1:0})));}catch(e){}});
+      opts.buttons=0;
+      ["pointerup","mouseup","click"].forEach(function(ev){try{tp2.dispatchEvent(pe(ev,opts));}catch(e){}});
+    }catch(ex){
+      // Ultra-fallback: plain MouseEvent (older engines).
+      ["pointerover","mousemove","pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(ev){try{tp2.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,button:0}));}catch(e){}});
+    }
+    // Final resort: .click() on the element (some frameworks listen on it).
+    try{tp2.click();}catch(e){}
     return "ok";
   }
   var el=document.querySelector('[data-tedi-idx="'+IDX+'"]');
@@ -661,7 +795,16 @@ const ACT_JS: &str = r#"(function(){try{
     // Dispatch a FULL pointer+mouse sequence (not just el.click()) so apps that
     // bind to mousedown/up / jsaction (Gmail, most SPAs) actually react.
     var rc=el.getBoundingClientRect(),mx=rc.left+rc.width/2,my=rc.top+rc.height/2;
-    ["pointerover","mouseover","pointermove","mousemove","pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(ev){try{el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window,clientX:mx,clientY:my,button:0}));}catch(e){}});
+    try{
+      var pe2=typeof PointerEvent!=="undefined"?function(t,o){return new PointerEvent(t,o)}:function(t,o){return new MouseEvent(t,o)};
+      var o2={bubbles:true,cancelable:true,view:window,clientX:mx,clientY:my,button:0,buttons:1,pointerId:1,pointerType:"mouse",isPrimary:true,width:1,height:1,pressure:0.5};
+      ["pointerover","pointerenter","mouseover","mouseenter","pointermove","mousemove","pointerdown","mousedown"].forEach(function(ev){try{el.dispatchEvent(pe2(ev,Object.assign({},o2,{buttons:ev.indexOf("down")>0?1:0})));}catch(e){}});
+      o2.buttons=0;
+      ["pointerup","mouseup","click"].forEach(function(ev){try{el.dispatchEvent(pe2(ev,o2));}catch(e){}});
+    }catch(ex){
+      ["pointerover","mouseover","pointermove","mousemove","pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(ev){try{el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window,clientX:mx,clientY:my,button:0}));}catch(e){}});
+    }
+    try{el.click();}catch(e){}
     return "ok";
   }
   // Hover: fire pointer/mouse-enter events so hover-only controls (e.g. Gmail's

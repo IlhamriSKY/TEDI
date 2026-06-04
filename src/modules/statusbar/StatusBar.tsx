@@ -66,12 +66,13 @@ function StatusBarInner({
             </button>
           </IconTooltip>
         ) : null}
-        {/* Update pill pinned to the far-left of the status bar. */}
-        <UpdaterPill />
         <OsBadge />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* Update pill sits just left of the extension status icons (Discord,
+            etc.) so the right cluster leads with the update prompt. */}
+        <UpdaterPill />
         {/* Extension-contributed borderless icons (status items + compact
             panel toggles) cluster at the leftmost slot so the icon row stays
             visually unified. */}

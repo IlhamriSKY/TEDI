@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.21] - 04-06-2026
+
+### Changed
+
+- **Embedded-browser clicks use a trusted "virtual mouse" that keeps working while TEDI is minimized or backgrounded.** `browser_click_at` (and the native path behind `browser_click`) now injects the click through the WebView2 DevTools Protocol (`Input.dispatchMouseEvent`) instead of an OS-level `SendInput`: the event is `isTrusted` (accepted by Gmail's `jsaction`, React controlled inputs, and other frameworks that ignore synthetic clicks), it no longer moves the user's real cursor, and it no longer needs TEDI focused or in the foreground. Embedded browser panes also disable Chromium occlusion / background throttling so a minimized pane keeps processing input and rendering ([`embed.rs`](src-tauri/src/modules/preview/embed.rs)).
+- **The agent reads an already-open browser pane before reaching for `curl`.** When an `<env>` browser already shows what the user is asking about (a search result, converter, dashboard, doc), the prompt now steers `read_browser` of that pane first instead of fetching the same data from another source ([`config.ts`](src/modules/ai/config.ts)).
+- **The update-status pill moved to the right cluster of the status bar,** next to the extension status icons (e.g. Discord), so the "Update available" / "Update check failed" button sits with the other status glyphs ([`StatusBar.tsx`](src/modules/statusbar/StatusBar.tsx)).
+
+### Fixed
+
+- **OpenAI-compatible local routers (9Router, LM Studio, llama.cpp, Ollama) no longer fail detection on Windows.** A user-entered base URL is normalized before fetch: trailing slashes are stripped and a bare `localhost` host is rewritten to the IPv4 literal `127.0.0.1`, sidestepping Windows resolving `localhost` to IPv6 `::1` first (which IPv4-only local servers refuse with a bare "Failed to fetch"). A user who truly needs IPv6 can still type `[::1]` ([`normalizeOpenAICompatibleBaseURL`](src/modules/ai/config.ts), [`OpenAICompatibleBlock.tsx`](src/settings/sections/components/OpenAICompatibleBlock.tsx)).
+- **Detected OpenAI-compatible models show their provider's configured label, not the gateway's internal tag.** The model-dropdown subtitle now reads `via <your provider label>` (e.g. "via Xiomi", "via 9Router") instead of `via <owned_by>`, which gateways often set to a meaningless value like "cx" ([`openaiCompatible.ts`](src/modules/ai/lib/openaiCompatible.ts)).
+- **Browser-preview tooltip-hover suppression hardened.** The overlay-suppression that ignores non-interactive Radix tooltips now also matches radix's own `role="tooltip"` node, not just the app's `[data-slot="tooltip-content"]` marker, so any tooltip variant is recognised and never flickers the preview pane away ([`overlaySuppress.ts`](src/modules/preview/lib/overlaySuppress.ts)).
+
 ## [0.3.20] - 03-06-2026
 
 ### Fixed

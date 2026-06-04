@@ -82,7 +82,7 @@ export function useAiBootstrap(): { keysLoaded: boolean } {
           clearOpenAICompatibleInstance(inst.id);
           continue;
         }
-        void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL);
+        void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL, inst.label);
       }
     })();
     return () => {
