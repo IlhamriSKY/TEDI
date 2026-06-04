@@ -73,6 +73,10 @@ export function MermaidDiagram({ code }: { code: string }) {
 
     return () => {
       cancelled = true;
+      // Reap mermaid's temporary measuring nodes regardless of how the
+      // in-flight render settles (the catch path early-returns when cancelled).
+      document.getElementById(id)?.remove();
+      document.getElementById(`d${id}`)?.remove();
     };
   }, [code, resolvedTheme, streaming, id]);
 

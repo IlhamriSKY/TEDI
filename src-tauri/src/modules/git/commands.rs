@@ -564,7 +564,14 @@ pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<Stri
     }
 
     if out.len() > cap {
-        out.truncate(cap);
+        // `cap` is a raw byte count and may land inside a multi-byte UTF-8
+        // sequence; back it down to the nearest char boundary so truncate
+        // can't panic.
+        let mut end = cap.min(out.len());
+        while end > 0 && !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
         out.push_str(&format!("\n\n[diff truncated by host: >{} bytes]", cap));
     }
     Ok(out)

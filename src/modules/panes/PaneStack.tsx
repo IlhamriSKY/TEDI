@@ -1,5 +1,4 @@
 import type { EditorPaneHandle } from "@/modules/editor";
-import { previewEmbedClose } from "@/modules/preview";
 import type { PaneTab, Tab } from "@/modules/tabs";
 import { leaves, type PaneEdge } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
@@ -178,28 +177,20 @@ export function PaneStack({
     return b;
   };
 
-  // Prune per-leaf bundles, and destroy the native browser webview of any
-  // preview leaf that has truly disappeared (closed) - NOT one merely remounted
-  // by a move/reorder, which keeps the leaf id present here. This is why
-  // PreviewPane no longer closes on unmount: it lets a dragged browser pane
-  // keep its page instead of reloading.
-  const prevPreviewLeaves = useRef<Set<number>>(new Set());
+  // Prune per-leaf bundles whose leaf has disappeared from the active
+  // workspace's tabs. The native browser webview close decision lives in
+  // useSessionDisposal instead, which reconciles against ALL workspaces so a
+  // preview leaf isn't destroyed merely because its workspace went inactive.
   useEffect(() => {
     const live = new Set<number>();
-    const livePreview = new Set<number>();
     for (const t of paneTabs) {
       for (const l of leaves(t.paneTree)) {
         live.add(l.id);
-        if (l.leafKind === "preview") livePreview.add(l.id);
       }
     }
     for (const id of bundles.current.keys()) {
       if (!live.has(id)) bundles.current.delete(id);
     }
-    for (const id of prevPreviewLeaves.current) {
-      if (!livePreview.has(id)) void previewEmbedClose(id).catch(() => {});
-    }
-    prevPreviewLeaves.current = livePreview;
   }, [paneTabs]);
 
   return (

@@ -1,14 +1,7 @@
 import { AlertCircleIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
   markPreviewCreated,
   PREVIEW_NAV_EVENT,
@@ -151,10 +144,22 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
   const sentRef = useRef<SentBounds | null>(null);
   const inFlightRef = useRef(false);
   const lastSendRef = useRef(0);
+  // Set when a hide is needed but a create/update send is still in flight (the
+  // hide branch is gated on !inFlightRef). The in-flight send's `.finally`
+  // re-runs syncBounds to issue the deferred hide, so switching tabs mid-create
+  // doesn't leave the always-on-top webview shown over the now-active pane.
+  const pendingHideRef = useRef(false);
 
   const syncBounds = useCallback(() => {
     const el = contentRef.current;
     let show =
+      // The native webview composites ABOVE the DOM. While the window is
+      // minimized/hidden the rAF loop below is throttled, so without this it
+      // would stay frozen-shown at stale bounds and, after the minimize/restore
+      // pane relayout, cover a sibling terminal pane and eat its pointer events
+      // (no text selection/copy, no drag-drop). Hiding on not-visible routes
+      // through the `!show` branch, which re-shows correctly on restore.
+      document.visibilityState === "visible" &&
       visibleRef.current &&
       !paneDragActiveRef.current &&
       !!currentRef.current &&
@@ -173,20 +178,26 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
     }
 
     if (!show || !r) {
-      if (sentRef.current?.visible !== false && !inFlightRef.current) {
-        sentRef.current = { visible: false, key: "" };
-        inFlightRef.current = true;
-        void previewEmbedUpdate(
-          id,
-          currentRef.current,
-          { x: 0, y: 0, width: 0, height: 0 },
-          false,
-          transparentRef.current,
-        )
-          .catch(() => {})
-          .finally(() => {
-            inFlightRef.current = false;
-          });
+      if (sentRef.current?.visible !== false) {
+        if (inFlightRef.current) {
+          // A create/update is mid-flight; the hide can't go out now. Mark it so
+          // that send's `.finally` re-runs syncBounds and issues the hide.
+          pendingHideRef.current = true;
+        } else {
+          sentRef.current = { visible: false, key: "" };
+          inFlightRef.current = true;
+          void previewEmbedUpdate(
+            id,
+            currentRef.current,
+            { x: 0, y: 0, width: 0, height: 0 },
+            false,
+            transparentRef.current,
+          )
+            .catch(() => {})
+            .finally(() => {
+              inFlightRef.current = false;
+            });
+        }
       }
       return;
     }
@@ -217,6 +228,13 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
       })
       .finally(() => {
         inFlightRef.current = false;
+        // A hide requested while this send was in flight (tab switched away
+        // mid-create) was deferred; issue it now so the webview doesn't stay
+        // shown over the now-active pane.
+        if (pendingHideRef.current) {
+          pendingHideRef.current = false;
+          syncBounds();
+        }
       });
   }, [id]);
 
@@ -237,6 +255,18 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [visible, syncBounds]);
+
+  // The rAF loop above is throttled the instant the window is minimized, so it
+  // may not get one more frame to issue the hide. Force a sync on the "hidden"
+  // edge so the always-on-top webview is hidden immediately; on restore the rAF
+  // loop resumes and reclaims the correct bounds (avoids a stale-rect re-show).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) syncBounds();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [syncBounds]);
 
   // NOTE: the webview is intentionally NOT destroyed on unmount. Moving a pane
   // to a new split parent remounts this component; destroying + recreating the
@@ -385,7 +415,7 @@ function EmptyState() {
 function SelfBlockedState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl border border-icon-working/30 bg-icon-working/10 text-icon-working">
+      <div className="border-icon-working/30 bg-icon-working/10 text-icon-working flex size-12 items-center justify-center rounded-2xl border">
         <HugeiconsIcon icon={AlertCircleIcon} size={20} strokeWidth={1.5} />
       </div>
       <div className="space-y-1.5">

@@ -44,6 +44,11 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
   const spawnedAtForLog = performance.now();
 
   const onData = (bytes: Uint8Array) => {
+    // The Channel data handler can fire after disposeSession() disposed the
+    // term, or after a superseded reattach: bail before writing into a
+    // disposed or epoch-mismatched shared term.
+    if (s.disposed) return;
+    if (myEpoch !== s.ptySpawnEpoch) return;
     if (debug && !firstByteLogged) {
       firstByteLogged = true;
       console.info(
@@ -110,6 +115,8 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
       writePtyError(s, msg);
       return;
     }
+    // The normal exit path touches the shared term too: skip it once disposed.
+    if (s.disposed) return;
     s.term.options.disableStdin = true;
     s.aiCliDetector?.reset();
     if (s.callbacks.onExit) s.callbacks.onExit(code);

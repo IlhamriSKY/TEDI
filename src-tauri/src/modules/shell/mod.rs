@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -98,6 +98,18 @@ fn run_blocking(
         .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
+    // Unix: put the child in its own process group (it becomes the group
+    // leader) so a future group-kill could take down a backgrounded grandchild
+    // too. This mirrors `pty_daemon::spawn`. We do NOT force-kill the group on
+    // timeout here: neither `libc` nor `nix` is a dependency, so there is no
+    // std-only way to `kill(-pgid)`. The bounded-drain below is the portable
+    // mitigation; orphan grandchildren that hold the pipe are NOT force-killed
+    // in this build (Windows is covered by the Job Object).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     let mut child = cmd.spawn().map_err(|e| {
         log::warn!("shell_run_command spawn failed: {e}");
@@ -121,14 +133,23 @@ fn run_blocking(
     // completion over a channel, so we can collect output WITHOUT a blocking
     // `join()` that would pin this Tokio blocking-pool slot forever if a
     // grandchild keeps the pipe open after a timeout kill.
+    //
+    // `stop` bounds the drain threads on Unix where there is no Job Object to
+    // close the pipe: after the child is reaped + a grace window, the main
+    // thread sets it so the drain loops exit on their next read return instead
+    // of leaking the thread + FD + ring buffer forever. A fully silent held
+    // pipe still parks the thread until it closes, but the common
+    // trickle-output grandchild is now bounded.
+    let stop = Arc::new(AtomicBool::new(false));
     let stdout_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
     let stderr_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
     let (done_tx, done_rx) = mpsc::channel::<()>();
     {
         let buf = stdout_buf.clone();
         let tx = done_tx.clone();
+        let stop = stop.clone();
         thread::spawn(move || {
-            let res = drain(&mut stdout_pipe);
+            let res = drain(&mut stdout_pipe, &stop);
             *buf.lock().unwrap() = res;
             let _ = tx.send(());
         });
@@ -136,8 +157,9 @@ fn run_blocking(
     {
         let buf = stderr_buf.clone();
         let tx = done_tx;
+        let stop = stop.clone();
         thread::spawn(move || {
-            let res = drain(&mut stderr_pipe);
+            let res = drain(&mut stderr_pipe, &stop);
             *buf.lock().unwrap() = res;
             let _ = tx.send(());
         });
@@ -163,11 +185,13 @@ fn run_blocking(
     // Wait for the drain threads to flush, but never block forever: a killed
     // shell's backgrounded grandchild can hold the pipe open. On a clean exit
     // both signals arrive immediately; on a stuck pipe we proceed with what was
-    // buffered and let the detached thread exit whenever the pipe finally
-    // closes (the Windows Job above makes that prompt by killing the tree).
+    // buffered. `stop` then tells the drain loops to exit on their next read
+    // return (the Windows Job makes that prompt by killing the tree; on Unix it
+    // bounds threads that would otherwise leak).
     const DRAIN_GRACE: Duration = Duration::from_secs(2);
     let _ = done_rx.recv_timeout(DRAIN_GRACE);
     let _ = done_rx.recv_timeout(DRAIN_GRACE);
+    stop.store(true, Ordering::Release);
     let (stdout_bytes, stdout_truncated) = stdout_buf.lock().unwrap().clone();
     let (stderr_bytes, stderr_truncated) = stderr_buf.lock().unwrap().clone();
 
@@ -384,11 +408,18 @@ pub(crate) fn build_oneshot_command(command: &str) -> Command {
     }
 }
 
-fn drain<R: Read>(reader: &mut R) -> (Vec<u8>, bool) {
+fn drain<R: Read>(reader: &mut R, stop: &AtomicBool) -> (Vec<u8>, bool) {
     let mut out = Vec::new();
     let mut buf = [0u8; 8192];
     let mut truncated = false;
     loop {
+        // Bounded exit: once the caller signals stop (child reaped + grace
+        // elapsed) we stop draining instead of leaking this thread + FD when a
+        // grandchild holds the pipe open. Checked between reads, so a fully
+        // silent held pipe still parks until its next read return.
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {

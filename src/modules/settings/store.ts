@@ -1,4 +1,5 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import {
   DEFAULT_AUTOCOMPLETE_MODEL,
@@ -346,14 +347,25 @@ export const DEFAULT_PREFERENCES: Preferences = {
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
-// LazyStore.onChange only fires in the writing process. The settings page is
-// a separate webview, so mirror every setter through a Tauri event for
-// cross-window listeners.
+// LazyStore.onChange is a store://change broadcast delivered to every window
+// (including the writer). The settings page is a separate webview, so the
+// broadcast covers cross-window listeners. We still mirror every setter
+// through a Tauri event so listeners that only attach the event path also see
+// the change; `source` lets the writing window dedupe its own self-delivered
+// event (Tauri v2 self-delivers emit()) and handle it via onChange only.
 const PREFS_CHANGED_EVENT = "tedi://prefs-changed";
+
+// Label of the webview that performed a write. Used to ignore the
+// self-delivered PREFS_CHANGED_EVENT in the writing window (the store.onChange
+// broadcast already covers it there), while OTHER windows still react once.
+const SELF_LABEL = getCurrentWebviewWindow().label;
 
 async function writePref<T>(key: string, value: T): Promise<void> {
   await store.set(key, value);
-  await Promise.all([store.save(), emit(PREFS_CHANGED_EVENT, { key, value })]);
+  await Promise.all([
+    store.save(),
+    emit(PREFS_CHANGED_EVENT, { key, value, source: SELF_LABEL }),
+  ]);
 }
 
 export async function loadPreferences(): Promise<Preferences> {
@@ -766,7 +778,10 @@ export async function _readAny<T = unknown>(key: string): Promise<T | undefined>
 export async function _onAnyChange(cb: (key: string, value: unknown) => void): Promise<UnlistenFn> {
   const [unsubLocal, unsubEvent] = await Promise.all([
     store.onChange<unknown>((key, value) => cb(key, value)),
-    listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
+    listen<{ key: string; value: unknown; source?: string }>(PREFS_CHANGED_EVENT, (e) => {
+      // Same-window write: store.onChange already delivered it here, so skip
+      // the self-delivered event to avoid firing the callback twice.
+      if (e.payload.source === SELF_LABEL) return;
       cb(e.payload.key, e.payload.value);
     }),
   ]);
@@ -852,7 +867,10 @@ export async function onPreferencesChange(
       const mapped = map[key];
       if (mapped) cb(mapped, value);
     }),
-    listen<{ key: string; value: unknown }>(PREFS_CHANGED_EVENT, (e) => {
+    listen<{ key: string; value: unknown; source?: string }>(PREFS_CHANGED_EVENT, (e) => {
+      // Same-window write: store.onChange already delivered it here, so skip
+      // the self-delivered event to avoid firing the callback twice.
+      if (e.payload.source === SELF_LABEL) return;
       const mapped = map[e.payload.key];
       if (mapped) cb(mapped, e.payload.value);
     }),

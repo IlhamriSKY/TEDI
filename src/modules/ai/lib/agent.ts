@@ -214,9 +214,12 @@ function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
     if (steps.length < maxRepeats) return false;
     const recent = steps.slice(-maxRepeats);
     const fingerprints: (string | null)[] = recent.map((s) => {
-      const call = s.toolCalls?.[0];
-      if (!call) return null;
-      return toolCallFingerprint(call.toolName, call.input);
+      const calls = s.toolCalls;
+      if (!calls || calls.length === 0) return null;
+      // Cover the full ordered set of tool calls so parallel multi-tool
+      // repetition is caught and a step that only matches on its first call
+      // (but differs on the rest) isn't falsely flagged.
+      return calls.map((c) => toolCallFingerprint(c.toolName, c.input)).join("\n");
     });
     if (fingerprints.some((x) => x === null)) return false;
     return fingerprints.every((x) => x === fingerprints[0]);
@@ -351,10 +354,11 @@ export async function runAgentStream(opts: RunAgentOptions) {
 
   // Thread the abort signal into the ToolContext so tools can fast-fail on
   // Stop/session-delete. The SDK only aborts the HTTP fetch by default.
-  const toolContextWithAbort: ToolContext = {
-    ...opts.toolContext,
-    abortSignal: opts.abortSignal,
-  };
+  // Mutate the stable session ctx instead of spreading a fresh object: tools
+  // read `abortSignal` lazily (throwIfAborted / per-tool execute), so a new
+  // signal per turn is picked up, and keeping the same ctx identity lets
+  // buildTools' per-ctx WeakMap cache actually hit (no zod schema rebuilds).
+  opts.toolContext.abortSignal = opts.abortSignal;
 
   let stepsSeen = 0;
   // Three stop predicates (any trip ends the loop):
@@ -395,7 +399,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
     ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
     // Extension-contributed AI tools first, built-ins spread AFTER so an
     // extension can never shadow a built-in tool name (e.g. bash_run).
-    tools: { ...buildExtensionTools(), ...buildTools(toolContextWithAbort) },
+    tools: { ...buildExtensionTools(), ...buildTools(opts.toolContext) },
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.

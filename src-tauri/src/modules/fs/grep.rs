@@ -375,7 +375,7 @@ pub fn fs_grep_replace(
             continue;
         }
 
-        if let Err(e) = fs::write(path, &replaced) {
+        if let Err(e) = crate::modules::fs::atomic::atomic_write(path, replaced.as_bytes()) {
             return Err(format!("write {}: {e}", path.display()));
         }
 

@@ -98,13 +98,20 @@ impl DaemonState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             client_count: AtomicU64::new(0),
-            last_disconnect: Mutex::new(None),
+            // Seed with boot time (not None) so the idle watcher's
+            // `if let Some(t) = last` path measures idle-from-boot when a
+            // daemon is spawned but never connected to. `remove_client`
+            // keeps refreshing it on the last disconnect.
+            last_disconnect: Mutex::new(Some(std::time::Instant::now())),
             shutdown_requested: AtomicBool::new(false),
         }
     }
 
-    fn add_client(&self) {
-        self.client_count.fetch_add(1, Ordering::Release);
+    /// Reserve a client slot and return the post-increment count. Callers
+    /// enforce `MAX_CLIENTS` against this returned value and back the count
+    /// out via `client_count.fetch_sub` if they overshot the cap.
+    fn add_client(&self) -> u64 {
+        self.client_count.fetch_add(1, Ordering::AcqRel) + 1
     }
 
     fn remove_client(&self) {
@@ -288,7 +295,27 @@ async fn accept_loop(
     use interprocess::local_socket::traits::tokio::Listener as _;
     loop {
         if state.shutdown_requested.load(Ordering::Acquire) {
-            return Ok(());
+            // Idle-shutdown race guard: the idle watcher's wake connection
+            // (see `idle_watcher`) transiently bumps client_count, so let it
+            // drain, then re-verify nothing live exists. If a real client
+            // connected in the window between the watcher's last check and
+            // here, clear the flag and keep serving instead of killing it.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let clients = state.client_count.load(Ordering::Acquire);
+            let live_sessions = state
+                .sessions
+                .read()
+                .unwrap()
+                .values()
+                .any(|s| s.alive.load(Ordering::Acquire));
+            if clients == 0 && !live_sessions {
+                return Ok(());
+            }
+            log::info!(
+                "tedi-ptyd shutdown raced a live connection (clients={clients}, \
+                 live_sessions={live_sessions}); resuming"
+            );
+            state.shutdown_requested.store(false, Ordering::Release);
         }
         match listener.accept().await {
             Ok(stream) => {
@@ -325,7 +352,12 @@ async fn idle_watcher(state: Arc<DaemonState>, timeout: Duration) {
                 // Wake accept() by connecting once - the accept loop checks
                 // the flag on every iteration.
                 let _ = super::transport::connect_to_daemon();
-                return;
+                // Don't return: `accept_loop` may clear the flag if a client
+                // raced the shutdown (see its idle-shutdown race guard). Keep
+                // looping so the daemon can idle-shut-down again after that
+                // resumed client eventually disconnects. If the flag stays
+                // set the daemon is exiting and this task is torn down anyway.
+                continue;
             }
         }
     }
@@ -377,19 +409,26 @@ async fn handle_client(
     use interprocess::local_socket::traits::tokio::Stream as _;
     let client_id = Uuid::new_v4();
     // Connection cap: refuse past MAX_CLIENTS so a local peer can't spawn
-    // unbounded handler tasks each holding an inbound read buffer.
-    if state.client_count.load(Ordering::Acquire) >= MAX_CLIENTS {
+    // unbounded handler tasks each holding an inbound read buffer. Increment
+    // first, then validate the post-increment count, so two concurrent
+    // accepts can't both observe a stale under-cap value and both pass
+    // (TOCTOU). If we overshot, back the count out before rejecting.
+    let new_count = state.add_client();
+    if new_count > MAX_CLIENTS {
+        state.client_count.fetch_sub(1, Ordering::Release);
         log::warn!("daemon at connection cap ({MAX_CLIENTS}); refusing client {client_id}");
         return Ok(());
     }
-    state.add_client();
     log::info!("client connected id={client_id}");
 
     let (mut recv, mut send) = stream.split();
     let (tx, mut rx) = mpsc::channel::<DaemonMsg>(WRITER_QUEUE);
 
     // Writer task: only owner of `send`. All writes funnel through `tx`.
-    let writer_task = tokio::spawn(async move {
+    // `mut` so the teardown below can `&mut writer_task` it into a bounded
+    // `tokio::time::timeout` (a JoinHandle is a Future) without leaking the
+    // client_count slot when the writer wedges on a stalled socket write.
+    let mut writer_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             let body = match serde_json::to_vec(&msg) {
                 Ok(b) => b,
@@ -454,7 +493,18 @@ async fn handle_client(
     // Reader done — unsubscribe this client from every session it was on.
     unsubscribe_client(&state, client_id);
     drop(tx);
-    let _ = writer_task.await;
+    // Wait for the writer task to drain, but bound it: if the writer is
+    // wedged on a stalled socket write the await would never return and
+    // `remove_client` would never run, leaking the client_count slot
+    // forever. On timeout, abort the writer and proceed so client_count is
+    // always decremented exactly once on disconnect.
+    if tokio::time::timeout(Duration::from_secs(5), &mut writer_task)
+        .await
+        .is_err()
+    {
+        log::warn!("client {client_id} writer task did not drain in time; aborting");
+        writer_task.abort();
+    }
     state.remove_client();
     log::info!("client disconnected id={client_id}");
     Ok(())
@@ -644,9 +694,6 @@ fn open_session(
     // Reap old dead sessions, then enforce the live-session cap before
     // spawning another shell so an `Open` loop can't exhaust resources.
     reap_dead_sessions(state);
-    if state.sessions.read().unwrap().len() >= MAX_SESSIONS {
-        return Err(format!("session limit reached ({MAX_SESSIONS})"));
-    }
     let id = Uuid::new_v4();
     let info = SessionInfo {
         id,
@@ -664,15 +711,35 @@ fn open_session(
         subscribers: Mutex::new(vec![(client_id, client_tx)]),
         alive: AtomicBool::new(true),
     });
+    // Reserve-then-insert: re-check the live-session cap and insert the
+    // (pty-less) shell under the SAME write guard, so two concurrent Opens
+    // can't both observe an under-cap len and both spawn (TOCTOU). The pty
+    // OnceLock is filled below; nothing reads `pty()` before `open_session`
+    // returns the id via OpenOk, so the not-yet-filled window is unobservable
+    // to clients, and the sink never touches `pty`.
+    {
+        let mut sessions = state.sessions.write().unwrap();
+        if sessions.len() >= MAX_SESSIONS {
+            return Err(format!("session limit reached ({MAX_SESSIONS})"));
+        }
+        sessions.insert(id, shell.clone());
+    }
     let sink: Arc<dyn crate::modules::pty::session::PtyEventSink> = Arc::new(ServerSink {
         session: Arc::downgrade(&shell),
     });
-    let (pty, _size) = crate::modules::pty::session::spawn_with_sink(cols, rows, cwd, sink)?;
-    shell
-        .pty
-        .set(pty)
-        .map_err(|_| "pty slot already filled (impossible)".to_string())?;
-    state.sessions.write().unwrap().insert(id, shell);
+    let pty = match crate::modules::pty::session::spawn_with_sink(cols, rows, cwd, sink) {
+        Ok((pty, _size)) => pty,
+        Err(e) => {
+            // Back out the reservation so a failed spawn doesn't permanently
+            // consume a session slot.
+            state.sessions.write().unwrap().remove(&id);
+            return Err(e);
+        }
+    };
+    if shell.pty.set(pty).is_err() {
+        state.sessions.write().unwrap().remove(&id);
+        return Err("pty slot already filled (impossible)".to_string());
+    }
     log::info!("daemon opened session id={id} cols={cols} rows={rows}");
     Ok(id)
 }

@@ -129,6 +129,24 @@ if (opacityWin && !opacityWin.__tediCanvasOpacityBound) {
   });
 }
 
+/**
+ * True when `el` is laid out and the window is on-screen, i.e. a `fitAddon.fit()`
+ * would measure a real size. On Windows a minimized (or hidden) borderless window
+ * reports a ~0px container (the same event App.tsx guards for the sidebar); fitting
+ * to that collapses xterm to FitAddon's 2x1 floor and rewraps the whole scrollback,
+ * and the reflow back on restore is lossy - the cursor/text end up garbled. Skipping
+ * the fit while collapsed keeps the buffer untouched, so restore needs no repair.
+ * The `< 2` floor matches MIN_PTY_DIM; real panes are hundreds of px wide.
+ */
+function canFit(el: HTMLElement | null | undefined): boolean {
+  return (
+    !!el &&
+    document.visibilityState === "visible" &&
+    el.clientWidth >= MIN_PTY_DIM &&
+    el.clientHeight >= MIN_PTY_DIM
+  );
+}
+
 function ensureSession(
   leafId: number,
   initialCwd?: string,
@@ -341,9 +359,14 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   }
 
   // Fit before WebGL and PTY open so renderer and shell start at the right size.
-  s.fitAddon.fit();
-  s.lastW = container.clientWidth;
-  s.lastH = container.clientHeight;
+  // Guarded so an attach that lands while the window is minimized (0px container,
+  // e.g. workspace restore) doesn't fit to a degenerate size or cache 0 as the
+  // last good width - the ResizeObserver fits once the real size lands.
+  if (canFit(container)) {
+    s.fitAddon.fit();
+    s.lastW = container.clientWidth;
+    s.lastH = container.clientHeight;
+  }
 
   if (firstAttach && !s.webglAddon && s.webglEnabled && !wallpaperActive()) {
     try {
@@ -477,6 +500,12 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
       s.fitTimer = null;
       const w = container.clientWidth;
       const h = container.clientHeight;
+      // Skip the fit while the window is minimized/hidden or the container has
+      // collapsed to ~0px (Windows reports a 0px container on minimize). Fitting
+      // then reflows the scrollback to xterm's 2x1 floor and the rewrap back on
+      // restore is lossy -> garbled text. Return BEFORE caching lastW/lastH so the
+      // last good size survives and the post-restore tick re-fits (or no-ops).
+      if (document.visibilityState !== "visible" || w < MIN_PTY_DIM || h < MIN_PTY_DIM) return;
       if (w === s.lastW && h === s.lastH) return;
       s.lastW = w;
       s.lastH = h;
@@ -761,8 +790,10 @@ export function useTerminalSession({
         }
       }
     }
-    s.fitAddon.fit();
-    syncPtySize(s);
+    if (canFit(s.term.element?.parentElement)) {
+      s.fitAddon.fit();
+      syncPtySize(s);
+    }
   }, [leafId, fontSize]);
 
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);
@@ -793,10 +824,14 @@ export function useTerminalSession({
     if (!visible) return;
     const s = sessions.get(leafId);
     if (!s) return;
-    s.fitAddon.fit();
-    // Push PTY size across the visibility flip. ResizeObserver doesn't fire on
-    // hidden->visible since dimensions don't change, so we sync explicitly.
-    syncPtySize(s);
+    // Don't fit against a 0px container (window minimized) - it would reflow the
+    // buffer the same way the ResizeObserver path does. Focus still runs.
+    if (canFit(container.current)) {
+      s.fitAddon.fit();
+      // Push PTY size across the visibility flip. ResizeObserver doesn't fire on
+      // hidden->visible since dimensions don't change, so we sync explicitly.
+      syncPtySize(s);
+    }
     if (focused) s.term.focus();
   }, [leafId, visible, focused]);
 

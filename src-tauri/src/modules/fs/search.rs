@@ -197,7 +197,8 @@ fn score_fuzzy(haystack: &str, needle: &[char]) -> (i32, Vec<usize>) {
                 None => true,
                 Some(p) => {
                     matches!(p, '_' | '-' | '/' | '\\' | '.' | ' ')
-                        || (p.is_lowercase() && original[i].is_uppercase())
+                        || (p.is_lowercase()
+                            && original.get(i).map_or(false, |o| o.is_uppercase()))
                 }
             };
             if is_boundary {

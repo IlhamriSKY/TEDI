@@ -878,6 +878,12 @@ pub async fn preview_embed_close(app: tauri::AppHandle, tab_id: i64) -> Result<(
     if let Ok(mut closed) = closed_embeds().lock() {
         closed.insert(tab_id);
     }
+    // Drop this pane's cached bounds so the screenshot bounds map only tracks
+    // live preview panes.
+    #[cfg(not(target_os = "windows"))]
+    if let Ok(mut b) = last_bounds().lock() {
+        b.remove(&tab_id);
+    }
     if let Some(wv) = app.get_webview(&label) {
         let _ = wv.hide();
         let _ = wv.close();

@@ -151,13 +151,17 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const fetchChildrenRef = useRef(fetchChildren);
   fetchChildrenRef.current = fetchChildren;
 
-  /** Silently re-reads every loaded directory. Only changed rows repaint. */
+  /** Silently re-reads only the currently-visible directories (root plus every
+   *  expanded path). Collapsed dirs stay cached but aren't re-fetched, so the
+   *  background IO doesn't grow with every directory ever opened this session.
+   *  Only changed rows repaint. */
   const refreshAllLoaded = useCallback(() => {
-    const dirs = Object.keys(rawNodes);
+    if (!rootPath) return;
+    const dirs = new Set<string>([rootPath, ...expanded]);
     for (const p of dirs) {
       void fetchChildrenRef.current(p, { silent: true });
     }
-  }, [rawNodes]);
+  }, [rootPath, expanded]);
 
   const refreshAllLoadedRef = useRef(refreshAllLoaded);
   refreshAllLoadedRef.current = refreshAllLoaded;
@@ -186,10 +190,20 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath]);
 
+  // Tracks the last `rootPath` this effect saw, so an includeHidden flip can be
+  // told apart from a root change.
+  const prevRootForHiddenRef = useRef(rootPath);
+
   // `includeHidden` flip: re-fetch every loaded directory in place; expansion
   // state stays.
   useEffect(() => {
+    const rootChanged = prevRootForHiddenRef.current !== rootPath;
+    prevRootForHiddenRef.current = rootPath;
     if (!rootPath) return;
+    // Skip on a root change: the root-change effect already reset and fetched
+    // the new root, and the stale `rawNodes` closure here still holds the
+    // previous root's directories. Only refetch when includeHidden flipped.
+    if (rootChanged) return;
     const loaded = Object.keys(rawNodes);
     for (const p of loaded) {
       void fetchChildren(p);

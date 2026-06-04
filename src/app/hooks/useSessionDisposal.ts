@@ -1,4 +1,5 @@
 import { type EditorPaneHandle } from "@/modules/editor";
+import { previewEmbedClose } from "@/modules/preview";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -41,13 +42,16 @@ export function useSessionDisposal({
   setAiCliStatuses,
 }: Params): void {
   const liveLeavesRef = useRef<Set<number>>(new Set());
+  const livePreviewRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const liveTerm = new Set<number>();
     const liveEditor = new Set<number>();
+    const livePreview = new Set<number>();
     const collect = (t: Tab) => {
       if (t.kind !== "pane") return;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind === "terminal") liveTerm.add(l.id);
+        else if (l.leafKind === "preview") livePreview.add(l.id);
         else liveEditor.add(l.id);
       }
     };
@@ -59,6 +63,14 @@ export function useSessionDisposal({
       if (!liveTerm.has(id)) disposeSession(id);
     }
     liveLeavesRef.current = liveTerm;
+    // Close a preview's native webview only when its leaf is gone from ALL
+    // workspaces (truly closed), mirroring terminal session disposal. Keying off
+    // the cross-workspace union avoids destroying a preview just because its
+    // workspace became inactive (which would then blank on return).
+    for (const id of livePreviewRef.current) {
+      if (!livePreview.has(id)) void previewEmbedClose(id).catch(() => {});
+    }
+    livePreviewRef.current = livePreview;
     for (const k of [...terminalRefs.current.keys()])
       if (!liveTerm.has(k)) terminalRefs.current.delete(k);
     for (const k of [...searchAddons.current.keys()])

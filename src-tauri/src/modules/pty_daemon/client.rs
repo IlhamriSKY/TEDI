@@ -46,6 +46,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// daemon to bind its socket.
 const SPAWN_WAIT_TOTAL: Duration = Duration::from_secs(5);
 
+/// Upper bound on the initial Hello/Welcome handshake. A daemon that accepts
+/// the socket but never replies must not hang the calling Tauri command; on
+/// timeout the caller falls back to the in-process backend.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct PtyClient {
     state: Arc<ClientState>,
 }
@@ -91,6 +96,51 @@ impl PtyClient {
     }
 
     fn from_stream(stream: interprocess::local_socket::Stream) -> Result<Self, String> {
+        // Handshake BEFORE spawning the reader thread, on a short-lived
+        // helper thread bounded by `HANDSHAKE_TIMEOUT`. Doing the round-trip
+        // before the reader exists means a rejected version (an older daemon
+        // still running during an upgrade) drops `stream` - closing the
+        // socket - with no reader thread left stranded blocked in
+        // `read_exact` forever (which would leak an OS thread + socket FD and
+        // pin the daemon's client_count so it never idle-shuts-down). The
+        // helper thread bounds the wait so a daemon that accepts the socket
+        // but never replies cannot hang the calling Tauri command; on timeout
+        // we return Err and the caller falls back to the in-process backend.
+        //
+        // `&Stream` impls both `Read` and `Write` (interior mutability over
+        // the OS handle), so the helper drives the round-trip on the raw
+        // stream and hands it back on success.
+        let (hs_tx, hs_rx) =
+            std::sync::mpsc::channel::<Result<interprocess::local_socket::Stream, String>>();
+        thread::Builder::new()
+            .name("tedi-ptyd-handshake".into())
+            .spawn(move || {
+                let res = (|| {
+                    transport::write_msg(
+                        &mut (&stream),
+                        &ClientMsg::Hello {
+                            req_id: 0,
+                            version: PROTOCOL_VERSION,
+                        },
+                    )
+                    .map_err(|e| format!("daemon write: {e}"))?;
+                    match transport::read_msg::<_, DaemonMsg>(&mut (&stream))
+                        .map_err(|e| format!("daemon read: {e}"))?
+                    {
+                        DaemonMsg::Welcome { .. } => Ok(stream),
+                        DaemonMsg::Err { message, .. } => Err(format!("hello rejected: {message}")),
+                        other => Err(format!("unexpected handshake response: {other:?}")),
+                    }
+                })();
+                let _ = hs_tx.send(res);
+            })
+            .map_err(|e| format!("spawn handshake thread: {e}"))?;
+        let stream = match hs_rx.recv_timeout(HANDSHAKE_TIMEOUT) {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err("daemon handshake timed out".to_string()),
+        };
+
         let state = Arc::new(ClientState {
             stream: Arc::new(stream),
             pending: Mutex::new(HashMap::new()),
@@ -100,16 +150,14 @@ impl PtyClient {
             alive: AtomicBool::new(true),
         });
         // Reader thread fulfills pending requests + routes push events.
+        // Spawned only after a successful Welcome so a failed handshake can
+        // never leave a thread blocked on the socket.
         let reader_state = state.clone();
         thread::Builder::new()
             .name("tedi-ptyd-client-reader".into())
             .spawn(move || reader_loop(reader_state))
             .map_err(|e| format!("spawn client reader: {e}"))?;
-        let client = Self { state };
-        // Handshake before returning so a version mismatch surfaces here
-        // rather than at the first session-open call.
-        client.hello()?;
-        Ok(client)
+        Ok(Self { state })
     }
 
     fn next_req_id(&self) -> ReqId {
@@ -142,21 +190,6 @@ impl PtyClient {
                 self.state.pending.lock().unwrap().remove(&req_id);
                 Err("daemon request timed out".into())
             }
-        }
-    }
-
-    fn hello(&self) -> Result<(), String> {
-        let req_id = self.next_req_id();
-        match self.send_request(
-            req_id,
-            &ClientMsg::Hello {
-                req_id,
-                version: PROTOCOL_VERSION,
-            },
-        )? {
-            DaemonMsg::Welcome { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(format!("hello rejected: {message}")),
-            other => Err(format!("unexpected handshake response: {other:?}")),
         }
     }
 

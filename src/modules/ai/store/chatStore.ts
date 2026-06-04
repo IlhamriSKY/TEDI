@@ -327,6 +327,11 @@ function hibernateOldestChat(): void {
       // getOrCreateChat re-hydrates correctly. Disk could be stale if the
       // debounced persist hasn't fired.
       seedMessages.set(oldest, victim.messages);
+      // Durably persist before eviction. A turn that streamed in this
+      // background session may never have been queued (only the active
+      // session is mirrored by AgentRunBridge), so flushPersistEntry would
+      // no-op and the messages would be lost on restart. Write directly.
+      void saveMessages(oldest, victim.messages);
     }
     flushPersistEntry(oldest);
     chats.delete(oldest);
@@ -527,6 +532,15 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     transport,
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    onFinish: ({ messages }) => {
+      // Queue the completed turn for disk regardless of which session is
+      // active. AgentRunBridge only mirrors the ACTIVE session, so a turn
+      // that finished in the background would otherwise never be persisted
+      // and would be lost on eviction/restart. persistMessages is debounced,
+      // so when this session is active the active-session bridge path just
+      // shares the same debounce entry (no duplicate write).
+      useChatStore.getState().persistMessages(sessionId, messages);
+    },
     onError: (e) => {
       // Only reflect the error on the global meta if this is the active
       // session; a background session's error surfaces via AgentRunBridge when

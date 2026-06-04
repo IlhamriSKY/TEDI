@@ -177,15 +177,16 @@ export function ensureFsDragListener(): void {
     "mouseup",
     (e: MouseEvent) => {
       if (!drag) return;
-      // Only the left-button release commits or cancels a drag. A
-      // right-click during an in-progress drag still fires mouseup
-      // (with `button === 2`) - without this filter that mid-gesture
-      // release would mis-trigger a drop and lose the user's drag.
-      if (e.button !== 0) return;
       const wasActive = drag.active;
       const path = drag.path;
       const targetLeaf = drag.currentTarget;
+      // Any button release ends the gesture and clears `tedi-fs-dragging` FIRST,
+      // so the body class (which forces cursor:copy + user-select:none app-wide)
+      // can never get stuck if the terminating release isn't the left button
+      // (chorded click, or a WebView2 quirk). Only a left-button release over a
+      // terminal commits a drop; a right-click mid-drag still just cancels.
       reset();
+      if (e.button !== 0) return;
       // Below the activation threshold → treat as a click; let onClick
       // on the source row run normally (we never preventDefault on
       // mousedown, so the click event still fires).
@@ -213,10 +214,17 @@ export function ensureFsDragListener(): void {
     true,
   );
 
-  // Cancel if the page loses focus mid-drag (alt-tab, etc.) so the
-  // body class doesn't get stuck.
-  window.addEventListener("blur", () => {
+  // Cancel if the gesture is interrupted - focus loss / alt-tab (blur), a
+  // cancelled pointer, or the window being hidden/minimized - so the body class
+  // never gets stuck. (HTML5 `dragend` is intentionally not used: Tauri's
+  // dragDropEnabled intercept consumes drag events, so it would never fire.)
+  const hardReset = () => {
     if (drag) reset();
+  };
+  window.addEventListener("blur", hardReset);
+  document.addEventListener("pointercancel", hardReset, true);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) hardReset();
   });
 }
 

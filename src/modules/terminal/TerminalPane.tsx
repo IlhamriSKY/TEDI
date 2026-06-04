@@ -104,12 +104,19 @@ export function TerminalPane({
     onPtyId: (ptyId) => onPtyId?.(leafId, ptyId),
   });
 
+  // `useTerminalSession` returns a fresh object literal every render, so
+  // keeping `session` in the theme effect's deps would rebuild the theme on
+  // every render. Hold the latest session in a ref and read it lazily inside
+  // the rAF so the effect can depend only on the real theme inputs.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
   useEffect(() => {
     // Defer one frame so CSS variable tokens see the new class / new
     // `--tedi-canvas-*` values written by `applyCustomTheme`.
-    const id = requestAnimationFrame(() => session.applyTheme());
+    const id = requestAnimationFrame(() => sessionRef.current.applyTheme());
     return () => cancelAnimationFrame(id);
-  }, [resolvedTheme, session, customTheme, customThemeEnabled]);
+  }, [resolvedTheme, customTheme, customThemeEnabled]);
 
   useImperativeHandle(
     ref,

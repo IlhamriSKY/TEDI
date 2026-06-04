@@ -6,7 +6,15 @@ import { Streamdown } from "streamdown";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { markdownComponents } from "@/components/ai-elements/markdown-code";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
@@ -159,6 +167,10 @@ export function EditorPane({
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const outerRef = useRef<HTMLDivElement>(null);
   const findReplaceRef = useRef<EditorFindReplaceHandle>(null);
+  // Stable identity so EditorFindReplace's effect (which lists getView in its
+  // deps) doesn't re-run on every scroll/selection while the find bar is open.
+  // cmRef is itself stable, so the closure never needs to change.
+  const getView = useCallback(() => cmRef.current?.view ?? null, []);
   const [markerState, setMarkerState] = useState<{
     barTop: number;
     barHeight: number;
@@ -262,7 +274,11 @@ export function EditorPane({
       try {
         const current = view.state.doc.toString();
         const formatted = await formatDocument({ path: pathRef.current, content: current });
-        if (formatted !== current) {
+        // The user may have typed (or the view remounted) during the await.
+        // Applying a stale format result would silently clobber those edits,
+        // so bail and fall through to a plain save of the current buffer.
+        const live = cmRef.current?.view;
+        if (live === view && live.state.doc.toString() === current && formatted !== current) {
           applyFormattedToView(formatted);
           await saveRef.current(formatted);
           onSavedRef.current?.();
@@ -346,7 +362,12 @@ export function EditorPane({
                   path: pathRef.current,
                   content: current,
                 });
-                applyFormattedToView(formatted);
+                // Skip if the user typed (or the view remounted) during the
+                // await, so a stale result never clobbers fresh edits.
+                const live = cmRef.current?.view;
+                if (live === view && live.state.doc.toString() === current) {
+                  applyFormattedToView(formatted);
+                }
               } catch (err) {
                 toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
               }
@@ -491,7 +512,12 @@ export function EditorPane({
         try {
           const current = view.state.doc.toString();
           const formatted = await formatDocument({ path: pathRef.current, content: current });
-          applyFormattedToView(formatted);
+          // Skip if the user typed (or the view remounted) during the await,
+          // so a stale result never clobbers fresh edits.
+          const live = cmRef.current?.view;
+          if (live === view && live.state.doc.toString() === current) {
+            applyFormattedToView(formatted);
+          }
         } catch (err) {
           toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
         }
@@ -582,7 +608,7 @@ export function EditorPane({
             searchKeymap: false,
           }}
         />
-        <EditorFindReplace ref={findReplaceRef} getView={() => cmRef.current?.view ?? null} />
+        <EditorFindReplace ref={findReplaceRef} getView={getView} />
       </div>
       {/* Scrollbar marker overlay: paints caret + selection over the native
           scrollbar. Outside CodeMirror's ViewPlugin lifecycle; refreshed by

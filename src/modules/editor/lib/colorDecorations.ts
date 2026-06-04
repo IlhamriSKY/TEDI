@@ -1,4 +1,4 @@
-import { type Extension, RangeSetBuilder, StateField } from "@codemirror/state";
+import { type Extension, RangeSetBuilder, StateField, type Text } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -52,28 +52,33 @@ const MAX_LINES_FOR_GUTTER = 5000;
 
 export type LineColorMap = Record<number, string>;
 
+function scanLineColors(doc: Text): LineColorMap {
+  const next: LineColorMap = {};
+  const lineCount = Math.min(doc.lines, MAX_LINES_FOR_GUTTER);
+  for (let i = 1; i <= lineCount; i++) {
+    const line = doc.line(i);
+    COLOR_RE.lastIndex = 0;
+    const m = COLOR_RE.exec(line.text);
+    if (!m) continue;
+    const parsed = parseColor(m[0]);
+    if (parsed) next[i] = parsed.css;
+  }
+  return next;
+}
+
 /**
  * Tracks the first color literal per line. Drives the minimap gutter so
  * colored regions stay visible outside the editor viewport.
  */
 export const colorLinesField = StateField.define<LineColorMap>({
-  create() {
-    return {};
+  // Scan once at init so a file that opens with colors is gutter-colored
+  // without needing a doc change. After that we only recompute on real edits.
+  create(state) {
+    return scanLineColors(state.doc);
   },
   update(value, tr) {
-    if (!tr.docChanged && Object.keys(value).length > 0) return value;
-    const doc = tr.state.doc;
-    const next: LineColorMap = {};
-    const lineCount = Math.min(doc.lines, MAX_LINES_FOR_GUTTER);
-    for (let i = 1; i <= lineCount; i++) {
-      const line = doc.line(i);
-      COLOR_RE.lastIndex = 0;
-      const m = COLOR_RE.exec(line.text);
-      if (!m) continue;
-      const parsed = parseColor(m[0]);
-      if (parsed) next[i] = parsed.css;
-    }
-    return next;
+    if (!tr.docChanged) return value;
+    return scanLineColors(tr.state.doc);
   },
 });
 

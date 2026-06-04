@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 use shared_child::SharedChild;
@@ -33,6 +33,14 @@ pub struct BackgroundProc {
     pub exited: AtomicBool,
     pub exit_code: AtomicI32,
     pub exit_unknown: AtomicBool,
+    // Bounds the reader threads on Unix where there is no Job Object to close
+    // the pipe: the wait-thread sets it after the child is reaped + a grace
+    // window, so the readers exit on their next read return rather than leaking
+    // the thread + FD + ring buffer when a backgrounded grandchild holds the
+    // stdout/stderr pipe open. A fully silent held pipe still parks the reader
+    // until its next read return; orphan grandchildren are NOT force-killed in
+    // this build (no `libc`/`nix` dep for `kill(-pgid)`).
+    stop_readers: AtomicBool,
     // Windows: kill-on-close Job Object catches descendants when TEDI dies.
     // Without it a pwsh-wrapped `npm run dev` leaks its node grandchild.
     #[cfg(windows)]
@@ -77,7 +85,14 @@ impl BackgroundProc {
     }
 
     pub fn kill(&self) {
+        // Unix: `SharedChild::kill` only kills the direct child (the shell or
+        // binary), not a backgrounded grandchild that inherited the pipe. There
+        // is no `libc`/`nix` dep here to `kill(-pgid)` the whole group, so we
+        // also signal the reader threads to stop draining; otherwise a surviving
+        // grandchild holding the pipe would leak them. Windows force-kills the
+        // tree via the kill-on-close Job Object, so this is a no-op cost there.
         let _ = self.child.kill();
+        self.stop_readers.store(true, Ordering::Release);
     }
 
     pub fn info(&self, handle: u32) -> BackgroundProcInfo {
@@ -168,6 +183,17 @@ fn track_spawned(
         .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
+    // Unix: put the child in its own process group (it becomes the group
+    // leader) so a future group-kill could reach a backgrounded grandchild.
+    // We do NOT force-kill the group: neither `libc` nor `nix` is a dependency,
+    // so there is no std-only `kill(-pgid)`. The bounded reader threads
+    // (see `stop_readers`) are the portable mitigation; orphan grandchildren
+    // holding the pipe are NOT force-killed here (Windows uses the Job below).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     let shared = SharedChild::spawn(cmd).map_err(|e| e.to_string())?;
     let stdout_pipe = shared.take_stdout().ok_or("no stdout pipe")?;
@@ -201,6 +227,7 @@ fn track_spawned(
         exited: AtomicBool::new(false),
         exit_code: AtomicI32::new(0),
         exit_unknown: AtomicBool::new(false),
+        stop_readers: AtomicBool::new(false),
         #[cfg(windows)]
         _job: job,
     });
@@ -211,6 +238,12 @@ fn track_spawned(
         thread::spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
+                // Bounded exit: stop reading once `kill`/the wait-thread signals
+                // (child reaped + grace) so a grandchild holding the pipe can't
+                // leak this thread + FD. Checked between reads.
+                if proc_ref.stop_readers.load(Ordering::Acquire) {
+                    break;
+                }
                 match pipe.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => proc_ref.buffer.lock_or_recover().push(&buf[..n]),
@@ -225,6 +258,9 @@ fn track_spawned(
         thread::spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
+                if proc_ref.stop_readers.load(Ordering::Acquire) {
+                    break;
+                }
                 match pipe.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => proc_ref.buffer.lock_or_recover().push(&buf[..n]),
@@ -245,6 +281,14 @@ fn track_spawned(
                 Err(_) => proc_ref.exit_unknown.store(true, Ordering::Release),
             }
             proc_ref.exited.store(true, Ordering::Release);
+            // The direct child is reaped; on Unix a backgrounded grandchild may
+            // still hold the pipe, so the readers above would block forever on
+            // `read`. After a grace window, signal them to stop draining so the
+            // threads + FDs + ring buffer are released. The reader exits on its
+            // next read return (Windows: the Job already closed the pipe).
+            const READER_GRACE: Duration = Duration::from_secs(2);
+            thread::sleep(READER_GRACE);
+            proc_ref.stop_readers.store(true, Ordering::Release);
         });
     }
 

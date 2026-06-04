@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { experimental_transcribe as transcribe } from "ai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChatStore } from "../store/chatStore";
 
 const MIME_CANDIDATES = [
@@ -36,6 +36,13 @@ export function useWhisperRecording({ onResult }: { onResult: (text: string) => 
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Keep the latest onResult in a ref so start can read it without listing
+  // onResult as a dep, which keeps start's identity stable.
+  const onResultRef = useRef(onResult);
+  useEffect(() => {
+    onResultRef.current = onResult;
+  });
 
   const supported =
     typeof navigator !== "undefined" &&
@@ -76,7 +83,7 @@ export function useWhisperRecording({ onResult }: { onResult: (text: string) => 
         setState("transcribing");
         try {
           const text = await transcribeBlob(blob, apiKey);
-          if (text.trim()) onResult(text.trim());
+          if (text.trim()) onResultRef.current(text.trim());
         } catch (e) {
           console.error("whisper.transcribe", e);
         } finally {
@@ -91,7 +98,7 @@ export function useWhisperRecording({ onResult }: { onResult: (text: string) => 
       teardownStream();
       setState("idle");
     }
-  }, [apiKey, onResult, state, supported]);
+  }, [apiKey, state, supported]);
 
   useEffect(() => {
     return () => {
@@ -102,13 +109,17 @@ export function useWhisperRecording({ onResult }: { onResult: (text: string) => 
     };
   }, []);
 
-  return {
-    state,
-    recording: state === "recording",
-    transcribing: state === "transcribing",
-    start,
-    stop,
-    supported,
-    hasKey: !!apiKey,
-  };
+  const hasKey = !!apiKey;
+  return useMemo(
+    () => ({
+      state,
+      recording: state === "recording",
+      transcribing: state === "transcribing",
+      start,
+      stop,
+      supported,
+      hasKey,
+    }),
+    [state, start, stop, supported, hasKey],
+  );
 }
