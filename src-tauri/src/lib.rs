@@ -326,6 +326,14 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     configure_linux_rendering();
 
+    // Windows: apply the embedded-browser WebView2 flags at the process
+    // environment level BEFORE any webview is created, so the main window and
+    // every preview child are built with the SAME additional args. A per-child
+    // override (different from the main webview's) renders the child BLANK on
+    // Windows - tauri-apps/tauri#13092.
+    #[cfg(target_os = "windows")]
+    preview::apply_webview2_browser_args_env();
+
     let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
 
     // Second-invocation forwarding: when `tedi <path>` runs while an instance

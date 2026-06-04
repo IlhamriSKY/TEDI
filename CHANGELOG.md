@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.23] - 04-06-2026
+
+### Fixed
+
+- **The browser / preview pane no longer renders blank on Windows.** The embedded browser webview passed its own WebView2 `additionalBrowserArgs`, different from the main window's; on Windows an additional webview whose browser args differ from the main webview's renders permanently blank ([tauri-apps/tauri#13092](https://github.com/tauri-apps/tauri/issues/13092)) - the pane chrome (address bar) showed but the page never appeared. The flags that keep a preview processing while TEDI is minimized are now applied process-wide through the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` environment variable, so the main window and every embedded preview share identical args and the page renders ([`embed.rs`](src-tauri/src/modules/preview/embed.rs), [`lib.rs`](src-tauri/src/lib.rs)).
+
 ## [0.3.22] - 04-06-2026
 
 Hardening pass: fixed potential bugs, crashes, and memory/resource leaks surfaced by a full-codebase audit (frontend + Rust backend). No intended behavior changes on the happy path; all static checks pass (`tsc`, `cargo check --all-targets`, `clippy`, import lint).

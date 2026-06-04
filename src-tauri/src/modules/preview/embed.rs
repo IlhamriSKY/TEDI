@@ -171,6 +171,25 @@ const TRANSPARENT_BODY_SCRIPT: &str = r#"
 #[cfg(target_os = "windows")]
 const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --autoplay-policy=no-user-gesture-required";
 
+/// Apply [`EMBED_BROWSER_ARGS`] at the WebView2 ENVIRONMENT level - the process-wide
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` env var the WebView2 loader reads when it
+/// creates each environment - so EVERY webview (the main TEDI window AND every
+/// embedded preview child) is created with the SAME additional args.
+///
+/// Setting these flags on ONLY the child via per-webview `additional_browser_args`
+/// made the child's args differ from the main webview's and rendered the child
+/// permanently BLANK on Windows (tauri-apps/tauri#13092). Pushing them to the shared
+/// environment keeps the occlusion / background-throttling flags (so a minimized
+/// preview keeps processing CDP clicks + rendering) without that mismatch.
+///
+/// Must run once at startup, before the first webview is created.
+#[cfg(target_os = "windows")]
+pub fn apply_webview2_browser_args_env() {
+    // Edition 2021: `set_var` is safe. Called on the main thread at startup before
+    // any webview (or other thread) exists.
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", EMBED_BROWSER_ARGS);
+}
+
 /// Create (first visible call) or reposition/show the embedded browser webview
 /// for a preview tab. `x/y/width/height` are physical pixels measured by the
 /// frontend. A hidden or zero-area request just hides any existing webview.
@@ -264,13 +283,12 @@ pub async fn preview_embed_update(
                 },
             );
         });
-    // WebView2 flags that keep this pane processing CDP clicks (and timers /
-    // rendering) while TEDI is minimized or occluded. Windows-only; the method
-    // is a no-op on the other platforms' webviews.
-    #[cfg(target_os = "windows")]
-    {
-        builder = builder.additional_browser_args(EMBED_BROWSER_ARGS);
-    }
+    // NOTE: the occlusion / background-throttling flags that keep this pane
+    // processing while TEDI is minimized are applied PROCESS-WIDE via the
+    // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS env var (see
+    // `apply_webview2_browser_args_env`, called at startup) - deliberately NOT as a
+    // per-child `additional_browser_args` here: args that differ from the main
+    // webview's render the child BLANK on Windows (tauri-apps/tauri#13092).
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
     // toggling the setting applies to newly opened browser panes. The webview
