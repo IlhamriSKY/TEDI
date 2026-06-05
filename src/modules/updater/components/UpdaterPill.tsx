@@ -15,29 +15,16 @@ export function UpdaterPill() {
     if (updater.forceOpenSeq > 0) setOpen(true);
   }, [updater.forceOpenSeq]);
 
-  // Errors previously hid the pill, hiding the GitHub-unreachable case.
-  // Now surface them so the user sees why.
+  // Surface the pill for the error state too, so an explicit check that fails
+  // (`tedi --update`, the trigger event, the dialog's Retry) tells the user why.
+  // Background sweeps that fail no longer reach `error` (see useUpdater's silent
+  // flag), so an unreachable GitHub at launch never lights up the red pill.
   const visible =
     updater.state.kind === "available" ||
     updater.state.kind === "manual-available" ||
     updater.state.kind === "downloading" ||
     updater.state.kind === "ready" ||
     updater.state.kind === "error";
-
-  // Render only the dialog (no pill) for transient states so `tedi --update`
-  // can pop a status panel without leaving a permanent status-bar button.
-  if (!visible) {
-    return (
-      <UpdaterDialog
-        open={open}
-        onOpenChange={setOpen}
-        state={updater.state}
-        onInstall={() => void updater.downloadAndInstall()}
-        onRelaunch={() => void updater.relaunchApp()}
-        onRetry={() => void updater.checkForUpdate()}
-      />
-    );
-  }
 
   const label =
     updater.state.kind === "ready"
@@ -73,19 +60,29 @@ export function UpdaterPill() {
             `Updating ${formatProgress(updater.state.received, updater.state.total)}`
           : "Update";
 
+  // The dialog must keep a single, stable position in the tree. Rendering it
+  // from two different return branches (pill vs. no-pill) made the modal
+  // unmount + remount whenever the updater state flipped visibility - e.g.
+  // Retry drives error → checking → error - and the remount race left Radix's
+  // scroll-lock with `pointer-events: none` stuck on the body, so the modal
+  // could no longer be clicked or closed. Toggle only the pill button; the
+  // dialog stays mounted in place for every state (incl. `tedi --update`,
+  // which pops it without a pill).
   return (
     <>
-      <IconTooltip label={label} side="top">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label={label}
-          className={`inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
-        >
-          <HugeiconsIcon icon={Icon} size={11} strokeWidth={1.75} className="shrink-0" />
-          <span className="truncate">{pillLabel}</span>
-        </button>
-      </IconTooltip>
+      {visible && (
+        <IconTooltip label={label} side="top">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label={label}
+            className={`inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
+          >
+            <HugeiconsIcon icon={Icon} size={11} strokeWidth={1.75} className="shrink-0" />
+            <span className="truncate">{pillLabel}</span>
+          </button>
+        </IconTooltip>
+      )}
       <UpdaterDialog
         open={open}
         onOpenChange={setOpen}

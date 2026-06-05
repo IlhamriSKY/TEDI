@@ -103,8 +103,19 @@ export function useUpdater() {
     setState({ kind: "idle" });
   }, []);
 
-  const checkForUpdate = useCallback(async (): Promise<boolean> => {
-    setState({ kind: "checking" });
+  // `silent` checks are the unattended background sweeps (first-run + 6h
+  // interval). When GitHub is unreachable (offline at launch, proxy, DNS) they
+  // must NOT light up the red "Update check failed" pill - a failed reachability
+  // probe is not news the user asked for. Only explicit checks (`tedi --update`,
+  // the trigger event, the dialog's Retry button) surface the error.
+  //
+  // Silent sweeps also stay invisible mid-flight: they skip the "checking"
+  // panel and, on failure, leave the current state untouched. So an error the
+  // user explicitly surfaced neither self-erases nor flips to a false "up to
+  // date" on a still-failing retry; only a definitive success commits state.
+  const checkForUpdate = useCallback(async (opts?: { silent?: boolean }): Promise<boolean> => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setState({ kind: "checking" });
     try {
       if (IS_LINUX) {
         const info = await fetchLinuxRelease();
@@ -137,6 +148,9 @@ export function useUpdater() {
       });
       return true;
     } catch (e) {
+      // Silent sweep failed: leave whatever is showing as-is (idle stays idle,
+      // an explicitly-surfaced error stays put) instead of clobbering it.
+      if (silent) return false;
       setState({ kind: "error", message: stringifyError(e) });
       return false;
     }
@@ -192,7 +206,7 @@ export function useUpdater() {
   useEffect(() => {
     const first = window.setTimeout(() => {
       if (stateKindRef.current === "idle") {
-        void checkForUpdate();
+        void checkForUpdate({ silent: true });
       }
     }, 8_000);
     return () => window.clearTimeout(first);
@@ -226,7 +240,7 @@ export function useUpdater() {
     const interval = window.setInterval(() => {
       const k = stateKindRef.current;
       if (k === "idle" || k === "error") {
-        void checkForUpdate();
+        void checkForUpdate({ silent: true });
       }
     }, CHECK_INTERVAL_MS);
     return () => window.clearInterval(interval);

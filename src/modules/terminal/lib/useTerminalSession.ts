@@ -219,6 +219,7 @@ function ensureSession(
     aiCliDetector: null,
     aiCliStatus: null,
     placeholderShown: false,
+    imeJustEnded: false,
   };
   sessions.set(leafId, session);
 
@@ -293,8 +294,20 @@ function ensureSession(
   // closure over `session` isn't retained between dispose and GC - matches
   // the prompt/cwd/osc handlers pushed below.
   const onDataDisposable = term.onData((data) => {
-    session.aiCliDetector?.pushInput(data);
-    session.pty?.write(data);
+    // IME composition output (Vietnamese, CJK, …) can arrive decomposed (NFD:
+    // base letter + a separate combining mark). xterm renders a multi-codepoint
+    // cell through the WebGL "combined glyph" path (canvas fillText + bounding-
+    // box scan, with no DOM fallback), which can drop or mis-stack the mark.
+    // Normalizing to NFC collapses it onto the robust single-glyph path. The
+    // `compositionend` listener in `attachSession` opens `imeJustEnded` for one
+    // macrotask, which is exactly when xterm flushes the composed text (it emits
+    // it from its own `setTimeout(0)`), so every chunk of that composition is
+    // normalized. Pasted text and ordinary keystrokes never fire `compositionend`
+    // - and can't interleave into that macrotask - so they reach the shell
+    // byte-for-byte unchanged (incl. macOS NFD filenames pasted from Finder).
+    const out = session.imeJustEnded ? data.normalize("NFC") : data;
+    session.aiCliDetector?.pushInput(out);
+    session.pty?.write(out);
   });
   session.cleanups.push(() => onDataDisposable.dispose());
 
@@ -354,6 +367,24 @@ function attachSession(leafId: number, container: HTMLDivElement, callbacks: Cal
   const firstAttach = !s.term.element;
   if (firstAttach) {
     s.term.open(container);
+    // `term.textarea` exists only after `open()`. Open an NFC window for IME
+    // output (see the `onData` handler). xterm flushes the composed text from
+    // its own `setTimeout(0)` after `compositionend`, so a single `setTimeout(0)`
+    // backstop - the sole clearer - keeps the window open for exactly that one
+    // macrotask: every chunk of the composition is normalized, while a later
+    // real keystroke (a separate task) can't be caught. The guard avoids
+    // mutating a session disposed within that macrotask.
+    const textarea = s.term.textarea;
+    if (textarea) {
+      const onCompositionEnd = () => {
+        s.imeJustEnded = true;
+        setTimeout(() => {
+          if (!s.disposed) s.imeJustEnded = false;
+        }, 0);
+      };
+      textarea.addEventListener("compositionend", onCompositionEnd);
+      s.cleanups.push(() => textarea.removeEventListener("compositionend", onCompositionEnd));
+    }
   } else if (s.term.element && s.term.element.parentNode !== container) {
     container.appendChild(s.term.element);
   }

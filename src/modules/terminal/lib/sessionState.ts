@@ -100,6 +100,16 @@ export type Session = {
   aiCliDetector: AiCliDetector | null;
   /** Latest emitted AI CLI status. Replayed on re-attach. */
   aiCliStatus: AiCliStatus;
+  /**
+   * Open for the one macrotask that follows an IME `compositionend` - the
+   * window in which xterm flushes the composed text. While open, `onData`
+   * NFC-normalizes the composed input (CJK, Vietnamese, etc.) before it reaches
+   * the PTY; pasted/typed input - which never fires `compositionend` - is left
+   * byte-for-byte intact (incl. macOS NFD filenames). Opened by the
+   * `compositionend` listener and closed by its `setTimeout(0)` backstop in
+   * `useTerminalSession.ts`.
+   */
+  imeJustEnded: boolean;
 };
 
 export const sessions = new Map<number, Session>();

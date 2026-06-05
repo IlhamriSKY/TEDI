@@ -1,6 +1,7 @@
 import { IPC_EVENTS } from "@/lib/ipc";
 import { activeLeaf, type PaneTab, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
+import { useWorkspacesStore } from "@/modules/workspaces";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
@@ -112,14 +113,25 @@ export function useWorkspaceRoot({ tabs, activePaneTab, newTab, openFileTab }: P
 
   // Drain the captured startup target once. Rust clears its slot on read,
   // so a webview reload won't replay it.
+  //
+  // Gate on workspace hydration: `useWorkspacePersistence` restores the saved
+  // workspace by calling `replaceAllTabs` once `wsHydrated` flips true. That
+  // disk-backed restore lands later than this fast in-memory IPC, so an
+  // ungated drain would open the `tedi .` tab first and then have it wiped by
+  // the restore - leaving the previously saved folder on screen. Waiting for
+  // hydration flips the order: the restore runs synchronously inside the same
+  // commit while this drain's tab mutation happens in the async `then`, so the
+  // CLI tab is appended on top of the restored workspace and stays focused.
+  const wsHydrated = useWorkspacesStore((s) => s.hydrated);
   const cliStartupRunRef = useRef(false);
   useEffect(() => {
+    if (!wsHydrated) return;
     if (cliStartupRunRef.current) return;
     cliStartupRunRef.current = true;
     void invoke<CliTarget | null>("cli_initial_target").then((target) => {
       if (target) openCliTarget(target);
     });
-  }, [openCliTarget]);
+  }, [openCliTarget, wsHydrated]);
 
   // Live forwarding from `tauri-plugin-single-instance` when `tedi <path>`
   // runs while this window is already up.

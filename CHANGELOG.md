@@ -4,6 +4,14 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.24] - 05-06-2026
+
+### Fixed
+
+- **Unicode / IME input in the terminal (Vietnamese, and other scripts whose input methods emit decomposed text) no longer renders incorrectly.** Composed input that arrives as a base letter plus a separate combining mark (NFD form) was handed to xterm's WebGL renderer as a multi-codepoint cell, which takes a fragile combined-glyph path (`canvas.fillText` + bounding-box scan, with no DOM fallback) that can drop or mis-stack the mark - so e.g. Vietnamese tone marks displayed wrong. The terminal now NFC-normalizes the single `onData` chunk that immediately follows an IME `compositionend`, collapsing the text onto xterm's robust single-glyph path. Pasted text and ordinary keystrokes - including macOS NFD filenames - reach the shell byte-for-byte unchanged. This is not a Unicode-version issue: the combining marks are already zero-width in xterm's default tables, so `addon-unicode11` is intentionally not added ([`useTerminalSession.ts`](src/modules/terminal/lib/useTerminalSession.ts), [`sessionState.ts`](src/modules/terminal/lib/sessionState.ts)). Resolves [#3](https://github.com/IlhamriSKY/TEDI/issues/3).
+- **The `tedi .` CLI tab no longer gets clobbered by workspace restore at launch.** Opening TEDI from the CLI in a folder drained its target tab through a fast in-memory IPC that landed before the disk-backed workspace restore, so the restore then replaced the CLI tab with the previously-saved folder. The CLI-startup drain now waits for workspace hydration, so the restore runs first and the CLI tab is appended on top and keeps focus. Hydration was hardened too: a corrupt or unreadable workspace store now still flips `hydrated` true (seeding a default) instead of stranding every consumer that gates on it ([`useWorkspaceRoot.ts`](src/app/hooks/useWorkspaceRoot.ts), [`store.ts`](src/modules/workspaces/store.ts)).
+- **Background update checks no longer flash a red "Update check failed" pill when GitHub is unreachable.** The unattended first-run and 6-hourly sweeps now run silently: they skip the "checking" panel and, on failure, leave the current state untouched, so only an explicit check (`tedi --update`, the trigger event, or the dialog's Retry) surfaces an error. The updater dialog also stays mounted across state changes instead of unmounting with the pill, fixing a Radix scroll-lock race that could leave `pointer-events: none` stuck on the body and make the modal unclickable ([`useUpdater.ts`](src/modules/updater/lib/useUpdater.ts), [`UpdaterPill.tsx`](src/modules/updater/components/UpdaterPill.tsx)).
+
 ## [0.3.23] - 04-06-2026
 
 ### Fixed

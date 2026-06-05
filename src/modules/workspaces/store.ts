@@ -113,9 +113,21 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     activeId: null,
 
     async hydrate() {
-      const list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
-      const active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
-      // Seed a default workspace on first run.
+      let list: Workspace[] = [];
+      let active: string | null = null;
+      try {
+        list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
+        active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
+      } catch {
+        // Corrupt / unreadable store: fall through to seeding a default below.
+        // `hydrated` MUST still flip true - the `tedi .` CLI drain now waits on
+        // it (see useWorkspaceRoot), and other consumers gate on it too, so a
+        // read failure that left it false would strand both, not just lose the
+        // saved workspaces.
+        list = [];
+        active = null;
+      }
+      // Seed a default workspace on first run (or after a read failure).
       if (list.length === 0) {
         const ws: Workspace = {
           id: newWorkspaceId(),
@@ -124,7 +136,11 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
           activeTabIndex: 0,
         };
         set({ workspaces: [ws], activeId: ws.id, hydrated: true });
-        await persist();
+        try {
+          await persist();
+        } catch {
+          // Best-effort persist; the in-memory default is enough to boot.
+        }
         return;
       }
       set({
