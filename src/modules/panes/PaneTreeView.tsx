@@ -12,22 +12,16 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  Cancel01Icon,
-  CloudServerIcon,
-  ComputerTerminal02Icon,
-  DragDropVerticalIcon,
-  Globe02Icon,
-  LockedIcon,
-  PencilEdit02Icon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, DragDropVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
-import { PreviewFavicon, PreviewPane, setPaneDragActive } from "@/modules/preview";
+import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
+import { PreviewPane, setPaneDragActive } from "@/modules/preview";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
@@ -35,7 +29,7 @@ import { leaves } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import type { SshConnection } from "@/modules/ssh/connections";
-import { aiCliIconClass, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 
 export type LeafBundle = {
   // terminal-only
@@ -153,6 +147,20 @@ function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): strin
   return node.cwd ? baseName(node.cwd) : "shell";
 }
 
+/** Build the shared {@link LeafIconInfo} for a pane leaf so the header and the
+ *  drag overlay render the exact icon the tab strip shows for the same leaf. */
+function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>): LeafIconInfo {
+  return {
+    leafKind: node.leafKind,
+    isPrivate: node.private === true,
+    isSsh: node.leafKind === "terminal" && !!node.sshConnectionId,
+    editorFileName: node.leafKind === "editor" ? baseName(node.path) : undefined,
+    editorRemote: node.leafKind === "editor" && node.sshSessionId !== undefined,
+    previewUrl: node.leafKind === "preview" ? node.url : undefined,
+    aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,
+  };
+}
+
 /** Heavy leaf content. Memoized so pointer-move re-renders during a drag don't churn xterm/CodeMirror. */
 const LeafBody = memo(function LeafBody({
   node,
@@ -267,26 +275,15 @@ function PaneLeafFrame({
   });
   const { setNodeRef: setDropRef } = useDroppable({ id: `${DROP_PREFIX}${node.id}` });
 
+  // Re-render the header once the catppuccin file-icon set lands so editor
+  // leaves swap from the pencil fallback to the real file-type glyph.
+  useExplorerIconsReady();
+
   const isSource = drag.sourceLeafId === node.id;
   const isOver = drag.overLeafId === node.id && drag.sourceLeafId !== node.id && drag.edge !== null;
   const isPrivate = node.private === true;
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const sshStatus = isSsh ? sshStatuses?.get(node.id) : undefined;
-  const aiCli = node.leafKind === "terminal" ? aiCliStatuses?.get(node.id) : undefined;
-  // Icon shape precedence mirrors the tab strip: private (lock) > SSH (cloud) > kind.
-  const Icon = isPrivate
-    ? LockedIcon
-    : isSsh
-      ? CloudServerIcon
-      : node.leafKind === "terminal"
-        ? ComputerTerminal02Icon
-        : node.leafKind === "preview"
-          ? Globe02Icon
-          : PencilEdit02Icon;
-  // Icon colour carries AI CLI state (idle/working/blocking, working+blocking
-  // pulse) for every leaf including private. Private's red lives on the label,
-  // so the lock colour stays free to show AI status (no ambiguity).
-  const iconClass = aiCli ? aiCliIconClass(aiCli) : "text-muted-foreground/80";
 
   return (
     <div
@@ -335,16 +332,13 @@ function PaneLeafFrame({
             dragHandle
           );
         })()}
-        {node.leafKind === "preview" && !isPrivate ? (
-          <PreviewFavicon url={node.url} size={13} className={iconClass} />
-        ) : (
-          <HugeiconsIcon
-            icon={Icon}
-            size={13}
-            strokeWidth={2}
-            className={cn("shrink-0", iconClass)}
-          />
-        )}
+        {/* Same glyph the tab strip + drag overlay show for this leaf. The
+            muted default tint is overridden by the AI CLI status when active. */}
+        <LeafIcon
+          info={leafIconInfo(node, aiCliStatuses)}
+          size={13}
+          className="text-muted-foreground/80"
+        />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-xs",
@@ -539,23 +533,12 @@ export function PaneTreeView({
     [sshHosts, sshStatuses, aiCliStatuses],
   );
 
+  // Re-render the overlay once the file-icon set lands so a dragged editor leaf
+  // shows its file-type glyph rather than the pencil fallback.
+  useExplorerIconsReady();
+
   const draggedLeaf =
     drag.sourceLeafId !== null ? (leafList.find((l) => l.id === drag.sourceLeafId) ?? null) : null;
-  const draggedIsSsh = draggedLeaf?.leafKind === "terminal" && !!draggedLeaf.sshConnectionId;
-  const draggedIcon =
-    draggedLeaf?.private === true
-      ? LockedIcon
-      : draggedIsSsh
-        ? CloudServerIcon
-        : draggedLeaf?.leafKind === "terminal"
-          ? ComputerTerminal02Icon
-          : draggedLeaf?.leafKind === "preview"
-            ? Globe02Icon
-            : PencilEdit02Icon;
-  const draggedAiCli =
-    draggedLeaf?.leafKind === "terminal" ? aiCliStatuses?.get(draggedLeaf.id) : undefined;
-  // Icon colour follows AI status (even when private); private's red is on the label.
-  const draggedIconClass = draggedAiCli ? aiCliIconClass(draggedAiCli) : undefined;
 
   return (
     <DndContext
@@ -580,20 +563,13 @@ export function PaneTreeView({
       </PaneMetaContext.Provider>
       <DragOverlay dropAnimation={null}>
         {draggedLeaf && (
-          <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 max-w-72 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm">
-            {draggedLeaf.leafKind === "preview" && draggedLeaf.private !== true ? (
-              <PreviewFavicon url={draggedLeaf.url} size={13} className={draggedIconClass} />
-            ) : (
-              <HugeiconsIcon
-                icon={draggedIcon}
-                size={13}
-                strokeWidth={2}
-                className={draggedIconClass}
-              />
-            )}
-            <span className={cn("truncate", draggedLeaf.private === true && "text-destructive")}>
-              {leafLabel(draggedLeaf, sshHosts)}
-            </span>
+          // Fixed 1:1 (28x28) chip with the leaf's own icon centered (file-type
+          // glyph for editors, favicon for browsers, terminal/cloud for shells,
+          // lock for private). The pane drag handle is tiny, so a centered
+          // icon-only square reads cleaner than an icon+label pill clipped to the
+          // handle's width.
+          <div className="bg-accent text-accent-foreground ring-border flex size-7 items-center justify-center shadow-lg ring-1">
+            <LeafIcon info={leafIconInfo(draggedLeaf, aiCliStatuses)} size={14} />
           </div>
         )}
       </DragOverlay>

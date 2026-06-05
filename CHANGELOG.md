@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.25] - 05-06-2026
+
+### Fixed
+
+- **OpenAI-compatible endpoints reached over a tunnel or self-hosted gateway (e.g. 9Router via a Tailscale / API tunnel) no longer fail with "Detection failed · Failed to fetch", and their models now work in chat.** Detection and the chat client used the WebView's native `fetch`, which enforces CORS: a cross-origin gateway that does not return an `Access-Control-Allow-Origin` header was blocked before any response could be read - while the **Test** button worked because it goes through Rust/reqwest, which is not subject to browser CORS. A native-first `corsFallbackFetch` now tries the WebView fetch first (so CORS-friendly cloud gateways keep the fast path with zero change) and only on a `Failed to fetch` routes the request through a new Rust streaming HTTP proxy (`http_stream` / `http_abort`, reqwest), which streams the SSE response back over an IPC channel so chat keeps its token-by-token rendering. No new dependencies ([`net.rs`](src-tauri/src/modules/net.rs), [`lib.rs`](src-tauri/src/lib.rs), [`httpProxy.ts`](src/modules/ai/lib/httpProxy.ts), [`openaiCompatible.ts`](src/modules/ai/lib/openaiCompatible.ts), [`agent.ts`](src/modules/ai/lib/agent.ts)).
+- **Dragging a tab or pane no longer shows the browser's native favicon thumbnail.** Icons rendered as `<img>` (site favicons, file-type glyphs) are draggable by default in the webview, so grabbing a tab/pane over one hijacked the pointer drag and showed an ugly native image ghost instead of the app's own drag preview. Native image-drag is now disabled app-wide ([`globals.css`](src/styles/globals.css), [`LeafIcon.tsx`](src/components/LeafIcon.tsx), [`PreviewFavicon.tsx`](src/modules/preview/PreviewFavicon.tsx)).
+
+### Changed
+
+- **The tab strip, pane header, and drag preview now show the exact same icon for a leaf.** A shared `LeafIcon` renders the editor file-type icon, browser favicon, local-terminal / SSH-cloud glyph, and the private lock identically across all three surfaces, instead of the pane header and drag ghost falling back to a generic pencil for editor leaves ([`LeafIcon.tsx`](src/components/LeafIcon.tsx), [`EntryIcon.tsx`](src/modules/tabs/components/EntryIcon.tsx), [`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx)).
+- **The drag preview chip was tidied and unified.** Tab and pane drag ghosts share one crisp, solid, squared chip; the pane drag ghost is a fixed 1:1 (28x28) box with the leaf icon centered ([`DragChip.tsx`](src/components/DragChip.tsx), [`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx)).
+
 ## [0.3.24] - 05-06-2026
 
 ### Fixed

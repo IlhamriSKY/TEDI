@@ -476,6 +476,8 @@ pub fn run() {
             secrets::secrets_delete,
             secrets::secrets_get_all,
             net::http_ping,
+            net::http_stream,
+            net::http_abort,
             ssh::ssh_open,
             ssh::ssh_write,
             ssh::ssh_resize,

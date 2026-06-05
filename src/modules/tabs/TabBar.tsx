@@ -1,6 +1,6 @@
 import { Tabs, TabsList } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { DragChip } from "@/components/DragChip";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import { MAX_PANES_PER_TAB } from "./lib/useTabs";
 import {
@@ -434,28 +434,14 @@ export function TabBar({
               </TabsList>
               <DragOverlay dropAnimation={DROP_ANIMATION} modifiers={[snapCenterAndLockY]}>
                 {draggedEntry && (
-                  <div
-                    className={cn(
-                      "bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded-md px-2 text-xs shadow-lg ring-1 backdrop-blur-sm",
-                      compact ? "max-w-32" : "max-w-44",
-                    )}
-                  >
-                    <EntryIcon entry={draggedEntry} />
-                    <span
-                      className={cn(
-                        "truncate",
-                        draggedEntry.italic && "italic",
-                        draggedEntry.kind === "pane-leaf" &&
-                          draggedEntry.isPrivate === true &&
-                          "text-destructive",
-                      )}
-                    >
-                      {draggedEntry.label}
-                    </span>
-                    {draggedEntry.dirty && (
-                      <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
-                    )}
-                  </div>
+                  <DragChip
+                    icon={<EntryIcon entry={draggedEntry} />}
+                    label={draggedEntry.label}
+                    className={compact ? "max-w-32" : "max-w-44"}
+                    italic={draggedEntry.italic}
+                    isPrivate={draggedEntry.kind === "pane-leaf" && draggedEntry.isPrivate === true}
+                    dirty={draggedEntry.dirty}
+                  />
                 )}
               </DragOverlay>
             </DndContext>

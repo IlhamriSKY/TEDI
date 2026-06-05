@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { corsFallbackFetch } from "./httpProxy";
 import {
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   clearOpenAICompatibleRuntime,
@@ -93,7 +94,11 @@ export async function refreshOpenAICompatibleInstance(
   // "Failed to fetch" against IPv4-only local routers.
   const trimmedURL = normalizeOpenAICompatibleBaseURL(baseURL);
   if (!trimmedURL) {
-    states.set(instanceId, { ...stateFor(instanceId), status: "error", error: "Base URL is empty" });
+    states.set(instanceId, {
+      ...stateFor(instanceId),
+      status: "error",
+      error: "Base URL is empty",
+    });
     emit();
     return [];
   }
@@ -103,7 +108,10 @@ export async function refreshOpenAICompatibleInstance(
   states.set(instanceId, { ...stateFor(instanceId), status: "loading", error: null });
   emit();
   try {
-    const res = await fetch(`${trimmedURL}/models`, {
+    // corsFallbackFetch tries the native fetch first, then routes through the
+    // Rust proxy when the WebView blocks a cross-origin gateway with no CORS
+    // headers (the "Failed to fetch" local/tunnelled routers hit).
+    const res = await corsFallbackFetch(`${trimmedURL}/models`, {
       method: "GET",
       headers: {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),

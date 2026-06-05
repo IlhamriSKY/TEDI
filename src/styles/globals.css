@@ -286,6 +286,17 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
+
+  /* Kill the webview's native image-drag gesture. Icons (favicons, file-type
+   * glyphs) are <img> elements, draggable by default; grabbing a tab or pane
+   * over one hijacks our pointer-based (dnd-kit) drag and shows an ugly native
+   * favicon thumbnail - which even ignores the squarify rule above - instead
+   * of the custom icon+label drag overlay. Disable it everywhere so dnd-kit
+   * owns every drag. */
+  img {
+    -webkit-user-drag: none;
+    user-select: none;
+  }
 }
 
 /* Editor + terminal canvas transparency under the single "App opacity"

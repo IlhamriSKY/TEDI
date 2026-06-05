@@ -104,6 +104,7 @@ export function PreviewFavicon({
       alt=""
       width={size}
       height={size}
+      draggable={false}
       className={cn("shrink-0 rounded-sm object-contain", className)}
       onError={handleError}
     />

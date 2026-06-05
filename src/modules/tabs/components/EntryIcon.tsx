@@ -1,17 +1,8 @@
 import { cn } from "@/lib/utils";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { aiCliIconClass } from "@/modules/terminal/lib/aiCliStatus";
+import { LeafIcon } from "@/components/LeafIcon";
 import { tryGetHugeIcon } from "@/lib/hugeIconsBarrel";
-import {
-  CloudServerIcon,
-  ComputerTerminal02Icon,
-  Database01Icon,
-  GitBranchIcon,
-  GitCompareIcon,
-  LockedIcon,
-} from "@hugeicons/core-free-icons";
+import { Database01Icon, GitBranchIcon, GitCompareIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PreviewFavicon } from "@/modules/preview/PreviewFavicon";
 import type { Entry } from "../lib/entries";
 
 /**
@@ -39,75 +30,33 @@ function TerminalOrdinalBadge({ ordinal, isPrivate }: { ordinal: number; isPriva
 
 export function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
-    // Private leaves swap to a lock so the AI-can't-read signal reads at a
-    // glance, regardless of terminal vs editor or ssh. The red lives on the
-    // label text (see renderEntryBody) so the lock's colour stays free to
-    // carry AI CLI status, same as a non-private icon.
-    if (entry.isPrivate) {
-      const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
-      return (
-        <span className="inline-flex shrink-0 items-center gap-1">
-          <HugeiconsIcon
-            icon={LockedIcon}
-            size={14}
-            strokeWidth={2}
-            className={cn("shrink-0", aiTint)}
-          />
-          {entry.leafKind === "terminal" && entry.terminalOrdinal ? (
-            <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} isPrivate />
-          ) : null}
-        </span>
-      );
-    }
-    if (entry.leafKind === "editor") {
-      const url = fileIconUrl(entry.label);
-      // Remote files reuse the file-type icon shape but get recolored sky-blue
-      // via `mask-image`. Trade-off: loses per-language color cues.
-      if (entry.remoteHost) {
-        if (!url) return null;
-        return (
-          <span
-            aria-hidden
-            className="bg-info size-3.5 shrink-0"
-            style={{
-              mask: `url("${url}") center / contain no-repeat`,
-              WebkitMask: `url("${url}") center / contain no-repeat`,
-            }}
-          />
-        );
-      }
-      return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
-    }
-    if (entry.leafKind === "preview") {
-      return <PreviewFavicon url={entry.previewUrl ?? ""} />;
-    }
-    // Terminal leaf. Pick the icon, then tint by AI CLI status. SSH status
-    // colors the title text; the icon shows AI CLI state on both local and remote.
-    const aiTint = entry.aiCliStatus ? aiCliIconClass(entry.aiCliStatus) : null;
-    const terminalIcon = entry.sshConnectionId ? (
-      <HugeiconsIcon
-        icon={CloudServerIcon}
+    // The leaf glyph is shared with the pane header + drag overlay (see
+    // `LeafIcon`) so a leaf reads identically in every surface. The tab strip
+    // adds the FIFO ordinal badge on terminals on top of that shared glyph.
+    const glyph = (
+      <LeafIcon
+        info={{
+          leafKind: entry.leafKind,
+          isPrivate: entry.isPrivate,
+          isSsh: !!entry.sshConnectionId,
+          editorFileName: entry.leafKind === "editor" ? entry.label : undefined,
+          editorRemote: !!entry.remoteHost,
+          previewUrl: entry.previewUrl,
+          aiCliStatus: entry.aiCliStatus,
+        }}
         size={14}
-        strokeWidth={2}
-        className={cn("shrink-0", aiTint)}
-      />
-    ) : (
-      <HugeiconsIcon
-        icon={ComputerTerminal02Icon}
-        size={14}
-        strokeWidth={2}
-        className={cn("shrink-0", aiTint)}
       />
     );
-    if (entry.terminalOrdinal) {
+    const ordinal = entry.leafKind === "terminal" ? entry.terminalOrdinal : undefined;
+    if (ordinal) {
       return (
         <span className="inline-flex shrink-0 items-center gap-1">
-          {terminalIcon}
-          <TerminalOrdinalBadge ordinal={entry.terminalOrdinal} />
+          {glyph}
+          <TerminalOrdinalBadge ordinal={ordinal} isPrivate={entry.isPrivate} />
         </span>
       );
     }
-    return terminalIcon;
+    return glyph;
   }
   if (entry.kind === "ext") {
     // Extension tab icon: resolve `hugeicon:<Name>` if the extension hinted

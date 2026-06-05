@@ -26,6 +26,7 @@ import {
   type ProviderId,
 } from "../config";
 import type { ProviderKeys } from "./keyring";
+import { corsFallbackFetch } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { applyCacheBreakpoints } from "./cache";
@@ -171,6 +172,10 @@ export async function buildLanguageModel(
         name: "openai-compatible",
         baseURL: url,
         apiKey,
+        // Route chat through the native-first CORS fallback so self-hosted /
+        // tunnelled endpoints (9Router, local routers) that don't send CORS
+        // headers still stream, while cloud gateways keep the native path.
+        fetch: corsFallbackFetch,
       })(upstreamModelId);
       break;
     }
@@ -181,7 +186,9 @@ export async function buildLanguageModel(
     }
     case "lmstudio": {
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      built = createOpenAICompatible({ name: "lmstudio", baseURL })(resolvedModelId);
+      built = createOpenAICompatible({ name: "lmstudio", baseURL, fetch: corsFallbackFetch })(
+        resolvedModelId,
+      );
       break;
     }
     default: {
