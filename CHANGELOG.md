@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.26] - 08-06-2026
+
+### Added
+
+- **The editor and AI chat code blocks recognize more niche language syntaxes out of the box.** Added stream-language coverage for Odin, Zig, Nim, Solidity, Gleam, Hare, plus legacy-mode wiring for Haxe, LaTeX/TeX, WebAssembly text (`wat`/`wast`), NSIS, Smalltalk, Cypher, Turtle, SPARQL, and XQuery, so these files and fenced code blocks no longer fall back to plain text. The shared modern-language parsers are built on CodeMirror's bundled `clike` factory, so this expands coverage without adding dependencies ([`streamLanguages.ts`](src/modules/editor/lib/streamLanguages.ts), [`languageResolver.ts`](src/modules/editor/lib/languageResolver.ts), [`chat-code-lezer.ts`](src/components/ai-elements/chat-code-lezer.ts)).
+
+### Fixed
+
+- **Legacy stream tokenization in AI chat code blocks now classifies every token on a line correctly, not just the first one.** The highlighter now resets `StringStream.start` before each token, matching CodeMirror's real tokenizer driver so `stream.current()`-based parsers keep seeing the current token instead of the whole line-so-far ([`chat-code-lezer.ts`](src/components/ai-elements/chat-code-lezer.ts)).
+
 ## [0.3.25] - 05-06-2026
 
 ### Fixed

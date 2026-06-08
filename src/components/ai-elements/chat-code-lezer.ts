@@ -198,6 +198,50 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/gherkin").then(
       (m) => m.gherkin as unknown as StreamParser<unknown>,
     ),
+  // ── Modern langs (hand-rolled on clike; shared with the editor) ──
+  odin: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.odin),
+  zig: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.zig),
+  nim: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.nim),
+  solidity: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.solidity),
+  gleam: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.gleam),
+  hare: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.hare),
+  // ── More legacy modes ──
+  haxe: () =>
+    import("@codemirror/legacy-modes/mode/haxe").then(
+      (m) => m.haxe as unknown as StreamParser<unknown>,
+    ),
+  latex: () =>
+    import("@codemirror/legacy-modes/mode/stex").then(
+      (m) => m.stex as unknown as StreamParser<unknown>,
+    ),
+  wast: () =>
+    import("@codemirror/legacy-modes/mode/wast").then(
+      (m) => m.wast as unknown as StreamParser<unknown>,
+    ),
+  nsis: () =>
+    import("@codemirror/legacy-modes/mode/nsis").then(
+      (m) => m.nsis as unknown as StreamParser<unknown>,
+    ),
+  smalltalk: () =>
+    import("@codemirror/legacy-modes/mode/smalltalk").then(
+      (m) => m.smalltalk as unknown as StreamParser<unknown>,
+    ),
+  cypher: () =>
+    import("@codemirror/legacy-modes/mode/cypher").then(
+      (m) => m.cypher as unknown as StreamParser<unknown>,
+    ),
+  turtle: () =>
+    import("@codemirror/legacy-modes/mode/turtle").then(
+      (m) => m.turtle as unknown as StreamParser<unknown>,
+    ),
+  sparql: () =>
+    import("@codemirror/legacy-modes/mode/sparql").then(
+      (m) => m.sparql as unknown as StreamParser<unknown>,
+    ),
+  xquery: () =>
+    import("@codemirror/legacy-modes/mode/xquery").then(
+      (m) => m.xQuery as unknown as StreamParser<unknown>,
+    ),
 };
 
 const aliases: Record<string, string> = {
@@ -320,6 +364,30 @@ const aliases: Record<string, string> = {
   wget: "shell",
   // BDD
   feature: "gherkin",
+  // Modern langs
+  odinlang: "odin",
+  ziglang: "zig",
+  nimrod: "nim",
+  nimble: "nim",
+  nims: "nim",
+  sol: "solidity",
+  ha: "hare",
+  hx: "haxe",
+  hxml: "haxe",
+  // TeX / LaTeX
+  tex: "latex",
+  stex: "latex",
+  // WebAssembly text
+  wat: "wast",
+  wasm: "wast",
+  // Query / RDF
+  cql: "cypher",
+  cyp: "cypher",
+  ttl: "turtle",
+  rq: "sparql",
+  xq: "xquery",
+  xqy: "xquery",
+  xqm: "xquery",
 };
 
 type ResolvedKey =
@@ -373,6 +441,11 @@ function highlightStream(code: string, parser: StreamParser<unknown>): Highlight
 
     const stream = new StringStream(line, 2, 2, 0);
     while (!stream.eol()) {
+      // The real CodeMirror tokenizer driver resets `start` before every
+      // token so `stream.current()` (used by legacy parsers for keyword
+      // lookups) returns just the current token, not the whole line so far.
+      // Without this, only the first token on each line classifies correctly.
+      stream.start = stream.pos;
       const start = stream.pos;
       let tag: string | null = null;
       try {

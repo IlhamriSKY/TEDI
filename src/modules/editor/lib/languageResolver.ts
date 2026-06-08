@@ -197,7 +197,52 @@ const loaders: Record<string, LanguageLoader> = {
 
   // Misc niche
   d: () => import("@codemirror/legacy-modes/mode/d").then((m) => m.d),
-  // .zig and .nim have no upstream legacy parser; fall back to plaintext.
+
+  // Modern languages with no upstream parser - hand-rolled on the bundled
+  // `clike` factory in ./streamLanguages (zero added dependencies).
+  odin: () => import("./streamLanguages").then((m) => m.odin),
+  zig: () => import("./streamLanguages").then((m) => m.zig),
+  nim: () => import("./streamLanguages").then((m) => m.nim),
+  nims: () => import("./streamLanguages").then((m) => m.nim),
+  nimble: () => import("./streamLanguages").then((m) => m.nim),
+  sol: () => import("./streamLanguages").then((m) => m.solidity),
+  gleam: () => import("./streamLanguages").then((m) => m.gleam),
+  ha: () => import("./streamLanguages").then((m) => m.hare),
+
+  // Haxe
+  hx: () => import("@codemirror/legacy-modes/mode/haxe").then((m) => m.haxe),
+  hxml: () => import("@codemirror/legacy-modes/mode/haxe").then((m) => m.hxml),
+
+  // LaTeX / TeX
+  tex: () => import("@codemirror/legacy-modes/mode/stex").then((m) => m.stex),
+  sty: () => import("@codemirror/legacy-modes/mode/stex").then((m) => m.stex),
+  cls: () => import("@codemirror/legacy-modes/mode/stex").then((m) => m.stex),
+  ltx: () => import("@codemirror/legacy-modes/mode/stex").then((m) => m.stex),
+
+  // WebAssembly text format
+  wat: () => import("@codemirror/legacy-modes/mode/wast").then((m) => m.wast),
+  wast: () => import("@codemirror/legacy-modes/mode/wast").then((m) => m.wast),
+
+  // NSIS installer scripts
+  nsi: () => import("@codemirror/legacy-modes/mode/nsis").then((m) => m.nsis),
+  nsh: () => import("@codemirror/legacy-modes/mode/nsis").then((m) => m.nsis),
+
+  // Gherkin (BDD feature files)
+  feature: () => import("@codemirror/legacy-modes/mode/gherkin").then((m) => m.gherkin),
+
+  // Smalltalk
+  st: () => import("@codemirror/legacy-modes/mode/smalltalk").then((m) => m.smalltalk),
+
+  // Graph / query / RDF
+  cypher: () => import("@codemirror/legacy-modes/mode/cypher").then((m) => m.cypher),
+  cql: () => import("@codemirror/legacy-modes/mode/cypher").then((m) => m.cypher),
+  cyp: () => import("@codemirror/legacy-modes/mode/cypher").then((m) => m.cypher),
+  ttl: () => import("@codemirror/legacy-modes/mode/turtle").then((m) => m.turtle),
+  rq: () => import("@codemirror/legacy-modes/mode/sparql").then((m) => m.sparql),
+  sparql: () => import("@codemirror/legacy-modes/mode/sparql").then((m) => m.sparql),
+  xq: () => import("@codemirror/legacy-modes/mode/xquery").then((m) => m.xQuery),
+  xqy: () => import("@codemirror/legacy-modes/mode/xquery").then((m) => m.xQuery),
+  xquery: () => import("@codemirror/legacy-modes/mode/xquery").then((m) => m.xQuery),
 };
 
 const filenameOverrides: Record<string, LanguageLoader> = {
