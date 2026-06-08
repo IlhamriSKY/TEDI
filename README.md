@@ -118,7 +118,7 @@ cd src-tauri && cargo fmt       # Rust format
 
 - **Windows**: SmartScreen will warn on first launch (unsigned). Click _More info > Run anyway_. Shell priority: `pwsh.exe`, `powershell.exe`, `cmd.exe`.
 - **Linux**: if you hit `EGL_BAD_PARAMETER` or a blank window, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. AppImage needs FUSE; otherwise run `--appimage-extract-and-run` or install the `.deb`/`.rpm`.
-- **macOS**: minimum macOS 10.15. Builds are ad-hoc signed but **not notarized** with Apple, so Gatekeeper may say _"TEDI is damaged and can't be opened"_ on first launch. Drag the app to `/Applications`, then in Terminal run once:
+- **macOS**: minimum macOS 10.15. If the release workflow is running without Apple Developer signing/notarization secrets, builds fall back to ad-hoc signing and Gatekeeper may say _"TEDI can't be opened because Apple cannot check it for malicious software"_ or _"TEDI is damaged and can't be opened"_ on first launch. Drag the app to `/Applications`, then in Terminal run once:
   ```
   xattr -cr /Applications/TEDI.app
   ```

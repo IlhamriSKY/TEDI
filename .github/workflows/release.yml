@@ -96,7 +96,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
+          # macOS: if Developer ID + notarization secrets are configured, Tauri
+          # signs and notarizes the bundle. Otherwise we intentionally fall back
+          # to ad-hoc signing so releases still build, but Gatekeeper will warn.
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && (secrets.APPLE_SIGNING_IDENTITY || '-') || '' }}
+          APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TEDI ${{ github.ref_name }}"
@@ -104,7 +112,7 @@ jobs:
             Installed TEDI checks GitHub Releases every 6 hours and offers in-app updates.
             First-time install: download the artifact for your platform from the assets below.
 
-            **macOS users:** TEDI is not notarized with Apple. If you see "TEDI is damaged and can't be opened", drag the app to `/Applications` and run this once in Terminal:
+            **macOS users:** if Gatekeeper says TEDI "can't be opened because Apple cannot check it for malicious software" or "is damaged and can't be opened", drag the app to `/Applications` and run this once in Terminal:
 
             ```
             xattr -cr /Applications/TEDI.app
