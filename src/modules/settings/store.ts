@@ -15,11 +15,7 @@ import {
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { normalizeCustomTheme, type CustomTheme } from "./customTheme";
-import {
-  DEFAULT_SEARCH_ENGINE_ID,
-  searchEngineById,
-  type SearchEngineId,
-} from "./searchEngines";
+import { DEFAULT_SEARCH_ENGINE_ID, searchEngineById, type SearchEngineId } from "./searchEngines";
 import { DEFAULT_CUSTOM_THEME } from "./themePresets";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -58,6 +54,21 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
  * from the PATH the Rust PTY layer assembles at spawn.
  */
 export type TerminalPathEntry = { path: string; enabled: boolean };
+
+/**
+ * Normalize a user-entered PATH directory before persisting: trim whitespace,
+ * then strip one surrounding pair of double quotes. Windows Explorer's "Copy as
+ * path" (Shift+Right-click) yields `"C:\Tools\bin"` with literal quotes; left
+ * as-is the entry becomes a directory literally named with quotes and silently
+ * never resolves. Cleaning on write keeps the stored value matching what the
+ * editor displays.
+ */
+export function cleanTerminalPath(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
+    ? trimmed.slice(1, -1).trim()
+    : trimmed;
+}
 
 export type Preferences = {
   theme: ThemePref;
@@ -381,10 +392,7 @@ const SELF_LABEL = getCurrentWebviewWindow().label;
 
 async function writePref<T>(key: string, value: T): Promise<void> {
   await store.set(key, value);
-  await Promise.all([
-    store.save(),
-    emit(PREFS_CHANGED_EVENT, { key, value, source: SELF_LABEL }),
-  ]);
+  await Promise.all([store.save(), emit(PREFS_CHANGED_EVENT, { key, value, source: SELF_LABEL })]);
 }
 
 export async function loadPreferences(): Promise<Preferences> {
@@ -526,13 +534,13 @@ function normalizeTerminalPathEntries(raw: unknown): TerminalPathEntry[] {
   const out: TerminalPathEntry[] = [];
   for (const item of raw) {
     if (typeof item === "string") {
-      const path = item.trim();
+      const path = cleanTerminalPath(item);
       if (path) out.push({ path, enabled: true });
       continue;
     }
     if (item && typeof item === "object") {
       const rec = item as Record<string, unknown>;
-      const path = typeof rec.path === "string" ? rec.path.trim() : "";
+      const path = typeof rec.path === "string" ? cleanTerminalPath(rec.path) : "";
       if (!path) continue;
       out.push({ path, enabled: rec.enabled !== false });
     }
@@ -692,7 +700,7 @@ export async function setTerminalFontSize(value: number): Promise<void> {
  */
 export async function setTerminalEnvPath(value: TerminalPathEntry[]): Promise<void> {
   const cleaned = value
-    .map((e) => ({ path: e.path.trim(), enabled: e.enabled !== false }))
+    .map((e) => ({ path: cleanTerminalPath(e.path), enabled: e.enabled !== false }))
     .filter((e) => e.path.length > 0);
   await writePref(KEY_TERMINAL_ENV_PATH, cleaned);
 }

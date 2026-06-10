@@ -62,18 +62,37 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
 /// the daemon backend), and both resolve the same
 /// `<data_dir>/<BUNDLE_ID>/tedi-settings.json`. Reading per spawn keeps the
 /// setting live - a newly opened terminal sees edits without a daemon restart.
-/// Best-effort: any missing-file / parse error yields no extra entries so the
-/// shell still launches with the inherited PATH.
-fn user_extra_path_dirs() -> Vec<String> {
+///
+/// The plugin-store writes via a non-atomic `fs::write` (truncate-in-place), so
+/// a spawn's read can rarely land between the truncate and the rewrite and see
+/// an empty / partial file. Retry a couple of times with a short sleep before
+/// giving up; the completed file is present on the retry. Any persistent
+/// missing-file / parse error yields no extra entries so the shell still
+/// launches with the inherited PATH.
+pub(crate) fn user_extra_path_dirs() -> Vec<String> {
     let Some(dir) = crate::modules::ids::app_data_dir() else {
         return Vec::new();
     };
-    let Ok(raw) = std::fs::read_to_string(dir.join("tedi-settings.json")) else {
-        return Vec::new();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return Vec::new();
-    };
+    let path = dir.join("tedi-settings.json");
+    for attempt in 0..3 {
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if !raw.trim().is_empty() {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    return parse_extra_path_entries(&value);
+                }
+            }
+        }
+        // Empty / partial read (or a transient lock): back off briefly and try
+        // the completed file instead of falling straight back to no entries.
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    Vec::new()
+}
+
+/// Pull the enabled `terminalEnvPath` directories out of the parsed settings.
+fn parse_extra_path_entries(value: &serde_json::Value) -> Vec<String> {
     let Some(arr) = value.get("terminalEnvPath").and_then(|v| v.as_array()) else {
         return Vec::new();
     };
@@ -103,36 +122,124 @@ fn user_extra_path_dirs() -> Vec<String> {
         .collect()
 }
 
-/// Prepend the user's configured directories to PATH so commands living there
-/// (a Laragon `composer`, a portable toolchain, …) resolve in the interactive
-/// terminal without editing the OS-level PATH. Prepended so user entries win
-/// over inherited ones. `cmd.env("PATH", …)` overrides rather than duplicates:
-/// portable-pty case-folds env keys on Windows, so this replaces the inherited
-/// `Path` instead of adding a second entry. No-op when nothing is configured.
-fn apply_extra_path(cmd: &mut CommandBuilder) {
-    let dirs = user_extra_path_dirs();
-    if dirs.is_empty() {
-        return;
+/// Platform PATH-list separator (`;` on Windows, `:` elsewhere). Distinct from
+/// the path-component separator (`\` / `/`).
+#[cfg(windows)]
+const PATH_LIST_SEP: char = ';';
+#[cfg(not(windows))]
+const PATH_LIST_SEP: char = ':';
+
+/// Strip one surrounding pair of double quotes (Windows "Copy as path" yields
+/// `"C:\…"`), returning the trimmed remainder.
+fn strip_quotes(s: &str) -> &str {
+    let t = s.trim();
+    let b = t.as_bytes();
+    if b.len() >= 2 && b[0] == b'"' && b[b.len() - 1] == b'"' {
+        t[1..t.len() - 1].trim()
+    } else {
+        t
     }
-    let current = std::env::var_os("PATH").unwrap_or_default();
-    let mut entries: Vec<PathBuf> = dirs
-        .into_iter()
-        .map(|d| {
-            // A user may paste forward-slash paths from the explorer; Windows
-            // tools resolve PATH entries via backslashes, so normalize there.
-            #[cfg(windows)]
-            let d = d.replace('/', "\\");
-            PathBuf::from(d)
-        })
-        .collect();
-    entries.extend(std::env::split_paths(&current).filter(|p| !p.as_os_str().is_empty()));
-    match std::env::join_paths(&entries) {
-        Ok(joined) => {
-            cmd.env("PATH", joined);
+}
+
+/// Dedup key for a PATH directory: unify slashes + case-fold on Windows, drop a
+/// trailing separator everywhere, so `C:/Tools\`, `C:\Tools` and `c:\tools`
+/// collapse to one.
+fn path_dedup_key(p: &str) -> String {
+    #[cfg(windows)]
+    {
+        p.replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        p.trim_end_matches('/').to_string()
+    }
+}
+
+/// Build a PATH value with `extra_dirs` prepended to the inherited PATH, or
+/// `None` when nothing valid is configured (caller leaves PATH inherited).
+///
+/// Prepended so user entries win over inherited ones (run a Laragon `composer`
+/// without editing the OS PATH). Hardened beyond a naive prepend:
+/// - strips surrounding quotes from a pasted path,
+/// - skips a single entry containing the list separator instead of failing the
+///   whole list (`join_paths` is all-or-nothing), so one bad `a;b` paste can't
+///   drop every other configured dir,
+/// - de-duplicates (case-insensitively on Windows), INCLUDING against the
+///   inherited PATH, so a dir the OS already exports isn't listed twice.
+///
+/// `cmd.env("PATH", …)` then overrides rather than duplicates: portable-pty and
+/// std both case-fold env keys on Windows, so this replaces the inherited
+/// `Path` rather than adding a second variable.
+pub(crate) fn assemble_path(extra_dirs: &[String]) -> Option<std::ffi::OsString> {
+    if extra_dirs.is_empty() {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut entries: Vec<PathBuf> = Vec::new();
+
+    for dir in extra_dirs {
+        let stripped = strip_quotes(dir);
+        if stripped.is_empty() {
+            continue;
         }
-        // A configured dir contains the platform PATH separator (`;`/`:`).
-        // Leave PATH untouched rather than corrupting the whole variable.
-        Err(e) => log::warn!("terminal additional PATH skipped: {e}"),
+        if stripped.contains(PATH_LIST_SEP) {
+            log::warn!(
+                "terminal additional PATH entry skipped (contains '{PATH_LIST_SEP}'): {stripped}"
+            );
+            continue;
+        }
+        // A user may paste forward-slash paths from the explorer; Windows tools
+        // resolve PATH entries via backslashes, so normalize there.
+        #[cfg(windows)]
+        let cleaned: String = stripped.replace('/', "\\");
+        #[cfg(not(windows))]
+        let cleaned: String = stripped.to_string();
+        let key = path_dedup_key(&cleaned);
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        entries.push(PathBuf::from(cleaned));
+    }
+
+    // Nothing the user configured survived: leave the inherited PATH untouched.
+    if entries.is_empty() {
+        return None;
+    }
+
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    for p in std::env::split_paths(&current) {
+        if p.as_os_str().is_empty() {
+            continue;
+        }
+        // Skip an inherited dir already contributed by a user entry so the
+        // assembled PATH doesn't list the same directory twice.
+        if !seen.insert(path_dedup_key(&p.to_string_lossy())) {
+            continue;
+        }
+        entries.push(p);
+    }
+
+    match std::env::join_paths(&entries) {
+        Ok(joined) => Some(joined),
+        // Should not happen now (separator-bearing user entries are filtered and
+        // inherited entries never contain the separator), but stay defensive:
+        // leave PATH untouched rather than corrupting the whole variable.
+        Err(e) => {
+            log::warn!("terminal additional PATH skipped: {e}");
+            None
+        }
+    }
+}
+
+/// Prepend the user's configured directories to the spawned shell's PATH so
+/// commands living there (a Laragon `composer`, a portable toolchain, …)
+/// resolve in the interactive terminal without editing the OS-level PATH.
+/// No-op when nothing is configured.
+fn apply_extra_path(cmd: &mut CommandBuilder) {
+    if let Some(joined) = assemble_path(&user_extra_path_dirs()) {
+        cmd.env("PATH", joined);
     }
 }
 

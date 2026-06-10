@@ -1,5 +1,6 @@
 #[cfg(windows)]
 pub(crate) mod job;
+pub(crate) mod path_probe;
 pub mod session;
 pub(crate) mod shell_init;
 
