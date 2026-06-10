@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.28] - 10-06-2026
+
+### Security
+
+- **The AI agent now asks before reading files outside your project.** `read_file`, `list_directory`, `grep`, and `glob` resolve their target and, when it falls outside both the workspace root and the active terminal cwd, raise a one-click approval card before running; reads inside the project stay automatic. This closes a path where a prompt-injected agent could silently read an arbitrary file off disk and exfiltrate it. Path matching collapses `..` and is case-insensitive (so `workspace/../secret` can't masquerade as in-project), and the read-only sub-agent keeps reads automatic since it has no approval surface ([`context.ts`](src/modules/ai/tools/context.ts), [`fs.ts`](src/modules/ai/tools/fs.ts), [`search.ts`](src/modules/ai/tools/search.ts), [`runSubagent.ts`](src/modules/ai/agents/runSubagent.ts), [`AiToolApproval.tsx`](src/modules/ai/components/AiToolApproval.tsx)).
+- **The destructive-command and protected-write guards cover the cases they were missing.** `checkShellCommand` now also refuses `rm -rf` aimed at `/*`, `~`, or `$HOME` (including split `-r -f` flags), `find / -delete`, and writes/wipes to a raw block device (`> /dev/sd*`, `wipefs`, `shred`); the system-directory write block became case-insensitive and gained Windows roots (`C:\Windows`, `Program Files`, `ProgramData`) that the POSIX-only list had left unguarded on Windows; and `write_file` / `create_directory` resolve symlinks before the check so an innocently-named link can't redirect a write into a protected target ([`security.ts`](src/modules/ai/lib/security.ts), [`fs.ts`](src/modules/ai/tools/fs.ts)).
+- **The terminal-typing tools can no longer be coaxed into running a command without consent.** `suggest_command` re-checks for an embedded newline _after_ a shell transformer runs (a transformer could otherwise inject one into the raw PTY write and auto-run it), `schedule_command` rejects a newline for its type-only `inject` action, and the shell approval card now shows the post-transform "Runs as" command so a rewrite (e.g. an RTK-style bridge) is visible before you approve ([`terminal.ts`](src/modules/ai/tools/terminal.ts), [`schedule.ts`](src/modules/ai/tools/schedule.ts), [`AiToolApproval.tsx`](src/modules/ai/components/AiToolApproval.tsx)).
+
+### Fixed
+
+- **The in-app browser no longer flails on a simple lookup.** `open_preview` returned the new pane's tab id mislabelled as its leaf id, so the model's follow-up `read_browser` / `navigate_and_read` couldn't resolve the pane and would re-open tabs or fall back to `curl`; it now resolves the real leaf id from the open-browsers list. It also gained a `read: true` option that opens a page and returns its loaded text in the same call, so a fact / price / rate lookup is one tool step instead of an open-then-read round-trip ([`terminal.ts`](src/modules/ai/tools/terminal.ts), [`context.ts`](src/modules/ai/tools/context.ts), [`chatStore.ts`](src/modules/ai/store/chatStore.ts)).
+- **`run_in_terminal_by_id` no longer corrupts a busy terminal.** It now checks whether the target terminal is mid-command or running a full-screen TUI and refuses instead of typing into the running program's stdin ([`schedule.ts`](src/modules/ai/tools/schedule.ts)).
+
+### Changed
+
+- **Tool results that re-enter the model's context every step are now trimmed.** `bash_run`, `bash_logs`, and `run_subagent` cap their output to a head-plus-tail window (the native layer already hard-capped; this is the smaller model-facing trim), and the verbose `read_browser` description was tightened, cutting steady token overhead on long shell output, chatty dev-server logs, and every request's tool schema ([`shell.ts`](src/modules/ai/tools/shell.ts), [`subagent.ts`](src/modules/ai/tools/subagent.ts), [`context.ts`](src/modules/ai/tools/context.ts), [`terminal.ts`](src/modules/ai/tools/terminal.ts)).
+
 ## [0.3.27] - 10-06-2026
 
 ### Added
