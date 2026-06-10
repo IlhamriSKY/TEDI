@@ -96,15 +96,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS: if Developer ID + notarization secrets are configured, Tauri
-          # signs and notarizes the bundle. Otherwise we intentionally fall back
-          # to ad-hoc signing so releases still build, but Gatekeeper will warn.
-          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && (secrets.APPLE_SIGNING_IDENTITY || '-') || '' }}
-          APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          # macOS: ad-hoc sign the bundle (APPLE_SIGNING_IDENTITY '-') and do NOT
+          # import a Developer ID certificate. A configured-but-invalid
+          # APPLE_CERTIFICATE secret makes `security import` hard-fail the whole
+          # build ("failed to import keychain certificate"), and the `|| ''`
+          # fallback only triggers when the secret is empty, not when it's bad.
+          # Skipping the import keeps releases building; macOS users clear the
+          # quarantine bit with `xattr -cr` (see the release notes). To restore
+          # Developer ID signing + notarization, re-add APPLE_CERTIFICATE /
+          # APPLE_CERTIFICATE_PASSWORD / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # here once a valid Developer ID cert is in the repo secrets.
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TEDI ${{ github.ref_name }}"
