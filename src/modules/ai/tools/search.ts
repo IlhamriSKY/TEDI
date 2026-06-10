@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
-import { resolvePath, scrubErrorPath, type ToolContext } from "./context";
+import { isReadOutsideScope, resolvePath, scrubErrorPath, type ToolContext } from "./context";
 import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
 function resolveRoot(
@@ -26,11 +26,20 @@ function resolveRoot(
   };
 }
 
-export function buildSearchTools(ctx: ToolContext) {
+export function buildSearchTools(
+  ctx: ToolContext,
+  opts: { gateOutOfScopeReads?: boolean } = {},
+) {
+  // See buildFsTools: gate searches rooted outside the workspace/cwd in the main
+  // agent (approval UI); off for the autonomous subagent.
+  const gateReads = opts.gateOutOfScopeReads ?? true;
+  const rootNeedsApproval = gateReads
+    ? (input: { root?: string }) => (input.root ? isReadOutsideScope(input.root, ctx) : false)
+    : undefined;
   return {
     grep: tool({
       description:
-        "Regex content search across workspace (ripgrep, .gitignore honored). Returns {path,line,text} hits. Prefer this over read_file loops.",
+        "Regex content search across workspace (ripgrep, .gitignore honored). Returns {path,line,text} hits. Prefer this over read_file loops. A root outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         pattern: z
           .string()
@@ -47,6 +56,7 @@ export function buildSearchTools(ctx: ToolContext) {
         case_insensitive: flexBoolOpt(),
         max_results: flexIntOpt({ min: 1, max: 2000 }),
       }),
+      needsApproval: rootNeedsApproval,
       execute: async ({ pattern, root, glob, case_insensitive, max_results }) => {
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };
@@ -90,12 +100,13 @@ export function buildSearchTools(ctx: ToolContext) {
 
     glob: tool({
       description:
-        "Find files by path glob (e.g. `**/*.ts`). Gitignore-aware. Use over list_directory for recursive matches.",
+        "Find files by path glob (e.g. `**/*.ts`). Gitignore-aware. Use over list_directory for recursive matches. A root outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         pattern: z.string().describe("Glob pattern over relative paths."),
         root: z.string().optional(),
         max_results: flexIntOpt({ min: 1, max: 2000 }),
       }),
+      needsApproval: rootNeedsApproval,
       execute: async ({ pattern, root, max_results }) => {
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };

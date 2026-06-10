@@ -5,7 +5,13 @@ import { recordFileMutation } from "../lib/checkpoint";
 import { native } from "../lib/native";
 import { checkReadable, checkWritable } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
-import { resolvePath, scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
+import {
+  isReadOutsideScope,
+  resolvePath,
+  scrubErrorPath,
+  throwIfAborted,
+  type ToolContext,
+} from "./context";
 import { flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
@@ -52,11 +58,18 @@ async function checkWritableResolved(abs: string): Promise<ReturnType<typeof che
   return literal;
 }
 
-export function buildFsTools(ctx: ToolContext) {
+export function buildFsTools(
+  ctx: ToolContext,
+  opts: { gateOutOfScopeReads?: boolean } = {},
+) {
+  // Main agent (has an approval UI) gates reads that resolve outside the
+  // workspace/cwd; the autonomous read-only subagent passes false so its
+  // generateText loop never stalls on an approval that has no responder.
+  const gateReads = opts.gateOutOfScopeReads ?? true;
   return {
     read_file: tool({
       description:
-        "Read UTF-8 text file. Refuses binary / oversized / sensitive (.env, keys). Default first 2000 lines (200KB cap). Use offset/limit to page large files.",
+        "Read UTF-8 text file. Refuses binary / oversized / sensitive (.env, keys). Default first 2000 lines (200KB cap). Use offset/limit to page large files. A path outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
         offset: flexIntOpt({ min: 0 }).describe(
@@ -66,6 +79,9 @@ export function buildFsTools(ctx: ToolContext) {
           "Max lines to return. Default 2000. Cap is hard - re-call with a larger offset to page through.",
         ),
       }),
+      needsApproval: gateReads
+        ? (input: { path: string }) => isReadOutsideScope(input.path, ctx)
+        : undefined,
       execute: async ({ path, offset, limit }) => {
         const abs = resolvePath(path, ctx.getCwd());
         const safety = await checkReadableResolved(abs);
@@ -127,10 +143,14 @@ export function buildFsTools(ctx: ToolContext) {
     }),
 
     list_directory: tool({
-      description: "List immediate entries in a directory. Hidden entries omitted.",
+      description:
+        "List immediate entries in a directory. Hidden entries omitted. A path outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
       }),
+      needsApproval: gateReads
+        ? (input: { path: string }) => isReadOutsideScope(input.path, ctx)
+        : undefined,
       execute: async ({ path }) => {
         const abs = resolvePath(path, ctx.getCwd());
         const safety = await checkReadableResolved(abs);

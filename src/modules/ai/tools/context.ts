@@ -167,3 +167,45 @@ export function clampForModel(s: string, max = 48 * 1024): string {
   const tail = max - head;
   return `${s.slice(0, head)}\n\n...[${s.length - max} chars truncated]...\n\n${s.slice(s.length - tail)}`;
 }
+
+/** Normalize a path for scope comparison: forward slashes, collapse `.`/`..`
+ *  segments (so `ws/../etc` can't masquerade as inside `ws`), lowercase
+ *  (Windows is case-insensitive), and strip a trailing slash. */
+function normForScope(p: string): string {
+  const fwd = p.replace(/\\/g, "/");
+  const drive = (fwd.match(/^[a-zA-Z]:/) ?? [""])[0];
+  const isAbs = drive !== "" || fwd.startsWith("/");
+  const out: string[] = [];
+  for (const seg of fwd.slice(drive.length).split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      out.pop();
+      continue;
+    }
+    out.push(seg);
+  }
+  return `${drive}${isAbs ? "/" : ""}${out.join("/")}`.toLowerCase().replace(/\/$/, "");
+}
+
+/**
+ * True when `rawPath` resolves OUTSIDE both the workspace root and the active
+ * terminal cwd. Read tools (read_file / list_directory / grep / glob) use it as
+ * a `needsApproval` predicate so an out-of-project read prompts the user for
+ * consent - a prompt-injection exfil guard - while in-project reads stay auto.
+ * Errs toward in-scope (no approval) when scope is undefined or the path can't
+ * resolve; the read's own secret deny-list still applies regardless.
+ */
+export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
+  try {
+    if (!rawPath || !rawPath.trim()) return false;
+    const abs = normForScope(resolvePath(rawPath, ctx.getCwd()));
+    const roots = [ctx.getWorkspaceRoot(), ctx.getCwd()]
+      .filter((r): r is string => !!r)
+      .map(normForScope)
+      .filter((r) => r.length > 0);
+    if (roots.length === 0) return false;
+    return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
+  } catch {
+    return false;
+  }
+}

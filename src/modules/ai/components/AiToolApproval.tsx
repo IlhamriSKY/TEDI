@@ -3,9 +3,12 @@ import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
   Edit02Icon,
+  EyeIcon,
   FileEditIcon,
   FilePlusIcon,
+  Folder01Icon,
   FolderAddIcon,
+  GlobalSearchIcon,
   TerminalIcon,
   Tick02Icon,
   ToolsIcon,
@@ -28,6 +31,10 @@ const TOOL_META: Record<string, { label: string; icon: typeof FilePlusIcon }> = 
   create_directory: { label: "Create directory", icon: FolderAddIcon },
   bash_run: { label: "Run shell command", icon: TerminalIcon },
   bash_background: { label: "Spawn background process", icon: TerminalIcon },
+  read_file: { label: "Read file (outside workspace)", icon: EyeIcon },
+  list_directory: { label: "List directory (outside workspace)", icon: Folder01Icon },
+  grep: { label: "Search (outside workspace)", icon: GlobalSearchIcon },
+  glob: { label: "Find files (outside workspace)", icon: GlobalSearchIcon },
 };
 
 function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
@@ -169,6 +176,24 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
   if (toolName === "create_directory") {
     return (
       <div className="text-muted-foreground font-mono text-[11px]">{String(input.path ?? "")}</div>
+    );
+  }
+  if (toolName === "read_file" || toolName === "list_directory") {
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-muted-foreground break-all">{String(input.path ?? "")}</div>
+        <div className="text-muted-foreground/80 text-[10.5px]">outside the workspace root</div>
+      </div>
+    );
+  }
+  if (toolName === "grep" || toolName === "glob") {
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-muted-foreground break-all">{String(input.pattern ?? "")}</div>
+        <div className="text-muted-foreground/80 text-[10.5px] break-all">
+          root: {String(input.root ?? "(default)")} · outside the workspace root
+        </div>
+      </div>
     );
   }
   return (

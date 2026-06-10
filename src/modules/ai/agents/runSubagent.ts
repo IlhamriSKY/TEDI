@@ -48,10 +48,12 @@ export async function runSubagent({
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
 
-  // Read-only tools only. Skip mutating/recursive builders.
+  // Read-only tools only. Skip mutating/recursive builders. Disable the
+  // out-of-scope read approval gate: this generateText loop has no approval
+  // responder, so a gated read would stall instead of running.
   const readOnly: Record<string, unknown> = {
-    ...buildFsTools(toolContext),
-    ...buildSearchTools(toolContext),
+    ...buildFsTools(toolContext, { gateOutOfScopeReads: false }),
+    ...buildSearchTools(toolContext, { gateOutOfScopeReads: false }),
   };
   const filtered: Record<string, unknown> = {};
   for (const t of def.tools) {
