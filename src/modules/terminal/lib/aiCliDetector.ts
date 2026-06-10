@@ -277,16 +277,35 @@ const BLOCKED_SUBSTRINGS: readonly string[] = [
 // can quote them, so we also require "yes" or a cursor `❯` in the same region.
 const CONFIRMATION_PREFIXES = ["do you want", "would you like", "are you sure"] as const;
 
+// How far past the confirmation phrase to look for the "yes"/cursor that turns
+// it into a real prompt. A genuine confirmation puts the option right there
+// (same or next few lines, possibly across a short command/diff preview); a
+// conversational "What would you like to do?" does not - and the AI CLI's
+// always-present input-box cursor (❯) sits many lines below, so an UNBOUNDED
+// search wrongly flagged every such message as blocking. Scoping the window
+// fixes that false positive; the markers below are specific enough (an empty
+// input cursor never matches) that a few extra lines stay safe.
+const CONFIRMATION_ANSWER_WINDOW = 400;
+
+// An explicit yes/no choice near a confirmation phrase: a selection cursor on
+// a Yes/No option (`❯ Yes`, `▶ 1. No`) or a `(y)`/`(n)`/`y/n`/`yes/no` gate.
+// A bare "yes" or the always-present input-box cursor is NOT enough - that is
+// what made conversational "What would you like to do?" read as blocking.
+const CHOICE_CURSOR_RE = /[❯▶]\s*(?:\d+[.)]\s*)?(?:yes|no)\b/i;
+const YES_NO_GATE_RE = /\(\s*y\s*\)|\(\s*n\s*\)|\by\s*\/\s*n\b|\byes\s*\/\s*no\b/i;
+
 function hasConfirmationPrompt(content: string, lowerContent: string): boolean {
+  // The LAST occurrence: a live prompt is the most recent output, while an
+  // earlier conversational "would you like..." can sit higher in the scrollback
+  // and would otherwise shadow the real prompt below it (first-match-only miss).
   let pos = -1;
   for (const prefix of CONFIRMATION_PREFIXES) {
-    pos = lowerContent.indexOf(prefix);
-    if (pos >= 0) break;
+    const at = lowerContent.lastIndexOf(prefix);
+    if (at > pos) pos = at;
   }
   if (pos < 0) return false;
-  const afterLower = lowerContent.slice(pos);
-  if (afterLower.includes("yes")) return true;
-  return content.slice(pos).includes("❯");
+  const window = content.slice(pos, pos + CONFIRMATION_ANSWER_WINDOW);
+  return CHOICE_CURSOR_RE.test(window) || YES_NO_GATE_RE.test(window);
 }
 
 // Cursor glyphs marking the highlighted option in a selection prompt.

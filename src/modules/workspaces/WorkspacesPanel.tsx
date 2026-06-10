@@ -4,8 +4,20 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { type Tab } from "@/modules/tabs";
+import { leaves } from "@/modules/terminal/lib/panes";
 import {
+  aiCliIconClass,
+  aiCliLabel,
+  aiCliStateWord,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
+import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
+  ComputerTerminal02Icon,
   DashboardSquare02Icon,
   Folder01Icon,
   PencilEdit02Icon,
@@ -23,9 +35,9 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { countSavedTabEntries } from "./serialize";
-import { useWorkspacesStore, type Workspace } from "./store";
+import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 
 type Props = {
   /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
@@ -42,10 +54,104 @@ type Props = {
    * opened) fall back to `countSavedTabEntries` over their persisted tabs.
    */
   tabCounts?: Record<string, number>;
+  /**
+   * Live tabs of the ACTIVE workspace (the runtime tab strip). Used to list the
+   * active workspace's open terminals with live status when its row is
+   * expanded. Inactive workspaces read their persisted `tabs` instead.
+   */
+  liveTabs?: Tab[];
+  /** Live AI CLI status per terminal leaf id (idle / working / blocking). */
+  aiCliStatuses?: Map<number, AiCliStatus>;
+  /** Focus a specific live terminal leaf (active workspace only). */
+  onFocusLeaf?: (tabId: number, leafId: number) => void;
+  /** Currently focused leaf id; highlights its terminal row like the file tree. */
+  activeLeafId?: number | null;
+  /** Drag handle for sidebar-section reordering, injected by the sidebar. */
+  dragHandle?: ReactNode;
 };
 
+/** One terminal entry shown under an expanded workspace row. */
+type TermRow = {
+  key: string;
+  ordinal?: number;
+  cwd?: string;
+  /** Program-set terminal title (OSC 2), e.g. a running agent's title. Live only. */
+  title?: string;
+  /** Per-leaf privacy flag; reddens the ordinal badge, matching the tab strip. */
+  private?: boolean;
+  /** Live AI CLI status. Always null for inactive (persisted) workspaces. */
+  status: AiCliStatus;
+  /** Focus target for live terminals; null for persisted ones (click switches). */
+  live: { tabId: number; leafId: number } | null;
+};
+
+/** Trailing path segment, splitting on both separators (Windows + POSIX). */
+function basename(p?: string): string {
+  if (!p) return "";
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+/** Enumerate the active workspace's live terminal leaves with status + title. */
+function liveTermRows(
+  tabs: Tab[],
+  statuses?: Map<number, AiCliStatus>,
+  titles?: Record<number, string>,
+): TermRow[] {
+  const rows: TermRow[] = [];
+  for (const t of tabs) {
+    if (t.kind !== "pane") continue;
+    for (const leaf of leaves(t.paneTree)) {
+      if (leaf.leafKind !== "terminal") continue;
+      rows.push({
+        key: `live-${leaf.id}`,
+        ordinal: leaf.terminalOrdinal,
+        cwd: leaf.cwd,
+        title: titles?.[leaf.id],
+        private: leaf.private,
+        status: statuses?.get(leaf.id) ?? null,
+        live: { tabId: t.id, leafId: leaf.id },
+      });
+    }
+  }
+  return rows;
+}
+
+/** Enumerate a persisted workspace's saved terminal leaves (no live status). */
+function savedTermRows(tabs: SavedTab[]): TermRow[] {
+  const rows: TermRow[] = [];
+  const walk = (node: SavedPaneNode) => {
+    if (node.kind === "split") {
+      node.children.forEach(walk);
+      return;
+    }
+    if (node.leafKind === "terminal") {
+      rows.push({
+        key: `saved-${rows.length}`,
+        ordinal: node.terminalOrdinal,
+        cwd: node.cwd,
+        private: node.private,
+        status: null,
+        live: null,
+      });
+    }
+  };
+  for (const t of tabs) if (t.kind === "pane") walk(t.paneTree);
+  return rows;
+}
+
 // Memoized. Props are stable callbacks plus the counts map, so shallow equality skips re-renders.
-function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props) {
+function WorkspacesPanelInner({
+  onSwitch,
+  onCreate,
+  onClose,
+  tabCounts,
+  liveTabs,
+  aiCliStatuses,
+  onFocusLeaf,
+  activeLeafId,
+  dragHandle,
+}: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
@@ -55,6 +161,8 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
   const [draft, setDraft] = useState("");
   // dnd-kit active drag id (workspace id), or null when not dragging.
   const [dragId, setDragId] = useState<string | null>(null);
+  // Which workspace rows are expanded to reveal their terminals (session-only).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const startEdit = (id: string, current: string) => {
     setEditingId(id);
@@ -69,12 +177,27 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
     setEditingId(null);
     setDraft("");
   };
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // 5px activation distance so a plain click still switches / a double-click
   // still renames; only a real drag starts the reorder. Mirrors the tab strip.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const sortableIds = useMemo(() => workspaces.map((w) => w.id), [workspaces]);
   const draggedWorkspace = dragId ? (workspaces.find((w) => w.id === dragId) ?? null) : null;
+
+  // Per-leaf terminal titles (OSC 2), e.g. a running agent's title.
+  const titles = useTerminalTitles((s) => s.titles);
+  // Active workspace's live terminals, recomputed when tabs / statuses / titles change.
+  const activeTermRows = useMemo(
+    () => (liveTabs ? liveTermRows(liveTabs, aiCliStatuses, titles) : []),
+    [liveTabs, aiCliStatuses, titles],
+  );
 
   const handleDragEnd = (ev: DragEndEvent) => {
     setDragId(null);
@@ -86,6 +209,7 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+        {dragHandle}
         <HugeiconsIcon
           icon={DashboardSquare02Icon}
           size={13}
@@ -122,8 +246,10 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
                   workspace={w}
                   isActive={w.id === activeId}
                   isEditing={editingId === w.id}
+                  isExpanded={expanded.has(w.id)}
                   draft={draft}
                   tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
+                  terminals={w.id === activeId ? activeTermRows : savedTermRows(w.tabs)}
                   canClose={workspaces.length > 1}
                   // Editing a name needs an interactive input, so suspend drag for that row.
                   sortable={editingId !== w.id}
@@ -133,6 +259,9 @@ function WorkspacesPanelInner({ onSwitch, onCreate, onClose, tabCounts }: Props)
                   onDraftChange={setDraft}
                   onCommitEdit={commitEdit}
                   onCancelEdit={cancelEdit}
+                  onToggleExpanded={toggleExpanded}
+                  onFocusLeaf={onFocusLeaf}
+                  activeLeafId={activeLeafId}
                 />
               ))}
             </ul>
@@ -160,8 +289,10 @@ type RowProps = {
   workspace: Workspace;
   isActive: boolean;
   isEditing: boolean;
+  isExpanded: boolean;
   draft: string;
   tabCount: number;
+  terminals: TermRow[];
   canClose: boolean;
   sortable: boolean;
   onSwitch: (id: string) => void;
@@ -170,20 +301,26 @@ type RowProps = {
   onDraftChange: (value: string) => void;
   onCommitEdit: () => void;
   onCancelEdit: () => void;
+  onToggleExpanded: (id: string) => void;
+  onFocusLeaf?: (tabId: number, leafId: number) => void;
+  activeLeafId?: number | null;
 };
 
 /**
- * One workspace row. The whole row is the drag handle (like a tab), so a plain
- * click still switches and a double-click still renames thanks to the sensor's
- * activation distance. The trailing action buttons stop pointer propagation so
- * clicking them never starts a drag.
+ * One workspace row. The header line is the drag handle (like a tab), so a
+ * plain click still switches and a double-click still renames thanks to the
+ * sensor's activation distance. The trailing action buttons and the (optional)
+ * terminal sub-list stop pointer propagation so interacting with them never
+ * starts a drag.
  */
 function SortableWorkspaceRow({
   workspace: w,
   isActive,
   isEditing,
+  isExpanded,
   draft,
   tabCount,
+  terminals,
   canClose,
   sortable,
   onSwitch,
@@ -192,6 +329,9 @@ function SortableWorkspaceRow({
   onDraftChange,
   onCommitEdit,
   onCancelEdit,
+  onToggleExpanded,
+  onFocusLeaf,
+  activeLeafId,
 }: RowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: w.id,
@@ -202,6 +342,7 @@ function SortableWorkspaceRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const hasTerminals = terminals.length > 0;
 
   return (
     <li
@@ -211,87 +352,171 @@ function SortableWorkspaceRow({
       style={style}
       {...attributes}
       {...listeners}
-      className={cn(
-        "group relative flex h-7 items-center gap-1.5 rounded px-1.5 text-xs",
-        sortable && "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-30",
-        isActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
-      )}
+      className={cn("flex flex-col", sortable && "cursor-grab active:cursor-grabbing")}
     >
-      <HugeiconsIcon icon={Folder01Icon} size={13} strokeWidth={1.75} className="shrink-0" />
-      {isEditing ? (
-        <input
-          autoFocus
-          aria-label="Workspace name"
-          value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onCommitEdit();
-            else if (e.key === "Escape") onCancelEdit();
-          }}
-          onBlur={onCommitEdit}
-          className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
-        />
-      ) : (
+      <div
+        className={cn(
+          "group relative flex h-7 items-center gap-1 rounded px-1.5 text-xs",
+          isDragging && "opacity-30",
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
+        )}
+      >
         <button
           type="button"
-          onClick={() => {
-            if (!isActive) onSwitch(w.id);
-          }}
-          onDoubleClick={() => onStartEdit(w.id, w.name)}
-          className="min-w-0 flex-1 truncate text-left"
+          // Stop the drag listeners; a click only toggles the terminal list.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => hasTerminals && onToggleExpanded(w.id)}
+          aria-label={isExpanded ? "Collapse terminals" : "Expand terminals"}
+          aria-expanded={isExpanded}
+          disabled={!hasTerminals}
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded",
+            hasTerminals ? "hover:bg-foreground/10" : "opacity-0",
+          )}
         >
-          {w.name}
+          <HugeiconsIcon
+            icon={isExpanded ? ArrowDown01Icon : ArrowRight01Icon}
+            size={11}
+            strokeWidth={2.25}
+          />
         </button>
-      )}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className={cn(
-              "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
-              isActive ? "text-accent-foreground/80" : "text-muted-foreground",
-              "group-hover:opacity-0",
-            )}
-            aria-label={`${tabCount} tabs open`}
+        <HugeiconsIcon icon={Folder01Icon} size={13} strokeWidth={1.75} className="shrink-0" />
+        {isEditing ? (
+          <input
+            autoFocus
+            aria-label="Workspace name"
+            value={draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onCommitEdit();
+              else if (e.key === "Escape") onCancelEdit();
+            }}
+            onBlur={onCommitEdit}
+            className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (!isActive) onSwitch(w.id);
+            }}
+            onDoubleClick={() => onStartEdit(w.id, w.name)}
+            className="min-w-0 flex-1 truncate text-left"
           >
-            {tabCount}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
-        </TooltipContent>
-      </Tooltip>
-      <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-        <IconTooltip label="Rename">
-          <Button
-            // Stop the pointerdown from reaching the row's drag listeners.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onStartEdit(w.id, w.name)}
-            aria-label="Rename workspace"
-            variant="ghost"
-            size="icon-sm"
-            className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
-          >
-            <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
-        {canClose && (
-          <IconTooltip label="Close workspace">
+            {w.name}
+          </button>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={cn(
+                "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
+                isActive ? "text-accent-foreground/80" : "text-muted-foreground",
+                "group-hover:opacity-0",
+              )}
+              aria-label={`${tabCount} tabs open`}
+            >
+              {tabCount}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
+          </TooltipContent>
+        </Tooltip>
+        <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+          <IconTooltip label="Rename">
             <Button
+              // Stop the pointerdown from reaching the row's drag listeners.
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => onClose(w.id)}
-              aria-label="Close workspace"
+              onClick={() => onStartEdit(w.id, w.name)}
+              aria-label="Rename workspace"
               variant="ghost"
               size="icon-sm"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-5 rounded"
+              className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
-        )}
-      </span>
+          {canClose && (
+            <IconTooltip label="Close workspace">
+              <Button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onClose(w.id)}
+                aria-label="Close workspace"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-5 rounded"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          )}
+        </span>
+      </div>
+      {isExpanded && hasTerminals && (
+        // Not a drag surface: stop pointerdown so scrolling/clicking the list
+        // never starts a workspace reorder.
+        <ul onPointerDown={(e) => e.stopPropagation()} className="mt-0.5 mb-1 flex flex-col gap-px">
+          {terminals.map((t) => {
+            const isActiveTerminal = activeLeafId != null && t.live?.leafId === activeLeafId;
+            return (
+              <li key={t.key}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (t.live && onFocusLeaf) onFocusLeaf(t.live.tabId, t.live.leafId);
+                    else if (!isActive) onSwitch(w.id);
+                  }}
+                  title={t.status ? `${t.cwd ?? "~"} · ${aiCliLabel(t.status)}` : t.cwd}
+                  className={cn(
+                    "relative flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7 text-left text-[11px] transition-colors",
+                    isActiveTerminal
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
+                      : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
+                  )}
+                >
+                  <HugeiconsIcon
+                    icon={ComputerTerminal02Icon}
+                    size={11}
+                    strokeWidth={1.75}
+                    className={cn("shrink-0", t.status ? aiCliIconClass(t.status) : "opacity-70")}
+                  />
+                  {t.ordinal != null && (
+                    <span
+                      className={cn(
+                        "inline-flex shrink-0 items-center rounded px-1 py-[2px] font-mono text-[9px] leading-none font-semibold tabular-nums",
+                        t.private
+                          ? "bg-icon-blocked text-background"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {t.ordinal}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {basename(t.cwd) || "~"}
+                    {t.title && t.title !== basename(t.cwd) && t.title !== t.cwd ? (
+                      <span className="opacity-60"> · {t.title}</span>
+                    ) : null}
+                  </span>
+                  {t.status && (
+                    <span
+                      className={cn(
+                        "shrink-0 text-[9px] tracking-wide uppercase",
+                        aiCliIconClass(t.status),
+                      )}
+                    >
+                      {aiCliStateWord(t.status)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </li>
   );
 }

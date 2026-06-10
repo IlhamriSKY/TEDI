@@ -38,6 +38,7 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TEDI_TERMINAL", "1");
     ensure_utf8_locale(cmd);
+    apply_extra_path(cmd);
 
     let resolved_cwd = cwd
         .map(PathBuf::from)
@@ -51,6 +52,87 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
         cmd.cwd(cwd);
     } else {
         log::warn!("pty cwd: no usable directory, inheriting from process");
+    }
+}
+
+/// Directories the user configured under Settings → Terminal → "Additional
+/// PATH". Read straight from the `tauri-plugin-store` settings file rather than
+/// threaded through the daemon protocol: `apply_common` runs in whichever
+/// process owns the PTY (the GUI for the in-process backend, the sidecar for
+/// the daemon backend), and both resolve the same
+/// `<data_dir>/<BUNDLE_ID>/tedi-settings.json`. Reading per spawn keeps the
+/// setting live - a newly opened terminal sees edits without a daemon restart.
+/// Best-effort: any missing-file / parse error yields no extra entries so the
+/// shell still launches with the inherited PATH.
+fn user_extra_path_dirs() -> Vec<String> {
+    let Some(dir) = crate::modules::ids::app_data_dir() else {
+        return Vec::new();
+    };
+    let Ok(raw) = std::fs::read_to_string(dir.join("tedi-settings.json")) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    let Some(arr) = value.get("terminalEnvPath").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|entry| match entry {
+            // Legacy shape: a bare string is always enabled.
+            serde_json::Value::String(s) => Some(s.as_str()),
+            // Current shape: { "path": "…", "enabled": bool }. A missing
+            // `enabled` defaults to true; an explicit `false` drops the entry
+            // so a user can keep a directory listed but inactive.
+            serde_json::Value::Object(_) => {
+                let enabled = entry
+                    .get("enabled")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true);
+                if enabled {
+                    entry.get("path").and_then(serde_json::Value::as_str)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Prepend the user's configured directories to PATH so commands living there
+/// (a Laragon `composer`, a portable toolchain, …) resolve in the interactive
+/// terminal without editing the OS-level PATH. Prepended so user entries win
+/// over inherited ones. `cmd.env("PATH", …)` overrides rather than duplicates:
+/// portable-pty case-folds env keys on Windows, so this replaces the inherited
+/// `Path` instead of adding a second entry. No-op when nothing is configured.
+fn apply_extra_path(cmd: &mut CommandBuilder) {
+    let dirs = user_extra_path_dirs();
+    if dirs.is_empty() {
+        return;
+    }
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries: Vec<PathBuf> = dirs
+        .into_iter()
+        .map(|d| {
+            // A user may paste forward-slash paths from the explorer; Windows
+            // tools resolve PATH entries via backslashes, so normalize there.
+            #[cfg(windows)]
+            let d = d.replace('/', "\\");
+            PathBuf::from(d)
+        })
+        .collect();
+    entries.extend(std::env::split_paths(&current).filter(|p| !p.as_os_str().is_empty()));
+    match std::env::join_paths(&entries) {
+        Ok(joined) => {
+            cmd.env("PATH", joined);
+        }
+        // A configured dir contains the platform PATH separator (`;`/`:`).
+        // Leave PATH untouched rather than corrupting the whole variable.
+        Err(e) => log::warn!("terminal additional PATH skipped: {e}"),
     }
 }
 

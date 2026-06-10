@@ -22,6 +22,8 @@ type PanelHeaderProps = {
   onDiscardAll: () => void;
   onOpenInTab?: () => void;
   onClose?: () => void;
+  /** Sidebar-section reorder + collapse controls, injected by the sidebar. */
+  dragHandle?: React.ReactNode;
 };
 
 export function PanelHeader({
@@ -33,9 +35,11 @@ export function PanelHeader({
   onDiscardAll,
   onOpenInTab,
   onClose,
+  dragHandle,
 }: PanelHeaderProps) {
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+      {dragHandle}
       <HugeiconsIcon
         icon={GitBranchIcon}
         size={13}

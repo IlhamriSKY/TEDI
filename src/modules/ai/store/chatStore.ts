@@ -50,7 +50,7 @@ type Live = {
   injectIntoActivePty: (text: string) => boolean;
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
-  openPreview: (url: string) => boolean;
+  openPreview: (url: string) => number | null;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
    *  Returns true if a new tab was created. */
   openTerminal: (cwd?: string | null) => boolean;
@@ -272,7 +272,7 @@ const NOOP_LIVE: Live = {
   injectIntoActivePty: () => false,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
-  openPreview: () => false,
+  openPreview: () => null,
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
   consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),

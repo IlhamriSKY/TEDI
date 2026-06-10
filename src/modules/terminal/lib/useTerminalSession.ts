@@ -21,6 +21,7 @@ import type { SshStatus } from "@/modules/ssh/status";
 import { createAiCliDetector, cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
 import { sessions, type Callbacks, type Session } from "./sessionState";
+import { useTerminalTitles } from "./terminalTitles";
 import {
   BACKWARD_KILL_WORD,
   SHIFT_ENTER,
@@ -288,6 +289,15 @@ function ensureSession(
   });
   session.aiCliDetector = detector;
   session.cleanups.push(() => detector.dispose());
+
+  // Mirror the program-set terminal title (OSC 0/2) into a small store the
+  // Workspaces panel reads, so a running agent's title (Claude Code, Codex, …)
+  // shows next to the folder name. Lives for the term's life; the entry is
+  // dropped in `disposeSession`.
+  const titleSub = term.onTitleChange((title) => {
+    useTerminalTitles.getState().setTitle(leafId, title);
+  });
+  session.cleanups.push(() => titleSub.dispose());
 
   // Route through session.pty so respawn doesn't rebind. Capture the
   // disposable and release it in `disposeSession` (via cleanups) so the
@@ -608,6 +618,7 @@ export function disposeSession(leafId: number): void {
   s.pty?.close();
   s.term.dispose();
   sessions.delete(leafId);
+  useTerminalTitles.getState().clearTitle(leafId);
 }
 
 type Options = {

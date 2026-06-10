@@ -117,7 +117,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       return leaf.path;
     },
     openPreview: (url: string) => {
-      return liveContextRef.current.openPreviewTab(url) !== null;
+      return liveContextRef.current.openPreviewTab(url);
     },
     // Drive an existing browser pane (by leaf id from listBrowsers). navigate
     // just sets the leaf url - PreviewPane navigates the live webview and syncs

@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.27] - 10-06-2026
+
+### Added
+
+- **The terminal can prepend extra folders to its `PATH` via a new Settings -> General -> Terminal -> "Additional PATH" list.** Add directories that aren't on your OS `PATH` (e.g. a Laragon `composer`, a portable toolchain) and they resolve in TEDI's terminal without touching system environment variables. Each entry has its own enable/disable toggle and a remove button, added explicitly through an input + **Add** button so a change always persists immediately. The Rust PTY layer reads the enabled entries straight from the settings store at spawn and prepends them, so edits apply to newly opened terminals without a daemon restart; existing terminals keep their original `PATH` ([`AdditionalPathEditor.tsx`](src/settings/sections/components/AdditionalPathEditor.tsx), [`store.ts`](src/modules/settings/store.ts), [`GeneralSection.tsx`](src/settings/sections/GeneralSection.tsx), [`shell_init.rs`](src-tauri/src/modules/pty/shell_init.rs)).
+- **The Workspaces panel now lists each workspace's open terminals.** Expand a workspace row to reveal its terminals: the active workspace shows them live with AI CLI status (Claude / Codex / Copilot / … shown as idle, working, or waiting-for-approval, color-coded) and labelled with the same ordinal badge as the tab strip plus the running program's title (so an agent like Claude Code shows its name next to the folder), and clicking one jumps straight to that terminal (activates the tab and focuses the pane). Inactive workspaces list their persisted terminals, and clicking switches to that workspace ([`WorkspacesPanel.tsx`](src/modules/workspaces/WorkspacesPanel.tsx), [`AppSidebar.tsx`](src/app/components/AppSidebar.tsx), [`App.tsx`](src/app/App.tsx)).
+
+### Changed
+
+- **The left sidebar's sections (Files, Source Control, Workspaces, and Remote files while an SSH session is open) can be reordered, resized, and collapsed.** Drag the grip in a section header to reorder the sections; drag the divider between two sections to move the boundary, using the same `react-resizable-panels` model and drag-handle indicator as the editor/terminal split panes; click the chevron to collapse a section down to just its header. While expanded, each section keeps a minimum height so its content stays visible, and the section order persists across launches ([`AppSidebar.tsx`](src/app/components/AppSidebar.tsx), [`resizable.tsx`](src/components/ui/resizable.tsx), [`ExplorerHeader.tsx`](src/modules/explorer/components/ExplorerHeader.tsx), [`PanelHeader.tsx`](src/modules/scm/components/PanelHeader.tsx)).
+- **All resize handles now share one indicator.** The split-pane, sidebar-section, and side-panel dividers use a single styled `ResizableHandle` (a centered grip that highlights on hover and honors the customizable `--tedi-resize-handle` theme color), so every draggable boundary looks and behaves the same ([`resizable.tsx`](src/components/ui/resizable.tsx)).
+
+### Fixed
+
+- **Clicking a breadcrumb segment no longer garbles a busy terminal.** Writing `cd "…"` into the active terminal now only happens when the shell is idle at a prompt (an `isAtPrompt()` guard mirroring the `run_in_terminal` check); while a command is running, output is streaming, or a TUI owns the alt-screen, the shell write is skipped so the keystrokes don't land in that program's stdin. The explorer and AI workspace context still follow the click, and the next breadcrumb click once the command finishes cds for real ([`useTabActions.ts`](src/app/hooks/useTabActions.ts)).
+
 ## [0.3.26] - 08-06-2026
 
 ### Added

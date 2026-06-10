@@ -31,6 +31,8 @@ type Props = {
   rootPath: string;
   collapsed: boolean;
   onToggleCollapsed?: () => void;
+  /** Sidebar-section reorder controls (grip), injected by the sidebar. */
+  dragHandle?: React.ReactNode;
   hideCreateActions: boolean;
   hideGrep: boolean;
   hideSort: boolean;
@@ -50,6 +52,7 @@ export function ExplorerHeader({
   rootPath,
   collapsed,
   onToggleCollapsed,
+  dragHandle,
   hideCreateActions,
   hideGrep,
   hideSort,
@@ -88,6 +91,7 @@ export function ExplorerHeader({
 
   return (
     <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+      {dragHandle}
       <Tooltip>
         <TooltipTrigger asChild>
           {accordion ? (

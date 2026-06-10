@@ -38,6 +38,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
 
 type ShimInstallResult =
   | { status: "installed"; path: string; target: string; on_path: boolean }
@@ -251,6 +252,7 @@ export function GeneralSection() {
             </DropdownMenuContent>
           </DropdownMenu>
         </SettingRow>
+        <AdditionalPathEditor />
       </div>
 
       <div className="flex flex-col gap-2">

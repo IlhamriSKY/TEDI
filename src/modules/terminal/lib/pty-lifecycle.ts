@@ -12,6 +12,7 @@ import {
   containsSchemeSeparator,
 } from "./session-helpers";
 import { openSshForSession } from "./ssh-session";
+import { useTerminalTitles } from "./terminalTitles";
 
 /**
  * Push xterm dimensions to the live PTY, floored to MIN_PTY_DIM and
@@ -315,6 +316,10 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   s.pty = null;
   s.ptySpawnedAt = null;
   s.term.reset();
+  // term.reset() does not re-emit onTitleChange, so a previous program's OSC
+  // title (e.g. an AI agent) would linger in the sidebar until the fresh shell
+  // happens to set one. Clear it so the row reverts to the plain folder name.
+  useTerminalTitles.getState().clearTitle(leafId);
   s.placeholderShown = false;
   s.term.options.disableStdin = false;
   s.lastSentCols = 0;

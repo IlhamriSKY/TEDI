@@ -69,10 +69,12 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     const hostLabelForTab = (tab: Tab | undefined): string | null =>
       tab && tab.kind === "pane" ? tab.title : null;
 
-    // Active leaf if connected.
+    // Active leaf if connected. A live SSH session is keyed in `sshStatuses` by
+    // leaf id; that connected status (not a saved `sshConnectionId`, which an
+    // ad-hoc connection lacks) is what makes a leaf drive the panel.
     if (activePaneTab) {
       const leaf = activeLeaf(activePaneTab);
-      if (leaf && leaf.leafKind === "terminal" && leaf.sshConnectionId) {
+      if (leaf && leaf.leafKind === "terminal") {
         const sid = lookupLeafSession(leaf.id);
         if (sid !== null) {
           return {
@@ -88,7 +90,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
-        if (l.leafKind !== "terminal" || !l.sshConnectionId) continue;
+        if (l.leafKind !== "terminal") continue;
         const sid = lookupLeafSession(l.id);
         if (sid !== null)
           return { sessionId: sid, hostLabel: hostLabelForTab(t), cwd: l.cwd ?? null };
@@ -103,11 +105,16 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
-        if (l.leafKind === "terminal" && l.sshConnectionId) return true;
+        // A saved SSH profile (sshConnectionId) OR a live session keyed in
+        // sshStatuses both mark an SSH terminal, so an ad-hoc connection (no
+        // saved profile) still surfaces the remote file tree section.
+        if (l.leafKind === "terminal" && (l.sshConnectionId || sshStatuses.has(l.id))) {
+          return true;
+        }
       }
     }
     return false;
-  }, [tabs]);
+  }, [tabs, sshStatuses]);
 
   const handleAiCliStatus = useCallback((leafId: number, status: AiCliStatus) => {
     setAiCliStatuses((prev) => {

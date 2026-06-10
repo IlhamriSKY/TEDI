@@ -13,8 +13,8 @@ export type ToolContext = {
   /** Type text into the active terminal without executing. Returns false when
    *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;
-  /** Open an in-app preview tab at `url`. */
-  openPreview: (url: string) => boolean;
+  /** Open an in-app preview tab at `url`. Returns the new leaf id, or null on failure. */
+  openPreview: (url: string) => number | null;
   /** Navigate an existing browser pane (leaf id from `listBrowsers`) to a URL.
    *  False if that leaf isn't a browser. */
   navigateBrowser: (leafId: number, url: string) => boolean;

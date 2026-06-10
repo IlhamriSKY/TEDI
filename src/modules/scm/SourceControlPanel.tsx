@@ -48,6 +48,10 @@ type Props = {
    * just the commit history graph, with commit detail floating at the cursor.
    */
   historyOnly?: boolean;
+  /** Sidebar-section reorder + collapse controls, injected by the sidebar. */
+  dragHandle?: React.ReactNode;
+  /** When the sidebar section is minimized to its header, the body is skipped. */
+  collapsed?: boolean;
 };
 
 const STATUS_ORDER: Record<GitChangeStatus, number> = {
@@ -113,6 +117,8 @@ export function SourceControlPanel({
   onClose,
   onOpenInTab,
   historyOnly = false,
+  dragHandle,
+  collapsed = false,
 }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -433,8 +439,11 @@ export function SourceControlPanel({
         onDiscardAll={() => setConfirmAll(true)}
         onOpenInTab={onOpenInTab}
         onClose={onClose}
+        dragHandle={dragHandle}
       />
 
+      {collapsed ? null : (
+      <>
       {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
       <Separator className="bg-border" />
@@ -510,6 +519,8 @@ export function SourceControlPanel({
             />
           </TabsContent>
         </Tabs>
+      )}
+      </>
       )}
 
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>

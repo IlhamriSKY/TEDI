@@ -53,6 +53,8 @@ type Props = {
    *  fires once per distinct `activeFilePath` value so user-initiated
    *  collapses are not undone on the next tab repaint. */
   activeFilePath?: string | null;
+  /** Sidebar-section reorder controls (grip), forwarded to the header. */
+  dragHandle?: React.ReactNode;
 };
 
 /**
@@ -91,6 +93,7 @@ export function FileExplorer({
   hideSort = false,
   headerExtras,
   activeFilePath,
+  dragHandle,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   // Re-render once the lazy-loaded catppuccin icon set arrives so file +
@@ -342,6 +345,7 @@ export function FileExplorer({
         rootPath={rootPath}
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
+        dragHandle={dragHandle}
         hideCreateActions={hideCreateActions}
         hideGrep={hideGrep}
         hideSort={hideSort}

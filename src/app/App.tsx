@@ -308,22 +308,6 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
-  // Accordion sub-panels inside the merged Files section. Each section
-  // collapses to its h-8 header via flex layout, not react-resizable-panels'
-  // collapse. The library redistributes freed space by `defaultSize`
-  // weight, which would force one section back open if both collapsed.
-  // Plain flex avoids that: `flex-1` when open, `h-8 shrink-0` when
-  // collapsed. The parent stays a single ResizablePanel so the whole Files
-  // section can still resize against SCM / Workspaces below.
-  const [localFilesCollapsed, setLocalFilesCollapsed] = useState(false);
-  const [sshFilesCollapsed, setSshFilesCollapsed] = useState(false);
-  const toggleLocalFiles = useCallback(() => {
-    setLocalFilesCollapsed((v) => !v);
-  }, []);
-  const toggleSshFiles = useCallback(() => {
-    setSshFilesCollapsed((v) => !v);
-  }, []);
-
   // When the active workspace is closed, activeId is reassigned to a
   // neighbor. Skip the auto-snapshot for that transition so it doesn't
   // overwrite the neighbor's saved tabs with the closing workspace's
@@ -693,6 +677,16 @@ export default function App() {
     newSshTab,
   });
 
+  // Activate a tab and focus a specific leaf inside it. Backs the Workspaces
+  // panel's terminal list (jump straight to a running terminal).
+  const focusLeafInTab = useCallback(
+    (tabId: number, leafId: number) => {
+      setActiveId(tabId);
+      focusPane(tabId, leafId);
+    },
+    [setActiveId, focusPane],
+  );
+
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
@@ -735,10 +729,6 @@ export default function App() {
                 onSidebarResize={handleSidebarResize}
                 explorerRoot={explorerRoot}
                 hasAnySshLeaf={hasAnySshLeaf}
-                localFilesCollapsed={localFilesCollapsed}
-                sshFilesCollapsed={sshFilesCollapsed}
-                toggleLocalFiles={toggleLocalFiles}
-                toggleSshFiles={toggleSshFiles}
                 onOpenFile={handleOpenFile}
                 onPathRenamed={handlePathRenamed}
                 onPathDeleted={handlePathDeleted}
@@ -753,6 +743,10 @@ export default function App() {
                 onCreateWorkspace={createNewWorkspace}
                 onCloseWorkspace={closeWorkspace}
                 tabCounts={liveTabCounts}
+                liveTabs={tabs}
+                aiCliStatuses={aiCliStatuses}
+                onFocusLeaf={focusLeafInTab}
+                activeLeafId={activePaneTab?.activeLeafId ?? null}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
               />

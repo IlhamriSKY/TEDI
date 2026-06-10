@@ -31,7 +31,7 @@ import {
   UnfoldLessIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
 
@@ -54,6 +54,8 @@ type Props = {
   /** Accordion mode: header becomes a toggle and the body hides when `collapsed`. */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  /** Sidebar-section reorder grip, injected by the sidebar. Mirrors the local file tree. */
+  dragHandle?: ReactNode;
 };
 
 export function SshFileExplorer({
@@ -63,12 +65,15 @@ export function SshFileExplorer({
   onOpenFile,
   collapsed = false,
   onToggleCollapsed,
+  dragHandle,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   // Re-render once the lazy-loaded catppuccin icon set arrives.
   useExplorerIconsReady();
   const [homePath, setHomePath] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
+  // Highlights the clicked row, matching the local file tree.
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   // Resolve the remote home once per session. Used as fallback when the
   // active terminal leaf has not yet reported a cwd via OSC 7.
@@ -140,6 +145,7 @@ export function SshFileExplorer({
   return (
     <div className="flex h-full flex-col outline-none">
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+        {dragHandle}
         <Tooltip>
           <TooltipTrigger asChild>
             {accordion ? (
@@ -286,8 +292,8 @@ export function SshFileExplorer({
                             onOpenFile?.(path, sessionId, hostLabel);
                           }
                         }}
-                        selectedPath={null}
-                        onSelectPath={() => {}}
+                        selectedPath={selectedPath}
+                        onSelectPath={setSelectedPath}
                       />
                     ))}
                 </div>

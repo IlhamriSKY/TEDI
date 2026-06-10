@@ -52,6 +52,13 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
   "xcode-light": "Xcode Light",
 };
 
+/**
+ * One entry in the terminal's "Additional PATH" list. `enabled: false` keeps
+ * the directory in the list (so the user can flip it back on) but excludes it
+ * from the PATH the Rust PTY layer assembles at spawn.
+ */
+export type TerminalPathEntry = { path: string; enabled: boolean };
+
 export type Preferences = {
   theme: ThemePref;
   defaultModelId: DynamicModelId;
@@ -87,6 +94,16 @@ export type Preferences = {
   showMinimap: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
+  /**
+   * Extra directories prepended to the interactive terminal shell's PATH at
+   * spawn. Each entry can be individually enabled/disabled. Lets commands that
+   * live outside the OS PATH (e.g. a Laragon `composer`, a portable toolchain)
+   * resolve in TEDI's terminal without editing the system PATH. Read directly
+   * by the Rust PTY layer from this settings file, so edits apply to newly
+   * opened terminals without a daemon restart; existing terminals keep their
+   * original PATH. Empty by default.
+   */
+  terminalEnvPath: TerminalPathEntry[];
   showHiddenFiles: boolean;
   /** Show the Source Control panel. Default true. */
   showSourceControl: boolean;
@@ -235,6 +252,7 @@ const KEY_LINE_WRAP = "lineWrap";
 const KEY_SHOW_MINIMAP = "showMinimap";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
+const KEY_TERMINAL_ENV_PATH = "terminalEnvPath";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SOURCE_CONTROL_IN_RIGHT_PANEL = "sourceControlInRightPanel";
@@ -323,6 +341,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMinimap: true,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
+  terminalEnvPath: [],
   showHiddenFiles: false,
   showSourceControl: true,
   sourceControlInRightPanel: false,
@@ -403,6 +422,7 @@ export async function loadPreferences(): Promise<Preferences> {
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ?? DEFAULT_PREFERENCES.terminalWebglEnabled,
     terminalFontSize: get<number>(KEY_TERMINAL_FONT_SIZE) ?? DEFAULT_PREFERENCES.terminalFontSize,
+    terminalEnvPath: normalizeTerminalPathEntries(get<unknown>(KEY_TERMINAL_ENV_PATH)),
     showHiddenFiles: get<boolean>(KEY_SHOW_HIDDEN_FILES) ?? DEFAULT_PREFERENCES.showHiddenFiles,
     showSourceControl:
       get<boolean>(KEY_SHOW_SOURCE_CONTROL) ?? DEFAULT_PREFERENCES.showSourceControl,
@@ -491,6 +511,32 @@ function normalizeOpenAICompatibleInstances(
     if (b.id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID) return 1;
     return 0;
   });
+  return out;
+}
+
+/**
+ * Coerce a persisted value into a clean `TerminalPathEntry[]`: trims paths,
+ * drops blanks, and defaults `enabled` to true. Tolerates the legacy shape
+ * (a plain `string[]`) so an early value written before per-entry toggles is
+ * migrated rather than lost. A corrupt or absent value yields `[]` so the
+ * terminal still spawns with the inherited PATH.
+ */
+function normalizeTerminalPathEntries(raw: unknown): TerminalPathEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TerminalPathEntry[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const path = item.trim();
+      if (path) out.push({ path, enabled: true });
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const rec = item as Record<string, unknown>;
+      const path = typeof rec.path === "string" ? rec.path.trim() : "";
+      if (!path) continue;
+      out.push({ path, enabled: rec.enabled !== false });
+    }
+  }
   return out;
 }
 
@@ -637,6 +683,18 @@ export async function setTerminalFontSize(value: number): Promise<void> {
     ? Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(value)))
     : TERMINAL_FONT_SIZE_DEFAULT;
   await writePref(KEY_TERMINAL_FONT_SIZE, clamped);
+}
+
+/**
+ * Persist the extra terminal PATH directories. Entries are trimmed and blanks
+ * dropped before saving so the Rust PTY layer reads a clean list. Takes effect
+ * on newly opened terminals.
+ */
+export async function setTerminalEnvPath(value: TerminalPathEntry[]): Promise<void> {
+  const cleaned = value
+    .map((e) => ({ path: e.path.trim(), enabled: e.enabled !== false }))
+    .filter((e) => e.path.length > 0);
+  await writePref(KEY_TERMINAL_ENV_PATH, cleaned);
 }
 
 export async function setShortcuts(value: Record<ShortcutId, KeyBinding[]> | {}): Promise<void> {
@@ -836,6 +894,7 @@ export async function onPreferencesChange(
     showMinimap: KEY_SHOW_MINIMAP,
     terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,
     terminalFontSize: KEY_TERMINAL_FONT_SIZE,
+    terminalEnvPath: KEY_TERMINAL_ENV_PATH,
     showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
     showSourceControl: KEY_SHOW_SOURCE_CONTROL,
     sourceControlInRightPanel: KEY_SOURCE_CONTROL_IN_RIGHT_PANEL,

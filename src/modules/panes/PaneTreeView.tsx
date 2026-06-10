@@ -423,10 +423,7 @@ const PaneNodes = memo(function PaneNodes({
       {node.children.map((child, i) => (
         <Fragment key={child.id}>
           {i > 0 && (
-            <ResizableHandle
-              withHandle
-              className="bg-border/50 hover:bg-primary/50 transition-colors"
-            />
+            <ResizableHandle withHandle />
           )}
           <ResizablePanel id={`pane-${child.id}`} minSize="10%">
             <PaneNodes

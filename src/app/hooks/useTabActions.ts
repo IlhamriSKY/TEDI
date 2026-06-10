@@ -129,15 +129,24 @@ export function useTabActions({
         // Storage unavailable. Skip persistence.
       }
       // If the active leaf is a terminal, cd it too so the shell tracks
-      // the new workspace. Double quotes work across pwsh/bash/zsh/cmd for
-      // paths without shell metacharacters (segmentsFromCwd outputs never
-      // contain any). React state updates the cwd optimistically so the
-      // breadcrumb reflects the click immediately. Shells with OSC 7
-      // reconcile after, shells without it still show the target.
+      // the new workspace - but ONLY while it's sitting idle at a prompt.
+      // Writing `cd "…"` into a busy shell (a command running, output
+      // streaming, or a TUI owning the alt-screen) lands the keystrokes in
+      // that program's stdin instead of changing directory, garbling
+      // whatever is in flight. When busy we skip the shell write entirely;
+      // the explorer / AI workspace context above still follow the click,
+      // and the next breadcrumb click once the command finishes cds for
+      // real. Mirrors the `run_in_terminal` isAtPrompt() guard so the AI and
+      // the breadcrumb refuse to disrupt a working terminal the same way.
+      // Double quotes work across pwsh/bash/zsh/cmd for paths without shell
+      // metacharacters (segmentsFromCwd outputs never contain any). React
+      // state updates the cwd optimistically so the breadcrumb reflects the
+      // click immediately. Shells with OSC 7 reconcile after, shells without
+      // it still show the target.
       if (activeLeafIdInTab !== null && activeLeafKindCurrent === "terminal") {
-        setLeafCwd(activeLeafIdInTab, normalized);
         const term = terminalRefs.current.get(activeLeafIdInTab);
-        if (term) {
+        if (term && term.isAtPrompt()) {
+          setLeafCwd(activeLeafIdInTab, normalized);
           term.write(`cd "${normalized}"\r`);
           term.focus();
         }
