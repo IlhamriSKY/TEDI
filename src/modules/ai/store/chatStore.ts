@@ -403,6 +403,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
+    listBrowsers: () => useChatStore.getState().live.listBrowsers(),
     navigateBrowser: (leafId, url) => useChatStore.getState().live.navigateBrowser(leafId, url),
     dispatchBrowser: (leafId, action) =>
       useChatStore.getState().live.dispatchBrowser(leafId, action),

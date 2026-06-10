@@ -42,13 +42,19 @@ const SECRET_PATH_SEGMENTS = [
   "/.git/", // refuse to avoid mutating refs/objects
 ];
 
+// Compared case-insensitively (see checkWritable), so all entries are lowercase.
+// Includes Windows system/program roots since the host may be win32 - the POSIX
+// list alone left C:\Windows etc. unguarded for writes.
 const FORBIDDEN_PREFIXES = [
   "/etc/",
   "/var/db/",
-  "/System/",
-  "/Library/Keychains/",
+  "/system/",
+  "/library/keychains/",
   "/private/etc/",
   "/private/var/db/",
+  "c:/windows/",
+  "c:/program files",
+  "c:/programdata/",
 ];
 
 export type SafetyResult = { ok: true } | { ok: false; reason: string };
@@ -83,9 +89,9 @@ export function checkWritable(path: string): SafetyResult {
   const r = checkReadable(path);
   if (!r.ok) return r;
 
-  const norm = toForwardSlash(path);
+  const lower = toForwardSlash(path).toLowerCase();
   for (const prefix of FORBIDDEN_PREFIXES) {
-    if (norm.startsWith(prefix)) {
+    if (lower.startsWith(prefix)) {
       return {
         ok: false,
         reason: `Refused: writes under "${prefix}" are not allowed.`,
@@ -101,16 +107,21 @@ export function checkWritable(path: string): SafetyResult {
  */
 export function checkShellCommand(cmd: string): SafetyResult {
   const c = cmd.trim();
-  // rm -rf / (and quoted/flag variants)
-  if (
-    /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|--recursive\s+--force|--force\s+--recursive)\s+(['"]?\/['"]?\s*($|;|&|\|))/.test(
-      c,
-    )
-  ) {
-    return {
-      ok: false,
-      reason: "Refused: command attempts to recursively delete the filesystem root.",
-    };
+  // rm with recursive AND force flags (any order, combined `-rf` or split
+  // `-r -f`) targeting a filesystem-root or home path (`/`, `/*`, `~`, `$HOME`).
+  // A relative path or a home subdir (`~/proj/build`, `./build`, `node_modules`)
+  // is legitimate and deliberately NOT matched.
+  if (/\brm\b/.test(c)) {
+    const flagChars = (c.match(/(?:^|\s)-[A-Za-z]+/g) ?? []).join("");
+    const recursive = /[rR]/.test(flagChars) || /--recursive\b/.test(c);
+    const force = /f/.test(flagChars) || /--force\b/.test(c);
+    const rootTarget = /(?:^|\s)(['"]?)(\/|\/\*|~|\$\{?HOME\}?)\1(?:\s|;|&|\||$)/.test(c);
+    if (recursive && force && rootTarget) {
+      return {
+        ok: false,
+        reason: "Refused: recursive force-delete of a filesystem-root or home path.",
+      };
+    }
   }
   if (/--no-preserve-root/.test(c)) {
     return { ok: false, reason: "Refused: --no-preserve-root is not allowed." };
@@ -122,6 +133,14 @@ export function checkShellCommand(cmd: string): SafetyResult {
   // mkfs / fdisk / diskutil eraseDisk
   if (/\b(mkfs(\.[a-z0-9]+)?|fdisk|parted)\b/.test(c) || /\bdiskutil\s+erase/i.test(c)) {
     return { ok: false, reason: "Refused: disk-formatting commands are not allowed." };
+  }
+  // find ... -delete rooted at the filesystem root
+  if (/\bfind\s+\/(?:\s|$)/.test(c) && /\s-delete\b/.test(c)) {
+    return { ok: false, reason: "Refused: find -delete at the filesystem root." };
+  }
+  // overwrite / wipe a raw block device
+  if (/>\s*\/dev\/(?:sd|nvme|hd|disk)/i.test(c) || /\b(?:wipefs|shred)\b[^|]*\/dev\//i.test(c)) {
+    return { ok: false, reason: "Refused: writing to a raw block device is not allowed." };
   }
   return { ok: true };
 }

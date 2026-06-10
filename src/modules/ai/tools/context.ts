@@ -1,4 +1,4 @@
-import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { ProviderKeys } from "../lib/keyring";
 import type { DynamicModelId } from "../config";
 
@@ -13,8 +13,12 @@ export type ToolContext = {
   /** Type text into the active terminal without executing. Returns false when
    *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;
-  /** Open an in-app preview tab at `url`. Returns the new leaf id, or null on failure. */
+  /** Open an in-app preview tab at `url`. Returns the new pane's TAB id (resolve
+   *  the leaf id the browser tools take via `listBrowsers`), or null on failure. */
   openPreview: (url: string) => number | null;
+  /** Snapshot every open in-app browser pane (tabId/leafId/url/isActive). Lets a
+   *  tool resolve the leaf id of a pane it just opened with `openPreview`. */
+  listBrowsers: () => BrowserInfo[];
   /** Navigate an existing browser pane (leaf id from `listBrowsers`) to a URL.
    *  False if that leaf isn't a browser. */
   navigateBrowser: (leafId: number, url: string) => boolean;
@@ -147,4 +151,19 @@ export function scrubErrorPath(e: unknown, ctx: ToolContext): string {
   msg = msg.replace(/[A-Za-z]:[\\/](?:Users|home)[\\/][^\\/]+/g, "<home>");
   msg = msg.replace(/\/(?:Users|home)\/[^/]+/g, "<home>");
   return msg;
+}
+
+/**
+ * Clamp a long string that a tool feeds back into the model's context every
+ * step (shell output, background logs, subagent summaries). Keeps the head and
+ * the tail - errors usually land at the end, setup/context at the start - so a
+ * chatty build or dev server doesn't flood the window. The native layer already
+ * hard-caps these; this is the smaller model-facing trim. Returns the input
+ * unchanged when it's within `max`.
+ */
+export function clampForModel(s: string, max = 48 * 1024): string {
+  if (s.length <= max) return s;
+  const head = Math.floor(max * 0.35);
+  const tail = max - head;
+  return `${s.slice(0, head)}\n\n...[${s.length - max} chars truncated]...\n\n${s.slice(s.length - tail)}`;
 }

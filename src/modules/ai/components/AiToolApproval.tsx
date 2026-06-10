@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ToolUIPart } from "ai";
 import { memo } from "react";
+import { applyShellTransformers } from "../tools/shell";
 
 type Props = {
   part: Extract<ToolUIPart, { state: "approval-requested" }>;
@@ -90,6 +91,11 @@ export const AiToolApproval = memo(AiToolApprovalImpl, (a, b) => {
 function PreviewBlock({ toolName, input }: { toolName: string; input: Record<string, unknown> }) {
   if (toolName === "bash_run" || toolName === "bash_background") {
     const cwd = typeof input.cwd === "string" ? input.cwd : null;
+    const raw = String(input.command ?? "");
+    // Show what actually runs: a shell transformer (e.g. an RTK-style bridge)
+    // can rewrite the command, so approving the raw text alone wouldn't reflect
+    // the executed command. Only surface the rewrite when it differs.
+    const effective = applyShellTransformers(raw, "bash");
     return (
       <div className="space-y-1.5">
         {cwd && <div className="text-muted-foreground font-mono text-[10.5px]">{cwd}</div>}
@@ -98,8 +104,20 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
             "bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed",
           )}
         >
-          {String(input.command ?? "")}
+          {raw}
         </pre>
+        {effective !== raw && (
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground/80 text-[10px]">Runs as (after extensions):</div>
+            <pre
+              className={cn(
+                "bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed",
+              )}
+            >
+              {effective}
+            </pre>
+          </div>
+        )}
       </div>
     );
   }

@@ -33,6 +33,25 @@ async function checkReadableResolved(abs: string): Promise<ReturnType<typeof che
   return literal;
 }
 
+/**
+ * Write-side counterpart of checkReadableResolved: resolve symlinks before the
+ * secret + system-dir check so an innocuously-named symlink can't redirect a
+ * write into a protected target (e.g. notes.txt -> /etc/hosts, or a link into
+ * C:\Windows). Falls back to the literal check when the path doesn't exist yet
+ * (the common brand-new-file case).
+ */
+async function checkWritableResolved(abs: string): Promise<ReturnType<typeof checkWritable>> {
+  const literal = checkWritable(abs);
+  if (!literal.ok) return literal;
+  try {
+    const real = await native.canonicalize(abs);
+    if (real && real !== abs) return checkWritable(real);
+  } catch {
+    // Path missing / not resolvable: literal check already passed.
+  }
+  return literal;
+}
+
 export function buildFsTools(ctx: ToolContext) {
   return {
     read_file: tool({
@@ -139,7 +158,7 @@ export function buildFsTools(ctx: ToolContext) {
       execute: async ({ path, content }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkWritable(abs);
+        const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
 
         if (usePlanStore.getState().active) {
@@ -223,7 +242,7 @@ export function buildFsTools(ctx: ToolContext) {
       execute: async ({ path }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkWritable(abs);
+        const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         if (usePlanStore.getState().active) {
           usePlanStore.getState().enqueue({

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { runSubagent } from "../agents/runSubagent";
 import { SUBAGENTS, type SubagentType } from "../agents/registry";
-import { scrubErrorPath, type ToolContext } from "./context";
+import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
 
 const TYPE_KEYS = Object.keys(SUBAGENTS) as [SubagentType, ...SubagentType[]];
 
@@ -48,7 +48,7 @@ Auto.`,
           return {
             type,
             description,
-            summary: r.summary,
+            summary: clampForModel(r.summary, 16 * 1024),
             stepCount: r.stepCount,
             durationMs: r.durationMs,
           };

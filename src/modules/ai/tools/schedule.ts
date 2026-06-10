@@ -176,9 +176,17 @@ export function buildScheduleTools(ctx: ToolContext) {
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
         const t = normalizeTarget(target);
+        // Don't write into a terminal mid-command / mid-TUI: it would corrupt the
+        // running program's input instead of submitting a fresh command.
+        if (ctx.isTerminalBusy(t)) {
+          return {
+            error:
+              "target terminal is busy (a command is running or a full-screen TUI is open); wait for it to finish or target another terminal.",
+            command: trimmed,
+          };
+        }
         const ok = ctx.runInTerminal(t, trimmed);
-        if (!ok)
-          return { error: "target terminal not found", command: trimmed };
+        if (!ok) return { error: "target terminal not found", command: trimmed };
         return { command: trimmed, submitted: true, target: t };
       },
     }),
@@ -209,6 +217,16 @@ export function buildScheduleTools(ctx: ToolContext) {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
+        const effectiveAction = action ?? "submit";
+        // An "inject" schedule types without Enter; an embedded newline would
+        // auto-run the following lines at fire time with no re-approval. ("submit"
+        // is meant to run, so a multi-line script is allowed there.)
+        if (effectiveAction === "inject" && /[\r\n]/.test(trimmed)) {
+          return {
+            error:
+              'Refused: an inject schedule types without running, so it cannot contain a newline. Use action:"submit" to run a multi-line command.',
+          };
+        }
 
         let fireAt: number;
         if (typeof delay_seconds === "number" && delay_seconds >= 0) {
@@ -228,7 +246,7 @@ export function buildScheduleTools(ctx: ToolContext) {
         const schedule = await scheduler.create({
           fireAt,
           command: trimmed,
-          action: action ?? "submit",
+          action: effectiveAction,
           target: t,
           label: label?.trim() || undefined,
         });
