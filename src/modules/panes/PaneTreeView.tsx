@@ -30,6 +30,7 @@ import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/us
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 
 export type LeafBundle = {
   // terminal-only
@@ -285,6 +286,19 @@ function PaneLeafFrame({
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const sshStatus = isSsh ? sshStatuses?.get(node.id) : undefined;
 
+  // Program-set terminal title (OSC 2), e.g. a running agent's task. Appended to
+  // the folder label so the pane header reads identically to the Workspaces
+  // panel's terminal list for the same leaf.
+  const termTitle = useTerminalTitles((s) =>
+    node.leafKind === "terminal" ? s.titles[node.id] : undefined,
+  );
+  const baseLabel = leafLabel(node, sshHosts);
+  const showTitle =
+    node.leafKind === "terminal" &&
+    !!termTitle &&
+    termTitle !== baseLabel &&
+    termTitle !== node.cwd;
+
   return (
     <div
       ref={setDropRef}
@@ -350,7 +364,8 @@ function PaneLeafFrame({
             isPrivate && "text-destructive",
           )}
         >
-          {leafLabel(node, sshHosts)}
+          {baseLabel}
+          {showTitle ? <span className="opacity-60"> · {termTitle}</span> : null}
         </span>
         {node.leafKind === "editor" && node.dirty && (
           <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />

@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.29] - 10-06-2026
+
+### Changed
+
+- **The Workspaces panel's terminal list is tidier, and the pane header now matches it.** The per-terminal `WORKING` / `IDLE` status word (and its pulsing animation) is gone; each row shows just the folder name plus the running program's title (e.g. `SIASKA-NEW · Comprehensive ...`), and that same label now appears in the pane header so the two surfaces read identically for the same terminal. The full status is still available on hover, and the terminal icon keeps a static color cue (green idle, yellow working, red waiting-for-approval) ([`WorkspacesPanel.tsx`](src/modules/workspaces/WorkspacesPanel.tsx), [`PaneTreeView.tsx`](src/modules/panes/PaneTreeView.tsx)).
+- **The active AI CLI icon now breathes smoothly instead of hard-pulsing.** A custom `ai-breathe` keyframe (a gentle opacity ease-in-out) replaces Tailwind's `animate-pulse` for the working / waiting states across the tab strip, pane header, and Workspaces list, so a running prompt stays clearly indicated without the abrupt blink; idle stays solid, and `prefers-reduced-motion` disables it ([`aiCliStatus.ts`](src/modules/terminal/lib/aiCliStatus.ts), [`globals.css`](src/styles/globals.css)).
+
 ## [0.3.28] - 10-06-2026
 
 ### Security

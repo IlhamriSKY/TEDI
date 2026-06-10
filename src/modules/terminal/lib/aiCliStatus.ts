@@ -36,11 +36,6 @@ export function aiCliLabel(s: NonNullable<AiCliStatus>): string {
   }
 }
 
-/** Short state word for inline display. */
-export function aiCliStateWord(s: NonNullable<AiCliStatus>): string {
-  return s.state;
-}
-
 /**
  * Tailwind classes for the inline state pill. Colors resolve from the
  * themable `--tedi-icon-*` CSS variables (set in globals.css with sensible
@@ -59,18 +54,29 @@ export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
 }
 
 /**
- * Tailwind text color for the terminal-leaf icon when an AI CLI is active.
- * Resolves from themable CSS variables; working and blocking pulse.
+ * Just the themable text color for the terminal-leaf icon, WITHOUT any
+ * animation. The building block for {@link aiCliIconClass}.
  */
-export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
+export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
   switch (s.state) {
     case "idle":
       return "text-[color:var(--tedi-icon-idle)]";
     case "working":
-      return "text-[color:var(--tedi-icon-working)] animate-pulse";
+      return "text-[color:var(--tedi-icon-working)]";
     case "blocking":
-      return "text-[color:var(--tedi-icon-blocked)] animate-pulse";
+      return "text-[color:var(--tedi-icon-blocked)]";
   }
+}
+
+/**
+ * Tailwind classes for the terminal-leaf icon when an AI CLI is active:
+ * themable color + a smooth "breathing" pulse while working / blocking so an
+ * active prompt is always visible. Idle stays solid (no animation). Color
+ * resolves from the themable `--tedi-icon-*` CSS variables.
+ */
+export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
+  const color = aiCliIconColorClass(s);
+  return s.state === "idle" ? color : `${color} animate-ai-breathe`;
 }
 
 export function toolDisplayName(t: AiCliKind): string {

@@ -6,12 +6,7 @@ import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal/lib/panes";
-import {
-  aiCliIconClass,
-  aiCliLabel,
-  aiCliStateWord,
-  type AiCliStatus,
-} from "@/modules/terminal/lib/aiCliStatus";
+import { aiCliIconClass, aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import {
   ArrowDown01Icon,
@@ -501,16 +496,6 @@ function SortableWorkspaceRow({
                       <span className="opacity-60"> · {t.title}</span>
                     ) : null}
                   </span>
-                  {t.status && (
-                    <span
-                      className={cn(
-                        "shrink-0 text-[9px] tracking-wide uppercase",
-                        aiCliIconClass(t.status),
-                      )}
-                    >
-                      {aiCliStateWord(t.status)}
-                    </span>
-                  )}
                 </button>
               </li>
             );
