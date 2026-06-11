@@ -33,6 +33,22 @@ export type FileSnapshot =
       /** Directory created by the agent. Restore deletes it only if empty
        *  at restore time; preserves anything dropped into it afterwards. */
       kind: "create-dir";
+    }
+  | {
+      /** File deleted by delete_file. Restore recreates it with the captured
+       *  text content, but only if the path is still empty. Directories and
+       *  binary/oversized files carry no content, so they aren't recorded and
+       *  thus aren't undoable. */
+      kind: "delete";
+      content: string;
+    }
+  | {
+      /** Path moved/renamed by move_file. Keyed by the destination. Restore
+       *  renames `to` back to `from` when `from` is free and `to` still
+       *  exists. */
+      kind: "move";
+      from: string;
+      to: string;
     };
 
 export type Checkpoint = {
@@ -175,6 +191,34 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
           }
         }
         restoredCount++;
+        continue;
+      }
+
+      if (snap.kind === "delete") {
+        // Recreate the file only if nothing exists at the path again.
+        try {
+          await native.readFilePortion(path, 0, 1);
+          // Something is at the path now (user recreated it); preserve.
+          skipped.push({ path, reason: "user-modified" });
+          continue;
+        } catch {
+          // Still missing — safe to recreate.
+        }
+        await native.writeFile(path, snap.content);
+        restoredCount++;
+        continue;
+      }
+
+      if (snap.kind === "move") {
+        // Undo by renaming the destination back to the source. The backend
+        // refuses if `from` is occupied or `to` is gone; treat that as a
+        // diverged state and leave it alone.
+        try {
+          await native.rename(snap.to, snap.from);
+          restoredCount++;
+        } catch {
+          skipped.push({ path, reason: "user-modified" });
+        }
         continue;
       }
 

@@ -30,7 +30,7 @@ export interface LiveContext {
   activeId: number;
   explorerRoot: string | null;
   home: string | null;
-  openPreviewTab: (url: string) => number | null;
+  openPreviewTab: (url: string, activate?: boolean) => number | null;
   setPreviewLeafUrl: TabsApi["setPreviewLeafUrl"];
   newTab: TabsApi["newTab"];
   inheritedCwdForNewTab: () => string | undefined;
@@ -117,7 +117,10 @@ export function buildLiveContext(deps: LiveContextDeps) {
       return leaf.path;
     },
     openPreview: (url: string) => {
-      return liveContextRef.current.openPreviewTab(url);
+      // activate:false - the agent opens browsers in the background so it can
+      // read them without stealing focus from whatever the user is doing. The
+      // inactive pane tab still mounts and loads, so reads work headless.
+      return liveContextRef.current.openPreviewTab(url, false);
     },
     // Drive an existing browser pane (by leaf id from listBrowsers). navigate
     // just sets the leaf url - PreviewPane navigates the live webview and syncs

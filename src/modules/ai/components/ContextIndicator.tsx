@@ -67,6 +67,7 @@ function CompactPulseBadge() {
         : "border-diff-added/50 bg-diff-added/10 text-diff-added";
   const detail =
     dropped > 0 ? `−${dropped}` : elided > 0 ? `~${elided}` : lossless > 0 ? "tidy" : "";
+  const isTidy = lossless > 0 && dropped === 0 && elided === 0;
   const tip =
     dropped > 0
       ? `Compacted: dropped ${dropped} old message${dropped === 1 ? "" : "s"}`
@@ -83,7 +84,7 @@ function CompactPulseBadge() {
           tone,
         )}
       >
-        <span className="size-1.5 animate-pulse rounded-full bg-current/80" />
+        {!isTidy && <span className="size-1.5 animate-pulse rounded-full bg-current/80" />}
         <HugeiconsIcon icon={Minimize02Icon} size={10} strokeWidth={2} />
         {detail ? <span>{detail}</span> : null}
       </span>

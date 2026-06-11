@@ -7,7 +7,8 @@ import { Cancel01Icon, Key01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UIMessage } from "@ai-sdk/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useComposerFileDrop } from "../hooks/useComposerFileDrop";
 import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
@@ -321,16 +322,35 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       ? "Transcribing…"
       : null;
 
+  // OS-level file drop onto the composer. Tauri intercepts native drag-drop
+  // before the WebView sees it, so DOM onDrop never fires — we hit-test the
+  // drop against this zone via Tauri's event and attach by absolute path.
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const onDropPaths = useCallback(
+    (paths: string[]) => {
+      for (const p of paths) void c.attachFileByPath(p);
+    },
+    [c],
+  );
+  const dragOver = useComposerFileDrop(dropZoneRef, onDropPaths);
+
   return (
     <div className="border-border/60 bg-background/40 shrink-0 border-t p-2">
       <SessionHistoryDialog />
       <InfoModal />
       <div
+        ref={dropZoneRef}
         className={cn(
-          "border-border bg-muted/50 flex flex-col gap-1.5 rounded-xl border px-2 py-1.5 shadow-sm",
+          "border-border bg-muted/50 relative flex flex-col gap-1.5 rounded-xl border px-2 py-1.5 shadow-sm",
           "focus-within:border-foreground/25 focus-within:bg-muted/70 focus-within:ring-foreground/10 transition-colors focus-within:ring-1",
+          dragOver && "border-primary/50 ring-primary/20 ring-1",
         )}
       >
+        {dragOver && (
+          <div className="border-primary/50 bg-primary/5 text-primary pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border-2 border-dashed text-[12px] font-medium backdrop-blur-[1px]">
+            Drop files to attach
+          </div>
+        )}
         <OpenFilesRow
           files={unattachedOpenFiles}
           onAttach={(path) => void c.attachFileByPath(path)}

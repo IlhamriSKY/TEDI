@@ -19,10 +19,12 @@ import {
   type ExtractedSelection,
 } from "../lib/messageBody";
 import { PROVIDERS } from "../config";
+import { humanizeChatErrorMessage } from "../lib/errors";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
+import { ImageLightbox } from "./ImageLightbox";
 import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
 import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "ai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -61,8 +63,9 @@ function UserAttachmentChips({
   selections: ExtractedSelection[];
   snippets: string[];
 }) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {snippets.map((handle, i) => (
         <Tooltip key={`s-${i}-${handle}`}>
           <TooltipTrigger asChild>
@@ -95,17 +98,45 @@ function UserAttachmentChips({
           <TooltipContent side="top">{`${sel.source} selection`}</TooltipContent>
         </Tooltip>
       ))}
-      {files.map((f, i) => (
-        <Tooltip key={`f-${i}-${f.name}`}>
-          <TooltipTrigger asChild>
-            <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
-              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
-              <span className="max-w-40 truncate">{f.name}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">{f.name}</TooltipContent>
-        </Tooltip>
-      ))}
+      {files.map((f, i) => {
+        const isImage = Boolean(f.url) && (f.mediaType?.startsWith("image/") ?? false);
+        // Images render the picture itself; click to enlarge.
+        if (isImage) {
+          return (
+            <button
+              key={`f-${i}-${f.name}`}
+              type="button"
+              onClick={() => {
+                if (f.url) setLightboxUrl(f.url);
+              }}
+              className="block shrink-0 cursor-zoom-in"
+              aria-label={`Enlarge ${f.name}`}
+              title={f.name}
+            >
+              {/* Small inline preview at the image's real aspect ratio. */}
+              <img
+                src={f.url}
+                alt={f.name}
+                className="border-border/60 hover:border-foreground/30 max-h-10 w-auto max-w-full rounded-md border object-contain transition-colors"
+              />
+            </button>
+          );
+        }
+        return (
+          <Tooltip key={`f-${i}-${f.name}`}>
+            <TooltipTrigger asChild>
+              <span className="border-border/60 bg-card flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
+                <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
+                <span className="max-w-40 truncate">{f.name}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{f.name}</TooltipContent>
+          </Tooltip>
+        );
+      })}
+      {lightboxUrl ? (
+        <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      ) : null}
     </div>
   );
 }
@@ -226,7 +257,9 @@ export function AiChatView({
         {error && (
           <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
             <div className="font-medium">Something went wrong.</div>
-            <div className="mt-0.5 leading-relaxed opacity-90">{error.message}</div>
+            <div className="mt-0.5 leading-relaxed opacity-90">
+              {humanizeChatErrorMessage(error.message)}
+            </div>
             <button
               type="button"
               onClick={clearError}
@@ -404,13 +437,23 @@ const RenderedMessage = memo(function RenderedMessage({
 
     const { commandName, files, selections, snippets, body } = extractUserMessage(rawText);
 
+    // Image attachments ride along as `file` parts (data URLs), not text
+    // `<file>` blocks, so pull them out here and merge into the chip list.
+    const imageFiles: ExtractedFile[] = message.parts
+      .filter(
+        (p): p is { type: "file"; url: string; mediaType: string; filename?: string } =>
+          p.type === "file" && typeof (p as { url?: unknown }).url === "string",
+      )
+      .map((p) => ({ name: p.filename ?? "image", url: p.url, mediaType: p.mediaType }));
+    const allFiles = [...files, ...imageFiles];
+
     const meta = getTediUserMetadata(message);
     return (
       <Message from="user" data-message-id={message.id}>
         <MessageContent>
           {commandName ? <CommandSnippet name={commandName} /> : null}
-          {files.length + selections.length + snippets.length > 0 ? (
-            <UserAttachmentChips files={files} selections={selections} snippets={snippets} />
+          {allFiles.length + selections.length + snippets.length > 0 ? (
+            <UserAttachmentChips files={allFiles} selections={selections} snippets={snippets} />
           ) : null}
           {body ? <p className="wrap-break-word whitespace-pre-wrap">{body}</p> : null}
         </MessageContent>
@@ -525,10 +568,7 @@ function ThinkingIndicator() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-      className={cn(
-        "border-border/50 flex w-fit items-center gap-2 rounded-2xl border",
-        "bg-muted/40 text-muted-foreground px-3 py-2 text-[11.5px]",
-      )}
+      className={cn("text-muted-foreground flex w-fit items-center gap-2 text-[11.5px]")}
       role="status"
       aria-label="Thinking"
     >

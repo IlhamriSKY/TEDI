@@ -4,6 +4,7 @@ import { scheduler } from "@/modules/scheduler";
 import type { TerminalTarget } from "@/modules/scheduler/types";
 import { checkShellCommand } from "../lib/security";
 import type { ToolContext } from "./context";
+import { applyShellTransformers } from "./shell";
 
 /**
  * Some providers serialize nested arg objects as JSON strings or stringify
@@ -48,7 +49,7 @@ function coerceBool(v: unknown): unknown {
   if (v === null) return undefined;
   if (typeof v === "string") {
     const s = v.trim().toLowerCase();
-    if (s === "" ) return undefined;
+    if (s === "") return undefined;
     if (s === "true" || s === "1" || s === "yes") return true;
     if (s === "false" || s === "0" || s === "no") return false;
   }
@@ -155,10 +156,19 @@ export function buildScheduleTools(ctx: ToolContext) {
               "Refused: text contains an embedded newline. send_to_terminal only types without running. Use run_in_terminal_by_id (which requires approval) to execute.",
           };
         }
+        // Route through the shell-transformer chain (e.g. RTK) like every other
+        // CLI tool, then re-guard newlines: a transformer that injects one would
+        // auto-run lines via the raw (no-bracketed-paste) PTY write.
+        const effective = applyShellTransformers(trimmed, "terminal");
+        if (/[\r\n]/.test(effective)) {
+          return {
+            error:
+              "Refused: a shell transformer introduced a newline. send_to_terminal only types a single line without running it.",
+          };
+        }
         const t = normalizeTarget(target);
-        const ok = ctx.injectIntoTerminal(t, trimmed);
-        if (!ok)
-          return { error: "target terminal not found", text: trimmed };
+        const ok = ctx.injectIntoTerminal(t, effective);
+        if (!ok) return { error: "target terminal not found", text: trimmed };
         return { text: trimmed, injected: true, target: t };
       },
     }),
@@ -185,7 +195,8 @@ export function buildScheduleTools(ctx: ToolContext) {
             command: trimmed,
           };
         }
-        const ok = ctx.runInTerminal(t, trimmed);
+        const effective = applyShellTransformers(trimmed, "terminal");
+        const ok = ctx.runInTerminal(t, effective);
         if (!ok) return { error: "target terminal not found", command: trimmed };
         return { command: trimmed, submitted: true, target: t };
       },
@@ -227,14 +238,23 @@ export function buildScheduleTools(ctx: ToolContext) {
               'Refused: an inject schedule types without running, so it cannot contain a newline. Use action:"submit" to run a multi-line command.',
           };
         }
+        // Route through the shell-transformer chain (e.g. RTK) so a scheduled
+        // command runs the same rewritten form as an immediate one. Re-guard the
+        // inject case against a transformer-introduced newline.
+        const effectiveCommand = applyShellTransformers(trimmed, "terminal");
+        if (effectiveAction === "inject" && /[\r\n]/.test(effectiveCommand)) {
+          return {
+            error:
+              "Refused: a shell transformer introduced a newline; an inject schedule cannot run extra lines.",
+          };
+        }
 
         let fireAt: number;
         if (typeof delay_seconds === "number" && delay_seconds >= 0) {
           fireAt = Date.now() + Math.round(delay_seconds * 1000);
         } else if (typeof fire_at_iso === "string" && fire_at_iso.trim()) {
           const ms = Date.parse(fire_at_iso);
-          if (Number.isNaN(ms))
-            return { error: `could not parse fire_at_iso "${fire_at_iso}".` };
+          if (Number.isNaN(ms)) return { error: `could not parse fire_at_iso "${fire_at_iso}".` };
           fireAt = ms;
         } else {
           return { error: "supply delay_seconds (relative) or fire_at_iso (absolute)." };
@@ -245,7 +265,7 @@ export function buildScheduleTools(ctx: ToolContext) {
         const t = normalizeTarget(target);
         const schedule = await scheduler.create({
           fireAt,
-          command: trimmed,
+          command: effectiveCommand,
           action: effectiveAction,
           target: t,
           label: label?.trim() || undefined,
@@ -270,8 +290,7 @@ export function buildScheduleTools(ctx: ToolContext) {
           id: s.id,
           status: s.status,
           fireAt: new Date(s.fireAt).toISOString(),
-          fireInSeconds:
-            s.status === "pending" ? Math.round((s.fireAt - Date.now()) / 1000) : null,
+          fireInSeconds: s.status === "pending" ? Math.round((s.fireAt - Date.now()) / 1000) : null,
           command: s.command,
           action: s.action,
           target: s.target,
@@ -284,7 +303,7 @@ export function buildScheduleTools(ctx: ToolContext) {
     }),
 
     cancel_schedule: tool({
-      description: "Cancel a pending schedule by id (from list_schedules). Auto.",
+      description: "Cancel a pending schedule by id (from List Schedules). Auto.",
       inputSchema: z.object({ id: z.string() }),
       execute: async ({ id }) => {
         const ok = await scheduler.cancel(id);

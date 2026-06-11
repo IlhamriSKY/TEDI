@@ -102,6 +102,36 @@ export function checkWritable(path: string): SafetyResult {
 }
 
 /**
+ * Extra guard for recursive destructive ops (delete, move-source). On top of
+ * the write restrictions, it refuses the catastrophic targets a single bad path
+ * could wipe: the filesystem root, a Windows drive root, or a bare top-level
+ * directory (e.g. "/home", "C:/Users"). `delete_file` recurses, so a slip here
+ * is unrecoverable - this is the path-only equivalent of the `rm -rf /` block in
+ * `checkShellCommand`. Workspace/cwd-ancestor protection is layered on top by
+ * the tool via `isScopeRootOrAncestor`.
+ */
+export function checkDeletable(path: string): SafetyResult {
+  const w = checkWritable(path);
+  if (!w.ok) return w;
+  const norm = toForwardSlash(path).replace(/\/+$/, "");
+  // Empty, POSIX root, or a drive root like "C:" / "C:/".
+  if (norm === "" || norm === "/" || /^[a-zA-Z]:$/.test(norm)) {
+    return { ok: false, reason: "Refused: cannot delete a filesystem or drive root." };
+  }
+  // A single segment under the root ("/home", "/Users", "C:/Users", "/opt").
+  // Recursively deleting one of these is almost always a catastrophic mistake;
+  // real project work lives deeper. Manual deletion is still available to the user.
+  const underRoot = norm.replace(/^[a-zA-Z]:/, "").replace(/^\/+/, "");
+  if (underRoot !== "" && !underRoot.includes("/")) {
+    return {
+      ok: false,
+      reason: `Refused: "${norm}" is a top-level directory; recursive delete of it is blocked.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Heuristic block for destructive shell commands even after user approval.
  * The approval UI is the primary gate; this catches obvious model mistakes.
  */

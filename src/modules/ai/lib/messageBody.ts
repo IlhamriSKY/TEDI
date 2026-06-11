@@ -2,7 +2,14 @@ import type { UIMessage } from "ai";
 import type { ProviderId } from "../config";
 import { TEDI_CMD_RE } from "./slashCommands";
 
-export type ExtractedFile = { name: string };
+export type ExtractedFile = {
+  name: string;
+  /** Present for image attachments sent as `file` parts — a data/blob URL the
+   *  chip can preview on hover. */
+  url?: string;
+  /** MIME type when known (e.g. "image/png"), used to detect previewable images. */
+  mediaType?: string;
+};
 export type ExtractedSelection = {
   source: "terminal" | "editor";
   lines: number;

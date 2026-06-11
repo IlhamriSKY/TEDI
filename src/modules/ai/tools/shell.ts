@@ -54,7 +54,7 @@ export function buildShellTools(ctx: ToolContext) {
   return {
     bash_run: tool({
       description:
-        "Foreground shell command in this session's persistent agent shell. cwd persists across calls. Short-lived only (lint/test/build). Use bash_background for dev servers / watchers. Never interactive (vim/less/top - hangs). Approval.",
+        "Foreground shell command in this session's persistent agent shell. cwd persists across calls. Short-lived only (lint/test/build). Use Bash Background for dev servers / watchers. Never interactive (vim/less/top - hangs). Approval.",
       inputSchema: z.object({
         command: z.string(),
         timeout_secs: flexIntOpt({ min: 1, max: 300 }).describe(
@@ -94,7 +94,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_background: tool({
       description:
-        "Spawn long-running process (dev server, watcher). Returns handle for bash_logs/bash_kill. Output in 4MB ring buffer. Approval.",
+        "Spawn long-running process (dev server, watcher). Returns handle for Bash Logs/Bash Kill. Output in 4MB ring buffer. Approval.",
       inputSchema: z.object({
         command: z.string(),
         cwd: z.string().nullable().optional(),
@@ -119,7 +119,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_logs: tool({
       description:
-        "Read logs from a bash_background handle. Pass since_offset (from previous next_offset) to tail incrementally.",
+        "Read logs from a Bash Background handle. Pass since_offset (from previous next_offset) to tail incrementally.",
       inputSchema: z.object({
         handle: flexIntReq(),
         since_offset: flexIntOpt(),
@@ -139,7 +139,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_list: tool({
       description:
-        "List bash_background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates - reuse the existing handle instead of re-spawning, and open its served URL with open_preview if it's a server. Auto.",
+        "List Bash Background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates - reuse the existing handle instead of re-spawning, and open its served URL with Open Preview if it's a server. Auto.",
       inputSchema: z.object({}),
       execute: async () => {
         try {
@@ -152,7 +152,7 @@ export function buildShellTools(ctx: ToolContext) {
     }),
 
     bash_kill: tool({
-      description: "Kill a bash_background process by handle. Idempotent.",
+      description: "Kill a Bash Background process by handle. Idempotent.",
       inputSchema: z.object({ handle: flexIntReq() }),
       execute: async ({ handle }) => {
         try {

@@ -87,7 +87,6 @@ export function AiStatusBarControls() {
       <IconBtn
         title="Attach file or image"
         onClick={() => fileInputRef.current?.click()}
-        disabled={c.isBusy}
       >
         <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
       </IconBtn>

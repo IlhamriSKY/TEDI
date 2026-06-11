@@ -23,7 +23,7 @@ export function ChipsRow({
 }) {
   if (files.length === 0 && snippets.length === 0 && commands.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       <AnimatePresence initial={false}>
         {commands.map((cmd) => (
           <Tooltip key={`cmd-${cmd.name}`}>
@@ -87,44 +87,69 @@ export function ChipsRow({
             <TooltipContent side="top">{s.description || s.name}</TooltipContent>
           </Tooltip>
         ))}
-        {files.map((f) => (
-          <motion.div
-            key={f.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-          >
-            {f.kind === "image" && f.url ? (
-              <img src={f.url} alt="" className="size-4 rounded object-cover" />
-            ) : f.kind === "selection" ? (
-              <HugeiconsIcon
-                icon={f.source === "editor" ? CodeIcon : TerminalIcon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground"
-              />
-            ) : (
-              <img src={fileIconUrl(f.name)} alt="" aria-hidden className="size-3.5 shrink-0" />
-            )}
-            <span className="max-w-35 truncate">
-              {f.name}
-              {f.kind === "selection" && f.text ? (
-                <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={() => onRemoveFile(f.id)}
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
+        {files.map((f) => {
+          const isImage = f.kind === "image" && Boolean(f.url);
+          return (
+            <Tooltip key={f.id}>
+              <TooltipTrigger asChild>
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={{ duration: 0.12 }}
+                  className="group border-border/60 bg-card flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+                >
+                  {f.kind === "selection" ? (
+                    <HugeiconsIcon
+                      icon={f.source === "editor" ? CodeIcon : TerminalIcon}
+                      size={11}
+                      strokeWidth={1.75}
+                      className="text-muted-foreground shrink-0"
+                    />
+                  ) : (
+                    <img
+                      src={fileIconUrl(f.name)}
+                      alt=""
+                      aria-hidden
+                      className="size-3.5 shrink-0"
+                    />
+                  )}
+                  <span className="max-w-35 truncate">
+                    {f.name}
+                    {f.kind === "selection" && f.text ? (
+                      <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
+                    ) : null}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveFile(f.id)}
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="Remove"
+                  >
+                    <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                  </button>
+                </motion.div>
+              </TooltipTrigger>
+              {/* Hover shows the actual picture for image attachments. Sized
+                  against the viewport so it stays neat on a narrow/short panel. */}
+              <TooltipContent
+                side="top"
+                className={isImage ? "max-w-[min(20rem,85vw)] overflow-hidden p-1" : undefined}
+              >
+                {isImage ? (
+                  <img
+                    src={f.url}
+                    alt={f.name}
+                    className="block h-auto max-h-[min(14rem,50vh)] w-auto max-w-full rounded-md object-contain"
+                  />
+                ) : (
+                  f.name
+                )}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
       </AnimatePresence>
     </div>
   );

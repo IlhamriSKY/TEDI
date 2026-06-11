@@ -37,6 +37,14 @@ export type GrepResponse = {
 export type GlobHit = { path: string; rel: string };
 export type GlobResponse = { hits: GlobHit[]; truncated: boolean };
 
+export type GrepReplaceEdit = { path: string; rel: string; replacements: number };
+export type GrepReplaceResponse = {
+  files_changed: number;
+  total_replacements: number;
+  edits: GrepReplaceEdit[];
+  truncated: boolean;
+};
+
 export const native = {
   readFile: (path: string) => invoke<ReadResult>("fs_read_file", { path }),
   readFilePortion: (path: string, offset?: number, limit?: number) =>
@@ -49,6 +57,10 @@ export const native = {
   createFile: (path: string) => invoke<void>("fs_create_file", { path }),
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
   deletePath: (path: string) => invoke<void>("fs_delete", { path }),
+  /** Move/rename a path. Backend refuses to overwrite an existing target. */
+  rename: (from: string, to: string) => invoke<void>("fs_rename", { from, to }),
+  /** Copy a file/dir (recursive). Backend refuses to overwrite an existing target. */
+  copy: (from: string, to: string) => invoke<void>("fs_copy", { from, to }),
   readDir: (path: string) => invoke<DirEntry[]>("fs_read_dir", { path }),
   /** Resolve symlinks to the real absolute path. Throws if the path is missing. */
   canonicalize: (path: string) => invoke<string>("fs_canonicalize", { path }),
@@ -71,6 +83,20 @@ export const native = {
       pattern: params.pattern,
       root: params.root,
       maxResults: params.maxResults ?? null,
+    }),
+  grepReplace: (params: {
+    pattern: string;
+    replacement: string;
+    root: string;
+    glob?: string[];
+    caseInsensitive?: boolean;
+  }) =>
+    invoke<GrepReplaceResponse>("fs_grep_replace", {
+      pattern: params.pattern,
+      replacement: params.replacement,
+      root: params.root,
+      glob: params.glob ?? null,
+      caseInsensitive: params.caseInsensitive ?? null,
     }),
   runCommand: (command: string, cwd?: string | null, timeoutSecs?: number) =>
     invoke<CommandOutput>("shell_run_command", {

@@ -127,7 +127,7 @@ export function buildEditTools(ctx: ToolContext) {
   return {
     edit: tool({
       description:
-        "Replace an exact string in a file. Requires prior read_file (read-before-edit). old_string must be unique unless replace_all=true. Approval.",
+        "Replace an exact string in a file. Requires prior Read File (read-before-edit). old_string must be unique unless replace_all=true. Approval.",
       inputSchema: z.object({
         path: z.string(),
         old_string: z
@@ -160,7 +160,7 @@ export function buildEditTools(ctx: ToolContext) {
 
     multi_edit: tool({
       description:
-        "Apply N exact-string replacements to one file atomically. Aborts whole batch if any edit misses or is non-unique. Requires prior read_file. Approval.",
+        "Apply N exact-string replacements to one file atomically. Aborts whole batch if any edit misses or is non-unique. Requires prior Read File. Approval.",
       inputSchema: z.object({
         path: z.string(),
         edits: flexArrayReq(

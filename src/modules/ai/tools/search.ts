@@ -5,7 +5,7 @@ import { checkReadable } from "../lib/security";
 import { isReadOutsideScope, resolvePath, scrubErrorPath, type ToolContext } from "./context";
 import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
-function resolveRoot(
+export function resolveRoot(
   rawRoot: string | undefined,
   ctx: ToolContext,
 ): { ok: true; path: string } | { ok: false; error: string } {
@@ -26,10 +26,7 @@ function resolveRoot(
   };
 }
 
-export function buildSearchTools(
-  ctx: ToolContext,
-  opts: { gateOutOfScopeReads?: boolean } = {},
-) {
+export function buildSearchTools(ctx: ToolContext, opts: { gateOutOfScopeReads?: boolean } = {}) {
   // See buildFsTools: gate searches rooted outside the workspace/cwd in the main
   // agent (approval UI); off for the autonomous subagent.
   const gateReads = opts.gateOutOfScopeReads ?? true;
@@ -39,7 +36,7 @@ export function buildSearchTools(
   return {
     grep: tool({
       description:
-        "Regex content search across workspace (ripgrep, .gitignore honored). Returns {path,line,text} hits. Prefer this over read_file loops. A root outside the workspace/cwd needs approval.",
+        "Regex content search across workspace (ripgrep, .gitignore honored). Returns {path,line,text} hits. Prefer this over Read File loops. A root outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         pattern: z
           .string()
@@ -100,7 +97,7 @@ export function buildSearchTools(
 
     glob: tool({
       description:
-        "Find files by path glob (e.g. `**/*.ts`). Gitignore-aware. Use over list_directory for recursive matches. A root outside the workspace/cwd needs approval.",
+        "Find files by path glob (e.g. `**/*.ts`). Gitignore-aware. Use over List Directory for recursive matches. A root outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         pattern: z.string().describe("Glob pattern over relative paths."),
         root: z.string().optional(),

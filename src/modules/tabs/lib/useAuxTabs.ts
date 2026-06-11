@@ -167,7 +167,7 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
     return id;
   }, []);
 
-  const newPreviewTab = useCallback((url: string) => {
+  const newPreviewTab = useCallback((url: string, activate = true) => {
     // A browser is a pane leaf like terminal/editor, so a "preview tab" is just
     // a pane tab whose tree is a single preview leaf - splittable and joinable.
     const tabId = nextIdRef.current++;
@@ -183,7 +183,10 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
         activeLeafId: leafId,
       }),
     ]);
-    setActiveId(tabId);
+    // Background opens (e.g. the AI opening a browser to read) pass activate:false
+    // so the user's current tab keeps focus. The pane still mounts and loads in
+    // the background (inactive pane tabs stay mounted), so reads work headless.
+    if (activate) setActiveId(tabId);
     return tabId;
   }, []);
 

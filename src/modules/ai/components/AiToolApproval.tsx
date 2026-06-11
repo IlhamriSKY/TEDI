@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   Cancel01Icon,
+  Copy01Icon,
+  Delete02Icon,
   Edit02Icon,
   EyeIcon,
   FileEditIcon,
@@ -9,6 +11,8 @@ import {
   Folder01Icon,
   FolderAddIcon,
   GlobalSearchIcon,
+  Move01Icon,
+  SearchReplaceIcon,
   TerminalIcon,
   Tick02Icon,
   ToolsIcon,
@@ -29,8 +33,12 @@ const TOOL_META: Record<string, { label: string; icon: typeof FilePlusIcon }> = 
   edit: { label: "Edit file", icon: FileEditIcon },
   multi_edit: { label: "Edit file (batch)", icon: Edit02Icon },
   create_directory: { label: "Create directory", icon: FolderAddIcon },
+  move_file: { label: "Move / rename", icon: Move01Icon },
+  copy_file: { label: "Copy", icon: Copy01Icon },
+  delete_file: { label: "Delete", icon: Delete02Icon },
   bash_run: { label: "Run shell command", icon: TerminalIcon },
   bash_background: { label: "Spawn background process", icon: TerminalIcon },
+  replace_in_files: { label: "Replace across files", icon: SearchReplaceIcon },
   read_file: { label: "Read file (outside workspace)", icon: EyeIcon },
   list_directory: { label: "List directory (outside workspace)", icon: Folder01Icon },
   grep: { label: "Search (outside workspace)", icon: GlobalSearchIcon },
@@ -46,7 +54,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   return (
     <div className="border-border bg-card rounded-lg border shadow-sm">
       <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
-        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-icon-working" />
+        <span className="bg-icon-working size-1.5 shrink-0 animate-pulse rounded-full" />
         <HugeiconsIcon
           icon={Icon}
           size={13}
@@ -176,6 +184,37 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
   if (toolName === "create_directory") {
     return (
       <div className="text-muted-foreground font-mono text-[11px]">{String(input.path ?? "")}</div>
+    );
+  }
+  if (toolName === "move_file" || toolName === "copy_file") {
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-muted-foreground break-all">{String(input.from ?? "")}</div>
+        <div className="text-foreground break-all">→ {String(input.to ?? "")}</div>
+      </div>
+    );
+  }
+  if (toolName === "delete_file") {
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-destructive break-all">{String(input.path ?? "")}</div>
+        <div className="text-muted-foreground/80 text-[10.5px]">
+          deleted recursively · restorable via checkpoint
+        </div>
+      </div>
+    );
+  }
+  if (toolName === "replace_in_files") {
+    const glob = Array.isArray(input.glob) ? (input.glob as string[]).join(", ") : null;
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-foreground break-all">{String(input.pattern ?? "")}</div>
+        <div className="text-muted-foreground break-all">→ {String(input.replacement ?? "")}</div>
+        <div className="text-muted-foreground/80 text-[10.5px] break-all">
+          root: {String(input.root ?? "(workspace)")}
+          {glob ? ` · ${glob}` : ""} · writes all matches, not checkpointed
+        </div>
+      </div>
     );
   }
   if (toolName === "read_file" || toolName === "list_directory") {

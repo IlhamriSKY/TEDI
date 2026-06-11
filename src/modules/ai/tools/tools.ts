@@ -1,4 +1,5 @@
 import { buildEditTools } from "./edit";
+import { buildFetchTools } from "./fetch";
 import { buildFsTools } from "./fs";
 import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
@@ -14,11 +15,11 @@ export { resolvePath, type ToolContext } from "./context";
 /**
  * AI tool definitions.
  *
- * Read-only tools (`read_file`, `list_directory`, `grep`, `glob`) auto-execute
- * through the security guard. Mutating tools (`write_file`, `edit`,
- * `multi_edit`, `create_directory`, `run_command`) require approval; the SDK
+ * Read-only tools (`Read File`, `List Directory`, `Grep`, `Glob`) auto-execute
+ * through the security guard. Mutating tools (`Write File`, `Edit`,
+ * `Multi Edit`, `Create Directory`, `Bash Run`) require approval; the SDK
  * surfaces a tool-approval-request that the UI renders as a card.
- * `edit` and `multi_edit` also require a prior `read_file` on the path.
+ * `Edit` and `Multi Edit` also require a prior `Read File` on the path.
  *
  * Paths are resolved against the active terminal cwd via `getCwd`.
  */
@@ -26,6 +27,7 @@ function buildToolsRaw(ctx: ToolContext) {
   return {
     ...buildFsTools(ctx),
     ...buildEditTools(ctx),
+    ...buildFetchTools(),
     ...buildSearchTools(ctx),
     ...buildShellTools(ctx),
     ...buildSubagentTools(ctx),

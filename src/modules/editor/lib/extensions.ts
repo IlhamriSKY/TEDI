@@ -1,5 +1,5 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
-import { foldGutter, indentUnit, language } from "@codemirror/language";
+import { defaultHighlightStyle, foldGutter, indentUnit, language, syntaxHighlighting } from "@codemirror/language";
 import { lintGutter } from "@codemirror/lint";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -58,6 +58,9 @@ export function buildSharedExtensions(opts?: {
     indentUnit.of("  "),
     EditorState.tabSize.of(2),
     search({ top: true }),
+    // Syntax highlighting fallback - ensures language extensions get highlighted
+    // in both the main editor and the diff pane.
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     lintGutter(),
     foldGutter({
       markerDOM: makeFoldMarker,

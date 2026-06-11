@@ -82,11 +82,12 @@ export function classifyError(err: unknown): TediErrorCode {
 
   if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("invalid api key"))
     return TediErrorCode.AUTH_FAILED;
-  if (msg.includes("403") || msg.includes("forbidden"))
-    return TediErrorCode.AUTH_FAILED;
-  if (msg.includes("429") || msg.includes("rate limit"))
-    return TediErrorCode.RATE_LIMITED;
-  if (msg.includes("5") && (msg.includes("server error") || msg.includes("service") || msg.includes("unavailable")))
+  if (msg.includes("403") || msg.includes("forbidden")) return TediErrorCode.AUTH_FAILED;
+  if (msg.includes("429") || msg.includes("rate limit")) return TediErrorCode.RATE_LIMITED;
+  if (
+    msg.includes("5") &&
+    (msg.includes("server error") || msg.includes("service") || msg.includes("unavailable"))
+  )
     return TediErrorCode.PROVIDER_UNAVAILABLE;
   if (
     msg.includes("timeout") ||
@@ -95,10 +96,8 @@ export function classifyError(err: unknown): TediErrorCode {
     msg.includes("network")
   )
     return TediErrorCode.PROVIDER_UNAVAILABLE;
-  if (msg.includes("no api key"))
-    return TediErrorCode.NO_API_KEY;
-  if (msg.includes("abort") || msg.includes("cancelled"))
-    return TediErrorCode.ABORTED;
+  if (msg.includes("no api key")) return TediErrorCode.NO_API_KEY;
+  if (msg.includes("abort") || msg.includes("cancelled")) return TediErrorCode.ABORTED;
 
   return TediErrorCode.UNKNOWN;
 }
@@ -144,6 +143,28 @@ export function errorCodeLabel(code: TediErrorCode): string {
     default:
       return "Error";
   }
+}
+
+/**
+ * Map a raw provider error message to a clearer, actionable one for the chat
+ * error card. Falls back to the original message when nothing matches.
+ *
+ * The image case is the common surprise: a gateway (e.g. SumoPod) returns
+ * "No endpoints found that support image input" when the selected model's
+ * routing is text-only. There is no client-side fix — the user must pick a
+ * vision-capable model — so we say exactly that instead of a raw gateway string.
+ */
+export function humanizeChatErrorMessage(raw: string): string {
+  const msg = raw.toLowerCase();
+  if (
+    msg.includes("image input") ||
+    (msg.includes("no endpoints") && msg.includes("image")) ||
+    msg.includes("does not support image") ||
+    msg.includes("vision")
+  ) {
+    return "This model can't read images on the current provider. Switch to a vision-capable model (e.g. Gemini, Claude, or GPT) or remove the image attachment, then resend.";
+  }
+  return raw;
 }
 
 /**

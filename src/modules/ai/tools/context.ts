@@ -74,9 +74,7 @@ export type ToolContext = {
   rotatePaneSplit: (
     leafId: number,
     direction?: "row" | "col",
-  ) =>
-    | { ok: true; orientation: "row" | "col"; changed: boolean }
-    | { ok: false; error: string };
+  ) => { ok: true; orientation: "row" | "col"; changed: boolean } | { ok: false; error: string };
   /** Close one terminal leaf; drops the tab if it was the only leaf. Refuses
    *  the last tab. */
   closeTerminalLeaf: (
@@ -205,6 +203,30 @@ export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
       .filter((r) => r.length > 0);
     if (roots.length === 0) return false;
     return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `rawPath` resolves to a directory that IS, or CONTAINS, the
+ * workspace root or the active terminal cwd - i.e. a destructive op on it would
+ * wipe or relocate the project you're working in (or a parent of it). Used by
+ * `delete_file`/`move_file` to refuse clobbering the working tree's own roots,
+ * even though such a path passes the secret/system-dir guards. Errs toward
+ * `false` (allow) only when scope is undefined or the path can't resolve.
+ */
+export function isScopeRootOrAncestor(rawPath: string, ctx: ToolContext): boolean {
+  try {
+    if (!rawPath || !rawPath.trim()) return false;
+    const abs = normForScope(resolvePath(rawPath, ctx.getCwd()));
+    const roots = [ctx.getWorkspaceRoot(), ctx.getCwd()]
+      .filter((r): r is string => !!r)
+      .map(normForScope)
+      .filter((r) => r.length > 0);
+    // `abs` clobbers a root when it equals that root or is an ancestor of it
+    // (the root sits inside `abs`).
+    return roots.some((r) => r === abs || r.startsWith(`${abs}/`));
   } catch {
     return false;
   }

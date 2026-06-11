@@ -3,7 +3,14 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
+  AddSquareIcon,
+  Calendar01Icon,
+  CancelSquareIcon,
   CheckListIcon,
+  Copy01Icon,
+  Cursor01Icon,
+  CursorInWindowIcon,
+  Delete02Icon,
   Edit02Icon,
   EyeIcon,
   File01Icon,
@@ -13,7 +20,19 @@ import {
   FolderAddIcon,
   FolderOpenIcon,
   GlobalSearchIcon,
+  InternetIcon,
+  KeyboardIcon,
+  Layers01Icon,
+  ListViewIcon,
+  MouseLeftClick01Icon,
+  Move01Icon,
+  Navigation03Icon,
+  PlaySquareIcon,
   RobotIcon,
+  RotateClockwiseIcon,
+  ScrollVerticalIcon,
+  SearchReplaceIcon,
+  SentIcon,
   SparklesIcon,
   TerminalIcon,
   ToolsIcon,
@@ -26,37 +45,69 @@ import { isValidElement, memo, useState } from "react";
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
 const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
+  // Filesystem
   read_file: { label: "Read", icon: File01Icon },
   list_directory: { label: "List", icon: FolderOpenIcon },
   write_file: { label: "Write", icon: FilePlusIcon },
   create_directory: { label: "Create dir", icon: FolderAddIcon },
+  move_file: { label: "Move", icon: Move01Icon },
+  copy_file: { label: "Copy", icon: Copy01Icon },
+  delete_file: { label: "Delete", icon: Delete02Icon },
   edit: { label: "Edit", icon: FileEditIcon },
   multi_edit: { label: "Edit", icon: Edit02Icon },
+  // Search
+  grep: { label: "Search", icon: GlobalSearchIcon },
+  glob: { label: "Glob", icon: Folder01Icon },
+  replace_in_files: { label: "Replace", icon: SearchReplaceIcon },
+  // Shell
   bash_run: { label: "Run", icon: TerminalIcon },
   bash_background: { label: "Spawn", icon: TerminalIcon },
   bash_logs: { label: "Logs", icon: TerminalIcon },
   bash_list: { label: "Jobs", icon: TerminalIcon },
   bash_kill: { label: "Kill", icon: TerminalIcon },
-  grep: { label: "Search", icon: GlobalSearchIcon },
-  glob: { label: "Glob", icon: Folder01Icon },
-  suggest_command: { label: "Suggest", icon: SparklesIcon },
+  // Data / web
+  fetch: { label: "Fetch", icon: InternetIcon },
   open_preview: { label: "Preview", icon: EyeIcon },
+  control_browser: { label: "Browser", icon: Navigation03Icon },
+  navigate_and_read: { label: "Navigate", icon: Navigation03Icon },
   read_browser: { label: "Read page", icon: EyeIcon },
+  browser_type: { label: "Type", icon: KeyboardIcon },
+  browser_click: { label: "Click", icon: MouseLeftClick01Icon },
+  browser_click_at: { label: "Click at", icon: Cursor01Icon },
+  browser_hover: { label: "Hover", icon: CursorInWindowIcon },
+  browser_press_key: { label: "Press key", icon: KeyboardIcon },
+  browser_scroll: { label: "Scroll", icon: ScrollVerticalIcon },
   browser_screenshot: { label: "Screenshot", icon: EyeIcon },
+  // Terminal control
+  suggest_command: { label: "Suggest", icon: SparklesIcon },
+  open_terminal: { label: "Open terminal", icon: AddSquareIcon },
+  close_terminal: { label: "Close terminal", icon: CancelSquareIcon },
+  consolidate_terminals: { label: "Consolidate", icon: Layers01Icon },
+  group_tabs: { label: "Group tabs", icon: Layers01Icon },
+  rotate_pane: { label: "Rotate pane", icon: RotateClockwiseIcon },
+  run_in_terminal: { label: "Run in terminal", icon: PlaySquareIcon },
+  run_in_terminal_by_id: { label: "Run in terminal", icon: PlaySquareIcon },
+  send_to_terminal: { label: "Send to terminal", icon: SentIcon },
+  list_terminals: { label: "List terminals", icon: ListViewIcon },
+  // Scheduling
+  schedule_command: { label: "Schedule", icon: Calendar01Icon },
+  list_schedules: { label: "Schedules", icon: Calendar01Icon },
+  cancel_schedule: { label: "Cancel schedule", icon: Calendar01Icon },
+  // Delegation / planning
   run_subagent: { label: "Subagent", icon: RobotIcon },
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
 
-// Small rounded status indicator left of the tool icon: green on success,
-// red on error, orange on deny.
-const STATUS_DOT: Record<ToolPart["state"], string> = {
-  "approval-requested": "bg-icon-working/80 border border-icon-working",
-  "approval-responded": "bg-info/80 border border-info",
-  "input-streaming": "bg-muted-foreground/30 border border-muted-foreground/40",
-  "input-available": "bg-icon-working/80 border border-icon-working",
-  "output-available": "bg-diff-added/80 border border-diff-added",
-  "output-denied": "bg-destructive/80 border border-destructive",
-  "output-error": "bg-destructive/80 border border-destructive",
+// Icon color per tool state: the color indicator lives on the icon itself,
+// replacing the old separate status dot for a more compact look.
+const STATUS_ICON_COLOR: Record<ToolPart["state"], string> = {
+  "approval-requested": "text-icon-working",
+  "approval-responded": "text-info",
+  "input-streaming": "text-muted-foreground/50",
+  "input-available": "text-icon-working",
+  "output-available": "text-diff-added",
+  "output-denied": "text-destructive",
+  "output-error": "text-destructive",
 };
 
 const STATUS_LABEL: Record<ToolPart["state"], string> = {
@@ -81,7 +132,15 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     case "multi_edit":
     case "create_directory":
     case "list_directory":
+    case "delete_file":
       return str("path");
+    case "move_file":
+    case "copy_file": {
+      const from = str("from");
+      const to = str("to");
+      if (from && to) return `${baseName(from)} → ${baseName(to)}`;
+      return to ?? from;
+    }
     case "bash_run":
     case "bash_background":
       return str("command");
@@ -92,6 +151,12 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       return str("pattern") ?? str("query");
     case "glob":
       return str("pattern");
+    case "replace_in_files": {
+      const pat = str("pattern");
+      if (pat == null) return null;
+      const rep = str("replacement");
+      return rep == null ? pat : `${pat} → ${rep}`;
+    }
     case "suggest_command":
       return str("intent") ?? str("description");
     case "open_preview":
@@ -143,7 +208,7 @@ const ToolImpl = ({
 }: ToolProps) => {
   const meta = TOOL_META[toolName];
   const Icon = meta?.icon ?? ToolsIcon;
-  const label = meta?.label ?? toolName;
+  const label = meta?.label ?? toTitleCase(toolName);
   const summary = deriveSummary(toolName, input);
   const isError = state === "output-error";
   // Open by default on error or when a subagent summary is present.
@@ -181,15 +246,12 @@ const ToolImpl = ({
           "focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
         )}
       >
-        <span
-          className={cn("size-2 shrink-0 rounded-xs transition-colors", STATUS_DOT[state])}
-          aria-label={STATUS_LABEL[state]}
-        />
         <HugeiconsIcon
           icon={Icon}
           size={13}
           strokeWidth={1.75}
-          className="text-muted-foreground shrink-0"
+          className={cn("shrink-0 transition-colors", STATUS_ICON_COLOR[state])}
+          aria-label={STATUS_LABEL[state]}
         />
         <span className="text-foreground shrink-0 font-medium">{label}</span>
         {summary ? (
@@ -291,6 +353,22 @@ function renderInputPreview(toolName: string, input: unknown): ReactNode | null 
     if (!path) return null;
     return <div className="text-muted-foreground font-mono text-[11px]">{path}</div>;
   }
+  if (toolName === "delete_file") {
+    const path = str("path");
+    if (!path) return null;
+    return <div className="text-destructive font-mono text-[11px]">{path}</div>;
+  }
+  if (toolName === "move_file" || toolName === "copy_file") {
+    const from = str("from");
+    const to = str("to");
+    if (!from && !to) return null;
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-muted-foreground">{from}</div>
+        <div className="text-foreground">→ {to}</div>
+      </div>
+    );
+  }
   if (toolName === "grep") {
     const pat = str("pattern") ?? str("query");
     const path = str("path") ?? str("root");
@@ -299,6 +377,19 @@ function renderInputPreview(toolName: string, input: unknown): ReactNode | null 
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="text-foreground">{pat}</div>
         {path ? <div className="text-muted-foreground">{path}</div> : null}
+      </div>
+    );
+  }
+  if (toolName === "replace_in_files") {
+    const pat = str("pattern");
+    if (!pat) return null;
+    const rep = str("replacement");
+    const root = str("root");
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]">
+        <div className="text-foreground">{pat}</div>
+        <div className="text-muted-foreground">→ {rep ?? ""}</div>
+        {root ? <div className="text-muted-foreground/80 text-[10px]">root: {root}</div> : null}
       </div>
     );
   }
@@ -351,20 +442,20 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
   const o = output as Record<string, unknown>;
 
   if (toolName === "read_file") {
-    const path = typeof o.path === "string" ? o.path : "";
     const size = typeof o.size === "number" ? o.size : null;
     const content = typeof o.content === "string" ? o.content : "";
     const lines = content ? content.split("\n").length : null;
+    // The path already shows in the header summary and the Input block, so the
+    // output stays compact: just the read confirmation plus line/byte stats.
+    const stats: string[] = [];
+    if (lines != null) stats.push(`${lines} line${lines === 1 ? "" : "s"}`);
+    if (size != null) stats.push(formatBytes(size));
     return (
       <div className="flex items-center gap-1.5 font-mono text-[11px]">
         <span className="text-diff-added">✓</span>
         <span className="text-foreground">read</span>
-        {path ? <span className="text-muted-foreground">· {path}</span> : null}
-        {lines != null ? (
-          <span className="text-muted-foreground">
-            ({lines} line{lines === 1 ? "" : "s"}
-            {size != null ? `, ${formatBytes(size)}` : ""})
-          </span>
+        {stats.length > 0 ? (
+          <span className="text-muted-foreground">· {stats.join(" · ")}</span>
         ) : null}
       </div>
     );
@@ -456,11 +547,50 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
             {filesScanned != null ? ` · ${filesScanned} files` : ""}
           </span>
           {truncated ? (
-            <span className="rounded bg-icon-working/15 px-1.5 py-0.5 text-icon-working">
+            <span className="bg-icon-working/15 text-icon-working rounded px-1.5 py-0.5">
               truncated
             </span>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  if (toolName === "replace_in_files") {
+    const filesChanged = typeof o.files_changed === "number" ? o.files_changed : null;
+    const totalReps = typeof o.total_replacements === "number" ? o.total_replacements : null;
+    const edits = Array.isArray(o.edits)
+      ? (o.edits as Array<{ rel?: string; path?: string; replacements: number }>)
+      : [];
+    const truncated = Boolean(o.truncated);
+    if (filesChanged === 0) {
+      return <div className="text-muted-foreground text-[11px] italic">no matches replaced</div>;
+    }
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 font-mono text-[11px]">
+          <span className="text-diff-added">✓</span>
+          <span className="text-foreground">replaced</span>
+          <span className="text-muted-foreground">
+            · {totalReps} in {filesChanged} file{filesChanged === 1 ? "" : "s"}
+          </span>
+        </div>
+        {edits.length > 0 ? (
+          <div className="bg-muted/30 max-h-60 overflow-auto rounded font-mono text-[11px]">
+            {edits.slice(0, 200).map((e, i) => (
+              <div
+                key={`${e.rel ?? e.path}-${i}`}
+                className="border-border/30 flex justify-between gap-2 border-b px-2 py-0.5 last:border-b-0"
+              >
+                <span className="text-muted-foreground truncate">{e.rel ?? e.path}</span>
+                <span className="text-diff-added shrink-0">+{e.replacements}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {truncated ? (
+          <div className="text-icon-working text-[10px]">edit list truncated</div>
+        ) : null}
       </div>
     );
   }
@@ -517,6 +647,35 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
         {bytes != null ? (
           <span className="text-muted-foreground">({formatBytes(bytes)})</span>
         ) : null}
+      </div>
+    );
+  }
+
+  if (toolName === "move_file" || toolName === "copy_file") {
+    const from = typeof o.from === "string" ? o.from : "";
+    const to = typeof o.to === "string" ? o.to : "";
+    return (
+      <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+        <span className="text-diff-added shrink-0">✓</span>
+        <span className="text-foreground shrink-0">
+          {toolName === "copy_file" ? "copied" : "moved"}
+        </span>
+        {from && to ? (
+          <span className="text-muted-foreground truncate">
+            · {baseName(from)} → {baseName(to)}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (toolName === "delete_file") {
+    const path = typeof o.path === "string" ? o.path : "";
+    return (
+      <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+        <span className="text-diff-added shrink-0">✓</span>
+        <span className="text-foreground shrink-0">deleted</span>
+        {path ? <span className="text-muted-foreground truncate">· {path}</span> : null}
       </div>
     );
   }
@@ -587,7 +746,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="flex items-center gap-1.5">
-          <span className="size-1.5 animate-pulse rounded-full bg-diff-added" />
+          <span className="bg-diff-added size-1.5 animate-pulse rounded-full" />
           {handle ? <span className="text-foreground">{handle}</span> : null}
           <span className="text-muted-foreground">running</span>
         </div>
@@ -656,12 +815,12 @@ function BashRunOutput({ data }: { data: Record<string, unknown> }) {
           </span>
         ) : null}
         {timedOut ? (
-          <span className="rounded bg-icon-working/15 px-1.5 py-0.5 font-mono text-[10px] text-icon-working">
+          <span className="bg-icon-working/15 text-icon-working rounded px-1.5 py-0.5 font-mono text-[10px]">
             timed out
           </span>
         ) : null}
         {truncated ? (
-          <span className="rounded bg-icon-working/15 px-1.5 py-0.5 font-mono text-[10px] text-icon-working">
+          <span className="bg-icon-working/15 text-icon-working rounded px-1.5 py-0.5 font-mono text-[10px]">
             truncated
           </span>
         ) : null}
@@ -687,13 +846,31 @@ function highlightMatch(text: string, pattern: string): ReactNode {
   const parts = text.split(re);
   return parts.map((p, i) =>
     i % 2 === 1 ? (
-      <mark key={i} className="text-foreground rounded bg-icon-working/30 px-0.5">
+      <mark key={i} className="text-foreground bg-icon-working/30 rounded px-0.5">
         {p}
       </mark>
     ) : (
       <span key={i}>{p}</span>
     ),
   );
+}
+
+// Last path segment of a (possibly Windows) path, used to keep move/delete
+// summaries compact in the tool header.
+function baseName(p: string): string {
+  const norm = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const i = norm.lastIndexOf("/");
+  return i === -1 ? norm : norm.slice(i + 1);
+}
+
+// Fallback label for tools missing from TOOL_META: turn a raw `snake_case`
+// tool name into "Title Case" so the UI never shows bare identifiers.
+function toTitleCase(name: string): string {
+  return name
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function formatBytes(n: number): string {

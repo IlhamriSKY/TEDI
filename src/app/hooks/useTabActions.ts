@@ -61,7 +61,7 @@ export function useTabActions({
   openNewPrivateTab: () => void;
   sendCd: (path: string) => void;
   cdInNewTab: (path: string) => void;
-  openPreviewTab: (url: string) => number | null;
+  openPreviewTab: (url: string, activate?: boolean) => number | null;
   splitActivePaneInActiveTab: (
     dir: "row" | "col",
     kind?: "terminal" | "editor" | "preview",
@@ -174,12 +174,12 @@ export function useTabActions({
   );
 
   const openPreviewTab = useCallback(
-    (url: string): number | null => {
+    (url: string, activate = true): number | null => {
       if (url && isSelfReferenceUrl(url)) {
         toast(SELF_REFERENCE_NOTICE, { variant: "warning" });
         return null;
       }
-      return newPreviewTab(url);
+      return newPreviewTab(url, activate);
     },
     [newPreviewTab],
   );
