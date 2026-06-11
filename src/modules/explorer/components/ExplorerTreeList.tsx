@@ -23,6 +23,7 @@ type Props = {
   onOpenFile: (path: string, pin?: boolean) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  onPreviewInBrowser?: (path: string) => void;
   selectedPath: string | null;
   onSelectPath: (path: string) => void;
   searchRef: React.Ref<ExplorerSearchHandle>;
@@ -44,6 +45,7 @@ export function ExplorerTreeList({
   onOpenFile,
   onRevealInTerminal,
   onAttachToAgent,
+  onPreviewInBrowser,
   selectedPath,
   onSelectPath,
   searchRef,
@@ -127,6 +129,7 @@ export function ExplorerTreeList({
                       onOpenFile={onOpenFile}
                       onRevealInTerminal={onRevealInTerminal}
                       onAttachToAgent={onAttachToAgent}
+                      onPreviewInBrowser={onPreviewInBrowser}
                       selectedPath={selectedPath}
                       onSelectPath={onSelectPath}
                     />

@@ -28,6 +28,8 @@ type Props = {
   onOpenFile: (path: string, pin?: boolean) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  /** Open an HTML file in the in-app browser preview. */
+  onPreviewInBrowser?: (path: string) => void;
   selectedPath: string | null;
   onSelectPath: (path: string) => void;
 };
@@ -41,11 +43,14 @@ function FileTreeNodeImpl({
   onOpenFile,
   onRevealInTerminal,
   onAttachToAgent,
+  onPreviewInBrowser,
   selectedPath,
   onSelectPath,
 }: Props) {
   const path = tree.joinPath(parentPath, entry.name);
   const isDir = entry.kind === "dir";
+  // HTML files get a "Preview in Browser" action (opens via file:// URL).
+  const isHtml = !isDir && /\.(html?|xhtml)$/i.test(entry.name);
   const isExpanded = isDir && tree.expanded.has(path);
   const children = isExpanded ? tree.nodes[path] : undefined;
   const isRenaming = tree.renaming === path;
@@ -141,6 +146,11 @@ function FileTreeNodeImpl({
           {!isDir && (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onOpenFile(path, true)}>
               Open
+            </ContextMenuItem>
+          )}
+          {isHtml && onPreviewInBrowser && (
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onPreviewInBrowser(path)}>
+              Preview in Browser
             </ContextMenuItem>
           )}
           {isDir && onRevealInTerminal && (
@@ -252,6 +262,7 @@ function FileTreeNodeImpl({
             onOpenFile={onOpenFile}
             onRevealInTerminal={onRevealInTerminal}
             onAttachToAgent={onAttachToAgent}
+            onPreviewInBrowser={onPreviewInBrowser}
             selectedPath={selectedPath}
             onSelectPath={onSelectPath}
           />

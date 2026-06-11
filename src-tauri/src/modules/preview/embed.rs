@@ -243,8 +243,10 @@ pub async fn preview_embed_update(
         return Ok(());
     }
     let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-    if !matches!(target.scheme(), "http" | "https") {
-        return Err("only http(s) URLs can load in the preview".into());
+    // http(s) for the web; `file://` so a local HTML file (e.g. a generated
+    // report on disk) opens directly in the preview like any browser tab.
+    if !matches!(target.scheme(), "http" | "https" | "file") {
+        return Err("only http(s) or file:// URLs can load in the preview".into());
     }
     let window = app
         .get_window("main")
@@ -321,8 +323,9 @@ pub async fn preview_embed_navigate(
         return Ok(());
     };
     let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-    if !matches!(target.scheme(), "http" | "https") {
-        return Err("only http(s) URLs can load in the preview".into());
+    // Mirror `preview_embed_update`: web schemes plus `file://` for local files.
+    if !matches!(target.scheme(), "http" | "https" | "file") {
+        return Err("only http(s) or file:// URLs can load in the preview".into());
     }
     wv.navigate(target).map_err(|e| e.to_string())
 }

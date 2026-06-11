@@ -32,6 +32,8 @@ type Props = {
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  /** Open an HTML file in the in-app browser preview (context-menu action). */
+  onPreviewInBrowser?: (path: string) => void;
   /** Accordion mode. Header becomes a chevron toggle; body hides while
    *  `collapsed` is true. Pair with a collapsible ResizablePanel. */
   collapsed?: boolean;
@@ -86,6 +88,7 @@ export function FileExplorer({
   onPathDeleted,
   onRevealInTerminal,
   onAttachToAgent,
+  onPreviewInBrowser,
   collapsed = false,
   onToggleCollapsed,
   hideCreateActions = false,
@@ -374,6 +377,7 @@ export function FileExplorer({
           onOpenFile={onOpenFile}
           onRevealInTerminal={onRevealInTerminal}
           onAttachToAgent={onAttachToAgent}
+          onPreviewInBrowser={onPreviewInBrowser}
           selectedPath={selectedPath}
           onSelectPath={setSelectedPath}
           searchRef={searchRef}

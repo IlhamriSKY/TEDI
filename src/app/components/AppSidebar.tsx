@@ -4,7 +4,11 @@ import { FileExplorer } from "@/modules/explorer";
 import { type Tab } from "@/modules/tabs";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import { ArrowDown01Icon, ArrowRight01Icon, DragDropVerticalIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  DragDropVerticalIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   closestCenter,
@@ -41,6 +45,7 @@ type Props = {
   onPathDeleted: (path: string) => void;
   onRevealInTerminal: (path: string) => void;
   onAttachToAgent: (path: string) => void;
+  onPreviewInBrowser: (path: string) => void;
   activeFilePath: string | null;
   activeSshContext: {
     sessionId: number | null;
@@ -138,6 +143,7 @@ export function AppSidebar({
   onPathDeleted,
   onRevealInTerminal,
   onAttachToAgent,
+  onPreviewInBrowser,
   activeFilePath,
   activeSshContext,
   onOpenRemoteFile,
@@ -221,6 +227,7 @@ export function AppSidebar({
             onPathDeleted={onPathDeleted}
             onRevealInTerminal={onRevealInTerminal}
             onAttachToAgent={onAttachToAgent}
+            onPreviewInBrowser={onPreviewInBrowser}
             dragHandle={controls}
             collapsed={isCollapsed}
             activeFilePath={activeFilePath}
@@ -293,9 +300,7 @@ export function AppSidebar({
             <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
               {visible.map((key, i) => (
                 <Fragment key={key}>
-                  {i > 0 && (
-                    <ResizableHandle withHandle />
-                  )}
+                  {i > 0 && <ResizableHandle withHandle />}
                   <ResizablePanel
                     id={`sidebar-${key}`}
                     defaultSize={SECTION_DEFAULT_SIZE[key]}

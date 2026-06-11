@@ -31,3 +31,37 @@ export function dirname(path: string): string {
   const i = norm.lastIndexOf("/");
   return i <= 0 ? "" : norm.slice(0, i);
 }
+
+/** Percent-encode each `/`-separated segment (spaces, `#`, `?`, … become %xx)
+ *  while leaving the separators intact, so a path with spaces or a literal `#`
+ *  in a filename survives as a valid file:// URL. */
+function encodeFileUrlPath(path: string): string {
+  return path
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+}
+
+/**
+ * Convert a local filesystem path to a `file://` URL, or null if it isn't an
+ * absolute local path. Handles Windows drive paths (`D:\dir\f.html` /
+ * `D:/dir/f.html`), UNC paths (`\\server\share\f`), and POSIX absolute paths
+ * (`/dir/f`). Used to open a local file in the in-app browser preview.
+ */
+export function pathToFileUrl(path: string): string | null {
+  // Windows drive path: D:\… or D:/…  ->  file:///D:/…
+  const drive = /^([a-zA-Z]):[\\/](.*)$/.exec(path);
+  if (drive) {
+    return `file:///${drive[1].toUpperCase()}:/${encodeFileUrlPath(drive[2].replace(/\\/g, "/"))}`;
+  }
+  // UNC path: \\server\share\…  ->  file://server/share/…
+  const unc = /^\\\\([^\\/]+)[\\/](.*)$/.exec(path);
+  if (unc) {
+    return `file://${encodeURIComponent(unc[1])}/${encodeFileUrlPath(unc[2].replace(/\\/g, "/"))}`;
+  }
+  // POSIX absolute path: /…  ->  file:///…  (macOS / Linux)
+  if (path.startsWith("/")) {
+    return `file://${encodeFileUrlPath(path)}`;
+  }
+  return null;
+}

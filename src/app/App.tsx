@@ -25,6 +25,7 @@
  *
  * See ARCHITECTURE.md for the two-process model and TEDI.md for full detail.
  */
+import { pathToFileUrl } from "@/lib/path";
 import { ResizableHandle, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -550,6 +551,16 @@ export default function App() {
       setEditorLeafPath,
     });
 
+  // Explorer "Preview in Browser" (HTML files): open the local file in a new
+  // in-app browser preview tab via its file:// URL.
+  const handlePreviewFileInBrowser = useCallback(
+    (path: string) => {
+      const url = pathToFileUrl(path);
+      if (url) openPreviewTab(url, true);
+    },
+    [openPreviewTab],
+  );
+
   const { searchTarget, mdPreviewToggle, lineWrapToggle, activeCwd, activeFilePath } =
     useChromeDerivations({
       isTerminalLike,
@@ -734,6 +745,7 @@ export default function App() {
                 onPathDeleted={handlePathDeleted}
                 onRevealInTerminal={cdInNewTab}
                 onAttachToAgent={handleAttachFileToAgent}
+                onPreviewInBrowser={handlePreviewFileInBrowser}
                 activeFilePath={activeFilePath}
                 activeSshContext={activeSshContext}
                 onOpenRemoteFile={handleOpenRemoteFile}

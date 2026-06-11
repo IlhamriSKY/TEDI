@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { pathToFileUrl } from "@/lib/path";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
+  File01Icon,
   Globe02Icon,
   InformationCircleIcon,
   LinkSquare02Icon,
@@ -44,7 +46,14 @@ function securityFor(url: string): {
     };
   }
   if (scheme === "http:") {
-    return { icon: InformationCircleIcon, label: "Not secure (HTTP)", className: "text-icon-working" };
+    return {
+      icon: InformationCircleIcon,
+      label: "Not secure (HTTP)",
+      className: "text-icon-working",
+    };
+  }
+  if (scheme === "file:") {
+    return { icon: File01Icon, label: "Local file", className: "text-muted-foreground/80" };
   }
   return { icon: Globe02Icon, label: "Enter an address", className: "text-muted-foreground/60" };
 }
@@ -212,7 +221,7 @@ export function PreviewAddressBar({
         </IconTooltip>
       </div>
       {notice ? (
-        <div className="flex items-center gap-1.5 bg-icon-working/8 px-3 py-1 text-[11px] text-icon-working">
+        <div className="bg-icon-working/8 text-icon-working flex items-center gap-1.5 px-3 py-1 text-[11px]">
           <span className="truncate">{notice}</span>
           <button
             type="button"
@@ -230,14 +239,22 @@ export function PreviewAddressBar({
 /**
  * Turn raw address-bar input into a navigable URL. Explicit schemes pass
  * through; localhost / IPs / single-token domains (no spaces, has a dot + TLD)
- * get an http(s) scheme. Anything else (a bare word like "youtube", or any text
- * with spaces) is treated as a query and routed to the default search engine,
+ * get an http(s) scheme. A `file://` URL or a bare local filesystem path opens
+ * the file directly. Anything else (a bare word like "youtube", or any text with
+ * spaces) is treated as a query and routed to the default search engine,
  * mirroring Chrome/Edge omnibox behaviour.
  */
 function normalizeUrl(raw: string, searchEngineId: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // A local file URL typed directly (file:///… or file://host/…) - pass through.
+  if (/^file:\/\//i.test(trimmed)) return trimmed;
+  // A bare local path (Windows drive / UNC / POSIX absolute) -> a file:// URL so
+  // a local HTML file opens directly. Checked BEFORE the whitespace test below,
+  // since a real path may contain spaces (e.g. "TEDI - terax-ai").
+  const fileUrl = pathToFileUrl(trimmed);
+  if (fileUrl) return fileUrl;
   // A URL candidate has no whitespace; with a space it's always a search.
   if (!/\s/.test(trimmed)) {
     if (/^localhost(:|\/|$)/i.test(trimmed)) return `http://${trimmed}`;

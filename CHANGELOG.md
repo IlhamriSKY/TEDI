@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.31] - 11-06-2026
+
+### Added
+
+- **The in-app browser preview can now open local files, and HTML files get a "Preview in Browser" right-click action.** The preview accepts `file://` URLs, and a bare local path typed into the address bar — Windows drive (`D:\dir\f.html`), UNC (`\\server\share\f.html`), or POSIX absolute (`/dir/f.html`) — is converted to one automatically (each path segment percent-encoded, so spaces survive), so a local HTML report opens as a real browser tab; the address bar shows a "Local file" indicator for `file://`. In the File Explorer, right-clicking an `.html` / `.htm` / `.xhtml` file adds **Preview in Browser**, which opens it in a new preview tab via its `file://` URL. The AI `open_preview` tool accepts `file://` too ([`embed.rs`](src-tauri/src/modules/preview/embed.rs), [`PreviewAddressBar.tsx`](src/modules/preview/PreviewAddressBar.tsx), [`path.ts`](src/lib/path.ts), [`FileTreeNode.tsx`](src/modules/explorer/FileTreeNode.tsx)).
+
+### Changed
+
+- **Terminal titles no longer show a stray leading status glyph.** A running agent (Claude Code, Codex, …) prefixes its OSC 0/2 window title with a cycling spark/spinner glyph (e.g. `✳ Investigate double dots`), which looked like a stray dot next to the folder name in the Workspaces panel and pane header. That leading glyph — plus any surrounding whitespace or variation selectors — is now stripped before the title is stored. It reuses the AI-CLI detector's curated spinner alphabet, which already excludes the middle-dot `·` used as a path separator, so real titles stay intact ([`terminalTitles.ts`](src/modules/terminal/lib/terminalTitles.ts), [`aiCliDetector.ts`](src/modules/terminal/lib/aiCliDetector.ts)).
+
 ## [0.3.29] - 10-06-2026
 
 ### Changed

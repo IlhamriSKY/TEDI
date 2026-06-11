@@ -147,7 +147,7 @@ const ELLIPSIS = "…";
 const BRAILLE_LO = 0x2800;
 const BRAILLE_HI = 0x28ff;
 
-function isSpinnerLeadChar(ch: string): boolean {
+export function isSpinnerLeadChar(ch: string): boolean {
   if (SPINNER_CHARS.has(ch)) return true;
   const code = ch.codePointAt(0) ?? 0;
   return code >= BRAILLE_LO && code <= BRAILLE_HI;
