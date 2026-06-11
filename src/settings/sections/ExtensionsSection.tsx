@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
+import { corsFallbackFetch } from "@/modules/ai/lib/httpProxy";
 import { useExtensionsStore } from "@/modules/extensions";
 import type { InstalledExtension } from "@/modules/extensions";
 import { safeParseManifest } from "@/modules/extensions/manifest";
@@ -116,17 +117,20 @@ export function ExtensionsSection() {
   }, [init]);
 
   // Lazy: fire the network request only when the user actually opens the
-  // Marketplace tab, and only the first time. Once `status` flips out of
-  // `idle`, subsequent tab toggles reuse the cached result. Force-refresh
-  // routes through the Refresh button below.
+  // Marketplace tab. A successful (`ready`) or in-flight (`loading`) result is
+  // reused, but a prior `error` is retried on every tab re-open - otherwise a
+  // failure while the catalog host was still coming up would stick until a
+  // manual Refresh, which reads as "broken" even after the endpoint is live.
   const fetchMarketplace = useCallback(async (force: boolean) => {
     if (!force) {
       // Snapshot the current state via the setter callback so this callback
       // doesn't need `marketplace` in its dep list (which would cause a
-      // re-fetch every time state ticks during loading).
+      // re-fetch every time state ticks during loading). Skip only when we
+      // already have a good result or a request is in flight; `error`/`idle`
+      // fall through and re-fetch.
       let skip = false;
       setMarketplace((prev) => {
-        if (prev.status !== "idle") skip = true;
+        if (prev.status === "ready" || prev.status === "loading") skip = true;
         return prev;
       });
       if (skip) return;
@@ -136,13 +140,33 @@ export function ExtensionsSection() {
     marketplaceAbortRef.current = ctrl;
     setMarketplace({ status: "loading" });
     try {
-      const resp = await fetch(MARKETPLACE_URL, {
-        signal: ctrl.signal,
-        cache: "default",
-        headers: { accept: "application/json" },
-        // Avoid leaking the desktop app's referrer header to the catalog host.
-        referrerPolicy: "no-referrer",
-      });
+      // `corsFallbackFetch` tries the WebView's native fetch first, then routes
+      // through the Rust HTTP stack when the WebView blocks the request (CORS,
+      // or a stale negative-DNS entry from an attempt made before the catalog
+      // host was live) - the same fallback the AI provider calls use. Retry
+      // once on a transient network throw so a momentary blip self-heals
+      // instead of parking the panel in an error the user must clear by hand.
+      const fetchCatalog = async (): Promise<Response> => {
+        let lastErr: unknown;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (ctrl.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          try {
+            return await corsFallbackFetch(MARKETPLACE_URL, {
+              signal: ctrl.signal,
+              cache: "default",
+              headers: { accept: "application/json" },
+              // Avoid leaking the desktop app's referrer header to the catalog host.
+              referrerPolicy: "no-referrer",
+            });
+          } catch (e) {
+            if ((e as { name?: string })?.name === "AbortError") throw e;
+            lastErr = e;
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+        throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+      };
+      const resp = await fetchCatalog();
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const raw: unknown = await resp.json();
       if (!raw || typeof raw !== "object") {

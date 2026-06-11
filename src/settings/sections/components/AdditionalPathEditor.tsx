@@ -49,7 +49,7 @@ const normDir = (p: string) => {
 };
 const sameDir = (a: string, b: string) => normDir(a) === normDir(b);
 
-type ToolVersion = { tool: string; version: string; exe: string };
+type ToolVersion = { tool: string; version: string; exe: string; subdir: string };
 type PathProbeResult = { isDir: boolean; tools: ToolVersion[] };
 type ProbeState = { loading: boolean; result?: PathProbeResult; failed?: boolean };
 
@@ -240,6 +240,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
           ) : (
             <span className="text-muted-foreground/60"> (detected)</span>
           )}
+          {t.subdir ? <span className="text-muted-foreground/50"> · {t.subdir}</span> : null}
         </span>
       ))}
     </span>

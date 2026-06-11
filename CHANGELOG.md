@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.32] - 11-06-2026
+
+### Added
+
+- **The terminal's "Additional PATH" now detects tools that live in Laragon-style versioned subfolders, and puts the right folder on PATH.** Laragon nests a toolchain one level down (`bin\php\php-8.3.1-Win32-vs16-x64\php.exe`, `bin\nodejs\node-v20...\node.exe`), so adding the natural parent (`bin\php`) used to report "no known tools detected" and wouldn't make the tool runnable. The probe now descends one level to find the executable, the detected badge shows which versioned child was picked (e.g. `php 8.3.1 · php-8.3.1-Win32-vs16-x64`), and PATH assembly adds that child folder — listed before the parent and de-duplicated — so the tool actually resolves in a freshly opened terminal ([`path_probe.rs`](src-tauri/src/modules/pty/path_probe.rs), [`shell_init.rs`](src-tauri/src/modules/pty/shell_init.rs), [`AdditionalPathEditor.tsx`](src/settings/sections/components/AdditionalPathEditor.tsx)).
+
+### Fixed
+
+- **"Additional PATH" no longer shows a PHP/Imagick startup warning where a tool's version should be.** Probing `php` / `composer` runs the tool to read its `--version`, but a mismatched Imagick extension prints `Warning: Version warning: Imagick was compiled against ImageMagick version 1808 but version 1810 is loaded …` ahead of the real output, and the probe took that first line as the version. It now reads both stdout and stderr, skips startup diagnostics (`Warning` / `Notice` / `Deprecated`), and prefers the line carrying a dotted version — so the badge reads `php 8.3.1` instead of the warning, falling back to "detected" rather than stray noise ([`path_probe.rs`](src-tauri/src/modules/pty/path_probe.rs)).
+- **The Extensions marketplace no longer stays stuck on a transient load error.** The catalog fetch now routes through `corsFallbackFetch` (native WebView fetch first, then the Rust HTTP stack when the WebView blocks it — CORS, or a stale negative-DNS entry from before the host was live), retries once on a momentary network throw, and re-fetches on tab re-open after an `error` (only a `ready` or in-flight `loading` result is reused) — so a failure while the catalog host was still coming up self-heals instead of parking the panel until a manual Refresh ([`ExtensionsSection.tsx`](src/settings/sections/ExtensionsSection.tsx)).
+
 ## [0.3.31] - 11-06-2026
 
 ### Added

@@ -200,7 +200,19 @@ pub(crate) fn assemble_path(extra_dirs: &[String]) -> Option<std::ffi::OsString>
         if key.is_empty() || !seen.insert(key) {
             continue;
         }
-        entries.push(PathBuf::from(cleaned));
+        let cleaned = PathBuf::from(cleaned);
+        // Laragon nests toolchains in versioned subfolders, so the folder a user
+        // naturally adds (`bin\php`) has no executable itself - the child
+        // (`bin\php\php-8.3.1-...`) does. Expand to those children so the tool
+        // resolves in the terminal without hunting for the exact versioned path.
+        // The child is listed before the parent (parent stays on PATH, harmless)
+        // so it wins, and goes through `seen` so nothing is duplicated.
+        for sub in super::path_probe::tool_subdirs(&cleaned) {
+            if seen.insert(path_dedup_key(&sub.to_string_lossy())) {
+                entries.push(sub);
+            }
+        }
+        entries.push(cleaned);
     }
 
     // Nothing the user configured survived: leave the inherited PATH untouched.
