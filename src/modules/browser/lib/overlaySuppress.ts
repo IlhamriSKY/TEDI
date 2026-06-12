@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 /**
  * Native webviews always composite *above* the DOM, so a dropdown, dialog,
  * command palette, or any popper that lands over an embedded preview webview
- * would be hidden behind it. `PreviewPane` fixes that by hiding its webview
+ * would be hidden behind it. `BrowserPane` fixes that by hiding its webview
  * while an overlay actually overlaps its rect.
  *
  * This module is the cheap gate: a shallow `<body>` observer flips

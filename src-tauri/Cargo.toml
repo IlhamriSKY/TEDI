@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.32"
+version = "0.3.33"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -72,7 +72,6 @@ log = "0.4"
 ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
-grep-matcher = "0.1"
 globset = "0.4"
 # Direct `regex` for `fs_grep_replace`: file-level `replace_all` instead of
 # the line-by-line `grep_regex` matcher used for read-only search.
@@ -93,7 +92,6 @@ url = "2"
 russh = { version = "0.60", default-features = false, features = ["ring", "flate2", "rsa"] }
 russh-sftp = "2.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
-async-trait = "0.1"
 # Extension system: zip extraction with path-traversal guards via
 # `ZipFile::enclosed_name()`. Tracks the same major line that
 # `tauri-plugin-updater` already pulls in (zip 4.x) so the build ships one

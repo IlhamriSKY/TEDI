@@ -20,8 +20,58 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
+/// Block SSRF to cloud-metadata / link-local addresses (the 169.254.169.254
+/// AWS/GCP/Azure metadata endpoint and the IPv4/IPv6 link-local ranges).
+/// Resolves the URL's host first so a hostname pointing at link-local space is
+/// caught too. Loopback (localhost dev servers) and private LAN ranges stay
+/// ALLOWED - only the metadata/link-local class is refused, so the preview and
+/// local-AI features keep working. Reachable via raw IPC by the AI tools and
+/// extensions, so the guard lives in the backend, not the webview.
+pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|_| "invalid url".to_string())?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(format!("blocked: unsupported url scheme '{scheme}'"));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "url has no host".to_string())?
+        .to_string();
+    let host_l = host.to_ascii_lowercase();
+    // Metadata hostnames resolve to 169.254.169.254; refuse by name too.
+    if host_l == "metadata.google.internal" || host_l == "metadata" {
+        return Err("blocked: cloud metadata endpoint".to_string());
+    }
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    // DNS resolution blocks; run it off the async runtime, then inspect every
+    // candidate address. IP literals resolve to themselves (no DNS lookup).
+    let ips = tokio::task::spawn_blocking(move || {
+        use std::net::ToSocketAddrs;
+        (host.as_str(), port)
+            .to_socket_addrs()
+            .map(|it| it.map(|a| a.ip()).collect::<Vec<std::net::IpAddr>>())
+    })
+    .await
+    .map_err(|e| format!("dns task failed: {e}"))?
+    .map_err(|e| format!("dns resolve failed: {e}"))?;
+    for ip in ips {
+        let blocked = match ip {
+            std::net::IpAddr::V4(v4) => v4.is_link_local(),
+            std::net::IpAddr::V6(v6) => {
+                (v6.segments()[0] & 0xffc0) == 0xfe80
+                    || v6.to_ipv4().map(|m| m.is_link_local()).unwrap_or(false)
+            }
+        };
+        if blocked {
+            return Err("blocked: link-local / cloud-metadata address".to_string());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn http_ping(url: String, auth: Option<String>) -> Result<u16, String> {
+    reject_metadata_ssrf(&url).await?;
     let mut req = client().get(&url);
     if let Some(token) = auth.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         req = req.bearer_auth(token);
@@ -120,6 +170,7 @@ async fn run_stream(
     on_event: &Channel<StreamEvent>,
     notify: &tokio::sync::Notify,
 ) -> Result<(), String> {
+    reject_metadata_ssrf(url).await?;
     let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut req = stream_client().request(method, url);
     for (name, value) in headers {

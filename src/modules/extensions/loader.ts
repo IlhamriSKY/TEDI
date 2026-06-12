@@ -18,12 +18,9 @@ import {
   aiToolsRegistry,
   clearExtensionContributions,
   commandsRegistry,
-  editorThemesRegistry,
   keybindingsRegistry,
   panelsRegistry,
   settingsRegistry,
-  slashCommandsRegistry,
-  themesRegistry,
 } from "./registries";
 
 /**
@@ -39,9 +36,6 @@ export function seedManifestContributions(ext: InstalledExtension): void {
   if (c.settings) settingsRegistry.set(ext.id, c.settings);
   if (c.commands) commandsRegistry.set(ext.id, c.commands);
   if (c.keybindings) keybindingsRegistry.set(ext.id, c.keybindings);
-  if (c.slashCommands) slashCommandsRegistry.set(ext.id, c.slashCommands);
-  if (c.themes) themesRegistry.set(ext.id, c.themes);
-  if (c.editorThemes) editorThemesRegistry.set(ext.id, c.editorThemes);
   if (c.panels) panelsRegistry.set(ext.id, c.panels);
   if (c.aiTools) aiToolsRegistry.set(ext.id, c.aiTools);
 }

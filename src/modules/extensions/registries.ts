@@ -8,12 +8,9 @@
 import type {
   ContributedAiTool,
   ContributedCommand,
-  ContributedEditorTheme,
   ContributedKeybinding,
   ContributedPanel,
   ContributedSetting,
-  ContributedSlashCommand,
-  ContributedTheme,
 } from "./manifest";
 
 type Listener = () => void;
@@ -117,9 +114,6 @@ class Registry<T> {
 export const settingsRegistry = new Registry<ContributedSetting>();
 export const commandsRegistry = new Registry<ContributedCommand>();
 export const keybindingsRegistry = new Registry<ContributedKeybinding>();
-export const slashCommandsRegistry = new Registry<ContributedSlashCommand>();
-export const themesRegistry = new Registry<ContributedTheme>();
-export const editorThemesRegistry = new Registry<ContributedEditorTheme>();
 export const panelsRegistry = new Registry<ContributedPanel>();
 export const aiToolsRegistry = new Registry<ContributedAiTool>();
 
@@ -320,10 +314,7 @@ class ShellTransformerRegistry {
       try {
         const next = transformer(result, kind);
         if (typeof next !== "string") {
-          console.error(
-            `[extensions] shell transformer from "${extId}" returned non-string`,
-            next,
-          );
+          console.error(`[extensions] shell transformer from "${extId}" returned non-string`, next);
           continue;
         }
         result = next;
@@ -406,9 +397,6 @@ export function clearExtensionContributions(extensionId: string): void {
   settingsRegistry.clear(extensionId);
   commandsRegistry.clear(extensionId);
   keybindingsRegistry.clear(extensionId);
-  slashCommandsRegistry.clear(extensionId);
-  themesRegistry.clear(extensionId);
-  editorThemesRegistry.clear(extensionId);
   panelsRegistry.clear(extensionId);
   panelRenderersRegistry.clear(extensionId);
   aiToolsRegistry.clear(extensionId);

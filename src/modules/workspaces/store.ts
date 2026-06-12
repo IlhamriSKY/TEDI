@@ -26,6 +26,15 @@ export type SavedTerminalLeaf = {
    * backend is unavailable.
    */
   ptyId?: string;
+  /**
+   * Last program-set window title (OSC 0/2) captured from the live xterm -
+   * e.g. a running agent's task or a TUI's filename. Persisted so the
+   * Workspaces panel can show it next to the folder name for INACTIVE
+   * workspaces too; live titles only exist for the active workspace's
+   * terminals. Omitted for private leaves. May be stale after a restart
+   * until the workspace is reopened and its terminals go live again.
+   */
+  title?: string;
 };
 
 export type SavedEditorLeaf = {
@@ -36,18 +45,20 @@ export type SavedEditorLeaf = {
   private?: boolean;
 };
 
-export type SavedPreviewLeaf = {
+export type SavedBrowserLeaf = {
   kind: "leaf";
-  leafKind: "preview";
+  leafKind: "browser";
   /** Last URL the embedded browser showed. Reopened on restore. */
   url: string;
+  /** FIFO chip number ("Browser 3"). Persisted so it stays stable after restart. */
+  browserOrdinal?: number;
   private?: boolean;
 };
 
 export type SavedPaneNode =
   | SavedTerminalLeaf
   | SavedEditorLeaf
-  | SavedPreviewLeaf
+  | SavedBrowserLeaf
   | {
       kind: "split";
       dir: "row" | "col";
@@ -62,6 +73,11 @@ export type SavedPaneTab = {
   activeLeafIndex: number;
 };
 
+/**
+ * Legacy standalone browser ("preview") tab format from before browsers became
+ * pane leaves. The on-disk discriminator stays `"preview"` for back-compat;
+ * `savedToTab` migrates it into a pane tab with a single browser leaf.
+ */
 export type SavedPreviewTab = {
   kind: "preview";
   url: string;

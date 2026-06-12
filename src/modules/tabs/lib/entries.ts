@@ -27,11 +27,12 @@ type EntryBase = {
 export type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
-  leafKind: "terminal" | "editor" | "preview";
-  /** Current page URL for preview leaves. Drives the tab-strip favicon. */
-  previewUrl?: string;
-  /** 1-based FIFO badge number. Same identifier the AI sees in `<env>`. */
-  terminalOrdinal?: number;
+  leafKind: "terminal" | "editor" | "browser";
+  /** Current page URL for browser leaves. Drives the tab-strip favicon. */
+  browserUrl?: string;
+  /** 1-based FIFO badge number for terminal + browser leaves. For terminals
+   *  this is the same identifier the AI sees in `<env>`. */
+  ordinal?: number;
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
   /** Latest SSH session status. Drives the colored dot. */
@@ -79,7 +80,7 @@ export function tabAccentClass(e: Entry): string {
         ? "bg-[color:var(--tedi-tab-ssh)]"
         : "bg-[color:var(--tedi-tab-terminal)]";
     }
-    if (e.leafKind === "preview") return "bg-[color:var(--tedi-tab-preview)]";
+    if (e.leafKind === "browser") return "bg-[color:var(--tedi-tab-browser)]";
     return "bg-[color:var(--tedi-tab-editor)]";
   }
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
@@ -110,7 +111,7 @@ export function extensionStateLabelClass(state: ExtensionTabState | undefined): 
   }
 }
 
-function previewHost(url: string): string {
+function browserHost(url: string): string {
   try {
     return new URL(url).host || url || "browser";
   } catch {
@@ -124,7 +125,7 @@ function entryLabel(
   sshHosts: Map<string, SshConnection>,
 ): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  if (leaf.leafKind === "preview") return leaf.title || previewHost(leaf.url);
+  if (leaf.leafKind === "browser") return leaf.title || browserHost(leaf.url);
   // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
     const host = sshHosts.get(leaf.sshConnectionId);
@@ -154,12 +155,15 @@ export function buildEntries(
         const label = entryLabel(leaf, t.cwd, sshHosts);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         // FIFO ordinal assigned at leaf creation. Preserved through drag,
-        // reorder, move-to-group, and workspace restarts. Same number the AI
-        // sees in the per-turn `<env>` block.
+        // reorder, move-to-group, and workspace restarts. Terminals use the
+        // same number the AI sees in the per-turn `<env>` block; browsers have
+        // their own independent sequence.
         const ord =
           leaf.leafKind === "terminal" && typeof leaf.terminalOrdinal === "number"
             ? leaf.terminalOrdinal
-            : undefined;
+            : leaf.leafKind === "browser" && typeof leaf.browserOrdinal === "number"
+              ? leaf.browserOrdinal
+              : undefined;
         const remoteHost =
           leaf.leafKind === "editor" && leaf.sshSessionId !== undefined
             ? (leaf.sshHostLabel ?? "remote")
@@ -170,9 +174,9 @@ export function buildEntries(
           tabId: t.id,
           leafId: leaf.id,
           leafKind: leaf.leafKind,
-          previewUrl: leaf.leafKind === "preview" ? leaf.url : undefined,
+          browserUrl: leaf.leafKind === "browser" ? leaf.url : undefined,
           label,
-          terminalOrdinal: ord,
+          ordinal: ord,
           italic:
             leaf.leafKind === "editor" &&
             (leaf as PaneLeaf & { preview?: boolean }).preview === true,

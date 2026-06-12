@@ -6726,14 +6726,12 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
- "async-trait",
  "base64 0.22.1",
  "dialoguer",
  "dirs 5.0.1",
  "globset",
- "grep-matcher",
  "grep-regex",
  "grep-searcher",
  "hex",

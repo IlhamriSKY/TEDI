@@ -224,7 +224,7 @@ function formatEnvBlock(live: LiveSnapshot): string | null {
   }
   if (live.browsers.length > 0) {
     // In-app browser panes the user is viewing. The asterisk marks the focused
-    // one. The agent can open/reuse a browser with `open_preview`.
+    // one. The agent can open/reuse a browser with `open_browser`.
     lines.push("browsers:");
     for (const b of live.browsers) {
       const star = b.isActive ? "*" : " ";

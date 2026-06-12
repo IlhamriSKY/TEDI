@@ -4,7 +4,7 @@ import {
   previewEmbedDispatch,
   previewEmbedRead,
   previewEmbedScreenshot,
-} from "@/modules/preview";
+} from "@/modules/browser";
 import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs";
 import {
   findLeaf,
@@ -31,7 +31,7 @@ export interface LiveContext {
   explorerRoot: string | null;
   home: string | null;
   openPreviewTab: (url: string, activate?: boolean) => number | null;
-  setPreviewLeafUrl: TabsApi["setPreviewLeafUrl"];
+  setBrowserLeafUrl: TabsApi["setBrowserLeafUrl"];
   newTab: TabsApi["newTab"];
   inheritedCwdForNewTab: () => string | undefined;
   splitActivePane: TabsApi["splitActivePane"];
@@ -123,22 +123,22 @@ export function buildLiveContext(deps: LiveContextDeps) {
       return liveContextRef.current.openPreviewTab(url, false);
     },
     // Drive an existing browser pane (by leaf id from listBrowsers). navigate
-    // just sets the leaf url - PreviewPane navigates the live webview and syncs
+    // just sets the leaf url - BrowserPane navigates the live webview and syncs
     // the address bar, and a not-yet-shown pane loads the new url when opened.
     navigateBrowser: (leafId: number, url: string): boolean => {
-      const { tabs, setPreviewLeafUrl } = liveContextRef.current;
+      const { tabs, setBrowserLeafUrl } = liveContextRef.current;
       const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
       );
       // Private browser panes are hidden from the AI, like private terminals.
       if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
-      setPreviewLeafUrl(leafId, url);
+      setBrowserLeafUrl(leafId, url);
       return true;
     },
     dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload"): boolean => {
       const { tabs } = liveContextRef.current;
       const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
       );
       // Private browser panes are hidden from the AI, like private terminals.
       if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
@@ -148,7 +148,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
     readBrowser: async (leafId: number, fields = false): Promise<string | null> => {
       const { tabs } = liveContextRef.current;
       const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
       );
       if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
       try {
@@ -166,7 +166,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
     ): Promise<string | null> => {
       const { tabs } = liveContextRef.current;
       const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
       );
       if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
       try {
@@ -178,7 +178,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
     screenshotBrowser: async (leafId: number): Promise<string | null> => {
       const { tabs } = liveContextRef.current;
       const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "preview",
+        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
       );
       if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
       try {
@@ -194,7 +194,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
         if (t.kind !== "pane") continue;
         for (const l of leaves(t.paneTree)) {
           // Skip private browser panes so they stay invisible to the AI.
-          if (l.leafKind === "preview" && !l.private) {
+          if (l.leafKind === "browser" && !l.private) {
             out.push({
               tabId: t.id,
               leafId: l.id,

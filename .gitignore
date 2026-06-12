@@ -36,6 +36,10 @@ Thumbs.db
 !.env.example
 .claude
 
+# Recovered WinSCP credentials — local only, never commit
+plan.txt
+check-public-ip.ps1
+
 # react-doctor: local-only scan config (rule policy kept off the repo)
 react-doctor.config.json
 

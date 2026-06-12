@@ -484,6 +484,7 @@ pub fn run() {
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,
+            ssh::ssh_confirm_host_key,
             ssh::sftp::ssh_sftp_home,
             ssh::sftp::ssh_sftp_read_dir,
             ssh::sftp::ssh_sftp_stat,

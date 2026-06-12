@@ -166,3 +166,20 @@ pub async fn ssh_close(state: tauri::State<'_, SshState>, id: u32) -> Result<(),
     }
     Ok(())
 }
+
+/// Answer a first-connect `HostKeyPrompt`. `accept = true` lets the paused
+/// handshake proceed (and the connection pins the fingerprint on success);
+/// `accept = false` aborts the connect before any credential is sent. Called
+/// by the frontend confirmation dialog. No-op (Err) if the prompt already
+/// timed out or was answered.
+#[tauri::command]
+pub fn ssh_confirm_host_key(prompt_id: String, accept: bool) -> Result<(), String> {
+    match session::take_pending_host_key(&prompt_id) {
+        Some(tx) => {
+            // Receiver may already be gone if the connect timed out; ignore.
+            let _ = tx.send(accept);
+            Ok(())
+        }
+        None => Err("ssh: unknown or already-answered host-key prompt".into()),
+    }
+}

@@ -63,18 +63,26 @@ export type EditorLeafState = {
   private?: boolean;
 };
 
-export type PreviewLeafState = {
-  leafKind: "preview";
+export type BrowserLeafState = {
+  leafKind: "browser";
   /** Current page URL of the embedded browser. Empty = show the address bar. */
   url: string;
   /** Live `document.title` of the page, reported by the webview. Drives the
    *  tab/pane label; falls back to the URL host when empty. */
   title?: string;
+  /**
+   * FIFO creation index for browser leaves, 1-based. Shown on the tab chip
+   * exactly like `terminalOrdinal` on terminals, with its own counter (so
+   * browsers number "Browser 1, 2, 3" independently of terminals). Set at
+   * creation, preserved across split/drag/move/restart. Optional for
+   * back-compat with older saved state.
+   */
+  browserOrdinal?: number;
   /** Privacy flag, kept for uniformity with the other leaf kinds. */
   private?: boolean;
 };
 
-export type LeafState = TerminalLeafState | EditorLeafState | PreviewLeafState;
+export type LeafState = TerminalLeafState | EditorLeafState | BrowserLeafState;
 
 export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
 
@@ -178,21 +186,21 @@ export function setLeafPrivate(n: PaneNode, id: PaneId, value: boolean): PaneNod
 }
 
 /** Update a preview leaf's current URL. No-op for other leaves or mismatched ids. */
-export function updatePreviewLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
+export function updateBrowserLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
   if (isLeaf(n)) {
-    if (n.id !== id || n.leafKind !== "preview" || n.url === url) return n;
+    if (n.id !== id || n.leafKind !== "browser" || n.url === url) return n;
     return { ...n, url };
   }
-  return { ...n, children: n.children.map((c) => updatePreviewLeaf(c, id, url)) };
+  return { ...n, children: n.children.map((c) => updateBrowserLeaf(c, id, url)) };
 }
 
 /** Update a preview leaf's page title. No-op for other leaves or mismatched ids. */
-export function updatePreviewLeafTitle(n: PaneNode, id: PaneId, title: string): PaneNode {
+export function updateBrowserLeafTitle(n: PaneNode, id: PaneId, title: string): PaneNode {
   if (isLeaf(n)) {
-    if (n.id !== id || n.leafKind !== "preview" || n.title === title) return n;
+    if (n.id !== id || n.leafKind !== "browser" || n.title === title) return n;
     return { ...n, title };
   }
-  return { ...n, children: n.children.map((c) => updatePreviewLeafTitle(c, id, title)) };
+  return { ...n, children: n.children.map((c) => updateBrowserLeafTitle(c, id, title)) };
 }
 
 /** Patch an editor leaf's mutable state. */
@@ -238,9 +246,10 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
     };
   }
   return {
-    leafKind: "preview",
+    leafKind: "browser",
     url: leaf.url,
     ...(leaf.title ? { title: leaf.title } : {}),
+    ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
     ...(leaf.private ? { private: true } : {}),
   };
 }

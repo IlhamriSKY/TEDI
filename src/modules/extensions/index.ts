@@ -10,14 +10,11 @@ export type { InstalledExtension } from "./store";
 export {
   aiToolsRegistry,
   commandsRegistry,
-  editorThemesRegistry,
   keybindingsRegistry,
   panelRenderersRegistry,
   panelsRegistry,
   settingsRegistry,
-  slashCommandsRegistry,
   statusItemsRegistry,
-  themesRegistry,
 } from "./registries";
 export type { PanelRenderer, StatusItem } from "./registries";
 export { permissionRiskTier } from "./permissions";
@@ -34,7 +31,4 @@ export {
   getExtensionWorkspaceBridge,
   type ExtensionWorkspaceBridge,
 } from "./workspaceBridge";
-export type {
-  MountedFolderTree,
-  MountFolderTreeOptions,
-} from "./components/mountFolderTree";
+export type { MountedFolderTree, MountFolderTreeOptions } from "./components/mountFolderTree";

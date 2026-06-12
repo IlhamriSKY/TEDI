@@ -26,10 +26,15 @@ export function resolveRoot(
   };
 }
 
-export function buildSearchTools(ctx: ToolContext, opts: { gateOutOfScopeReads?: boolean } = {}) {
+export function buildSearchTools(
+  ctx: ToolContext,
+  opts: { gateOutOfScopeReads?: boolean; refuseOutOfScopeReads?: boolean } = {},
+) {
   // See buildFsTools: gate searches rooted outside the workspace/cwd in the main
-  // agent (approval UI); off for the autonomous subagent.
+  // agent (approval UI); off for the autonomous subagent, which instead REFUSES
+  // them (no approver) via `refuseOutOfScopeReads`.
   const gateReads = opts.gateOutOfScopeReads ?? true;
+  const refuseOutOfScope = opts.refuseOutOfScopeReads ?? false;
   const rootNeedsApproval = gateReads
     ? (input: { root?: string }) => (input.root ? isReadOutsideScope(input.root, ctx) : false)
     : undefined;
@@ -57,6 +62,12 @@ export function buildSearchTools(ctx: ToolContext, opts: { gateOutOfScopeReads?:
       execute: async ({ pattern, root, glob, case_insensitive, max_results }) => {
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };
+        if (refuseOutOfScope && root && isReadOutsideScope(root, ctx)) {
+          return {
+            error: "refused: a read-only subagent may not search outside the workspace/cwd",
+            root: r.path,
+          };
+        }
         const safety = checkReadable(r.path);
         if (!safety.ok) return { error: safety.reason, root: r.path };
         try {
@@ -107,6 +118,12 @@ export function buildSearchTools(ctx: ToolContext, opts: { gateOutOfScopeReads?:
       execute: async ({ pattern, root, max_results }) => {
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };
+        if (refuseOutOfScope && root && isReadOutsideScope(root, ctx)) {
+          return {
+            error: "refused: a read-only subagent may not search outside the workspace/cwd",
+            root: r.path,
+          };
+        }
         const safety = checkReadable(r.path);
         if (!safety.ok) return { error: safety.reason, root: r.path };
         try {

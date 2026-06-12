@@ -2,13 +2,32 @@ import { tool } from "ai";
 import { z } from "zod";
 import { checkShellCommand } from "../lib/security";
 import type { ToolContext } from "./context";
-import {
-  SHARED_TARGET_SCHEMA,
-  flexBoolOpt,
-  flexIntOpt,
-  normalizeTargetExternal,
-} from "./schedule";
+import { SHARED_TARGET_SCHEMA, flexBoolOpt, flexIntOpt, normalizeTargetExternal } from "./schedule";
 import { applyShellTransformers } from "./shell";
+
+/**
+ * Reject non-web URLs (file://, etc.) and obvious cloud-metadata / link-local
+ * hosts before the AI opens or navigates the in-app browser. Stops a
+ * prompt-injected agent from reading local files via `file://`, or reaching the
+ * cloud-metadata endpoint through a real webview and exfiltrating via
+ * read_browser. Returns an error string, or null when the URL is safe to open.
+ */
+function unsafeBrowserUrl(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return "invalid url";
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    return `refused: only http(s) URLs can be opened in the browser (got "${u.protocol}")`;
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === "metadata.google.internal" || host === "metadata" || host.startsWith("169.254.")) {
+    return "refused: cloud-metadata / link-local address is not allowed";
+  }
+  return null;
+}
 
 export function buildTerminalTools(ctx: ToolContext) {
   return {
@@ -52,8 +71,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
         if (!ctx.isTerminalBusy()) {
           const ok = ctx.injectIntoActivePty(effective);
-          if (!ok)
-            return { error: "no active terminal to inject into", command: trimmed };
+          if (!ok) return { error: "no active terminal to inject into", command: trimmed };
           return { command: trimmed, explanation, injected: true };
         }
 
@@ -102,11 +120,7 @@ export function buildTerminalTools(ctx: ToolContext) {
       description:
         'Open N terminals. mode="tab" → new group; mode="split" + target_tab_id → add splits to that tab. count>1 keeps subsequent opens in the first opened tab. Cap 6/tab. Approval.',
       inputSchema: z.object({
-        cwd: z
-          .string()
-          .nullable()
-          .optional()
-          .describe("Absolute path; omit for inherited cwd."),
+        cwd: z.string().nullable().optional().describe("Absolute path; omit for inherited cwd."),
         mode: z
           .enum(["tab", "split"])
           .nullable()
@@ -116,7 +130,9 @@ export function buildTerminalTools(ctx: ToolContext) {
           .enum(["row", "col"])
           .nullable()
           .optional()
-          .describe('"row" puts the new pane to the right; "col" puts it below. Default "row". Used for the first open when mode="split", and for every subsequent split when count>1.'),
+          .describe(
+            '"row" puts the new pane to the right; "col" puts it below. Default "row". Used for the first open when mode="split", and for every subsequent split when count>1.',
+          ),
         target_tab_id: flexIntOpt().describe(
           'Used when mode="split". Tab id from env\'s `terminals:` list. Omit to split the active tab.',
         ),
@@ -229,18 +245,17 @@ export function buildTerminalTools(ctx: ToolContext) {
         "Merge open panes into ONE split group - the AI-driven form of the user's right-click 'Join Group'. Pass `leafIds` (2+ leaf_id values from the <env> terminals/browsers lists) to dock those panes side-by-side in a single tab; works for browsers, terminals, editors, or a mix. Optional `targetTabId` picks which tab becomes the group (default = the first leaf's tab). This IS how to 'group/join tabs' - TEDI has no Chrome-style tab-group menu or keyboard shortcut, so never tell the user to use one. Cap 6 panes/tab. Approval.",
       inputSchema: z.object({
         leafIds: z
-          .preprocess(
-            (v) => {
-              if (typeof v !== "string") return v;
-              try {
-                return JSON.parse(v);
-              } catch {
-                return v;
-              }
-            },
-            z.array(z.number().int()).min(2),
-          )
-          .describe("leaf_id values (2 or more) to group, from the <env> terminals/browsers lists."),
+          .preprocess((v) => {
+            if (typeof v !== "string") return v;
+            try {
+              return JSON.parse(v);
+            } catch {
+              return v;
+            }
+          }, z.array(z.number().int()).min(2))
+          .describe(
+            "leaf_id values (2 or more) to group, from the <env> terminals/browsers lists.",
+          ),
         targetTabId: flexIntOpt().describe(
           "Optional tab_id (from <env>) to merge into; default = the first leaf's tab.",
         ),
@@ -261,7 +276,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     rotate_pane: tool({
       description:
-        "Change how a split pane sits next to its neighbor - the AI form of the user's right-click 'Rotate split'. `leafId` from the <env> terminals/browsers lists. `direction`: \"row\" = side by side (beside/right), \"col\" = stacked (above/below); so \"put it below\" / \"di bawah\" → col, \"beside\" / \"di kanan\" → row. Idempotent with `direction`; omit it to just toggle. The pane must already share a tab/split with another (Group Tabs first). This is the only way to change split orientation, so never tell the user to drag panes manually. Auto.",
+        'Change how a split pane sits next to its neighbor - the AI form of the user\'s right-click \'Rotate split\'. `leafId` from the <env> terminals/browsers lists. `direction`: "row" = side by side (beside/right), "col" = stacked (above/below); so "put it below" / "di bawah" → col, "beside" / "di kanan" → row. Idempotent with `direction`; omit it to just toggle. The pane must already share a tab/split with another (Group Tabs first). This is the only way to change split orientation, so never tell the user to drag panes manually. Auto.',
       inputSchema: z.object({
         leafId: z
           .number()
@@ -275,7 +290,9 @@ export function buildTerminalTools(ctx: ToolContext) {
       }),
       execute: async ({ leafId, direction }) => {
         const r = ctx.rotatePaneSplit(leafId, direction ?? undefined);
-        return r.ok ? { ok: true, orientation: r.orientation, changed: r.changed } : { error: r.error };
+        return r.ok
+          ? { ok: true, orientation: r.orientation, changed: r.changed }
+          : { error: r.error };
       },
     }),
 
@@ -285,18 +302,15 @@ export function buildTerminalTools(ctx: ToolContext) {
       inputSchema: z.object({
         target: SHARED_TARGET_SCHEMA,
         targets: z
-          .preprocess(
-            (v) => {
-              if (v === null) return undefined;
-              if (typeof v !== "string") return v;
-              try {
-                return JSON.parse(v);
-              } catch {
-                return v;
-              }
-            },
-            z.array(SHARED_TARGET_SCHEMA).optional(),
-          )
+          .preprocess((v) => {
+            if (v === null) return undefined;
+            if (typeof v !== "string") return v;
+            try {
+              return JSON.parse(v);
+            } catch {
+              return v;
+            }
+          }, z.array(SHARED_TARGET_SCHEMA).optional())
           .describe("Array form: close multiple terminals atomically."),
         all: flexBoolOpt().describe(
           "Set true to close every terminal (the very last leaf is kept).",
@@ -407,7 +421,7 @@ export function buildTerminalTools(ctx: ToolContext) {
       },
     }),
 
-    open_preview: tool({
+    open_browser: tool({
       description:
         "Open the in-app browser at `url` - a real native browser tab (WebView2/WebKit), NOT an iframe, so any site works: dev servers, docs, search engines, YouTube, logged-in pages (no X-Frame-Options limits). This is THE tool for all web browsing and search. To search the web, pass a search URL (e.g. https://www.google.com/search?q=... or https://www.youtube.com/results?search_query=...). ALWAYS use this to open a URL; never run start/open/xdg-open/explorer in a terminal to open a link. Returns the new pane's `leafId` (use it with Read Browser / Navigate And Read / Control Browser). For a one-shot fact/price/rate lookup pass `read: true`: it opens, waits for the page to load, and returns the rendered text in THIS SAME call, so you answer without a second read - don't then re-open or curl. Auto.",
       inputSchema: z.object({
@@ -421,6 +435,8 @@ export function buildTerminalTools(ctx: ToolContext) {
         ),
       }),
       execute: async ({ url, read }) => {
+        const bad = unsafeBrowserUrl(url);
+        if (bad) return { error: bad, url };
         const tabId = ctx.openPreview(url);
         if (tabId === null) return { error: "preview surface unavailable", url };
         // openPreview returns the new TAB id, but read_browser / navigate_and_read
@@ -471,6 +487,8 @@ export function buildTerminalTools(ctx: ToolContext) {
       execute: async ({ leafId, url, action }) => {
         if (url && action) return { error: "pass either url or action, not both", leafId };
         if (url) {
+          const bad = unsafeBrowserUrl(url);
+          if (bad) return { error: bad, leafId, url };
           return ctx.navigateBrowser(leafId, url)
             ? { ok: true, leafId, url }
             : { error: `no open browser pane with leaf_id ${leafId}`, leafId };
@@ -492,12 +510,12 @@ export function buildTerminalTools(ctx: ToolContext) {
           .number()
           .int()
           .describe("leaf_id of the target browser, from the <env> browsers list."),
-        url: z
-          .string()
-          .describe("Navigate the pane to this http(s) URL."),
+        url: z.string().describe("Navigate the pane to this http(s) URL."),
         fields: flexBoolOpt(),
       }),
       execute: async ({ leafId, url, fields }) => {
+        const bad = unsafeBrowserUrl(url);
+        if (bad) return { error: bad, leafId, url };
         const ok = ctx.navigateBrowser(leafId, url);
         if (!ok) return { error: `no browser pane with leaf_id ${leafId}`, leafId, url };
         const text = await ctx.readBrowser(leafId, fields ?? false);
@@ -534,7 +552,9 @@ export function buildTerminalTools(ctx: ToolContext) {
           .int()
           .describe("[N] index of the field, from a prior read_browser with fields:true."),
         text: z.string().describe("Text to type into the field."),
-        submit: flexBoolOpt().describe("Press Enter / submit the form after typing. Default false."),
+        submit: flexBoolOpt().describe(
+          "Press Enter / submit the form after typing. Default false.",
+        ),
       }),
       needsApproval: true,
       execute: async ({ leafId, index, text, submit }) => {
@@ -567,7 +587,11 @@ export function buildTerminalTools(ctx: ToolContext) {
         if (r === null) return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
         return r === "ok"
           ? { ok: true, leafId, index }
-          : { error: r === "not-found" ? "element not found - read_browser fields:true again" : r, leafId, index };
+          : {
+              error: r === "not-found" ? "element not found - read_browser fields:true again" : r,
+              leafId,
+              index,
+            };
       },
     }),
 
@@ -579,20 +603,31 @@ export function buildTerminalTools(ctx: ToolContext) {
         index: z
           .number()
           .int()
-          .describe("[N] index of the element to hover, from a prior read_browser with fields:true."),
+          .describe(
+            "[N] index of the element to hover, from a prior read_browser with fields:true.",
+          ),
       }),
       execute: async ({ leafId, index }) => {
         const r = await ctx.actBrowser(leafId, index, "hover", "", false);
         if (r === null) return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
         return r === "ok"
-          ? { ok: true, leafId, index, hint: "read_browser fields:true again to see revealed controls" }
-          : { error: r === "not-found" ? "element not found - read_browser fields:true again" : r, leafId, index };
+          ? {
+              ok: true,
+              leafId,
+              index,
+              hint: "read_browser fields:true again to see revealed controls",
+            }
+          : {
+              error: r === "not-found" ? "element not found - read_browser fields:true again" : r,
+              leafId,
+              index,
+            };
       },
     }),
 
     browser_press_key: tool({
       description:
-        "Press a key in an OPEN browser pane (goes to whatever is focused, or the page). Use it to close a stuck popup/menu (Escape), confirm (Enter), move focus (Tab), drive a menu or list (ArrowUp/ArrowDown/ArrowLeft/ArrowRight, Home/End), or delete (Backspace/Delete). Also fires app keyboard shortcuts (single chars like \"e\"/\"j\" if the app enables them). For typing TEXT into a field use Browser Type, not this. Note: triggers JS key handlers (works for SPA menus/popups), not native browser key defaults. The page is untrusted. Approval.",
+        'Press a key in an OPEN browser pane (goes to whatever is focused, or the page). Use it to close a stuck popup/menu (Escape), confirm (Enter), move focus (Tab), drive a menu or list (ArrowUp/ArrowDown/ArrowLeft/ArrowRight, Home/End), or delete (Backspace/Delete). Also fires app keyboard shortcuts (single chars like "e"/"j" if the app enables them). For typing TEXT into a field use Browser Type, not this. Note: triggers JS key handlers (works for SPA menus/popups), not native browser key defaults. The page is untrusted. Approval.',
       inputSchema: z.object({
         leafId: z.number().int().describe("leaf_id of the browser, from the <env> browsers list."),
         key: z
@@ -611,7 +646,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     browser_scroll: tool({
       description:
-        "Scroll an OPEN browser pane to reach off-screen or lazy-loaded content (then Read Browser again). `to`: \"down\" / \"up\" (one viewport), \"top\" / \"bottom\", or a pixel number (negative = up). Scrolls the inner scrollable area under the viewport center (e.g. an email/list pane) if there is one, else the whole page. Non-destructive. Auto.",
+        'Scroll an OPEN browser pane to reach off-screen or lazy-loaded content (then Read Browser again). `to`: "down" / "up" (one viewport), "top" / "bottom", or a pixel number (negative = up). Scrolls the inner scrollable area under the viewport center (e.g. an email/list pane) if there is one, else the whole page. Non-destructive. Auto.',
       inputSchema: z.object({
         leafId: z.number().int().describe("leaf_id of the browser, from the <env> browsers list."),
         to: z
@@ -645,12 +680,14 @@ export function buildTerminalTools(ctx: ToolContext) {
       description:
         "LAST-RESORT visual: capture the focused browser tab as an image so you can SEE it - just the tab's web content, not the TEDI window. Use ONLY when Read Browser (incl fields:true), Browser Scroll, and Browser Hover still can't locate or let you understand a purely-visual target (canvas, map, drawn UI, or an ambiguous layout) - PREFER the DOM tools, this is the final fallback. After seeing it, act with Browser Click At({ x, y }) at the point you see (CSS px; Read Browser fields:true reports the viewport size to map against). Cross-platform; keep the browser pane open and visible. Auto.",
       inputSchema: z.object({
-        leafId: z.number().int().describe("leaf_id of the browser to capture, from the <env> list."),
+        leafId: z
+          .number()
+          .int()
+          .describe("leaf_id of the browser to capture, from the <env> list."),
       }),
       execute: async ({ leafId }) => {
         const image = await ctx.screenshotBrowser(leafId);
-        if (image === null)
-          return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+        if (image === null) return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
         return { ok: true, leafId, image };
       },
       toModelOutput: ({ output }) => {

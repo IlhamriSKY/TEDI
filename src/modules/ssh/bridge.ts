@@ -1,7 +1,11 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 
+/** First-connect host-key confirmation request from the backend. */
+export type SshHostKeyPrompt = { promptId: string; fingerprint: string; host: string };
+
 export type SshEvent =
   | { type: "connected"; fingerprint: string }
+  | { type: "hostKeyPrompt"; promptId: string; fingerprint: string; host: string }
   | { type: "data"; data: string }
   | { type: "stderr"; data: string }
   | { type: "exit"; code: number }
@@ -9,6 +13,10 @@ export type SshEvent =
 
 export type SshHandlers = {
   onConnected?: (fingerprint: string) => void;
+  /** First-connect host-key confirmation. Show the fingerprint and call
+   *  `confirmHostKey(promptId, accept)`; the handshake is paused (no
+   *  credentials sent) until then. */
+  onHostKeyPrompt?: (prompt: SshHostKeyPrompt) => void;
   onData: (bytes: Uint8Array) => void;
   onExit?: (code: number) => void;
   onError?: (message: string) => void;
@@ -36,6 +44,13 @@ export function isHostKeyMismatchError(err: unknown): boolean {
   return msg.startsWith(HOST_KEY_MISMATCH_PREFIX);
 }
 
+/** Answer a first-connect host-key prompt. `accept = true` lets the paused
+ *  handshake proceed (and pins the fingerprint on success); `false` aborts the
+ *  connect before any credential is sent. */
+export function confirmHostKey(promptId: string, accept: boolean): Promise<void> {
+  return invoke("ssh_confirm_host_key", { promptId, accept });
+}
+
 export type SshSession = {
   id: number;
   write: (data: string) => Promise<void>;
@@ -56,6 +71,13 @@ export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promi
     switch (event.type) {
       case "connected":
         handlers.onConnected?.(event.fingerprint);
+        break;
+      case "hostKeyPrompt":
+        handlers.onHostKeyPrompt?.({
+          promptId: event.promptId,
+          fingerprint: event.fingerprint,
+          host: event.host,
+        });
         break;
       case "data":
         handlers.onData(decodeBase64(event.data));

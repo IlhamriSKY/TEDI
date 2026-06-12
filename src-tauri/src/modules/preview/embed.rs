@@ -968,6 +968,14 @@ pub async fn preview_resolve_favicon(url: String) -> Result<Option<String>, Stri
         Ok(u) if matches!(u.scheme(), "http" | "https") => u,
         _ => return Ok(None),
     };
+    // Block SSRF to cloud-metadata / link-local addresses; on a blocked host
+    // fall back to the globe glyph rather than surfacing an error.
+    if crate::modules::net::reject_metadata_ssrf(page.as_str())
+        .await
+        .is_err()
+    {
+        return Ok(None);
+    }
     // 1. The page's own declared <link rel="icon">, resolved against the final
     //    (post-redirect) document URL.
     if let Ok(resp) = proxy_client().get(page.clone()).send().await {

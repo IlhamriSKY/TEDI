@@ -38,7 +38,7 @@ type Props = {
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
   // Preview (browser) leaf callbacks
-  onPreviewUrlChange: (leafId: number, url: string) => void;
+  onBrowserUrlChange: (leafId: number, url: string) => void;
   /** Editor leaf ids rendered as markdown preview instead of source. */
   mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
@@ -69,7 +69,7 @@ export function PaneStack({
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
-  onPreviewUrlChange,
+  onBrowserUrlChange,
   mdPreviewLeafIds,
   onFocusLeaf,
   onMovePaneLeaf,
@@ -108,7 +108,7 @@ export function PaneStack({
   const registerEditorRef = useRef(registerEditorHandle);
   const dirtyChangeRef = useRef(onDirtyChange);
   const closeLeafRef = useRef(onCloseLeaf);
-  const previewUrlRef = useRef(onPreviewUrlChange);
+  const browserUrlRef = useRef(onBrowserUrlChange);
   useEffect(() => {
     registerTerminalRef.current = registerTerminalHandle;
   }, [registerTerminalHandle]);
@@ -149,8 +149,8 @@ export function PaneStack({
     closeLeafRef.current = onCloseLeaf;
   }, [onCloseLeaf]);
   useEffect(() => {
-    previewUrlRef.current = onPreviewUrlChange;
-  }, [onPreviewUrlChange]);
+    browserUrlRef.current = onBrowserUrlChange;
+  }, [onBrowserUrlChange]);
 
   const bundles = useRef(new Map<number, LeafBundle>());
   const getBundle = (leafId: number): LeafBundle => {
@@ -170,7 +170,7 @@ export function PaneStack({
         setEditorRef: (h) => registerEditorRef.current(leafId, h),
         onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
         onCloseLeaf: () => closeLeafRef.current(leafId),
-        onPreviewUrlChange: (url) => previewUrlRef.current(leafId, url),
+        onBrowserUrlChange: (url) => browserUrlRef.current(leafId, url),
       };
       bundles.current.set(leafId, b);
     }

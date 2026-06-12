@@ -60,11 +60,17 @@ async function checkWritableResolved(abs: string): Promise<ReturnType<typeof che
   return literal;
 }
 
-export function buildFsTools(ctx: ToolContext, opts: { gateOutOfScopeReads?: boolean } = {}) {
+export function buildFsTools(
+  ctx: ToolContext,
+  opts: { gateOutOfScopeReads?: boolean; refuseOutOfScopeReads?: boolean } = {},
+) {
   // Main agent (has an approval UI) gates reads that resolve outside the
   // workspace/cwd; the autonomous read-only subagent passes false so its
-  // generateText loop never stalls on an approval that has no responder.
+  // generateText loop never stalls on an approval that has no responder - but
+  // then passes `refuseOutOfScopeReads` so those reads are REFUSED outright (no
+  // approver means no silent out-of-scope exfil through a subagent).
   const gateReads = opts.gateOutOfScopeReads ?? true;
+  const refuseOutOfScope = opts.refuseOutOfScopeReads ?? false;
   return {
     read_file: tool({
       description:
@@ -83,6 +89,12 @@ export function buildFsTools(ctx: ToolContext, opts: { gateOutOfScopeReads?: boo
         : undefined,
       execute: async ({ path, offset, limit }) => {
         const abs = resolvePath(path, ctx.getCwd());
+        if (refuseOutOfScope && isReadOutsideScope(path, ctx)) {
+          return {
+            error: "refused: a read-only subagent may not read outside the workspace/cwd",
+            path: abs,
+          };
+        }
         const safety = await checkReadableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {

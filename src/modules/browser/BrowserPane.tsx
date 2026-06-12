@@ -4,18 +4,18 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
   markPreviewCreated,
-  PREVIEW_NAV_EVENT,
+  BROWSER_NAV_EVENT,
   previewEmbedDispatch,
   previewEmbedNavigate,
   previewEmbedSetBg,
   previewEmbedUpdate,
-  type PreviewNavEvent,
+  type BrowserNavEvent,
   wasPreviewCreatedTransparent,
 } from "./lib/native";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { anyOverlayIntersects, useAnyOverlayOpen, usePaneDragActive } from "./lib/overlaySuppress";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
-import { PreviewAddressBar, type PreviewAddressBarHandle } from "./PreviewAddressBar";
+import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
 
 // Resolving an arbitrary CSS color (hex / hsl / oklch / var) to "r, g, b" needs
 // a DOM probe + style recalc, so cache it keyed by the raw value: the canvas
@@ -55,7 +55,7 @@ function canvasBgRgba(alpha: number): string {
   return `rgba(${canvasRgb()}, ${alpha})`;
 }
 
-export type PreviewPaneHandle = {
+export type BrowserPaneHandle = {
   reload: () => void;
   focusAddressBar: () => void;
   getUrl: () => string;
@@ -66,7 +66,7 @@ type Props = {
   url: string;
   visible: boolean;
   onUrlChange: (url: string) => void;
-  ref?: Ref<PreviewPaneHandle>;
+  ref?: Ref<BrowserPaneHandle>;
 };
 
 type History = { entries: string[]; index: number };
@@ -85,11 +85,11 @@ type SentBounds = { visible: boolean; key: string };
  *     to Rust (only when they change), keeping the webview glued to the pane;
  *   - hides the webview whenever this tab isn't the active one, an in-toolbar
  *     overlay (Ports menu) is open, the url is empty, or it would load TEDI;
- *   - tracks navigation via the `PREVIEW_NAV_EVENT` Tauri event to drive the
+ *   - tracks navigation via the `BROWSER_NAV_EVENT` Tauri event to drive the
  *     address bar + back/forward history;
  *   - destroys the webview on unmount (tab close).
  */
-export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
+export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
   const [history, setHistory] = useState<History>(() =>
     url ? { entries: [url], index: 0 } : { entries: [], index: -1 },
   );
@@ -101,7 +101,7 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
   // webview; `appOpacity` then drives the backdrop level live (see below).
   const appOpacity = usePreferencesStore((s) => s.appOpacity);
   const transparent = appOpacity < 1;
-  const addressRef = useRef<PreviewAddressBarHandle>(null);
+  const addressRef = useRef<BrowserAddressBarHandle>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const current = history.index >= 0 ? history.entries[history.index] : "";
@@ -278,7 +278,7 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
   useEffect(() => {
     let alive = true;
     let unlisten: UnlistenFn | undefined;
-    void listen<PreviewNavEvent>(PREVIEW_NAV_EVENT, (e) => {
+    void listen<BrowserNavEvent>(BROWSER_NAV_EVENT, (e) => {
       const p = e.payload;
       if (!p || p.tabId !== id) return;
       if (p.kind === "navigated") {
@@ -375,7 +375,7 @@ export function PreviewPane({ id, url, visible, onUrlChange, ref }: Props) {
         pointerEvents: visible ? "auto" : "none",
       }}
     >
-      <PreviewAddressBar
+      <BrowserAddressBar
         ref={addressRef}
         url={current}
         loading={loading}

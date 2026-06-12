@@ -24,9 +24,13 @@ const SECRET_BASENAME_PATTERNS: RegExp[] = [
   /^htpasswd$/i,
   /^\.netrc$/i,
   /^credentials$/i, // .aws/credentials, gcloud
+  /^\.git-credentials$/i, // plaintext https tokens in $HOME
   /^\.pgpass$/i,
   /^\.npmrc$/i,
   /^\.pypirc$/i,
+  /^_netrc$/i, // Windows .netrc
+  /^.*\.ovpn$/i, // OpenVPN config with inline private keys
+  /^\.\w+_history$/i, // .bash_history / .zsh_history / .psql_history / ...
   /^secrets?\.(json|ya?ml|toml)$/i,
 ];
 
@@ -72,8 +76,11 @@ export function checkReadable(path: string): SafetyResult {
     }
   }
 
+  // Case-insensitive: the OS filesystem is case-insensitive on Windows/macOS,
+  // so `~/.SSH/id` or `/.AWS/` must not slip past the lowercase segment list.
+  const normLower = norm.toLowerCase();
   for (const seg of SECRET_PATH_SEGMENTS) {
-    if (norm.includes(seg)) {
+    if (normLower.includes(seg)) {
       return {
         ok: false,
         reason: `Refused: path is inside a protected directory (${seg.replace(/\//g, "")}).`,

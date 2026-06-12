@@ -42,7 +42,7 @@ export interface ShortcutHandlerDeps {
   tabsRef: RefObject<Tab[]>;
   activeId: number;
   activeLeafIdInTab: number | null;
-  activeLeafKindCurrent: "terminal" | "editor" | "preview" | null;
+  activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
 }
 
 export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandlers {

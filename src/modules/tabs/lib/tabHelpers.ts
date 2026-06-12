@@ -7,14 +7,14 @@ export function titleFromUrl(url: string): string {
     const u = new URL(url);
     return u.host || url;
   } catch {
-    return url || "preview";
+    return url || "browser";
   }
 }
 
 /** Derive a tab title from its active leaf. */
 function titleFromLeaf(leaf: PaneLeaf): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  if (leaf.leafKind === "preview") return leaf.title || titleFromUrl(leaf.url);
+  if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   // SSH leaves get a real title via updateTab after newSshTab. This is the interim fallback.
   if (leaf.sshConnectionId) return "ssh";
   // Terminal: cwd basename, falling back to "shell".
@@ -59,7 +59,7 @@ export function activeLeaf(tab: Tab): PaneLeaf | null {
   return findLeaf(tab.paneTree, tab.activeLeafId);
 }
 
-export function activeLeafKind(tab: Tab): "terminal" | "editor" | "preview" | null {
+export function activeLeafKind(tab: Tab): "terminal" | "editor" | "browser" | null {
   const leaf = activeLeaf(tab);
   return leaf ? leaf.leafKind : null;
 }
@@ -73,5 +73,5 @@ export function isEditorLikeTab(tab: Tab): boolean {
 }
 
 export function isPreviewLikeTab(tab: Tab): boolean {
-  return tab.kind === "pane" && activeLeafKind(tab) === "preview";
+  return tab.kind === "pane" && activeLeafKind(tab) === "browser";
 }

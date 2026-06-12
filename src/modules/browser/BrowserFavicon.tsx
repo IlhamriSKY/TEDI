@@ -37,7 +37,7 @@ function resolveOriginFavicon(pageUrl: string, origin: string): Promise<string |
  * icon lives at a custom/hashed path. Falls back to the globe glyph when no
  * icon can be found or the URL is blank/unparseable.
  */
-export function PreviewFavicon({
+export function BrowserFavicon({
   url,
   size = 14,
   className,

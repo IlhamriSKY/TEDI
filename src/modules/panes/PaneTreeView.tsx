@@ -21,7 +21,7 @@ import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
 import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
-import { PreviewPane, setPaneDragActive } from "@/modules/preview";
+import { BrowserPane, setPaneDragActive } from "@/modules/browser";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
@@ -49,7 +49,7 @@ export type LeafBundle = {
   onDirtyChange: (dirty: boolean) => void;
   onCloseLeaf: () => void;
   // preview-only
-  onPreviewUrlChange: (url: string) => void;
+  onBrowserUrlChange: (url: string) => void;
 };
 
 type Props = {
@@ -131,7 +131,7 @@ function baseName(p: string): string {
 
 function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): string {
   if (node.leafKind === "editor") return baseName(node.path);
-  if (node.leafKind === "preview") {
+  if (node.leafKind === "browser") {
     if (node.title) return node.title;
     try {
       return new URL(node.url).host || node.url || "browser";
@@ -157,7 +157,7 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
     isSsh: node.leafKind === "terminal" && !!node.sshConnectionId,
     editorFileName: node.leafKind === "editor" ? baseName(node.path) : undefined,
     editorRemote: node.leafKind === "editor" && node.sshSessionId !== undefined,
-    previewUrl: node.leafKind === "preview" ? node.url : undefined,
+    browserUrl: node.leafKind === "browser" ? node.url : undefined,
     aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,
   };
 }
@@ -202,14 +202,14 @@ const LeafBody = memo(function LeafBody({
       </ErrorBoundary>
     );
   }
-  if (node.leafKind === "preview") {
+  if (node.leafKind === "browser") {
     return (
       <ErrorBoundary label="browser pane" resetKeys={[node.id]}>
-        <PreviewPane
+        <BrowserPane
           id={node.id}
           url={node.url}
           visible={tabVisible}
-          onUrlChange={b.onPreviewUrlChange}
+          onUrlChange={b.onBrowserUrlChange}
         />
       </ErrorBoundary>
     );
@@ -437,9 +437,7 @@ const PaneNodes = memo(function PaneNodes({
     >
       {node.children.map((child, i) => (
         <Fragment key={child.id}>
-          {i > 0 && (
-            <ResizableHandle withHandle />
-          )}
+          {i > 0 && <ResizableHandle withHandle />}
           <ResizablePanel id={`pane-${child.id}`} minSize="10%">
             <PaneNodes
               node={child}

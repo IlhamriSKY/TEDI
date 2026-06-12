@@ -67,7 +67,7 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   bash_kill: { label: "Kill", icon: TerminalIcon },
   // Data / web
   fetch: { label: "Fetch", icon: InternetIcon },
-  open_preview: { label: "Preview", icon: EyeIcon },
+  open_browser: { label: "Browser", icon: EyeIcon },
   control_browser: { label: "Browser", icon: Navigation03Icon },
   navigate_and_read: { label: "Navigate", icon: Navigation03Icon },
   read_browser: { label: "Read page", icon: EyeIcon },
@@ -159,7 +159,7 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     }
     case "suggest_command":
       return str("intent") ?? str("description");
-    case "open_preview":
+    case "open_browser":
       return str("path") ?? str("url");
     case "run_subagent": {
       const desc = str("description");
@@ -347,7 +347,7 @@ function renderInputPreview(toolName: string, input: unknown): ReactNode | null 
     toolName === "read_file" ||
     toolName === "list_directory" ||
     toolName === "create_directory" ||
-    toolName === "open_preview"
+    toolName === "open_browser"
   ) {
     const path = str("path") ?? str("url");
     if (!path) return null;

@@ -116,8 +116,7 @@ loop.
   called multiple times in a session — keep it idempotent.
 - A `main` file with **no** `activate` export logs a warning but keeps your
   declarative contributions.
-- Omit `main` entirely for a **pure-declarative pack** (themes / settings only,
-  though see the dead-registry caveats in Section 5).
+- Omit `main` entirely for a **pure-declarative pack** (settings only).
 
 ---
 
@@ -180,15 +179,10 @@ Each contribution array is independently parsed. Every per-item schema below is
 **strict** except `panels[]`, which is `passthrough` (so future panel keys, e.g.
 `compact`, do not break installs on older hosts).
 
-> **Wiring status (read this).** Of the eight contribution categories, five are
-> fully consumed by built-in code: `settings`, `commands`, `keybindings`,
-> `panels`, and **`aiTools`** (contributed AI tools are surfaced to the agent —
-> see Section 5). The other three — `slashCommands`, `themes`, and
-> `editorThemes` — are validated, seeded into registries, and bindable via
-> `ctx`, but **no built-in code reads them yet** (no theme injector, no
-> slash-command resolver). Treat those three as reserved/forward-looking, and
-> note that the install dialog warns the user when a manifest declares them. See
-> [Section 5](#5-contribution-surfaces) for details.
+> **Wiring status (read this).** All five contribution categories are fully
+> consumed by built-in code: `settings`, `commands`, `keybindings`, `panels`,
+> and **`aiTools`** (contributed AI tools are surfaced to the agent — see
+> Section 5). See [Section 5](#5-contribution-surfaces) for details.
 
 #### `contributes.settings[]`
 
@@ -296,32 +290,6 @@ permission and open it via `ctx.tabs.openExtensionTab`.
     "icon": "logo.png", "toggleCommand": "tedi.sql-explorer.toggle" }
 ]
 ```
-
-#### `contributes.slashCommands[]` — reserved
-
-| Field         | Required | Notes                                                                                                                  |
-| ------------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `name`        | yes      | The slash command name.                                                                                                |
-| `label`       | yes      | Display label.                                                                                                         |
-| `description` | no       | Helper text.                                                                                                           |
-| `template`    | no       | Intended to expand `{{selection}}` / `{{cwd}}`, but **no resolver exists** and no UI consumes this registry. Reserved. |
-
-#### `contributes.themes[]` — reserved
-
-| Field    | Required | Notes                                                                                                                 |
-| -------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
-| `id`     | yes      | Theme id.                                                                                                             |
-| `label`  | yes      | Display name.                                                                                                         |
-| `type`   | yes      | `"light" \| "dark"`.                                                                                                  |
-| `tokens` | yes      | `Record<string,string>` of CSS var name (without `--`) -> value. **No consumer reads this registry today.** Reserved. |
-
-#### `contributes.editorThemes[]` — reserved
-
-| Field   | Required | Notes                                                                                       |
-| ------- | -------- | ------------------------------------------------------------------------------------------- |
-| `id`    | yes      | Theme id.                                                                                   |
-| `label` | yes      | Display name.                                                                               |
-| `css`   | yes      | Path to a CSS file inside the package. **No consumer reads this registry today.** Reserved. |
 
 #### `contributes.aiTools[]`
 
@@ -477,9 +445,6 @@ type ExtensionContext = {
     settings(items): void;
     commands(items): void;
     keybindings(items): void;
-    slashCommands(items): void;
-    themes(items): void;
-    editorThemes(items): void;
     panels(items): void; // requires panels:register
     aiTools(items): void;
   };
@@ -839,19 +804,6 @@ extension tools. The install dialog discloses the tool names so the user's
 consent is informed. This is the richest seam for turning an extension into an
 agent-capability pack.
 
-### Reserved surfaces (not yet consumed)
-
-`slashCommands`, `themes`, and `editorThemes` are validated, seeded, and
-bindable, but no built-in code reads their registries today:
-
-- **slashCommands** — no `{{selection}}`/`{{cwd}}` resolver, no consumer.
-- **themes / editorThemes** — no stylesheet injector reads the registry.
-
-Do not rely on these three for shipping functionality yet. The install dialog
-shows the user a "reserved / no effect in this version" note when a manifest
-declares them, and they are documented so your manifest stays
-forward-compatible.
-
 ---
 
 ## 6. Permissions reference
@@ -1162,9 +1114,6 @@ assume the protection exists:
   `ctx.registerAiToolHandler(name, …)` you bound, that the extension is enabled,
   and that you didn't reuse a built-in tool name (built-ins win). Also: subagents
   don't get extension tools — only the main agent does.
-- **My slash command / theme / editor theme does nothing.** Those three
-  registries have no consumer yet (Section 5); they are reserved and the install
-  dialog flags them as such.
 - **State resets on disable then enable.** By design — each activation is a fresh
   module instance.
 - **Module-level state leaked between activations.** It shouldn't (fresh Blob

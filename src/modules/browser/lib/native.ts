@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Tauri event carrying navigation reports from an embedded preview webview. */
-export const PREVIEW_NAV_EVENT = "tedi:preview-nav";
+/**
+ * Tauri event carrying navigation reports from an embedded browser webview.
+ * The event id string stays `"tedi:preview-nav"` because the Rust backend
+ * (unchanged) emits that exact name - only the frontend concept was renamed.
+ */
+export const BROWSER_NAV_EVENT = "tedi:preview-nav";
 
-export type PreviewNavEvent = {
-  /** Owning preview leaf id (the native webview is keyed by leaf id). */
+export type BrowserNavEvent = {
+  /** Owning browser leaf id (the native webview is keyed by leaf id). */
   tabId: number;
   /** "navigated" = a load started (address bar should update); "loaded" = it
    *  finished; "title" = the page's document.title changed (carries `title`,
@@ -110,7 +114,7 @@ export function wasPreviewCreatedTransparent(tabId: number): boolean {
 }
 
 /** Destroy the embedded webview when its preview tab closes. */
-export async function previewEmbedClose(tabId: number): Promise<void> {
+export async function browserEmbedClose(tabId: number): Promise<void> {
   createdTransparentById.delete(tabId);
   await invoke("preview_embed_close", { tabId });
 }

@@ -18,7 +18,7 @@ type Params = {
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
   editorRefs: RefObject<Map<number, EditorPaneHandle>>;
   hasComposer: boolean;
-  activeLeafKindCurrent: "terminal" | "editor" | "preview" | null;
+  activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
 };
 
 /**

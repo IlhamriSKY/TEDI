@@ -5,6 +5,7 @@ import {
   type SshConnection,
 } from "@/modules/ssh/connections";
 import { openSsh, isHostKeyMismatchError } from "@/modules/ssh/bridge";
+import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { PtySession } from "./pty-bridge";
 import { sessions, type Session } from "./sessionState";
@@ -114,6 +115,11 @@ export async function openSshForSession(
         // Fire-and-forget. Timestamp write failure shouldn't break the session.
         void markConnected(sshConnectionId, fp).catch(() => {});
         emitConnectedIfReady();
+      },
+      // First connect to a new host: pause for the user to verify the server
+      // fingerprint before credentials are sent (shown by the global dialog).
+      onHostKeyPrompt: (prompt) => {
+        useHostKeyPrompt.getState().enqueue(prompt);
       },
       onData,
       onExit: (code) => {

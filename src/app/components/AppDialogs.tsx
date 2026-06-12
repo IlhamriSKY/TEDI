@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { SelectionAskAi } from "@/modules/ai";
 import { type SshConnection } from "@/modules/ssh/connections";
+import { HostKeyPromptDialog } from "@/modules/ssh/HostKeyPromptDialog";
 import { type Tab } from "@/modules/tabs";
 import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, type Dispatch, type SetStateAction } from "react";
@@ -129,6 +130,11 @@ export function AppDialogs({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Blocking confirmation for a NEW SSH host key (trust-on-first-use).
+          Self-contained: reads its own queue store, shown only when the backend
+          pauses a first-connect handshake awaiting fingerprint verification. */}
+      <HostKeyPromptDialog />
     </>
   );
 }

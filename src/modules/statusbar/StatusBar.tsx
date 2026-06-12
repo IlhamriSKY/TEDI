@@ -29,7 +29,7 @@ type Props = {
   /** True when the AI panel is open and a key is loaded. */
   hasComposer: boolean;
   /** When set, shows a one-click "Open preview" chip pointing at this URL. */
-  detectedPreviewUrl?: string | null;
+  detectedBrowserUrl?: string | null;
   onOpenPreview?: () => void;
 };
 
@@ -42,7 +42,7 @@ function StatusBarInner({
   onCd,
   onOpenMini,
   hasComposer,
-  detectedPreviewUrl,
+  detectedBrowserUrl,
   onOpenPreview,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
@@ -54,12 +54,12 @@ function StatusBarInner({
         {/* "Open preview" detected-URL action, pinned leftmost as an icon-only
             button (the URL lives in the tooltip + aria-label) so it reads the
             same as the other status-bar icon buttons. */}
-        {detectedPreviewUrl && onOpenPreview ? (
-          <IconTooltip label={`Open ${detectedPreviewUrl} as a preview tab`} side="top">
+        {detectedBrowserUrl && onOpenPreview ? (
+          <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`} side="top">
             <button
               type="button"
               onClick={onOpenPreview}
-              aria-label={`Open ${detectedPreviewUrl} as a preview tab`}
+              aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
               className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80"
             >
               <HugeiconsIcon icon={Globe02Icon} size={16} strokeWidth={1.75} className="shrink-0" />

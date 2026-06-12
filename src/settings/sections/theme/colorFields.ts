@@ -40,7 +40,7 @@ export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: strin
   { key: "tabAccentTerminal", label: "Active terminal stripe", group: "Tabs" },
   { key: "tabAccentSsh", label: "Active SSH stripe", group: "Tabs" },
   { key: "tabAccentEditor", label: "Active editor stripe", group: "Tabs" },
-  { key: "tabAccentPreview", label: "Active preview stripe", group: "Tabs" },
+  { key: "tabAccentPreview", label: "Active browser stripe", group: "Tabs" },
   { key: "tabAccentAiDiff", label: "AI diff stripe", group: "Tabs" },
   { key: "tabAccentGitDiff", label: "Git diff stripe", group: "Tabs" },
   // Full ANSI 16 - feeds the xterm palette directly.

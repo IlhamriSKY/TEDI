@@ -20,7 +20,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSearchUrl } from "@/modules/settings/searchEngines";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 
-export type PreviewAddressBarHandle = {
+export type BrowserAddressBarHandle = {
   focus: () => void;
 };
 
@@ -67,10 +67,10 @@ type Props = {
   onReload: () => void;
   onBack: () => void;
   onForward: () => void;
-  ref?: Ref<PreviewAddressBarHandle>;
+  ref?: Ref<BrowserAddressBarHandle>;
 };
 
-export function PreviewAddressBar({
+export function BrowserAddressBar({
   url,
   loading,
   canGoBack,

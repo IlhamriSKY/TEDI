@@ -201,7 +201,10 @@ export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
       .filter((r): r is string => !!r)
       .map(normForScope)
       .filter((r) => r.length > 0);
-    if (roots.length === 0) return false;
+    // Fail CLOSED: with no workspace root AND no terminal cwd we can't tell
+    // whether a path is "in project", so require approval instead of
+    // auto-reading an arbitrary absolute path (prompt-injection exfil guard).
+    if (roots.length === 0) return true;
     return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
   } catch {
     return false;

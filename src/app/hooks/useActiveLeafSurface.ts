@@ -1,5 +1,5 @@
 import { type EditorPaneHandle } from "@/modules/editor";
-import { PREVIEW_NAV_EVENT, type PreviewNavEvent } from "@/modules/preview";
+import { BROWSER_NAV_EVENT, type BrowserNavEvent } from "@/modules/browser";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import { listen } from "@tauri-apps/api/event";
@@ -31,19 +31,19 @@ type Params = {
   detectedUrls: RefObject<Map<number, string>>;
   activeId: number;
   activeLeafIdInTab: number | null;
-  activeLeafKindCurrent: "terminal" | "editor" | "preview" | null;
+  activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
   isTerminalLike: boolean;
   tabs: Tab[];
   setActiveSearchAddon: Dispatch<SetStateAction<SearchAddon | null>>;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
-} & Pick<TabsApi, "setPreviewLeafTitle">;
+} & Pick<TabsApi, "setBrowserLeafTitle">;
 
 /**
  * Surfaces the active leaf's runtime handles to the chrome: on active leaf/tab
  * change it publishes the focused terminal's search addon + detected URL and
  * the focused editor's handle. Also owns the detected-URL state (consumed only
- * by `detectedPreviewUrl`) and keeps browser-pane titles in sync via
- * PREVIEW_NAV_EVENT.
+ * by `detectedBrowserUrl`) and keeps browser-pane titles in sync via
+ * BROWSER_NAV_EVENT.
  *
  * `activeSearchAddon` / `activeEditorHandle` stay in App (read by the chrome
  * derivations and the editor bridge, and `activeEditorHandle` is also set by
@@ -61,11 +61,11 @@ export function useActiveLeafSurface({
   tabs,
   setActiveSearchAddon,
   setActiveEditorHandle,
-  setPreviewLeafTitle,
+  setBrowserLeafTitle,
 }: Params): {
   handleSearchReady: (leafId: number, addon: SearchAddon) => void;
   handleDetectedLocalUrl: (leafId: number, url: string) => void;
-  detectedPreviewUrl: string | null;
+  detectedBrowserUrl: string | null;
 } {
   const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
 
@@ -97,29 +97,29 @@ export function useActiveLeafSurface({
     [activeLeafIdInTab],
   );
 
-  const detectedPreviewUrl = useMemo(() => {
+  const detectedBrowserUrl = useMemo(() => {
     if (!isTerminalLike || !activeDetectedUrl) return null;
     const alreadyOpen = tabs.some(
       (t) =>
         t.kind === "pane" &&
         leaves(t.paneTree).some(
-          (l) => l.leafKind === "preview" && sameOrigin(l.url, activeDetectedUrl),
+          (l) => l.leafKind === "browser" && sameOrigin(l.url, activeDetectedUrl),
         ),
     );
     return alreadyOpen ? null : activeDetectedUrl;
   }, [isTerminalLike, activeDetectedUrl, tabs]);
 
-  // Browser panes report their live document.title via PREVIEW_NAV_EVENT,
+  // Browser panes report their live document.title via BROWSER_NAV_EVENT,
   // keyed by the browser leaf id. Apply it to the leaf so the tab/pane label
-  // follows the page. (The URL side is handled inside PreviewPane via reconcile,
+  // follows the page. (The URL side is handled inside BrowserPane via reconcile,
   // which must not re-navigate - so it's deliberately not touched here.)
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
-    void listen<PreviewNavEvent>(PREVIEW_NAV_EVENT, (e) => {
+    void listen<BrowserNavEvent>(BROWSER_NAV_EVENT, (e) => {
       const p = e.payload;
       if (!p || p.kind !== "title" || typeof p.title !== "string") return;
-      setPreviewLeafTitle(p.tabId, p.title);
+      setBrowserLeafTitle(p.tabId, p.title);
     }).then((fn) => {
       if (alive) unlisten = fn;
       else fn();
@@ -128,7 +128,7 @@ export function useActiveLeafSurface({
       alive = false;
       unlisten?.();
     };
-  }, [setPreviewLeafTitle]);
+  }, [setBrowserLeafTitle]);
 
   const handleSearchReady = useCallback(
     (leafId: number, addon: SearchAddon) => {
@@ -138,5 +138,5 @@ export function useActiveLeafSurface({
     [activeLeafIdInTab],
   );
 
-  return { handleSearchReady, handleDetectedLocalUrl, detectedPreviewUrl };
+  return { handleSearchReady, handleDetectedLocalUrl, detectedBrowserUrl };
 }

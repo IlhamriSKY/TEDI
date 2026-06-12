@@ -1,13 +1,13 @@
-export { PreviewPane, type PreviewPaneHandle } from "./PreviewPane";
-export { PreviewFavicon } from "./PreviewFavicon";
+export { BrowserPane, type BrowserPaneHandle } from "./BrowserPane";
+export { BrowserFavicon } from "./BrowserFavicon";
 export { setPaneDragActive } from "./lib/overlaySuppress";
 export {
   previewEmbedAct,
-  previewEmbedClose,
+  browserEmbedClose,
   previewEmbedDispatch,
   previewEmbedRead,
   previewEmbedScreenshot,
   previewEmbedSetBg,
-  PREVIEW_NAV_EVENT,
-  type PreviewNavEvent,
+  BROWSER_NAV_EVENT,
+  type BrowserNavEvent,
 } from "./lib/native";

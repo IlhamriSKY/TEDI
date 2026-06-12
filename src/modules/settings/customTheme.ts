@@ -201,7 +201,7 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   tabAccentTerminal: ["--tedi-tab-terminal"],
   tabAccentSsh: ["--tedi-tab-ssh"],
   tabAccentEditor: ["--tedi-tab-editor"],
-  tabAccentPreview: ["--tedi-tab-preview"],
+  tabAccentPreview: ["--tedi-tab-browser"],
   tabAccentAiDiff: ["--tedi-tab-ai-diff"],
   tabAccentGitDiff: ["--tedi-tab-git-diff"],
   resizeHandle: ["--tedi-resize-handle"],

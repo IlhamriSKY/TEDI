@@ -14,42 +14,28 @@ import { toast } from "@/components/ui/toast";
 import type {
   ContributedAiTool,
   ContributedCommand,
-  ContributedEditorTheme,
   ContributedKeybinding,
   ContributedPanel,
   ContributedSetting,
-  ContributedSlashCommand,
-  ContributedTheme,
 } from "./manifest";
-import {
-  PermissionDeniedError,
-  isInvokeAllowed,
-  requirePermission,
-} from "./permissions";
+import { PermissionDeniedError, isInvokeAllowed, requirePermission } from "./permissions";
 import { useRightPanelStore } from "./rightPanelStore";
 import {
   mountFolderTree,
   type MountedFolderTree,
   type MountFolderTreeOptions,
 } from "./components/mountFolderTree";
-import {
-  mountCodeEditor,
-  type CodeEditorHandle,
-  type CodeEditorOptions,
-} from "./codeEditor";
+import { mountCodeEditor, type CodeEditorHandle, type CodeEditorOptions } from "./codeEditor";
 import {
   aiToolsRegistry,
   commandsRegistry,
-  editorThemesRegistry,
   headerItemsRegistry,
   keybindingsRegistry,
   panelRenderersRegistry,
   panelsRegistry,
   settingsRegistry,
   shellTransformersRegistry,
-  slashCommandsRegistry,
   statusItemsRegistry,
-  themesRegistry,
   type HeaderItem,
   type PanelRenderer,
   type ShellCommandTransformer,
@@ -62,11 +48,7 @@ import {
   setRightSidebarVisible as setRightSidebarVisibleBridge,
 } from "./tabsBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
-import {
-  getActiveEditor,
-  setActiveEditorContent,
-  type ActiveEditorSnapshot,
-} from "./editorBridge";
+import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 
 export type ExtensionRuntime = {
   id: string;
@@ -118,7 +100,7 @@ export type AppContextSnapshot = {
    *  `terminalCountAll` when "all open terminals" is the intent. */
   terminalCount: number;
   /** Kind of the focused tab. `null` when no tab is active. */
-  activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "preview" | "ext" | null;
+  activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "browser" | "ext" | null;
   /** Total workspaces the user has open in the workspace store. ≥ 1. */
   workspaceCount: number;
   /** Sum of terminal leaves across every workspace (active workspace uses
@@ -280,9 +262,6 @@ export type ExtensionContext = {
     settings(items: ContributedSetting[]): void;
     commands(items: ContributedCommand[]): void;
     keybindings(items: ContributedKeybinding[]): void;
-    slashCommands(items: ContributedSlashCommand[]): void;
-    themes(items: ContributedTheme[]): void;
-    editorThemes(items: ContributedEditorTheme[]): void;
     panels(items: ContributedPanel[]): void;
     aiTools(items: ContributedAiTool[]): void;
   };
@@ -463,15 +442,13 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         let unsub: UnlistenFn | null = null;
         let disposed = false;
         // Per-extension channel prevents event-name collisions.
-        void tauriListen(`ext://${ext.id}/${name}`, (event) => cb(event.payload)).then(
-          (fn) => {
-            if (disposed) {
-              fn();
-            } else {
-              unsub = fn;
-            }
-          },
-        );
+        void tauriListen(`ext://${ext.id}/${name}`, (event) => cb(event.payload)).then((fn) => {
+          if (disposed) {
+            fn();
+          } else {
+            unsub = fn;
+          }
+        });
         const dispose = (): void => {
           if (disposed) return;
           disposed = true;
@@ -635,15 +612,6 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       },
       keybindings(items) {
         keybindingsRegistry.set(ext.id, items);
-      },
-      slashCommands(items) {
-        slashCommandsRegistry.set(ext.id, items);
-      },
-      themes(items) {
-        themesRegistry.set(ext.id, items);
-      },
-      editorThemes(items) {
-        editorThemesRegistry.set(ext.id, items);
       },
       panels(items) {
         requirePermission(ext.id, declared, "panels:register");

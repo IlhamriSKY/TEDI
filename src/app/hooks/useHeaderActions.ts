@@ -7,7 +7,7 @@ import { type TabsApi } from "./tabsApi";
 
 type Params = {
   activePaneTab: PaneTab | null;
-  detectedPreviewUrl: string | null;
+  detectedBrowserUrl: string | null;
   openPreviewTab: (url: string) => number | null;
   handleClose: (id: number) => void;
   setNewEditorOpen: Dispatch<SetStateAction<boolean>>;
@@ -17,12 +17,12 @@ type Params = {
  * Stable handlers for the memoised `<Header/>`. Each was previously an inline
  * arrow in the JSX, so the memo wrapper saw a fresh prop identity on every App
  * re-render. Bundled here verbatim with identical dependency arrays;
- * `handleClose` / `openPreviewTab` / `detectedPreviewUrl` are threaded in from
+ * `handleClose` / `openPreviewTab` / `detectedBrowserUrl` are threaded in from
  * App.
  */
 export function useHeaderActions({
   activePaneTab,
-  detectedPreviewUrl,
+  detectedBrowserUrl,
   openPreviewTab,
   handleClose,
   setNewEditorOpen,
@@ -48,8 +48,8 @@ export function useHeaderActions({
   // churn (AI streaming, PaneStack ticks) doesn't re-render them. Inline
   // arrows or per-render expressions would defeat memo equality.
   const handleOpenDetectedPreview = useCallback(() => {
-    if (detectedPreviewUrl) openPreviewTab(detectedPreviewUrl);
-  }, [detectedPreviewUrl, openPreviewTab]);
+    if (detectedBrowserUrl) openPreviewTab(detectedBrowserUrl);
+  }, [detectedBrowserUrl, openPreviewTab]);
   const handleAddProviderKey = useCallback(() => void openSettingsWindow("models"), []);
 
   // Stable handlers for the memoised <Header/>. Each was previously an inline

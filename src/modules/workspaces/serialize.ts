@@ -1,6 +1,7 @@
 import type { PaneTab, Tab } from "@/modules/tabs";
 import type { PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
 import { leaves } from "@/modules/terminal/lib/panes";
+import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import type { SavedPaneNode, SavedTab } from "./store";
 
 /** Count terminal leaves in a serialised pane tree. Used to tally
@@ -37,6 +38,10 @@ export function countSavedTabEntries(tabs: SavedTab[]): number {
 
 function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
   if (leaf.leafKind === "terminal") {
+    // Capture the live program title (OSC 0/2) so an inactive workspace still
+    // shows it next to the folder name. Read straight from the singleton title
+    // store (same store the live rows use). Private leaves never persist it.
+    const title = leaf.private ? undefined : useTerminalTitles.getState().titles[leaf.id];
     return {
       kind: "leaf",
       leafKind: "terminal",
@@ -44,6 +49,7 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
+      ...(title ? { title } : {}),
       // Only local PTYs use the daemon backend; SSH leaves carry their
       // remote session id separately and aren't restored via pty_attach.
       ...(leaf.ptyId && !leaf.sshConnectionId ? { ptyId: leaf.ptyId } : {}),
@@ -59,8 +65,9 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
   }
   return {
     kind: "leaf",
-    leafKind: "preview",
+    leafKind: "browser",
     url: leaf.url,
+    ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
     ...(leaf.private ? { private: true } : {}),
   };
 }
@@ -159,8 +166,9 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
     return {
       kind: "leaf",
       id,
-      leafKind: "preview",
+      leafKind: "browser",
       url: node.url,
+      ...(node.browserOrdinal != null ? { browserOrdinal: node.browserOrdinal } : {}),
       ...(node.private ? { private: true } : {}),
     };
   }
@@ -174,11 +182,11 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
 
 export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   if (saved.kind === "preview") {
-    // Legacy standalone preview tab -> migrate to a pane tab whose tree is a
-    // single browser leaf, matching the unified model.
+    // Legacy standalone browser ("preview") tab -> migrate to a pane tab whose
+    // tree is a single browser leaf, matching the unified model.
     const tabId = allocId();
     const leafId = allocId();
-    const leaf: PaneNode = { kind: "leaf", id: leafId, leafKind: "preview", url: saved.url };
+    const leaf: PaneNode = { kind: "leaf", id: leafId, leafKind: "browser", url: saved.url };
     return {
       id: tabId,
       kind: "pane",

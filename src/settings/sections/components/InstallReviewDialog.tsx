@@ -69,16 +69,6 @@ export function InstallReviewDialog({
   // `*` or `invoke:*` is near-total access to the Rust command surface; warn
   // explicitly on top of the (now red) per-permission badge.
   const grantsNearTotal = requested.some((p) => p === "*" || /^invoke:\*/.test(p));
-  // Contribution categories that validate + install but have no consumer in
-  // this version, so an author isn't misled into thinking they took effect.
-  // (aiTools IS wired now, so it's intentionally not listed here.)
-  const reserved: string[] = [];
-  if (ready) {
-    const c = ready.manifest.contributes ?? {};
-    if (c.slashCommands?.length) reserved.push("slashCommands");
-    if (c.themes?.length) reserved.push("themes");
-    if (c.editorThemes?.length) reserved.push("editorThemes");
-  }
   // AI tools the extension registers are callable by the assistant (and run the
   // extension's code). Disclose them at install so the consent is informed.
   const aiToolNames = ready?.manifest.contributes?.aiTools?.map((t) => t.name) ?? [];
@@ -219,13 +209,6 @@ export function InstallReviewDialog({
             </span>{" "}
             the assistant can call ({aiToolNames.join(", ")}). Each runs this extension&rsquo;s code
             and is gated by your tool-approval flow.
-          </div>
-        ) : null}
-
-        {reserved.length > 0 ? (
-          <div className="border-border/60 bg-muted/30 text-muted-foreground rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
-            Declares <span className="text-foreground font-medium">{reserved.join(", ")}</span> —
-            these contribution types have no effect in this version (reserved) and will be ignored.
           </div>
         ) : null}
 

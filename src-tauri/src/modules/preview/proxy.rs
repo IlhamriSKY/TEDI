@@ -84,6 +84,8 @@ pub fn register<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
     let proxy_origin = derive_proxy_origin(&req);
     let target = extract_target(&req)?;
+    // Block SSRF to cloud-metadata / link-local addresses through the proxy.
+    crate::modules::net::reject_metadata_ssrf(&target).await?;
 
     let mut rb = proxy_client().get(&target);
     // Pass through headers that affect content negotiation without leaking

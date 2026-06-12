@@ -125,6 +125,7 @@ function savedTermRows(tabs: SavedTab[]): TermRow[] {
         key: `saved-${rows.length}`,
         ordinal: node.terminalOrdinal,
         cwd: node.cwd,
+        title: node.title,
         private: node.private,
         status: null,
         live: null,

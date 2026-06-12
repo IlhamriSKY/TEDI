@@ -29,7 +29,7 @@ type NewTabMenuProps = {
   onNewEditor: () => void;
   /** Split the active pane. Wired into the `+` dropdown next to New Terminal.
    *  `kind` picks what the new pane holds (defaults to a terminal). */
-  onSplit?: (dir: "row" | "col", kind?: "terminal" | "editor" | "preview") => void;
+  onSplit?: (dir: "row" | "col", kind?: "terminal" | "editor" | "browser") => void;
   /** Disable the split-pane items when the active tab is at its split cap. */
   canSplit: boolean;
 };
@@ -113,7 +113,7 @@ export function NewTabMenu({
                 {fmtShortcut(MOD_KEY, "Shift", "D")}
               </span>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row", "preview")}>
+            <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row", "browser")}>
               <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split with browser</span>
             </DropdownMenuItem>

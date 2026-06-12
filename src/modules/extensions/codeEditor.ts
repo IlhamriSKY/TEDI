@@ -110,7 +110,11 @@ function pickLanguage(name?: CodeEditorLanguage): Extension {
  *  string / number / type tones match the same color cues the host editor
  *  uses for code panes. */
 const tediHighlightStyle = HighlightStyle.define([
-  { tag: [t.keyword, t.operatorKeyword], color: "var(--tedi-tab-ai-diff, #8b5cf6)", fontWeight: "600" },
+  {
+    tag: [t.keyword, t.operatorKeyword],
+    color: "var(--tedi-tab-ai-diff, #8b5cf6)",
+    fontWeight: "600",
+  },
   { tag: t.string, color: "var(--tedi-tab-terminal, #10b981)" },
   { tag: t.number, color: "var(--tedi-tab-git-diff, #f59e0b)" },
   { tag: t.bool, color: "var(--tedi-tab-git-diff, #f59e0b)" },
@@ -118,7 +122,7 @@ const tediHighlightStyle = HighlightStyle.define([
   { tag: [t.lineComment, t.blockComment], color: "var(--muted-foreground)", fontStyle: "italic" },
   { tag: t.typeName, color: "var(--tedi-tab-ssh, #0ea5e9)" },
   { tag: [t.variableName, t.propertyName], color: "var(--foreground)" },
-  { tag: t.atom, color: "var(--tedi-tab-preview, #06b6d4)" },
+  { tag: t.atom, color: "var(--tedi-tab-browser, #06b6d4)" },
   { tag: t.punctuation, color: "var(--muted-foreground)" },
 ]);
 
@@ -199,10 +203,7 @@ const baseTheme = EditorView.theme({
   },
 });
 
-export function mountCodeEditor(
-  container: HTMLElement,
-  opts: CodeEditorOptions,
-): CodeEditorHandle {
+export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions): CodeEditorHandle {
   const langCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
 

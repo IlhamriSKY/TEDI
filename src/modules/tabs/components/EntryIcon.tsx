@@ -6,18 +6,31 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { Entry } from "../lib/entries";
 
 /**
- * Pill badge stamped next to terminal entries. Same ordinal the AI sees in
- * `<env>`. Public tabs use the muted palette so the emerald/yellow/red
- * palette stays reserved for the AI CLI icon tint. Private tabs override
- * the badge to solid red so the number-going-red is the headline signal
- * that the AI cannot see this tab.
+ * Pill badge stamped next to terminal + browser entries ("Terminal 3" /
+ * "Browser 2"). For terminals it's the same ordinal the AI sees in `<env>`.
+ * Public tabs use the muted palette so the emerald/yellow/red palette stays
+ * reserved for the AI CLI icon tint. Private tabs override the badge to solid
+ * red so the number-going-red is the headline signal that the AI cannot see
+ * this tab.
  */
-function TerminalOrdinalBadge({ ordinal, isPrivate }: { ordinal: number; isPrivate?: boolean }) {
+function OrdinalBadge({
+  ordinal,
+  leafKind,
+  isPrivate,
+}: {
+  ordinal: number;
+  leafKind: "terminal" | "browser";
+  isPrivate?: boolean;
+}) {
+  const word = leafKind === "browser" ? "Browser" : "Terminal";
+  const label = isPrivate
+    ? leafKind === "browser"
+      ? `${word} ${ordinal} (private)`
+      : `${word} ${ordinal} (private, hidden from AI)`
+    : `${word} ${ordinal}`;
   return (
     <span
-      aria-label={
-        isPrivate ? `Terminal ${ordinal} (private, hidden from AI)` : `Terminal ${ordinal}`
-      }
+      aria-label={label}
       className={cn(
         "inline-flex shrink-0 items-center self-center rounded px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold tabular-nums",
         isPrivate ? "bg-icon-blocked text-background" : "bg-muted text-muted-foreground",
@@ -32,7 +45,7 @@ export function EntryIcon({ entry }: { entry: Entry }) {
   if (entry.kind === "pane-leaf") {
     // The leaf glyph is shared with the pane header + drag overlay (see
     // `LeafIcon`) so a leaf reads identically in every surface. The tab strip
-    // adds the FIFO ordinal badge on terminals on top of that shared glyph.
+    // adds the FIFO ordinal badge on terminals + browsers on top of that glyph.
     const glyph = (
       <LeafIcon
         info={{
@@ -41,18 +54,23 @@ export function EntryIcon({ entry }: { entry: Entry }) {
           isSsh: !!entry.sshConnectionId,
           editorFileName: entry.leafKind === "editor" ? entry.label : undefined,
           editorRemote: !!entry.remoteHost,
-          previewUrl: entry.previewUrl,
+          browserUrl: entry.browserUrl,
           aiCliStatus: entry.aiCliStatus,
         }}
         size={14}
       />
     );
-    const ordinal = entry.leafKind === "terminal" ? entry.terminalOrdinal : undefined;
+    const ordinal =
+      entry.leafKind === "terminal" || entry.leafKind === "browser" ? entry.ordinal : undefined;
     if (ordinal) {
       return (
         <span className="inline-flex shrink-0 items-center gap-1">
           {glyph}
-          <TerminalOrdinalBadge ordinal={ordinal} isPrivate={entry.isPrivate} />
+          <OrdinalBadge
+            ordinal={ordinal}
+            leafKind={entry.leafKind === "browser" ? "browser" : "terminal"}
+            isPrivate={entry.isPrivate}
+          />
         </span>
       );
     }

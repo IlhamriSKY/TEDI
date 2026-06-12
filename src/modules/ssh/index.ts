@@ -4,6 +4,7 @@
 // bridge.ts/sftp.ts wrap the Rust ssh_*/sftp_* commands.
 export { SshFileExplorer } from "./SshFileExplorer";
 export { SshConnectionDialog } from "./SshConnectionDialog";
+export { HostKeyPromptDialog } from "./HostKeyPromptDialog";
 export { SshMenu } from "./SshMenu";
 export { SshStatusPill } from "./components/SshStatusPill";
 export { useSshFileTree, type SshDirEntry, type PendingCreate } from "./useSshFileTree";

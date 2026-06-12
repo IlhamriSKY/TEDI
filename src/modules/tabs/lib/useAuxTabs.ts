@@ -2,8 +2,9 @@ import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 
 import { basename } from "@/lib/path";
 import {
   hasLeaf,
-  updatePreviewLeaf as updatePreviewLeafInTree,
-  updatePreviewLeafTitle as updatePreviewLeafTitleInTree,
+  leaves,
+  updateBrowserLeaf as updateBrowserLeafInTree,
+  updateBrowserLeafTitle as updateBrowserLeafTitleInTree,
   type PaneLeaf,
 } from "@/modules/terminal/lib/panes";
 import {
@@ -26,14 +27,22 @@ type AuxTabsDeps = {
   setActiveId: Dispatch<SetStateAction<number>>;
   nextIdRef: RefObject<number>;
   tabsRef: RefObject<Tab[]>;
+  /** Monotonic FIFO counter for the browser chip number, owned by `useTabs`. */
+  nextBrowserOrdinalRef: RefObject<number>;
 };
 
 /**
- * The non-pane tab openers + preview-leaf URL/title updaters, extracted from
+ * The non-pane tab openers + browser-leaf URL/title updaters, extracted from
  * `useTabs` unchanged. Bodies and dependency arrays are identical to the
  * originals; `useTabs` spreads the returned callbacks into its return object.
  */
-export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabsDeps) {
+export function useAuxTabs({
+  setTabs,
+  setActiveId,
+  nextIdRef,
+  tabsRef,
+  nextBrowserOrdinalRef,
+}: AuxTabsDeps) {
   const openAiDiffTab = useCallback(
     (input: {
       path: string;
@@ -167,22 +176,41 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
     return id;
   }, []);
 
-  const newPreviewTab = useCallback((url: string, activate = true) => {
-    // A browser is a pane leaf like terminal/editor, so a "preview tab" is just
-    // a pane tab whose tree is a single preview leaf - splittable and joinable.
+  const newBrowserTab = useCallback((url: string, activate = true) => {
+    // A browser is a pane leaf like terminal/editor, so a "browser tab" is just
+    // a pane tab whose tree is a single browser leaf - splittable and joinable.
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
-    const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "preview", url };
-    setTabs((t) => [
-      ...t,
-      syncPaneMirror({
-        id: tabId,
-        kind: "pane",
-        title: titleFromUrl(url),
-        paneTree: leaf,
-        activeLeafId: leafId,
-      }),
-    ]);
+    setTabs((t) => {
+      // FIFO browser ordinal ("Browser 3"), monotonic via the ref so a closed
+      // browser's number is never reused mid-session. Mirrors terminal ordinals.
+      let max = nextBrowserOrdinalRef.current - 1;
+      for (const tab of t) {
+        if (tab.kind !== "pane") continue;
+        for (const l of leaves(tab.paneTree)) {
+          if (
+            l.leafKind === "browser" &&
+            typeof l.browserOrdinal === "number" &&
+            l.browserOrdinal > max
+          ) {
+            max = l.browserOrdinal;
+          }
+        }
+      }
+      const browserOrdinal = max + 1;
+      nextBrowserOrdinalRef.current = browserOrdinal + 1;
+      const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "browser", url, browserOrdinal };
+      return [
+        ...t,
+        syncPaneMirror({
+          id: tabId,
+          kind: "pane",
+          title: titleFromUrl(url),
+          paneTree: leaf,
+          activeLeafId: leafId,
+        }),
+      ];
+    });
     // Background opens (e.g. the AI opening a browser to read) pass activate:false
     // so the user's current tab keeps focus. The pane still mounts and loads in
     // the background (inactive pane tabs stay mounted), so reads work headless.
@@ -278,12 +306,12 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
 
   /** Update a preview (browser) leaf's URL by id. Mirrors the title when the
    *  leaf is active. Driven by the browser pane reporting in-page navigation. */
-  const setPreviewLeafUrl = useCallback((leafId: number, url: string) => {
+  const setBrowserLeafUrl = useCallback((leafId: number, url: string) => {
     setTabs((curr) =>
       curr.map((t) => {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = updatePreviewLeafInTree(t.paneTree, leafId, url);
+        const paneTree = updateBrowserLeafInTree(t.paneTree, leafId, url);
         if (paneTree === t.paneTree) return t;
         return syncPaneMirror({ ...t, paneTree });
       }),
@@ -292,12 +320,12 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
 
   /** Update a preview leaf's page title by id (from the webview's
    *  document.title). Re-syncs the tab/pane label. */
-  const setPreviewLeafTitle = useCallback((leafId: number, title: string) => {
+  const setBrowserLeafTitle = useCallback((leafId: number, title: string) => {
     setTabs((curr) =>
       curr.map((t) => {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = updatePreviewLeafTitleInTree(t.paneTree, leafId, title);
+        const paneTree = updateBrowserLeafTitleInTree(t.paneTree, leafId, title);
         if (paneTree === t.paneTree) return t;
         return syncPaneMirror({ ...t, paneTree });
       }),
@@ -309,10 +337,10 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
     setAiDiffStatus,
     openGitDiffTab,
     openScmTab,
-    newPreviewTab,
+    newBrowserTab,
     openExtensionTab,
     setExtensionTabState,
-    setPreviewLeafUrl,
-    setPreviewLeafTitle,
+    setBrowserLeafUrl,
+    setBrowserLeafTitle,
   };
 }

@@ -10,6 +10,12 @@
 /// `install.rs`; mirrored here because the byte fetch enforces it mid-stream.
 pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
 
+/// Generic User-Agent for GitHub requests. Deliberately not app-identifying:
+/// GitHub requires a non-empty UA, but advertising "TEDI" on every release /
+/// extension fetch is an avoidable fingerprint. A neutral token satisfies the
+/// API without naming the app over the wire.
+const USER_AGENT: &str = "Mozilla/5.0";
+
 // ---------- HTTP helpers ----------
 
 pub(crate) async fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
@@ -30,7 +36,7 @@ pub(crate) async fn http_get_bytes_with_progress<F: FnMut(u64, Option<u64>)>(
     // stall. `timeout` caps the whole request: long enough for a 50 MiB
     // asset on a slow link, short enough that a stalled stream gives up.
     let client = reqwest::Client::builder()
-        .user_agent("TEDI-Extensions/1.0")
+        .user_agent(USER_AGENT)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(300))
         .build()
@@ -78,7 +84,7 @@ pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
     // Small JSON bodies, so a short total timeout is fine. Same connect cap
     // as `http_get_bytes` so a network outage surfaces consistently.
     let client = reqwest::Client::builder()
-        .user_agent("TEDI-Extensions/1.0")
+        .user_agent(USER_AGENT)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -258,7 +264,7 @@ fn is_rate_limited_err(err: &str) -> bool {
 /// the path's final segment is the tag we want.
 async fn latest_tag_via_redirect(owner_repo: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .user_agent("TEDI-Extensions/1.0")
+        .user_agent(USER_AGENT)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
@@ -300,7 +306,7 @@ async fn latest_tag_via_redirect(owner_repo: &str) -> Result<String, String> {
 async fn pick_zip_via_html(owner_repo: &str, tag: &str) -> Result<String, String> {
     let url = format!("https://github.com/{owner_repo}/releases/expanded_assets/{tag}");
     let client = reqwest::Client::builder()
-        .user_agent("TEDI-Extensions/1.0")
+        .user_agent(USER_AGENT)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(30))
         .build()

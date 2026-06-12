@@ -101,7 +101,7 @@ export default function App() {
     newSshTab,
     openFileTab,
     pinTab,
-    newPreviewTab,
+    newBrowserTab,
     openExtensionTab,
     setExtensionTabState,
     openAiDiffTab,
@@ -111,8 +111,8 @@ export default function App() {
     closeTab,
     selectByIndex,
     setLeafCwd,
-    setPreviewLeafUrl,
-    setPreviewLeafTitle,
+    setBrowserLeafUrl,
+    setBrowserLeafTitle,
     setLeafPtyId,
     setEditorLeafDirty,
     setEditorLeafPath,
@@ -504,7 +504,7 @@ export default function App() {
     disposeTab,
     setActiveId,
     newTab,
-    newPreviewTab,
+    newBrowserTab,
     setLeafCwd,
     splitActivePane,
     moveLeafToTab,
@@ -513,7 +513,7 @@ export default function App() {
 
   // On active leaf/tab change, surface the focused leaf's search addon,
   // editor handle, and detected URL to the chrome; track browser-pane titles.
-  const { handleSearchReady, handleDetectedLocalUrl, detectedPreviewUrl } = useActiveLeafSurface({
+  const { handleSearchReady, handleDetectedLocalUrl, detectedBrowserUrl } = useActiveLeafSurface({
     searchAddons,
     editorRefs,
     detectedUrls,
@@ -524,7 +524,7 @@ export default function App() {
     tabs,
     setActiveSearchAddon,
     setActiveEditorHandle,
-    setPreviewLeafTitle,
+    setBrowserLeafTitle,
   });
 
   const {
@@ -652,7 +652,7 @@ export default function App() {
     explorerRoot,
     home,
     openPreviewTab,
-    setPreviewLeafUrl,
+    setBrowserLeafUrl,
     newTab,
     inheritedCwdForNewTab,
     splitActivePane,
@@ -677,7 +677,7 @@ export default function App() {
     headerCanSplit,
   } = useHeaderActions({
     activePaneTab,
-    detectedPreviewUrl,
+    detectedBrowserUrl,
     openPreviewTab,
     handleClose,
     setNewEditorOpen,
@@ -784,7 +784,7 @@ export default function App() {
                 hasExtensionTab={hasExtensionTab}
                 respondToApproval={respondToApproval}
                 onPathDeleted={handlePathDeleted}
-                setPreviewLeafUrl={setPreviewLeafUrl}
+                setBrowserLeafUrl={setBrowserLeafUrl}
                 movePaneLeafToEdge={movePaneLeafToEdge}
                 openGitDiffTab={openGitDiffTab}
               />
@@ -811,7 +811,7 @@ export default function App() {
             onCd={sendCd}
             onOpenMini={openMini}
             hasComposer={hasComposer}
-            detectedPreviewUrl={detectedPreviewUrl}
+            detectedBrowserUrl={detectedBrowserUrl}
             onOpenPreview={handleOpenDetectedPreview}
           />
 

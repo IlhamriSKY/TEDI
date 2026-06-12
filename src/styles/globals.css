@@ -133,7 +133,7 @@
   --tedi-tab-terminal: #10b981;
   --tedi-tab-ssh: #0ea5e9;
   --tedi-tab-editor: #0057fe;
-  --tedi-tab-preview: #06b6d4;
+  --tedi-tab-browser: #06b6d4;
   --tedi-tab-ai-diff: #8b5cf6;
   --tedi-tab-git-diff: #f59e0b;
   /* Drag-to-resize divider between split panes. Themable via Settings. */
@@ -209,7 +209,7 @@
   --tedi-tab-terminal: #34d399;
   --tedi-tab-ssh: #38bdf8;
   --tedi-tab-editor: #5b8bff;
-  --tedi-tab-preview: #22d3ee;
+  --tedi-tab-browser: #22d3ee;
   --tedi-tab-ai-diff: #a78bfa;
   --tedi-tab-git-diff: #fbbf24;
   --tedi-resize-handle: #2b2b2b;

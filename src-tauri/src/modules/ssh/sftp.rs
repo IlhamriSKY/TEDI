@@ -186,6 +186,19 @@ pub async fn ssh_sftp_read_file(
     let rt = ssh_runtime();
     rt.spawn(async move {
         let sftp = session.ensure_sftp().await?;
+        // Cap the read so a huge (or maliciously oversized) remote file can't
+        // OOM the app by being slurped whole into memory + an IPC string.
+        // Mirrors the local fs_read_file size guard.
+        const MAX_SFTP_READ_BYTES: u64 = 16 * 1024 * 1024;
+        if let Ok(meta) = sftp.metadata(path.clone()).await {
+            if meta.len() > MAX_SFTP_READ_BYTES {
+                return Err(format!(
+                    "file too large to open: {} bytes (cap {} bytes)",
+                    meta.len(),
+                    MAX_SFTP_READ_BYTES
+                ));
+            }
+        }
         let bytes = sftp.read(path).await.map_err(humanize)?;
         // Mirror fs::file::fs_read_file: return UTF-8 text. Binary files
         // explode any editor pane anyway; rejecting up front with a clear

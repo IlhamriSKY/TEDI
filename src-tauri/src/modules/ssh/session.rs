@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +10,7 @@ use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use tauri::ipc::Channel as IpcChannel;
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
 
 use super::sftp::open_sftp_on_handle;
@@ -22,6 +24,15 @@ const KEEPALIVE: Duration = Duration::from_secs(30);
 pub enum SshEvent {
     /// Auth/connect handshake completed; frontend can show "connected".
     Connected { fingerprint: String },
+    /// First-connect host-key confirmation request, emitted from
+    /// `check_server_key` when no fingerprint is pinned - BEFORE any credential
+    /// is sent. The handshake blocks until the frontend answers via
+    /// `ssh_confirm_host_key(prompt_id, accept)`; reject aborts the connect.
+    HostKeyPrompt {
+        prompt_id: String,
+        fingerprint: String,
+        host: String,
+    },
     /// Base64-encoded stdout chunk from the remote shell.
     Data { data: String },
     /// Base64-encoded stderr chunk. Rare for an interactive shell but
@@ -30,6 +41,29 @@ pub enum SshEvent {
     /// Remote process exited with this status. Mirrors PtyEvent::Exit so the
     /// frontend can reuse its handler shape.
     Exit { code: i32 },
+}
+
+/// How long `check_server_key` waits for the user's first-connect decision
+/// before treating silence as a rejection, so a forgotten dialog can't hold
+/// the handshake (and the TCP connection) open indefinitely.
+const HOSTKEY_CONFIRM_TIMEOUT: Duration = Duration::from_secs(120);
+
+static HOSTKEY_PROMPT_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Pending first-connect host-key confirmations, keyed by an opaque prompt id.
+/// `check_server_key` parks a one-shot `Sender` here and awaits its `Receiver`;
+/// the `ssh_confirm_host_key` command resolves it. A process-global map keeps
+/// the command decoupled from the in-flight handshake task.
+fn pending_host_keys() -> &'static std::sync::Mutex<HashMap<String, oneshot::Sender<bool>>> {
+    static P: std::sync::OnceLock<std::sync::Mutex<HashMap<String, oneshot::Sender<bool>>>> =
+        std::sync::OnceLock::new();
+    P.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Resolve a pending host-key prompt. Returns the parked sender (the command
+/// fires it with the user's decision); `None` if it already timed out/resolved.
+pub(super) fn take_pending_host_key(prompt_id: &str) -> Option<oneshot::Sender<bool>> {
+    pending_host_keys().lock().ok()?.remove(prompt_id)
 }
 
 /// Server-key check. With `expected_fingerprint`, the presented key must
@@ -44,6 +78,14 @@ pub enum SshEvent {
 pub(super) struct HostKeyVerifier {
     expected: Option<String>,
     report: Arc<Mutex<HostKeyReport>>,
+    /// Event sink for the first-connect `HostKeyPrompt` (no-expected only).
+    on_event: IpcChannel<SshEvent>,
+    /// Correlates the emitted prompt with the `ssh_confirm_host_key` answer.
+    prompt_id: String,
+    /// Host label shown in the confirmation dialog.
+    host: String,
+    /// One-shot receiver for the user's decision; taken once on first connect.
+    decision: Option<oneshot::Receiver<bool>>,
 }
 
 #[derive(Default)]
@@ -55,6 +97,10 @@ pub(super) struct HostKeyReport {
     /// pinned fingerprint. Surfaced verbatim in the error so the user
     /// can compare both values before deciding to trust.
     mismatch: Option<(String, String)>,
+    /// Set to the seen fingerprint when the user (or a confirm timeout)
+    /// rejected a brand-new host key, so the caller surfaces a clear
+    /// "not trusted" message instead of a generic connect failure.
+    rejected: Option<String>,
 }
 
 impl Handler for HostKeyVerifier {
@@ -65,22 +111,52 @@ impl Handler for HostKeyVerifier {
         key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
         let fp = key.fingerprint(HashAlg::Sha256).to_string();
-        let mut report = self.report.lock().await;
-        report.seen = Some(fp.clone());
-        if let Some(expected) = &self.expected {
-            if expected != &fp {
-                log::warn!("ssh: host key mismatch expected={expected} got={fp}");
-                report.mismatch = Some((expected.clone(), fp));
-                // Returning false makes russh fail the handshake. The caller
-                // inspects `report.mismatch` to turn that into a specific
-                // error string rather than a generic disconnect.
-                return Ok(false);
+        {
+            let mut report = self.report.lock().await;
+            report.seen = Some(fp.clone());
+            if let Some(expected) = &self.expected {
+                if expected != &fp {
+                    log::warn!("ssh: host key mismatch expected={expected} got={fp}");
+                    report.mismatch = Some((expected.clone(), fp.clone()));
+                    // Returning false makes russh fail the handshake. The caller
+                    // inspects `report.mismatch` to turn that into a specific
+                    // error string rather than a generic disconnect.
+                    return Ok(false);
+                }
+                log::info!("ssh: host key pinned ok fingerprint={fp}");
+                return Ok(true);
             }
-            log::info!("ssh: host key pinned ok fingerprint={fp}");
-        } else {
-            log::warn!("ssh: accepting server key (TOFU) fingerprint={fp}");
         }
-        Ok(true)
+
+        // First connect (no pinned fingerprint): pause the handshake BEFORE any
+        // credential is sent and require the user to verify the fingerprint
+        // out-of-band. Silent trust-on-first-use would let a first-connect MITM
+        // capture the password / private key during the auth that follows.
+        let Some(rx) = self.decision.take() else {
+            log::warn!("ssh: no host-key confirmation channel; refusing new host key");
+            self.report.lock().await.rejected = Some(fp);
+            return Ok(false);
+        };
+        let _ = self.on_event.send(SshEvent::HostKeyPrompt {
+            prompt_id: self.prompt_id.clone(),
+            fingerprint: fp.clone(),
+            host: self.host.clone(),
+        });
+        let accepted = match tokio::time::timeout(HOSTKEY_CONFIRM_TIMEOUT, rx).await {
+            Ok(Ok(v)) => v,
+            // Sender dropped (command never fired) or the wait timed out.
+            _ => {
+                let _ = take_pending_host_key(&self.prompt_id);
+                false
+            }
+        };
+        if accepted {
+            log::info!("ssh: user confirmed new host key fingerprint={fp}");
+        } else {
+            log::warn!("ssh: user rejected/aborted new host key fingerprint={fp}");
+            self.report.lock().await.rejected = Some(fp);
+        }
+        Ok(accepted)
     }
 }
 
@@ -189,23 +265,63 @@ pub async fn connect(
     });
 
     let report: Arc<Mutex<HostKeyReport>> = Arc::new(Mutex::new(HostKeyReport::default()));
+
+    // First connect (no pinned fingerprint) gets an interactive confirmation:
+    // park a one-shot the verifier awaits, resolved by `ssh_confirm_host_key`.
+    // Pinned connects skip this and verify against `expected` directly.
+    let needs_confirm = input.expected_fingerprint.is_none();
+    let prompt_id = format!("hk-{}", HOSTKEY_PROMPT_SEQ.fetch_add(1, Ordering::Relaxed));
+    let decision = if needs_confirm {
+        let (tx, rx) = oneshot::channel::<bool>();
+        if let Ok(mut m) = pending_host_keys().lock() {
+            m.insert(prompt_id.clone(), tx);
+        }
+        Some(rx)
+    } else {
+        None
+    };
+
     let handler = HostKeyVerifier {
         expected: input.expected_fingerprint.clone(),
         report: report.clone(),
+        on_event: on_event.clone(),
+        prompt_id: prompt_id.clone(),
+        host: input.host.clone(),
+        decision,
     };
 
     let addr = (input.host.as_str(), input.port);
     let connect_fut = client::connect(config, addr, handler);
-    let connect_result = tokio::time::timeout(CONNECT_TIMEOUT, connect_fut)
+    // First connect may block on the confirmation dialog, so grant extra time;
+    // pinned connects keep the tight 15s budget.
+    let overall_timeout = if needs_confirm {
+        CONNECT_TIMEOUT + HOSTKEY_CONFIRM_TIMEOUT
+    } else {
+        CONNECT_TIMEOUT
+    };
+    let connect_result = tokio::time::timeout(overall_timeout, connect_fut)
         .await
         .map_err(|_| format!("ssh: connect to {}:{} timed out", input.host, input.port))?;
+    // Drop any unconsumed prompt (handshake failed before/around the check).
+    if needs_confirm {
+        if let Ok(mut m) = pending_host_keys().lock() {
+            m.remove(&prompt_id);
+        }
+    }
     let mut handle = match connect_result {
         Ok(h) => h,
         Err(e) => {
-            // russh rejected the handshake. If the verifier flagged a host
-            // key mismatch, that is the real cause; surface it as a
-            // structured message the frontend recognises.
-            if let Some((expected, seen)) = report.lock().await.mismatch.clone() {
+            // russh rejected the handshake. Prefer the verifier's structured
+            // reasons (user rejected a new key, or a pinned-key mismatch) over
+            // a generic disconnect so the frontend can react specifically.
+            let report_guard = report.lock().await;
+            if let Some(seen) = report_guard.rejected.clone() {
+                return Err(format!(
+                    "ssh: host key not trusted: the new server key {seen} was not confirmed; \
+                     connection aborted before sending credentials."
+                ));
+            }
+            if let Some((expected, seen)) = report_guard.mismatch.clone() {
                 return Err(format!(
                     "ssh: host key mismatch: expected={expected} server={seen}. \
                      The server presented a different key than the one recorded on the last \

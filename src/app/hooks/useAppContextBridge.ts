@@ -73,7 +73,7 @@ export function useAppContextBridge({
       const leaf = activeLeaf(activeTab);
       if (!leaf) return null;
       if (leaf.leafKind === "editor") return "editor";
-      if (leaf.leafKind === "preview") return "preview";
+      if (leaf.leafKind === "browser") return "browser";
       // SSH leaves are marked by `sshConnectionId` at create time. The kind
       // only reflects how the leaf was opened, not its current status.
       if (leaf.leafKind === "terminal") {

@@ -52,8 +52,8 @@ export async function runSubagent({
   // out-of-scope read approval gate: this generateText loop has no approval
   // responder, so a gated read would stall instead of running.
   const readOnly: Record<string, unknown> = {
-    ...buildFsTools(toolContext, { gateOutOfScopeReads: false }),
-    ...buildSearchTools(toolContext, { gateOutOfScopeReads: false }),
+    ...buildFsTools(toolContext, { gateOutOfScopeReads: false, refuseOutOfScopeReads: true }),
+    ...buildSearchTools(toolContext, { gateOutOfScopeReads: false, refuseOutOfScopeReads: true }),
   };
   const filtered: Record<string, unknown> = {};
   for (const t of def.tools) {

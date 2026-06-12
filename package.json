@@ -1,7 +1,7 @@
 {
   "name": "tedi",
   "private": true,
-  "version": "0.3.32",
+  "version": "0.3.33",
   "description": "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces.",
   "author": "IlhamriSKY",
   "license": "Apache-2.0",
@@ -88,7 +88,6 @@
     "@uiw/codemirror-theme-nord": "^4.25.10",
     "@uiw/codemirror-theme-tokyo-night": "^4.25.10",
     "@uiw/codemirror-theme-xcode": "^4.25.10",
-    "@uiw/codemirror-themes": "^4.25.10",
     "@uiw/react-codemirror": "^4.25.10",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
