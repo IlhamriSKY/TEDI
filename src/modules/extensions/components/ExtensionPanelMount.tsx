@@ -18,9 +18,14 @@ import { panelRenderersRegistry, type PanelRenderer } from "../registries";
 export function ExtensionPanelMount({
   extensionId,
   panelId,
+  surface = "tab",
 }: {
   extensionId: string;
   panelId: string;
+  /** Where the panel is mounted, so the extension can adapt its chrome
+   *  (e.g. drop its own header when it's a split-pane leaf — the pane frame
+   *  already provides one). Defaults to "tab". */
+  surface?: "tab" | "pane";
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Wrap with `() => fn` so React doesn't call the renderer as a state-updater.
@@ -43,7 +48,7 @@ export function ExtensionPanelMount({
     if (!el) return;
     let cleanup: (() => void) | void;
     try {
-      cleanup = renderer(el);
+      cleanup = renderer(el, { surface });
     } catch (err) {
       console.error(
         `[extensions] panel renderer for "${extensionId}:${panelId}" threw`,
@@ -67,7 +72,7 @@ export function ExtensionPanelMount({
         }
       }
     };
-  }, [renderer, extensionId, panelId]);
+  }, [renderer, extensionId, panelId, surface]);
 
   return (
     <div

@@ -54,7 +54,7 @@ function ExtensionTabPane({ tab, active }: { tab: ExtensionTab; active: boolean 
       )}
       aria-hidden={active ? "false" : "true"}
     >
-      <ExtensionPanelMount extensionId={tab.extensionId} panelId={tab.panelId} />
+      <ExtensionPanelMount extensionId={tab.extensionId} panelId={tab.panelId} surface="tab" />
     </div>
   );
 }

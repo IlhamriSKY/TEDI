@@ -242,6 +242,28 @@ export function useAuxTabs({
       icon?: string;
       reuseKey?: string;
     }) => {
+      // If this panel is already live as a split-pane leaf, focus that pane
+      // instead of opening a second tab — a second mount would race the
+      // panel's module singletons (the SQL Explorer keeps one sidecar +
+      // CodeMirror, so a duplicate mount blanks one of them).
+      for (const t of tabsRef.current) {
+        if (t.kind !== "pane") continue;
+        const leaf = leaves(t.paneTree).find(
+          (l) =>
+            l.leafKind === "extension-panel" &&
+            l.extensionId === opts.extensionId &&
+            l.panelId === opts.panelId,
+        );
+        if (leaf) {
+          setTabs((curr) =>
+            curr.map((x) =>
+              x.id === t.id && x.kind === "pane" ? { ...x, activeLeafId: leaf.id } : x,
+            ),
+          );
+          setActiveId(t.id);
+          return t.id;
+        }
+      }
       const reuse = opts.reuseKey
         ? tabsRef.current.find(
             (t) =>

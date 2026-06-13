@@ -232,7 +232,7 @@ const LeafBody = memo(function LeafBody({
   if (node.leafKind === "extension-panel") {
     return (
       <ErrorBoundary label="extension pane" resetKeys={[node.id]}>
-        <ExtensionPanelMount extensionId={node.extensionId} panelId={node.panelId} />
+        <ExtensionPanelMount extensionId={node.extensionId} panelId={node.panelId} surface="pane" />
       </ErrorBoundary>
     );
   }
