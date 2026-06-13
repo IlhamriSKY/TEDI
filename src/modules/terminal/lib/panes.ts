@@ -82,7 +82,29 @@ export type BrowserLeafState = {
   private?: boolean;
 };
 
-export type LeafState = TerminalLeafState | EditorLeafState | BrowserLeafState;
+export type ExtensionPanelLeafState = {
+  leafKind: "extension-panel";
+  /** Owning extension id + the panel id registered via
+   *  `ctx.registerPanelRenderer`. Together they resolve the mount function. */
+  extensionId: string;
+  panelId: string;
+  /** Mirrors `ExtensionTab.reuseKey`; used to dedup so the same panel is
+   *  never mounted twice (the SQL Explorer keeps module singletons). */
+  reuseKey?: string;
+  /** Cached chrome for the pane header / tab strip. The extension's renderer
+   *  owns the body; these are just the label + icon hint. */
+  title?: string;
+  icon?: string;
+  /** Privacy flag kept for uniformity with the other leaf kinds. AI never
+   *  reads extension panels regardless. */
+  private?: boolean;
+};
+
+export type LeafState =
+  | TerminalLeafState
+  | EditorLeafState
+  | BrowserLeafState
+  | ExtensionPanelLeafState;
 
 export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
 
@@ -242,6 +264,17 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       preview: leaf.preview,
       sshSessionId: leaf.sshSessionId,
       sshHostLabel: leaf.sshHostLabel,
+      ...(leaf.private ? { private: true } : {}),
+    };
+  }
+  if (leaf.leafKind === "extension-panel") {
+    return {
+      leafKind: "extension-panel",
+      extensionId: leaf.extensionId,
+      panelId: leaf.panelId,
+      ...(leaf.reuseKey ? { reuseKey: leaf.reuseKey } : {}),
+      ...(leaf.title ? { title: leaf.title } : {}),
+      ...(leaf.icon ? { icon: leaf.icon } : {}),
       ...(leaf.private ? { private: true } : {}),
     };
   }

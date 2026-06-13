@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { BrowserPane, setPaneDragActive } from "@/modules/browser";
+import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
@@ -139,6 +140,7 @@ function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): strin
       return node.url || "browser";
     }
   }
+  if (node.leafKind === "extension-panel") return node.title || "panel";
   // SSH terminal: mirror the tab strip's `ssh:<host>` (bare "ssh" if the
   // connection was deleted), so tab and pane read identically.
   if (node.sshConnectionId) {
@@ -211,6 +213,13 @@ const LeafBody = memo(function LeafBody({
           visible={tabVisible}
           onUrlChange={b.onBrowserUrlChange}
         />
+      </ErrorBoundary>
+    );
+  }
+  if (node.leafKind === "extension-panel") {
+    return (
+      <ErrorBoundary label="extension pane" resetKeys={[node.id]}>
+        <ExtensionPanelMount extensionId={node.extensionId} panelId={node.panelId} />
       </ErrorBoundary>
     );
   }

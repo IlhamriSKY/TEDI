@@ -27,7 +27,7 @@ type EntryBase = {
 export type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
-  leafKind: "terminal" | "editor" | "browser";
+  leafKind: "terminal" | "editor" | "browser" | "extension-panel";
   /** Current page URL for browser leaves. Drives the tab-strip favicon. */
   browserUrl?: string;
   /** 1-based FIFO badge number for terminal + browser leaves. For terminals
@@ -81,6 +81,9 @@ export function tabAccentClass(e: Entry): string {
         : "bg-[color:var(--tedi-tab-terminal)]";
     }
     if (e.leafKind === "browser") return "bg-[color:var(--tedi-tab-browser)]";
+    // Extension panel: reuse the SSH/extension accent (sky) so it reads as a
+    // "dev tool" leaf, matching the extension tab strip color.
+    if (e.leafKind === "extension-panel") return "bg-[color:var(--tedi-tab-ssh)]";
     return "bg-[color:var(--tedi-tab-editor)]";
   }
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
@@ -126,6 +129,7 @@ function entryLabel(
 ): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || browserHost(leaf.url);
+  if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
   // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
     const host = sshHosts.get(leaf.sshConnectionId);

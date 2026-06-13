@@ -15,6 +15,7 @@ export function titleFromUrl(url: string): string {
 function titleFromLeaf(leaf: PaneLeaf): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
+  if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
   // SSH leaves get a real title via updateTab after newSshTab. This is the interim fallback.
   if (leaf.sshConnectionId) return "ssh";
   // Terminal: cwd basename, falling back to "shell".
@@ -61,7 +62,11 @@ export function activeLeaf(tab: Tab): PaneLeaf | null {
 
 export function activeLeafKind(tab: Tab): "terminal" | "editor" | "browser" | null {
   const leaf = activeLeaf(tab);
-  return leaf ? leaf.leafKind : null;
+  if (!leaf) return null;
+  // Extension-panel leaves aren't one of the terminal/editor/browser kinds the
+  // chrome derivations branch on; report null so callers fall to their
+  // defaults instead of every one having to special-case it.
+  return leaf.leafKind === "extension-panel" ? null : leaf.leafKind;
 }
 
 export function isTerminalLikeTab(tab: Tab): boolean {
