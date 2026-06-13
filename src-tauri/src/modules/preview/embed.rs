@@ -190,71 +190,35 @@ pub fn apply_webview2_browser_args_env() {
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", EMBED_BROWSER_ARGS);
 }
 
-/// Create (first visible call) or reposition/show the embedded browser webview
-/// for a preview tab. `x/y/width/height` are physical pixels measured by the
-/// frontend. A hidden or zero-area request just hides any existing webview.
-/// Never reloads an existing webview - navigation is a separate command.
-#[tauri::command]
-pub async fn preview_embed_update(
-    app: tauri::AppHandle,
-    tab_id: i64,
-    url: String,
-    bounds: EmbedBounds,
-    visible: bool,
+/// Build + attach an embedded browser child webview for `tab_id` at the given
+/// window-relative position/size, wiring the page-load + title-change events
+/// that drive the React address bar / tab label. Shared by the visible-create
+/// path and the background (off-screen) headless-create path of
+/// `preview_embed_update`.
+///
+/// NOTE: the occlusion / background-throttling flags that keep a pane processing
+/// while TEDI is minimized or occluded are applied PROCESS-WIDE via the
+/// WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS env var (see
+/// `apply_webview2_browser_args_env`, called at startup) - deliberately NOT as a
+/// per-child `additional_browser_args` here: args that differ from the main
+/// webview's render the child BLANK on Windows (tauri-apps/tauri#13092). Those
+/// same flags are what let an OFF-SCREEN background pane keep rendering so its
+/// DOM stays live + readable.
+fn spawn_preview_child(
+    app: &tauri::AppHandle,
+    label: String,
+    target: Url,
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<i32>,
     transparent: bool,
+    tab_id: i64,
 ) -> Result<(), String> {
-    let label = embed_label(tab_id);
-    // A closed pane must never be (re)created or repositioned: an in-flight
-    // bounds update from the rAF loop can land after `preview_embed_close`.
-    if closed_embeds()
-        .lock()
-        .map(|c| c.contains(&tab_id))
-        .unwrap_or(false)
-    {
-        return Ok(());
-    }
-
-    if !visible || bounds.width < 1.0 || bounds.height < 1.0 {
-        if let Some(wv) = app.get_webview(&label) {
-            wv.hide().map_err(|e| e.to_string())?;
-        }
-        return Ok(());
-    }
-
-    let position = PhysicalPosition::new(bounds.x.round() as i32, bounds.y.round() as i32);
-    let size = PhysicalSize::new(bounds.width.round() as i32, bounds.height.round() as i32);
-    #[cfg(not(target_os = "windows"))]
-    if let Ok(mut b) = last_bounds().lock() {
-        b.insert(tab_id, (position.x, position.y, size.width, size.height));
-    }
-
-    if let Some(wv) = app.get_webview(&label) {
-        wv.set_bounds(Rect {
-            position: position.into(),
-            size: size.into(),
-        })
-        .map_err(|e| e.to_string())?;
-        wv.show().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // First time this tab is visible with a real url: create the child webview.
-    if url.is_empty() {
-        return Ok(());
-    }
-    let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-    // http(s) for the web; `file://` so a local HTML file (e.g. a generated
-    // report on disk) opens directly in the preview like any browser tab.
-    if !matches!(target.scheme(), "http" | "https" | "file") {
-        return Err("only http(s) or file:// URLs can load in the preview".into());
-    }
     let window = app
         .get_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
-
     let app_evt = app.clone();
     let app_title = app.clone();
-    let mut builder = WebviewBuilder::new(label.clone(), WebviewUrl::External(target))
+    let mut builder = WebviewBuilder::new(label, WebviewUrl::External(target))
         .on_page_load(move |_wv, payload| {
             let kind = match payload.event() {
                 PageLoadEvent::Started => "navigated",
@@ -285,12 +249,6 @@ pub async fn preview_embed_update(
                 },
             );
         });
-    // NOTE: the occlusion / background-throttling flags that keep this pane
-    // processing while TEDI is minimized are applied PROCESS-WIDE via the
-    // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS env var (see
-    // `apply_webview2_browser_args_env`, called at startup) - deliberately NOT as a
-    // per-child `additional_browser_args` here: args that differ from the main
-    // webview's render the child BLANK on Windows (tauri-apps/tauri#13092).
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
     // toggling the setting applies to newly opened browser panes. The webview
@@ -303,11 +261,109 @@ pub async fn preview_embed_update(
         }
         builder = builder.initialization_script(TRANSPARENT_BODY_SCRIPT);
     }
-
     window
         .add_child(builder, position, size)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Create (first visible call) or reposition/show the embedded browser webview
+/// for a preview tab. `x/y/width/height` are physical pixels measured by the
+/// frontend. A hidden or zero-area request hides an existing webview, or - when
+/// the webview doesn't exist yet because the tab was opened in the background
+/// (the AI opening a browser to read without focusing it) - creates it OFF-SCREEN
+/// so the page still loads + lays out for headless reads. Never reloads an
+/// existing webview - navigation is a separate command.
+#[tauri::command]
+pub async fn preview_embed_update(
+    app: tauri::AppHandle,
+    tab_id: i64,
+    url: String,
+    bounds: EmbedBounds,
+    visible: bool,
+    transparent: bool,
+) -> Result<(), String> {
+    let label = embed_label(tab_id);
+    // A closed pane must never be (re)created or repositioned: an in-flight
+    // bounds update from the rAF loop can land after `preview_embed_close`.
+    if closed_embeds()
+        .lock()
+        .map(|c| c.contains(&tab_id))
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    if !visible || bounds.width < 1.0 || bounds.height < 1.0 {
+        if let Some(wv) = app.get_webview(&label) {
+            wv.hide().map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        // No webview yet AND the pane is in the background - the AI opened a
+        // browser without focusing its tab (the common headless price / rate /
+        // search read). Create it OFF-SCREEN now so the page loads and lays out
+        // (innerText / read_browser need a real viewport) WITHOUT painting over
+        // the foreground: the native webview composites ABOVE the DOM and is
+        // always-on-top, so a background pane can't just be shown in place;
+        // parking it fully left of the window keeps it rendering yet clipped
+        // off-screen. Previously this branch only no-op'd, the webview was never
+        // created, every read returned null, and the agent fell back to `fetch`.
+        // First activation routes through the visible branch below, which
+        // repositions it on-screen.
+        if url.is_empty() {
+            return Ok(());
+        }
+        let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+        if !matches!(target.scheme(), "http" | "https" | "file") {
+            return Err("only http(s) or file:// URLs can load in the preview".into());
+        }
+        let window = app
+            .get_window("main")
+            .ok_or_else(|| "main window not found".to_string())?;
+        // Lay out against the window size so the headless page matches its
+        // eventual on-screen dimensions; clamp to a sane floor.
+        let (vw, vh) = window
+            .inner_size()
+            .map(|s| (s.width.max(320) as i32, s.height.max(240) as i32))
+            .unwrap_or((1280, 800));
+        // Park fully left of the client area (child webviews are clipped to the
+        // parent window) so it never shows on-screen yet keeps rendering.
+        let position = PhysicalPosition::new(-vw - 64, 0);
+        let size = PhysicalSize::new(vw, vh);
+        return spawn_preview_child(&app, label, target, position, size, transparent, tab_id);
+    }
+
+    let position = PhysicalPosition::new(bounds.x.round() as i32, bounds.y.round() as i32);
+    let size = PhysicalSize::new(bounds.width.round() as i32, bounds.height.round() as i32);
+    #[cfg(not(target_os = "windows"))]
+    if let Ok(mut b) = last_bounds().lock() {
+        b.insert(tab_id, (position.x, position.y, size.width, size.height));
+    }
+
+    if let Some(wv) = app.get_webview(&label) {
+        wv.set_bounds(Rect {
+            position: position.into(),
+            size: size.into(),
+        })
+        .map_err(|e| e.to_string())?;
+        wv.show().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // First time this tab is visible with a real url: create the child webview.
+    if url.is_empty() {
+        return Ok(());
+    }
+    let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+    // http(s) for the web; `file://` so a local HTML file (e.g. a generated
+    // report on disk) opens directly in the preview like any browser tab.
+    if !matches!(target.scheme(), "http" | "https" | "file") {
+        return Err("only http(s) or file:// URLs can load in the preview".into());
+    }
+    // First activation of a previously off-screen background pane lands here too
+    // (the existing-webview branch above repositions it); a never-created
+    // foreground pane is created on the spot.
+    spawn_preview_child(&app, label, target, position, size, transparent, tab_id)
 }
 
 /// Navigate an existing embedded preview webview to `url` (address-bar submit,

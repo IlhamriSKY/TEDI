@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.34] - 13-06-2026
+
+### Fixed
+
+- **The AI can now read an in-app browser it opened in the background, instead of giving up and doing a blind HTTP `fetch`.** When the agent opened a browser without focusing its tab (a price / exchange-rate / search lookup), the native webview was only created once the tab became visible — so `read_browser` found no webview, returned null, and the agent fell back to `fetch`, which returns empty HTML on JS-heavy sites (Google answer boxes, SPAs). The background-create path now spawns the webview **off-screen** so the page still loads and lays out for a headless read, without it painting over the foreground pane; focusing the tab later repositions it on-screen ([`embed.rs`](src-tauri/src/modules/preview/embed.rs), [`buildLiveContext.ts`](src/app/lib/buildLiveContext.ts), [`useAuxTabs.ts`](src/modules/tabs/lib/useAuxTabs.ts)).
+
+### Changed
+
+- **Dropped two unused frontend dependencies.** `@tauri-apps/plugin-log` and `@tauri-apps/plugin-window-state` were removed from `package.json` — only their Rust-side plugins are wired, the JS bindings had no importers ([`package.json`](package.json)).
+
 ## [0.3.33] - 12-06-2026
 
 ### Security

@@ -212,8 +212,9 @@ export function useAuxTabs({
       ];
     });
     // Background opens (e.g. the AI opening a browser to read) pass activate:false
-    // so the user's current tab keeps focus. The pane still mounts and loads in
-    // the background (inactive pane tabs stay mounted), so reads work headless.
+    // so the user's current tab keeps focus. The pane still mounts and its native
+    // webview is created OFF-SCREEN (see preview_embed_update's background-create
+    // branch), so the page loads and reads work headless without focusing the tab.
     if (activate) setActiveId(tabId);
     return tabId;
   }, []);

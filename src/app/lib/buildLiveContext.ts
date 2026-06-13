@@ -119,7 +119,9 @@ export function buildLiveContext(deps: LiveContextDeps) {
     openPreview: (url: string) => {
       // activate:false - the agent opens browsers in the background so it can
       // read them without stealing focus from whatever the user is doing. The
-      // inactive pane tab still mounts and loads, so reads work headless.
+      // inactive pane still creates its native webview OFF-SCREEN (see
+      // preview_embed_update's background-create branch), so the page loads and
+      // read_browser works headless even while the user never focuses the tab.
       return liveContextRef.current.openPreviewTab(url, false);
     },
     // Drive an existing browser pane (by leaf id from listBrowsers). navigate
