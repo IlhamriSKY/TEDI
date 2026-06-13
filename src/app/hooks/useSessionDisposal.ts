@@ -52,7 +52,9 @@ export function useSessionDisposal({
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind === "terminal") liveTerm.add(l.id);
         else if (l.leafKind === "browser") liveBrowser.add(l.id);
-        else liveEditor.add(l.id);
+        else if (l.leafKind === "editor") liveEditor.add(l.id);
+        // extension-panel leaves own their lifecycle via the React mount +
+        // the extension's cleanup callback; nothing to dispose here.
       }
     };
     for (const t of tabs) collect(t);

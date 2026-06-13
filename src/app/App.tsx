@@ -128,6 +128,7 @@ export default function App() {
     reorderTabs,
     reorderLeafInGroup,
     movePaneLeafToEdge,
+    moveExtTabToPane,
     togglePrivate,
   } = useTabs();
 
@@ -787,6 +788,7 @@ export default function App() {
                 onPathDeleted={handlePathDeleted}
                 setBrowserLeafUrl={setBrowserLeafUrl}
                 movePaneLeafToEdge={movePaneLeafToEdge}
+                moveExtTabToPane={moveExtTabToPane}
                 openGitDiffTab={openGitDiffTab}
               />
               <AppRightSlot

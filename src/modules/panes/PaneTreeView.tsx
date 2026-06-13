@@ -15,6 +15,12 @@ import {
 import { Cancel01Icon, DragDropVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
@@ -22,9 +28,10 @@ import { cn } from "@/lib/utils";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { BrowserPane, setPaneDragActive } from "@/modules/browser";
+import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
-import type { PaneEdge, PaneLeaf, PaneNode } from "@/modules/terminal/lib/panes";
+import type { PaneEdge, PaneLeaf, PaneNode, SplitDir } from "@/modules/terminal/lib/panes";
 import { leaves } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
@@ -64,6 +71,11 @@ type Props = {
   onMovePaneLeaf?: (sourceLeafId: number, targetLeafId: number, edge: PaneEdge) => void;
   /** Close button in a pane header. Hidden when omitted. */
   onCloseLeaf?: (leafId: number) => void;
+  /** Open extension tabs offered in the per-pane "Split with…" header menu. */
+  extTabs?: { id: number; title: string }[];
+  /** Split this tab's pane (next to `leafId`, in `dir`) with an open extension
+   *  tab, relocating it into the pane. */
+  onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
   sshHosts?: Map<string, SshConnection>;
   /** Live SSH status per terminal leaf id. Colors the SSH header label. */
@@ -82,6 +94,8 @@ type PaneDndValue = {
   drag: PaneDragState;
   leafCount: number;
   onCloseLeaf?: (leafId: number) => void;
+  extTabs?: { id: number; title: string }[];
+  onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
@@ -139,6 +153,7 @@ function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): strin
       return node.url || "browser";
     }
   }
+  if (node.leafKind === "extension-panel") return node.title || "panel";
   // SSH terminal: mirror the tab strip's `ssh:<host>` (bare "ssh" if the
   // connection was deleted), so tab and pane read identically.
   if (node.sshConnectionId) {
@@ -214,6 +229,13 @@ const LeafBody = memo(function LeafBody({
       </ErrorBoundary>
     );
   }
+  if (node.leafKind === "extension-panel") {
+    return (
+      <ErrorBoundary label="extension pane" resetKeys={[node.id]}>
+        <ExtensionPanelMount extensionId={node.extensionId} panelId={node.panelId} surface="pane" />
+      </ErrorBoundary>
+    );
+  }
   return (
     <ErrorBoundary label="editor pane" resetKeys={[node.id, node.path]}>
       <EditorPane
@@ -263,7 +285,7 @@ function PaneLeafFrame({
   mdPreview: boolean;
   onFocusLeaf: (leafId: number) => void;
 }) {
-  const { drag, leafCount, onCloseLeaf } = use(PaneDndContext);
+  const { drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab } = use(PaneDndContext);
   const { sshHosts, sshStatuses, aiCliStatuses } = use(PaneMetaContext);
   const draggable = leafCount > 1;
   const {
@@ -315,8 +337,13 @@ function PaneLeafFrame({
         isSource && "opacity-60",
       )}
     >
-      {/* Per-pane navigation header: drag handle + label + close. */}
-      <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
+      {/* Per-pane navigation header (drag handle + label + close), wrapped in a
+          right-click menu that offers "Split with <extension>" for each open
+          extension tab — only the header bar carries the menu so the terminal /
+          editor body keeps its own context menu. */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
         {(() => {
           const dragHandle = (
             <button
@@ -385,7 +412,29 @@ function PaneLeafFrame({
             </button>
           </IconTooltip>
         )}
-      </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {onSplitWithExtTab && extTabs && extTabs.length > 0 ? (
+            extTabs.flatMap((et) => [
+              <ContextMenuItem
+                key={`${et.id}-row`}
+                onSelect={() => onSplitWithExtTab(et.id, node.id, "row")}
+              >
+                Split right with {et.title || "panel"}
+              </ContextMenuItem>,
+              <ContextMenuItem
+                key={`${et.id}-col`}
+                onSelect={() => onSplitWithExtTab(et.id, node.id, "col")}
+              >
+                Split down with {et.title || "panel"}
+              </ContextMenuItem>,
+            ])
+          ) : (
+            <ContextMenuItem disabled>Open an extension panel to split with it</ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
       <div className="relative min-h-0 flex-1">
         <LeafBody
           node={node}
@@ -463,6 +512,8 @@ export function PaneTreeView({
   mdPreviewLeafIds,
   onMovePaneLeaf,
   onCloseLeaf,
+  extTabs,
+  onSplitWithExtTab,
   sshHosts,
   sshStatuses,
   aiCliStatuses,
@@ -535,8 +586,8 @@ export function PaneTreeView({
   };
 
   const ctxValue = useMemo<PaneDndValue>(
-    () => ({ drag, leafCount, onCloseLeaf }),
-    [drag, leafCount, onCloseLeaf],
+    () => ({ drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab }),
+    [drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab],
   );
   const metaValue = useMemo<PaneMetaValue>(
     () => ({ sshHosts, sshStatuses, aiCliStatuses }),

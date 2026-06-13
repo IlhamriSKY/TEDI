@@ -338,7 +338,10 @@ export const shellTransformersRegistry = new ShellTransformerRegistry();
  * Per-extension Map allows multiple panels per extension.
  * `clearExtensionContributions` drops the slice on deactivate.
  */
-export type PanelRenderer = (container: HTMLElement) => (() => void) | void;
+export type PanelRenderer = (
+  container: HTMLElement,
+  ctx?: { surface: "tab" | "pane" },
+) => (() => void) | void;
 
 class PanelRendererRegistry {
   private readonly byExt = new Map<string, Map<string, PanelRenderer>>();

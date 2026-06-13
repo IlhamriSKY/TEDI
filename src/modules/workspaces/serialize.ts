@@ -63,6 +63,11 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       ...(leaf.private ? { private: true } : {}),
     };
   }
+  if (leaf.leafKind === "extension-panel") {
+    // Session-only: `tabToSaved` skips any pane tab containing an
+    // extension-panel leaf, so this is never reached. Guard for exhaustiveness.
+    throw new Error("extension-panel leaves are not serialized");
+  }
   return {
     kind: "leaf",
     leafKind: "browser",
@@ -95,6 +100,11 @@ function isPersistedTab(tab: Tab): tab is PaneTab {
 function tabToSaved(tab: Tab): SavedTab | null {
   // ai-diff / git-diff / ext / scm are session-only (re-opened on demand).
   if (!isPersistedTab(tab)) return null;
+  // Extension-panel leaves are session-only too. If a pane tab contains one,
+  // skip persisting the whole tab so the serializer never hits a non-saveable
+  // leaf. (MVP: a terminal split next to an extension panel isn't restored
+  // either; acceptable until extension-panel leaves round-trip.)
+  if (leaves(tab.paneTree).some((l) => l.leafKind === "extension-panel")) return null;
   const all = leaves(tab.paneTree);
   const idx = all.findIndex((l) => l.id === tab.activeLeafId);
   return {
