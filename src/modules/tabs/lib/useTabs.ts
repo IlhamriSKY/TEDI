@@ -25,10 +25,11 @@ import {
   type PaneLeaf,
   type PaneNode,
   type BrowserLeafState,
+  type ExtensionPanelLeafState,
   type SplitDir,
   type TerminalLeafState,
 } from "@/modules/terminal/lib/panes";
-import { type PaneTab, type Tab, type TabPatch } from "./tabTypes";
+import { type ExtensionTab, type PaneTab, type Tab, type TabPatch } from "./tabTypes";
 import { syncPaneMirror } from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
 
@@ -985,6 +986,58 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     });
   }, []);
 
+  // Move an open extension TAB into a split pane leaf next to `targetLeafId`
+  // in `targetTabId`. The source ext tab is closed (it's relocating, not
+  // duplicating) so the panel is never mounted twice — important because
+  // extensions like the SQL Explorer keep module singletons. No-op if the
+  // same panel is already a live pane leaf.
+  const moveExtTabToPane = useCallback(
+    (extTabId: number, targetTabId: number, targetLeafId: number, dir: SplitDir): void => {
+      setTabs((curr) => {
+        const extTab = curr.find(
+          (t): t is ExtensionTab => t.id === extTabId && t.kind === "ext",
+        );
+        if (!extTab) return curr;
+        const target = curr.find((t) => t.id === targetTabId);
+        if (!target || target.kind !== "pane") return curr;
+        if (leafIds(target.paneTree).length >= MAX_PANES_PER_TAB) return curr;
+        const alreadyLeaf = curr.some(
+          (t) =>
+            t.kind === "pane" &&
+            leaves(t.paneTree).some(
+              (l) =>
+                l.leafKind === "extension-panel" &&
+                l.extensionId === extTab.extensionId &&
+                l.panelId === extTab.panelId,
+            ),
+        );
+        if (alreadyLeaf) return curr;
+        const splitId = nextIdRef.current++;
+        const leafId = nextIdRef.current++;
+        const state: ExtensionPanelLeafState = {
+          leafKind: "extension-panel",
+          extensionId: extTab.extensionId,
+          panelId: extTab.panelId,
+          ...(extTab.reuseKey ? { reuseKey: extTab.reuseKey } : {}),
+          ...(extTab.title ? { title: extTab.title } : {}),
+          ...(extTab.icon ? { icon: extTab.icon } : {}),
+        };
+        const paneTree = splitLeaf(target.paneTree, targetLeafId, splitId, leafId, dir, state);
+        // Switch focus to the pane tab so the user sees the new split (the ext
+        // tab they came from is about to disappear).
+        setActiveId(targetTabId);
+        return curr
+          .filter((t) => t.id !== extTabId)
+          .map((t) =>
+            t.id === targetTabId && t.kind === "pane"
+              ? syncPaneMirror({ ...t, paneTree, activeLeafId: leafId })
+              : t,
+          );
+      });
+    },
+    [],
+  );
+
   return {
     tabs,
     activeId,
@@ -1012,6 +1065,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     focusPane,
     focusNextPaneInTab,
     splitActivePane,
+    moveExtTabToPane,
     closeActivePane,
     closePaneByLeaf,
     moveLeafToTab,

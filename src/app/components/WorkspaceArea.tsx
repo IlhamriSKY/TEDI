@@ -34,7 +34,10 @@ type Props = {
   hasExtensionTab: boolean;
   respondToApproval: (approvalId: string, approve: boolean) => void;
   onPathDeleted: (path: string) => void;
-} & Pick<TabsApi, "setBrowserLeafUrl" | "movePaneLeafToEdge" | "openGitDiffTab">;
+} & Pick<
+  TabsApi,
+  "setBrowserLeafUrl" | "movePaneLeafToEdge" | "moveExtTabToPane" | "openGitDiffTab"
+>;
 
 /**
  * The center workspace column. Stacks the live PaneStack and the four overlay
@@ -67,6 +70,7 @@ export function WorkspaceArea({
   onPathDeleted,
   setBrowserLeafUrl,
   movePaneLeafToEdge,
+  moveExtTabToPane,
   openGitDiffTab,
 }: Props) {
   return (
@@ -107,6 +111,7 @@ export function WorkspaceArea({
               onFocusLeaf={paneHandles.handleFocusLeaf}
               onMovePaneLeaf={movePaneLeafToEdge}
               onCloseLeafRequest={paneHandles.handlePaneHeaderClose}
+              onSplitWithExtTab={moveExtTabToPane}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
             />
