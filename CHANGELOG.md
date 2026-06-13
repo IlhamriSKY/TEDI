@@ -4,6 +4,15 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.35] - 13-06-2026
+
+### Changed
+
+- Development checkpoint — version bump to cut a build. Bundles in-progress
+  local work across the explorer (git decorations), AI (approval-mode
+  styling), terminal (session-lifecycle refactor), and pane/tab + SCM/git
+  plumbing; see the commit history for per-area detail.
+
 ## [0.3.34] - 13-06-2026
 
 ### Fixed
