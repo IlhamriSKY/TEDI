@@ -64,6 +64,12 @@ type Actions = {
      *  releasing Windows file handles so the replace step doesn't hit
      *  "Access is denied". */
     expectedId?: string,
+    /** Permissions the user approved in the review dialog (the peeked
+     *  manifest's `permissions`). Rust refuses the install if the real package
+     *  requests anything beyond this set, so the GitHub fast-peek (which reads
+     *  the manifest from raw.githubusercontent.com) can't be used to slip an
+     *  escalated permission past the dialog. */
+    approvedPermissions?: readonly string[],
   ): Promise<InstalledExtension>;
   setEnabled(id: string, enabled: boolean): Promise<void>;
   uninstall(id: string): Promise<void>;
@@ -72,8 +78,10 @@ type Actions = {
    *  sources; still bumps `last_checked_at_ms`. */
   checkUpdate(id: string): Promise<UpdateCheckResult>;
   /** Runs `checkUpdate` for every github-sourced extension in parallel.
-   *  Errors are logged, not thrown. */
-  checkAllUpdates(): Promise<void>;
+   *  Per-extension errors are logged, not thrown; the count of failed checks
+   *  is returned so the caller can warn instead of falsely reporting
+   *  "up to date" when a rate limit or network error blocked the check. */
+  checkAllUpdates(): Promise<{ failed: number }>;
   /** Re-installs the github-sourced extension at its newest release. Runs
    *  the full install pipeline (manifest validation, permission diff). */
   updateExtension(id: string): Promise<InstalledExtension>;
@@ -140,7 +148,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
     const list = await loader.listInstalled();
     set({ list });
   },
-  install: async (source, expectedId) => {
+  install: async (source, expectedId, approvedPermissions) => {
     set({ lastError: null });
     try {
       // Tear down the prior copy before Rust installs. Rust has a
@@ -149,14 +157,20 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
       if (expectedId && isMainWindow()) {
         await loader.deactivate(expectedId);
       }
+      // Pass the approved permission set (when the install came from the
+      // review dialog) so Rust can reject a package that requests more than
+      // the user saw. Spread to a plain array for the IPC boundary.
+      const approved = approvedPermissions ? [...approvedPermissions] : undefined;
       let entry: InstalledExtension;
       if (source.kind === "zip") {
         entry = (await invoke("ext_install_from_zip", {
           zipPath: source.path,
+          approvedPermissions: approved,
         })) as InstalledExtension;
       } else {
         entry = (await invoke("ext_install_from_github", {
           repo: source.repo,
+          approvedPermissions: approved,
         })) as InstalledExtension;
       }
       // Main activates immediately; others wait for the broadcast.
@@ -234,15 +248,19 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
   checkAllUpdates: async () => {
     const list = get().list;
     const candidates = list.filter((e) => e.source.startsWith("github:"));
-    await Promise.allSettled(
-      candidates.map((e) =>
-        invoke("ext_check_update", { id: e.id }).catch((err) => {
-          console.error(`[extensions] check update for ${e.id} failed`, err);
-        }),
-      ),
+    const results = await Promise.allSettled(
+      candidates.map((e) => invoke("ext_check_update", { id: e.id })),
     );
+    let failed = 0;
+    for (const r of results) {
+      if (r.status === "rejected") {
+        failed += 1;
+        console.error("[extensions] check update failed", r.reason);
+      }
+    }
     const fresh = await loader.listInstalled();
     set({ list: fresh });
+    return { failed };
   },
   updateExtension: async (id) => {
     set({ lastError: null });
@@ -266,7 +284,15 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
       if (isMainWindow()) {
         await loader.deactivate(id);
       }
-      const next = (await invoke("ext_install_from_github", { repo })) as InstalledExtension;
+      // Bound the grant to what was already approved: this path runs only when
+      // the pre-update peek found no new permissions, so the new release must
+      // not request more than the current grant. If it does, Rust rejects the
+      // install and the user is told to re-review (rather than silently
+      // widening the grant).
+      const next = (await invoke("ext_install_from_github", {
+        repo,
+        approvedPermissions: [...entry.approved_permissions],
+      })) as InstalledExtension;
       if (isMainWindow()) {
         await loader.reload(next.id, next);
       }

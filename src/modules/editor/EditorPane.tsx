@@ -35,6 +35,7 @@ import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
 import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
+import { MarkdownFindBar, type MarkdownFindBarHandle } from "./MarkdownFindBar";
 import { formatDocument, NoFormatterError, shouldFormatOnSave } from "./lib/formatters";
 import { toast } from "@/components/ui/toast";
 
@@ -167,6 +168,12 @@ export function EditorPane({
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const outerRef = useRef<HTMLDivElement>(null);
   const findReplaceRef = useRef<EditorFindReplaceHandle>(null);
+  // Markdown-preview find: the preview renders to the DOM (Streamdown), so its
+  // search runs over rendered text rather than CodeMirror. `mdScrollRef` is the
+  // scroller searched; the find bar lives outside it so its own UI isn't matched.
+  const mdScrollRef = useRef<HTMLDivElement>(null);
+  const mdFindRef = useRef<MarkdownFindBarHandle>(null);
+  const getMdContainer = useCallback(() => mdScrollRef.current, []);
   // Stable identity so EditorFindReplace's effect (which lists getView in its
   // deps) doesn't re-run on every scroll/selection while the find bar is open.
   // cmRef is itself stable, so the closure never needs to change.
@@ -301,6 +308,11 @@ export function EditorPane({
 
   const pathRef = useRef(path);
   pathRef.current = path;
+  // Whether the markdown preview (not CodeMirror) is the active surface. Read
+  // by the imperative handle so find/search routes to <MarkdownFindBar> in
+  // preview mode. Mirrored into a ref so the handle's deps stay [path].
+  const mdPreviewActiveRef = useRef(false);
+  mdPreviewActiveRef.current = !!mdPreview && /\.(md|markdown|mdx)$/i.test(path);
   // Mirror `aiDisabled` into a ref so the (memoised) extensions array can
   // read the latest value without reconfiguring CodeMirror on every prop
   // change.
@@ -456,6 +468,10 @@ export function EditorPane({
     ref,
     () => ({
       setQuery: (q: string) => {
+        if (mdPreviewActiveRef.current) {
+          mdFindRef.current?.setQuery(q);
+          return;
+        }
         const view = cmRef.current?.view;
         if (!view) return;
         view.dispatch({
@@ -464,14 +480,26 @@ export function EditorPane({
         if (q) findNext(view);
       },
       findNext: () => {
+        if (mdPreviewActiveRef.current) {
+          mdFindRef.current?.findNext();
+          return;
+        }
         const view = cmRef.current?.view;
         if (view) findNext(view);
       },
       findPrevious: () => {
+        if (mdPreviewActiveRef.current) {
+          mdFindRef.current?.findPrevious();
+          return;
+        }
         const view = cmRef.current?.view;
         if (view) findPrevious(view);
       },
       clearQuery: () => {
+        if (mdPreviewActiveRef.current) {
+          mdFindRef.current?.clearQuery();
+          return;
+        }
         const view = cmRef.current?.view;
         if (!view) return;
         view.dispatch({
@@ -504,6 +532,10 @@ export function EditorPane({
       },
       reload: () => reloadRef.current(),
       openFindReplace: () => {
+        if (mdPreviewActiveRef.current) {
+          mdFindRef.current?.open();
+          return;
+        }
         findReplaceRef.current?.open();
       },
       formatDocument: async () => {
@@ -649,14 +681,18 @@ export function EditorPane({
         </div>
       )}
       {showMdPreview && (
-        <div className="bg-background absolute inset-0 overflow-auto p-6">
-          <Streamdown
-            className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-            urlTransform={safeUrlTransform}
-            components={markdownComponents}
-          >
-            {liveContent}
-          </Streamdown>
+        <div className="absolute inset-0">
+          <div ref={mdScrollRef} className="bg-background h-full w-full overflow-auto p-6">
+            <Streamdown
+              className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              urlTransform={safeUrlTransform}
+              components={markdownComponents}
+            >
+              {liveContent}
+            </Streamdown>
+          </div>
+          {/* Find bar lives OUTSIDE the scroller so its own text isn't searched. */}
+          <MarkdownFindBar ref={mdFindRef} getContainer={getMdContainer} content={liveContent} />
         </div>
       )}
     </div>

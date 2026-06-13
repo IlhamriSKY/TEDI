@@ -51,6 +51,26 @@ export const NO_DATA_WATCHDOG_MS = 8_000;
 export const STUCK_RECOVERY_MS = 12_000;
 
 /**
+ * After an `alive` daemon reattach, the scrollback replay is supposed to
+ * reconstruct the screen, but it can net to a BLANK viewport while the idle
+ * shell stays silent (the saved tail ended on a screen-clear, the 1 MiB ring
+ * was front-trimmed mid-escape, or ConPTY re-rendered at a new size). Because a
+ * replay byte arrived, the no-data watchdog is disarmed and - with `s.pty` set -
+ * Enter-to-retry and stuck-recovery are inert, so the pane would stay blank
+ * forever. This is how long to wait for the one-shot replay Data event to render
+ * before checking whether the viewport is still blank. Short enough to feel
+ * instant, long enough for xterm to flush the replay.
+ */
+export const REATTACH_REPAINT_CHECK_MS = 300;
+
+/**
+ * Gap between the two halves of the repaint SIGWINCH round-trip used to provoke
+ * a prompt redraw after a blank reattach, so ConPTY processes them as distinct
+ * resize events instead of coalescing them into a net no-op.
+ */
+export const REATTACH_REPAINT_NUDGE_GAP_MS = 50;
+
+/**
  * Snapshot the visible xterm viewport as newline-joined text in original
  * case. Returns "" on any buffer API error so a mid-reflow throw doesn't
  * kill the detector loop.

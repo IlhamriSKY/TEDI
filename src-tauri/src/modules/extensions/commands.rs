@@ -13,7 +13,8 @@ use serde::Serialize;
 use tauri::Manager;
 
 use super::github::{
-    http_get_bytes, normalize_owner_repo, resolve_latest_release, resolve_latest_tag,
+    http_get_bytes, normalize_owner_repo, raw_content_bytes, resolve_latest_release,
+    resolve_latest_tag,
 };
 use super::install::{install_from_bytes, resolve_asset, PeekResult};
 use super::manifest::Manifest;
@@ -225,6 +226,11 @@ pub async fn ext_install_from_zip(
     state: tauri::State<'_, ExtensionsState>,
     app: tauri::AppHandle,
     zip_path: String,
+    // Permissions the user approved in the review dialog. The install refuses
+    // if the package's actual manifest requests anything outside this set, so
+    // the dialog's consent is an authoritative upper bound. `None` (e.g. a
+    // caller that never showed a dialog) skips the check.
+    approved_permissions: Option<Vec<String>>,
 ) -> Result<ListEntry, String> {
     // Stat first so accidentally pointing at a multi-GB ISO does not OOM
     // the install path; `fs::read` would otherwise allocate the whole file
@@ -238,7 +244,14 @@ pub async fn ext_install_from_zip(
         ));
     }
     let bytes = fs::read(&zip_path).map_err(|e| format!("read {zip_path}: {e}"))?;
-    install_and_return(state, &app, &bytes, &format!("local:{zip_path}")).await
+    install_and_return(
+        state,
+        &app,
+        &bytes,
+        &format!("local:{zip_path}"),
+        approved_permissions,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -255,12 +268,91 @@ pub async fn ext_peek_zip(zip_path: String) -> Result<PeekResult, String> {
     super::install::peek_bytes(&bytes, &format!("local:{zip_path}"))
 }
 
+/// Per-file caps for the lightweight (raw-content) peek path. A manifest is
+/// ~1 KiB; an icon is normally well under a MiB. Generous ceilings keep a
+/// hostile host from streaming an unbounded body while letting real packages
+/// through; an oversized icon just falls back to the letter avatar.
+const MAX_PEEK_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MAX_PEEK_ICON_BYTES: u64 = 5 * 1024 * 1024;
+
 #[tauri::command]
 pub async fn ext_peek_github(repo: String) -> Result<PeekResult, String> {
     let normalized = normalize_owner_repo(&repo)?;
+
+    // Resolve only the release *tag* first - cheap, no asset download.
+    let tag = resolve_latest_tag(&normalized).await?;
+
+    // Fast path: read `manifest.json` (and the icon) straight from the repo
+    // tree at the release tag via raw.githubusercontent.com. The review dialog
+    // only needs the manifest + icon; downloading the entire release zip -
+    // which bundles per-platform sidecar binaries and is routinely tens of MB
+    // - merely to render a preview is what left the "Install" button sitting
+    // on a spinner for a long time (and, with the post-confirm install
+    // re-downloading the same zip, made "Update" stall on a slow link). The
+    // preview is advisory (the dialog says as much); the real install below
+    // re-validates the actual zip and is what grants permissions. Falls back
+    // to a full download when the manifest is not at the repo root (404) or
+    // raw content is unreachable.
+    if let Ok(peek) = peek_github_via_raw(&normalized, &tag).await {
+        return Ok(peek);
+    }
+
+    // Fallback: download the release asset and read the manifest from inside.
     let (_tag, asset_url) = resolve_latest_release(&normalized).await?;
     let bytes = http_get_bytes(&asset_url).await?;
     super::install::peek_bytes(&bytes, &format!("github:{normalized}"))
+}
+
+/// Build a [`PeekResult`] by reading `manifest.json` (and the manifest's
+/// declared icon) directly from `raw.githubusercontent.com` at `tag`, without
+/// downloading the release zip. Errors when the manifest is absent at the repo
+/// root or unparseable, so the caller can fall back to the full-zip peek.
+async fn peek_github_via_raw(owner_repo: &str, tag: &str) -> Result<PeekResult, String> {
+    use base64::Engine as _;
+
+    // Git refs are already constrained (no spaces, no `..`), but bail to the
+    // full-zip fallback rather than splice an unexpected character straight
+    // into a raw.githubusercontent.com path. The fallback reads the real zip
+    // and works regardless of how the tag is shaped.
+    if !is_simple_git_ref(tag) {
+        return Err("release tag is not a simple ref".into());
+    }
+
+    let manifest_bytes =
+        raw_content_bytes(owner_repo, tag, "manifest.json", MAX_PEEK_MANIFEST_BYTES).await?;
+    let manifest_text = String::from_utf8(manifest_bytes)
+        .map_err(|e| format!("manifest.json is not valid UTF-8: {e}"))?;
+    let manifest = Manifest::parse(&manifest_text)?;
+
+    // Best-effort icon. A miss just yields the letter-avatar fallback in the
+    // dialog, the same as the full-zip peek path.
+    let (icon_base64, icon_rel_path) = match manifest.icon.as_deref() {
+        Some(icon_rel) if !icon_rel.is_empty() => {
+            match raw_content_bytes(owner_repo, tag, icon_rel, MAX_PEEK_ICON_BYTES).await {
+                Ok(bytes) => (
+                    Some(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+                    Some(icon_rel.to_string()),
+                ),
+                Err(_) => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
+
+    Ok(PeekResult {
+        manifest,
+        icon_base64,
+        icon_rel_path,
+        source: format!("github:{owner_repo}"),
+    })
+}
+
+/// Conservative check that a tag is safe to splice into a raw-content URL
+/// path segment. On reject the caller falls back to the full-zip peek.
+fn is_simple_git_ref(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/'))
 }
 
 #[tauri::command]
@@ -268,12 +360,23 @@ pub async fn ext_install_from_github(
     state: tauri::State<'_, ExtensionsState>,
     app: tauri::AppHandle,
     repo: String,
+    // See `ext_install_from_zip`. For an update with no newly-requested
+    // permissions (the dialog was skipped), the caller passes the extension's
+    // already-approved set, so a release zip cannot silently widen the grant.
+    approved_permissions: Option<Vec<String>>,
 ) -> Result<ListEntry, String> {
     // Accept "owner/repo" or a full URL like "https://github.com/owner/repo".
     let normalized = normalize_owner_repo(&repo)?;
     let (_tag, asset_url) = resolve_latest_release(&normalized).await?;
     let bytes = http_get_bytes(&asset_url).await?;
-    install_and_return(state, &app, &bytes, &format!("github:{normalized}")).await
+    install_and_return(
+        state,
+        &app,
+        &bytes,
+        &format!("github:{normalized}"),
+        approved_permissions,
+    )
+    .await
 }
 
 async fn install_and_return(
@@ -281,7 +384,35 @@ async fn install_and_return(
     app: &tauri::AppHandle,
     zip_bytes: &[u8],
     source: &str,
+    approved_permissions: Option<Vec<String>>,
 ) -> Result<ListEntry, String> {
+    // Authoritative consent gate. The install-review dialog's manifest preview
+    // may be read from raw.githubusercontent.com (so the "Install" button
+    // appears without downloading the whole release zip). The bytes installed
+    // here are the real release asset; re-read its manifest and refuse if it
+    // requests any permission the user did not approve in the dialog. Without
+    // this, a release whose packaged manifest declares more permissions than
+    // its source tree could silently widen an extension's grant on update.
+    if let Some(approved) = approved_permissions.as_deref() {
+        let preview = super::install::peek_bytes(zip_bytes, source)?;
+        let unapproved: Vec<&str> = preview
+            .manifest
+            .permissions
+            .iter()
+            .filter(|p| !approved.iter().any(|a| a == *p))
+            .map(|p| p.as_str())
+            .collect();
+        if !unapproved.is_empty() {
+            return Err(format!(
+                "This package requests {} permission(s) you didn't approve: {}. \
+                 The published package may differ from what the review dialog \
+                 showed; re-open the install dialog to review and approve them.",
+                unapproved.len(),
+                unapproved.join(", ")
+            ));
+        }
+    }
+
     // Lock around install so two concurrent calls do not trample the state
     // file. Held only across the install body; dropped before returning.
     let _g = state

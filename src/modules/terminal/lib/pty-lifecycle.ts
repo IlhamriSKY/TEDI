@@ -6,8 +6,11 @@ import {
   SPAWN_GRACE_MS,
   SPAWN_TIMEOUT_MS,
   NO_DATA_WATCHDOG_MS,
+  REATTACH_REPAINT_CHECK_MS,
+  REATTACH_REPAINT_NUDGE_GAP_MS,
   isDebugPty,
   describeError,
+  readTerminalViewport,
   stripTrailingPunct,
   containsSchemeSeparator,
 } from "./session-helpers";
@@ -179,6 +182,16 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
           s.firstByteEpoch = 0;
           return openPty(spawnCols, spawnRows, { onData, onExit }, cwd);
         }
+        // Live shell: the daemon replayed its scrollback to reconstruct the
+        // screen. That reconstruction can net to a blank viewport (saved tail
+        // ended on a screen-clear, the 1 MiB ring was front-trimmed mid-escape,
+        // or ConPTY re-rendered at a new size) while the idle shell emits
+        // nothing further. Since a byte DID arrive, the no-data watchdog is
+        // disarmed and - with `s.pty` set - Enter-to-retry and stuck-recovery
+        // are both inert, so the pane would stay blank forever. Arm a one-shot
+        // check that nudges the shell to repaint if the viewport is still blank
+        // shortly after the replay.
+        armReattachRepaintWatchdog(s, myEpoch);
         return attached;
       })(),
     );
@@ -261,6 +274,56 @@ export function armNoDataWatchdog(s: Session, epoch: number): void {
     console.warn("[tedi-pty] no-data watchdog fired:", msg);
     writePtyError(s, msg);
   }, NO_DATA_WATCHDOG_MS);
+}
+
+/**
+ * After an `alive` reattach, verify the daemon's scrollback replay actually
+ * produced a usable screen; if the viewport is still blank, force the live
+ * shell to repaint its prompt.
+ *
+ * The replay reconstructs the screen from a raw byte stream, not a snapshot, so
+ * it can net to an empty viewport (saved tail ended on a clear, the ring was
+ * front-trimmed mid-escape, or ConPTY re-rendered at a new size). When that
+ * happens the idle shell emits nothing more and there is no recovery: the
+ * replay byte disarmed the no-data watchdog, and `s.pty` being set makes both
+ * Enter-to-retry and stuck-recovery no-ops. The repaint is a SIGWINCH
+ * round-trip (toggle the PTY row count) so it injects no input - a running
+ * command or full-screen TUI is left undisturbed, the alt-screen guard skips
+ * TUIs outright, and a healthy reattach (prompt rendered) never trips the blank
+ * check, so this is inert except in the broken case.
+ */
+function armReattachRepaintWatchdog(s: Session, epoch: number): void {
+  setTimeout(() => {
+    if (s.disposed) return;
+    if (epoch !== s.ptySpawnEpoch) return; // superseded by a respawn
+    if (!s.pty) return; // torn down or errored before the check ran
+    let isAlt = false;
+    try {
+      isAlt = s.term.buffer.active.type === "alternate";
+    } catch {
+      return;
+    }
+    if (isAlt) return; // a foreground TUI owns the screen; never nudge it
+    if (readTerminalViewport(s.term).trim() !== "") return; // replay painted something
+    // Blank viewport + live shell: toggle the PTY row count so the shell's line
+    // editor (PSReadLine / readline / zle / fish) repaints its prompt. Two
+    // spaced resizes so ConPTY can't coalesce them into a net no-op.
+    const cols = Math.max(MIN_PTY_DIM, s.term.cols);
+    const rows = Math.max(MIN_PTY_DIM, s.term.rows);
+    const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
+    if (isDebugPty()) {
+      console.info("[tedi-pty] reattach repaint nudge: viewport blank after alive reattach, forcing redraw");
+    }
+    void s.pty.resize(cols, nudgeRows);
+    s.lastSentCols = cols;
+    s.lastSentRows = nudgeRows;
+    setTimeout(() => {
+      if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
+      void s.pty.resize(cols, rows);
+      s.lastSentCols = cols;
+      s.lastSentRows = rows;
+    }, REATTACH_REPAINT_NUDGE_GAP_MS);
+  }, REATTACH_REPAINT_CHECK_MS);
 }
 
 /** Retry a PTY spawn. Wired to Enter for recovery. No-op if opening, alive, or disposed. */

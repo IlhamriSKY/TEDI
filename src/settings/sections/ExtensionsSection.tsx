@@ -331,7 +331,12 @@ export function ExtensionsSection() {
       // before Rust replaces the folder. Avoids Windows file lock errors.
       const expectedId =
         pending.preview.status === "ready" ? pending.preview.manifest.id : undefined;
-      const ext = await install(pending.source, expectedId);
+      // Pass the exact permission set the user just approved so Rust can refuse
+      // a package that requests more than the dialog showed (the GitHub peek
+      // reads the manifest from raw content, not the release zip).
+      const approvedPermissions =
+        pending.preview.status === "ready" ? pending.preview.manifest.permissions : undefined;
+      const ext = await install(pending.source, expectedId, approvedPermissions);
       toast(`Installed "${ext.manifest.name}" v${ext.manifest.version}`, {
         variant: "success",
       });
@@ -375,15 +380,24 @@ export function ExtensionsSection() {
   const onCheckAll = async () => {
     setCheckingAll(true);
     try {
-      await checkAllUpdates();
+      const { failed } = await checkAllUpdates();
       const updated = useExtensionsStore.getState().list;
       const ready = updated.filter((e) => e.latest_version && e.latest_version !== e.version);
-      if (ready.length === 0) {
-        toast("All extensions are up to date", { variant: "success" });
-      } else {
+      if (ready.length > 0) {
         toast(`${ready.length} update${ready.length === 1 ? "" : "s"} available`, {
           variant: "info",
         });
+      } else if (failed > 0) {
+        // Don't claim "up to date" when checks actually failed (network or the
+        // GitHub 60-req/h anonymous rate limit) - that reads as "nothing to do"
+        // when the truth is "couldn't tell".
+        toast(
+          `Couldn't check ${failed} extension${failed === 1 ? "" : "s"} for updates ` +
+            `(network error or GitHub rate limit). Set TEDI_GITHUB_TOKEN to raise the limit.`,
+          { variant: "warning" },
+        );
+      } else {
+        toast("All extensions are up to date", { variant: "success" });
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), { variant: "error" });

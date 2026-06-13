@@ -770,3 +770,18 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   height: 0 !important;
   display: none !important;
 }
+
+/* ===== Markdown preview find =====
+ * Search highlights for the rendered markdown viewer (EditorPane preview).
+ * Driven by the CSS Custom Highlight API: <MarkdownFindBar> registers DOM
+ * Ranges under `md-find` (every match) and `md-find-current` (the focused
+ * one). No DOM mutation, so Streamdown's rendered output stays untouched.
+ * Reuses `--tedi-icon-working` (the same gold/amber the terminal + xterm
+ * search use for the active match) so find UX reads consistently. */
+::highlight(md-find) {
+  background-color: color-mix(in srgb, var(--tedi-icon-working, #d18616) 36%, transparent);
+}
+::highlight(md-find-current) {
+  background-color: var(--tedi-icon-working, #d18616);
+  color: #1a1a1a;
+}
