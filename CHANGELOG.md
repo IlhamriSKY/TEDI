@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.36] - 13-06-2026
+
+### Added
+
+- **Extension panels can live inside split panes.** An extension's
+  workspace tab (e.g. the SQL Explorer) can now be split next to a
+  terminal / editor / browser via the pane header's right-click
+  "Split with…" menu, and dragged / grouped like any other pane leaf.
+  Surface-aware extensions render header-less + compact in a pane (the
+  pane frame supplies the title + drag handle + close); re-opening the
+  panel focuses the existing pane instead of mounting a duplicate. A new
+  `extension-panel` pane-leaf kind is threaded through the pane tree,
+  render, serialize (session-only), and disposal paths.
+
 ## [0.3.35] - 13-06-2026
 
 ### Changed
