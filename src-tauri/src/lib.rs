@@ -439,6 +439,7 @@ pub fn run() {
             fs::grep::fs_glob,
             fs::grep::fs_grep_replace,
             git::commands::git_status,
+            git::commands::git_ignored,
             git::commands::git_file_head,
             git::commands::git_file_at,
             git::commands::git_discard_file,

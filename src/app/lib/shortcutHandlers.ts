@@ -34,7 +34,7 @@ export interface ShortcutHandlerDeps {
   askFromSelection: () => void;
   openScmTab: () => number;
   toggleSidebar: () => void;
-  closePaneByLeaf: (leafId: number) => void;
+  requestCloseLeaf: (leafId: number) => void;
   setNewEditorOpen: (open: boolean) => void;
   searchInlineRef: RefObject<SearchInlineHandle | null>;
   editorRefs: RefObject<Map<number, EditorPaneHandle>>;
@@ -59,7 +59,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     askFromSelection,
     openScmTab,
     toggleSidebar,
-    closePaneByLeaf,
+    requestCloseLeaf,
     setNewEditorOpen,
     searchInlineRef,
     editorRefs,
@@ -168,7 +168,8 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     },
     // Ctrl+Shift+X: close the focused terminal pane. Blocked when it's
     // the last terminal in the workspace, mirroring the respawn rule in
-    // handleLeafExit.
+    // handleLeafExit. Routes through `requestCloseLeaf` so a busy terminal
+    // confirms before being killed.
     "terminal.close": () => {
       if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
       let terminalLeafCount = 0;
@@ -177,7 +178,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
         for (const l of leaves(t.paneTree)) if (l.leafKind === "terminal") terminalLeafCount++;
       }
       if (terminalLeafCount <= 1) return;
-      closePaneByLeaf(activeLeafIdInTab);
+      requestCloseLeaf(activeLeafIdInTab);
     },
   };
 }

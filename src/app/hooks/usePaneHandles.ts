@@ -19,6 +19,7 @@ type Params = {
   activeLeafIdInTab: number | null;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
   handleClose: (id: number) => void;
+  requestCloseLeaf: (leafId: number) => void;
 } & Pick<
   TabsApi,
   | "setLeafCwd"
@@ -52,6 +53,7 @@ export function usePaneHandles({
   newTab,
   setEditorLeafDirty,
   handleClose,
+  requestCloseLeaf,
 }: Params): {
   registerTerminalHandle: (leafId: number, h: TerminalPaneHandle | null) => void;
   registerEditorHandle: (leafId: number, h: EditorPaneHandle | null) => void;
@@ -205,18 +207,19 @@ export function usePaneHandles({
   );
 
   // Pane header close button: drop the leaf when it shares a tab, otherwise
-  // close the whole tab (mirrors the tab-strip leaf close semantics).
+  // close the whole tab (mirrors the tab-strip leaf close semantics). Both
+  // routes confirm first when a terminal is running a process.
   const handlePaneHeaderClose = useCallback(
     (leafId: number) => {
       const tab = tabsRef.current.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
       if (!tab || tab.kind !== "pane") return;
       if (leafIds(tab.paneTree).length > 1) {
-        closePaneByLeaf(leafId);
+        requestCloseLeaf(leafId);
       } else {
         handleClose(tab.id);
       }
     },
-    [closePaneByLeaf, handleClose],
+    [requestCloseLeaf, handleClose],
   );
 
   return {

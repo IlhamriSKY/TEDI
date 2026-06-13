@@ -25,14 +25,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentIconId } from "../lib/agents";
+import { APPROVAL_MODE_TONE } from "../lib/approvalModeStyle";
 import { useAgentsStore } from "../store/agentsStore";
 
 const APPROVAL_MODE_ORDER: ApprovalMode[] = ["ask", "semi", "yolo"];
-const APPROVAL_MODE_DOT: Record<ApprovalMode, string> = {
-  ask: "bg-icon-working",
-  semi: "bg-info",
-  yolo: "bg-diff-added",
-};
 
 const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   coder: CodeIcon,
@@ -189,9 +185,8 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 m === approvalMode && "bg-accent/40",
               )}
             >
-              <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", APPROVAL_MODE_DOT[m])} />
               <span className="flex min-w-0 flex-1 flex-col">
-                <span>{meta.label}</span>
+                <span className={cn("font-medium", APPROVAL_MODE_TONE[m])}>{meta.label}</span>
                 <span className="text-muted-foreground line-clamp-1 text-[10.5px]">
                   {meta.description}
                 </span>
@@ -201,7 +196,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                   icon={Tick02Icon}
                   size={12}
                   strokeWidth={2}
-                  className="text-foreground mt-0.5 shrink-0"
+                  className={cn("mt-0.5 shrink-0", APPROVAL_MODE_TONE[m])}
                 />
               ) : null}
             </DropdownMenuItem>

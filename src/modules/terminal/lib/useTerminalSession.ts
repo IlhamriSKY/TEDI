@@ -301,6 +301,23 @@ export function useTerminalSession({
     }
   }, [leafId]);
 
+  // True when a foreground command is actually running: a full-screen TUI owns
+  // the alt-screen, or the OSC 133 command lifecycle (C/D, with Enter-synthesis
+  // for pwsh) says a command is mid-flight. Unlike `isAtPrompt`, this does not
+  // guess from the PS1 text, so an idle terminal with a custom prompt never
+  // reads as busy. Used by the close-confirmation so it only fires for a real
+  // running process.
+  const isProcessRunning = useCallback((): boolean => {
+    const s = sessions.get(leafId);
+    if (!s) return false;
+    try {
+      if (s.term.buffer.active.type === "alternate") return true;
+    } catch {
+      // ignore - fall through to the command-lifecycle flag.
+    }
+    return s.commandRunning === true;
+  }, [leafId]);
+
   const applyTheme = useCallback(() => {
     const s = sessions.get(leafId);
     if (!s) return;
@@ -309,5 +326,14 @@ export function useTerminalSession({
     s.term.refresh(0, s.term.rows - 1);
   }, [leafId]);
 
-  return { write, focus, getBuffer, getSelection, paste, isAtPrompt, applyTheme };
+  return {
+    write,
+    focus,
+    getBuffer,
+    getSelection,
+    paste,
+    isAtPrompt,
+    isProcessRunning,
+    applyTheme,
+  };
 }

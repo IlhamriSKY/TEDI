@@ -81,7 +81,7 @@ export function MentionPickerContent({
       onOpenAutoFocus={(e) => e.preventDefault()}
       onCloseAutoFocus={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
-      className="border-border/60 bg-popover/95 w-[34rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border p-0 shadow-xl backdrop-blur-xl"
+      className="border-border/60 bg-popover/95 w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border p-0 shadow-xl backdrop-blur-xl"
     >
       {items.length === 0 ? (
         <div className="text-muted-foreground px-3 py-2.5 text-[11px]">

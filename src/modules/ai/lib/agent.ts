@@ -462,7 +462,21 @@ export async function runAgentStream(opts: RunAgentOptions) {
   const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
   const history = await convertToModelMessages(opts.uiMessages);
-  const compact = compactModelMessagesDetailed(history, getModelContextLimit(modelInfo.id));
+  // The system prompt is prepended *after* compaction (see baseMessages below)
+  // and the transport injects a per-turn <env> block into the latest user
+  // message - neither is visible to the history compactor. Reserve their
+  // approximate token cost so the 60/80% thresholds reflect the real request
+  // size. This matters most on small-context models and when a large
+  // project-memory file (TEDI.md) inflates the system prompt. The floor keeps
+  // us from reserving more than half the window if the system prompt is huge.
+  const fullContextLimit = getModelContextLimit(modelInfo.id);
+  const systemTokenEstimate = Math.ceil(systemText.length / 4);
+  const ENV_AND_OUTPUT_RESERVE = 2000;
+  const effectiveContextLimit = Math.max(
+    Math.floor(fullContextLimit / 2),
+    fullContextLimit - systemTokenEstimate - ENV_AND_OUTPUT_RESERVE,
+  );
+  const compact = compactModelMessagesDetailed(history, effectiveContextLimit);
   if (compact.compacted) {
     opts.onCompact?.({ droppedCount: compact.droppedCount, stages: compact.stages });
   }

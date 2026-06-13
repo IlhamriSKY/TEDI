@@ -376,6 +376,44 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
     })
 }
 
+/// Ignored (gitignored) working-tree entries under the repo, as forward-slash
+/// absolute paths with trailing slashes stripped. Fully-ignored directories are
+/// collapsed to the directory itself (e.g. `.../node_modules`) via `--directory`
+/// so the list stays small even with huge ignored trees. The explorer uses this
+/// to dim ignored rows like VSCode. Returns an empty list outside a repo - this
+/// is a best-effort decoration source, never a hard error for the caller.
+#[tauri::command]
+pub fn git_ignored(repo_path: String) -> Result<Vec<String>, String> {
+    let start = PathBuf::from(&repo_path);
+    let Some(root) = find_repo_root(&start) else {
+        return Ok(Vec::new());
+    };
+    let mut cmd = git(&root);
+    // -o others, -i ignored, --exclude-standard honors .gitignore + .git/info/exclude
+    // + core.excludesFile, --directory collapses wholly-ignored dirs, -z NUL-separates.
+    cmd.args([
+        "ls-files",
+        "-z",
+        "-o",
+        "-i",
+        "--exclude-standard",
+        "--directory",
+    ]);
+    let raw = run(cmd)?;
+    let root_fwd = to_forward(&root.to_string_lossy());
+    let root_fwd = root_fwd.trim_end_matches('/');
+    let mut out = Vec::new();
+    for entry in raw.split('\0') {
+        if entry.is_empty() {
+            continue;
+        }
+        let rel = to_forward(entry);
+        let rel = rel.trim_end_matches('/');
+        out.push(format!("{root_fwd}/{rel}"));
+    }
+    Ok(out)
+}
+
 /// Read a blob at `rev` for a repo-relative path (`git show <rev>:<path>`),
 /// classified like `fs_read_file` (text / image / binary). A path absent at
 /// that revision (added later, deleted, or a rename's other side) yields an

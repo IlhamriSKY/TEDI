@@ -21,6 +21,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
 import { useRef } from "react";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { APPROVAL_MODE_SEND } from "../lib/approvalModeStyle";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useChatStore } from "../store/chatStore";
 import { ModelDropdown } from "./ModelDropdown";
@@ -54,6 +56,11 @@ export function AiStatusBarControls() {
   const c = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const enqueuePrompt = useChatStore((s) => s.enqueuePrompt);
+  // The Send button carries the active approval-mode color (ask=amber,
+  // semi=blue, full-auto=green) so the autonomy level reads from the one
+  // control the user looks at before sending.
+  const approvalMode = usePreferencesStore((s) => s.approvalMode);
+  const sendTone = APPROVAL_MODE_SEND[approvalMode];
 
   const interruptAndSend = () => {
     const text = c.value.trim();
@@ -140,7 +147,7 @@ export function AiStatusBarControls() {
                     type="button"
                     size="sm"
                     disabled={!c.value.trim()}
-                    className="h-6 gap-1 rounded-md px-2 text-[11px]"
+                    className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
                     aria-label="Send options"
                   >
                     <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />
@@ -186,7 +193,7 @@ export function AiStatusBarControls() {
             size="sm"
             onClick={c.submit}
             disabled={!c.canSend}
-            className="h-6 gap-1 rounded-md px-2 text-[11px]"
+            className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
             aria-label="Send (Enter)"
           >
             <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />

@@ -10,8 +10,9 @@ type Params = {
   detectedBrowserUrl: string | null;
   openPreviewTab: (url: string) => number | null;
   handleClose: (id: number) => void;
+  requestCloseLeaf: (leafId: number) => void;
   setNewEditorOpen: Dispatch<SetStateAction<boolean>>;
-} & Pick<TabsApi, "setActiveId" | "focusPane" | "closePaneByLeaf" | "pinTab" | "newSshTab">;
+} & Pick<TabsApi, "setActiveId" | "focusPane" | "pinTab" | "newSshTab">;
 
 /**
  * Stable handlers for the memoised `<Header/>`. Each was previously an inline
@@ -25,10 +26,10 @@ export function useHeaderActions({
   detectedBrowserUrl,
   openPreviewTab,
   handleClose,
+  requestCloseLeaf,
   setNewEditorOpen,
   setActiveId,
   focusPane,
-  closePaneByLeaf,
   pinTab,
   newSshTab,
 }: Params): {
@@ -66,12 +67,12 @@ export function useHeaderActions({
   const handleHeaderCloseEntry = useCallback(
     (tabId: number, leafId: number | null) => {
       if (leafId !== null) {
-        closePaneByLeaf(leafId);
+        requestCloseLeaf(leafId);
       } else {
         handleClose(tabId);
       }
     },
-    [closePaneByLeaf, handleClose],
+    [requestCloseLeaf, handleClose],
   );
   const handleHeaderNewPreview = useCallback(() => openPreviewTab(""), [openPreviewTab]);
   const handleHeaderNewEditor = useCallback(() => setNewEditorOpen(true), []);

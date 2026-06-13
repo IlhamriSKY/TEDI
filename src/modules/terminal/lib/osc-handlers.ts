@@ -14,17 +14,32 @@ export type PromptTracker = {
   dispose: () => void;
 };
 
+export type PromptTrackerCallbacks = {
+  /** Fires on every OSC 133;A (prompt start). The AI CLI detector uses this to clear non-alt-screen tools. */
+  onPromptStart?: () => void;
+  /** Fires on OSC 133;C (pre-exec) - a foreground command has started. */
+  onCommandStart?: () => void;
+  /** Fires on OSC 133;D (command-end), carrying the parsed exit code when present. */
+  onCommandEnd?: (exitCode: number | null) => void;
+};
+
 export function registerPromptTracker(
   term: Terminal,
-  /** Fires on every OSC 133;A. The AI CLI detector uses this to clear non-alt-screen tools. */
-  onPromptStart?: () => void,
+  callbacks: PromptTrackerCallbacks = {},
 ): PromptTracker {
   let marker: IMarker | null = null;
   const d = term.parser.registerOscHandler(133, (data) => {
     if (data.startsWith("A")) {
       marker?.dispose();
       marker = term.registerMarker(0);
-      onPromptStart?.();
+      callbacks.onPromptStart?.();
+    } else if (data.startsWith("C")) {
+      callbacks.onCommandStart?.();
+    } else if (data.startsWith("D")) {
+      // Format: "D" or "D;<exitCode>".
+      const semi = data.indexOf(";");
+      const code = semi >= 0 ? Number.parseInt(data.slice(semi + 1), 10) : NaN;
+      callbacks.onCommandEnd?.(Number.isFinite(code) ? code : null);
     }
     return true;
   });

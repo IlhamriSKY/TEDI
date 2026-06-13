@@ -9,6 +9,12 @@ export function gitStatus(repoPath: string): Promise<GitStatus> {
   return invoke<GitStatus>("git_status", { repoPath });
 }
 
+/** Gitignored working-tree entries as forward-slash absolute paths (fully
+ *  ignored directories collapsed to the directory). Drives explorer dimming. */
+export function gitIgnored(repoPath: string): Promise<string[]> {
+  return invoke<string[]>("git_ignored", { repoPath });
+}
+
 export function gitFileHead(repoPath: string, relative: string): Promise<FileReadResult> {
   return invoke<FileReadResult>("git_file_head", { repoPath, relative });
 }

@@ -110,6 +110,27 @@ export type Session = {
    * `useTerminalSession.ts`.
    */
   imeJustEnded: boolean;
+  // ---- Command lifecycle (OSC 133 C/D + Enter-synthesis) ----
+  /**
+   * True while a foreground command is executing: set on OSC 133;C
+   * (pre-exec) or a synthesized Enter-submit, cleared on OSC 133;D
+   * (command-end) or a fresh prompt (133;A). Backs the close-confirmation
+   * "process running" check. Independent of the `isAtPrompt` PS1 heuristic
+   * so a custom prompt (oh-my-posh, starship) can't produce false positives.
+   */
+  commandRunning: boolean;
+  /**
+   * Set once any OSC 133 marker is seen, i.e. shell integration is live.
+   * Gates the Enter-synthesis fallback (Windows pwsh emits no 133;C) so a
+   * non-integrated shell (cmd.exe) never gets stuck reporting "running".
+   */
+  sawShellIntegration: boolean;
+  /**
+   * Printable input typed since the last prompt/submit. Lets the Enter
+   * keystroke synthesize a command-start on shells without OSC 133;C, while
+   * an empty Enter (no pending input) stays idle.
+   */
+  pendingCommandInput: boolean;
 };
 
 export const sessions = new Map<number, Session>();

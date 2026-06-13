@@ -21,6 +21,10 @@ export type TerminalPaneHandle = {
    *  normal screen, i.e. safe for the AI to inject a command. False on the
    *  alt-screen (TUI app) or mid-command-output. */
   isAtPrompt: () => boolean;
+  /** True when a foreground command is genuinely running (alt-screen TUI or
+   *  an in-flight OSC 133 command). Prompt-text independent, so an idle
+   *  terminal never reports busy. Backs the close-confirmation modal. */
+  isProcessRunning: () => boolean;
 };
 
 type Props = {
@@ -127,6 +131,7 @@ export function TerminalPane({
       getSelection: () => session.getSelection(),
       paste: (data: string) => session.paste(data),
       isAtPrompt: () => session.isAtPrompt(),
+      isProcessRunning: () => session.isProcessRunning(),
     }),
     [session],
   );

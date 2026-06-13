@@ -1,5 +1,7 @@
 import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,9 +39,12 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  showCloseButton = true,
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm";
+  showCloseButton?: boolean;
 }) {
   return (
     <AlertDialogPortal>
@@ -52,7 +57,23 @@ function AlertDialogContent({
           className,
         )}
         {...props}
-      />
+      >
+        {/* Rendered before children so the footer Cancel (mounted last) keeps
+            Radix's open-auto-focus - the X just mirrors it visually. */}
+        {showCloseButton && (
+          <AlertDialogPrimitive.Cancel asChild>
+            <Button
+              variant="ghost"
+              className="bg-secondary hover:bg-destructive/10 hover:text-destructive absolute top-4 right-4 z-10"
+              size="icon-sm"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+              <span className="sr-only">Close</span>
+            </Button>
+          </AlertDialogPrimitive.Cancel>
+        )}
+        {children}
+      </AlertDialogPrimitive.Content>
     </AlertDialogPortal>
   );
 }
@@ -74,10 +95,10 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
   return (
     <div
       data-slot="alert-dialog-footer"
-      className={cn(
-        "flex flex-col-reverse gap-2 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
-        className,
-      )}
+      // Full-width buttons: Cancel + Action split the row into two equal
+      // columns that together fill the dialog width. Consistent across every
+      // confirmation modal.
+      className={cn("grid grid-cols-2 gap-2", className)}
       {...props}
     />
   );

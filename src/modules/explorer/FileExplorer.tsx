@@ -6,6 +6,7 @@ import { type ExplorerSearchHandle } from "./ExplorerSearch";
 import { ExplorerHeader } from "./components/ExplorerHeader";
 import { ExplorerTreeList } from "./components/ExplorerTreeList";
 import { SORT_MODES } from "./lib/sortModes";
+import { GitDecorationsProvider, useGitStatusPoll } from "./lib/gitDecorations";
 import { useExplorerIconsReady } from "./lib/iconResolver";
 import { useFileTree, type SortMode } from "./lib/useFileTree";
 import { toForwardSlash } from "@/lib/path";
@@ -125,6 +126,10 @@ export function FileExplorer({
     includeHidden: showHiddenFiles,
     sortMode,
   });
+  // Git status + ignored list for VSCode-style decorations (colored names +
+  // M/A/U badges, dimmed gitignored rows). Self-contained: polls independently
+  // of the Source Control panel so it shows even when that panel is closed.
+  const gitData = useGitStatusPoll(rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -371,6 +376,7 @@ export function FileExplorer({
       />
 
       {collapsed ? null : (
+        <GitDecorationsProvider data={gitData} rootPath={rootPath}>
         <ExplorerTreeList
           rootPath={rootPath}
           tree={tree}
@@ -392,6 +398,7 @@ export function FileExplorer({
           onSearchActiveChange={setIsSearchActive}
           onGrepActiveChange={setIsGrepActive}
         />
+        </GitDecorationsProvider>
       )}
     </div>
   );

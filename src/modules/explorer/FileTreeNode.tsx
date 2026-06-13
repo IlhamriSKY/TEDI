@@ -11,6 +11,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useState } from "react";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, relativePath, revealInFinder } from "./lib/contextActions";
+import { useGitDecoration } from "./lib/gitDecorations";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import type { DirEntry, useFileTree } from "./lib/useFileTree";
@@ -58,6 +59,13 @@ function FileTreeNodeImpl({
   const [isConfirming, setIsConfirming] = useState(false);
 
   const iconUrl = isDir ? folderIconUrl(entry.name, isExpanded) : fileIconUrl(entry.name);
+
+  // VSCode-style git status: colored name + M/A/U badge on files, rolled-up
+  // color on folders with changed descendants, plus an ignored flag.
+  const { deco, ignored } = useGitDecoration(path, isDir);
+  // Dot-prefixed (hidden) or gitignored entries are de-emphasized like VSCode
+  // so they don't compete with regular files for attention.
+  const dim = entry.name.startsWith(".") || ignored;
 
   const handleNodeSelect = useCallback(() => {
     if (tree.renaming) return;
@@ -129,11 +137,34 @@ function FileTreeNodeImpl({
                 ) : null}
               </span>
               {iconUrl ? (
-                <img src={iconUrl} alt="" className="size-4 shrink-0" />
+                <img
+                  src={iconUrl}
+                  alt=""
+                  className={cn("size-4 shrink-0", dim && "opacity-50")}
+                />
               ) : (
                 <span className="size-4 shrink-0" />
               )}
-              <span className="truncate">{entry.name}</span>
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate",
+                  dim && "opacity-50",
+                  deco?.tone,
+                  deco?.status === "deleted" && "line-through",
+                )}
+              >
+                {entry.name}
+              </span>
+              {deco && !isDir && (
+                <span
+                  className={cn(
+                    "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
+                    deco.tone,
+                  )}
+                >
+                  {deco.letter}
+                </span>
+              )}
             </button>
           )}
         </ContextMenuTrigger>

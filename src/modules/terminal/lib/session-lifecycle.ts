@@ -53,6 +53,33 @@ import {
 } from "./ssh-session";
 import { loadWebglRenderer, syncRendererForWallpaper } from "./webgl";
 
+/**
+ * Synthesize the OSC 133 command lifecycle for shells that emit no pre-exec
+ * marker (Windows pwsh sends only A/B/D - no C). Tracks printable keystrokes
+ * and flips `commandRunning` on a non-empty Enter-submit; OSC 133;D (or the
+ * next prompt) clears it. Gated by `sawShellIntegration` so a shell with no
+ * integration at all (cmd.exe) never gets stuck "running". ESC-prefixed
+ * payloads (arrow/function keys, bracketed paste) and alt-screen submits are
+ * ignored - a TUI is reported as running via the buffer type instead.
+ */
+function trackCommandInput(session: Session, data: string): void {
+  if (!session.sawShellIntegration) return;
+  if (data.length === 0 || data.charCodeAt(0) === 0x1b) return;
+  const isAlt = session.term.buffer.active.type === "alternate";
+  for (const ch of data) {
+    const code = ch.charCodeAt(0);
+    if (ch === "\r" || ch === "\n") {
+      if (session.pendingCommandInput && !isAlt) session.commandRunning = true;
+      session.pendingCommandInput = false;
+    } else if (ch === "\x03") {
+      // Ctrl+C: the input line was abandoned.
+      session.pendingCommandInput = false;
+    } else if (code >= 0x20 && code !== 0x7f) {
+      session.pendingCommandInput = true;
+    }
+  }
+}
+
 // Live-refresh every terminal's rgba background when the "App opacity" slider
 // moves (`appOpacity.ts` dispatches `tedi:canvas-opacity`). rAF-throttled so a
 // fast drag re-themes at most once per frame, and the renderer only toggles
@@ -184,6 +211,9 @@ export function ensureSession(
     aiCliStatus: null,
     placeholderShown: false,
     imeJustEnded: false,
+    commandRunning: false,
+    sawShellIntegration: false,
+    pendingCommandInput: false,
   };
   sessions.set(leafId, session);
 
@@ -280,6 +310,7 @@ export function ensureSession(
     // byte-for-byte unchanged (incl. macOS NFD filenames pasted from Finder).
     const out = session.imeJustEnded ? data.normalize("NFC") : data;
     session.aiCliDetector?.pushInput(out);
+    trackCommandInput(session, out);
     session.pty?.write(out);
   });
   session.cleanups.push(() => onDataDisposable.dispose());
@@ -289,9 +320,26 @@ export function ensureSession(
     await document.fonts.ready;
     if (session.disposed) return;
 
-    const prompt = registerPromptTracker(term, () => {
-      // New shell prompt means any active AI CLI exited. Covers tools that never enter the alt buffer.
-      session.aiCliDetector?.notifyShellPrompt();
+    const prompt = registerPromptTracker(term, {
+      onPromptStart: () => {
+        // New shell prompt: shell integration is live, and any running
+        // command / active AI CLI has finished.
+        session.sawShellIntegration = true;
+        session.commandRunning = false;
+        session.pendingCommandInput = false;
+        session.aiCliDetector?.notifyShellPrompt();
+      },
+      onCommandStart: () => {
+        // OSC 133;C (bash/zsh/fish pre-exec). Authoritative command-start.
+        session.sawShellIntegration = true;
+        session.commandRunning = true;
+      },
+      onCommandEnd: () => {
+        // OSC 133;D. Command finished - back to idle at the prompt.
+        session.sawShellIntegration = true;
+        session.commandRunning = false;
+        session.pendingCommandInput = false;
+      },
     });
     session.cleanups.push(prompt.dispose);
     session.cleanups.push(

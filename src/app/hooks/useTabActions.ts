@@ -1,7 +1,7 @@
 import { toast } from "@/components/ui/toast";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/browser/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
-import { leafIds, type TerminalPaneHandle } from "@/modules/terminal";
+import { hasLeaf, leafIds, leaves, type TerminalPaneHandle } from "@/modules/terminal";
 import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type TabsApi } from "./tabsApi";
 
@@ -24,14 +24,28 @@ type Params = {
   | "setLeafCwd"
   | "splitActivePane"
   | "moveLeafToTab"
-  | "closeActivePane"
+  | "closePaneByLeaf"
 >;
 
 /**
+ * A close pending the user's confirmation. Drives the close-confirmation
+ * AlertDialog in `AppDialogs`.
+ */
+export type PendingClose = {
+  /** What to dispose once the user confirms. */
+  target: { kind: "tab"; tabId: number } | { kind: "leaf"; leafId: number };
+  /** Why we're asking - drives the modal copy. */
+  reason: "unsaved" | "running";
+  /** Tab title for the prompt, when known. */
+  title?: string;
+};
+
+/**
  * Tab/pane-level user actions: open / close / cd / split / move plus the
- * close-confirmation state (`pendingCloseTab`). Moved verbatim from App with
- * identical dependency arrays. `disposeTab` is threaded in because it stays in
- * App (the dispose-effect and `handlePathDeleted` also share it).
+ * close-confirmation state (`pendingClose`). A close is confirmed first when
+ * the tab/pane has unsaved editor changes or a terminal running a process;
+ * otherwise it disposes immediately. `disposeTab` is threaded in because it
+ * stays in App (the dispose-effect and `handlePathDeleted` also share it).
  */
 export function useTabActions({
   tabs,
@@ -50,10 +64,11 @@ export function useTabActions({
   setLeafCwd,
   splitActivePane,
   moveLeafToTab,
-  closeActivePane,
+  closePaneByLeaf,
 }: Params): {
-  pendingCloseTab: number | null;
+  pendingClose: PendingClose | null;
   handleClose: (id: number) => void;
+  requestCloseLeaf: (leafId: number) => void;
   confirmClose: () => void;
   cancelClose: () => void;
   cycleTab: (delta: 1 | -1) => void;
@@ -69,29 +84,77 @@ export function useTabActions({
   moveLeafToGroup: (leafId: number, targetTabId: number) => void;
   handleCloseTabOrPane: () => void;
 } {
-  const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
+  const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
 
+  // A terminal leaf is "busy" only when a foreground command is genuinely
+  // running - a full-screen TUI on the alt-screen, or an in-flight OSC 133
+  // command (with Enter-synthesis for pwsh). This is prompt-text independent,
+  // so an idle terminal (even with a custom oh-my-posh/starship prompt) never
+  // triggers the confirmation. Non-terminal leaves have no handle in
+  // terminalRefs, so they never read busy.
+  const leafHasRunningProcess = useCallback((leafId: number): boolean => {
+    const term = terminalRefs.current.get(leafId);
+    return term ? term.isProcessRunning() : false;
+  }, []);
+
+  // True when any terminal pane in the tab is running a process.
+  const tabHasRunningProcess = useCallback(
+    (tab: Tab): boolean => {
+      if (tab.kind !== "pane") return false;
+      return leaves(tab.paneTree).some(
+        (l) => l.leafKind === "terminal" && leafHasRunningProcess(l.id),
+      );
+    },
+    [leafHasRunningProcess],
+  );
+
+  // Whole-tab close. Confirms first on unsaved editor changes or a running
+  // terminal process; otherwise disposes immediately.
   const handleClose = useCallback(
     (id: number) => {
       const t = tabs.find((x) => x.id === id);
       if (t?.kind === "pane" && t.dirty) {
-        setPendingCloseTab(id);
+        setPendingClose({ target: { kind: "tab", tabId: id }, reason: "unsaved", title: t.title });
+        return;
+      }
+      if (t?.kind === "pane" && tabHasRunningProcess(t)) {
+        setPendingClose({ target: { kind: "tab", tabId: id }, reason: "running", title: t.title });
         return;
       }
       disposeTab(id);
     },
-    [tabs, disposeTab],
+    [tabs, disposeTab, tabHasRunningProcess],
+  );
+
+  // Single-pane close (tab-strip leaf X, pane-header X, Ctrl+W on a split).
+  // Confirms when the pane is a terminal running a process; otherwise drops the
+  // pane immediately. Editor/browser leaves always close without a prompt.
+  const requestCloseLeaf = useCallback(
+    (leafId: number) => {
+      if (leafHasRunningProcess(leafId)) {
+        const tab = tabsRef.current.find((x) => x.kind === "pane" && hasLeaf(x.paneTree, leafId));
+        setPendingClose({
+          target: { kind: "leaf", leafId },
+          reason: "running",
+          title: tab?.kind === "pane" ? tab.title : undefined,
+        });
+        return;
+      }
+      closePaneByLeaf(leafId);
+    },
+    [leafHasRunningProcess, closePaneByLeaf],
   );
 
   const confirmClose = useCallback(() => {
-    if (pendingCloseTab !== null) {
-      disposeTab(pendingCloseTab);
-      setPendingCloseTab(null);
-    }
-  }, [pendingCloseTab, disposeTab]);
+    if (!pendingClose) return;
+    const { target } = pendingClose;
+    if (target.kind === "tab") disposeTab(target.tabId);
+    else closePaneByLeaf(target.leafId);
+    setPendingClose(null);
+  }, [pendingClose, disposeTab, closePaneByLeaf]);
 
   const cancelClose = useCallback(() => {
-    setPendingCloseTab(null);
+    setPendingClose(null);
   }, []);
 
   const cycleTab = useCallback(
@@ -225,17 +288,18 @@ export function useTabActions({
   const handleCloseTabOrPane = useCallback(() => {
     const t = tabsRef.current.find((x) => x.id === activeId);
     // Multi-pane tab → close just the focused pane. Single-pane tab → close
-    // the whole tab.
+    // the whole tab. Both routes confirm first when a terminal is busy.
     if (t?.kind === "pane" && leafIds(t.paneTree).length > 1) {
-      closeActivePane(activeId);
+      requestCloseLeaf(t.activeLeafId);
       return;
     }
     handleClose(activeId);
-  }, [activeId, closeActivePane, handleClose]);
+  }, [activeId, requestCloseLeaf, handleClose]);
 
   return {
-    pendingCloseTab,
+    pendingClose,
     handleClose,
+    requestCloseLeaf,
     confirmClose,
     cancelClose,
     cycleTab,

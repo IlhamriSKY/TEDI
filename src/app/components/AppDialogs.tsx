@@ -11,9 +11,9 @@ import {
 import { SelectionAskAi } from "@/modules/ai";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { HostKeyPromptDialog } from "@/modules/ssh/HostKeyPromptDialog";
-import { type Tab } from "@/modules/tabs";
 import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, type Dispatch, type SetStateAction } from "react";
+import { type PendingClose } from "../hooks/useTabActions";
 
 // Dialogs mount only while `open` is true.
 const NewEditorDialog = lazy(() =>
@@ -38,10 +38,9 @@ type Props = {
   setSshEditorOpen: Dispatch<SetStateAction<boolean>>;
   editingSshConn: SshConnection | null;
   setEditingSshConn: Dispatch<SetStateAction<SshConnection | null>>;
-  pendingCloseTab: number | null;
+  pendingClose: PendingClose | null;
   cancelClose: () => void;
   confirmClose: () => void;
-  tabs: Tab[];
 };
 
 /**
@@ -66,10 +65,9 @@ export function AppDialogs({
   setSshEditorOpen,
   editingSshConn,
   setEditingSshConn,
-  pendingCloseTab,
+  pendingClose,
   cancelClose,
   confirmClose,
-  tabs,
 }: Props) {
   return (
     <>
@@ -112,16 +110,20 @@ export function AppDialogs({
         </Suspense>
       ) : null}
 
-      <AlertDialog open={pendingCloseTab !== null} onOpenChange={(open) => !open && cancelClose()}>
+      <AlertDialog open={pendingClose !== null} onOpenChange={(open) => !open && cancelClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingClose?.reason === "running" ? "Process Running" : "Unsaved Changes"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {tabs.find((t) => t.id === pendingCloseTab)?.title
-                ? `"${
-                    tabs.find((t) => t.id === pendingCloseTab)?.title
-                  }" has unsaved changes. Close anyway?`
-                : "This file has unsaved changes. Close anyway?"}
+              {pendingClose?.reason === "running"
+                ? pendingClose.title
+                  ? `"${pendingClose.title}" still has a process running. Closing it will stop the process. Close anyway?`
+                  : "A process is still running. Closing it will stop the process. Close anyway?"
+                : pendingClose?.title
+                  ? `"${pendingClose.title}" has unsaved changes. Close anyway?`
+                  : "This file has unsaved changes. Close anyway?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

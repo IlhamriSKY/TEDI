@@ -120,7 +120,6 @@ export default function App() {
     focusNextPaneInTab,
     closePaneByLeaf,
     splitActivePane,
-    closeActivePane,
     moveLeafToTab,
     moveLeafToNewTab,
     rotateLeafSplit,
@@ -171,7 +170,7 @@ export default function App() {
   // -------- shared runtime handles & state owned by the coordinator --------
   // These are read/written by several domain hooks and the layout components,
   // so they stay here and are threaded in. Single-consumer state lives inside
-  // its owning hook instead (e.g. pendingCloseTab in useTabActions).
+  // its owning hook instead (e.g. pendingClose in useTabActions).
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
@@ -478,8 +477,9 @@ export default function App() {
   });
 
   const {
-    pendingCloseTab,
+    pendingClose,
     handleClose,
+    requestCloseLeaf,
     confirmClose,
     cancelClose,
     cycleTab,
@@ -508,7 +508,7 @@ export default function App() {
     setLeafCwd,
     splitActivePane,
     moveLeafToTab,
-    closeActivePane,
+    closePaneByLeaf,
   });
 
   // On active leaf/tab change, surface the focused leaf's search addon,
@@ -590,7 +590,7 @@ export default function App() {
         askFromSelection,
         openScmTab,
         toggleSidebar,
-        closePaneByLeaf,
+        requestCloseLeaf,
         setNewEditorOpen,
         searchInlineRef,
         editorRefs,
@@ -604,7 +604,7 @@ export default function App() {
       activeId,
       activeLeafIdInTab,
       activeLeafKindCurrent,
-      closePaneByLeaf,
+      requestCloseLeaf,
       cycleTab,
       handleCloseTabOrPane,
       openNewTab,
@@ -634,6 +634,7 @@ export default function App() {
     activeLeafIdInTab,
     setActiveEditorHandle,
     handleClose,
+    requestCloseLeaf,
     setLeafCwd,
     setLeafPtyId,
     focusPane,
@@ -680,10 +681,10 @@ export default function App() {
     detectedBrowserUrl,
     openPreviewTab,
     handleClose,
+    requestCloseLeaf,
     setNewEditorOpen,
     setActiveId,
     focusPane,
-    closePaneByLeaf,
     pinTab,
     newSshTab,
   });
@@ -836,10 +837,9 @@ export default function App() {
             setSshEditorOpen={setSshEditorOpen}
             editingSshConn={editingSshConn}
             setEditingSshConn={setEditingSshConn}
-            pendingCloseTab={pendingCloseTab}
+            pendingClose={pendingClose}
             cancelClose={cancelClose}
             confirmClose={confirmClose}
-            tabs={tabs}
           />
         </div>
       </TooltipProvider>
