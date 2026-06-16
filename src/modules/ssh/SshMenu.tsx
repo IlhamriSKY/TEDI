@@ -189,6 +189,7 @@ export function SshMenu({ onConnect }: Props) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={async () => {
                 const target = confirmDelete;
                 setConfirmDelete(null);

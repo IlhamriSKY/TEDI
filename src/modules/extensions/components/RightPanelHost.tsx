@@ -13,15 +13,27 @@ import { cn } from "@/lib/utils";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { panelRenderersRegistry, panelsRegistry, type PanelRenderer } from "../registries";
+import {
+  panelRenderersRegistry,
+  panelsRegistry,
+  sidebarSectionsRegistry,
+  type PanelRenderer,
+} from "../registries";
 import { useRegistry } from "../useRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
+import { parseSectionPanelId } from "../sidebarPlacementStore";
+import { ExtensionSidebarSection } from "./ExtensionSidebarSection";
 
 export function RightPanelHost() {
   const active = useRightPanelStore((s) => s.active);
   const close = useRightPanelStore((s) => s.close);
   // Panel list updates live so the header title tracks the manifest.
   const panels = useRegistry(panelsRegistry);
+  // Sidebar sections that have been moved into the right slot are hosted here
+  // too (reusing the shared slot's mutual exclusion), rendered as the same
+  // React tree as the left sidebar rather than a DOM panel renderer.
+  const sidebarSections = useRegistry(sidebarSectionsRegistry);
+  const movedSectionId = active ? parseSectionPanelId(active.panelId) : null;
 
   // Renderer registry is key-addressed (Map<extId, Map<panelId, fn>>),
   // no `list()` snapshot. Track the current renderer via subscribe + state.
@@ -91,6 +103,25 @@ export function RightPanelHost() {
   }, [active, renderer]);
 
   if (!active) return null;
+
+  // A sidebar section moved to the right slot: render the same React section
+  // (its descriptor carries the live tree + callbacks) with the right-surface
+  // header (move-back-to-left + close).
+  if (movedSectionId) {
+    const entry = sidebarSections.find(
+      (s) => s.extensionId === active.extensionId && s.item.id === movedSectionId,
+    );
+    if (!entry) return null;
+    return (
+      <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
+        <ExtensionSidebarSection
+          extensionId={entry.extensionId}
+          section={entry.item}
+          surface="right"
+        />
+      </div>
+    );
+  }
 
   return (
     <div

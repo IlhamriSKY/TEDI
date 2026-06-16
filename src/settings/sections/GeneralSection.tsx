@@ -9,6 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { SEARCH_ENGINES, searchEngineById } from "@/modules/settings/searchEngines";
 import type { ThemePref } from "@/modules/settings/store";
@@ -25,7 +26,6 @@ import {
   setUiZoom,
   setShowHiddenFiles,
   setShowSourceControl,
-  setSourceControlInRightPanel,
   setTerminalFontSize,
   setTerminalWebglEnabled,
 } from "@/modules/settings/store";
@@ -62,7 +62,9 @@ export function GeneralSection() {
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
-  const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
+  // SQL Explorer "show/hide" maps to enabling/disabling the extension (which
+  // adds/removes its Databases panel everywhere). Only offered when installed.
+  const sqlExplorerExt = useExtensionsStore((s) => s.list).find((e) => e.id === "tedi.sql-explorer");
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
@@ -309,17 +311,24 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setShowSourceControl(v)}
           />
         </SettingRow>
-        <SettingRow
-          title="Move Source Control to the right panel"
-          description="Mount Source Control next to the AI sidebar instead of the left sidebar. A status-bar button toggles it open."
-        >
-          <Switch
-            checked={sourceControlInRightPanel}
-            disabled={!showSourceControl}
-            onCheckedChange={(v) => void setSourceControlInRightPanel(v)}
-          />
-        </SettingRow>
       </div>
+
+      {sqlExplorerExt ? (
+        <div className="flex flex-col gap-2">
+          <Label>SQL Explorer</Label>
+          <SettingRow
+            title="Show SQL Explorer"
+            description="Display the SQL Explorer (Databases) panel in the sidebar."
+          >
+            <Switch
+              checked={sqlExplorerExt.enabled}
+              onCheckedChange={(v) =>
+                void useExtensionsStore.getState().setEnabled("tedi.sql-explorer", v)
+              }
+            />
+          </SettingRow>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <Label>Command line</Label>

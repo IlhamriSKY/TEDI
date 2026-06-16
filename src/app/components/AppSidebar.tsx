@@ -1,6 +1,12 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { FileExplorer } from "@/modules/explorer";
+import {
+  ExtensionSidebarSection,
+  sidebarSectionsRegistry,
+  useRegistry,
+  useSidebarPlacementStore,
+} from "@/modules/extensions";
 import { type Tab } from "@/modules/tabs";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { WorkspacesPanel } from "@/modules/workspaces";
@@ -69,10 +75,14 @@ type Props = {
   activeLeafId: number | null;
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
 
-// The reorderable sidebar sections, in canonical order.
-const SECTION_KEYS = ["files", "ssh", "scm", "workspaces"] as const;
-type SectionKey = (typeof SECTION_KEYS)[number];
-const SECTION_TITLES: Record<SectionKey, string> = {
+// The reorderable built-in sidebar sections, in canonical order. Extension
+// sections (keyed `xsec:<extId>:<sectionId>`) are appended dynamically — they
+// exist only while their extension is active.
+const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces"] as const;
+type BuiltinKey = (typeof BUILTIN_KEYS)[number];
+/** A section key: a built-in key or an extension key (`xsec:<extId>:<id>`). */
+type SectionKey = string;
+const BUILTIN_TITLES: Record<BuiltinKey, string> = {
   files: "Files",
   ssh: "Remote",
   scm: "Source Control",
@@ -80,12 +90,19 @@ const SECTION_TITLES: Record<SectionKey, string> = {
 };
 // Initial split (the panel group normalizes for whichever sections are visible);
 // Files gets the most room, like the old layout. Users resize from here.
-const SECTION_DEFAULT_SIZE: Record<SectionKey, string> = {
+const BUILTIN_DEFAULT_SIZE: Record<BuiltinKey, string> = {
   files: "45%",
   ssh: "25%",
   scm: "18%",
   workspaces: "12%",
 };
+const EXT_DEFAULT_SIZE = "20%";
+
+const EXT_KEY_PREFIX = "xsec:";
+const extSectionKey = (extensionId: string, sectionId: string): SectionKey =>
+  `${EXT_KEY_PREFIX}${extensionId}:${sectionId}`;
+const isBuiltinKey = (k: SectionKey): k is BuiltinKey =>
+  (BUILTIN_KEYS as readonly string[]).includes(k);
 
 // Collapsed (minimized) panel size: exactly the h-8 header (border-box), so a
 // minimized section shows only its header. Min size while expanded keeps a few
@@ -96,32 +113,37 @@ const SECTION_MIN_SIZE = "100px";
 // Persisted in localStorage (sidebar lives in the main window only).
 const ORDER_LS_KEY = "tedi:sidebar:sectionOrder";
 
+/** Read the persisted section order verbatim (built-in + extension keys). The
+ *  render-time reconciliation drops keys that no longer exist and appends any
+ *  new ones, so an old value (e.g. without "ssh", or with an uninstalled
+ *  extension's key) still renders everything sensibly. */
 function readOrder(): SectionKey[] {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(ORDER_LS_KEY) ?? "null");
     if (Array.isArray(raw)) {
-      const known = SECTION_KEYS as readonly string[];
-      const out = raw.filter((k): k is SectionKey => known.includes(k));
-      // Backfill any missing key at its canonical position so an older value
-      // (e.g. without "ssh") still renders everything in a sensible spot.
-      for (const k of SECTION_KEYS) {
-        if (out.includes(k)) continue;
-        const canonical = SECTION_KEYS.indexOf(k);
-        let at = out.length;
-        for (let i = 0; i < out.length; i++) {
-          if (SECTION_KEYS.indexOf(out[i]) > canonical) {
-            at = i;
-            break;
-          }
-        }
-        out.splice(at, 0, k);
-      }
-      if (out.length === SECTION_KEYS.length) return out;
+      const out = raw.filter((k): k is string => typeof k === "string");
+      if (out.length > 0) return out;
     }
   } catch {
     // Corrupt value: fall through to canonical order.
   }
-  return [...SECTION_KEYS];
+  return [...BUILTIN_KEYS];
+}
+
+/** Reconcile a persisted order against the keys that currently exist: keep
+ *  persisted positions for surviving keys, then append any new keys (built-ins
+ *  in canonical order, extension keys in registry order). */
+function reconcileOrder(persisted: SectionKey[], allKeys: SectionKey[]): SectionKey[] {
+  const exists = new Set(allKeys);
+  const out = persisted.filter((k) => exists.has(k));
+  const seen = new Set(out);
+  for (const k of allKeys) {
+    if (!seen.has(k)) {
+      out.push(k);
+      seen.add(k);
+    }
+  }
+  return out;
 }
 
 /**
@@ -164,24 +186,59 @@ export function AppSidebar({
   const [dragKey, setDragKey] = useState<SectionKey | null>(null);
   // Per-section panel handles + their collapsed state (driven by onResize, the
   // only collapse signal this version of react-resizable-panels exposes).
-  const panelRefs = useRef<Partial<Record<SectionKey, PanelImperativeHandle | null>>>({});
-  const [collapsed, setCollapsed] = useState<Partial<Record<SectionKey, boolean>>>({});
-  // Stable per-section ref callbacks so the panel handle isn't detached and
-  // reattached on every render (an inline `panelRef={...}` would be).
-  const panelRefSetters = useMemo(() => {
-    const setters = {} as Record<SectionKey, (r: PanelImperativeHandle | null) => void>;
-    for (const k of SECTION_KEYS) {
-      setters[k] = (r) => {
-        panelRefs.current[k] = r;
-      };
+  const panelRefs = useRef<Record<SectionKey, PanelImperativeHandle | null>>({});
+  const [collapsed, setCollapsed] = useState<Record<SectionKey, boolean>>({});
+
+  // Extension-contributed sections (present only while their extension is
+  // active). Keyed `xsec:<extId>:<sectionId>`, mapped back to their descriptor.
+  const extEntries = useRegistry(sidebarSectionsRegistry);
+  const extByKey = useMemo(() => {
+    const m = new Map<SectionKey, { extensionId: string; section: (typeof extEntries)[number]["item"] }>();
+    for (const { extensionId, item } of extEntries) {
+      m.set(extSectionKey(extensionId, item.id), { extensionId, section: item });
     }
-    return setters;
-  }, []);
+    return m;
+  }, [extEntries]);
+
+  // Every key that currently exists: built-ins always, extension sections only
+  // while registered. Reconciled against the persisted order each render so a
+  // newly-active extension appears in a stable spot and a disabled one drops.
+  const allKeys = useMemo<SectionKey[]>(
+    () => [...BUILTIN_KEYS, ...extByKey.keys()],
+    [extByKey],
+  );
+  const effectiveOrder = useMemo(() => reconcileOrder(order, allKeys), [order, allKeys]);
+
+  // Stable per-section ref callbacks (keyed by string) so a panel handle isn't
+  // detached/reattached every render. Cached lazily since keys are dynamic.
+  const panelRefSetterCache = useRef(new Map<SectionKey, (r: PanelImperativeHandle | null) => void>());
+  const getPanelRefSetter = (key: SectionKey) => {
+    let fn = panelRefSetterCache.current.get(key);
+    if (!fn) {
+      fn = (r) => {
+        panelRefs.current[key] = r;
+      };
+      panelRefSetterCache.current.set(key, fn);
+    }
+    return fn;
+  };
+
+  const titleFor = (key: SectionKey): string =>
+    isBuiltinKey(key) ? BUILTIN_TITLES[key] : (extByKey.get(key)?.section.title ?? "Section");
+  const defaultSizeFor = (key: SectionKey): string =>
+    isBuiltinKey(key) ? BUILTIN_DEFAULT_SIZE[key] : EXT_DEFAULT_SIZE;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scmVisible = showSourceControl && !sourceControlInRightPanel;
-  const visible = order.filter(
-    (k) => (k !== "scm" || scmVisible) && (k !== "ssh" || hasAnySshLeaf),
+  // Extension sections moved to the right slot (placement === "right") leave the
+  // left sidebar; they're reachable from a status-bar icon instead.
+  const placement = useSidebarPlacementStore((s) => s.placement);
+  // Built-in scm/ssh are conditional; extension sections are always shown when
+  // present (the registry only holds them while the extension is active) unless
+  // the user has moved them to the right slot.
+  const visible = effectiveOrder.filter(
+    (k) =>
+      (k !== "scm" || scmVisible) && (k !== "ssh" || hasAnySshLeaf) && placement[k] !== "right",
   );
 
   const syncCollapsed = (key: SectionKey) => {
@@ -199,10 +256,11 @@ export function AppSidebar({
     setDragKey(null);
     const { active, over } = ev;
     if (!over || active.id === over.id) return;
-    const from = order.indexOf(active.id as SectionKey);
-    const to = order.indexOf(over.id as SectionKey);
+    const base = effectiveOrder;
+    const from = base.indexOf(active.id as SectionKey);
+    const to = base.indexOf(over.id as SectionKey);
     if (from < 0 || to < 0) return;
-    const next = order.slice();
+    const next = base.slice();
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setOrder(next);
@@ -214,6 +272,17 @@ export function AppSidebar({
   };
 
   const renderSection = (key: SectionKey, controls: ReactNode): ReactNode => {
+    const ext = extByKey.get(key);
+    if (ext) {
+      return (
+        <ExtensionSidebarSection
+          extensionId={ext.extensionId}
+          section={ext.section}
+          dragHandle={controls}
+          collapsed={!!collapsed[key]}
+        />
+      );
+    }
     // When the panel is collapsed to its header, skip rendering the body so the
     // virtualized tree / git status stop doing layout work behind the clip.
     const isCollapsed = !!collapsed[key];
@@ -303,16 +372,16 @@ export function AppSidebar({
                   {i > 0 && <ResizableHandle withHandle />}
                   <ResizablePanel
                     id={`sidebar-${key}`}
-                    defaultSize={SECTION_DEFAULT_SIZE[key]}
+                    defaultSize={defaultSizeFor(key)}
                     minSize={SECTION_MIN_SIZE}
                     collapsible
                     collapsedSize={SECTION_COLLAPSED_SIZE}
-                    panelRef={panelRefSetters[key]}
+                    panelRef={getPanelRefSetter(key)}
                     onResize={() => syncCollapsed(key)}
                   >
                     <SortableSection
                       sectionKey={key}
-                      title={SECTION_TITLES[key]}
+                      title={titleFor(key)}
                       collapsed={!!collapsed[key]}
                       onToggleCollapse={() => toggleCollapse(key)}
                     >
@@ -327,7 +396,7 @@ export function AppSidebar({
             {dragKey && (
               <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium shadow-lg ring-1 backdrop-blur-sm">
                 <HugeiconsIcon icon={DragDropVerticalIcon} size={12} strokeWidth={2} />
-                <span className="truncate">{SECTION_TITLES[dragKey]}</span>
+                <span className="truncate">{titleFor(dragKey)}</span>
               </div>
             )}
           </DragOverlay>

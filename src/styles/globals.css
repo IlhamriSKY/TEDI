@@ -783,5 +783,9 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 }
 ::highlight(md-find-current) {
   background-color: var(--tedi-icon-working, #d18616);
-  color: #1a1a1a;
+  /* `--background` is the contrasting foreground against the gold highlight in
+     every theme (dark text in dark mode, light text in light mode), the same
+     trick the AI Send button uses with `text-background`. Was a fixed #1a1a1a
+     that washed out on a light-theme / custom-theme gold. */
+  color: var(--background);
 }

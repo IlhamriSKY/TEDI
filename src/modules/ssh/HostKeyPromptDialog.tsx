@@ -45,7 +45,7 @@ export function HostKeyPromptDialog() {
             {current.fingerprint}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => resolve(current.promptId, false)}>
+            <Button variant="outline" onClick={() => resolve(current.promptId, false)}>
               Reject
             </Button>
             <Button onClick={() => resolve(current.promptId, true)}>Trust &amp; connect</Button>

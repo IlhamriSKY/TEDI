@@ -219,10 +219,15 @@ export function InstallReviewDialog({
         ) : null}
 
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+          <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
-          <Button size="sm" onClick={onConfirm} disabled={!canInstall}>
+          <Button
+            variant={grantsNearTotal ? "destructive" : "default"}
+            size="sm"
+            onClick={onConfirm}
+            disabled={!canInstall}
+          >
             {cta}
           </Button>
         </DialogFooter>

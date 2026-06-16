@@ -1,5 +1,6 @@
 import {
   setOpenExtensionTab,
+  setOpenExtensionPane,
   setSetExtensionTabState,
   setSidebarSetter,
   setRightSidebarSetter,
@@ -26,6 +27,7 @@ export type RightAuxSnapshot =
 
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
+  openExtensionPane: (opts: OpenExtensionTabOpts) => number | null;
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
@@ -47,6 +49,7 @@ type Params = {
  */
 export function useExtensionSidebarBridges({
   openExtensionTab,
+  openExtensionPane,
   setExtensionTabState,
   sidebarRef,
   sidebarHiderRef,
@@ -60,6 +63,13 @@ export function useExtensionSidebarBridges({
     setOpenExtensionTab((opts) => openExtensionTab(opts));
     return () => setOpenExtensionTab(null);
   }, [openExtensionTab]);
+
+  // Wire `ctx.tabs.openExtensionPane(...)` so an extension can open its panel
+  // as a native split-pane leaf (drag/close frame, splittable) instead of a tab.
+  useEffect(() => {
+    setOpenExtensionPane((opts) => openExtensionPane(opts));
+    return () => setOpenExtensionPane(null);
+  }, [openExtensionPane]);
 
   // Wire `ctx.tabs.setExtensionTabState(...)` for extensions to tint their
   // tab title by lifecycle (SQL Explorer uses it to mirror the SSH palette).

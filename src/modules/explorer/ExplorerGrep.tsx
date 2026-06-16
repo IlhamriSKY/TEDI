@@ -1,4 +1,5 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UnfoldLessIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -267,7 +268,7 @@ export function ExplorerGrep({
       );
     } catch (e) {
       console.error("fs_grep_replace failed:", e);
-      window.alert(`Replace failed: ${e instanceof Error ? e.message : String(e)}`);
+      toast(`Replace failed: ${e instanceof Error ? e.message : String(e)}`, { variant: "error" });
     } finally {
       setReplacing(false);
     }

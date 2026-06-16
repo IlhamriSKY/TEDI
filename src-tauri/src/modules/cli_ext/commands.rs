@@ -211,7 +211,7 @@ pub(super) fn cmd_list(args: &[String]) -> Result<(), String> {
         entries.push((registry_label(e, "unofficial", inst), e.clone()));
     }
     if entries.is_empty() {
-        println!("(registry empty)");
+        println!("{}", paint_dim("(registry empty)"));
         return Ok(());
     }
 
@@ -233,20 +233,20 @@ pub(super) fn cmd_list(args: &[String]) -> Result<(), String> {
     if !interactive() {
         print_registry_groups(&doc, &rows, &by_id, &by_repo);
         println!();
-        println!("Install: tedi ext install <id>");
+        println!("{}", paint_dim("Install: tedi ext install <id>"));
         return Ok(());
     }
 
     let labels: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
     let theme = picker_theme();
     let chosen = dialoguer::Select::with_theme(theme.as_ref())
-        .with_prompt("Pilih extension (item terinstall akan di-reinstall/update). Esc untuk batal")
+        .with_prompt("Select an extension (installed items are reinstalled/updated) · Esc to cancel")
         .items(&labels)
         .default(0)
         .interact_opt()
         .map_err(|e| format!("picker: {e}"))?;
     let Some(idx) = chosen else {
-        println!("Dibatalkan.");
+        println!("{}", paint_dim("Cancelled."));
         return Ok(());
     };
     let pick = entries[idx].1.clone();
@@ -259,7 +259,7 @@ pub(super) fn cmd_list(args: &[String]) -> Result<(), String> {
 pub(super) fn cmd_list_installed() -> Result<(), String> {
     let rows = load_installed_rows()?;
     if rows.is_empty() {
-        println!("No extensions installed.");
+        println!("{}", paint_dim("No extensions installed."));
         return Ok(());
     }
     println!(
@@ -304,7 +304,7 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
         return match id_filter {
             Some(f) => Err(format!("extension not installed: {f}")),
             None => {
-                println!("No extensions installed.");
+                println!("{}", paint_dim("No extensions installed."));
                 Ok(())
             }
         };
@@ -382,12 +382,18 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
     if !interactive() {
         println!();
         println!(
-            "Non-interactive shell; {} update(s) available but not applied.",
-            to_apply.len()
+            "{}",
+            paint_dim(&format!(
+                "Non-interactive shell; {} update(s) available but not applied.",
+                to_apply.len()
+            )),
         );
-        println!("Run on a TTY, or re-run with explicit ids:");
+        println!(
+            "{}",
+            paint_dim("Run on a TTY, or re-run with explicit ids:")
+        );
         for (id, _, _, _) in &to_apply {
-            println!("    tedi ext install {id}");
+            println!("    {}", paint_id(&format!("tedi ext install {id}")));
         }
         return Ok(());
     }
@@ -400,7 +406,7 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
         .read_line(&mut buf)
         .map_err(|e| format!("read stdin: {e}"))?;
     if n == 0 || !buf.trim().eq_ignore_ascii_case("y") {
-        println!("Skipped.");
+        println!("{}", paint_dim("Skipped."));
         return Ok(());
     }
 

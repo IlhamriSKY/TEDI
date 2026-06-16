@@ -14,7 +14,8 @@
  * (`SparklesIcon`). Third-party extensions fall back to their manifest
  * `icon` rendered as an `<img>`.
  *
- * The button hides while its own panel is open.
+ * The button stays in place while its panel is open (showing an active
+ * state) so the status-bar row never reflows.
  *
  * Compact mode (`panel.compact === true`): same icon-only chrome as the
  * default variant; the flag now only governs ordering (compact toggles
@@ -33,7 +34,6 @@ import {
 } from "@/modules/shortcuts/shortcuts";
 import { Camera01Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 
 import { loadExtensionIcon } from "../icon";
 import { keybindingsRegistry, panelsRegistry } from "../registries";
@@ -63,16 +63,15 @@ function useSortedRightPanels(compactOnly: boolean) {
 }
 
 /**
- * Compact (icon-only) right-panel toggles. Rendered alongside
- * `ExtensionStatusItems` at the left of the status-bar right group so
- * borderless icons (Screenshot, Discord, ...) sit together as one icon
- * cluster.
+ * One icon-only toggle row. `compactOnly` selects which cluster to render —
+ * the chrome is identical, only the status-bar placement differs (see the
+ * two exported wrappers).
  */
-export function RightPanelCompactToggles() {
-  const sorted = useSortedRightPanels(true);
+function RightPanelToggleRow({ compactOnly }: { compactOnly: boolean }) {
+  const sorted = useSortedRightPanels(compactOnly);
   if (sorted.length === 0) return null;
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5">
       {sorted.map(({ extensionId, item }) => (
         <ToggleButton
           key={`${extensionId}:${item.id}`}
@@ -88,28 +87,21 @@ export function RightPanelCompactToggles() {
 }
 
 /**
- * Default-priority right-panel toggles. Rendered next to `AiOpenButton` /
- * `ScmRightOpenButton`; the chrome is now icon-only so the full row of
- * status-bar buttons stays uniform. The title + shortcut chip appear in
- * the tooltip on hover.
+ * Compact-flagged right-panel toggles (`panel.compact === true`). Rendered
+ * alongside `ExtensionStatusItems` at the left of the status-bar right group
+ * so borderless icons (Screenshot, Discord, ...) sit together as one cluster.
  */
-export function RightPanelTextToggles() {
-  const sorted = useSortedRightPanels(false);
-  if (sorted.length === 0) return null;
-  return (
-    <div className="flex items-center gap-1">
-      {sorted.map(({ extensionId, item }) => (
-        <ToggleButton
-          key={`${extensionId}:${item.id}`}
-          extensionId={extensionId}
-          panelId={item.id}
-          title={item.title}
-          icon={item.icon ?? null}
-          toggleCommand={item.toggleCommand ?? null}
-        />
-      ))}
-    </div>
-  );
+export function RightPanelCompactToggles() {
+  return <RightPanelToggleRow compactOnly />;
+}
+
+/**
+ * Default (non-compact) right-panel toggles. Rendered next to `AiOpenButton` /
+ * `ScmRightOpenButton`. Chrome is identical to the compact cluster (icon-only);
+ * only the placement differs. The title + shortcut chip appear in the tooltip.
+ */
+export function RightPanelDefaultToggles() {
+  return <RightPanelToggleRow compactOnly={false} />;
 }
 
 function ToggleButton({
@@ -131,9 +123,6 @@ function ToggleButton({
   const overrides = usePreferencesStore((s) => s.extensionShortcuts);
   const isOpen = active?.extensionId === extensionId && active?.panelId === panelId;
 
-  // Hide while this panel is open; close via the panel header X.
-  if (isOpen) return null;
-
   // Resolve the shortcut chip. User overrides win; otherwise parse the
   // manifest's `keybindings[].key`. Surfaces in the tooltip so users can
   // discover the shortcut without losing the icon-row compactness.
@@ -153,27 +142,29 @@ function ToggleButton({
   const chipText = chipBinding ? getBindingTokens(chipBinding).join(KEY_SEP) : null;
   const tooltipLabel = (
     <span className="inline-flex items-center gap-1.5">
-      <span>Open {title}</span>
+      <span>
+        {isOpen ? "Close" : "Open"} {title}
+      </span>
       {chipText ? <Kbd className="h-4 min-w-4 px-1">{chipText}</Kbd> : null}
     </span>
   );
 
-  // Borderless icon-only button — same chrome as compact mode. The
-  // `compact` prop now only controls ordering inside the status bar.
+  // Borderless icon-only button, always present (never removed from the row, so
+  // the status bar never reflows). The open state shows as active instead.
   return (
     <IconTooltip label={tooltipLabel} side="top">
-      <motion.button
-        initial={{ y: -15 }}
-        animate={{ y: 0 }}
+      <button
         type="button"
         onClick={() => toggle(extensionId, panelId)}
         aria-label={title}
+        aria-pressed={isOpen}
         className={cn(
-          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          isOpen ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
         <PanelIcon extensionId={extensionId} icon={icon} alt={title} size={16} />
-      </motion.button>
+      </button>
     </IconTooltip>
   );
 }
@@ -207,18 +198,16 @@ function PanelIcon({
       />
     );
   }
-  return <PanelImageIcon extensionId={extensionId} icon={icon} alt={alt} size={size} />;
+  return <PanelImageIcon extensionId={extensionId} icon={icon} size={size} />;
 }
 
 function PanelImageIcon({
   extensionId,
   icon,
-  alt,
   size,
 }: {
   extensionId: string;
   icon: string | null;
-  alt: string;
   size: number;
 }) {
   const url = useResolvedPanelIcon(extensionId, icon);
@@ -228,14 +217,17 @@ function PanelImageIcon({
     // a muted square so the button is still visible.
     return <span className="bg-muted shrink-0 rounded-sm" style={style} aria-hidden />;
   }
+  // Decorative: the wrapping toggle button already carries aria-label={title},
+  // so an empty alt avoids screen readers announcing the name twice.
   return (
     <img
       src={url}
-      alt={alt}
+      alt=""
       style={style}
       className="shrink-0 object-contain"
       loading="lazy"
       draggable={false}
+      aria-hidden
     />
   );
 }

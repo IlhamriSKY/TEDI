@@ -67,15 +67,6 @@ class Registry<T> {
     return this.runtime.get(extensionId)?.get(key);
   }
 
-  /** Finds a runtime handler across all extensions. Used by command dispatch. */
-  findRuntime(key: string): { extensionId: string; value: unknown } | null {
-    for (const [extId, map] of this.runtime) {
-      const v = map.get(key);
-      if (v !== undefined) return { extensionId: extId, value: v };
-    }
-    return null;
-  }
-
   clear(extensionId: string): void {
     this.byExt.delete(extensionId);
     this.runtime.delete(extensionId);
@@ -276,6 +267,166 @@ class HeaderItemRegistry {
 export const headerItemsRegistry = new HeaderItemRegistry();
 
 /**
+ * A button shown either in a sidebar section's header (e.g. add / refresh)
+ * or revealed on a row's hover (e.g. edit / delete). `icon` accepts the same
+ * forms as `HeaderItem.icon`: `hugeicon:<Name>` (host-native HugeIcon),
+ * `data:` URL, or `ext-asset:<relPath>`.
+ */
+export type SidebarSectionAction = {
+  id: string;
+  icon: string;
+  tooltip: string;
+  /** Paints the button in the destructive palette (red hover). */
+  danger?: boolean;
+};
+
+/** One row in an extension-contributed sidebar section. Rows may nest to form
+ *  a lazy tree (e.g. connection → database → schema → table): set `expandable`
+ *  to show a caret, drive `expanded` + `children` from the extension's own
+ *  model, and load children on the `onItemToggle` callback (re-call
+ *  `setSection` with the updated tree). Depth/indent is computed by the host. */
+export type SidebarSectionItem = {
+  id: string;
+  label: string;
+  /** Optional detail shown in a hover tooltip on the row (e.g. host:port). */
+  sublabel?: string;
+  /** Row icon, same forms as `SidebarSectionAction.icon`. */
+  icon?: string;
+  /** Highlight this row as the active/selected one (brand accent surface). */
+  active?: boolean;
+  /** Lifecycle tone for the label text. Mirrors the SSH / ext-tab palette:
+   *  `connecting` pulses amber, `connected` is emerald, `error` is red. */
+  tone?: "default" | "connecting" | "connected" | "error";
+  /** Optional pill rendered just after the label (e.g. a connection's engine
+   *  type: MySQL / PostgreSQL / SQLite). `variant` maps 1:1 to the host
+   *  `<Badge>` variants so extension badges stay visually consistent with the
+   *  rest of the app. Kept compact for the dense sidebar row. */
+  badge?: {
+    text: string;
+    variant?: "default" | "secondary" | "destructive" | "outline";
+  };
+  /** Show an expand/collapse caret (a tree node). */
+  expandable?: boolean;
+  /** Caret state. When true the host renders `children`. */
+  expanded?: boolean;
+  /** Show a small "…" spinner hint on the row (e.g. while loading children). */
+  loading?: boolean;
+  /** Child rows, rendered (indented) when `expanded`. */
+  children?: SidebarSectionItem[];
+  /** Hover-revealed per-row action buttons. */
+  actions?: SidebarSectionAction[];
+};
+
+/**
+ * An extension-contributed left-sidebar section. The host renders it with the
+ * same chrome as the built-in Workspaces panel (h-8 header with icon + title +
+ * action buttons, then a scrollable row list), as one of the reorderable /
+ * collapsible AppSidebar sections. A section lives in the sidebar only while
+ * the owning extension is active, so it appears / disappears with the
+ * extension's enable / disable state (no separate "is installed" gate needed).
+ */
+export type SidebarSection = {
+  id: string;
+  title: string;
+  /** Section-header icon. `hugeicon:<Name>` recommended for host parity. */
+  icon?: string;
+  /** Buttons in the section header (e.g. add / refresh). */
+  headerActions?: SidebarSectionAction[];
+  items: SidebarSectionItem[];
+  /** Shown when `items` is empty. */
+  emptyText?: string;
+  /** Render a filter input above the list. The host filters the tree
+   *  client-side by label/sublabel (a node shows if it — or any loaded
+   *  descendant — matches); matching branches auto-expand. */
+  searchable?: boolean;
+  /** Placeholder for the `searchable` filter input. */
+  searchPlaceholder?: string;
+  /** Offer a "move to right panel" toggle in the section header (mirrors the
+   *  Source Control right-panel layout). When moved, the section leaves the
+   *  left sidebar and is reachable from a status-bar icon that opens it in the
+   *  shared right slot. Placement persists per section. */
+  movableToRight?: boolean;
+  /** Click a row (its `id`). */
+  onItemClick?: (itemId: string) => void;
+  /** Toggle a row's expand caret (`itemId`). Load children here, mutate your
+   *  model, then re-call `setSection` with the updated tree. */
+  onItemToggle?: (itemId: string) => void;
+  /** Click a row's hover action (`itemId`, `actionId`). */
+  onItemAction?: (itemId: string, actionId: string) => void;
+  /** Click a header action (`actionId`). */
+  onHeaderAction?: (actionId: string) => void;
+};
+
+/**
+ * Sidebar-section registry. Mirrors `headerItemsRegistry` (runtime, callback-
+ * carrying, keyed by id) but the rendered slot is a left-sidebar section.
+ * Per-extension Map<sectionId, SidebarSection>; `clearExtensionContributions`
+ * drops the slice on deactivate so the section vanishes when disabled.
+ */
+class SidebarSectionRegistry {
+  private readonly byExt = new Map<string, Map<string, SidebarSection>>();
+  private readonly listeners = new Set<Listener>();
+  private cachedList: { extensionId: string; item: SidebarSection }[] | null = null;
+
+  setSection(extensionId: string, section: SidebarSection): void {
+    let map = this.byExt.get(extensionId);
+    if (!map) {
+      map = new Map();
+      this.byExt.set(extensionId, map);
+    }
+    map.set(section.id, section);
+    this.cachedList = null;
+    this.emit();
+  }
+
+  removeSection(extensionId: string, sectionId: string): void {
+    const map = this.byExt.get(extensionId);
+    if (!map) return;
+    if (map.delete(sectionId)) {
+      if (map.size === 0) this.byExt.delete(extensionId);
+      this.cachedList = null;
+      this.emit();
+    }
+  }
+
+  clear(extensionId: string): void {
+    if (!this.byExt.has(extensionId)) return;
+    this.byExt.delete(extensionId);
+    this.cachedList = null;
+    this.emit();
+  }
+
+  list(): { extensionId: string; item: SidebarSection }[] {
+    if (this.cachedList !== null) return this.cachedList;
+    const out: { extensionId: string; item: SidebarSection }[] = [];
+    for (const [extId, items] of this.byExt) {
+      for (const item of items.values()) out.push({ extensionId: extId, item });
+    }
+    this.cachedList = out;
+    return out;
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emit(): void {
+    for (const l of this.listeners) {
+      try {
+        l();
+      } catch (err) {
+        console.error("[extensions] sidebar-section listener threw", err);
+      }
+    }
+  }
+}
+
+export const sidebarSectionsRegistry = new SidebarSectionRegistry();
+
+/**
  * Shell-command transformer registry. Lets extensions rewrite shell commands
  * before the built-in AI tools execute them (e.g. RTK prefixing `git status`
  * as `rtk git status`).
@@ -405,5 +556,6 @@ export function clearExtensionContributions(extensionId: string): void {
   aiToolsRegistry.clear(extensionId);
   statusItemsRegistry.clear(extensionId);
   headerItemsRegistry.clear(extensionId);
+  sidebarSectionsRegistry.clear(extensionId);
   shellTransformersRegistry.clear(extensionId);
 }

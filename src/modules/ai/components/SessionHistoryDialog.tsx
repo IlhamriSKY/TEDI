@@ -1,4 +1,14 @@
 import { useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +37,7 @@ export function SessionHistoryDialog() {
   const newSession = useChatStore((s) => s.newSession);
   const deleteSession = useChatStore((s) => s.deleteSession);
   const [query, setQuery] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
 
   const sorted = useMemo(() => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt), [sessions]);
   const filtered = useMemo(() => {
@@ -116,7 +127,7 @@ export function SessionHistoryDialog() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteSession(s.id);
+                          setPendingDelete({ id: s.id, title: s.title || "New chat" });
                         }}
                         aria-label={`Delete ${s.title || "session"}`}
                         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100"
@@ -148,6 +159,34 @@ export function SessionHistoryDialog() {
             New chat
           </Button>
         </div>
+
+        <AlertDialog
+          open={pendingDelete !== null}
+          onOpenChange={(o) => !o && setPendingDelete(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete chat?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingDelete
+                  ? `"${pendingDelete.title}" and its messages will be permanently deleted. This cannot be undone.`
+                  : ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  if (pendingDelete) deleteSession(pendingDelete.id);
+                  setPendingDelete(null);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

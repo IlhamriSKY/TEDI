@@ -35,6 +35,7 @@ import type { PaneEdge, PaneLeaf, PaneNode, SplitDir } from "@/modules/terminal/
 import { leaves } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
+import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
@@ -307,6 +308,8 @@ function PaneLeafFrame({
   const isPrivate = node.private === true;
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const sshStatus = isSsh ? sshStatuses?.get(node.id) : undefined;
+  // Extension-panel lifecycle tone (e.g. SQL Explorer connection state).
+  const extState = node.leafKind === "extension-panel" ? node.state : undefined;
 
   // Program-set terminal title (OSC 2), e.g. a running agent's task. Appended to
   // the folder label so the pane header reads identically to the Workspaces
@@ -387,6 +390,9 @@ function PaneLeafFrame({
             node.leafKind === "editor" && node.preview && "italic",
             // SSH status colors the label, matching the tab strip.
             isSsh && statusLabelClass(sshStatus),
+            // Extension-panel lifecycle tone (SQL Explorer connection state),
+            // same palette + tab-strip parity.
+            extState && extensionStateLabelClass(extState),
             // Private signal lives on the label (red), not the icon. Last = wins.
             isPrivate && "text-destructive",
           )}

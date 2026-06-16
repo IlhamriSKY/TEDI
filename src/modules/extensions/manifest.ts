@@ -66,9 +66,10 @@ const PanelSchema = z
     /** Hide the host's title + close-X strip; the extension paints the whole
      *  panel and must provide its own close via `ctx.panel.close(panelId)`. */
     hideHostHeader: z.boolean().optional(),
-    /** Render the auto-rendered status-bar toggle button as an icon-only
-     *  square button (no `title` text, no `<Kbd>` chip). Requires `icon`
-     *  to be set on this panel. `aria-label` keeps the title for a11y. */
+    /** Clusters this panel's status-bar toggle with the borderless extension
+     *  status icons at the left of the right group (instead of next to the
+     *  AI / SCM toggles). Chrome is identical either way — every right-panel
+     *  toggle is icon-only — so this only affects ordering/placement. */
     compact: z.boolean().optional(),
   })
   .passthrough();

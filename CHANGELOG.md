@@ -4,6 +4,224 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.37] - 16-06-2026
+
+### Added
+
+- **Extensions can contribute a left-sidebar section.** A new `ctx.sidebar`
+  host API (`setSection` / `removeSection`, gated by a new low-risk
+  `sidebar:write` permission) lets an extension publish a list section that the
+  host renders with the exact [WorkspacesPanel](src/modules/workspaces/WorkspacesPanel.tsx)
+  chrome (h-8 header with icon + title + action buttons, then a scrollable row
+  list with hover row-actions and lifecycle-tone labels). Sections appear as
+  dynamic, reorderable / collapsible [AppSidebar](src/app/components/AppSidebar.tsx)
+  sections (keyed `xsec:<extId>:<sectionId>`) **only while the owning extension
+  is active**, so they show/hide with enable/disable — no separate "is
+  installed" gate; re-calling `setSection` with the same id updates the row
+  list. Backed by a runtime `sidebarSectionsRegistry`
+  ([registries.ts](src/modules/extensions/registries.ts)) +
+  [`ExtensionSidebarSection`](src/modules/extensions/components/ExtensionSidebarSection.tsx),
+  mirroring the existing header-/status-item registries. The SQL Explorer
+  extension uses it to lift its connection list (add / refresh / list) out of
+  the panel and into the workspace-style sidebar.
+  - **Rows are rich tree nodes.** A row can nest with expand carets and
+    `onItemToggle`-driven lazy children, show an engine-type badge, carry a
+    lifecycle tone (connecting / connected / error), expose per-row hover
+    action buttons, and resolve a host icon (`hugeicon:`, `fileicon:`, `data:`,
+    or `ext-asset:`) ([registries.ts](src/modules/extensions/registries.ts),
+    [ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx)).
+  - **Sections can opt into client-side filtering.** Setting `searchable`
+    renders a filter input above the list that matches rows by label / sublabel
+    (including already-loaded descendants, with matching branches
+    auto-expanding) ([ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx)).
+  - **Movable sections can dock to the shared right panel.** A section marked
+    `movableToRight` shows a move-to-right toggle; once docked it leaves the
+    left sidebar, gains a status-bar icon to reopen it, and renders in the right
+    slot (as the same React tree as the left sidebar, not a DOM panel renderer)
+    with move-back-to-left and close controls. Placement persists per section
+    and a docked section auto-opens on mount when the right slot is free
+    ([sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts),
+    [SidebarSectionRightToggles.tsx](src/modules/extensions/components/SidebarSectionRightToggles.tsx),
+    [useDockedSectionAutoOpen.ts](src/app/hooks/useDockedSectionAutoOpen.ts),
+    [RightPanelHost.tsx](src/modules/extensions/components/RightPanelHost.tsx)).
+
+- **Extensions can open a panel as a native split-pane leaf, not just a
+  standalone tab.** The new `ctx.tabs.openExtensionPane({ panelId, title,
+  icon?, reuseKey? })` (gated by `tabs:open`) mounts the panel in the same frame
+  as a terminal / editor / browser leaf, so it is splittable and joinable like
+  any other pane; re-opening focuses the existing live leaf and dedups instead
+  of duplicating it, and the panel keeps its module singletons. The pane
+  header label is tinted with the same connecting / connected / disconnected
+  palette as the SSH label and ext-tab chip, driven by the leaf's `state` and
+  persisted across pane clone ([host.ts](src/modules/extensions/host.ts),
+  [tabsBridge.ts](src/modules/extensions/tabsBridge.ts),
+  [useAuxTabs.ts](src/modules/tabs/lib/useAuxTabs.ts),
+  [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx),
+  [entries.ts](src/modules/tabs/lib/entries.ts),
+  [renderEntryBody.tsx](src/modules/tabs/components/renderEntryBody.tsx)).
+
+- **Local extension dev loop with no zip or publish step.** New
+  [scripts/link-dev-extensions.mjs](scripts/link-dev-extensions.mjs)
+  junctions / symlinks each `extensions/<id>/` working copy into the dev
+  profile's app-data extensions dir so edits go live on a window reload; wired
+  as `pnpm tauri:dev:ext`, `pnpm link:ext`, `pnpm relink:ext` (`--force`), and
+  `pnpm unlink:ext`, with stale `state.json` entries reset so links load
+  enabled with their current manifest permissions auto-approved.
+
+- **`ctx.secrets.delete(name)` was added to the extension host API.** It
+  removes a value from the OS keychain via the `secrets_delete` invoke, reusing
+  the existing `secrets:write` gate ([host.ts](src/modules/extensions/host.ts)).
+
+- **Shared CLI progress-bar vocabulary in `cli_paint`.** New
+  `progress_bar` / `progress_line` / `print_download_progress` /
+  `overwrite_line` / `end_progress_line` plus a shared `fmt_bytes` render an
+  identical green-fill `████░░░░ NN%` bar across surfaces, only emitting
+  carriage-return overwrites on a real TTY so piped output stays free of
+  control bytes ([cli_paint.rs](src-tauri/src/modules/cli_paint.rs)).
+
+- **Extension authors can resolve arbitrary Catppuccin icon names to data
+  URLs.** A new `explorerIconUrl(name)` helper lets non-file surfaces reuse the
+  file-tree icon pack ([iconResolver.ts](src/modules/explorer/lib/iconResolver.ts)).
+
+### Changed
+
+- **`tedi --update` and `tedi ext install` now share a live progress bar.**
+  `tedi --update` downloads via `http_get_bytes_with_progress` feeding
+  `print_download_progress`, ending with a green-check `Downloaded <size>` line
+  in human-readable units instead of a raw byte count
+  ([cli_update.rs](src-tauri/src/modules/cli_update.rs)); `tedi ext install`
+  was rewritten to render the same `cli_paint` bar for both download and
+  extraction (throttled to ~10 ticks plus a final tick) and dropped its private
+  `fmt_bytes` ([install.rs](src-tauri/src/modules/cli_ext/install.rs)).
+
+- **`tedi ext` list / update CLI output is now English and dimmed.**
+  Empty-registry, cancelled, skipped, and non-interactive hint lines are
+  painted dim, install-command hints are highlighted, and leftover Indonesian
+  picker prompts ("Pilih extension", "Dibatalkan.") were translated to English
+  ([commands.rs](src-tauri/src/modules/cli_ext/commands.rs)).
+
+- **`setExtensionTabState` can now relabel the tab / pane and patches both
+  surfaces at once.** It accepts an optional `title` (e.g. "SQL Explorer ·
+  mydb") and applies the lifecycle tone + title to both a standalone
+  `kind:"ext"` tab and a live extension-panel pane leaf matched on
+  `(extensionId, panelId, reuseKey)` ([host.ts](src/modules/extensions/host.ts),
+  [useAuxTabs.ts](src/modules/tabs/lib/useAuxTabs.ts),
+  [panes.ts](src/modules/terminal/lib/panes.ts)).
+
+- **The agent now keeps web research in a single reused browser tab.**
+  `open_browser` defaults to navigating its existing research pane (or the only
+  open browser) instead of spawning a new tab per page, lowering memory and tab
+  clutter; results carry `reused: true`, and a new `new_tab: true` flag forces
+  a separate tab when needed. The reuse target is tracked across
+  `control_browser` and `navigate_and_read`
+  ([terminal.ts](src/modules/ai/tools/terminal.ts),
+  [config.ts](src/modules/ai/config.ts)).
+
+- **Source Control can be moved between the left sidebar and the right panel
+  from its header.** New "Move to right panel" / "Move to left sidebar"
+  buttons in [PanelHeader](src/modules/scm/components/PanelHeader.tsx) flip the
+  layout preference and open / close the corresponding panel in one click; the
+  old General-settings "move Source Control to right panel" switch was dropped
+  in favor of this (and replaced, when the SQL Explorer extension is installed,
+  by a toggle that enables / disables it, adding or removing its Databases
+  panel) ([GeneralSection.tsx](src/settings/sections/GeneralSection.tsx)).
+
+- **The status bar's right-group toggles no longer reflow the row when their
+  panel opens.** The AI, Source Control, movable-section, and extension
+  right-panel toggles now stay in place at all times and render an active /
+  pressed state (`aria-pressed`, accent background) with a "Close …" tooltip
+  instead of vanishing once open; the entrance / launch animations were dropped
+  for a stable icon row, the now-unused `hasComposer` prop was removed, and the
+  text-label right-panel toggles were replaced with icon-only default toggles
+  (`RightPanelTextToggles` renamed to `RightPanelDefaultToggles`). The panel
+  manifest `compact` flag now only controls placement — every toggle is
+  icon-only regardless, and `compact: true` simply clusters the toggle with the
+  borderless extension status icons at the left of the right group
+  ([StatusBar.tsx](src/modules/statusbar/StatusBar.tsx),
+  [RightPanelToggleButtons.tsx](src/modules/extensions/components/RightPanelToggleButtons.tsx),
+  [SidebarSectionRightToggles.tsx](src/modules/extensions/components/SidebarSectionRightToggles.tsx),
+  [AiStatusBarControls.tsx](src/modules/ai/components/AiStatusBarControls.tsx),
+  [manifest.ts](src/modules/extensions/manifest.ts)).
+
+- **The sidebar section order persists built-in and extension keys together and
+  reconciles them each render.** Persisted order is read verbatim and
+  reconciled against currently-existing keys — dropping uninstalled-extension
+  or removed keys and appending new ones in canonical / registry order — so a
+  newly-active extension lands in a stable spot
+  ([AppSidebar.tsx](src/app/components/AppSidebar.tsx)).
+
+- **Destructive actions across the app now require confirmation instead of
+  acting immediately.** Closing a workspace that has open tabs warns its tabs
+  and running terminals will be closed (empty workspaces still close instantly)
+  ([WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx)); deleting
+  a chat from session history names the chat and warns the deletion is
+  permanent ([SessionHistoryDialog.tsx](src/modules/ai/components/SessionHistoryDialog.tsx));
+  deleting or resetting an agent, deleting a snippet, and resetting a system
+  prompt to its default each open a dialog naming the item
+  ([AgentsSection.tsx](src/settings/sections/AgentsSection.tsx),
+  [SystemPromptsCard.tsx](src/settings/sections/components/SystemPromptsCard.tsx));
+  and deleting a file or folder from the Explorer replaces the old inline
+  "Click again to confirm" item with an AlertDialog that names the target
+  ([FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx)).
+
+- **Misc UI polish.** Destructive controls read more clearly — the plan-diff
+  "clear" action and the install-review button (when an extension requests
+  `*` / `invoke:*` near-total access) use the solid destructive variant
+  ([PlanDiffReview.tsx](src/modules/ai/components/PlanDiffReview.tsx),
+  [InstallReviewDialog.tsx](src/settings/sections/components/InstallReviewDialog.tsx)),
+  the image-lightbox close button moves to a secondary background with a
+  destructive hover ([ImageLightbox.tsx](src/modules/ai/components/ImageLightbox.tsx)),
+  and the SSH host-deletion confirm reads as destructive
+  ([SshMenu.tsx](src/modules/ssh/SshMenu.tsx)). Secondary / Cancel buttons
+  across dialogs switched from ghost to the more visible outline variant
+  (agent, snippet, prompt-editor, install-review, new-editor, SSH host-key
+  prompt, and updater dialogs)
+  ([NewEditorDialog.tsx](src/modules/editor/NewEditorDialog.tsx),
+  [HostKeyPromptDialog.tsx](src/modules/ssh/HostKeyPromptDialog.tsx),
+  [UpdaterDialog.tsx](src/modules/updater/components/UpdaterDialog.tsx)). The
+  additional-path probe indicators now use the `text-icon-working` /
+  `text-diff-added` theme tokens instead of hardcoded amber / emerald
+  ([AdditionalPathEditor.tsx](src/settings/sections/components/AdditionalPathEditor.tsx)),
+  and the Explorer header gained a vertical separator before the search button
+  ([ExplorerHeader.tsx](src/modules/explorer/components/ExplorerHeader.tsx)).
+
+- **Extension-author docs expanded for the dev loop, src/→bundle pipeline, and
+  CI releases.** [extensions/README.md](extensions/README.md) now documents
+  local dev linking, the esbuild build pipeline (git-ignored generated
+  `extension.js`), and tag-triggered CI packaging; [TEDI.md](TEDI.md) documents
+  the newer `headerbar:write` / `sidebar:write` permissions and the
+  sidebar-section / header-item registries (and notes the dev-link loop and the
+  shared download progress bar).
+
+### Fixed
+
+- **Background (agent-opened) preview panes no longer steal keyboard focus.**
+  `spawn_preview_child` takes a `focus_on_create` flag and creates off-screen
+  background webviews with `focused(false)`, so an agent opening a browser to
+  read in the background no longer yanks focus from the terminal / editor the
+  user is typing in; foreground panes still take focus like a normal tab
+  ([embed.rs](src-tauri/src/modules/preview/embed.rs)).
+
+- **A right-panel section whose extension is disabled or uninstalled is now
+  closed instead of leaving a dead header.** The right-panel defaults hook
+  validates a docked section against the live sidebar-section registry and
+  closes the slot when the section is no longer contributed
+  ([useExtensionPanelDefaults.ts](src/app/hooks/useExtensionPanelDefaults.ts)).
+
+- **The find-match highlight color now adapts to the active theme.** The
+  current-match highlight switched from a hard-coded dark text color to
+  `var(--background)`, fixing washed-out text on light or custom gold themes
+  ([globals.css](src/styles/globals.css)).
+
+- **A failed Explorer grep replace now surfaces as a toast instead of a
+  blocking browser alert.** [ExplorerGrep](src/modules/explorer/ExplorerGrep.tsx)
+  reports replace errors via an error-variant toast.
+
+- **Panel toggle icons no longer double-announce their name to screen
+  readers.** The decorative `<img>` now uses an empty `alt` and `aria-hidden`
+  since the wrapping button already carries the `aria-label`
+  ([RightPanelToggleButtons.tsx](src/modules/extensions/components/RightPanelToggleButtons.tsx)).
+
 ## [0.3.36] - 13-06-2026
 
 ### Added

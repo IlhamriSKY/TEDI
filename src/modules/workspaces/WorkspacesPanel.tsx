@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -339,6 +349,7 @@ function SortableWorkspaceRow({
     transition,
   };
   const hasTerminals = terminals.length > 0;
+  const [confirmingClose, setConfirmingClose] = useState(false);
 
   return (
     <li
@@ -439,7 +450,7 @@ function SortableWorkspaceRow({
             <IconTooltip label="Close workspace">
               <Button
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => onClose(w.id)}
+                onClick={() => (tabCount > 0 ? setConfirmingClose(true) : onClose(w.id))}
                 aria-label="Close workspace"
                 variant="ghost"
                 size="icon-sm"
@@ -451,6 +462,25 @@ function SortableWorkspaceRow({
           )}
         </span>
       </div>
+
+      <AlertDialog open={confirmingClose} onOpenChange={setConfirmingClose}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close workspace &quot;{w.name}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its {tabCount} open {tabCount === 1 ? "tab" : "tabs"} and any running terminals will be
+              closed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => onClose(w.id)}>
+              Close workspace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {isExpanded && hasTerminals && (
         // Not a drag surface: stop pointerdown so scrolling/clicking the list
         // never starts a workspace reorder.

@@ -43,6 +43,9 @@ export type PaneEntry = EntryBase & {
   remoteHost?: string;
   /** Inherited from the owning tab. Drives the red badge + lock icon. */
   isPrivate?: boolean;
+  /** Lifecycle tone for an extension-panel leaf (mirrors the ext tab). Drives
+   *  the label text colour, set via `ctx.tabs.setExtensionTabState(...)`. */
+  extState?: ExtensionTabState;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -192,6 +195,7 @@ export function buildEntries(
           aiCliStatus: leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
           remoteHost,
           isPrivate: leaf.private === true,
+          extState: leaf.leafKind === "extension-panel" ? leaf.state : undefined,
         });
       }
       continue;

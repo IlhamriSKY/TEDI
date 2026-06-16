@@ -30,6 +30,32 @@ function unsafeBrowserUrl(url: string): string | null {
 }
 
 export function buildTerminalTools(ctx: ToolContext) {
+  // The single in-app browser pane the agent reuses for research. `buildTools`
+  // is memoized per session `ctx` (a fresh session => fresh ctx => fresh build),
+  // so this lives for the whole session: multi-step research navigates ONE tab
+  // instead of spawning a pane per page (lower memory, no tab clutter). Tracked
+  // whenever the agent opens or drives a browser; reused by `open_browser`.
+  let researchBrowserLeafId: number | null = null;
+
+  // Pick a browser pane for a default (non-`new_tab`) `open_browser` to reuse:
+  //  1. the agent's tracked research pane, if it's still open;
+  //  2. else the only open browser (a single pane is unambiguously the one to
+  //     reuse - "the tab it opened or the one that already exists");
+  //  3. else null - 2+ untracked panes are ambiguous (one may be the user's own
+  //     browser), so the caller opens a fresh research tab rather than hijack one.
+  const pickReuseLeaf = (): number | null => {
+    const browsers = ctx.listBrowsers();
+    if (browsers.length === 0) return null;
+    if (
+      researchBrowserLeafId !== null &&
+      browsers.some((b) => b.leafId === researchBrowserLeafId)
+    ) {
+      return researchBrowserLeafId;
+    }
+    if (browsers.length === 1) return browsers[0].leafId;
+    return null;
+  };
+
   return {
     suggest_command: tool({
       description:
@@ -423,7 +449,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     open_browser: tool({
       description:
-        "Open the in-app browser at `url` - a real native browser tab (WebView2/WebKit), NOT an iframe, so any site works: dev servers, docs, search engines, YouTube, logged-in pages (no X-Frame-Options limits). This is THE tool for all web browsing and search. To search the web, pass a search URL (e.g. https://www.google.com/search?q=... or https://www.youtube.com/results?search_query=...). ALWAYS use this to open a URL; never run start/open/xdg-open/explorer in a terminal to open a link. Returns the new pane's `leafId` (use it with Read Browser / Navigate And Read / Control Browser). For a one-shot fact/price/rate lookup pass `read: true`: it opens, waits for the page to load, and returns the rendered text in THIS SAME call, so you answer without a second read - don't then re-open or curl. Auto.",
+        "Open the in-app browser at `url` - a real native browser tab (WebView2/WebKit), NOT an iframe, so any site works: dev servers, docs, search engines, YouTube, logged-in pages (no X-Frame-Options limits). This is THE tool for all web browsing and search. To search the web, pass a search URL (e.g. https://www.google.com/search?q=... or https://www.youtube.com/results?search_query=...). ALWAYS use this to open a URL; never run start/open/xdg-open/explorer in a terminal to open a link. By DEFAULT it REUSES your one research browser tab - it navigates the existing pane to `url` instead of spawning another, so multi-step research stays in a SINGLE tab and memory stays low (the result has `reused: true` when it navigated an existing pane). Pass `new_tab: true` ONLY when the user explicitly asks for a new/separate tab or to keep more than one browser open at once. Returns the pane's `leafId` (use it with Read Browser / Navigate And Read / Control Browser). For a one-shot fact/price/rate lookup pass `read: true`: it opens or reuses the tab, waits for the page to load, and returns the rendered text in THIS SAME call, so you answer without a second read - don't then re-open or curl. Auto.",
       inputSchema: z.object({
         url: z
           .url()
@@ -431,12 +457,31 @@ export function buildTerminalTools(ctx: ToolContext) {
             "Full http(s) URL incl. scheme (e.g. https://www.google.com/search?q=tedi or http://localhost:5173).",
           ),
         read: flexBoolOpt().describe(
-          "Also wait for load and return the page's rendered text in this same call - one call for a fact/price/rate lookup, no separate read_browser. Default false (just open the pane).",
+          "Also wait for load and return the page's rendered text in this same call - one call for a fact/price/rate lookup, no separate read_browser. Default false (just open/navigate the pane).",
+        ),
+        new_tab: flexBoolOpt().describe(
+          "Force a brand-new browser tab instead of reusing your existing research tab. Default false (reuse one tab). Set true ONLY when the user explicitly asks for a new/separate tab or to keep multiple browsers open at once.",
         ),
       }),
-      execute: async ({ url, read }) => {
+      execute: async ({ url, read, new_tab }) => {
         const bad = unsafeBrowserUrl(url);
         if (bad) return { error: bad, url };
+
+        // Default: keep research in ONE tab. Navigate the existing research pane
+        // (or the single open browser) to `url` rather than spawning another,
+        // unless the caller explicitly forces a new tab.
+        if (!new_tab) {
+          const reuseLeaf = pickReuseLeaf();
+          if (reuseLeaf !== null && ctx.navigateBrowser(reuseLeaf, url)) {
+            researchBrowserLeafId = reuseLeaf;
+            if (!read) return { url, ok: true, leafId: reuseLeaf, reused: true };
+            // The webview already exists, so the native read waits out the new
+            // page's load (~3s), same as navigate_and_read.
+            const text = await ctx.readBrowser(reuseLeaf, false);
+            return { url, ok: true, leafId: reuseLeaf, reused: true, text };
+          }
+        }
+
         const tabId = ctx.openPreview(url);
         if (tabId === null) return { error: "preview surface unavailable", url };
         // openPreview returns the new TAB id, but read_browser / navigate_and_read
@@ -453,6 +498,8 @@ export function buildTerminalTools(ctx: ToolContext) {
           }
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
+        // Adopt this pane as the research tab so later default opens reuse it.
+        researchBrowserLeafId = leafId;
         if (!read) return { url, ok: true, leafId };
         // read:true -> also return the loaded page text now. Once the webview
         // exists the native read waits out page load (~3s); while it is still
@@ -489,14 +536,16 @@ export function buildTerminalTools(ctx: ToolContext) {
         if (url) {
           const bad = unsafeBrowserUrl(url);
           if (bad) return { error: bad, leafId, url };
-          return ctx.navigateBrowser(leafId, url)
-            ? { ok: true, leafId, url }
-            : { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+          if (!ctx.navigateBrowser(leafId, url))
+            return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+          researchBrowserLeafId = leafId; // the pane the agent drives is the reuse target
+          return { ok: true, leafId, url };
         }
         if (action) {
-          return ctx.dispatchBrowser(leafId, action)
-            ? { ok: true, leafId, action }
-            : { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+          if (!ctx.dispatchBrowser(leafId, action))
+            return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+          researchBrowserLeafId = leafId;
+          return { ok: true, leafId, action };
         }
         return { error: "pass url (to navigate) or action (back/forward/reload)", leafId };
       },
@@ -518,6 +567,7 @@ export function buildTerminalTools(ctx: ToolContext) {
         if (bad) return { error: bad, leafId, url };
         const ok = ctx.navigateBrowser(leafId, url);
         if (!ok) return { error: `no browser pane with leaf_id ${leafId}`, leafId, url };
+        researchBrowserLeafId = leafId; // the pane the agent drives is the reuse target
         const text = await ctx.readBrowser(leafId, fields ?? false);
         return { leafId, url, text };
       },

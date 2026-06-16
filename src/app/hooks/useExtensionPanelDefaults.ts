@@ -1,4 +1,10 @@
-import { useExtensionsStore, useRightPanelStore } from "@/modules/extensions";
+import {
+  parseSectionPanelId,
+  sidebarSectionsRegistry,
+  useExtensionsStore,
+  useRegistry,
+  useRightPanelStore,
+} from "@/modules/extensions";
 import { useEffect } from "react";
 
 /**
@@ -45,13 +51,25 @@ export function useExtensionPanelDefaults(): void {
   // Hide an active right-panel target whose extension is now disabled or
   // uninstalled, so the slot doesn't show a dead header.
   const rightPanelActive = useRightPanelStore((s) => s.active);
+  const sidebarSections = useRegistry(sidebarSectionsRegistry);
   useEffect(() => {
     if (!rightPanelActive) return;
+    // A moved sidebar section (panelId sentinel `__section__:<id>`) is hosted in
+    // the right slot but is NOT a manifest panel. Validate it against the
+    // sidebar-section registry instead — keep it open while still contributed.
+    const sectionId = parseSectionPanelId(rightPanelActive.panelId);
+    if (sectionId !== null) {
+      const stillThere = sidebarSections.some(
+        (s) => s.extensionId === rightPanelActive.extensionId && s.item.id === sectionId,
+      );
+      if (!stillThere) useRightPanelStore.getState().close();
+      return;
+    }
     const owner = extensionsList.find((e) => e.id === rightPanelActive.extensionId && e.enabled);
     const hasPanel =
       owner?.manifest.contributes.panels?.some((p) => p.id === rightPanelActive.panelId) ?? false;
     if (!owner || !hasPanel) {
       useRightPanelStore.getState().close();
     }
-  }, [extensionsList, rightPanelActive]);
+  }, [extensionsList, rightPanelActive, sidebarSections]);
 }

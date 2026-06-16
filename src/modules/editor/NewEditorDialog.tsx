@@ -105,7 +105,7 @@ export function NewEditorDialog({ open, onOpenChange, rootPath, onCreated }: Pro
           </div>
         )}
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={() => void submit()}>Create</Button>

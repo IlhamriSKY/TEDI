@@ -9,8 +9,12 @@ import {
   GitBranchIcon,
   LinkSquare02Icon,
   Refresh01Icon,
+  SidebarLeft01Icon,
+  SidebarRight01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { setSourceControlInRightPanel } from "@/modules/settings/store";
+import { useScmRightPanelStore } from "../scmRightPanelStore";
 import type { GitStatus } from "../types";
 
 type PanelHeaderProps = {
@@ -118,6 +122,40 @@ export function PanelHeader({
             aria-label="Open Source Control in a tab"
           >
             <HugeiconsIcon icon={LinkSquare02Icon} size={12} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+      ) : null}
+      {/* Left-sidebar instance: move Source Control to the right panel. */}
+      {dragHandle && !historyOnly ? (
+        <IconTooltip label="Move to right panel" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-6"
+            onClick={() => {
+              void setSourceControlInRightPanel(true);
+              useScmRightPanelStore.getState().openPanel();
+            }}
+            aria-label="Move Source Control to the right panel"
+          >
+            <HugeiconsIcon icon={SidebarRight01Icon} size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+      ) : null}
+      {/* Right-panel instance: dock Source Control back into the left sidebar. */}
+      {onClose ? (
+        <IconTooltip label="Move to left sidebar" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-6"
+            onClick={() => {
+              void setSourceControlInRightPanel(false);
+              useScmRightPanelStore.getState().closePanel();
+            }}
+            aria-label="Move Source Control to the left sidebar"
+          >
+            <HugeiconsIcon icon={SidebarLeft01Icon} size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}

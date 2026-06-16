@@ -217,7 +217,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
 
   if (result.tools.length === 0) {
     return (
-      <span className="flex items-center gap-1 text-[10px] text-amber-500">
+      <span className="text-icon-working flex items-center gap-1 text-[10px]">
         <HugeiconsIcon icon={AlertCircleIcon} size={11} strokeWidth={2} className="shrink-0" />
         Folder exists, no known tools detected
       </span>
@@ -230,7 +230,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
         icon={CheckmarkCircle02Icon}
         size={11}
         strokeWidth={2}
-        className="shrink-0 text-emerald-500"
+        className="text-diff-added shrink-0"
       />
       {result.tools.map((t) => (
         <span key={t.tool} className="bg-muted/60 rounded px-1 py-px font-mono text-[9.5px]">

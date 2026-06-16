@@ -65,6 +65,7 @@ import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
+import { useDockedSectionAutoOpen } from "./hooks/useDockedSectionAutoOpen";
 import {
   useExtensionSidebarBridges,
   type RightAuxSnapshot,
@@ -103,6 +104,7 @@ export default function App() {
     pinTab,
     newBrowserTab,
     openExtensionTab,
+    openExtensionPane,
     setExtensionTabState,
     openAiDiffTab,
     setAiDiffStatus,
@@ -371,6 +373,9 @@ export default function App() {
     showSourceControl,
     closeScmRight,
   );
+  // Re-open a sidebar section docked to the right slot on boot (else it would
+  // vanish: gone from the left sidebar, closed in the right).
+  useDockedSectionAutoOpen();
 
   // -------- workspaces wiring --------
   const wsHydrate = useWorkspacesStore((s) => s.hydrate);
@@ -434,6 +439,7 @@ export default function App() {
   // handle + the two hider latches) stay in App; other effects read them.
   useExtensionSidebarBridges({
     openExtensionTab,
+    openExtensionPane,
     setExtensionTabState,
     sidebarRef,
     sidebarHiderRef,
@@ -813,7 +819,6 @@ export default function App() {
             home={home}
             onCd={sendCd}
             onOpenMini={openMini}
-            hasComposer={hasComposer}
             detectedBrowserUrl={detectedBrowserUrl}
             onOpenPreview={handleOpenDetectedPreview}
           />

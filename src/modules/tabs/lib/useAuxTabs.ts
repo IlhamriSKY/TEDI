@@ -5,6 +5,7 @@ import {
   leaves,
   updateBrowserLeaf as updateBrowserLeafInTree,
   updateBrowserLeafTitle as updateBrowserLeafTitleInTree,
+  updateExtensionPanelLeaf as updateExtensionPanelLeafInTree,
   type PaneLeaf,
 } from "@/modules/terminal/lib/panes";
 import {
@@ -297,9 +298,73 @@ export function useAuxTabs({
   );
 
   /**
-   * Update the lifecycle tone on an extension tab. Matches the tab on
-   * `(extensionId, panelId, reuseKey)`; `reuseKey` is optional and matches
-   * tabs opened without one when omitted. Pass `null` for `state` to clear.
+   * Open (or focus) an extension panel as a NATIVE pane leaf — same frame as a
+   * terminal/editor/browser, splittable and joinable — instead of a standalone
+   * `kind:"ext"` tab. Mirrors `newBrowserTab` (a pane tab whose tree is a single
+   * leaf). If the panel is already live as a pane leaf anywhere, that pane is
+   * focused instead of mounting a duplicate (the panel keeps module singletons).
+   */
+  const openExtensionPane = useCallback(
+    (opts: {
+      extensionId: string;
+      panelId: string;
+      title: string;
+      icon?: string;
+      reuseKey?: string;
+    }) => {
+      for (const t of tabsRef.current) {
+        if (t.kind !== "pane") continue;
+        const leaf = leaves(t.paneTree).find(
+          (l) =>
+            l.leafKind === "extension-panel" &&
+            l.extensionId === opts.extensionId &&
+            l.panelId === opts.panelId,
+        );
+        if (leaf) {
+          setTabs((curr) =>
+            curr.map((x) =>
+              x.id === t.id && x.kind === "pane" ? { ...x, activeLeafId: leaf.id } : x,
+            ),
+          );
+          setActiveId(t.id);
+          return t.id;
+        }
+      }
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      const leaf: PaneLeaf = {
+        kind: "leaf",
+        id: leafId,
+        leafKind: "extension-panel",
+        extensionId: opts.extensionId,
+        panelId: opts.panelId,
+        ...(opts.reuseKey ? { reuseKey: opts.reuseKey } : {}),
+        ...(opts.title ? { title: opts.title } : {}),
+        ...(opts.icon ? { icon: opts.icon } : {}),
+      };
+      setTabs((curr) => [
+        ...curr,
+        syncPaneMirror({
+          id: tabId,
+          kind: "pane",
+          title: opts.title,
+          paneTree: leaf,
+          activeLeafId: leafId,
+        }),
+      ]);
+      setActiveId(tabId);
+      return tabId;
+    },
+    [],
+  );
+
+  /**
+   * Update an extension panel's lifecycle tone and (optionally) its title.
+   * Matches on `(extensionId, panelId, reuseKey)` — `reuseKey` optional and
+   * matches panels opened without one. Patches BOTH a standalone `kind:"ext"`
+   * tab AND a live `extension-panel` pane leaf (the SQL Explorer opens as a
+   * pane), so a connection-status tone + a "SQL Explorer · db" title show on
+   * the tab chip + pane header. Pass `null` state to clear the tone.
    */
   const setExtensionTabState = useCallback(
     (opts: {
@@ -307,20 +372,35 @@ export function useAuxTabs({
       panelId: string;
       reuseKey?: string;
       state: ExtensionTabState | null;
+      title?: string;
     }) => {
+      const matches = (extensionId: string, panelId: string, reuseKey?: string) =>
+        extensionId === opts.extensionId &&
+        panelId === opts.panelId &&
+        (reuseKey ?? undefined) === (opts.reuseKey ?? undefined);
       setTabs((curr) =>
         curr.map((t) => {
-          if (t.kind !== "ext") return t;
-          if (t.extensionId !== opts.extensionId) return t;
-          if (t.panelId !== opts.panelId) return t;
-          if ((t.reuseKey ?? undefined) !== (opts.reuseKey ?? undefined)) return t;
-          const next: ExtensionTab = { ...t };
-          if (opts.state === null) {
-            delete next.state;
-          } else {
-            next.state = opts.state;
+          if (t.kind === "ext") {
+            if (!matches(t.extensionId, t.panelId, t.reuseKey)) return t;
+            const next: ExtensionTab = { ...t };
+            if (opts.state === null) delete next.state;
+            else next.state = opts.state;
+            if (opts.title !== undefined) next.title = opts.title;
+            return next;
           }
-          return next;
+          if (t.kind === "pane") {
+            const leaf = leaves(t.paneTree).find(
+              (l) => l.leafKind === "extension-panel" && matches(l.extensionId, l.panelId, l.reuseKey),
+            );
+            if (!leaf) return t;
+            const paneTree = updateExtensionPanelLeafInTree(t.paneTree, leaf.id, {
+              ...(opts.title !== undefined ? { title: opts.title } : {}),
+              state: opts.state,
+            });
+            if (paneTree === t.paneTree) return t;
+            return syncPaneMirror({ ...t, paneTree });
+          }
+          return t;
         }),
       );
     },
@@ -362,6 +442,7 @@ export function useAuxTabs({
     openScmTab,
     newBrowserTab,
     openExtensionTab,
+    openExtensionPane,
     setExtensionTabState,
     setBrowserLeafUrl,
     setBrowserLeafTitle,

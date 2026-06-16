@@ -1,4 +1,14 @@
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -56,7 +66,7 @@ function FileTreeNodeImpl({
   const children = isExpanded ? tree.nodes[path] : undefined;
   const isRenaming = tree.renaming === path;
 
-  const [isConfirming, setIsConfirming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const iconUrl = isDir ? folderIconUrl(entry.name, isExpanded) : fileIconUrl(entry.name);
 
@@ -226,20 +236,33 @@ function FileTreeNodeImpl({
           <ContextMenuItem
             className={COMPACT_ITEM}
             variant="destructive"
-            onSelect={(e) => {
-              e.preventDefault();
-              if (isConfirming) {
-                void tree.deletePath(path);
-              } else {
-                setIsConfirming(true);
-              }
-            }}
-            onMouseLeave={() => setTimeout(() => setIsConfirming(false), 1500)}
+            onSelect={() => setConfirmDelete(true)}
           >
-            {isConfirming ? "Click again to confirm" : "Delete"}
+            Delete
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {isDir ? "folder" : "file"} &quot;{entry.name}&quot;?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isDir
+                ? `"${entry.name}" and everything inside it will be deleted. This cannot be undone.`
+                : `"${entry.name}" will be deleted. This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void tree.deletePath(path)}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {pendingInThisDir && (
         <div
