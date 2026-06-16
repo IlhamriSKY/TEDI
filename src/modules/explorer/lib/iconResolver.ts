@@ -162,6 +162,17 @@ export function fileIconUrl(name: string): string {
   return buildDataUrl(DEFAULT_FILE) ?? "";
 }
 
+/**
+ * Resolve an arbitrary Catppuccin icon name (e.g. `database`, `folder`,
+ * `csv`) to a `data:` URL, so non-file surfaces (extension sidebar sections)
+ * can reuse the same icon pack as the file tree. Empty string until the
+ * icon chunk has loaded (pair with `useExplorerIconsReady`) or for an
+ * unknown name.
+ */
+export function explorerIconUrl(name: string): string {
+  return buildDataUrl(name) ?? "";
+}
+
 export function folderIconUrl(name: string, expanded: boolean): string {
   const lower = name.toLowerCase();
 

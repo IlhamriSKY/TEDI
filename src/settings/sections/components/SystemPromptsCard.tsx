@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -79,6 +89,7 @@ export function SystemPromptsCard() {
   // Snapshot the initial draft at open time so re-renders from the store
   // subscription can't reset the dialog while the user is typing.
   const [editing, setEditing] = useState<{ meta: PromptMeta; initial: Draft } | null>(null);
+  const [pendingReset, setPendingReset] = useState<PromptMeta | null>(null);
 
   const openEditor = (m: PromptMeta) => {
     const o = overrides[m.id];
@@ -148,7 +159,7 @@ export function SystemPromptsCard() {
                     meta={m}
                     edited={!!overrides[m.id]}
                     onEdit={() => openEditor(m)}
-                    onReset={overrides[m.id] ? () => reset(m.id) : null}
+                    onReset={overrides[m.id] ? () => setPendingReset(m) : null}
                   />
                 ))}
               </div>
@@ -180,6 +191,34 @@ export function SystemPromptsCard() {
           setEditing(null);
         }}
       />
+
+      <AlertDialog
+        open={pendingReset !== null}
+        onOpenChange={(o) => !o && setPendingReset(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset prompt to default?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingReset
+                ? `"${pendingReset.label}" will be restored to its built-in default. Your custom text will be discarded.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingReset) reset(pendingReset.id);
+                setPendingReset(null);
+              }}
+            >
+              Reset
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -341,7 +380,7 @@ function PromptEditorDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
           <Button size="sm" disabled={tempInvalid} onClick={() => onSave(draft)}>

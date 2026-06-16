@@ -35,6 +35,28 @@ export function openExtensionTab(opts: OpenExtensionTabOpts): number | null {
 }
 
 /**
+ * Open the extension panel as a NATIVE split-pane leaf (same frame as
+ * terminal/editor/browser — drag handle, icon, title, close — and splittable /
+ * joinable) instead of a standalone `kind:"ext"` tab. Reuses the same opts
+ * shape; dedups on an existing live pane leaf for the panel.
+ */
+let paneOpener: OpenExtensionTabFn | null = null;
+
+export function setOpenExtensionPane(fn: OpenExtensionTabFn | null): void {
+  paneOpener = fn;
+}
+
+export function openExtensionPane(opts: OpenExtensionTabOpts): number | null {
+  if (!paneOpener) {
+    console.warn(
+      "[extensions] openExtensionPane called before App wired the bridge; ignoring",
+    );
+    return null;
+  }
+  return paneOpener(opts);
+}
+
+/**
  * Lifecycle tone the extension can apply to its tab title. Re-exports the
  * type from `useTabs` so callers (host wrapper + bridge consumers) don't
  * have to import the whole tab module.
@@ -46,6 +68,8 @@ export type SetExtensionTabStateOpts = {
   panelId: string;
   reuseKey?: string;
   state: ExtensionTabState | null;
+  /** Optional new tab/pane title (e.g. "SQL Explorer · mydb"). */
+  title?: string;
 };
 
 export type SetExtensionTabStateFn = (opts: SetExtensionTabStateOpts) => void;

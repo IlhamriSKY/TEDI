@@ -35,14 +35,17 @@ import {
   panelsRegistry,
   settingsRegistry,
   shellTransformersRegistry,
+  sidebarSectionsRegistry,
   statusItemsRegistry,
   type HeaderItem,
   type PanelRenderer,
   type ShellCommandTransformer,
+  type SidebarSection,
   type StatusItem,
 } from "./registries";
 import {
   openExtensionTab as openExtTabBridge,
+  openExtensionPane as openExtPaneBridge,
   setExtensionTabState as setExtensionTabStateBridge,
   setSidebarVisible as setSidebarVisibleBridge,
   setRightSidebarVisible as setRightSidebarVisibleBridge,
@@ -147,10 +150,11 @@ export type ExtensionContext = {
   };
   /** Invoke a Rust command. Each command id needs an `invoke:` permission. */
   invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
-  /** OS-keychain bridge. Both branches gated. */
+  /** OS-keychain bridge. All branches gated. */
   secrets: {
     get(name: string): Promise<string | null>;
     set(name: string, value: string): Promise<void>;
+    delete(name: string): Promise<void>;
   };
   /** Event bus namespaced as `ext://<id>/<name>` to prevent name collisions. */
   events: {
@@ -202,6 +206,16 @@ export type ExtensionContext = {
     setItem(item: HeaderItem): void;
     removeItem(itemId: string): void;
   };
+  /** Left-sidebar section, rendered with the host's Workspaces-panel chrome
+   *  (h-8 header + scrollable row list) as one of the reorderable AppSidebar
+   *  sections. The section is present only while this extension is active, so
+   *  it appears / disappears with enable / disable. Re-call `setSection` with
+   *  the same `id` to update the row list (e.g. after a connection is added).
+   *  Requires `sidebar:write`. */
+  sidebar: {
+    setSection(section: SidebarSection): void;
+    removeSection(sectionId: string): void;
+  };
   /** Live access to the active editor leaf's CodeMirror buffer. `getActive`
    *  returns `null` when no editor is focused (terminal, preview, settings,
    *  ext tab, …). `setActiveContent` replaces the whole buffer via a single
@@ -222,14 +236,27 @@ export type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
-    /** Tint the tab's title text to reflect a lifecycle state. Matches the
-     *  tab on `(extensionId, panelId, reuseKey)`. Pass `null` to clear.
-     *  Tones mirror the SSH palette: `connecting`/`reconnecting` pulse
-     *  yellow, `connected` is green, `disconnected`/`error` is red. */
+    /** Open (or focus) the panel as a NATIVE split-pane leaf — same frame as a
+     *  terminal/editor/browser, splittable and joinable — instead of a
+     *  standalone tab. Same opts as `openExtensionTab`; dedups on an existing
+     *  live pane leaf for the panel. Requires `tabs:open`. */
+    openExtensionPane(opts: {
+      panelId: string;
+      title: string;
+      icon?: string;
+      reuseKey?: string;
+    }): number | null;
+    /** Tint the title text to reflect a lifecycle state and/or update the
+     *  title. Matches on `(extensionId, panelId, reuseKey)` and patches BOTH a
+     *  standalone tab and a live split-pane leaf for the panel. Pass `null`
+     *  state to clear the tone; pass `title` to relabel (e.g. show the open
+     *  database). Tones mirror the SSH palette: `connecting`/`reconnecting`
+     *  pulse yellow, `connected` is green, `disconnected`/`error` is red. */
     setExtensionTabState(opts: {
       panelId: string;
       reuseKey?: string;
       state: ExtensionTabState | null;
+      title?: string;
     }): void;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
@@ -431,6 +458,14 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           password: value,
         });
       },
+      async delete(name: string) {
+        // Deleting is a write; reuse the same gate as `set`.
+        requirePermission(ext.id, declared, "secrets:write");
+        await tauriInvoke("secrets_delete", {
+          service: `tedi-ext:${ext.id}`,
+          account: name,
+        });
+      },
     },
     events: {
       async emit(name: string, payload?: unknown) {
@@ -538,6 +573,17 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         headerItemsRegistry.removeItem(ext.id, itemId);
       },
     },
+    sidebar: {
+      setSection(section: SidebarSection) {
+        requirePermission(ext.id, declared, "sidebar:write");
+        sidebarSectionsRegistry.setSection(ext.id, section);
+      },
+      removeSection(sectionId: string) {
+        // No permission check: an extension can always remove its own section,
+        // even after a revoke (mirrors statusBar/headerBar removeItem).
+        sidebarSectionsRegistry.removeSection(ext.id, sectionId);
+      },
+    },
     editor: {
       getActive() {
         requirePermission(ext.id, declared, "editor:read");
@@ -559,6 +605,16 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           reuseKey: opts.reuseKey,
         });
       },
+      openExtensionPane(opts) {
+        requirePermission(ext.id, declared, "tabs:open");
+        return openExtPaneBridge({
+          extensionId: ext.id,
+          panelId: opts.panelId,
+          title: opts.title,
+          icon: opts.icon,
+          reuseKey: opts.reuseKey,
+        });
+      },
       setExtensionTabState(opts) {
         requirePermission(ext.id, declared, "tabs:open");
         setExtensionTabStateBridge({
@@ -566,6 +622,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           panelId: opts.panelId,
           reuseKey: opts.reuseKey,
           state: opts.state,
+          title: opts.title,
         });
       },
     },

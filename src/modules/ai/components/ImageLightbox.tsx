@@ -31,7 +31,7 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
       <button
         type="button"
         onClick={onClose}
-        className="bg-background/80 text-foreground hover:bg-background absolute top-4 right-4 cursor-pointer rounded-full p-1.5 shadow-sm"
+        className="bg-secondary text-foreground hover:bg-destructive/10 hover:text-destructive absolute top-4 right-4 cursor-pointer rounded-md p-1.5"
         aria-label="Close preview"
       >
         <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />

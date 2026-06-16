@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -72,6 +82,11 @@ export function AgentsSection() {
 
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [editingSnippet, setEditingSnippet] = useState<Snippet | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    kind: "deleteAgent" | "resetAgent" | "deleteSnippet";
+    id: string;
+    name: string;
+  } | null>(null);
 
   return (
     <div className="flex flex-col gap-7">
@@ -115,8 +130,16 @@ export function AgentsSection() {
                 overridden={overridden}
                 onActivate={() => setActiveAgentId(a.id)}
                 onEdit={() => setEditingAgent(a)}
-                onDelete={a.builtIn ? null : () => removeAgent(a.id)}
-                onReset={a.builtIn && overridden ? () => resetBuiltin(a.id) : null}
+                onDelete={
+                  a.builtIn
+                    ? null
+                    : () => setPendingAction({ kind: "deleteAgent", id: a.id, name: a.name })
+                }
+                onReset={
+                  a.builtIn && overridden
+                    ? () => setPendingAction({ kind: "resetAgent", id: a.id, name: a.name })
+                    : null
+                }
               />
             );
           })}
@@ -192,7 +215,13 @@ export function AgentsSection() {
                     size="icon"
                     variant="ghost"
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
-                    onClick={() => removeSnippet(s.id)}
+                    onClick={() =>
+                      setPendingAction({
+                        kind: "deleteSnippet",
+                        id: s.id,
+                        name: s.name || `#${s.handle}`,
+                      })
+                    }
                     aria-label="Delete"
                   >
                     <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
@@ -222,6 +251,45 @@ export function AgentsSection() {
           setEditingSnippet(null);
         }}
       />
+
+      <AlertDialog
+        open={pendingAction !== null}
+        onOpenChange={(o) => !o && setPendingAction(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingAction?.kind === "resetAgent"
+                ? "Reset agent to default?"
+                : pendingAction?.kind === "deleteSnippet"
+                  ? "Delete snippet?"
+                  : "Delete agent?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingAction
+                ? pendingAction.kind === "resetAgent"
+                  ? `"${pendingAction.name}" will be restored to its built-in defaults; your edits will be discarded.`
+                  : `"${pendingAction.name}" will be permanently removed. This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!pendingAction) return;
+                if (pendingAction.kind === "deleteAgent") removeAgent(pendingAction.id);
+                else if (pendingAction.kind === "resetAgent") resetBuiltin(pendingAction.id);
+                else removeSnippet(pendingAction.id);
+                setPendingAction(null);
+              }}
+            >
+              {pendingAction?.kind === "resetAgent" ? "Reset" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -420,7 +488,7 @@ function AgentEditorDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => onSave(draft)}>
@@ -516,7 +584,7 @@ function SnippetEditorDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => onSave(draft)}>

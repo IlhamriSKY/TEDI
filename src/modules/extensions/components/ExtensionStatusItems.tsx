@@ -22,7 +22,7 @@ export function ExtensionStatusItems() {
     return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
   });
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5">
       {sorted.map(({ extensionId, item }) => (
         <StatusItemView key={`${extensionId}:${item.id}`} extensionId={extensionId} item={item} />
       ))}

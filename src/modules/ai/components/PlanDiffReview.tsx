@@ -62,8 +62,8 @@ export function PlanDiffReview() {
           <Button
             type="button"
             size="sm"
-            variant="ghost"
-            className="hover:bg-destructive/10 hover:text-destructive h-7 gap-1.5 text-[11px]"
+            variant="destructive"
+            className="h-7 gap-1.5 text-[11px]"
             onClick={() => clear()}
             disabled={busy}
           >

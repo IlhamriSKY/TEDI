@@ -101,6 +101,81 @@ Zip both files at the archive root, install via _Settings -> Extensions ->
 From file_, review the permission dialog, click **Install**. That is the whole
 loop.
 
+### Local development (no zip, no publish)
+
+Iterating through "zip → install → test" for every change is slow. When you
+develop TEDI itself, keep your extension working copy under the repo's
+`extensions/<id>/` folder and run:
+
+```bash
+pnpm tauri:dev:ext      # link every extensions/<id> into the dev app, then run dev
+```
+
+This runs [`scripts/link-dev-extensions.mjs`](../scripts/link-dev-extensions.mjs),
+which creates a **directory junction (Windows) / symlink (Unix)** from the dev
+build's app-data extensions folder (`<appData>/id.ilhamrisky.tedi.dev/extensions/<id>`)
+to your repo working copy — no copying. `ext_list` follows the link and, with no
+`state.json` entry, loads the extension **enabled with all its manifest
+permissions auto-approved**; `extension.js`, assets, and `ctx.installPath`
+resolve through the link. Edit `extension.js` (or, if you build from `src/`, run
+`npm run build` to regenerate it — see
+[Build pipeline](#build-pipeline-src--extensionjs)), then **reload the window
+(Ctrl+R)** or toggle the extension in _Settings → Extensions_ to pick up the
+change (the loader re-reads the live file).
+
+| Command | What it does |
+| --- | --- |
+| `pnpm tauri:dev:ext` | Link all repo extensions, then `pnpm tauri:dev`. |
+| `pnpm link:ext` | Just create the links (add `tedi.sql-explorer …` to limit to ids; or `TEDI_DEV_EXT_IDS=`). |
+| `pnpm relink:ext` | `--force`: replace a previously **installed** dev copy with the live link. |
+| `pnpm unlink:ext` | Remove the dev links (never touches your repo source). |
+
+The links live only in the **dev** profile (`…tedi.dev`), so they never affect a
+real install. If an id was previously installed into the dev build, `link:ext`
+skips it to avoid clobbering — run `pnpm relink:ext` to switch it to the repo
+link.
+
+### Build pipeline (src/ → extension.js)
+
+A hello-world extension is a single hand-written `extension.js`. Past a few
+hundred lines that file turns into a "god file" nobody wants to read, so every
+**official** TEDI extension keeps its source split into small `src/` modules and
+bundles them into one `extension.js` with [esbuild](https://esbuild.github.io/).
+The convention (use any official extension as a template):
+
+```
+<id>/
+├── src/                 hand-written modules, none over ~300 lines
+│   ├── index.js         entry: exports activate(ctx) / deactivate()
+│   ├── runtime.js       shared state singletons + constants + setters
+│   └── …                one cohesive concern per file
+├── build.mjs            esbuild config (bundle, format:"esm", target:"es2022")
+├── package.json         "build": "node build.mjs"
+├── .gitignore           ignores /extension.js and node_modules/
+└── extension.js         GENERATED — never committed
+```
+
+```bash
+npm install        # once
+npm run build      # src/ → extension.js (single ESM bundle)
+```
+
+Key rules that keep the fleet consistent:
+
+- **`extension.js` is a build artifact, not source.** It is git-ignored and
+  rebuilt in CI, so the repo only ever holds readable `src/` modules.
+- **Bundle, don't ship `src/`.** The host imports exactly one `manifest.main`
+  file; esbuild inlines every `src/` import into it (`bundle: true`,
+  `format: "esm"`). `activate` / `deactivate` stay exported from the bundle.
+- **No host-side build.** TEDI loads `extension.js` verbatim — there is no
+  transpile step at install or runtime, so the bundle must be plain ES2022.
+- **Share mutable state via setters.** Put singletons + `setX()` writers in one
+  `runtime.js`; other modules import the live bindings (esbuild preserves ESM
+  live-binding semantics across the bundle) instead of duplicating state.
+
+CI builds the same bundle into the release zip — see
+[Packaging](#packaging) and [Releasing via CI](#releasing-via-ci) below.
+
 ### How `activate` / `deactivate` are resolved
 
 ```js
@@ -128,10 +203,16 @@ loop.
 <id>/
 ├── manifest.json        required, at the archive root
 ├── extension.js         optional ES module exporting activate(ctx) / deactivate()
+│                        (hand-written, OR generated from src/ — see Build pipeline)
 ├── logo.png             optional icon shown on the Settings -> Extensions card
 ├── assets/              optional images, css, ...
 └── sidecar/             optional native binaries (made executable on install)
 ```
+
+Only the **built** artifacts above ship in the zip. Larger extensions keep their
+source in `src/` and generate `extension.js` with a bundler — that generated file
+is git-ignored and rebuilt in CI, never committed. See
+[Build pipeline](#build-pipeline-src--extensionjs).
 
 `<id>` equals `manifest.id` and becomes the on-disk folder name. The installer
 auto-unwraps a single-root archive (e.g. a GitHub source zip `repo-<sha>/…`)
@@ -930,8 +1011,16 @@ registry clear), `shell.registerCommandTransformer`, `registerPanelRenderer`, an
 
 ### Packaging
 
-Zip the folder so `manifest.json` is at the archive root (single-root archives
-auto-unwrap, so a GitHub source zip works too):
+If your extension builds from `src/` (see
+[Build pipeline](#build-pipeline-src--extensionjs)), generate the bundle first so
+`extension.js` exists — it is git-ignored, so a fresh checkout won't have it:
+
+```bash
+npm install && npm run build
+```
+
+Then zip the folder so `manifest.json` is at the archive root (single-root
+archives auto-unwrap, so a GitHub source zip works too):
 
 ```powershell
 # PowerShell
@@ -943,6 +1032,17 @@ Compress-Archive -Path manifest.json,extension.js,logo.png `
 # bash / zsh
 zip -j dist/my-ext-1.0.0.zip manifest.json extension.js logo.png
 ```
+
+### Releasing via CI
+
+Every official extension ships a `.github/workflows/release.yml` that fires on a
+`vX.Y.Z` tag, runs `npm ci && npm run build`, zips the built `extension.js` with
+`manifest.json` + assets + `sidecar/`, and attaches the zip to a GitHub release.
+This is why `extension.js` never needs to be committed: the tag is the only
+trigger and CI produces the artifact. The manifest `version` must equal the tag
+(the installer reads the version from the manifest, not the tag). To cut a
+release: bump `manifest.json` (and `package.json`), update the CHANGELOG, commit,
+then `git tag vX.Y.Z && git push --tags`.
 
 Install caps and guards: package <= 50 MiB total, <= 10 MiB per file (counted
 from actual decompressed bytes), zip path-traversal rejected, duplicate zip paths

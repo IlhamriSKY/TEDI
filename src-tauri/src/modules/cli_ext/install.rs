@@ -1,9 +1,10 @@
 //! Install execution for the `tedi ext` CLI: the plain-mode progress
 //! reporter plus the local-file and GitHub-release install paths.
 
-use std::io::Write;
-
-use crate::modules::cli_paint::{paint_dim, paint_id, paint_ok};
+use crate::modules::cli_paint::{
+    end_progress_line, overwrite_line, paint_dim, paint_id, paint_ok, print_download_progress,
+    progress_line,
+};
 use crate::modules::extensions::github;
 use crate::modules::extensions::install::{
     install_from_bytes_with_progress, InstallOutcome, InstallPhase, InstallProgress, NoopProgress,
@@ -11,10 +12,11 @@ use crate::modules::extensions::install::{
 
 use super::helpers::interactive;
 
-/// Plain-mode progress reporter: prints one human-readable line per phase
-/// and overwrites the extract progress on a single line so the terminal
-/// doesn't get spammed. Falls back to plain println on Windows console
-/// hosts that don't honour `\r`.
+/// Plain-mode progress reporter for `tedi ext` installs. Renders the shared
+/// `cli_paint` download/extract bar on a single overwritten line, plus one dim
+/// status line per non-download phase. `last_was_progress` tracks whether a
+/// sticky bar is still on the current line so the next status line starts
+/// fresh. The bar helpers no-op off a TTY, so piped output stays clean.
 pub(super) struct CliProgress {
     last_was_progress: std::sync::Mutex<bool>,
 }
@@ -25,84 +27,75 @@ impl CliProgress {
             last_was_progress: std::sync::Mutex::new(false),
         }
     }
-}
 
-impl InstallProgress for CliProgress {
-    fn phase(&self, phase: InstallPhase) {
-        let (line, sticky) = match phase {
-            InstallPhase::Downloading {
-                bytes_done,
-                bytes_total,
-            } => (
-                match bytes_total {
-                    Some(t) if t > 0 => {
-                        format!("Downloading: {} / {}", fmt_bytes(bytes_done), fmt_bytes(t))
-                    }
-                    _ => format!("Downloading: {}", fmt_bytes(bytes_done)),
-                },
-                true,
-            ),
-            InstallPhase::Verifying => ("Verifying...".into(), false),
-            InstallPhase::Extracting => ("Extracting...".into(), false),
-            InstallPhase::Finalizing => ("Finalizing...".into(), false),
-            InstallPhase::Done => ("Done.".into(), false),
-        };
-        let mut stdout = std::io::stdout();
+    fn set_sticky(&self, sticky: bool) {
+        *self
+            .last_was_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = sticky;
+    }
+
+    /// Drop to a fresh line if a sticky progress bar is still on screen, so a
+    /// following status line isn't appended to the half-drawn bar.
+    fn finish_sticky(&self) {
         let mut last = self
             .last_was_progress
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if *last && !sticky {
-            let _ = writeln!(stdout);
+        if *last {
+            end_progress_line();
+            *last = false;
         }
-        if sticky {
-            let _ = write!(stdout, "\r\x1b[2K{line}");
-        } else {
-            let _ = writeln!(stdout, "{line}");
+    }
+}
+
+impl InstallProgress for CliProgress {
+    fn phase(&self, phase: InstallPhase) {
+        if let InstallPhase::Downloading {
+            bytes_done,
+            bytes_total,
+        } = phase
+        {
+            print_download_progress(bytes_done, bytes_total);
+            self.set_sticky(true);
+            return;
         }
-        let _ = stdout.flush();
-        *last = sticky;
+        // Every other phase is a one-shot status line. Close the sticky bar
+        // first so the line isn't appended to a half-drawn bar.
+        self.finish_sticky();
+        let line = match phase {
+            InstallPhase::Verifying => "Verifying...",
+            InstallPhase::Extracting => "Extracting...",
+            InstallPhase::Finalizing => "Finalizing...",
+            InstallPhase::Done => "Done.",
+            InstallPhase::Downloading { .. } => unreachable!("handled above"),
+        };
+        println!("{}", paint_dim(line));
     }
 
     fn file(&self, index: usize, total: usize, _path: &str) {
         if total == 0 {
             return;
         }
+        // Throttle to ~10 ticks plus a guaranteed final one so the bar doesn't
+        // thrash on archives with thousands of entries.
         let step = (total / 10).max(1);
-        if !index.is_multiple_of(step) && index + 1 != total {
+        let is_last = index + 1 == total;
+        if !index.is_multiple_of(step) && !is_last {
             return;
         }
-        let pct = ((index as f64 + 1.0) / total as f64 * 100.0).round() as u32;
-        let mut stdout = std::io::stdout();
-        let _ = write!(
-            stdout,
-            "\r\x1b[2KExtracting: {}/{} files ({pct}%)",
-            index + 1,
-            total
-        );
-        let _ = stdout.flush();
-        let mut last = self
-            .last_was_progress
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if index + 1 == total {
-            let _ = writeln!(stdout);
-            *last = false;
+        let frac = (index as f64 + 1.0) / total as f64;
+        overwrite_line(&progress_line(
+            "Extracting",
+            frac,
+            &format!("{} / {} files", index + 1, total),
+        ));
+        if is_last {
+            end_progress_line();
+            self.set_sticky(false);
         } else {
-            *last = true;
+            self.set_sticky(true);
         }
-    }
-}
-
-pub(super) fn fmt_bytes(b: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    if b >= MB {
-        format!("{:.1} MiB", b as f64 / MB as f64)
-    } else if b >= KB {
-        format!("{:.1} KiB", b as f64 / KB as f64)
-    } else {
-        format!("{b} B")
     }
 }
 
@@ -130,7 +123,7 @@ pub(super) fn install_github(
     let json = runtime.block_on(github::http_get_text(&api))?;
     let zip_url = github::pick_release_zip(&json)
         .ok_or_else(|| format!("no .zip asset in latest release of {owner_repo}"))?;
-    println!("{} {zip_url}", paint_dim("Downloading"));
+    println!("{} {}", paint_dim("Downloading"), paint_dim(&zip_url));
     let progress: Box<dyn InstallProgress> = if interactive() {
         Box::new(CliProgress::new())
     } else {

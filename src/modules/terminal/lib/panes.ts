@@ -2,6 +2,8 @@
 // native browser). `kind: "leaf"` stays for back-compat; the discriminator is
 // `leafKind`.
 
+import type { ExtensionTabState } from "@/modules/tabs/lib/tabTypes";
+
 export type PaneId = number;
 
 export type SplitDir = "row" | "col";
@@ -92,9 +94,14 @@ export type ExtensionPanelLeafState = {
    *  never mounted twice (the SQL Explorer keeps module singletons). */
   reuseKey?: string;
   /** Cached chrome for the pane header / tab strip. The extension's renderer
-   *  owns the body; these are just the label + icon hint. */
+   *  owns the body; these are just the label + icon hint. Updated at runtime
+   *  via `ctx.tabs.setExtensionTabState({ title })`. */
   title?: string;
   icon?: string;
+  /** Extension-driven lifecycle tone (connection / job state). Same palette as
+   *  the SSH label + the standalone ext tab; set via
+   *  `ctx.tabs.setExtensionTabState({ state })`. */
+  state?: ExtensionTabState;
   /** Privacy flag kept for uniformity with the other leaf kinds. AI never
    *  reads extension panels regardless. */
   private?: boolean;
@@ -225,6 +232,36 @@ export function updateBrowserLeafTitle(n: PaneNode, id: PaneId, title: string): 
   return { ...n, children: n.children.map((c) => updateBrowserLeafTitle(c, id, title)) };
 }
 
+/** Patch an extension-panel leaf's `title` and/or lifecycle `state` by id.
+ *  `state: null` clears the tone. Returns the same tree by reference when
+ *  nothing changed so callers can bail. No-op for other leaves / mismatched
+ *  ids. */
+export function updateExtensionPanelLeaf(
+  n: PaneNode,
+  id: PaneId,
+  patch: { title?: string; state?: ExtensionTabState | null },
+): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "extension-panel") return n;
+    let next: PaneLeaf = n;
+    if (patch.title !== undefined && patch.title !== n.title) {
+      next = { ...next, title: patch.title };
+    }
+    if (patch.state !== undefined) {
+      if (patch.state === null) {
+        if (next.state !== undefined) {
+          const { state: _drop, ...rest } = next;
+          next = rest as PaneLeaf;
+        }
+      } else if (next.state !== patch.state) {
+        next = { ...next, state: patch.state };
+      }
+    }
+    return next;
+  }
+  return { ...n, children: n.children.map((c) => updateExtensionPanelLeaf(c, id, patch)) };
+}
+
 /** Patch an editor leaf's mutable state. */
 export function updateEditorLeaf(
   n: PaneNode,
@@ -275,6 +312,7 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       ...(leaf.reuseKey ? { reuseKey: leaf.reuseKey } : {}),
       ...(leaf.title ? { title: leaf.title } : {}),
       ...(leaf.icon ? { icon: leaf.icon } : {}),
+      ...(leaf.state ? { state: leaf.state } : {}),
       ...(leaf.private ? { private: true } : {}),
     };
   }

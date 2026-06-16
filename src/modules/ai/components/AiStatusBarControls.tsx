@@ -19,7 +19,6 @@ import {
   StopCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 import { useRef } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { APPROVAL_MODE_SEND } from "../lib/approvalModeStyle";
@@ -27,27 +26,27 @@ import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useChatStore } from "../store/chatStore";
 import { ModelDropdown } from "./ModelDropdown";
 
-export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
+export function AiOpenButton({ onToggle, active }: { onToggle: () => void; active: boolean }) {
   const tooltipLabel = (
     <span className="inline-flex items-center gap-1.5">
-      <span>Open AI agent</span>
+      <span>{active ? "Close AI agent" : "Open AI agent"}</span>
       <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
     </span>
   );
   return (
     <IconTooltip label={tooltipLabel} side="top">
-      <motion.button
-        initial={{ y: -15 }}
-        animate={{ y: 0 }}
+      <button
         type="button"
-        onClick={onOpen}
-        aria-label="Open AI agent"
+        onClick={onToggle}
+        aria-label={active ? "Close AI agent" : "Open AI agent"}
+        aria-pressed={active}
         className={cn(
-          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          active ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
         <HugeiconsIcon icon={SparklesIcon} size={16} strokeWidth={1.75} className="shrink-0" />
-      </motion.button>
+      </button>
     </IconTooltip>
   );
 }

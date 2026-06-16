@@ -113,6 +113,7 @@ export function ExplorerHeader({
 
       {collapsed ? null : (
         <>
+          <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
           <IconTooltip label="Search files" side="bottom">
             <Button
               variant="ghost"

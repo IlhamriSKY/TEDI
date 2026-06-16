@@ -180,7 +180,7 @@ export function UpdaterDialog({
         <DialogFooter>
           {state.kind === "available" && (
             <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Later
               </Button>
               <Button onClick={onInstall}>Download & install</Button>
@@ -188,20 +188,20 @@ export function UpdaterDialog({
           )}
           {state.kind === "manual-available" && (
             <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Later
               </Button>
               <Button onClick={() => void openUrl(state.releaseUrl)}>Download package</Button>
             </>
           )}
           {state.kind === "downloading" && (
-            <Button variant="ghost" disabled>
+            <Button variant="outline" disabled>
               Installing…
             </Button>
           )}
           {state.kind === "ready" && (
             <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Later
               </Button>
               <Button onClick={onRelaunch}>Restart now</Button>
@@ -209,7 +209,7 @@ export function UpdaterDialog({
           )}
           {state.kind === "error" && (
             <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
               {onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
@@ -217,14 +217,14 @@ export function UpdaterDialog({
           )}
           {state.kind === "idle" && onRetry ? (
             <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
               <Button onClick={onRetry}>Check again</Button>
             </>
           ) : null}
           {state.kind === "checking" && (
-            <Button variant="ghost" disabled>
+            <Button variant="outline" disabled>
               Checking…
             </Button>
           )}

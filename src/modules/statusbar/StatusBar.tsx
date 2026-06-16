@@ -6,7 +6,8 @@ import { useChatStore } from "@/modules/ai";
 import {
   ExtensionStatusItems,
   RightPanelCompactToggles,
-  RightPanelTextToggles,
+  RightPanelDefaultToggles,
+  SidebarSectionRightToggles,
 } from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
@@ -14,7 +15,6 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { UpdaterPill } from "@/modules/updater";
 import { GitBranchIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
@@ -26,8 +26,6 @@ type Props = {
   home: string | null;
   onCd: (path: string) => void;
   onOpenMini: () => void;
-  /** True when the AI panel is open and a key is loaded. */
-  hasComposer: boolean;
   /** When set, shows a one-click "Open preview" chip pointing at this URL. */
   detectedBrowserUrl?: string | null;
   onOpenPreview?: () => void;
@@ -41,12 +39,11 @@ function StatusBarInner({
   home,
   onCd,
   onOpenMini,
-  hasComposer,
   detectedBrowserUrl,
   onOpenPreview,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
-  const openPanel = useChatStore((s) => s.openPanel);
+  const togglePanel = useChatStore((s) => s.togglePanel);
 
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
@@ -74,18 +71,20 @@ function StatusBarInner({
             etc.) so the right cluster leads with the update prompt. */}
         <UpdaterPill />
         {/* Extension-contributed borderless icons (status items + compact
-            panel toggles) cluster at the leftmost slot so the icon row stays
-            visually unified. */}
+            panel toggles + movable sidebar-section toggles) cluster at the
+            leftmost slot so the icon row stays visually unified, and a section's
+            toggle keeps the same position as the other tree-panel toggles. */}
         <ExtensionStatusItems />
         <RightPanelCompactToggles />
+        <SidebarSectionRightToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
         <AgentStatusPill onClick={onOpenMini} />
-        {/* Full-label right-panel toggles (text + Kbd) sit with the other
-            "open X" buttons so the bordered row reads consistently. */}
-        <RightPanelTextToggles />
+        {/* Default (non-compact) right-panel toggles sit with the other
+            "open X" buttons so the icon row reads consistently. */}
+        <RightPanelDefaultToggles />
         <ScmRightOpenButton />
-        {!panelOpen || !hasComposer ? <AiOpenButton onOpen={openPanel} /> : null}
+        <AiOpenButton onToggle={togglePanel} active={panelOpen} />
       </div>
     </footer>
   );
@@ -104,32 +103,32 @@ function OsBadge() {
 }
 
 /**
- * "Open Source Control" status-bar button. Visible only when the user has
- * opted in to the right-panel SCM layout (and SCM itself is enabled) and the
- * panel isn't already open. Icon-only chrome matches `AiOpenButton` and the
- * extension panel toggles so the status-bar right cluster reads as a single
- * row of glyphs.
+ * Source Control status-bar toggle. Shown whenever the user has opted in to the
+ * right-panel SCM layout (and SCM is enabled); it stays in place whether open or
+ * closed (clicking toggles, the open state shows as active) so the status-bar
+ * row never reflows. Icon-only chrome matches `AiOpenButton` and the extension
+ * panel toggles so the right cluster reads as a single row of glyphs.
  */
 function ScmRightOpenButton() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
   const open = useScmRightPanelStore((s) => s.open);
-  const openPanel = useScmRightPanelStore((s) => s.openPanel);
-  if (!showSourceControl || !sourceControlInRightPanel || open) return null;
+  const toggle = useScmRightPanelStore((s) => s.toggle);
+  if (!showSourceControl || !sourceControlInRightPanel) return null;
   return (
-    <IconTooltip label="Open Source Control" side="top">
-      <motion.button
-        initial={{ y: -15 }}
-        animate={{ y: 0 }}
+    <IconTooltip label={`${open ? "Close" : "Open"} Source Control`} side="top">
+      <button
         type="button"
-        onClick={openPanel}
-        aria-label="Open Source Control"
+        onClick={toggle}
+        aria-label={`${open ? "Close" : "Open"} Source Control`}
+        aria-pressed={open}
         className={cn(
-          "text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80",
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          open ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
         <HugeiconsIcon icon={GitBranchIcon} size={16} strokeWidth={1.75} className="shrink-0" />
-      </motion.button>
+      </button>
     </IconTooltip>
   );
 }

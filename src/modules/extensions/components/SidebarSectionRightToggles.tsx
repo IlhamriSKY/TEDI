@@ -1,0 +1,91 @@
+/**
+ * Status-bar toggle buttons for extension sidebar sections that have been moved
+ * to the right slot (placement === "right"). Mirrors `ScmRightOpenButton`: an
+ * icon-only button that opens the section in the shared right slot, hidden while
+ * it's already open. One button per moved section, using the section's own icon.
+ */
+import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { cn } from "@/lib/utils";
+import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
+import { DashboardSquare02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+
+import { sidebarSectionsRegistry } from "../registries";
+import { useRegistry } from "../useRegistry";
+import { useRightPanelStore } from "../rightPanelStore";
+import {
+  sectionPanelId,
+  sidebarSectionKey,
+  useSidebarPlacementStore,
+} from "../sidebarPlacementStore";
+
+export function SidebarSectionRightToggles() {
+  const sections = useRegistry(sidebarSectionsRegistry);
+  const placement = useSidebarPlacementStore((s) => s.placement);
+  const active = useRightPanelStore((s) => s.active);
+
+  const moved = sections.filter(
+    ({ extensionId, item }) =>
+      item.movableToRight && placement[sidebarSectionKey(extensionId, item.id)] === "right",
+  );
+  if (moved.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {moved.map(({ extensionId, item }) => (
+        <SectionToggle
+          key={`${extensionId}:${item.id}`}
+          extensionId={extensionId}
+          sectionId={item.id}
+          title={item.title}
+          icon={item.icon}
+          isOpen={active?.extensionId === extensionId && active?.panelId === sectionPanelId(item.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SectionToggle({
+  extensionId,
+  sectionId,
+  title,
+  icon,
+  isOpen,
+}: {
+  extensionId: string;
+  sectionId: string;
+  title: string;
+  icon?: string;
+  isOpen: boolean;
+}) {
+  // Subscribe so this re-renders once the lazy HugeIcons barrel loads and
+  // tryGetHugeIcon() starts resolving (the boolean itself isn't needed here).
+  useHugeIconsReady();
+  // Always visible (never removed from the row, so the status bar never
+  // reflows); clicking toggles the panel, and the open state shows as active.
+  const toggle = useRightPanelStore((s) => s.toggle);
+  const m = icon?.match(/^hugeicon:(.+)$/);
+  const hugeIcon = m ? tryGetHugeIcon(m[1]) : null;
+  return (
+    <IconTooltip label={`${isOpen ? "Close" : "Open"} ${title}`} side="top">
+      <button
+        type="button"
+        onClick={() => toggle(extensionId, sectionPanelId(sectionId))}
+        aria-label={`${isOpen ? "Close" : "Open"} ${title}`}
+        aria-pressed={isOpen}
+        className={cn(
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          isOpen ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <HugeiconsIcon
+          icon={hugeIcon ?? DashboardSquare02Icon}
+          size={16}
+          strokeWidth={1.75}
+          className="shrink-0"
+        />
+      </button>
+    </IconTooltip>
+  );
+}

@@ -159,8 +159,12 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
             // emerald when connected, red on disconnect/error. Icon stays sky.
             e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
             // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
-            // its DB connection state). Same palette as the SSH label.
+            // its DB connection state). Same palette as the SSH label — for
+            // both the standalone ext tab and an extension-panel pane leaf.
             e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
+            e.kind === "pane-leaf" && e.leafKind === "extension-panel"
+              ? extensionStateLabelClass(e.extState)
+              : null,
             // Private leaves carry the red on the label (not the icon) so the
             // icon colour stays free to show AI CLI status. Last = wins.
             e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",

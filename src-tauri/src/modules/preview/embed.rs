@@ -204,6 +204,10 @@ pub fn apply_webview2_browser_args_env() {
 /// webview's render the child BLANK on Windows (tauri-apps/tauri#13092). Those
 /// same flags are what let an OFF-SCREEN background pane keep rendering so its
 /// DOM stays live + readable.
+// Private spawn helper: the parameters mirror `add_child`'s own inputs (label,
+// url, position, size, transparency) plus our two pane flags; bundling them into
+// a struct for a single call path would add ceremony without clarity.
+#[allow(clippy::too_many_arguments)]
 fn spawn_preview_child(
     app: &tauri::AppHandle,
     label: String,
@@ -212,6 +216,7 @@ fn spawn_preview_child(
     size: PhysicalSize<i32>,
     transparent: bool,
     tab_id: i64,
+    focus_on_create: bool,
 ) -> Result<(), String> {
     let window = app
         .get_window("main")
@@ -260,6 +265,18 @@ fn spawn_preview_child(
             builder = builder.transparent(true);
         }
         builder = builder.initialization_script(TRANSPARENT_BODY_SCRIPT);
+    }
+    // A background (off-screen) pane is created WITHOUT focus. wry's default is
+    // `focused = true`, which makes WebView2 call `controller.MoveFocus(...)` the
+    // moment the child is created (wry webview2 mod.rs) - that yanks keyboard
+    // focus off whatever the user is typing into (a terminal/editor) while the
+    // agent quietly opens a browser to read in the background. The page still
+    // loads + lays out off-screen for headless reads; focus only matters once the
+    // user actually switches to the pane, at which point a real click focuses it.
+    // The foreground create path keeps the default (focus_on_create = true) so a
+    // browser the user just opened is ready to type into.
+    if !focus_on_create {
+        builder = builder.focused(false);
     }
     window
         .add_child(builder, position, size)
@@ -330,7 +347,10 @@ pub async fn preview_embed_update(
         // parent window) so it never shows on-screen yet keeps rendering.
         let position = PhysicalPosition::new(-vw - 64, 0);
         let size = PhysicalSize::new(vw, vh);
-        return spawn_preview_child(&app, label, target, position, size, transparent, tab_id);
+        // Background create: do NOT grab focus (the user is working elsewhere).
+        return spawn_preview_child(
+            &app, label, target, position, size, transparent, tab_id, false,
+        );
     }
 
     let position = PhysicalPosition::new(bounds.x.round() as i32, bounds.y.round() as i32);
@@ -362,8 +382,9 @@ pub async fn preview_embed_update(
     }
     // First activation of a previously off-screen background pane lands here too
     // (the existing-webview branch above repositions it); a never-created
-    // foreground pane is created on the spot.
-    spawn_preview_child(&app, label, target, position, size, transparent, tab_id)
+    // foreground pane is created on the spot. This path is a VISIBLE pane the
+    // user is looking at, so let it take focus like any browser tab.
+    spawn_preview_child(&app, label, target, position, size, transparent, tab_id, true)
 }
 
 /// Navigate an existing embedded preview webview to `url` (address-bar submit,

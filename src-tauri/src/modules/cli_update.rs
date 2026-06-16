@@ -25,7 +25,10 @@
 use std::io::{IsTerminal, Write};
 
 use crate::modules::cli;
-use crate::modules::cli_paint::{paint_dim, paint_header, paint_id, paint_ok, paint_warn};
+use crate::modules::cli_paint::{
+    end_progress_line, fmt_bytes, paint_dim, paint_header, paint_id, paint_ok, paint_warn,
+    print_download_progress,
+};
 use crate::modules::extensions::{github, version};
 
 /// Update manifest URL. Mirrors `plugins.updater.endpoints[0]` in
@@ -265,12 +268,16 @@ fn run_update() -> Result<(), String> {
         );
     }
 
-    println!("{} {}", paint_dim("Downloading"), platform.url);
-    let bytes = runtime.block_on(github::http_get_bytes(&platform.url))?;
+    println!("{} {}", paint_dim("Downloading"), paint_dim(&platform.url));
+    let bytes = runtime.block_on(github::http_get_bytes_with_progress(
+        &platform.url,
+        print_download_progress,
+    ))?;
+    end_progress_line();
     println!(
         "{} {}",
-        paint_dim("Downloaded"),
-        paint_dim(&format!("{} bytes.", bytes.len())),
+        paint_ok("✓"),
+        paint_dim(&format!("Downloaded {}.", fmt_bytes(bytes.len() as u64))),
     );
 
     println!("{}", paint_dim("Verifying signature..."));

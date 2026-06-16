@@ -7,7 +7,7 @@
  *   `secrets:read`, `secrets:write`
  *   `invoke:my_command_*` (glob), `invoke:fs_read_file` (exact)
  *   `events:emit`, `events:listen`
- *   `ui:toast`, `ui:openTab`
+ *   `ui:toast`, `tabs:open`
  *   `panels:register`
  *
  * Anything undeclared is denied; the host throws `PermissionDeniedError`.
@@ -122,6 +122,7 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   if (p.startsWith("panels:")) return "low";
   if (p.startsWith("statusbar:")) return "low";
   if (p.startsWith("headerbar:")) return "low";
+  if (p.startsWith("sidebar:")) return "low";
   if (p === "tabs:open") return "low";
   // Active-editor buffer access. Read returns the live (possibly dirty)
   // text; write replaces it via a CodeMirror transaction. Medium-risk
