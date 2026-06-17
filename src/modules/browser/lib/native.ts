@@ -118,3 +118,22 @@ export async function browserEmbedClose(tabId: number): Promise<void> {
   createdTransparentById.delete(tabId);
   await invoke("preview_embed_close", { tabId });
 }
+
+/**
+ * Hide (but do NOT destroy) an embedded webview. Used when a preview's owning
+ * workspace becomes inactive: its `BrowserPane` unmounts, so the rAF loop that
+ * normally hides the always-on-top native webview is gone, yet the webview is
+ * deliberately kept alive (so switching back doesn't reload the page). Without
+ * this the webview stays composited over the now-active workspace. Empty url +
+ * `visible: false` hides an existing webview, or no-ops when none exists - it
+ * never creates or reloads one.
+ */
+export async function browserEmbedHide(tabId: number): Promise<void> {
+  await invoke("preview_embed_update", {
+    tabId,
+    url: "",
+    bounds: { x: 0, y: 0, width: 0, height: 0 },
+    visible: false,
+    transparent: false,
+  });
+}

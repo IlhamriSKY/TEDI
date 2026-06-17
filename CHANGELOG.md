@@ -4,6 +4,30 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.39] - 17-06-2026
+
+### Fixed
+
+- **Extension panels in a split-pane leaf now scroll when their content
+  overflows.** The panel mount
+  ([ExtensionPanelMount](src/modules/extensions/components/ExtensionPanelMount.tsx))
+  now gets `h-full` so it has a definite height inside a split-pane leaf, whose
+  body wrapper ([PaneTreeView](src/modules/panes/PaneTreeView.tsx)) is a
+  relative block — there, `flex-1` alone left the mount unsized, so a tall panel
+  (e.g. a short SQL Explorer pane) was clipped by the leaf frame with no
+  scrollbar. The tab surface, whose wrapper is a flex container, already gave
+  the mount a definite height and is unaffected. Pairs with SQL Explorer 0.4.5,
+  which adds the in-pane scroll + collapsible editor.
+- **Inactive-workspace browser previews no longer float over the active
+  workspace.** An embedded preview's native webview composites above the DOM and
+  is kept alive across workspace switches (so returning doesn't reload), but when
+  its workspace goes inactive the `BrowserPane` unmounts and the rAF loop that
+  hides the webview stops while the webview stays shown. The session-disposal
+  hook ([useSessionDisposal](src/app/hooks/useSessionDisposal.ts)) now hides such
+  webviews via a new `browserEmbedHide` (sets the preview invisible without
+  destroying it), latched to fire once per switch-away; returning to the
+  workspace remounts the pane and re-shows it.
+
 ## [0.3.38] - 17-06-2026
 
 ### Added

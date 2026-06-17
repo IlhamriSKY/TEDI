@@ -1,5 +1,5 @@
 import { type EditorPaneHandle } from "@/modules/editor";
-import { browserEmbedClose } from "@/modules/browser";
+import { browserEmbedClose, browserEmbedHide } from "@/modules/browser";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -43,23 +43,34 @@ export function useSessionDisposal({
 }: Params): void {
   const liveLeavesRef = useRef<Set<number>>(new Set());
   const liveBrowserRef = useRef<Set<number>>(new Set());
+  // Inactive-workspace preview leaves whose always-on-top webview we've already
+  // hidden, so the hide fires once per switch-away instead of on every `tabs`
+  // change. Cleared when the leaf returns to the active workspace or closes.
+  const hiddenInactiveBrowserRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const liveTerm = new Set<number>();
     const liveEditor = new Set<number>();
     const liveBrowser = new Set<number>();
-    const collect = (t: Tab) => {
+    // Browser leaves whose `BrowserPane` is actually MOUNTED right now: only the
+    // active workspace's tabs render. A browser leaf that's in `liveBrowser`
+    // (kept alive across workspaces) but NOT here has an unmounted pane, so
+    // nothing drives its webview's hide.
+    const activeBrowser = new Set<number>();
+    const collect = (t: Tab, mounted: boolean) => {
       if (t.kind !== "pane") return;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind === "terminal") liveTerm.add(l.id);
-        else if (l.leafKind === "browser") liveBrowser.add(l.id);
-        else if (l.leafKind === "editor") liveEditor.add(l.id);
+        else if (l.leafKind === "browser") {
+          liveBrowser.add(l.id);
+          if (mounted) activeBrowser.add(l.id);
+        } else if (l.leafKind === "editor") liveEditor.add(l.id);
         // extension-panel leaves own their lifecycle via the React mount +
         // the extension's cleanup callback; nothing to dispose here.
       }
     };
-    for (const t of tabs) collect(t);
+    for (const t of tabs) collect(t, true);
     for (const cached of liveTabsByWorkspace.current.values()) {
-      for (const t of cached.tabs) collect(t);
+      for (const t of cached.tabs) collect(t, false);
     }
     for (const id of liveLeavesRef.current) {
       if (!liveTerm.has(id)) disposeSession(id);
@@ -70,9 +81,28 @@ export function useSessionDisposal({
     // the cross-workspace union avoids destroying a preview just because its
     // workspace became inactive (which would then blank on return).
     for (const id of liveBrowserRef.current) {
-      if (!liveBrowser.has(id)) void browserEmbedClose(id).catch(() => {});
+      if (!liveBrowser.has(id)) {
+        void browserEmbedClose(id).catch(() => {});
+        hiddenInactiveBrowserRef.current.delete(id);
+      }
     }
     liveBrowserRef.current = liveBrowser;
+    // A preview alive in an INACTIVE workspace has an unmounted `BrowserPane`,
+    // so its rAF hide loop is gone while the native webview (which composites
+    // ABOVE the DOM) stays shown - floating over the now-active workspace. Hide
+    // it (without destroying, so switching back doesn't reload). Switching back
+    // remounts the pane, which re-shows + repositions via its rAF loop. The
+    // latch makes this fire once per switch-away, not on every `tabs` change.
+    for (const id of liveBrowser) {
+      if (!activeBrowser.has(id)) {
+        if (!hiddenInactiveBrowserRef.current.has(id)) {
+          hiddenInactiveBrowserRef.current.add(id);
+          void browserEmbedHide(id).catch(() => {});
+        }
+      } else {
+        hiddenInactiveBrowserRef.current.delete(id);
+      }
+    }
     for (const k of [...terminalRefs.current.keys()])
       if (!liveTerm.has(k)) terminalRefs.current.delete(k);
     for (const k of [...searchAddons.current.keys()])

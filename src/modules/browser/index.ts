@@ -4,6 +4,7 @@ export { setPaneDragActive } from "./lib/overlaySuppress";
 export {
   previewEmbedAct,
   browserEmbedClose,
+  browserEmbedHide,
   previewEmbedDispatch,
   previewEmbedRead,
   previewEmbedScreenshot,

@@ -79,7 +79,12 @@ export function ExtensionPanelMount({
       data-ext-panel-mount
       data-ext-id={extensionId}
       data-panel-id={panelId}
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      // `h-full` (not just flex-1): the split-pane leaf body wrapper
+      // (PaneTreeView) is a relative *block*, so flex-1 alone gives no definite
+      // height and an overflowing panel (e.g. a short SQL Explorer pane) can't
+      // scroll. h-full pins it to the leaf height; flex-1 still fills the tab
+      // surface whose wrapper IS a flex container.
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-auto" />
       {!renderer ? (
