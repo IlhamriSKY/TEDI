@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.38] - 17-06-2026
+
+### Added
+
+- **Live AI CLI status for hidden workspaces.** The Workspaces panel now keeps a
+  running agent's spinner alive on a terminal row even while its workspace is
+  inactive, via an attach-independent `useAiCliStatuses` store
+  ([aiCliStatusStore.ts](src/modules/terminal/lib/aiCliStatusStore.ts)) written
+  directly by each session's detector for the term's whole life — not the
+  attach-bound `onAiCliStatus` callback chain that `detachSession` clears the
+  moment a workspace goes inactive.
+  [WorkspacesPanel](src/modules/workspaces/WorkspacesPanel.tsx) resolves
+  terminal rows from an app-owned cache of every visited workspace's live tab
+  trees, falling back to the persisted snapshot for cold (never-opened)
+  workspaces.
+
 ## [0.3.37] - 16-06-2026
 
 ### Added
