@@ -8,7 +8,6 @@ import {
   useSidebarPlacementStore,
 } from "@/modules/extensions";
 import { type Tab } from "@/modules/tabs";
-import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import {
   ArrowDown01Icon,
@@ -67,8 +66,9 @@ type Props = {
   tabCounts: Record<string, number>;
   /** Live tabs of the active workspace, for the Workspaces panel's terminal list. */
   liveTabs: Tab[];
-  /** Live AI CLI status per terminal leaf id. */
-  aiCliStatuses: Map<number, AiCliStatus>;
+  /** App-owned cache of every visited workspace's live tab trees, so inactive
+   * workspaces still list terminals with live AI CLI status. */
+  cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
   /** Focus a live terminal leaf from the Workspaces panel. */
   onFocusLeaf: (tabId: number, leafId: number) => void;
   /** Currently focused leaf id, to highlight its terminal row in Workspaces. */
@@ -176,7 +176,7 @@ export function AppSidebar({
   onCloseWorkspace,
   tabCounts,
   liveTabs,
-  aiCliStatuses,
+  cachedTabsByWorkspace,
   onFocusLeaf,
   activeLeafId,
   openGitDiffTab,
@@ -193,7 +193,10 @@ export function AppSidebar({
   // active). Keyed `xsec:<extId>:<sectionId>`, mapped back to their descriptor.
   const extEntries = useRegistry(sidebarSectionsRegistry);
   const extByKey = useMemo(() => {
-    const m = new Map<SectionKey, { extensionId: string; section: (typeof extEntries)[number]["item"] }>();
+    const m = new Map<
+      SectionKey,
+      { extensionId: string; section: (typeof extEntries)[number]["item"] }
+    >();
     for (const { extensionId, item } of extEntries) {
       m.set(extSectionKey(extensionId, item.id), { extensionId, section: item });
     }
@@ -203,15 +206,14 @@ export function AppSidebar({
   // Every key that currently exists: built-ins always, extension sections only
   // while registered. Reconciled against the persisted order each render so a
   // newly-active extension appears in a stable spot and a disabled one drops.
-  const allKeys = useMemo<SectionKey[]>(
-    () => [...BUILTIN_KEYS, ...extByKey.keys()],
-    [extByKey],
-  );
+  const allKeys = useMemo<SectionKey[]>(() => [...BUILTIN_KEYS, ...extByKey.keys()], [extByKey]);
   const effectiveOrder = useMemo(() => reconcileOrder(order, allKeys), [order, allKeys]);
 
   // Stable per-section ref callbacks (keyed by string) so a panel handle isn't
   // detached/reattached every render. Cached lazily since keys are dynamic.
-  const panelRefSetterCache = useRef(new Map<SectionKey, (r: PanelImperativeHandle | null) => void>());
+  const panelRefSetterCache = useRef(
+    new Map<SectionKey, (r: PanelImperativeHandle | null) => void>(),
+  );
   const getPanelRefSetter = (key: SectionKey) => {
     let fn = panelRefSetterCache.current.get(key);
     if (!fn) {
@@ -337,7 +339,7 @@ export function AppSidebar({
             onClose={onCloseWorkspace}
             tabCounts={tabCounts}
             liveTabs={liveTabs}
-            aiCliStatuses={aiCliStatuses}
+            cachedTabsByWorkspace={cachedTabsByWorkspace}
             onFocusLeaf={onFocusLeaf}
             activeLeafId={activeLeafId}
             dragHandle={controls}

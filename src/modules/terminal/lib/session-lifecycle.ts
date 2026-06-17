@@ -25,6 +25,7 @@ import {
 import { createAiCliDetector } from "./aiCliDetector";
 import { sessions, type Callbacks, type Session } from "./sessionState";
 import { useTerminalTitles } from "./terminalTitles";
+import { useAiCliStatuses } from "./aiCliStatusStore";
 import {
   BACKWARD_KILL_WORD,
   SHIFT_ENTER,
@@ -266,6 +267,9 @@ export function ensureSession(
   const detector = createAiCliDetector({
     onStatus: (status) => {
       session.aiCliStatus = status;
+      // Live, attach-independent mirror for the Workspaces panel (stays fresh
+      // even while this workspace is hidden, when `callbacks` is cleared).
+      useAiCliStatuses.getState().setStatus(leafId, status);
       session.callbacks.onAiCliStatus?.(status);
     },
     readBuffer: () => readTerminalViewport(term),
@@ -624,4 +628,5 @@ export function disposeSession(leafId: number): void {
   s.term.dispose();
   sessions.delete(leafId);
   useTerminalTitles.getState().clearTitle(leafId);
+  useAiCliStatuses.getState().clearStatus(leafId);
 }

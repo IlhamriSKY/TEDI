@@ -17,6 +17,7 @@ import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal/lib/panes";
 import { aiCliIconClass, aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import {
   ArrowDown01Icon,
@@ -40,7 +41,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { countSavedTabEntries } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 
@@ -65,8 +66,14 @@ type Props = {
    * expanded. Inactive workspaces read their persisted `tabs` instead.
    */
   liveTabs?: Tab[];
-  /** Live AI CLI status per terminal leaf id (idle / working / blocking). */
-  aiCliStatuses?: Map<number, AiCliStatus>;
+  /**
+   * Live tab trees of every workspace visited this session, keyed by workspace
+   * id (the App-owned cache). Lets an inactive-but-cached workspace list its
+   * terminals with live AI CLI status, since its leaf ids still match running
+   * sessions. A cold (never-opened) workspace is absent here and falls back to
+   * its persisted snapshot, which carries no live status.
+   */
+  cachedTabsByWorkspace?: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
   /** Focus a specific live terminal leaf (active workspace only). */
   onFocusLeaf?: (tabId: number, leafId: number) => void;
   /** Currently focused leaf id; highlights its terminal row like the file tree. */
@@ -100,7 +107,7 @@ function basename(p?: string): string {
 /** Enumerate the active workspace's live terminal leaves with status + title. */
 function liveTermRows(
   tabs: Tab[],
-  statuses?: Map<number, AiCliStatus>,
+  statuses?: Record<number, NonNullable<AiCliStatus>>,
   titles?: Record<number, string>,
 ): TermRow[] {
   const rows: TermRow[] = [];
@@ -114,7 +121,7 @@ function liveTermRows(
         cwd: leaf.cwd,
         title: titles?.[leaf.id],
         private: leaf.private,
-        status: statuses?.get(leaf.id) ?? null,
+        status: statuses?.[leaf.id] ?? null,
         live: { tabId: t.id, leafId: leaf.id },
       });
     }
@@ -153,7 +160,7 @@ function WorkspacesPanelInner({
   onClose,
   tabCounts,
   liveTabs,
-  aiCliStatuses,
+  cachedTabsByWorkspace,
   onFocusLeaf,
   activeLeafId,
   dragHandle,
@@ -199,11 +206,19 @@ function WorkspacesPanelInner({
 
   // Per-leaf terminal titles (OSC 2), e.g. a running agent's title.
   const titles = useTerminalTitles((s) => s.titles);
-  // Active workspace's live terminals, recomputed when tabs / statuses / titles change.
-  const activeTermRows = useMemo(
-    () => (liveTabs ? liveTermRows(liveTabs, aiCliStatuses, titles) : []),
-    [liveTabs, aiCliStatuses, titles],
-  );
+  // Live AI CLI status per leaf, written by every running session's detector
+  // regardless of attach state - so a hidden workspace's spinner survives.
+  const statuses = useAiCliStatuses((s) => s.statuses);
+  // Terminal rows for any workspace: the active one reads the freshest live
+  // tabs; an inactive-but-cached one reads its cached live tabs (leaf ids still
+  // match running sessions, so status resolves); a cold workspace falls back to
+  // its persisted snapshot, which carries no live status.
+  const termRowsFor = (w: Workspace): TermRow[] => {
+    if (w.id === activeId && liveTabs) return liveTermRows(liveTabs, statuses, titles);
+    const cached = cachedTabsByWorkspace?.current.get(w.id);
+    if (cached && cached.tabs.length > 0) return liveTermRows(cached.tabs, statuses, titles);
+    return savedTermRows(w.tabs);
+  };
 
   const handleDragEnd = (ev: DragEndEvent) => {
     setDragId(null);
@@ -255,7 +270,7 @@ function WorkspacesPanelInner({
                   isExpanded={expanded.has(w.id)}
                   draft={draft}
                   tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
-                  terminals={w.id === activeId ? activeTermRows : savedTermRows(w.tabs)}
+                  terminals={termRowsFor(w)}
                   canClose={workspaces.length > 1}
                   // Editing a name needs an interactive input, so suspend drag for that row.
                   sortable={editingId !== w.id}
@@ -468,8 +483,8 @@ function SortableWorkspaceRow({
           <AlertDialogHeader>
             <AlertDialogTitle>Close workspace &quot;{w.name}&quot;?</AlertDialogTitle>
             <AlertDialogDescription>
-              Its {tabCount} open {tabCount === 1 ? "tab" : "tabs"} and any running terminals will be
-              closed. This cannot be undone.
+              Its {tabCount} open {tabCount === 1 ? "tab" : "tabs"} and any running terminals will
+              be closed. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

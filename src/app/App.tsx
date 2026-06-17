@@ -764,7 +764,7 @@ export default function App() {
                 onCloseWorkspace={closeWorkspace}
                 tabCounts={liveTabCounts}
                 liveTabs={tabs}
-                aiCliStatuses={aiCliStatuses}
+                cachedTabsByWorkspace={liveTabsByWorkspace}
                 onFocusLeaf={focusLeafInTab}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
                 openGitDiffTab={openGitDiffTab}
