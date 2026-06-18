@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.41] - 18-06-2026
+
+### Fixed
+
+- **Terminal repaint on Claude Code's `/tui` renderer switch now triggers on the
+  correct event (corrects v0.3.40, which was inert here).** Byte capture of
+  Claude Code 2.1.181 showed its fullscreen renderer redraws on the NORMAL screen
+  buffer (a full-screen `\x1b[2J` clear) and never enters the alternate screen,
+  so v0.3.40's alternate-screen trigger (`onBufferChange`) never fired for this
+  case. v0.3.41 instead detects a full-screen clear emitted by an active AI CLI
+  ([pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts): `hasFullScreenClear`
+  + `maybeNudgeOnRendererSwitch`) and nudges a repaint plus a SIGWINCH resize
+  round-trip, the same recovery a manual window resize performs (Claude's
+  documented remedy for renderer-switch glitches). The alternate-screen exit path
+  is kept for TUIs that genuinely use it (vim, htop). Replaying Claude's real
+  output through xterm renders cleanly, so the residual corruption is a TEDI-side
+  render/timing desync that a forced repaint addresses; the trigger is verified
+  against the captured bytes.
+
 ## [0.3.40] - 18-06-2026
 
 ### Fixed

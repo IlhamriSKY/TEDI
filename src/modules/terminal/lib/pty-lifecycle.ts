@@ -80,6 +80,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     totalBytes += bytes.length;
     s.term.write(bytes);
     s.aiCliDetector?.pushOutput(bytes);
+    maybeNudgeOnRendererSwitch(s, bytes);
     if (containsSchemeSeparator(bytes)) {
       const text = urlDecoder.decode(bytes, { stream: true });
       const matches = text.match(LOCAL_URL_RE);
@@ -328,9 +329,58 @@ function armReattachRepaintWatchdog(s: Session, epoch: number): void {
 }
 
 /**
+ * Full-screen clear detector: CSI 2J / CSI 3J / RIS (ESC c). A TUI emits one of
+ * these when it repaints the WHOLE screen. Byte capture of Claude Code 2.1.181
+ * proved its `/tui` renderer switch (fullscreen <-> classic) redraws on the
+ * NORMAL screen buffer with `ESC[2J` and never touches the alternate screen, so
+ * `onBufferChange` cannot catch it. Claude's per-keystroke inline redraws use
+ * cursor-up + erase-line (never 2J), so this stays quiet during normal use and
+ * fires ~once per renderer switch.
+ */
+function hasFullScreenClear(bytes: Uint8Array): boolean {
+  for (let i = 0; i + 1 < bytes.length; i++) {
+    if (bytes[i] !== 0x1b) continue;
+    if (bytes[i + 1] === 0x63) return true; // ESC c (RIS - full reset)
+    if (
+      bytes[i + 1] === 0x5b && // ESC [
+      i + 3 < bytes.length &&
+      (bytes[i + 2] === 0x32 || bytes[i + 2] === 0x33) && // 2 | 3
+      bytes[i + 3] === 0x4a // J
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Debounce window so a burst of clears in one frame schedules a single nudge. */
+const lastRendererNudgeAt = new WeakMap<Session, number>();
+
+/**
+ * Repaint nudge for an AI CLI that switches its renderer ON THE NORMAL SCREEN
+ * (Claude Code `/tui fullscreen` <-> `/tui default`). No alternate-screen flip
+ * happens there, so `onBufferChange` never fires; we key on the full-screen
+ * clear in the live PTY output instead. Gated on an active AI CLI so a plain
+ * shell `clear` never triggers it. Mirrors a manual window resize (the user's
+ * known workaround) via `armAltExitRepaintWatchdog` (re-fit + SIGWINCH) so the
+ * relaunched renderer repaints at the correct size and input echo lands back
+ * on-screen. NOTE: efficacy of the nudge on the actual corruption is pending a
+ * runtime resize-test confirmation before this is released.
+ */
+function maybeNudgeOnRendererSwitch(s: Session, bytes: Uint8Array): void {
+  if (!s.aiCliStatus) return; // only while an AI CLI (claude/codex/...) owns the pane
+  if (!hasFullScreenClear(bytes)) return;
+  const now = Date.now();
+  if (now - (lastRendererNudgeAt.get(s) ?? 0) < 300) return;
+  lastRendererNudgeAt.set(s, now);
+  armAltExitRepaintWatchdog(s);
+}
+
+/**
  * Repair the pane after a foreground program toggles OUT of the alternate
- * screen (CSI ?1049l) - e.g. Claude Code's `/tui fullscreen` -> `/tui default`
- * renderer switch (which re-execs the CLI in place), or quitting vim/htop.
+ * screen (CSI ?1049l) - e.g. quitting vim/htop, or any AI CLI whose fullscreen
+ * renderer DOES use the alternate screen. (Claude Code 2.1.181's `/tui` does
+ * NOT - see maybeNudgeOnRendererSwitch for that normal-buffer path.)
  *
  * Two verified xterm 6.0.0 facts make this necessary:
  *   1. `BufferSet.activateNormalBuffer` restores only the cursor on a ?1049l
