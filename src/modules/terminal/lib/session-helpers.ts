@@ -71,6 +71,15 @@ export const REATTACH_REPAINT_CHECK_MS = 300;
 export const REATTACH_REPAINT_NUDGE_GAP_MS = 50;
 
 /**
+ * Delay after a program leaves the alternate screen (CSI ?1049l) before TEDI
+ * repairs the pane. Long enough for a renderer relaunch (Claude Code's `/tui`
+ * fullscreen<->default toggle re-execs the CLI in place) to land its first
+ * classic-renderer frame, short enough to feel instant. See
+ * `armAltExitRepaintWatchdog`.
+ */
+export const ALT_EXIT_REPAINT_DELAY_MS = 180;
+
+/**
  * Snapshot the visible xterm viewport as newline-joined text in original
  * case. Returns "" on any buffer API error so a mid-reflow throw doesn't
  * kill the detector loop.

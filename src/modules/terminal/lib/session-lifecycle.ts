@@ -40,6 +40,7 @@ import {
 } from "./session-helpers";
 import {
   armNoDataWatchdog,
+  armAltExitRepaintWatchdog,
   openPtyForSession,
   retryPty,
   syncPtySize,
@@ -295,6 +296,33 @@ export function ensureSession(
     useTerminalTitles.getState().setTitle(leafId, title);
   });
   session.cleanups.push(() => titleSub.dispose());
+
+  // Repair the pane when a foreground program LEAVES the alternate screen
+  // (CSI ?1049l). The trigger case is Claude Code's `/tui fullscreen` <->
+  // `/tui default` renderer toggle: xterm restores the cursor but not the
+  // normal buffer's scroll region, no pane-pixel-size change means the
+  // ResizeObserver never repaints, and the relaunched classic renderer then
+  // draws a corrupted prompt box whose line-editor redraw lands off-screen (so
+  // input looks dead). `armAltExitRepaintWatchdog` resets the region + nudges a
+  // resize. Gated on `sawAltScreenBuffer` so only the alt->normal exit edge
+  // fires - launching a TUI (normal->alt) is left untouched.
+  let sawAltScreenBuffer = false;
+  const bufferSub = term.buffer.onBufferChange(() => {
+    let isAlt = false;
+    try {
+      isAlt = term.buffer.active.type === "alternate";
+    } catch {
+      return;
+    }
+    if (isAlt) {
+      sawAltScreenBuffer = true;
+      return;
+    }
+    if (!sawAltScreenBuffer) return;
+    sawAltScreenBuffer = false;
+    armAltExitRepaintWatchdog(session);
+  });
+  session.cleanups.push(() => bufferSub.dispose());
 
   // Route through session.pty so respawn doesn't rebind. Capture the
   // disposable and release it in `disposeSession` (via cleanups) so the

@@ -4,6 +4,28 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.40] - 18-06-2026
+
+### Fixed
+
+- **Terminal pane no longer corrupts and goes input-dead when a fullscreen TUI
+  toggles its renderer (e.g. Claude Code's `/tui fullscreen` to `/tui default`).**
+  Leaving the alternate screen (`CSI ?1049l`) does not reset the normal buffer's
+  DECSTBM scroll region in xterm, and a same-size `term.resize` is a no-op
+  (`CoreBrowserTerminal` early-returns when the dimensions are unchanged), so
+  TEDI's pixel-driven `ResizeObserver` never repainted. The relaunched classic
+  renderer then painted its prompt box against the stale scroll margins
+  (fragmented box plus stray horizontal rules) and its line-editor redraw landed
+  off-screen, so input only looked dead while keystrokes were in fact still
+  delivered. A new `armAltExitRepaintWatchdog`
+  ([pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts)), fired on the
+  alt-to-normal buffer edge via `term.buffer.onBufferChange`
+  ([session-lifecycle.ts](src/modules/terminal/lib/session-lifecycle.ts)), resets
+  the scroll region (cursor preserved), forces a repaint, then SIGWINCHes the PTY
+  in a round-trip so the foreground program redraws at the correct size. It fires
+  only on the exit edge, so launching a TUI (normal to alternate) is left
+  untouched.
+
 ## [0.3.39] - 17-06-2026
 
 ### Fixed

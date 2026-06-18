@@ -8,6 +8,7 @@ import {
   NO_DATA_WATCHDOG_MS,
   REATTACH_REPAINT_CHECK_MS,
   REATTACH_REPAINT_NUDGE_GAP_MS,
+  ALT_EXIT_REPAINT_DELAY_MS,
   isDebugPty,
   describeError,
   readTerminalViewport,
@@ -324,6 +325,67 @@ function armReattachRepaintWatchdog(s: Session, epoch: number): void {
       s.lastSentRows = rows;
     }, REATTACH_REPAINT_NUDGE_GAP_MS);
   }, REATTACH_REPAINT_CHECK_MS);
+}
+
+/**
+ * Repair the pane after a foreground program toggles OUT of the alternate
+ * screen (CSI ?1049l) - e.g. Claude Code's `/tui fullscreen` -> `/tui default`
+ * renderer switch (which re-execs the CLI in place), or quitting vim/htop.
+ *
+ * Two verified xterm 6.0.0 facts make this necessary:
+ *   1. `BufferSet.activateNormalBuffer` restores only the cursor on a ?1049l
+ *      exit; it never resets the normal buffer's DECSTBM scroll region. A region
+ *      left dangling makes the relaunched classic renderer paint its prompt box
+ *      against the wrong top/bottom margins (the fragmented box + stray rules in
+ *      the bug report).
+ *   2. A same-size `term.resize` is a no-op (CoreBrowserTerminal.resize
+ *      early-returns when cols/rows are unchanged), and TEDI's only repaint
+ *      trigger - the ResizeObserver - never fires because the pane's pixel size
+ *      did not change. So nothing recovers the pane on its own.
+ * The line-editor redraw then lands off-screen / clipped by the bad margins, so
+ * input LOOKS dead even though keystrokes are still delivered (onData forwards
+ * unconditionally; nothing flips `disableStdin` outside shell exit).
+ *
+ * Recovery, deferred so the relaunch's first frame has landed: reset the scroll
+ * region (DECSC/DECRC wrap it so the cursor + SGR are preserved; a no-op for a
+ * plain shell prompt), force a full local repaint, then SIGWINCH the PTY in a
+ * round-trip so the foreground program redraws its frame at the correct current
+ * size - which is what brings the prompt back on-screen and "un-deads" input.
+ * The row toggle defeats ConPTY's same-size resize coalescing. Mirrors
+ * `armReattachRepaintWatchdog`; fires only on the alt->normal edge so a TUI
+ * being launched (normal->alt) is never disturbed.
+ */
+export function armAltExitRepaintWatchdog(s: Session): void {
+  const epoch = s.ptySpawnEpoch;
+  setTimeout(() => {
+    if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
+    let isAlt = false;
+    try {
+      isAlt = s.term.buffer.active.type === "alternate";
+    } catch {
+      return;
+    }
+    if (isAlt) return; // a TUI re-entered the alt screen during the delay
+    try {
+      // DECSC + DECSTBM-reset + DECRC: reset the scroll region, keep the cursor.
+      s.term.write("\x1b7\x1b[r\x1b8");
+      s.term.refresh(0, s.term.rows - 1);
+    } catch {
+      return;
+    }
+    const cols = Math.max(MIN_PTY_DIM, s.term.cols);
+    const rows = Math.max(MIN_PTY_DIM, s.term.rows);
+    const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
+    void s.pty.resize(cols, nudgeRows);
+    s.lastSentCols = cols;
+    s.lastSentRows = nudgeRows;
+    setTimeout(() => {
+      if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
+      void s.pty.resize(cols, rows);
+      s.lastSentCols = cols;
+      s.lastSentRows = rows;
+    }, REATTACH_REPAINT_NUDGE_GAP_MS);
+  }, ALT_EXIT_REPAINT_DELAY_MS);
 }
 
 /** Retry a PTY spawn. Wired to Enter for recovery. No-op if opening, alive, or disposed. */
