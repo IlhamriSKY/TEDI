@@ -367,9 +367,24 @@ const lastRendererNudgeAt = new WeakMap<Session, number>();
  * on-screen. NOTE: efficacy of the nudge on the actual corruption is pending a
  * runtime resize-test confirmation before this is released.
  */
+// Claude prints a confirmation containing "<mode> renderer" on every /tui
+// switch ("Switching back to the classic renderer", "Already using the
+// fullscreen renderer", ...). Captured from the real CLI, this text is a far
+// more reliable switch signal than the full-screen clear, which the inline
+// classic renderer does not always emit.
+const RENDERER_SWITCH_RE = /\b(?:classic|fullscreen|default)\s+renderer\b/i;
+function outputSignalsRendererSwitch(bytes: Uint8Array): boolean {
+  if (hasFullScreenClear(bytes)) return true;
+  try {
+    return RENDERER_SWITCH_RE.test(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+  } catch {
+    return false;
+  }
+}
+
 function maybeNudgeOnRendererSwitch(s: Session, bytes: Uint8Array): void {
   if (!s.aiCliStatus) return; // only while an AI CLI (claude/codex/...) owns the pane
-  if (!hasFullScreenClear(bytes)) return;
+  if (!outputSignalsRendererSwitch(bytes)) return;
   const now = Date.now();
   if (now - (lastRendererNudgeAt.get(s) ?? 0) < 300) return;
   lastRendererNudgeAt.set(s, now);
@@ -419,6 +434,9 @@ export function armAltExitRepaintWatchdog(s: Session): void {
     try {
       // DECSC + DECSTBM-reset + DECRC: reset the scroll region, keep the cursor.
       s.term.write("\x1b7\x1b[r\x1b8");
+      // Force the WebGL renderer to re-rasterize glyphs, clearing any stale
+      // texture-atlas cells left behind by the renderer-switch redraw.
+      s.webglAddon?.clearTextureAtlas();
       s.term.refresh(0, s.term.rows - 1);
     } catch {
       return;

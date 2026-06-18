@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.42] - 18-06-2026
+
+### Fixed
+
+- **Hardened the Claude Code `/tui` renderer-switch repaint so it fires reliably
+  (builds on v0.3.41).** v0.3.41 triggered only on a full-screen clear
+  (`\x1b[2J`), but capturing the real CLI showed the inline (classic) renderer
+  does not always emit one, so the nudge could miss the switch. v0.3.42 also
+  triggers on Claude's switch-confirmation text (`(classic|fullscreen|default)
+  renderer`, e.g. "Switching back to the classic renderer"), which is emitted on
+  every `/tui` toggle and was verified against real captured output for all three
+  modes ([pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts):
+  `outputSignalsRendererSwitch`). The repaint nudge now also clears the WebGL
+  texture atlas (`clearTextureAtlas`) alongside the scroll-region reset, full
+  refresh, and SIGWINCH round-trip, to drop any stale glyph cells left by the
+  renderer-switch redraw. Still gated on an active AI CLI so a plain shell never
+  triggers it.
+
 ## [0.3.41] - 18-06-2026
 
 ### Fixed
