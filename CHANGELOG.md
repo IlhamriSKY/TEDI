@@ -4,6 +4,19 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.49] - 19-06-2026
+
+### Reverted
+
+- **Hotfix: reverted the daemon-session auto-adopt (0.3.47) and the per-terminal
+  app-context publishing (0.3.48).** Those additions correlated with the app
+  hanging on launch, so the startup path is restored to the stable 0.3.46
+  behavior (the GUI no longer poll-adopts daemon sessions, and
+  `AppContextSnapshot.terminals` is removed). The Remote Access "browser-opened
+  terminal appears in the desktop app" and "browser tab numbers match the app"
+  features are withdrawn until they can be reintroduced with proper runtime
+  testing.
+
 ## [0.3.48] - 19-06-2026
 
 ### Added

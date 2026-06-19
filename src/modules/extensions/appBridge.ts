@@ -12,13 +12,7 @@ let snapshot: AppContextSnapshot = {
   activeTabKind: null,
   workspaceCount: 1,
   terminalCountAll: 0,
-  terminals: [],
 };
-
-// Stable signature of the terminals map for the equality check below.
-function terminalsSig(t: AppContextSnapshot["terminals"]): string {
-  return t.map((x) => `${x.ptyId}:${x.ordinal}`).join(",");
-}
 
 const listeners = new Set<(ctx: AppContextSnapshot) => void>();
 
@@ -34,8 +28,7 @@ export function setAppContext(next: AppContextSnapshot): void {
     next.terminalCount === snapshot.terminalCount &&
     next.activeTabKind === snapshot.activeTabKind &&
     next.workspaceCount === snapshot.workspaceCount &&
-    next.terminalCountAll === snapshot.terminalCountAll &&
-    terminalsSig(next.terminals) === terminalsSig(snapshot.terminals)
+    next.terminalCountAll === snapshot.terminalCountAll
   ) {
     return;
   }

@@ -64,29 +64,6 @@ export function useAppContextBridge({
     }
     return n;
   }, [terminalCount, wsList, wsActiveId]);
-  // Map of daemon ptyId -> the tab's FIFO number (terminalOrdinal) for the
-  // active workspace's live terminals. Lets a mirror label tabs with the same
-  // number the desktop shows. Only terminals already bound to a daemon session
-  // (ptyId set) are included.
-  const terminals = useMemo<AppContextSnapshot["terminals"]>(() => {
-    const out: AppContextSnapshot["terminals"] = [];
-    const seen = new Set<string>();
-    for (const t of tabs) {
-      if (t.kind !== "pane") continue;
-      for (const l of leaves(t.paneTree)) {
-        if (
-          l.leafKind === "terminal" &&
-          l.ptyId &&
-          typeof l.terminalOrdinal === "number" &&
-          !seen.has(l.ptyId)
-        ) {
-          seen.add(l.ptyId);
-          out.push({ ptyId: l.ptyId, ordinal: l.terminalOrdinal });
-        }
-      }
-    }
-    return out;
-  }, [tabs]);
   const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;
@@ -113,7 +90,6 @@ export function useAppContextBridge({
       activeTabKind,
       workspaceCount,
       terminalCountAll,
-      terminals,
     });
   }, [
     explorerRoot,
@@ -122,6 +98,5 @@ export function useAppContextBridge({
     activeTabKind,
     workspaceCount,
     terminalCountAll,
-    terminals,
   ]);
 }
