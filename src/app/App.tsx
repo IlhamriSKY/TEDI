@@ -85,6 +85,7 @@ import { useEditorBridge } from "./hooks/useEditorBridge";
 import { useAgentBridges } from "./hooks/useAgentBridges";
 import { useSelectionAskAi } from "./hooks/useSelectionAskAi";
 import { useSessionDisposal } from "./hooks/useSessionDisposal";
+import { useAdoptDaemonSessions } from "./hooks/useAdoptDaemonSessions";
 import { useActiveLeafSurface } from "./hooks/useActiveLeafSurface";
 import { useChromeDerivations } from "./hooks/useChromeDerivations";
 import { useTabSideEffects } from "./hooks/useTabSideEffects";
@@ -482,6 +483,15 @@ export default function App() {
     setSshStatuses,
     setAiCliStatuses,
   });
+
+  // Adopt daemon PTY sessions created by another client (the remote-access
+  // agent, when the browser hits "+") as real terminal tabs, and let the
+  // daemon's Exit event (e.g. a browser-initiated close) tear the tab down.
+  // Reuses the workspace-restore reattach machinery via newTab({ savedPtyId }).
+  // Safe to re-enable: the launch hang was git commands on the UI thread (fixed
+  // in 0.3.50), not this hook, and the adopt poll's pty_list_sessions is now
+  // async so a slow daemon can't freeze the UI.
+  useAdoptDaemonSessions({ tabsRef, liveTabsByWorkspace, newTab, restoreDone: wsHydrated });
 
   const {
     pendingClose,

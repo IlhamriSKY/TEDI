@@ -344,11 +344,21 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
 /// "Settings → Sessions" panel and by the workspace-restore code path to
 /// confirm a saved `ptyId` is still alive before calling `pty_attach`.
 #[tauri::command]
-pub fn pty_list_sessions(state: tauri::State<PtyState>) -> Result<Vec<SessionInfo>, String> {
-    match &state.backend {
-        PtyBackend::Daemon { client, .. } => client.list(),
-        PtyBackend::InProcess(_) => Ok(Vec::new()),
-    }
+pub async fn pty_list_sessions(
+    state: tauri::State<'_, PtyState>,
+) -> Result<Vec<SessionInfo>, String> {
+    // `client.list()` is a blocking daemon round-trip bounded by a 30s request
+    // timeout. The remote-access adopt poll calls this every ~2s, and on Windows
+    // a sync command runs on the WebView2 UI thread - a slow or hung daemon would
+    // freeze the whole app for up to 30s. Clone the Arc'd client and run the
+    // round-trip on the blocking pool so the UI thread keeps pumping.
+    let client = match &state.backend {
+        PtyBackend::Daemon { client, .. } => client.clone(),
+        PtyBackend::InProcess(_) => return Ok(Vec::new()),
+    };
+    tauri::async_runtime::spawn_blocking(move || client.list())
+        .await
+        .map_err(|e| format!("pty_list_sessions join error: {e}"))?
 }
 
 /// Kill every daemon-owned session. Backs the "Reset all sessions"

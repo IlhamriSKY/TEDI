@@ -4,6 +4,32 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.52] - 20-06-2026
+
+### Added
+
+- **Remote Access: terminals opened from the browser appear in the desktop app
+  again (bidirectional dynamic tabs).** Re-enabled the GUI poll-adopt
+  (`useAdoptDaemonSessions`): when a browser hits "+", the remote-access agent
+  spawns a PTY in the shared daemon and the desktop now adopts it as a real tab
+  (and a browser-initiated close tears that tab down too). Combined with the
+  existing app->browser mirroring, tabs open safely from either side. This was
+  withdrawn in 0.3.49 on the theory it caused the launch hang; the real cause
+  was synchronous git commands on the UI thread (fixed in 0.3.50), so the
+  feature is restored.
+- **Remote Access: browser tab numbers match the desktop again.** Restored
+  `AppContextSnapshot.terminals` (daemon `ptyId` -> the tab's `terminalOrdinal`),
+  which the extension forwards to the browser so a mirrored tab shows the SAME
+  number the desktop shows instead of guessing from position.
+
+### Changed
+
+- **`pty_list_sessions` now runs off the UI thread.** It is a blocking daemon
+  round-trip bounded by a 30s timeout, and the adopt poll calls it every ~2s; on
+  Windows a sync command runs on the WebView2 UI thread, so a slow or hung daemon
+  could have frozen the app. It now hands the round-trip to the blocking pool, so
+  the poll can never stall the UI (the same hardening applied to git in 0.3.50).
+
 ## [0.3.51] - 20-06-2026
 
 ### Added
