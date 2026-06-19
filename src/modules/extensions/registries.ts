@@ -20,6 +20,7 @@ type Listener = () => void;
  * per category), status items are runtime-only; extensions set/remove them
  * as their state changes. Rendered in the bottom-right of the StatusBar.
  * Icon resolution:
+ *   `hugeicon:<Name>` renders a host HugeIcon (e.g. `hugeicon:Globe02Icon`).
  *   `ext-asset:<relPath>` reads `<ext-root>/<relPath>` via `ext_read_asset_bytes`.
  *   `data:image/...;base64,...` renders as a data URL.
  */

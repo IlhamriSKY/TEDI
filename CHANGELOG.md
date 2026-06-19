@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.46] - 19-06-2026
+
+### Added
+
+- **Extension status-bar items can use host HugeIcons.** A `StatusItem` whose
+  `icon` is `hugeicon:<Name>` (e.g. `hugeicon:Globe02Icon`) now renders the
+  built-in line-art icon with theme-aware tinting, matching how header-bar items
+  already resolve HugeIcons. Previously the status-bar slot only understood
+  `data:`/`ext-asset:` icons, so a `hugeicon:` value showed as an empty square
+  (the Remote Access globe was blank)
+  ([ExtensionStatusItems.tsx](src/modules/extensions/components/ExtensionStatusItems.tsx)).
+
 ## [0.3.45] - 19-06-2026
 
 ### Fixed

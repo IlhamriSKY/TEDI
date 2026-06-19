@@ -5,13 +5,22 @@
  * Tone: `success` full opacity, `warning` pulses, `error` adds a red corner dot.
  */
 import { useEffect, useState } from "react";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
+import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
 
 import { loadExtensionIcon } from "../icon";
 import { statusItemsRegistry, type StatusItem } from "../registries";
 import { useRegistry } from "../useRegistry";
+
+/** `hugeicon:<Name>` -> the host HugeIcon (line-art, current-color); null otherwise. */
+function resolveHugeIcon(icon: string): IconSvgElement | null {
+  const m = icon.match(/^hugeicon:(.+)$/);
+  if (!m) return null;
+  return tryGetHugeIcon(m[1]);
+}
 
 export function ExtensionStatusItems() {
   const items = useRegistry(statusItemsRegistry);
@@ -31,7 +40,11 @@ export function ExtensionStatusItems() {
 }
 
 function StatusItemView({ extensionId, item }: { extensionId: string; item: StatusItem }) {
-  const iconUrl = useResolvedIcon(extensionId, item.icon);
+  useHugeIconsReady(); // re-render once the icon barrel lands
+  // `hugeicon:<Name>` renders the host HugeIcon (parity with the header bar);
+  // otherwise the value is a `data:` URL or an `ext-asset:` path.
+  const hugeIcon = resolveHugeIcon(item.icon);
+  const iconUrl = useResolvedIcon(extensionId, hugeIcon ? "" : item.icon);
   // `<img>` ignores parent CSS `color`, so render SVGs as a CSS mask
   // for theme-aware tinting. Detection: data: SVG URL or `.svg` path.
   // Raster formats fall back to `<img>` with opacity + grayscale.
@@ -49,7 +62,18 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
         aria-label={item.tooltip}
         className="relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
-        {iconUrl ? (
+        {hugeIcon ? (
+          <HugeiconsIcon
+            icon={hugeIcon}
+            size={16}
+            strokeWidth={1.8}
+            className={cn(
+              "transition-colors duration-200",
+              isLive ? "text-foreground" : "text-muted-foreground/40",
+              isPulsing && "animate-pulse",
+            )}
+          />
+        ) : iconUrl ? (
           isSvg ? (
             <span
               aria-hidden
