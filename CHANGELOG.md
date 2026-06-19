@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.45] - 19-06-2026
+
+### Fixed
+
+- **SSH mirror sinks no longer leak.** The SSH read pump now prunes a mirror sink
+  as soon as its channel closes, and caps the live sink count, instead of letting
+  closed sinks from the Remote Access bridge accumulate across reconnects (which
+  grew memory and wasted a clone + send on every byte of output)
+  ([session.rs](src-tauri/src/modules/ssh/session.rs)).
+
 ## [0.3.44] - 19-06-2026
 
 ### Changed

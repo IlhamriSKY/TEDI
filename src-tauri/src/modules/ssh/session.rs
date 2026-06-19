@@ -227,6 +227,13 @@ impl SshSession {
             let _ = ch.send(SshEvent::Data { data: B64.encode(&bytes) });
         }
         if let Ok(mut s) = self.mirror_sinks.lock() {
+            // Bound the live sink count (a buggy or hostile extension could call
+            // ssh_attach in a loop); evict the oldest so a reconnect storm can't
+            // grow it without bound. The pump's fan also prunes dead sinks.
+            const MAX_MIRROR_SINKS: usize = 8;
+            while s.len() >= MAX_MIRROR_SINKS {
+                s.remove(0);
+            }
             s.push(ch);
         }
         self.alive.load(Ordering::Acquire)
@@ -477,13 +484,13 @@ pub async fn connect(
 
     let pump = tokio::spawn(async move {
         let _exit_tx = exit_tx;
-        // Fan an event to every extra mirror sink. Dead channels are tolerated
-        // (send is best-effort); they are pruned on the next attach if needed.
+        // Fan an event to every extra mirror sink, pruning any whose channel has
+        // closed (the browser / bridge went away). Without this, dead sinks
+        // accumulate across reconnects and the pump wastes a clone + send on
+        // every output byte.
         let fan = |ev: &SshEvent| {
-            if let Ok(sinks) = pump_sinks.lock() {
-                for ch in sinks.iter() {
-                    let _ = ch.send(ev.clone());
-                }
+            if let Ok(mut sinks) = pump_sinks.lock() {
+                sinks.retain(|ch| ch.send(ev.clone()).is_ok());
             }
         };
         while let Some(msg) = read_half.wait().await {

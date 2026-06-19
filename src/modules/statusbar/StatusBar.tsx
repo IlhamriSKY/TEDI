@@ -67,6 +67,10 @@ function StatusBarInner({
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* "Open AI log" pill leads the right cluster (leftmost, alongside the
+            update pill) so a pending approval / error reads first. Only visible
+            during awaiting-approval or error states. */}
+        <AgentStatusPill onClick={onOpenMini} />
         {/* Update pill sits just left of the extension status icons (Discord,
             etc.) so the right cluster leads with the update prompt. */}
         <UpdaterPill />
@@ -79,7 +83,6 @@ function StatusBarInner({
         <SidebarSectionRightToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
-        <AgentStatusPill onClick={onOpenMini} />
         {/* Default (non-compact) right-panel toggles sit with the other
             "open X" buttons so the icon row reads consistently. */}
         <RightPanelDefaultToggles />
