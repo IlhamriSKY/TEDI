@@ -18,6 +18,12 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 fn git(repo: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(repo);
+    // Never let git block waiting on terminal input. Without this it could
+    // stall forever on a credential or host-key prompt (e.g. during push); a
+    // null stdin plus GIT_TERMINAL_PROMPT=0 makes those fail fast instead of
+    // hanging a worker.
+    cmd.stdin(std::process::Stdio::null());
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
@@ -269,7 +275,15 @@ fn rename_new_side(p: &str) -> String {
 /// we do not read multi-megabyte logs just to render a `+N` chip. Returns
 /// `None` for binary or oversize files.
 fn count_file_lines(path: &str) -> Option<u32> {
-    let meta = std::fs::metadata(path).ok()?;
+    // `symlink_metadata` does not traverse links, and `is_file()` then rejects
+    // symlinks, directories, and special files (named pipes / devices /
+    // sockets). Opening such an entry can block forever inside `NtCreateFile`;
+    // because this feeds the explorer's git decorations that would freeze the
+    // UI. Only ever read a plain regular file here.
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_file() {
+        return None;
+    }
     // Skip anything larger than 512KB. Counting lines in a giant log tells
     // the user nothing useful and stalls the refresh.
     if meta.len() > 512 * 1024 {
@@ -290,7 +304,18 @@ fn count_file_lines(path: &str) -> Option<u32> {
 }
 
 #[tauri::command]
-pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
+pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
+    // A sync `#[tauri::command]` runs on the WebView2 UI (main) thread on
+    // Windows, so the blocking git subprocesses + per-file reads below can
+    // freeze the entire app - a minidump caught this exact stack stuck in
+    // `NtCreateFile` opening an untracked working-tree file. Offload the whole
+    // body to the blocking pool so the UI thread keeps pumping messages.
+    tauri::async_runtime::spawn_blocking(move || git_status_inner(repo_path))
+        .await
+        .map_err(|e| format!("git_status join error: {e}"))?
+}
+
+fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Ok(GitStatus {
@@ -306,8 +331,9 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
 
     // Fan out four independent git subprocesses. Each spawn on Windows costs
     // ~10ms; serial runs added ~40ms per refresh (the panel auto-polls).
-    // Joining here keeps the API sync. Tauri runs each `#[tauri::command]`
-    // on its worker pool, so blocking is fine.
+    // Joining here blocks, which is why the public `git_status` command hands
+    // this entire body to the blocking pool (see the async wrapper above): a
+    // sync command would run on the Windows UI thread and freeze the app.
     let status_handle = {
         let root = root.clone();
         thread::spawn(move || {
@@ -383,7 +409,13 @@ pub fn git_status(repo_path: String) -> Result<GitStatus, String> {
 /// to dim ignored rows like VSCode. Returns an empty list outside a repo - this
 /// is a best-effort decoration source, never a hard error for the caller.
 #[tauri::command]
-pub fn git_ignored(repo_path: String) -> Result<Vec<String>, String> {
+pub async fn git_ignored(repo_path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || git_ignored_inner(repo_path))
+        .await
+        .map_err(|e| format!("git_ignored join error: {e}"))?
+}
+
+fn git_ignored_inner(repo_path: String) -> Result<Vec<String>, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Ok(Vec::new());
@@ -446,7 +478,13 @@ fn show_blob(root: &Path, rev: &str, relative: &str) -> ReadResult {
 /// Return the HEAD blob for a working-tree path. Backs the working-tree side
 /// of the Source Control diff viewer.
 #[tauri::command]
-pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, String> {
+pub async fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git_file_head_inner(repo_path, relative))
+        .await
+        .map_err(|e| format!("git_file_head join error: {e}"))?
+}
+
+fn git_file_head_inner(repo_path: String, relative: String) -> Result<ReadResult, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
@@ -458,7 +496,17 @@ pub fn git_file_head(repo_path: String, relative: String) -> Result<ReadResult, 
 /// per-commit diff viewer, which reads the file at the commit and at its
 /// parent to render a side-by-side history diff.
 #[tauri::command]
-pub fn git_file_at(repo_path: String, rev: String, relative: String) -> Result<ReadResult, String> {
+pub async fn git_file_at(
+    repo_path: String,
+    rev: String,
+    relative: String,
+) -> Result<ReadResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git_file_at_inner(repo_path, rev, relative))
+        .await
+        .map_err(|e| format!("git_file_at join error: {e}"))?
+}
+
+fn git_file_at_inner(repo_path: String, rev: String, relative: String) -> Result<ReadResult, String> {
     if !is_valid_rev(&rev) {
         return Err("invalid revision".into());
     }
@@ -472,7 +520,13 @@ pub fn git_file_at(repo_path: String, rev: String, relative: String) -> Result<R
 /// Discard working-tree changes for a single file. Untracked files are
 /// removed from disk; tracked files are restored to their HEAD content.
 #[tauri::command]
-pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), String> {
+pub async fn git_discard_file(repo_path: String, relative: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || git_discard_file_inner(repo_path, relative))
+        .await
+        .map_err(|e| format!("git_discard_file join error: {e}"))?
+}
+
+fn git_discard_file_inner(repo_path: String, relative: String) -> Result<(), String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
@@ -513,7 +567,13 @@ pub fn git_discard_file(repo_path: String, relative: String) -> Result<(), Strin
 /// Discard every working-tree change and remove untracked files.
 /// Equivalent to `git reset --hard HEAD && git clean -fd`.
 #[tauri::command]
-pub fn git_discard_all(repo_path: String) -> Result<(), String> {
+pub async fn git_discard_all(repo_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || git_discard_all_inner(repo_path))
+        .await
+        .map_err(|e| format!("git_discard_all join error: {e}"))?
+}
+
+fn git_discard_all_inner(repo_path: String) -> Result<(), String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
@@ -532,7 +592,13 @@ pub fn git_discard_all(repo_path: String) -> Result<(), String> {
 /// Stage every working-tree change (tracked + untracked) and commit with
 /// the given message. Mirrors the all-or-nothing panel UI.
 #[tauri::command]
-pub fn git_commit(repo_path: String, message: String) -> Result<(), String> {
+pub async fn git_commit(repo_path: String, message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || git_commit_inner(repo_path, message))
+        .await
+        .map_err(|e| format!("git_commit join error: {e}"))?
+}
+
+fn git_commit_inner(repo_path: String, message: String) -> Result<(), String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());
@@ -555,7 +621,13 @@ pub fn git_commit(repo_path: String, message: String) -> Result<(), String> {
 /// Capped aggressively so callers do not blow the model's context window
 /// on a giant tree.
 #[tauri::command]
-pub fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
+pub async fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git_diff_full_inner(repo_path, max_bytes))
+        .await
+        .map_err(|e| format!("git_diff_full join error: {e}"))?
+}
+
+fn git_diff_full_inner(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
     let cap = max_bytes.unwrap_or(80_000);
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
@@ -638,7 +710,13 @@ pub struct GitCommit {
 /// Return up to `limit` commits reachable from any ref (`--all`), in
 /// topological + date order. Used by the Source Control "Graph" tab.
 #[tauri::command]
-pub fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    tauri::async_runtime::spawn_blocking(move || git_log_inner(repo_path, limit))
+        .await
+        .map_err(|e| format!("git_log join error: {e}"))?
+}
+
+fn git_log_inner(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
     let max = limit.unwrap_or(500).clamp(1, 5000);
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
@@ -828,7 +906,13 @@ fn parse_numstat_z(raw: &str) -> HashMap<String, NumstatEntry> {
 /// via `git diff <parent> <sha>`); the root commit diffs against the empty
 /// tree so all files read as added.
 #[tauri::command]
-pub fn git_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail, String> {
+pub async fn git_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || git_commit_detail_inner(repo_path, sha))
+        .await
+        .map_err(|e| format!("git_commit_detail join error: {e}"))?
+}
+
+fn git_commit_detail_inner(repo_path: String, sha: String) -> Result<CommitDetail, String> {
     if !is_valid_rev(&sha) {
         return Err("invalid commit id".into());
     }
@@ -939,7 +1023,13 @@ pub fn git_commit_detail(repo_path: String, sha: String) -> Result<CommitDetail,
 /// Push the current branch to its upstream. With no upstream configured,
 /// falls back to `git push -u origin <branch>` to publish the branch.
 #[tauri::command]
-pub fn git_push(repo_path: String) -> Result<String, String> {
+pub async fn git_push(repo_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git_push_inner(repo_path))
+        .await
+        .map_err(|e| format!("git_push join error: {e}"))?
+}
+
+fn git_push_inner(repo_path: String) -> Result<String, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Err("not a git repository".into());

@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.50] - 20-06-2026
+
+### Fixed
+
+- **The app no longer freezes / shows "Not Responding" on launch (and on every
+  Source Control refresh).** The git-decoration commands were synchronous
+  `#[tauri::command]`s, and on Windows a synchronous command runs on the
+  WebView2 UI (main) thread. On a large open workspace `git status` and
+  `git ls-files` take several seconds, so each refresh blocked the UI thread for
+  that long, which is enough for Windows to paint the window "Not Responding"
+  and offer to force-close it. A minidump of the frozen process caught the main
+  thread stuck in `NtCreateFile` inside `git_status` -> `count_file_lines`, and
+  (after that one was fixed) in `git_ignored` waiting on a `git ls-files`
+  subprocess. All eleven git commands (`git_status`, `git_ignored`, `git_log`,
+  `git_file_head`, `git_file_at`, `git_diff_full`, `git_commit`,
+  `git_commit_detail`, `git_discard_file`, `git_discard_all`, `git_push`) now
+  run on the blocking pool via `async_runtime::spawn_blocking`, so git work never
+  touches the UI thread. This was unrelated to the Remote Access extension; the
+  open workspace simply grew large enough to expose a latent main-thread block.
+- **`count_file_lines` can no longer block the decoration refresh.** It now skips
+  symlinks and special files (named pipes, devices, sockets) via
+  `symlink_metadata` + `is_file()` before reading, since opening such an entry
+  can block forever in `NtCreateFile`.
+- **git invocations can no longer stall on a prompt.** Every `git` child now
+  spawns with a null stdin and `GIT_TERMINAL_PROMPT=0`, so a credential or
+  host-key prompt fails fast instead of hanging a worker.
+
 ## [0.3.49] - 19-06-2026
 
 ### Reverted
