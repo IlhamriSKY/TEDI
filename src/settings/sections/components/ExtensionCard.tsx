@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 import { loadExtensionIcon, settingsRegistry, type InstalledExtension } from "@/modules/extensions";
@@ -29,6 +30,7 @@ export function ExtensionCard({
   // Live view of contributed settings. Updates when the extension calls `tedi.contribute.settings`.
   const all = useRegistry(settingsRegistry);
   const contributed = all.flatMap((entry) => (entry.extensionId === ext.id ? [entry.item] : []));
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isGithub = ext.source.startsWith("github:");
   const updateAvailable =
@@ -125,11 +127,31 @@ export function ExtensionCard({
         </div>
       </div>
       {ext.enabled && contributed.length > 0 ? (
-        <div className="flex flex-col gap-1.5 pt-1">
-          {contributed.map((setting) => (
-            <ContributedSettingRow key={setting.id} extId={ext.id} setting={setting} />
-          ))}
-        </div>
+        <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="pt-1">
+          <CollapsibleTrigger className="border-border/40 bg-background/40 hover:text-foreground text-muted-foreground flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-[11px] transition-colors">
+            <span className="font-medium">
+              Settings
+              <span className="text-muted-foreground/70"> · {contributed.length}</span>
+            </span>
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={cn("size-3.5 transition-transform duration-200", settingsOpen && "rotate-180")}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-1.5 pt-1.5">
+            {contributed.map((setting) => (
+              <ContributedSettingRow key={setting.id} extId={ext.id} setting={setting} />
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </div>
   );

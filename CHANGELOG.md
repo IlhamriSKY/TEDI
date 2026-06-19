@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.44] - 19-06-2026
+
+### Changed
+
+- **Extension settings collapse into an accordion.** In Settings, each enabled
+  extension's contributed settings now sit behind a collapsible "Settings · N"
+  header (collapsed by default) with a rotating chevron, instead of always being
+  expanded, so the Extensions list stays compact
+  ([ExtensionCard.tsx](src/settings/sections/components/ExtensionCard.tsx)).
+
 ## [0.3.43] - 19-06-2026
 
 ### Added
