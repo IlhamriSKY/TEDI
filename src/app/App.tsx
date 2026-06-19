@@ -85,6 +85,7 @@ import { useEditorBridge } from "./hooks/useEditorBridge";
 import { useAgentBridges } from "./hooks/useAgentBridges";
 import { useSelectionAskAi } from "./hooks/useSelectionAskAi";
 import { useSessionDisposal } from "./hooks/useSessionDisposal";
+import { useAdoptDaemonSessions } from "./hooks/useAdoptDaemonSessions";
 import { useActiveLeafSurface } from "./hooks/useActiveLeafSurface";
 import { useChromeDerivations } from "./hooks/useChromeDerivations";
 import { useTabSideEffects } from "./hooks/useTabSideEffects";
@@ -482,6 +483,12 @@ export default function App() {
     setSshStatuses,
     setAiCliStatuses,
   });
+
+  // Adopt daemon PTY sessions created by another client (the remote-access
+  // agent, when the browser hits "+") as real terminal tabs, and let the
+  // daemon's Exit event (e.g. a browser-initiated close) tear the tab down.
+  // Reuses the workspace-restore reattach machinery via newTab({ savedPtyId }).
+  useAdoptDaemonSessions({ tabsRef, liveTabsByWorkspace, newTab, restoreDone: wsHydrated });
 
   const {
     pendingClose,

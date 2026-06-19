@@ -97,3 +97,21 @@ export async function reattachPty(
   });
   return buildSession(result);
 }
+
+/** Daemon-side session metadata (mirrors Rust `SessionInfo`; note the wire
+ *  field is snake_case `created_at_ms`). `id` is the UUID `reattachPty` takes. */
+export type DaemonSessionInfo = {
+  id: string;
+  cwd: string | null;
+  cols: number;
+  rows: number;
+  alive: boolean;
+  created_at_ms: number;
+};
+
+/** Enumerate the sessions the PTY daemon currently owns. Returns `[]` under the
+ *  in-process fallback backend (no persistent daemon), so callers that diff
+ *  against owned leaves simply find nothing to do. */
+export async function listDaemonSessions(): Promise<DaemonSessionInfo[]> {
+  return invoke<DaemonSessionInfo[]>("pty_list_sessions");
+}

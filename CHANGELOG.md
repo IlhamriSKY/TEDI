@@ -4,6 +4,21 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.47] - 19-06-2026
+
+### Added
+
+- **Terminals opened from the Remote Access browser now appear in the desktop
+  app.** The GUI reconciles its tabs against the PTY daemon's session list every
+  ~2s and adopts any new session created by another daemon client (the
+  remote-access agent, when the browser hits "+"), attaching to it via the same
+  reattach path used on workspace restore (`useAdoptDaemonSessions`). Because the
+  GUI is now attached, closing such a terminal from the browser also closes the
+  matching tab in the desktop app. Conservative guards (a creation-time
+  watermark, an owned-set across all in-memory workspaces, and a
+  "once-owned never re-adopt" rule) keep pre-existing or retained daemon sessions
+  from being pulled in.
+
 ## [0.3.46] - 19-06-2026
 
 ### Added

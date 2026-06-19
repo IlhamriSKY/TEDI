@@ -165,7 +165,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   );
 
   const newTab = useCallback(
-    (cwd?: string, opts?: { private?: boolean }) => {
+    (cwd?: string, opts?: { private?: boolean; savedPtyId?: string }) => {
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
       setTabs((curr) => {
@@ -176,6 +176,10 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           cwd,
           terminalOrdinal: allocOrdinal(curr),
           ...(opts?.private ? { private: true } : {}),
+          // Adopt an existing daemon session: the restore path in
+          // openPtyForSession sees `savedPtyId` and calls reattachPty instead
+          // of spawning a fresh shell. Used by useAdoptDaemonSessions.
+          ...(opts?.savedPtyId ? { savedPtyId: opts.savedPtyId } : {}),
         };
         return [
           ...curr,
