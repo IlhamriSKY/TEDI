@@ -183,3 +183,61 @@ pub fn ssh_confirm_host_key(prompt_id: String, accept: bool) -> Result<(), Strin
         None => Err("ssh: unknown or already-answered host-key prompt".into()),
     }
 }
+
+/// Metadata for one live SSH session, returned by `ssh_list_sessions`. Lets the
+/// remote-access bridge enumerate SSH tabs the GUI has open (they live here, not
+/// in the PTY daemon) before attaching to mirror them.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshSessionInfo {
+    pub id: u32,
+    pub host: String,
+    pub user: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub alive: bool,
+    pub created_at_ms: u64,
+}
+
+#[tauri::command]
+pub async fn ssh_list_sessions(
+    state: tauri::State<'_, SshState>,
+) -> Result<Vec<SshSessionInfo>, String> {
+    let map = state.sessions.read().await;
+    let mut out = Vec::with_capacity(map.len());
+    for (id, s) in map.iter() {
+        let (host, user, cols, rows, alive, created_at_ms) = s.mirror_info();
+        out.push(SshSessionInfo {
+            id: *id,
+            host,
+            user,
+            cols,
+            rows,
+            alive,
+            created_at_ms,
+        });
+    }
+    Ok(out)
+}
+
+/// Attach an additional event sink to an existing SSH session so a second
+/// consumer (the remote-access bridge) mirrors its output + writes input via
+/// `ssh_write`. Replays the recent ring on attach. Returns `alive`.
+#[tauri::command]
+pub async fn ssh_attach(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    on_event: Channel<SshEvent>,
+) -> Result<bool, String> {
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            log::warn!("ssh_attach: unknown id={id}");
+            "no session".to_string()
+        })?;
+    Ok(session.add_mirror_sink(on_event))
+}

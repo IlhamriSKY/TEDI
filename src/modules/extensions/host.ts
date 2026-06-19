@@ -150,6 +150,15 @@ export type ExtensionContext = {
   };
   /** Invoke a Rust command. Each command id needs an `invoke:` permission. */
   invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
+  /** Invoke a Rust command that streams events through a Tauri `Channel`
+   *  (e.g. `pty_attach`, `ssh_attach`). The channel is created internally and
+   *  passed as the `onEvent` arg. Gated by the same `invoke:<command>`
+   *  permission. Returns the command's resolved value. */
+  invokeChannel<E = unknown, T = unknown>(
+    command: string,
+    args: Record<string, unknown> | undefined,
+    onEvent: (ev: E) => void,
+  ): Promise<T>;
   /** OS-keychain bridge. All branches gated. */
   secrets: {
     get(name: string): Promise<string | null>;
@@ -438,6 +447,19 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         throw new PermissionDeniedError(ext.id, `invoke:${command}`);
       }
       return tauriInvoke<T>(command, args);
+    },
+    async invokeChannel<E = unknown, T = unknown>(
+      command: string,
+      args: Record<string, unknown> | undefined,
+      onEvent: (ev: E) => void,
+    ): Promise<T> {
+      if (!isInvokeAllowed(declared, command)) {
+        throw new PermissionDeniedError(ext.id, `invoke:${command}`);
+      }
+      const { Channel } = await import("@tauri-apps/api/core");
+      const ch = new Channel<E>();
+      ch.onmessage = onEvent;
+      return tauriInvoke<T>(command, { ...(args ?? {}), onEvent: ch });
     },
     secrets: {
       async get(name: string) {

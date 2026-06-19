@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.43] - 19-06-2026
+
+### Added
+
+- **Host commands to mirror SSH tabs (for the Remote Access extension).** New
+  `ssh_list_sessions` and `ssh_attach` commands let a permission-gated extension
+  enumerate open SSH tabs and stream each session's output (replayed ring plus
+  live) through a Tauri `Channel`; the extension host gained
+  `ctx.invokeChannel(command, args, onEvent)` to consume such a stream. The SSH
+  read pump now fans `Data`/`Exit` to any attached mirror sinks alongside the
+  GUI, so mirroring never disturbs the local view
+  ([session.rs](src-tauri/src/modules/ssh/session.rs),
+  [ssh/mod.rs](src-tauri/src/modules/ssh/mod.rs),
+  [host.ts](src/modules/extensions/host.ts), [lib.rs](src-tauri/src/lib.rs)).
+  This is what the `tedi.remote-access` extension needs to mirror SSH tabs to the
+  browser; local terminals already mirror without core changes.
+
 ## [0.3.42] - 18-06-2026
 
 ### Fixed

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::client::{self, Config, Handle, Handler, KeyboardInteractiveAuthResponse, Msg};
@@ -184,6 +184,19 @@ pub struct SshSession {
     /// the session id from `SshState.sessions`. `std::sync::Mutex` so the
     /// take is sync-cheap.
     exit_signal: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    /// Remote endpoint, surfaced by `ssh_list_sessions`.
+    host: String,
+    user: String,
+    /// Live terminal dims; updated by `resize`. Read for list metadata.
+    dims: std::sync::Mutex<(u16, u16)>,
+    created_at_ms: u64,
+    /// Extra mirror sinks (the remote-access bridge) the pump fans Data / Exit
+    /// to alongside the GUI's own channel. Populated by `add_mirror_sink`.
+    mirror_sinks: Arc<std::sync::Mutex<Vec<IpcChannel<SshEvent>>>>,
+    /// Recent raw output, replayed to a freshly-attached mirror sink so it has
+    /// context (SSH has no daemon-side scrollback). Capped.
+    mirror_ring: Arc<std::sync::Mutex<VecDeque<u8>>>,
+    alive: Arc<AtomicBool>,
 }
 
 impl SshSession {
@@ -192,10 +205,44 @@ impl SshSession {
     }
 
     pub async fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+        if let Ok(mut d) = self.dims.lock() {
+            *d = (cols, rows);
+        }
         self.write_half
             .window_change(cols.into(), rows.into(), 0, 0)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    /// Register an extra event sink (the remote-access bridge) and replay the
+    /// recent output ring so it has context. Returns whether the session is
+    /// still alive. Mirrors the PTY daemon's multi-subscriber attach.
+    pub fn add_mirror_sink(&self, ch: IpcChannel<SshEvent>) -> bool {
+        let bytes: Vec<u8> = self
+            .mirror_ring
+            .lock()
+            .map(|r| r.iter().copied().collect())
+            .unwrap_or_default();
+        if !bytes.is_empty() {
+            let _ = ch.send(SshEvent::Data { data: B64.encode(&bytes) });
+        }
+        if let Ok(mut s) = self.mirror_sinks.lock() {
+            s.push(ch);
+        }
+        self.alive.load(Ordering::Acquire)
+    }
+
+    /// Snapshot for `ssh_list_sessions`: (host, user, cols, rows, alive, created_at_ms).
+    pub fn mirror_info(&self) -> (String, String, u16, u16, bool, u64) {
+        let (cols, rows) = self.dims.lock().map(|d| *d).unwrap_or((80, 24));
+        (
+            self.host.clone(),
+            self.user.clone(),
+            cols,
+            rows,
+            self.alive.load(Ordering::Acquire),
+            self.created_at_ms,
+        )
     }
 
     pub async fn close(self: Arc<Self>) {
@@ -416,35 +463,73 @@ pub async fn connect(
     // (pump.abort() drops the sender mid-future).
     let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
 
+    // Mirror infrastructure shared with the pump: extra sinks (remote-access
+    // bridge), a small replay ring, and an alive flag.
+    const MIRROR_RING_CAP: usize = 128 * 1024;
+    let mirror_sinks: Arc<std::sync::Mutex<Vec<IpcChannel<SshEvent>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mirror_ring: Arc<std::sync::Mutex<VecDeque<u8>>> =
+        Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let alive = Arc::new(AtomicBool::new(true));
+    let pump_sinks = mirror_sinks.clone();
+    let pump_ring = mirror_ring.clone();
+    let pump_alive = alive.clone();
+
     let pump = tokio::spawn(async move {
         let _exit_tx = exit_tx;
+        // Fan an event to every extra mirror sink. Dead channels are tolerated
+        // (send is best-effort); they are pruned on the next attach if needed.
+        let fan = |ev: &SshEvent| {
+            if let Ok(sinks) = pump_sinks.lock() {
+                for ch in sinks.iter() {
+                    let _ = ch.send(ev.clone());
+                }
+            }
+        };
         while let Some(msg) = read_half.wait().await {
             match msg {
                 ChannelMsg::Data { ref data } => {
-                    let _ = on_event_pump.send(SshEvent::Data {
-                        data: B64.encode(data),
-                    });
+                    if let Ok(mut r) = pump_ring.lock() {
+                        r.extend(data.iter().copied());
+                        while r.len() > MIRROR_RING_CAP {
+                            r.pop_front();
+                        }
+                    }
+                    let ev = SshEvent::Data { data: B64.encode(data) };
+                    let _ = on_event_pump.send(ev.clone());
+                    fan(&ev);
                 }
                 ChannelMsg::ExtendedData { ref data, ext: 1 } => {
-                    let _ = on_event_pump.send(SshEvent::Stderr {
-                        data: B64.encode(data),
-                    });
+                    let ev = SshEvent::Stderr { data: B64.encode(data) };
+                    let _ = on_event_pump.send(ev.clone());
+                    fan(&ev);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
-                    let _ = on_event_pump.send(SshEvent::Exit {
-                        code: exit_status as i32,
-                    });
+                    let ev = SshEvent::Exit { code: exit_status as i32 };
+                    let _ = on_event_pump.send(ev.clone());
+                    fan(&ev);
                 }
                 ChannelMsg::Eof | ChannelMsg::Close => {
-                    let _ = on_event_pump.send(SshEvent::Exit { code: 0 });
+                    pump_alive.store(false, Ordering::Release);
+                    let ev = SshEvent::Exit { code: 0 };
+                    let _ = on_event_pump.send(ev.clone());
+                    fan(&ev);
                     return;
                 }
                 _ => {}
             }
         }
         // wait() returned None; peer closed without sending exit-status.
-        let _ = on_event_pump.send(SshEvent::Exit { code: 0 });
+        pump_alive.store(false, Ordering::Release);
+        let ev = SshEvent::Exit { code: 0 };
+        let _ = on_event_pump.send(ev.clone());
+        fan(&ev);
     });
+
+    let created_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
 
     Ok(Arc::new(SshSession {
         write_half,
@@ -452,6 +537,13 @@ pub async fn connect(
         handle: Mutex::new(Some(handle)),
         sftp: Mutex::new(None),
         exit_signal: std::sync::Mutex::new(Some(exit_rx)),
+        host: input.host.clone(),
+        user: input.user.clone(),
+        dims: std::sync::Mutex::new((input.cols, input.rows)),
+        created_at_ms,
+        mirror_sinks,
+        mirror_ring,
+        alive,
     }))
 }
 
