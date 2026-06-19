@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.48] - 19-06-2026
+
+### Added
+
+- **Per-terminal tab numbers exposed to extensions.** The app-context bridge now
+  publishes `AppContextSnapshot.terminals` (a `{ptyId, ordinal}` list keyed by
+  daemon PTY id with each terminal's FIFO `terminalOrdinal`), so a mirror like
+  the Remote Access browser client can label its tabs with the SAME number the
+  desktop shows instead of guessing from left-to-right position.
+
 ## [0.3.47] - 19-06-2026
 
 ### Added

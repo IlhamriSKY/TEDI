@@ -109,6 +109,11 @@ export type AppContextSnapshot = {
   /** Sum of terminal leaves across every workspace (active workspace uses
    *  live tabs, inactive workspaces use their last-saved tab snapshot). */
   terminalCountAll: number;
+  /** Per-terminal map (daemon PTY id -> the tab's FIFO number/`terminalOrdinal`)
+   *  across all workspaces, so a mirror (e.g. the Remote Access browser client)
+   *  can label tabs with the SAME number the desktop shows instead of guessing
+   *  from position. Only terminals with a live daemon `ptyId` are included. */
+  terminals: { ptyId: string; ordinal: number }[];
 };
 
 export type ExtensionContext = {
