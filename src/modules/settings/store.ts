@@ -106,6 +106,13 @@ export type Preferences = {
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   /**
+   * Max scrollback lines kept per terminal (xterm `scrollback`). Lower = lighter
+   * memory per leaf, since fewer history rows are retained (each row is roughly
+   * cols x ~16 B). Works like a CMD screen-buffer height cap: scroll back at
+   * most this many lines. Default 1000; editable in Settings -> General.
+   */
+  terminalScrollback: number;
+  /**
    * Extra directories prepended to the interactive terminal shell's PATH at
    * spawn. Each entry can be individually enabled/disabled. Lets commands that
    * live outside the OS PATH (e.g. a Laragon `composer`, a portable toolchain)
@@ -263,6 +270,7 @@ const KEY_LINE_WRAP = "lineWrap";
 const KEY_SHOW_MINIMAP = "showMinimap";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
+const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_TERMINAL_ENV_PATH = "terminalEnvPath";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
@@ -306,6 +314,14 @@ export const APP_OPACITY_MAX = 1;
 export const APP_OPACITY_STEP = 0.05;
 
 export const TERMINAL_FONT_SIZES = [10, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const;
+
+// Lighter default than the old hard-coded 5000: ~1000 lines x 80 cols x ~16 B
+// is roughly 1.2 MB per leaf vs ~6 MB, a big win when many terminals are open.
+export const TERMINAL_SCROLLBACK_DEFAULT = 1000;
+export const TERMINAL_SCROLLBACK_MIN = 100;
+export const TERMINAL_SCROLLBACK_MAX = 100_000;
+// Choices offered in the Settings dropdown. 200 mirrors a CMD-style tight cap.
+export const TERMINAL_SCROLLBACK_OPTIONS = [200, 500, 1000, 2500, 5000, 10000] as const;
 
 /**
  * First-install formatter defaults. Languages Prettier supports get
@@ -352,6 +368,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMinimap: true,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
+  terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
   terminalEnvPath: [],
   showHiddenFiles: false,
   showSourceControl: true,
@@ -430,6 +447,9 @@ export async function loadPreferences(): Promise<Preferences> {
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ?? DEFAULT_PREFERENCES.terminalWebglEnabled,
     terminalFontSize: get<number>(KEY_TERMINAL_FONT_SIZE) ?? DEFAULT_PREFERENCES.terminalFontSize,
+    terminalScrollback: clampScrollback(
+      get<number>(KEY_TERMINAL_SCROLLBACK) ?? DEFAULT_PREFERENCES.terminalScrollback,
+    ),
     terminalEnvPath: normalizeTerminalPathEntries(get<unknown>(KEY_TERMINAL_ENV_PATH)),
     showHiddenFiles: get<boolean>(KEY_SHOW_HIDDEN_FILES) ?? DEFAULT_PREFERENCES.showHiddenFiles,
     showSourceControl:
@@ -574,6 +594,11 @@ function clampZoom(value: number): number {
   return Math.min(CONTENT_ZOOM_MAX, Math.max(CONTENT_ZOOM_MIN, value));
 }
 
+export function clampScrollback(value: number): number {
+  if (!Number.isFinite(value)) return TERMINAL_SCROLLBACK_DEFAULT;
+  return Math.min(TERMINAL_SCROLLBACK_MAX, Math.max(TERMINAL_SCROLLBACK_MIN, Math.round(value)));
+}
+
 function clampUiZoom(value: number): number {
   if (!Number.isFinite(value)) return UI_ZOOM_DEFAULT;
   return Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, value));
@@ -691,6 +716,10 @@ export async function setTerminalFontSize(value: number): Promise<void> {
     ? Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(value)))
     : TERMINAL_FONT_SIZE_DEFAULT;
   await writePref(KEY_TERMINAL_FONT_SIZE, clamped);
+}
+
+export async function setTerminalScrollback(value: number): Promise<void> {
+  await writePref(KEY_TERMINAL_SCROLLBACK, clampScrollback(value));
 }
 
 /**
@@ -902,6 +931,7 @@ export async function onPreferencesChange(
     showMinimap: KEY_SHOW_MINIMAP,
     terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,
     terminalFontSize: KEY_TERMINAL_FONT_SIZE,
+    terminalScrollback: KEY_TERMINAL_SCROLLBACK,
     terminalEnvPath: KEY_TERMINAL_ENV_PATH,
     showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
     showSourceControl: KEY_SHOW_SOURCE_CONTROL,

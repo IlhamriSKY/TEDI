@@ -161,8 +161,10 @@ export function ensureSession(
     cursorBlink: true,
     cursorStyle: "bar",
     cursorInactiveStyle: "outline",
-    // 5k lines x 80 cols x ~16 B per cell ≈ 6 MB per leaf.
-    scrollback: 5_000,
+    // User-configurable history cap (Settings -> General). Each line is ~cols x
+    // ~16 B, so a lower value keeps the per-leaf footprint small. Live changes
+    // are pushed onto open terminals from useTerminalSession.
+    scrollback: prefs.terminalScrollback,
     allowProposedApi: true,
     // Required so the WebGL renderer honours an rgba `theme.background` and
     // lets the Theme tab's wallpaper bleed through the terminal canvas.

@@ -221,6 +221,17 @@ export function useTerminalSession({
     }
   }, [leafId, fontSize]);
 
+  const scrollback = usePreferencesStore((p) => p.terminalScrollback);
+  useEffect(() => {
+    const s = sessions.get(leafId);
+    if (!s) return;
+    if (s.term.options.scrollback === scrollback) return;
+    // Lowering trims the live history ring immediately (frees memory); raising
+    // lets the terminal retain more going forward. Viewport size is unchanged,
+    // so no refit is needed.
+    s.term.options.scrollback = scrollback;
+  }, [leafId, scrollback]);
+
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);
   useEffect(() => {
     const s = sessions.get(leafId);

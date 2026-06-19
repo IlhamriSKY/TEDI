@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.51] - 20-06-2026
+
+### Added
+
+- **Configurable terminal scrollback limit (Settings -> General).** Each terminal
+  keeps a capped history ring (xterm `scrollback`); a smaller cap uses less
+  memory per leaf, like a CMD screen-buffer height. Pick 200 / 500 / 1000 /
+  2500 / 5000 / 10000 lines. Changes apply to already-open terminals instantly
+  (lowering trims the buffer right away). The default drops from the old
+  hard-coded 5000 to 1000 (roughly 6 MB to 1.2 MB per terminal) so the app is
+  lighter out of the box.
+
 ## [0.3.50] - 20-06-2026
 
 ### Fixed

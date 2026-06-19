@@ -19,6 +19,7 @@ import {
   UI_ZOOM_MIN,
   UI_ZOOM_STEP,
   TERMINAL_FONT_SIZES,
+  TERMINAL_SCROLLBACK_OPTIONS,
   setAiNotificationsEnabled,
   setAutostart,
   setRestoreWindowState,
@@ -27,6 +28,7 @@ import {
   setShowHiddenFiles,
   setShowSourceControl,
   setTerminalFontSize,
+  setTerminalScrollback,
   setTerminalWebglEnabled,
 } from "@/modules/settings/store";
 import { IS_WINDOWS } from "@/lib/platform";
@@ -60,11 +62,14 @@ export function GeneralSection() {
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const terminalWebglEnabled = usePreferencesStore((s) => s.terminalWebglEnabled);
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
+  const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   // SQL Explorer "show/hide" maps to enabling/disabling the extension (which
   // adds/removes its Databases panel everywhere). Only offered when installed.
-  const sqlExplorerExt = useExtensionsStore((s) => s.list).find((e) => e.id === "tedi.sql-explorer");
+  const sqlExplorerExt = useExtensionsStore((s) => s.list).find(
+    (e) => e.id === "tedi.sql-explorer",
+  );
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
@@ -216,10 +221,10 @@ export function GeneralSection() {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS
-                  setups (especially with Nerd Fonts), the atlas corrupts and terminal text
-                  becomes unreadable. Turn this off as a fallback - performance dips slightly, but
-                  text renders correctly via the DOM renderer.
+                  xterm's WebGL renderer caches glyphs in a GPU texture atlas. On some macOS setups
+                  (especially with Nerd Fonts), the atlas corrupts and terminal text becomes
+                  unreadable. Turn this off as a fallback - performance dips slightly, but text
+                  renders correctly via the DOM renderer.
                 </TooltipContent>
               </Tooltip>
             </span>
@@ -249,6 +254,35 @@ export function GeneralSection() {
                   className={cn("text-[12px]", size === terminalFontSize && "bg-accent/50")}
                 >
                   {size} px
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SettingRow>
+        <SettingRow
+          title="Scrollback limit"
+          description="Max lines you can scroll back per terminal. Lower uses less memory, like a CMD screen-buffer cap. Applies to open terminals instantly."
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
+                <span>{terminalScrollback.toLocaleString()} lines</span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={12}
+                  strokeWidth={2}
+                  className="opacity-70"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-25">
+              {TERMINAL_SCROLLBACK_OPTIONS.map((n) => (
+                <DropdownMenuItem
+                  key={n}
+                  onSelect={() => void setTerminalScrollback(n)}
+                  className={cn("text-[12px]", n === terminalScrollback && "bg-accent/50")}
+                >
+                  {n.toLocaleString()} lines
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
