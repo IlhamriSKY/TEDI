@@ -133,7 +133,12 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
               variant: "warning",
               durationMs: 6000,
             });
-            playBlockingBeep();
+            // Only beep on a genuine transition the user is present for. `before`
+            // is null on a leaf's FIRST observed status, e.g. when you connect to
+            // (or a remote mirror attaches to) a session that's already blocking;
+            // beeping then is heard as an unwanted "connection sound". The toast
+            // still shows.
+            if (before) playBlockingBeep();
           } catch {
             // Notification failures are non-critical.
           }

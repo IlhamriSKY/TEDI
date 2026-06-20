@@ -2,6 +2,7 @@ import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
+import type { SshStatus } from "@/modules/ssh/status";
 import { countSavedTerminalLeaves, useWorkspacesStore } from "@/modules/workspaces";
 import { useEffect, useMemo } from "react";
 
@@ -14,6 +15,9 @@ type Params = {
   wsList: Workspace[];
   wsActiveId: string | null;
   explorerRoot: string | null;
+  /** Live SSH status per leaf (kind/sessionId). Lets us publish SSH tab numbers
+   *  keyed by the runtime SSH session id so a mirror labels SSH tabs correctly. */
+  sshStatuses: Map<number, SshStatus>;
 };
 
 /**
@@ -29,6 +33,7 @@ export function useAppContextBridge({
   wsList,
   wsActiveId,
   explorerRoot,
+  sshStatuses,
 }: Params): void {
   // Snapshot of "what the user is doing now", pushed to extensions via
   // `setAppContext`. Extensions subscribe via `tedi.app.onContextChange`.
@@ -71,22 +76,29 @@ export function useAppContextBridge({
   const terminals = useMemo<AppContextSnapshot["terminals"]>(() => {
     const out: AppContextSnapshot["terminals"] = [];
     const seen = new Set<string>();
+    const add = (key: string, ordinal: number) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ ptyId: key, ordinal });
+    };
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
-        if (
-          l.leafKind === "terminal" &&
-          l.ptyId &&
-          typeof l.terminalOrdinal === "number" &&
-          !seen.has(l.ptyId)
-        ) {
-          seen.add(l.ptyId);
-          out.push({ ptyId: l.ptyId, ordinal: l.terminalOrdinal });
+        if (l.leafKind !== "terminal" || typeof l.terminalOrdinal !== "number") continue;
+        if (l.ptyId) {
+          // Local terminal: key by daemon ptyId (the mirror's session id).
+          add(l.ptyId, l.terminalOrdinal);
+        } else {
+          // SSH leaf has no daemon ptyId. Key by its live SSH session id as
+          // `ssh:<id>` - the exact id the browser mirror uses for SSH tabs - so
+          // the web labels SSH tabs with the same number the desktop shows.
+          const st = sshStatuses.get(l.id);
+          if (st && st.kind === "connected") add(`ssh:${st.sessionId}`, l.terminalOrdinal);
         }
       }
     }
     return out;
-  }, [tabs]);
+  }, [tabs, sshStatuses]);
   const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;

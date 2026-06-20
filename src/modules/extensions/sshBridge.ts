@@ -35,12 +35,22 @@ export type OpenSshConnectionFn = (id: string) => Promise<{ ok: boolean; error?:
 let lister: ListSshConnectionsFn | null = null;
 let opener: OpenSshConnectionFn | null = null;
 
+/** Close the SSH tab whose live session id is `sessionId` (the runtime id from
+ *  `ssh_list_sessions`, i.e. the `ssh:<id>` the browser mirror uses). Returns
+ *  true if a matching tab was found and closed. Lets a remote "close tab" tear
+ *  down the real desktop tab, not just the underlying SSH session. */
+export type CloseSshConnectionFn = (sessionId: number) => boolean;
+
+let closer: CloseSshConnectionFn | null = null;
+
 export function setSshConnectionBridge(
   list: ListSshConnectionsFn | null,
   open: OpenSshConnectionFn | null,
+  close: CloseSshConnectionFn | null,
 ): void {
   lister = list;
   opener = open;
+  closer = close;
 }
 
 export async function listSshConnections(): Promise<SafeSshConnection[]> {
@@ -57,4 +67,12 @@ export async function openSshConnection(id: string): Promise<{ ok: boolean; erro
     return { ok: false, error: "ssh bridge not ready" };
   }
   return opener(id);
+}
+
+export function closeSshConnection(sessionId: number): boolean {
+  if (!closer) {
+    console.warn("[extensions] closeSshConnection called before App wired the bridge; ignoring");
+    return false;
+  }
+  return closer(sessionId);
 }

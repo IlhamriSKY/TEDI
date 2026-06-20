@@ -4,6 +4,28 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.54] - 20-06-2026
+
+### Added
+
+- **`ctx.ssh.closeConnection(sessionId)`** closes the desktop SSH tab whose live
+  SSH session id matches (the runtime id from `ssh_list_sessions`). Lets a mirror
+  like Remote Access close an SSH tab from the browser and have the desktop tab
+  close too, not just the underlying session.
+
+### Fixed
+
+- **SSH tab numbers now reach extensions.** The app-context `terminals` snapshot
+  only included local terminals (keyed by daemon ptyId); SSH leaves have no
+  ptyId, so a mirror fell back to guessing their number. SSH leaves are now
+  included keyed by their live session id (`ssh:<id>`), so the Remote Access
+  browser labels SSH tabs with the same number the desktop shows.
+- **No AI CLI approval beep on a session's first status.** The beep fired even on
+  a leaf's very first observed status, so connecting to (or a remote mirror
+  attaching to) a session that's already "blocking" beeped on connect, heard as
+  an unwanted connection sound. It now beeps only on a genuine transition into
+  blocking; the visual toast still shows.
+
 ## [0.3.53] - 20-06-2026
 
 ### Added

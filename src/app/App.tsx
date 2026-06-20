@@ -52,6 +52,7 @@ import {
 } from "@/modules/tabs";
 import {
   ensureFsDragListener,
+  leaves,
   useTerminalFileDrop,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
@@ -427,15 +428,6 @@ export default function App() {
     pickedRoot,
   );
 
-  useAppContextBridge({
-    activePaneTab,
-    activeTab,
-    tabs,
-    wsList,
-    wsActiveId,
-    explorerRoot,
-  });
-
   // Register the extension-host tabs/sidebar bridge setters and run the
   // sidebar / right-aux auto-restore effects. The shared refs (sidebar
   // handle + the two hider latches) stay in App; other effects read them.
@@ -463,6 +455,19 @@ export default function App() {
     activeSshContext,
     hasAnySshLeaf,
   } = useSshLeafState({ activePaneTab, tabs });
+
+  // Publish the live-state snapshot to extensions. Placed AFTER useSshLeafState
+  // so it can include SSH tab numbers (keyed by the live SSH session id), which
+  // a mirror like Remote Access needs to label SSH tabs the same as the desktop.
+  useAppContextBridge({
+    activePaneTab,
+    activeTab,
+    tabs,
+    wsList,
+    wsActiveId,
+    explorerRoot,
+    sshStatuses,
+  });
 
   const disposeTab = useCallback(
     (id: number) => {
@@ -524,9 +529,27 @@ export default function App() {
         newSshTab(conn.id, conn.name);
         return { ok: true };
       },
+      (sessionId) => {
+        // Close the desktop tab whose live SSH session id matches, so a remote
+        // "close tab" closes BOTH sides (not just the underlying SSH session).
+        let leafId: number | null = null;
+        for (const [lid, st] of sshStatuses) {
+          if (st.kind === "connected" && st.sessionId === sessionId) {
+            leafId = lid;
+            break;
+          }
+        }
+        if (leafId === null) return false;
+        const tab = tabs.find(
+          (t) => t.kind === "pane" && leaves(t.paneTree).some((l) => l.id === leafId),
+        );
+        if (!tab) return false;
+        closeTab(tab.id);
+        return true;
+      },
     );
-    return () => setSshConnectionBridge(null, null);
-  }, [newSshTab]);
+    return () => setSshConnectionBridge(null, null, null);
+  }, [newSshTab, sshStatuses, tabs, closeTab]);
 
   const {
     pendingClose,

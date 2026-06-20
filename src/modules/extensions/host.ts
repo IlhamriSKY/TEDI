@@ -53,6 +53,7 @@ import {
 import {
   listSshConnections as listSshConnectionsBridge,
   openSshConnection as openSshConnectionBridge,
+  closeSshConnection as closeSshConnectionBridge,
   type SafeSshConnection,
 } from "./sshBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
@@ -289,6 +290,10 @@ export type ExtensionContext = {
   ssh: {
     listConnections(): Promise<SafeSshConnection[]>;
     openConnection(id: string): Promise<{ ok: boolean; error?: string }>;
+    /** Close the SSH tab whose live session id is `sessionId` (the runtime id
+     *  from `ssh_list_sessions`). Lets a remote "close tab" tear down the real
+     *  desktop tab, not just the SSH session. Returns true if one was closed. */
+    closeConnection(sessionId: number): boolean;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
    *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
@@ -678,6 +683,10 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       openConnection(id) {
         requirePermission(ext.id, declared, "ssh:connections");
         return openSshConnectionBridge(String(id));
+      },
+      closeConnection(sessionId) {
+        requirePermission(ext.id, declared, "ssh:connections");
+        return closeSshConnectionBridge(Number(sessionId));
       },
     },
     shell: {
