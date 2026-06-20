@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::client::{self, Config, Handle, Handler, KeyboardInteractiveAuthResponse, Msg};
-use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
+use russh::keys::{Algorithm, EcdsaCurve, HashAlg, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
@@ -18,6 +18,35 @@ use super::SshOpenInput;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const KEEPALIVE: Duration = Duration::from_secs(30);
+
+/// Host-key / public-key signature algorithms we accept, in preference order.
+/// This is russh's vetted default set MINUS bare `ssh-rsa` (RSA with SHA-1
+/// signatures): SHA-1 is collision-broken and OpenSSH has disabled `ssh-rsa`
+/// by default since 8.8. Every server from OpenSSH 7.2 (2016) onward offers
+/// ed25519 / ecdsa / rsa-sha2-*, so dropping it costs no realistic
+/// compatibility while removing the one weak item left in russh 0.60's default
+/// host-key list. KEX, ciphers, MACs and compression stay at russh's defaults
+/// (modern KEX including OpenSSH strict-kex / Terrapin mitigation, AEAD + CTR
+/// ciphers, SHA-2-only MACs). Pinning the set here also freezes the posture
+/// across russh version bumps.
+const HOST_KEY_ALGOS: &[Algorithm] = &[
+    Algorithm::Ed25519,
+    Algorithm::Ecdsa {
+        curve: EcdsaCurve::NistP256,
+    },
+    Algorithm::Ecdsa {
+        curve: EcdsaCurve::NistP384,
+    },
+    Algorithm::Ecdsa {
+        curve: EcdsaCurve::NistP521,
+    },
+    Algorithm::Rsa {
+        hash: Some(HashAlg::Sha512),
+    },
+    Algorithm::Rsa {
+        hash: Some(HashAlg::Sha256),
+    },
+];
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -224,7 +253,9 @@ impl SshSession {
             .map(|r| r.iter().copied().collect())
             .unwrap_or_default();
         if !bytes.is_empty() {
-            let _ = ch.send(SshEvent::Data { data: B64.encode(&bytes) });
+            let _ = ch.send(SshEvent::Data {
+                data: B64.encode(&bytes),
+            });
         }
         if let Ok(mut s) = self.mirror_sinks.lock() {
             // Bound the live sink count (a buggy or hostile extension could call
@@ -315,6 +346,13 @@ pub async fn connect(
     let config = Arc::new(Config {
         inactivity_timeout: None,
         keepalive_interval: Some(KEEPALIVE),
+        // Drop bare `ssh-rsa` (SHA-1) from russh's default host-key set while
+        // keeping its vetted KEX / cipher / MAC / compression defaults. See
+        // HOST_KEY_ALGOS for the rationale.
+        preferred: russh::Preferred {
+            key: std::borrow::Cow::Borrowed(HOST_KEY_ALGOS),
+            ..russh::Preferred::DEFAULT
+        },
         ..Default::default()
     });
 
@@ -502,17 +540,23 @@ pub async fn connect(
                             r.pop_front();
                         }
                     }
-                    let ev = SshEvent::Data { data: B64.encode(data) };
+                    let ev = SshEvent::Data {
+                        data: B64.encode(data),
+                    };
                     let _ = on_event_pump.send(ev.clone());
                     fan(&ev);
                 }
                 ChannelMsg::ExtendedData { ref data, ext: 1 } => {
-                    let ev = SshEvent::Stderr { data: B64.encode(data) };
+                    let ev = SshEvent::Stderr {
+                        data: B64.encode(data),
+                    };
                     let _ = on_event_pump.send(ev.clone());
                     fan(&ev);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
-                    let ev = SshEvent::Exit { code: exit_status as i32 };
+                    let ev = SshEvent::Exit {
+                        code: exit_status as i32,
+                    };
                     let _ = on_event_pump.send(ev.clone());
                     fan(&ev);
                 }

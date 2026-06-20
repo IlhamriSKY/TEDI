@@ -20,6 +20,7 @@ import {
   type SshConnection,
 } from "@/modules/ssh/connections";
 import { openSsh } from "@/modules/ssh/bridge";
+import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
@@ -140,6 +141,10 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     setTest({ kind: "running" });
     const port = Number.parseInt(draft.port, 10);
     const started = performance.now();
+    // A new host (no pinned key) makes the backend pause the handshake on a
+    // first-connect prompt; we route it to the global confirmation dialog and
+    // remember the id so it can be cleared if the probe ends without an answer.
+    let testPromptId: string | null = null;
     try {
       // Open a probe session, wait for Connected, then close. Never touches
       // the keychain. Runs against the current form values.
@@ -168,6 +173,16 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           },
           {
             onData: () => {},
+            // New host: hand the fingerprint to the global host-key dialog so
+            // the user can verify it, and stop the 20s probe deadline - waiting
+            // on a human can take arbitrarily long and the handshake stays
+            // paused (no credentials sent) until they answer. Without this, a
+            // first-connect Test dropped the prompt and could only ever time out.
+            onHostKeyPrompt: (prompt) => {
+              testPromptId = prompt.promptId;
+              clearTimeout(timer);
+              useHostKeyPrompt.getState().enqueue(prompt);
+            },
             onConnected: (fingerprint) => {
               if (resolved) return;
               resolved = true;
@@ -213,6 +228,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         kind: "fail",
         message: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      // If the probe ended while a host-key prompt was still pending (rejected,
+      // timed out, or the user walked away), drop it so it can't linger in the
+      // shared queue and block a later real connect's dialog.
+      if (testPromptId) useHostKeyPrompt.getState().dismiss(testPromptId);
     }
   };
 

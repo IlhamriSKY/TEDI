@@ -4,7 +4,7 @@ import {
   markConnected,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { openSsh, isHostKeyMismatchError } from "@/modules/ssh/bridge";
+import { openSsh, isHostKeyMismatchError, type SshSession } from "@/modules/ssh/bridge";
 import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { PtySession } from "./pty-bridge";
@@ -94,43 +94,68 @@ export async function openSshForSession(
     });
   };
 
-  const sshSession = await openSsh(
-    {
-      host: conn.host,
-      port: conn.port,
-      user: conn.user,
-      password: conn.authMode === "password" ? (secrets.password ?? "") : undefined,
-      privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
-      privateKeyPassphrase:
-        conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
-      // Pin against the last recorded fingerprint. First connect is TOFU; later connects fail fast on mismatch.
-      expectedFingerprint: conn.lastFingerprint || undefined,
-      cols,
-      rows,
-    },
-    {
-      onConnected: (fp) => {
-        writeSshBanner(s, `\x1b[2m[tedi] server key ${fp}\x1b[0m\r\n`);
-        pendingFingerprint = fp;
-        // Fire-and-forget. Timestamp write failure shouldn't break the session.
-        void markConnected(sshConnectionId, fp).catch(() => {});
-        emitConnectedIfReady();
+  // Track the first-connect host-key prompt so it can be cleaned up if this
+  // attempt dies before the user answers it (see the catch below).
+  let hostKeyPromptId: string | null = null;
+  let sshSession: SshSession;
+  try {
+    sshSession = await openSsh(
+      {
+        host: conn.host,
+        port: conn.port,
+        user: conn.user,
+        password: conn.authMode === "password" ? (secrets.password ?? "") : undefined,
+        privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
+        privateKeyPassphrase:
+          conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
+        // Pin against the last recorded fingerprint. First connect is TOFU; later connects fail fast on mismatch.
+        expectedFingerprint: conn.lastFingerprint || undefined,
+        cols,
+        rows,
       },
-      // First connect to a new host: pause for the user to verify the server
-      // fingerprint before credentials are sent (shown by the global dialog).
-      onHostKeyPrompt: (prompt) => {
-        useHostKeyPrompt.getState().enqueue(prompt);
+      {
+        onConnected: (fp) => {
+          // Handshake cleared the host-key gate (pinned, or the user trusted it
+          // via the dialog, which already dequeued the prompt). Drop our ref so
+          // the failure path can never dismiss a prompt that isn't ours.
+          hostKeyPromptId = null;
+          writeSshBanner(s, `\x1b[2m[tedi] server key ${fp}\x1b[0m\r\n`);
+          pendingFingerprint = fp;
+          // Fire-and-forget. Timestamp write failure shouldn't break the session.
+          void markConnected(sshConnectionId, fp).catch(() => {});
+          emitConnectedIfReady();
+        },
+        // First connect to a new host: pause for the user to verify the server
+        // fingerprint before credentials are sent (shown by the global dialog).
+        onHostKeyPrompt: (prompt) => {
+          hostKeyPromptId = prompt.promptId;
+          useHostKeyPrompt.getState().enqueue(prompt);
+        },
+        onData,
+        onExit: (code) => {
+          handleTerminal(code === 0 ? "remote closed" : `exit ${code}`);
+        },
+        onError: (msg) => {
+          writeSshBanner(s, `\r\n\x1b[31m[tedi] ssh error: ${msg}\x1b[0m\r\n`);
+          handleTerminal(msg);
+        },
       },
-      onData,
-      onExit: (code) => {
-        handleTerminal(code === 0 ? "remote closed" : `exit ${code}`);
-      },
-      onError: (msg) => {
-        writeSshBanner(s, `\r\n\x1b[31m[tedi] ssh error: ${msg}\x1b[0m\r\n`);
-        handleTerminal(msg);
-      },
-    },
-  );
+    );
+  } catch (e) {
+    // The connect failed before a live session existed: the host-key prompt
+    // timed out (120s backend cap) or was rejected, the credentials were wrong,
+    // or the transport dropped. ssh_open surfaces all of these as a promise
+    // rejection - NOT via onError - so this is the only place that sees them.
+    // If a first-connect prompt was emitted and is still sitting in the queue,
+    // drop it: the dialog renders only queue[0], so a dead prompt left at the
+    // front would shadow every later attempt's prompt (the bug that forced an
+    // app restart to recover).
+    if (hostKeyPromptId) {
+      useHostKeyPrompt.getState().dismiss(hostKeyPromptId);
+      hostKeyPromptId = null;
+    }
+    throw e;
+  }
 
   resolvedSessionId = sshSession.id;
   emitConnectedIfReady();

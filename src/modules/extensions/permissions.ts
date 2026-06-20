@@ -115,6 +115,10 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
     return "medium";
   }
   if (p.startsWith("secrets:")) return "high";
+  // Lists saved SSH hosts and opens a saved connection by id (remote shell).
+  // Secrets stay in the keychain - the extension only ever passes a connection
+  // id - but opening a remote shell is still a high-trust capability.
+  if (p.startsWith("ssh:")) return "high";
   if (p.startsWith("settings:write")) return "medium";
   if (p.startsWith("settings:")) return "low";
   if (p.startsWith("events:")) return "low";

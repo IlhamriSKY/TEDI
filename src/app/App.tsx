@@ -56,7 +56,8 @@ import {
   type TerminalPaneHandle,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
-import { type SshConnection } from "@/modules/ssh/connections";
+import { listConnections, type SshConnection } from "@/modules/ssh/connections";
+import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -492,6 +493,40 @@ export default function App() {
   // in 0.3.50), not this hook, and the adopt poll's pty_list_sessions is now
   // async so a slow daemon can't freeze the UI.
   useAdoptDaemonSessions({ tabsRef, liveTabsByWorkspace, newTab, restoreDone: wsHydrated });
+
+  // Wire the SSH-connection bridge so a permitted extension (the Remote Access
+  // browser "+ New SSH") can list saved hosts and open one BY ID. Secrets never
+  // cross: the keychain read + `ssh_open` happen later in the normal newSshTab
+  // flow (openSshForSession). Only PINNED connections are listed/openable - a
+  // first connect needs human host-key verification on the desktop, which a web
+  // user can't safely do, so unpinned hosts are withheld and refused here too.
+  useEffect(() => {
+    setSshConnectionBridge(
+      async () => {
+        const list = await listConnections();
+        return list
+          .filter((c) => !!c.lastFingerprint)
+          .map((c) => ({
+            id: c.id,
+            name: c.name,
+            host: c.host,
+            port: c.port,
+            user: c.user,
+            pinned: true,
+          }));
+      },
+      async (id) => {
+        const conn = (await listConnections()).find((c) => c.id === id);
+        if (!conn) return { ok: false, error: "connection not found" };
+        if (!conn.lastFingerprint) {
+          return { ok: false, error: "host key not pinned; connect once on the desktop first" };
+        }
+        newSshTab(conn.id, conn.name);
+        return { ok: true };
+      },
+    );
+    return () => setSshConnectionBridge(null, null);
+  }, [newSshTab]);
 
   const {
     pendingClose,

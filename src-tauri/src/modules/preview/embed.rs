@@ -349,7 +349,14 @@ pub async fn preview_embed_update(
         let size = PhysicalSize::new(vw, vh);
         // Background create: do NOT grab focus (the user is working elsewhere).
         return spawn_preview_child(
-            &app, label, target, position, size, transparent, tab_id, false,
+            &app,
+            label,
+            target,
+            position,
+            size,
+            transparent,
+            tab_id,
+            false,
         );
     }
 
@@ -384,7 +391,16 @@ pub async fn preview_embed_update(
     // (the existing-webview branch above repositions it); a never-created
     // foreground pane is created on the spot. This path is a VISIBLE pane the
     // user is looking at, so let it take focus like any browser tab.
-    spawn_preview_child(&app, label, target, position, size, transparent, tab_id, true)
+    spawn_preview_child(
+        &app,
+        label,
+        target,
+        position,
+        size,
+        transparent,
+        tab_id,
+        true,
+    )
 }
 
 /// Navigate an existing embedded preview webview to `url` (address-bar submit,

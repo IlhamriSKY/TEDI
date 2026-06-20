@@ -506,7 +506,11 @@ pub async fn git_file_at(
         .map_err(|e| format!("git_file_at join error: {e}"))?
 }
 
-fn git_file_at_inner(repo_path: String, rev: String, relative: String) -> Result<ReadResult, String> {
+fn git_file_at_inner(
+    repo_path: String,
+    rev: String,
+    relative: String,
+) -> Result<ReadResult, String> {
     if !is_valid_rev(&rev) {
         return Err("invalid revision".into());
     }

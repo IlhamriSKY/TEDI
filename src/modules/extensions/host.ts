@@ -50,6 +50,11 @@ import {
   setSidebarVisible as setSidebarVisibleBridge,
   setRightSidebarVisible as setRightSidebarVisibleBridge,
 } from "./tabsBridge";
+import {
+  listSshConnections as listSshConnectionsBridge,
+  openSshConnection as openSshConnectionBridge,
+  type SafeSshConnection,
+} from "./sshBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 
@@ -272,6 +277,18 @@ export type ExtensionContext = {
       state: ExtensionTabState | null;
       title?: string;
     }): void;
+  };
+  /** Saved-SSH-connection access. `listConnections` returns the user's saved
+   *  SSH hosts as SECRET-FREE metadata (id/name/host/user + a `pinned` flag);
+   *  `openConnection` opens one BY ID as a real SSH tab, reusing the app's
+   *  keychain-backed connect flow. The extension never sees the SSH password /
+   *  key - only the connection id crosses the boundary. `openConnection`
+   *  REFUSES a connection with no pinned server key, so a remote caller can
+   *  never trigger a first-connect host-key prompt (which needs human
+   *  verification on the desktop). Requires `ssh:connections`. */
+  ssh: {
+    listConnections(): Promise<SafeSshConnection[]>;
+    openConnection(id: string): Promise<{ ok: boolean; error?: string }>;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
    *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
@@ -651,6 +668,16 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           state: opts.state,
           title: opts.title,
         });
+      },
+    },
+    ssh: {
+      listConnections() {
+        requirePermission(ext.id, declared, "ssh:connections");
+        return listSshConnectionsBridge();
+      },
+      openConnection(id) {
+        requirePermission(ext.id, declared, "ssh:connections");
+        return openSshConnectionBridge(String(id));
       },
     },
     shell: {

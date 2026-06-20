@@ -4,6 +4,32 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.53] - 20-06-2026
+
+### Added
+
+- **Extensions can open a saved SSH connection by id (`ctx.ssh`, gated by the new
+  `ssh:connections` permission).** `ctx.ssh.listConnections()` returns the user's
+  saved SSH hosts as SECRET-FREE metadata (id/name/host/user + a `pinned` flag);
+  `ctx.ssh.openConnection(id)` opens one as a real SSH tab, reusing the app's
+  keychain-backed connect flow. The SSH password/key never cross the boundary -
+  only a connection id does. `openConnection` REFUSES a host with no pinned
+  server key, so a remote caller can never trigger a first-connect host-key
+  prompt (which needs human verification on the desktop). This backs the Remote
+  Access "open SSH from the browser" feature.
+
+### Security
+
+- **SSH host-key algorithms hardened.** Dropped bare `ssh-rsa` (RSA with SHA-1
+  signatures, collision-broken and disabled by default in OpenSSH since 8.8) from
+  the accepted host-key set, keeping ed25519 / ecdsa / rsa-sha2-*. russh's vetted
+  KEX / cipher / MAC / compression defaults are pinned so the posture is frozen
+  across version bumps.
+- **SSH host-key prompt lifecycle fixed.** A first-connect (TOFU) prompt that ends
+  without an answer (rejected, 120s timeout, or an abandoned Test probe) is now
+  dismissed from the shared queue, so a dead prompt can no longer shadow every
+  later connect's prompt (which previously required an app restart to clear).
+
 ## [0.3.52] - 20-06-2026
 
 ### Added

@@ -42,14 +42,46 @@ struct KnownTool {
 
 /// Tools worth detecting in a Laragon / portable-toolchain `bin` folder.
 const KNOWN_TOOLS: &[KnownTool] = &[
-    KnownTool { name: "composer", bases: &["composer"], arg: "--version" },
-    KnownTool { name: "php", bases: &["php"], arg: "--version" },
-    KnownTool { name: "node", bases: &["node"], arg: "--version" },
-    KnownTool { name: "npm", bases: &["npm"], arg: "--version" },
-    KnownTool { name: "pnpm", bases: &["pnpm"], arg: "--version" },
-    KnownTool { name: "yarn", bases: &["yarn"], arg: "--version" },
-    KnownTool { name: "git", bases: &["git"], arg: "--version" },
-    KnownTool { name: "python", bases: &["python", "python3"], arg: "--version" },
+    KnownTool {
+        name: "composer",
+        bases: &["composer"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "php",
+        bases: &["php"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "node",
+        bases: &["node"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "npm",
+        bases: &["npm"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "pnpm",
+        bases: &["pnpm"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "yarn",
+        bases: &["yarn"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "git",
+        bases: &["git"],
+        arg: "--version",
+    },
+    KnownTool {
+        name: "python",
+        bases: &["python", "python3"],
+        arg: "--version",
+    },
 ];
 
 /// Executable extensions to try, in preference order. On Windows a bare name is
@@ -106,7 +138,10 @@ fn probe(path: String, extra_dirs: Option<Vec<String>>) -> PathProbeResult {
     let dir = PathBuf::from(&path);
 
     if !dir.is_dir() {
-        return PathProbeResult { is_dir: false, tools: Vec::new() };
+        return PathProbeResult {
+            is_dir: false,
+            tools: Vec::new(),
+        };
     }
 
     // Same PATH a freshly opened terminal would get, so a wrapper that shells
@@ -143,13 +178,20 @@ fn probe(path: String, extra_dirs: Option<Vec<String>>) -> PathProbeResult {
         });
     }
 
-    PathProbeResult { is_dir: true, tools }
+    PathProbeResult {
+        is_dir: true,
+        tools,
+    }
 }
 
 /// First executable matching `base` (+ platform extension) that exists in `dir`.
 fn find_exe(dir: &Path, base: &str) -> Option<PathBuf> {
     for ext in EXE_EXTS {
-        let name = if ext.is_empty() { base.to_string() } else { format!("{base}.{ext}") };
+        let name = if ext.is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}.{ext}")
+        };
         let cand = dir.join(&name);
         if cand.is_file() {
             return Some(cand);
@@ -200,8 +242,10 @@ fn dir_contains_known_tool(dir: &Path) -> bool {
 /// the tool resolves in the terminal without the user adding the deep path by
 /// hand. Sorted for a stable PATH order across runs.
 pub(crate) fn tool_subdirs(dir: &Path) -> Vec<PathBuf> {
-    let mut subs: Vec<PathBuf> =
-        subdirs(dir).into_iter().filter(|p| dir_contains_known_tool(p)).collect();
+    let mut subs: Vec<PathBuf> = subdirs(dir)
+        .into_iter()
+        .filter(|p| dir_contains_known_tool(p))
+        .collect();
     subs.sort();
     subs
 }
@@ -324,5 +368,7 @@ fn find_dotted_token(line: &str) -> Option<&str> {
 /// Pull a version token (e.g. "2.7.1", "20.10.0") out of a tool's version line,
 /// falling back to the whole trimmed line when no dotted number is present.
 fn extract_version(line: &str) -> String {
-    find_dotted_token(line).unwrap_or_else(|| line.trim()).to_string()
+    find_dotted_token(line)
+        .unwrap_or_else(|| line.trim())
+        .to_string()
 }

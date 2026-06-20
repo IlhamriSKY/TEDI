@@ -240,7 +240,9 @@ pub(super) fn cmd_list(args: &[String]) -> Result<(), String> {
     let labels: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
     let theme = picker_theme();
     let chosen = dialoguer::Select::with_theme(theme.as_ref())
-        .with_prompt("Select an extension (installed items are reinstalled/updated) · Esc to cancel")
+        .with_prompt(
+            "Select an extension (installed items are reinstalled/updated) · Esc to cancel",
+        )
         .items(&labels)
         .default(0)
         .interact_opt()
