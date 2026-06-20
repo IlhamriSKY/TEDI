@@ -17,6 +17,13 @@ try {
     $global:OutputEncoding    = [System.Text.UTF8Encoding]::new($false)
 } catch {}
 
+# Silence the audible bell. PSReadLine's default BellStyle is Audible, which
+# rings a real machine beep ([Console]::Beep) on things like a no-op completion
+# or a prompt redraw after a resize. With the remote-access browser that surfaces
+# as a stray "beep" when a tab is opened or fit-resized. None keeps it quiet
+# (the visible terminal is unaffected). Guarded for shells without PSReadLine.
+try { Set-PSReadLineOption -BellStyle None } catch {}
+
 if (Test-Path Function:prompt) {
     Copy-Item Function:prompt Function:__tedi_user_prompt -Force -ErrorAction SilentlyContinue
 }

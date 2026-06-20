@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.55] - 20-06-2026
+
+### Fixed
+
+- **No more stray terminal beep.** PSReadLine ships with `BellStyle = Audible`,
+  which rings a real machine beep (`[Console]::Beep`) on a no-op completion or a
+  prompt redraw after a resize. With Remote Access that surfaced as a "beep" when
+  a browser opened or fit-resized a tab. The injected shell profile now sets
+  `BellStyle = None`, so the shell stays quiet (the visible terminal is
+  unchanged). Guarded for shells without PSReadLine.
+
 ## [0.3.54] - 20-06-2026
 
 ### Added
