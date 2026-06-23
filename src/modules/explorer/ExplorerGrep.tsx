@@ -1,5 +1,6 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UnfoldLessIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -275,7 +276,10 @@ export function ExplorerGrep({
   };
 
   return (
-    <div className="@container flex flex-col">
+    // When results are showing, fill the remaining height of the explorer
+    // column so the inner `min-h-0 flex-1` ScrollArea has a bounded box to
+    // scroll within. Hug-height while inactive so the tree layout is untouched.
+    <div className={cn("@container flex flex-col", active && "min-h-0 flex-1")}>
       {open ? (
         <GrepSearchBar
           inputRef={inputRef}

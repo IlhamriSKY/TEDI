@@ -198,7 +198,11 @@ export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onA
   };
 
   return (
-    <div className="flex flex-col">
+    // When results are showing, fill the remaining height of the explorer
+    // column (a flex child of FileExplorer's `flex h-full flex-col`) so the
+    // inner `min-h-0 flex-1` ScrollArea has a bounded box to scroll within.
+    // Stay hug-height while inactive so the normal tree layout is untouched.
+    <div className={cn("flex flex-col", active && "min-h-0 flex-1")}>
       {open ? (
         <motion.div
           className="relative shrink-0 px-2 py-1.5"

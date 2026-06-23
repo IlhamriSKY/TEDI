@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.56] - 23-06-2026
+
+### Fixed
+
+- **Find in Files / Find in File results now scroll.** The filename-search and
+  folder-wide grep result panes wrapped their `ScrollArea` in a flex column with
+  no bounded height, so the list grew past the viewport instead of scrolling. The
+  wrapper now fills the remaining explorer height while results are showing (and
+  stays collapsed otherwise, so the tree layout is untouched), in both the main
+  folder tree and the secondary folder tree. See
+  [ExplorerSearch.tsx](src/modules/explorer/ExplorerSearch.tsx),
+  [ExplorerGrep.tsx](src/modules/explorer/ExplorerGrep.tsx).
+- **SSH connects to file-transfer-only servers.** A locked-down SFTP account
+  (chroot, `PermitTTY no`, `ForceCommand internal-sftp`, a `nologin` login shell)
+  denies the interactive PTY/shell, which used to abort the whole connection. The
+  PTY and shell requests are now best-effort: a normal server is unchanged, while
+  a shell-less server connects SFTP-only (the remote file browser works and the
+  terminal shows a one-line notice) instead of failing outright. See
+  [session.rs](src-tauri/src/modules/ssh/session.rs).
+- **A right-docked sidebar section remembers its open/closed state.** A section
+  moved to the right slot (for example SQL Explorer's Databases list) reopened on
+  every launch because the slot's open state was session-only. Its last
+  open/closed intent is now persisted and restored, so a section you closed stays
+  closed (its status-bar icon still reopens it). See
+  [useDockedSectionAutoOpen.ts](src/app/hooks/useDockedSectionAutoOpen.ts),
+  [sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts).
+
 ## [0.3.55] - 20-06-2026
 
 ### Fixed

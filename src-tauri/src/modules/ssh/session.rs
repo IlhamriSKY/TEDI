@@ -464,7 +464,17 @@ pub async fn connect(
         .await
         .map_err(|e| format!("ssh: open channel failed: {e}"))?;
 
-    channel
+    // Interactive PTY + shell are best-effort. Locked-down file-transfer
+    // accounts (SFTP chroot, `PermitTTY no`, `ForceCommand internal-sftp`,
+    // a `/usr/sbin/nologin` login shell) deny the PTY and/or the shell - which
+    // used to fail the WHOLE connect via `?`, so a plain "FTP"-style host could
+    // never be added at all. But the authenticated `Handle` is all the SFTP
+    // file browser needs: it opens its OWN `sftp` subsystem channel (see
+    // `sftp::open_sftp_on_handle`), independent of this shell channel. So a
+    // denied shell must DEGRADE, not abort. A normal server still takes the
+    // unchanged interactive path below; a shell-less server connects SFTP-only.
+    let mut interactive = true;
+    if let Err(e) = channel
         .request_pty(
             true,
             "xterm-256color",
@@ -475,12 +485,53 @@ pub async fn connect(
             &[],
         )
         .await
-        .map_err(|e| format!("ssh: request pty failed: {e}"))?;
+    {
+        log::warn!("ssh: request pty denied ({e}); continuing as SFTP-only (no interactive shell)");
+        interactive = false;
+    }
+    if interactive {
+        if let Err(e) = channel.request_shell(true).await {
+            log::warn!("ssh: request shell denied ({e}); continuing as SFTP-only");
+            interactive = false;
+        }
+    }
 
-    channel
-        .request_shell(true)
-        .await
-        .map_err(|e| format!("ssh: request shell failed: {e}"))?;
+    if !interactive {
+        // No usable terminal, but SFTP works over the live `Handle`. Build a
+        // minimal session with NO read pump and NO exit janitor: a shell-less
+        // channel that closes or sits idle must not fire the frontend's
+        // reconnect loop or evict the session the file browser depends on. It
+        // lives until an explicit `ssh_close`. Emit Connected (flips the leaf to
+        // "connected" and surfaces the remote file tree) plus a one-line notice
+        // in the inert terminal so the user knows why it accepts no input.
+        let fingerprint = report.lock().await.seen.clone().unwrap_or_default();
+        let _ = on_event.send(SshEvent::Connected { fingerprint });
+        const SFTP_ONLY_NOTICE: &[u8] = b"\r\n\x1b[33m[tedi] This server allows file transfer (SFTP) only - no interactive shell. The terminal is disabled; use the remote file browser.\x1b[0m\r\n";
+        let _ = on_event.send(SshEvent::Data {
+            data: B64.encode(SFTP_ONLY_NOTICE),
+        });
+        // Keep the channel's write half to satisfy the struct; the read half is
+        // intentionally dropped (we never pump a shell-less channel).
+        let (_read_half, write_half) = channel.split();
+        let created_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        return Ok(Arc::new(SshSession {
+            write_half,
+            pump: Mutex::new(None),
+            handle: Mutex::new(Some(handle)),
+            sftp: Mutex::new(None),
+            exit_signal: std::sync::Mutex::new(None),
+            host: input.host.clone(),
+            user: input.user.clone(),
+            dims: std::sync::Mutex::new((input.cols, input.rows)),
+            created_at_ms,
+            mirror_sinks: Arc::new(std::sync::Mutex::new(Vec::new())),
+            mirror_ring: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            alive: Arc::new(AtomicBool::new(true)),
+        }));
+    }
 
     // Bootstrap: turn on OSC 7 cwd reporting on the remote shell. Stock
     // bash/zsh on most distros do not emit OSC 7 by default, leaving the
