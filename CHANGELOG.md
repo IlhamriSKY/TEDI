@@ -4,6 +4,46 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.57] - 26-06-2026
+
+### Added
+
+- **SSH host chaining (ProxyJump).** A saved connection can now tunnel through
+  another saved host to reach a target that is not directly reachable (a bastion
+  / jump host, like Termius). Pick a **Jump host** in the connection dialog; the
+  chain is transitive (a jump host can have its own jump host). Each hop opens a
+  `direct-tcpip` tunnel over the previous one and verifies + pins its own server
+  key (trust-on-first-use), and the remote SFTP file browser works through the
+  chain too. See [session.rs](src-tauri/src/modules/ssh/session.rs),
+  [connections.ts](src/modules/ssh/connections.ts),
+  [SshConnectionDialog.tsx](src/modules/ssh/SshConnectionDialog.tsx).
+- **Independent Terminal theme.** The terminal is now its own theme domain with
+  a dedicated **Terminal** settings panel and palette; by default it follows the
+  app theme pixel-for-pixel, so existing setups look unchanged. See
+  [TerminalThemePanel.tsx](src/settings/sections/TerminalThemePanel.tsx),
+  [terminalPalette.ts](src/modules/settings/terminalPalette.ts).
+
+### Changed
+
+- **App, terminal, and editor/diff are now separate theme domains.** The editor
+  and its side-by-side diff follow the editor theme independently of the app
+  chrome, so changing one no longer repaints the others. See
+  [terminalTheme.ts](src/styles/terminalTheme.ts),
+  [tokens.ts](src/styles/tokens.ts).
+- **SSH host-key confirmation dialog** buttons now fill the row in two equal
+  columns, matching the app's other confirmation modals. See
+  [HostKeyPromptDialog.tsx](src/modules/ssh/HostKeyPromptDialog.tsx).
+
+### Fixed
+
+- **SSH no longer hangs at "connecting" when confirming a new host key.** On a
+  first connection to a new host the "Trust & connect" decision never reached
+  the backend (the prompt id crossed the IPC channel snake_case while the
+  frontend read camelCase), so the handshake stayed paused until a 120s timeout
+  and the connection looked stuck. Confirming a new host now connects
+  immediately. See [session.rs](src-tauri/src/modules/ssh/session.rs),
+  [bridge.ts](src/modules/ssh/bridge.ts).
+
 ## [0.3.56] - 23-06-2026
 
 ### Fixed
