@@ -489,7 +489,10 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           )}
 
           <Field label="Jump host (optional)">
-            <Popover open={jumpPickerOpen} onOpenChange={setJumpPickerOpen}>
+            {/* `modal` is required because this Popover lives inside a modal
+                Dialog: without it the Dialog's focus trap swallows the pointer
+                interaction so cmdk items only respond to Enter, not a click. */}
+            <Popover open={jumpPickerOpen} onOpenChange={setJumpPickerOpen} modal>
               <PopoverTrigger asChild>
                 <Button
                   type="button"
@@ -559,8 +562,8 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
               </PopoverContent>
             </Popover>
             <span className="text-muted-foreground text-[10.5px]">
-              Tunnel through another saved host to reach this one (ProxyJump). Chains
-              transitively if the jump host has its own jump host.
+              Tunnel through another saved host to reach this one (ProxyJump). Chains transitively
+              if the jump host has its own jump host.
             </span>
           </Field>
 

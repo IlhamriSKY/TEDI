@@ -4,6 +4,37 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.59] - 26-06-2026
+
+### Changed
+
+- **Settings is consistent and more compact across every tab.** Every upload /
+  import / file-pick button now shares one canonical control (the `.tedi` theme
+  importer), extracted as a reusable `UploadButton`, so they look identical
+  everywhere. Long or optional groups are tucked behind collapsible accordions to
+  keep each tab compact but still clear: General's `tedi` command-line setup, the
+  Agents System-prompts and Snippets sections, the Extensions install panel, and
+  the About build-details block. Action-button sizes and icons were normalized
+  across the Models, Extensions, Agents, and Code Editor tabs. See
+  [UploadButton.tsx](src/settings/components/UploadButton.tsx),
+  [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx),
+  [AgentsSection.tsx](src/settings/sections/AgentsSection.tsx),
+  [ExtensionsSection.tsx](src/settings/sections/ExtensionsSection.tsx),
+  [AboutSection.tsx](src/settings/sections/AboutSection.tsx).
+- **The "Change Language Mode" picker is easier to navigate.** It now has an
+  explicit close button, a clear-search button that resets the query, a visible
+  scrollbar for the full language list, and it focuses the search field on open.
+  See [LanguagePickerDialog.tsx](src/modules/editor/LanguagePickerDialog.tsx).
+
+### Fixed
+
+- **The SSH "Jump host" dropdown can be clicked again.** In the New / Edit SSH
+  connection dialog the jump-host combobox only responded to the keyboard (Enter):
+  a modal dialog disables pointer events outside its own layer and the popover's
+  list inherited that, so mouse clicks were swallowed. The popover is now modal, so
+  clicks register normally. See
+  [SshConnectionDialog.tsx](src/modules/ssh/SshConnectionDialog.tsx).
+
 ## [0.3.58] - 26-06-2026
 
 ### Fixed

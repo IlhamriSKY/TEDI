@@ -39,6 +39,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
+import { SettingsAccordion } from "../components/SettingsAccordion";
 
 const ICON_OPTIONS: AgentIconId[] = [
   "coder",
@@ -103,7 +104,7 @@ export function AgentsSection() {
           <Button
             size="sm"
             variant="outline"
-            className="h-7 gap-1.5 px-2 text-[11px]"
+            className="h-8 gap-1.5 px-2 text-[11px]"
             onClick={() =>
               setEditingAgent({
                 id: newAgentId(),
@@ -148,90 +149,98 @@ export function AgentsSection() {
 
       <SystemPromptsCard />
 
-      <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <Label>Snippets</Label>
-            <span className="text-muted-foreground text-[10.5px]">
-              Reusable instructions you can drop into any prompt with{" "}
-              <code className="bg-muted/50 rounded px-1 font-mono">#handle</code>.
-            </span>
+      <SettingsAccordion
+        title="Snippets"
+        description={
+          <>
+            Reusable instructions you can drop into any prompt with{" "}
+            <code className="bg-muted/50 rounded px-1 font-mono">#handle</code>.
+          </>
+        }
+        summary={
+          snippets.length > 0
+            ? `${snippets.length} snippet${snippets.length === 1 ? "" : "s"}`
+            : "None yet"
+        }
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 px-2 text-[11px]"
+              onClick={() =>
+                setEditingSnippet({
+                  id: newSnippetId(),
+                  handle: "",
+                  name: "",
+                  description: "",
+                  content: "",
+                })
+              }
+            >
+              <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+              New snippet
+            </Button>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 gap-1.5 px-2 text-[11px]"
-            onClick={() =>
-              setEditingSnippet({
-                id: newSnippetId(),
-                handle: "",
-                name: "",
-                description: "",
-                content: "",
-              })
-            }
-          >
-            <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
-            New snippet
-          </Button>
-        </div>
 
-        {snippets.length === 0 ? (
-          <div className="border-border/60 bg-card/30 text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-[11px]">
-            No snippets yet. Create one and insert it with{" "}
-            <code className="font-mono">#handle</code> in the AI input.
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {snippets.map((s) => (
-              <li
-                key={s.id}
-                className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2"
-              >
-                <code className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">
-                  #{s.handle}
-                </code>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-[12px] font-medium">{s.name}</span>
-                  {s.description ? (
-                    <span className="text-muted-foreground truncate text-[10.5px]">
-                      {s.description}
-                    </span>
-                  ) : null}
-                </div>
-                <IconTooltip label="Edit" side="left">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7"
-                    onClick={() => setEditingSnippet(s)}
-                    aria-label="Edit"
-                  >
-                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
-                  </Button>
-                </IconTooltip>
-                <IconTooltip label="Delete" side="left">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
-                    onClick={() =>
-                      setPendingAction({
-                        kind: "deleteSnippet",
-                        id: s.id,
-                        name: s.name || `#${s.handle}`,
-                      })
-                    }
-                    aria-label="Delete"
-                  >
-                    <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
-                  </Button>
-                </IconTooltip>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {snippets.length === 0 ? (
+            <div className="border-border/60 bg-card/30 text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-[11px]">
+              No snippets yet. Create one and insert it with{" "}
+              <code className="font-mono">#handle</code> in the AI input.
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {snippets.map((s) => (
+                <li
+                  key={s.id}
+                  className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2"
+                >
+                  <code className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">
+                    #{s.handle}
+                  </code>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[12px] font-medium">{s.name}</span>
+                    {s.description ? (
+                      <span className="text-muted-foreground truncate text-[10.5px]">
+                        {s.description}
+                      </span>
+                    ) : null}
+                  </div>
+                  <IconTooltip label="Edit" side="left">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      onClick={() => setEditingSnippet(s)}
+                      aria-label="Edit"
+                    >
+                      <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                    </Button>
+                  </IconTooltip>
+                  <IconTooltip label="Delete" side="left">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+                      onClick={() =>
+                        setPendingAction({
+                          kind: "deleteSnippet",
+                          id: s.id,
+                          name: s.name || `#${s.handle}`,
+                        })
+                      }
+                      aria-label="Delete"
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                    </Button>
+                  </IconTooltip>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </SettingsAccordion>
 
       <AgentEditorDialog
         agent={editingAgent}
@@ -252,10 +261,7 @@ export function AgentsSection() {
         }}
       />
 
-      <AlertDialog
-        open={pendingAction !== null}
-        onOpenChange={(o) => !o && setPendingAction(null)}
-      >
+      <AlertDialog open={pendingAction !== null} onOpenChange={(o) => !o && setPendingAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -615,7 +621,11 @@ function CustomInstructionsBlock({ value }: { value: string }) {
           <span className="text-[10px] text-muted-foreground">Saved</span>
         ) : null} */}
         {draft && (
-          <Button size="xs" onClick={() => void setCustomInstructions(draft)}>
+          <Button
+            size="sm"
+            className="h-8 px-2 text-[11px]"
+            onClick={() => void setCustomInstructions(draft)}
+          >
             Save
           </Button>
         )}

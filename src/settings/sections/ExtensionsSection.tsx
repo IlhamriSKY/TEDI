@@ -12,6 +12,8 @@ import type { InstalledExtension } from "@/modules/extensions";
 import { safeParseManifest } from "@/modules/extensions/manifest";
 
 import { SectionHeader } from "../components/SectionHeader";
+import { SettingsAccordion } from "../components/SettingsAccordion";
+import { UploadButton } from "../components/UploadButton";
 import { ExtensionCard } from "./components/ExtensionCard";
 import { checkSingleUpdate, updateOne } from "./components/extensionUpdate";
 import {
@@ -418,9 +420,12 @@ export function ExtensionsSection() {
         description="Install extensions to add themes, slash commands, AI tools, or custom integrations. Extensions run inside the app and can request permissions like settings access or Rust command invocation. Review the manifest before installing."
       />
 
-      <div className="flex flex-col gap-3">
-        <Label>Install</Label>
-        <div className="border-border/60 bg-card/40 flex flex-col gap-3 rounded-lg border p-3">
+      <SettingsAccordion
+        title="Install extension"
+        description="Add an extension from a packaged file, a GitHub release, or the marketplace."
+        summary="From file · GitHub · Marketplace"
+      >
+        <div className="flex flex-col gap-3">
           <div className="flex gap-1">
             {(["zip", "github", "marketplace"] as InstallTab[]).map((t) => (
               <button
@@ -445,9 +450,7 @@ export function ExtensionsSection() {
                 Pick a packaged extension `.zip`. Re-installing the same id replaces the existing
                 copy (so this is also how local zips upgrade).
               </span>
-              <Button size="sm" variant="outline" onClick={() => void pickZip()}>
-                Choose .zip…
-              </Button>
+              <UploadButton onClick={() => void pickZip()}>Choose .zip…</UploadButton>
             </div>
           ) : null}
 
@@ -462,6 +465,7 @@ export function ExtensionsSection() {
               <Button
                 size="sm"
                 variant="outline"
+                className="h-8 px-2 text-[11px]"
                 disabled={!repoInput.includes("/")}
                 onClick={() =>
                   void startReview(
@@ -494,7 +498,7 @@ export function ExtensionsSection() {
             <div className="text-destructive text-[11px]">{lastError}</div>
           ) : null}
         </div>
-      </div>
+      </SettingsAccordion>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -507,7 +511,7 @@ export function ExtensionsSection() {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 px-2.5 text-[11px]"
+              className="h-8 px-2 text-[11px]"
               disabled={checkingAll}
               onClick={() => void onCheckAll()}
             >

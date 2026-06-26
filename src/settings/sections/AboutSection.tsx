@@ -12,6 +12,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
+import { SettingsAccordion } from "../components/SettingsAccordion";
 
 const REPO_URL = "https://github.com/IlhamriSKY/TEDI";
 const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
@@ -78,7 +79,10 @@ export function AboutSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="About" description="" />
+      <SectionHeader
+        title="About"
+        description="Version, build details, updates, and project links."
+      />
 
       <div className="border-border/60 bg-card/60 flex items-center gap-4 rounded-xl border p-5">
         <img src="/icon.png" alt="" className="size-12" draggable={false} />
@@ -93,42 +97,48 @@ export function AboutSection() {
         </div>
       </div>
 
-      <dl className="grid grid-cols-[110px_1fr] gap-y-2.5 text-[12px]">
-        <dt className="text-muted-foreground">Build</dt>
-        <dd className="font-mono text-[11.5px]">
-          {build ? `${build} · v${version}` : `v${version}`}
-        </dd>
+      <SettingsAccordion
+        title="Build details"
+        description="Platform, bundle id, license, and source repositories."
+        summary={build ? `${build} · v${version}` : `v${version}`}
+      >
+        <dl className="grid grid-cols-[110px_1fr] gap-y-2.5 text-[12px]">
+          <dt className="text-muted-foreground">Build</dt>
+          <dd className="font-mono text-[11.5px]">
+            {build ? `${build} · v${version}` : `v${version}`}
+          </dd>
 
-        <dt className="text-muted-foreground">Bundle ID</dt>
-        <dd className="font-mono text-[11.5px]">id.ilhamrisky.tedi</dd>
+          <dt className="text-muted-foreground">Bundle ID</dt>
+          <dd className="font-mono text-[11.5px]">id.ilhamrisky.tedi</dd>
 
-        <dt className="text-muted-foreground">License</dt>
-        <dd>Apache 2.0</dd>
+          <dt className="text-muted-foreground">License</dt>
+          <dd>Apache 2.0</dd>
 
-        <dt className="text-muted-foreground">Source code</dt>
-        <dd>
-          <button
-            type="button"
-            onClick={() => void openUrl(REPO_URL)}
-            className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
-          >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            IlhamriSKY/TEDI
-          </button>
-        </dd>
+          <dt className="text-muted-foreground">Source code</dt>
+          <dd>
+            <button
+              type="button"
+              onClick={() => void openUrl(REPO_URL)}
+              className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
+            >
+              <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+              IlhamriSKY/TEDI
+            </button>
+          </dd>
 
-        <dt className="text-muted-foreground">Built on</dt>
-        <dd>
-          <button
-            type="button"
-            onClick={() => void openUrl(UPSTREAM_URL)}
-            className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
-          >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            crynta/terax-ai
-          </button>
-        </dd>
-      </dl>
+          <dt className="text-muted-foreground">Built on</dt>
+          <dd>
+            <button
+              type="button"
+              onClick={() => void openUrl(UPSTREAM_URL)}
+              className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
+            >
+              <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+              crynta/terax-ai
+            </button>
+          </dd>
+        </dl>
+      </SettingsAccordion>
 
       <div className="flex flex-col gap-2">
         <p className="text-muted-foreground text-[11px]">{updaterMessage(checkState)}</p>

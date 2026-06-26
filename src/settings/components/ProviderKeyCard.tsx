@@ -82,7 +82,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
         {currentKey ? (
           <Badge
             variant="outline"
-            className="ml-1 h-4 gap-1 border-diff-added/40 bg-diff-added/10 px-1.5 text-[10px] text-diff-added"
+            className="border-diff-added/40 bg-diff-added/10 text-diff-added ml-1 h-4 gap-1 px-1.5 text-[10px]"
           >
             <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
             Configured
@@ -141,7 +141,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
                 variant="ghost"
                 onClick={cancel}
                 disabled={saving}
-                className="h-7 px-2 text-[11px]"
+                className="h-8 px-2 text-[11px]"
               >
                 Cancel
               </Button>
@@ -150,7 +150,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               size="sm"
               onClick={() => void submit()}
               disabled={saving}
-              className="h-7 gap-1 px-2.5 text-[11px]"
+              className="h-8 gap-1 px-2 text-[11px]"
             >
               {saving ? <Spinner className="size-3" /> : null}
               Save

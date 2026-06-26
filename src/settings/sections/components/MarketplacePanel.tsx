@@ -58,7 +58,7 @@ export function MarketplacePanel({
         <Button
           size="sm"
           variant="outline"
-          className="h-7 px-2.5 text-[11px]"
+          className="h-8 px-2 text-[11px]"
           disabled={state.status === "loading"}
           onClick={onRefresh}
         >
@@ -164,7 +164,7 @@ function MarketplaceCard({ item, onInstall }: { item: MarketplaceItem; onInstall
           {item.license ? ` · ${item.license}` : ""}
         </span>
       </div>
-      <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px]" onClick={onInstall}>
+      <Button size="sm" variant="outline" className="h-8 px-2 text-[11px]" onClick={onInstall}>
         Install
       </Button>
     </div>

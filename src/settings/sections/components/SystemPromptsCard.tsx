@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { SettingsAccordion } from "../../components/SettingsAccordion";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
@@ -78,6 +78,7 @@ export function SystemPromptsCard() {
   // default. Any existing override forces it open so the user always sees what
   // they changed (and can't lose track of an edit hidden behind the switch).
   const hasAnyEdit = useMemo(() => PROMPT_META.some((m) => overrides[m.id]), [overrides]);
+  const editedCount = useMemo(() => PROMPT_META.filter((m) => overrides[m.id]).length, [overrides]);
   const [showAll, setShowAll] = useState(false);
   // An existing override force-shows the list; keep `showAll` in sync so the
   // list doesn't collapse the moment the user resets the last override.
@@ -114,59 +115,39 @@ export function SystemPromptsCard() {
   }, []);
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col">
-          <Label>System prompts</Label>
-          <span className="text-muted-foreground text-[10.5px] leading-relaxed">
-            Edit the built-in instructions for TEDI's AI agents. Reset restores the default.
-          </span>
-        </div>
-        <label
-          htmlFor="show-all-prompts"
-          className="flex shrink-0 cursor-pointer items-center gap-2 pt-0.5"
-        >
-          <span className="text-muted-foreground text-[10.5px]">Show all</span>
-          <Switch
-            id="show-all-prompts"
-            size="sm"
-            checked={listVisible}
-            disabled={hasAnyEdit}
-            onCheckedChange={setShowAll}
-            aria-label="Show all system prompts"
-          />
-        </label>
-      </div>
-
-      {!listVisible ? (
-        <div className="border-border/60 bg-card/30 text-muted-foreground rounded-lg border border-dashed px-4 py-5 text-center text-[11px]">
-          Turn on <span className="text-foreground/80">Show all</span> to view and edit the agent,
-          sub-agent, inline-completion, and commit prompts.
-        </div>
-      ) : (
-        GROUP_ORDER.map((group) => {
-          const items = grouped.get(group) ?? [];
-          if (items.length === 0) return null;
-          return (
-            <div key={group} className="flex flex-col gap-1.5">
-              <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-                {group}
-              </span>
-              <div className="flex flex-col gap-1.5">
-                {items.map((m) => (
-                  <PromptRow
-                    key={m.id}
-                    meta={m}
-                    edited={!!overrides[m.id]}
-                    onEdit={() => openEditor(m)}
-                    onReset={overrides[m.id] ? () => setPendingReset(m) : null}
-                  />
-                ))}
+    <>
+      <SettingsAccordion
+        title="System prompts"
+        description="Edit the built-in instructions for TEDI's AI agents. Reset restores the default."
+        summary={editedCount > 0 ? `${editedCount} edited` : "Default"}
+        open={listVisible}
+        onOpenChange={(o) => setShowAll(o || hasAnyEdit)}
+      >
+        <div className="flex flex-col gap-3">
+          {GROUP_ORDER.map((group) => {
+            const items = grouped.get(group) ?? [];
+            if (items.length === 0) return null;
+            return (
+              <div key={group} className="flex flex-col gap-1.5">
+                <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+                  {group}
+                </span>
+                <div className="flex flex-col gap-1.5">
+                  {items.map((m) => (
+                    <PromptRow
+                      key={m.id}
+                      meta={m}
+                      edited={!!overrides[m.id]}
+                      onEdit={() => openEditor(m)}
+                      onReset={overrides[m.id] ? () => setPendingReset(m) : null}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })
-      )}
+            );
+          })}
+        </div>
+      </SettingsAccordion>
 
       <PromptEditorDialog
         meta={editing?.meta ?? null}
@@ -192,10 +173,7 @@ export function SystemPromptsCard() {
         }}
       />
 
-      <AlertDialog
-        open={pendingReset !== null}
-        onOpenChange={(o) => !o && setPendingReset(null)}
-      >
+      <AlertDialog open={pendingReset !== null} onOpenChange={(o) => !o && setPendingReset(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset prompt to default?</AlertDialogTitle>
@@ -219,7 +197,7 @@ export function SystemPromptsCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </>
   );
 }
 

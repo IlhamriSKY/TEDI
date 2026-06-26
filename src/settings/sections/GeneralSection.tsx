@@ -39,7 +39,13 @@ import { CONTENT_FONT_OPTIONS } from "@/lib/fonts";
 import { previewNotificationSound } from "@/lib/blockingBeep";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
-import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ComputerIcon,
+  Download04Icon,
+  Moon02Icon,
+  Sun03Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -48,6 +54,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
+import { UploadButton } from "../components/UploadButton";
 
 type ShimInstallResult =
   | { status: "installed"; path: string; target: string; on_path: boolean }
@@ -382,7 +389,7 @@ export function GeneralSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Source Control</Label>
+        <Label>Sidebar panels</Label>
         <SettingRow
           title="Show Source Control"
           description="Display the Source Control panel in the sidebar."
@@ -392,11 +399,7 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setShowSourceControl(v)}
           />
         </SettingRow>
-      </div>
-
-      {sqlExplorerExt ? (
-        <div className="flex flex-col gap-2">
-          <Label>SQL Explorer</Label>
+        {sqlExplorerExt ? (
           <SettingRow
             title="Show SQL Explorer"
             description="Display the SQL Explorer (Databases) panel in the sidebar."
@@ -408,48 +411,60 @@ export function GeneralSection() {
               }
             />
           </SettingRow>
-        </div>
-      ) : null}
-
-      <div className="flex flex-col gap-2">
-        <Label>Command line</Label>
-        {IS_WINDOWS ? (
-          <SettingRow
-            title="tedi command"
-            description="The Windows installer adds a `tedi.cmd` shim and appends the install dir to your user PATH. Reinstall TEDI if `tedi .` isn't found."
-          >
-            <span className="text-muted-foreground text-[11px]">via installer</span>
-          </SettingRow>
-        ) : (
-          <SettingRow
-            title="Install `tedi` command in PATH"
-            description="Drops a wrapper at ~/.local/bin/tedi so terminals can run `tedi .` to open the current folder. Re-run after upgrading TEDI."
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-[11.5px]"
-              disabled={shimBusy}
-              onClick={() => void onInstallShim()}
-            >
-              {shimBusy ? "Installing…" : "Install"}
-            </Button>
-          </SettingRow>
-        )}
-        {shimError ? <span className="text-destructive text-[10.5px]">{shimError}</span> : null}
-        {shimStatus?.status === "installed" ? (
-          <span className="text-muted-foreground text-[10.5px]">
-            Installed at <code className="text-foreground">{shimStatus.path}</code> →{" "}
-            <code className="text-foreground">{shimStatus.target}</code>.{" "}
-            {shimStatus.on_path
-              ? "Open a new terminal and try `tedi .`."
-              : '~/.local/bin isn\'t on your PATH yet - add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc.'}
-          </span>
-        ) : null}
-        {shimStatus?.status === "not_applicable" ? (
-          <span className="text-muted-foreground text-[10.5px]">{shimStatus.message}</span>
         ) : null}
       </div>
+
+      <SettingsAccordion
+        title="Command line"
+        description="Run `tedi .` from any terminal to open a folder in TEDI."
+        summary={
+          IS_WINDOWS
+            ? "via installer"
+            : shimStatus?.status === "installed"
+              ? "Installed"
+              : "Optional"
+        }
+      >
+        <div className="flex flex-col gap-2">
+          {IS_WINDOWS ? (
+            <SettingRow
+              title="tedi command"
+              description="The Windows installer adds a `tedi.cmd` shim and appends the install dir to your user PATH. Reinstall TEDI if `tedi .` isn't found."
+            >
+              <span className="text-muted-foreground text-[11px]">via installer</span>
+            </SettingRow>
+          ) : (
+            <SettingRow
+              title="Install `tedi` command in PATH"
+              description="Drops a wrapper at ~/.local/bin/tedi so terminals can run `tedi .` to open the current folder. Re-run after upgrading TEDI."
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                disabled={shimBusy}
+                onClick={() => void onInstallShim()}
+              >
+                <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
+                {shimBusy ? "Installing…" : "Install"}
+              </Button>
+            </SettingRow>
+          )}
+          {shimError ? <span className="text-destructive text-[10.5px]">{shimError}</span> : null}
+          {shimStatus?.status === "installed" ? (
+            <span className="text-muted-foreground text-[10.5px]">
+              Installed at <code className="text-foreground">{shimStatus.path}</code> →{" "}
+              <code className="text-foreground">{shimStatus.target}</code>.{" "}
+              {shimStatus.on_path
+                ? "Open a new terminal and try `tedi .`."
+                : '~/.local/bin isn\'t on your PATH yet - add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc.'}
+            </span>
+          ) : null}
+          {shimStatus?.status === "not_applicable" ? (
+            <span className="text-muted-foreground text-[10.5px]">{shimStatus.message}</span>
+          ) : null}
+        </div>
+      </SettingsAccordion>
 
       <div className="flex flex-col gap-2">
         <Label>Notifications</Label>
@@ -590,21 +605,28 @@ function SoundSetting({
         }
       >
         <div className="flex shrink-0 items-center gap-1.5">
-          <input ref={inputRef} type="file" accept="audio/*" className="hidden" onChange={onPick} />
+          <input
+            ref={inputRef}
+            type="file"
+            accept="audio/*"
+            aria-label={`Upload custom ${title.toLowerCase()}`}
+            className="hidden"
+            onChange={onPick}
+          />
           <Button
             size="sm"
             variant="ghost"
+            className="h-8 px-2 text-[11px]"
             onClick={() => previewNotificationSound(kind, value)}
             title="Preview"
           >
             Play
           </Button>
-          <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}>
-            Upload
-          </Button>
+          <UploadButton onClick={() => inputRef.current?.click()}>Upload</UploadButton>
           <Button
             size="sm"
             variant="ghost"
+            className="h-8 px-2 text-[11px]"
             disabled={!isCustom}
             onClick={() => {
               setError(null);

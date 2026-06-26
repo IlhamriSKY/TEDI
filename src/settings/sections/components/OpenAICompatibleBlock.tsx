@@ -10,7 +10,7 @@ import {
 } from "@/modules/ai/config";
 import { refreshOpenAICompatibleInstance } from "@/modules/ai/lib/openaiCompatible";
 import { invoke } from "@tauri-apps/api/core";
-import { Edit02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Edit02Icon, ViewIcon, ViewOffSlashIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -154,7 +154,7 @@ export function OpenAICompatibleBlock({
               onClick={() => void onRemove()}
               aria-label={instance ? "Remove endpoint" : "Cancel"}
             >
-              ×
+              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">{instance ? "Remove endpoint" : "Cancel"}</TooltipContent>
@@ -259,16 +259,20 @@ export function OpenAICompatibleBlock({
                 placeholder={apiKey ? "Paste a new key (or leave blank)" : "Paste API key"}
                 autoComplete="off"
                 spellCheck={false}
-                className="h-7 pr-12 font-mono text-[11px]"
+                className="h-7 pr-8 font-mono text-[11px]"
               />
               <button
                 type="button"
                 onClick={() => setRevealKey((v) => !v)}
                 tabIndex={-1}
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer text-[10px]"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
                 aria-label={revealKey ? "Hide key" : "Show key"}
               >
-                {revealKey ? "Hide" : "Show"}
+                <HugeiconsIcon
+                  icon={revealKey ? ViewOffSlashIcon : ViewIcon}
+                  size={12}
+                  strokeWidth={1.75}
+                />
               </button>
             </div>
           )}
@@ -303,12 +307,12 @@ export function OpenAICompatibleBlock({
           size="sm"
           variant="outline"
           onClick={() => void testEndpoint()}
-          className="h-7 px-2 text-[10.5px]"
+          className="h-8 px-2 text-[11px]"
         >
           Test
         </Button>
         {configured && !editingKey ? (
-          <Button size="sm" variant="outline" onClick={refresh} className="h-7 px-2 text-[10.5px]">
+          <Button size="sm" variant="outline" onClick={refresh} className="h-8 px-2 text-[11px]">
             Detect
           </Button>
         ) : (
@@ -317,7 +321,7 @@ export function OpenAICompatibleBlock({
             variant="outline"
             onClick={() => void save()}
             disabled={saving || !urlDraft.trim() || (!instance && !keyDraft.trim())}
-            className="h-7 px-2.5 text-[10.5px]"
+            className="h-8 px-2 text-[11px]"
           >
             {saving ? "Saving…" : "Save"}
           </Button>

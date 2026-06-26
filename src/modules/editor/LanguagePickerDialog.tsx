@@ -1,15 +1,17 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Command as CommandPrimitive } from "cmdk";
 import {
   CommandDialog,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
-  CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import { fileIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
+import { Cancel01Icon, SearchIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { LANGUAGES, languageIconFile, languageLabel } from "./lib/languages";
 
 type Props = {
@@ -41,6 +43,8 @@ function LangIcon({ id }: { id: string }) {
  * VS Code-style "Change Language Mode" picker: a searchable command palette of
  * every registered language, each with the same glyph the file tree shows. The
  * path-detected language carries a "default" badge; the active one is checked.
+ * The search is controlled so it can be cleared with the inline button, and the
+ * list keeps its native (themed) scrollbar instead of cmdk's hidden one.
  */
 function LanguagePickerDialogImpl({
   open,
@@ -52,6 +56,21 @@ function LanguagePickerDialogImpl({
 }: Props) {
   // Alphabetical for predictable scanning; search reorders by relevance anyway.
   const sorted = useMemo(() => [...LANGUAGES].sort((a, b) => a.label.localeCompare(b.label)), []);
+
+  // Controlled search so the inline "clear" button can reset it. Reset on close
+  // so reopening the (always-mounted) picker starts from a clean slate.
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    // Radix focuses the first tabbable element (the header close button) on
+    // open; pull focus to the search field so the user can type immediately.
+    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [open]);
 
   const pick = (id: string | null) => {
     onPick(id);
@@ -67,9 +86,64 @@ function LanguagePickerDialogImpl({
       title="Change Language Mode"
       description="Select the syntax highlighting language for the active editor."
       className="sm:max-w-lg"
+      showCloseButton={false}
     >
-      <CommandInput placeholder="Select language mode (search by name or extension)…" />
-      <CommandList className="max-h-80">
+      {/* Header: title + explicit close button. The dialog's own corner X is
+          disabled (showCloseButton={false}) so it can't collide with the
+          search field's leading magnifier. */}
+      <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-0.5">
+        <span className="text-muted-foreground px-1 text-[11px] font-medium tracking-tight">
+          Change Language Mode
+        </span>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          aria-label="Close"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+        </button>
+      </div>
+
+      {/* Search with a leading magnifier and a trailing clear button. */}
+      <div className="p-1 pb-0">
+        <InputGroup className="bg-input/50 h-9">
+          <InputGroupAddon align="inline-start">
+            <HugeiconsIcon
+              icon={SearchIcon}
+              strokeWidth={2}
+              className="size-4 shrink-0 opacity-50"
+            />
+          </InputGroupAddon>
+          <CommandPrimitive.Input
+            ref={inputRef}
+            data-slot="command-input"
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Select language mode (search by name or extension)…"
+            className="placeholder:text-muted-foreground w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          {query ? (
+            <InputGroupAddon align="inline-end">
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+              </button>
+            </InputGroupAddon>
+          ) : null}
+        </InputGroup>
+      </div>
+
+      {/* Native list (no `no-scrollbar`) so the themed scrollbar shows for
+          navigating the ~75-item list. */}
+      <CommandPrimitive.List
+        data-slot="command-list"
+        className="max-h-80 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none"
+      >
         <CommandEmpty>No matching language.</CommandEmpty>
         <CommandGroup heading="Detection">
           <CommandItem
@@ -107,7 +181,7 @@ function LanguagePickerDialogImpl({
             );
           })}
         </CommandGroup>
-      </CommandList>
+      </CommandPrimitive.List>
     </CommandDialog>
   );
 }

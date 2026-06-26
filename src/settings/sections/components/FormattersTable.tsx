@@ -111,12 +111,8 @@ export function FormattersTable() {
       {unconfigured.length > 0 && (
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 w-fit gap-1.5 px-2.5 text-[11.5px]"
-            >
-              <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
+            <Button variant="outline" size="sm" className="h-8 w-fit gap-1.5 px-2 text-[11px]">
+              <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
               Add language…
             </Button>
           </PopoverTrigger>
@@ -314,7 +310,10 @@ function FormatterRow({
                 });
               }}
             >
-              Use suggested: <span className="font-mono">{EXTERNAL_PRESETS[language]!.command}{" "}{EXTERNAL_PRESETS[language]!.args.join(" ")}</span>
+              Use suggested:{" "}
+              <span className="font-mono">
+                {EXTERNAL_PRESETS[language]!.command} {EXTERNAL_PRESETS[language]!.args.join(" ")}
+              </span>
             </button>
           )}
         </div>
@@ -349,10 +348,7 @@ function FormatterRow({
           <DropdownMenuContent align="end" className="min-w-[180px]">
             <DropdownMenuItem
               onSelect={() => setFormatOnSaveOverride(null)}
-              className={cn(
-                "text-[11.5px]",
-                config.formatOnSave === undefined && "bg-accent/50",
-              )}
+              className={cn("text-[11.5px]", config.formatOnSave === undefined && "bg-accent/50")}
             >
               Follow global setting
             </DropdownMenuItem>

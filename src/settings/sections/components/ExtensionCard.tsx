@@ -89,7 +89,7 @@ export function ExtensionCard({
           {updateAvailable && isGithub ? (
             <Button
               size="sm"
-              className="h-7 gap-1.5 px-2.5 text-[11px]"
+              className="h-8 gap-1.5 px-2 text-[11px]"
               onClick={onUpdate}
               disabled={updating}
             >
@@ -106,7 +106,7 @@ export function ExtensionCard({
             <Button
               size="sm"
               variant="outline"
-              className="h-7 px-2.5 text-[11px]"
+              className="h-8 px-2 text-[11px]"
               onClick={onCheckUpdate}
               disabled={updating}
             >
@@ -116,7 +116,7 @@ export function ExtensionCard({
           <Button
             variant="ghost"
             size="sm"
-            className="text-destructive hover:text-destructive h-7 px-2 text-[11px]"
+            className="text-destructive hover:text-destructive h-8 px-2 text-[11px]"
             onClick={onUninstall}
             disabled={updating}
           >
@@ -141,7 +141,10 @@ export function ExtensionCard({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={cn("size-3.5 transition-transform duration-200", settingsOpen && "rotate-180")}
+              className={cn(
+                "size-3.5 transition-transform duration-200",
+                settingsOpen && "rotate-180",
+              )}
             >
               <path d="m6 9 6 6 6-6" />
             </svg>

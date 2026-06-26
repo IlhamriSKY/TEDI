@@ -278,12 +278,12 @@ export function ModelsSection() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1.5 rounded-full px-3 text-[11.5px]"
+                  className="h-8 gap-1.5 rounded-full px-3 text-[11px]"
                 >
                   <HugeiconsIcon
                     icon={Add01Icon}
                     size={12}
-                    strokeWidth={2}
+                    strokeWidth={1.75}
                     className="opacity-80"
                   />
                   Add provider

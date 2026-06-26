@@ -26,14 +26,14 @@ import {
   BookmarkAdd02Icon,
   Cancel01Icon,
   Delete02Icon,
-  FolderUploadIcon,
+  Download04Icon,
   Image01Icon,
   LinkSquare01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/modules/theme";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
@@ -43,6 +43,7 @@ import { COLOR_FIELDS, GROUPS, type Group } from "./theme/colorFields";
 import { TerminalThemePanel } from "./TerminalThemePanel";
 import { PalettePreview } from "./theme/PalettePreview";
 import { SettingsAccordion } from "../components/SettingsAccordion";
+import { UploadButton } from "../components/UploadButton";
 import type { FsReadResult } from "@/lib/ipc";
 
 type ReadResult = FsReadResult;
@@ -59,7 +60,6 @@ export function ThemeSection() {
   // Live % while dragging the transparency slider (committed value persists on
   // release; the live fade comes from the previewAppOpacity CSS channel).
   const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [bgError, setBgError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -229,20 +229,6 @@ export function ThemeSection() {
     updateBackground({ enabled: true, path: url, dataUrl: url });
     ensureWallpaperVisible();
     setBgUrlDraft("");
-  };
-
-  const onImportFile = async (file: File) => {
-    setImportError(null);
-    setImportStatus(null);
-    try {
-      const text = await file.text();
-      const parsed = parseThemeFile(JSON.parse(text), theme);
-      void setCustomTheme(parsed);
-      if (!enabled) void setCustomThemeEnabled(true);
-      setImportStatus(`Imported "${parsed.name}".`);
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : String(e));
-    }
   };
 
   const onImportFromDialog = async () => {
@@ -569,18 +555,14 @@ export function ThemeSection() {
               />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1 px-2 text-[11px]"
+                  <UploadButton
+                    icon={LinkSquare01Icon}
                     disabled={!bgUrlDraft.trim()}
                     onClick={onImportBackgroundUrl}
                     aria-label="Use URL"
                   >
-                    <HugeiconsIcon icon={LinkSquare01Icon} size={12} strokeWidth={1.75} />
                     Use URL
-                  </Button>
+                  </UploadButton>
                 </TooltipTrigger>
                 <TooltipContent side="top">
                   Load the URL above as the wallpaper. URLs are fetched on demand (not stored as
@@ -589,15 +571,9 @@ export function ThemeSection() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1 px-2 text-[11px]"
-                    onClick={() => void onPickBackground()}
-                  >
-                    <HugeiconsIcon icon={Image01Icon} size={12} strokeWidth={1.75} />
+                  <UploadButton icon={Image01Icon} onClick={() => void onPickBackground()}>
                     Browse
-                  </Button>
+                  </UploadButton>
                 </TooltipTrigger>
                 <TooltipContent side="top">
                   Pick a local image (PNG / JPG / GIF / WebP / AVIF, max 10 MB). Animated GIFs play
@@ -716,43 +692,16 @@ export function ThemeSection() {
             description="Share themes with teammates. Files contain all colors plus background settings (image data is excluded from the export)."
           >
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-[11px]"
-                onClick={() => void onImportFromDialog()}
-              >
-                <HugeiconsIcon icon={FolderUploadIcon} size={12} strokeWidth={1.75} />
-                Import
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-[11px]"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                From file…
-              </Button>
+              <UploadButton onClick={() => void onImportFromDialog()}>Import</UploadButton>
               <Button
                 variant="outline"
                 size="sm"
                 className="h-8 px-2 text-[11px]"
                 onClick={() => void onExport()}
               >
+                <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
                 Export
               </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".tedi,.json,application/json"
-                aria-label="Import theme file"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void onImportFile(f);
-                  e.target.value = "";
-                }}
-              />
             </div>
           </SettingRow>
           {importError ? (
