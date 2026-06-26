@@ -1,9 +1,10 @@
 import { type ThemeColors } from "@/modules/settings/customTheme";
 
 /**
- * Every editable theme color, grouped for the tabbed color editor in
- * ThemeSection. The ANSI 16 feed the xterm palette directly. Order within a
- * group is the display order.
+ * Every editable APP-CHROME theme color, grouped for the tabbed color editor in
+ * ThemeSection. The terminal's ANSI 16 are NOT here — the terminal is themed
+ * independently under Settings -> Terminal (see `modules/settings/
+ * terminalPalette.ts`). Order within a group is the display order.
  */
 export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: string }[] = [
   { key: "background", label: "Background", group: "Base" },
@@ -43,23 +44,6 @@ export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: strin
   { key: "tabAccentPreview", label: "Active browser stripe", group: "Tabs" },
   { key: "tabAccentAiDiff", label: "AI diff stripe", group: "Tabs" },
   { key: "tabAccentGitDiff", label: "Git diff stripe", group: "Tabs" },
-  // Full ANSI 16 - feeds the xterm palette directly.
-  { key: "ansiBlack", label: "ANSI black", group: "Terminal" },
-  { key: "ansiRed", label: "ANSI red", group: "Terminal" },
-  { key: "ansiGreen", label: "ANSI green", group: "Terminal" },
-  { key: "ansiYellow", label: "ANSI yellow", group: "Terminal" },
-  { key: "ansiBlue", label: "ANSI blue", group: "Terminal" },
-  { key: "ansiMagenta", label: "ANSI magenta", group: "Terminal" },
-  { key: "ansiCyan", label: "ANSI cyan", group: "Terminal" },
-  { key: "ansiWhite", label: "ANSI white", group: "Terminal" },
-  { key: "ansiBrightBlack", label: "ANSI bright black", group: "Terminal" },
-  { key: "ansiBrightRed", label: "ANSI bright red", group: "Terminal" },
-  { key: "ansiBrightGreen", label: "ANSI bright green", group: "Terminal" },
-  { key: "ansiBrightYellow", label: "ANSI bright yellow", group: "Terminal" },
-  { key: "ansiBrightBlue", label: "ANSI bright blue", group: "Terminal" },
-  { key: "ansiBrightMagenta", label: "ANSI bright magenta", group: "Terminal" },
-  { key: "ansiBrightCyan", label: "ANSI bright cyan", group: "Terminal" },
-  { key: "ansiBrightWhite", label: "ANSI bright white", group: "Terminal" },
 ];
 
 export const GROUPS = [
@@ -70,6 +54,5 @@ export const GROUPS = [
   "Sidebar",
   "Icons",
   "Tabs",
-  "Terminal",
 ] as const;
 export type Group = (typeof GROUPS)[number];

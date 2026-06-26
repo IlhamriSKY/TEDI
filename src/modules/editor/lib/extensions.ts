@@ -1,5 +1,11 @@
-import { detectMonoFontFamily } from "@/lib/fonts";
-import { defaultHighlightStyle, foldGutter, indentUnit, language, syntaxHighlighting } from "@codemirror/language";
+import { MONO_FONT_CSS_FALLBACK } from "@/lib/fonts";
+import {
+  defaultHighlightStyle,
+  foldGutter,
+  indentUnit,
+  language,
+  syntaxHighlighting,
+} from "@codemirror/language";
 import { lintGutter } from "@codemirror/lint";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -78,10 +84,12 @@ export function buildSharedExtensions(opts?: {
         padding: "0 0 0 8px",
       },
       ".cm-scroller": {
-        fontFamily: detectMonoFontFamily(),
-        // Scales with `--content-zoom` set by App.tsx. Fallback `1` for
-        // before prefs hydrate.
-        fontSize: "calc(13px * var(--content-zoom, 1))",
+        // Font family + base size come from the user's font picker via CSS vars
+        // (set by `applyMonoFontVar` / `applyEditorFontSizeVar`). The inline
+        // fallbacks keep the first paint sane before prefs hydrate.
+        fontFamily: `var(--tedi-mono-font, ${MONO_FONT_CSS_FALLBACK})`,
+        // Editor base size scales with `--content-zoom` (set by App.tsx).
+        fontSize: "calc(var(--tedi-editor-font-size, 13px) * var(--content-zoom, 1))",
         lineHeight: "1.55",
         backgroundColor: "transparent !important",
       },

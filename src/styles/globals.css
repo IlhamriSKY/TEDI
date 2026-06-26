@@ -156,6 +156,47 @@
   --tedi-ansi-bright-magenta: #a855f7;
   --tedi-ansi-bright-cyan: #06b6d4;
   --tedi-ansi-bright-white: #fafafa;
+  /* Terminal-owned palette. The terminal reads ONLY these `--tedi-term-*`
+   * vars (via `buildTerminalTheme`), independently of the app chrome. They
+   * default to the app tokens so `terminalThemeMode: "follow-app"` is
+   * pixel-identical with zero JS; `applyTerminalTheme("custom", …)` overrides
+   * them so the terminal can be themed on its own. Mode-agnostic (one palette
+   * for light + dark), so they reference per-mode app vars and resolve at the
+   * xterm probe. See `modules/settings/terminalPalette.ts`. */
+  --tedi-term-bg: var(--tedi-canvas-bg);
+  --tedi-term-fg: var(--foreground);
+  --tedi-term-cursor: var(--foreground);
+  --tedi-term-selection: var(--accent);
+  --tedi-term-ansi-black: var(--tedi-ansi-black);
+  --tedi-term-ansi-red: var(--tedi-ansi-red);
+  --tedi-term-ansi-green: var(--tedi-ansi-green);
+  --tedi-term-ansi-yellow: var(--tedi-ansi-yellow);
+  --tedi-term-ansi-blue: var(--tedi-ansi-blue);
+  --tedi-term-ansi-magenta: var(--tedi-ansi-magenta);
+  --tedi-term-ansi-cyan: var(--tedi-ansi-cyan);
+  --tedi-term-ansi-white: var(--tedi-ansi-white);
+  --tedi-term-ansi-bright-black: var(--tedi-ansi-bright-black);
+  --tedi-term-ansi-bright-red: var(--tedi-ansi-bright-red);
+  --tedi-term-ansi-bright-green: var(--tedi-ansi-bright-green);
+  --tedi-term-ansi-bright-yellow: var(--tedi-ansi-bright-yellow);
+  --tedi-term-ansi-bright-blue: var(--tedi-ansi-bright-blue);
+  --tedi-term-ansi-bright-magenta: var(--tedi-ansi-bright-magenta);
+  --tedi-term-ansi-bright-cyan: var(--tedi-ansi-bright-cyan);
+  --tedi-term-ansi-bright-white: var(--tedi-ansi-bright-white);
+  /* Editor-owned diff tint. The diff views belong to the EDITOR theme domain;
+   * their inline +/- tint follows `editorTheme`, not the app theme. Defaults to
+   * the app diff colors so first paint is unchanged; `applyEditorDiffColors`
+   * (modules/editor/lib/diffColors.ts) snaps them to the editor theme's pair. */
+  --tedi-editor-diff-added: var(--tedi-diff-added);
+  --tedi-editor-diff-removed: var(--tedi-diff-removed);
+  /* Content font: the shared monospace family the code editor renders with
+   * (the terminal reads the same choice via its own xterm option), plus the
+   * editor base font size. Set by the font picker (Settings -> General); these
+   * defaults cover the first paint before prefs hydrate. */
+  --tedi-mono-font:
+    "JetBrainsMono Nerd Font Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --tedi-editor-font-size: 13px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.148 0.004 228.8);
   --card: oklch(1 0 0);

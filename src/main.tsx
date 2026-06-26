@@ -12,7 +12,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
+import { applyTerminalThemeFastPath } from "@/modules/settings/terminalPalette";
 import { applyAppOpacityFastPath } from "@/modules/settings/appOpacity";
+import { applyFontFastPath } from "@/lib/fonts";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
@@ -22,9 +24,16 @@ applyBrandColorFastPath();
 // Custom theme overrides brand color when active. Run after the brand fast
 // path so its CSS variables win on first paint.
 applyCustomThemeFastPath();
+// Terminal theme is independent of the app theme. In "custom" mode this paints
+// the saved terminal palette before the first xterm renders; "follow-app" is a
+// no-op (the globals.css `--tedi-term-*` defaults already mirror the app).
+applyTerminalThemeFastPath();
 // Whole-app glass: fade the canvas toward the desktop on first paint so there
 // is no opaque flash before hydration re-applies the stored value.
 applyAppOpacityFastPath();
+// Content font family + editor font size, so the editor paints with the chosen
+// font on the first frame instead of swapping after hydrate.
+applyFontFastPath();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <ErrorBoundary

@@ -80,11 +80,12 @@ type SizeInfo = {
 
 // Match AiDiffPane's diff coloring. MergeView scroll wiring lives in
 // `globals.css` (.cm-mergeView); EditorView.theme can't reach the outer wrapper.
-// Inline added-text highlight reads from the themable `--tedi-diff-added`
-// token so Solarized/Monokai/etc. get their canonical green tint.
+// Inline added-text highlight reads the EDITOR-owned `--tedi-editor-diff-added`
+// token (set from `editorTheme` by `applyEditorDiffColors`), so the diff tint
+// follows the code-editor theme, not the app theme.
 const DIFF_THEME = EditorView.theme({
   ".cm-changedText": {
-    background: "color-mix(in srgb, var(--tedi-diff-added) 18%, transparent) !important",
+    background: "color-mix(in srgb, var(--tedi-editor-diff-added) 18%, transparent) !important",
   },
 });
 

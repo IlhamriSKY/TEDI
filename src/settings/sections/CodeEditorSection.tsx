@@ -9,8 +9,10 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
+  EDITOR_FONT_SIZES,
   EDITOR_THEME_LABELS,
   EDITOR_THEMES,
+  setEditorFontSize,
   setEditorTheme,
   setFormatOnSave,
   setShowMinimap,
@@ -28,6 +30,7 @@ export function CodeEditorSection() {
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
+  const editorFontSize = usePreferencesStore((s) => s.editorFontSize);
 
   const onPickEditor = (id: EditorThemeId) => void setEditorTheme(id);
 
@@ -70,6 +73,35 @@ export function CodeEditorSection() {
           </DropdownMenu>
         </SettingRow>
         <SettingRow
+          title="Font size"
+          description="Base code editor and diff text size. Zoom further with Ctrl + / Ctrl -."
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
+                <span>{editorFontSize} px</span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={12}
+                  strokeWidth={2}
+                  className="opacity-70"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-25">
+              {EDITOR_FONT_SIZES.map((size) => (
+                <DropdownMenuItem
+                  key={size}
+                  onSelect={() => void setEditorFontSize(size)}
+                  className={cn("text-[12px]", size === editorFontSize && "bg-accent/50")}
+                >
+                  {size} px
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SettingRow>
+        <SettingRow
           title="Show minimap"
           description="Display the code minimap on the right side of the editor."
         >
@@ -100,8 +132,6 @@ export function CodeEditorSection() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">
-      {children}
-    </span>
+    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -51,6 +51,57 @@ const SPAWN_WAIT_TOTAL: Duration = Duration::from_secs(5);
 /// timeout the caller falls back to the in-process backend.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Per-session cap on push events buffered before the session's channel is
+/// registered (its `OpenOk`/`AttachOk` reply is still being processed). A
+/// shell's startup burst is a few KiB; 256 KiB is generous headroom. Past
+/// it we drop — the daemon scrollback still holds the bytes for a reattach.
+const EARLY_DATA_CAP_BYTES: usize = 256 * 1024;
+
+/// Cap on the number of distinct un-registered sessions buffered at once.
+/// Bounds memory if an `open()` round-trip never returns its `OpenOk` (so
+/// its session id is never learned and never drained) while the daemon
+/// keeps streaming `Data` for it.
+const MAX_EARLY_SESSIONS: usize = 32;
+
+/// Routes daemon push events (`Data`/`Exit`) to the per-session Tauri
+/// `Channel`. `channels` holds the registered routes; `early` buffers events
+/// that arrive for a session whose channel is not registered yet (its
+/// `OpenOk`/`AttachOk` reply is still in flight in `open()` / `attach()`).
+///
+/// Both maps live under ONE mutex so the reader thread's lookup-or-buffer and
+/// `open()`/`attach()`'s register-and-replay are mutually exclusive. If they
+/// could interleave, a `Data` frame carrying the shell's first
+/// (prompt-bearing) bytes would be looked up, found missing, and silently
+/// dropped — leaving a permanently blank new tab/pane. Holding the lock across
+/// the replay also guarantees in-order delivery: a live frame the reader is
+/// about to route waits until the buffered tail has been replayed.
+#[derive(Default)]
+struct Routing {
+    channels: HashMap<Uuid, Channel<PtyEvent>>,
+    /// Buffered pre-registration events per session, in arrival order.
+    early: HashMap<Uuid, Vec<PtyEvent>>,
+}
+
+fn early_event_bytes(ev: &PtyEvent) -> usize {
+    match ev {
+        PtyEvent::Data { data } => data.len(),
+        PtyEvent::Exit { .. } => 0,
+    }
+}
+
+/// Buffer a push event for a not-yet-registered session, bounded per session
+/// by `EARLY_DATA_CAP_BYTES` and overall by `MAX_EARLY_SESSIONS`.
+fn buffer_early(routing: &mut Routing, session_id: Uuid, ev: PtyEvent) {
+    if !routing.early.contains_key(&session_id) && routing.early.len() >= MAX_EARLY_SESSIONS {
+        return;
+    }
+    let buf = routing.early.entry(session_id).or_default();
+    let used: usize = buf.iter().map(early_event_bytes).sum();
+    if used < EARLY_DATA_CAP_BYTES {
+        buf.push(ev);
+    }
+}
+
 pub struct PtyClient {
     state: Arc<ClientState>,
 }
@@ -58,9 +109,10 @@ pub struct PtyClient {
 struct ClientState {
     stream: Arc<interprocess::local_socket::Stream>,
     pending: Mutex<HashMap<ReqId, SyncSender<DaemonMsg>>>,
-    /// Per-session Tauri channel. The GUI's `pty_open` / `pty_attach`
-    /// register here so push events can fan out per-xterm.
-    sessions: RwLock<HashMap<Uuid, Channel<PtyEvent>>>,
+    /// Push-event routing + pre-registration buffer. See `Routing` — the
+    /// single mutex closes the register-vs-route race that otherwise drops a
+    /// new shell's first prompt bytes (the blank new-tab/pane bug).
+    routing: Mutex<Routing>,
     next_req_id: AtomicU64,
     /// Serializes producer writes so length-prefix + body land atomically.
     write_lock: Mutex<()>,
@@ -144,7 +196,7 @@ impl PtyClient {
         let state = Arc::new(ClientState {
             stream: Arc::new(stream),
             pending: Mutex::new(HashMap::new()),
-            sessions: RwLock::new(HashMap::new()),
+            routing: Mutex::new(Routing::default()),
             next_req_id: AtomicU64::new(1),
             write_lock: Mutex::new(()),
             alive: AtomicBool::new(true),
@@ -162,6 +214,22 @@ impl PtyClient {
 
     fn next_req_id(&self) -> ReqId {
         self.state.next_req_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Register `channel` as the route for `session_id` and, still holding the
+    /// routing lock, replay every event buffered before registration in
+    /// arrival order. Holding the lock across the replay closes BOTH the
+    /// Data-before-reply wire race and the reader-vs-register insert race: a
+    /// live `Data` frame the reader is about to route blocks on the lock until
+    /// the buffered tail has been delivered, so the frontend never sees the
+    /// shell's bytes out of order or with the first (prompt) chunk missing.
+    fn register_and_replay(&self, session_id: Uuid, channel: &Channel<PtyEvent>) {
+        let mut routing = self.state.routing.lock().unwrap();
+        let drained = routing.early.remove(&session_id).unwrap_or_default();
+        routing.channels.insert(session_id, channel.clone());
+        for ev in drained {
+            let _ = channel.send(ev);
+        }
     }
 
     fn send_request(&self, req_id: ReqId, msg: &ClientMsg) -> Result<DaemonMsg, String> {
@@ -209,13 +277,11 @@ impl PtyClient {
         };
         match self.send_request(req_id, &msg)? {
             DaemonMsg::OpenOk { session_id, .. } => {
-                // Register the channel BEFORE returning so the very first
-                // `Data` event the daemon emits has a place to land.
-                self.state
-                    .sessions
-                    .write()
-                    .unwrap()
-                    .insert(session_id, channel);
+                // Register the channel AND replay any `Data` the daemon already
+                // pushed before this reply was processed, so the shell's first
+                // (prompt-bearing) bytes are never lost to the registration
+                // race. See `register_and_replay`.
+                self.register_and_replay(session_id, &channel);
                 Ok(session_id)
             }
             DaemonMsg::Err { message, .. } => Err(message),
@@ -243,18 +309,19 @@ impl PtyClient {
                 alive,
                 ..
             } => {
-                // Register channel BEFORE pushing scrollback so any data
-                // event arriving while we replay also lands on this channel.
-                self.state
-                    .sessions
-                    .write()
-                    .unwrap()
-                    .insert(session_id, channel.clone());
+                // Replay scrollback (history) FIRST, while the channel is still
+                // unregistered so the reader keeps buffering any live frames
+                // into `early` (no interleave, no loss). Then register and
+                // replay that buffered live tail in order via
+                // `register_and_replay`. Scrollback (up to ~1.25 MiB) is sent
+                // outside the routing lock; only the small live tail is
+                // replayed under it.
                 if !scrollback_b64.is_empty() {
                     let _ = channel.send(PtyEvent::Data {
                         data: scrollback_b64,
                     });
                 }
+                self.register_and_replay(session_id, &channel);
                 Ok(alive)
             }
             DaemonMsg::Err { message, .. } => Err(message),
@@ -265,7 +332,11 @@ impl PtyClient {
     pub fn detach(&self, session_id: Uuid) -> Result<(), String> {
         // Local routing entry removed first so events arriving in-flight
         // are quietly dropped instead of waking a dead xterm.
-        self.state.sessions.write().unwrap().remove(&session_id);
+        {
+            let mut routing = self.state.routing.lock().unwrap();
+            routing.channels.remove(&session_id);
+            routing.early.remove(&session_id);
+        }
         let req_id = self.next_req_id();
         match self.send_request(req_id, &ClientMsg::Detach { req_id, session_id })? {
             DaemonMsg::Ok { .. } => Ok(()),
@@ -308,7 +379,11 @@ impl PtyClient {
     }
 
     pub fn close(&self, session_id: Uuid) -> Result<(), String> {
-        self.state.sessions.write().unwrap().remove(&session_id);
+        {
+            let mut routing = self.state.routing.lock().unwrap();
+            routing.channels.remove(&session_id);
+            routing.early.remove(&session_id);
+        }
         let req_id = self.next_req_id();
         match self.send_request(req_id, &ClientMsg::Close { req_id, session_id })? {
             DaemonMsg::Ok { .. } => Ok(()),
@@ -332,7 +407,9 @@ impl PtyClient {
             DaemonMsg::Ok { .. } => {
                 // Clear local routing — daemon will not send Exit events
                 // for sessions it just killed (it has already removed them).
-                self.state.sessions.write().unwrap().clear();
+                let mut routing = self.state.routing.lock().unwrap();
+                routing.channels.clear();
+                routing.early.clear();
                 Ok(())
             }
             DaemonMsg::Err { message, .. } => Err(message),
@@ -366,14 +443,54 @@ fn reader_loop(state: Arc<ClientState>) {
                 session_id,
                 data_b64,
             } => {
-                if let Some(chan) = state.sessions.read().unwrap().get(session_id) {
+                // Clone the channel out and send AFTER releasing the lock so a
+                // slow webview post can't stall routing for other sessions. If
+                // the session isn't registered yet (its OpenOk/AttachOk is
+                // still being processed), buffer the event so
+                // `register_and_replay` delivers it in order — never drop it
+                // (dropping the first frame loses a new shell's prompt → blank
+                // pane).
+                let chan = {
+                    let mut routing = state.routing.lock().unwrap();
+                    match routing.channels.get(session_id) {
+                        Some(chan) => Some(chan.clone()),
+                        None => {
+                            buffer_early(
+                                &mut routing,
+                                *session_id,
+                                PtyEvent::Data {
+                                    data: data_b64.clone(),
+                                },
+                            );
+                            None
+                        }
+                    }
+                };
+                if let Some(chan) = chan {
                     let _ = chan.send(PtyEvent::Data {
                         data: data_b64.clone(),
                     });
                 }
             }
             DaemonMsg::Exit { session_id, code } => {
-                let chan = state.sessions.write().unwrap().remove(session_id);
+                let chan = {
+                    let mut routing = state.routing.lock().unwrap();
+                    match routing.channels.remove(session_id) {
+                        Some(chan) => {
+                            // Registered session exited: drop its route (and any
+                            // stray early buffer) and deliver the Exit.
+                            routing.early.remove(session_id);
+                            Some(chan)
+                        }
+                        None => {
+                            // Exit raced ahead of the open/attach reply: buffer
+                            // it so the eventual register_and_replay still
+                            // surfaces the exit after the session's output.
+                            buffer_early(&mut routing, *session_id, PtyEvent::Exit { code: *code });
+                            None
+                        }
+                    }
+                };
                 if let Some(c) = chan {
                     let _ = c.send(PtyEvent::Exit { code: *code });
                 }
@@ -391,6 +508,9 @@ fn reader_loop(state: Arc<ClientState>) {
     state.alive.store(false, Ordering::Release);
     // Drain pending so blocked callers wake with timeout sooner.
     state.pending.lock().unwrap().clear();
+    // Connection is dead; no more events will arrive. Free any buffered
+    // pre-registration events so they can't leak past the connection.
+    state.routing.lock().unwrap().early.clear();
 }
 
 /// Manual frame read against `&Stream` (which impls `Read`).

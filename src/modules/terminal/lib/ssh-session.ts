@@ -2,6 +2,7 @@ import {
   getConnectionSecrets,
   listConnections,
   markConnected,
+  resolveJumpHops,
   type SshConnection,
 } from "@/modules/ssh/connections";
 import { openSsh, isHostKeyMismatchError, type SshSession } from "@/modules/ssh/bridge";
@@ -47,6 +48,10 @@ export async function openSshForSession(
     throw new Error(`ssh: connection "${sshConnectionId}" not found`);
   }
   const secrets = await getConnectionSecrets(sshConnectionId);
+
+  // Resolve the ProxyJump chain (if this host tunnels through others). Done at
+  // open time so each reconnect re-reads the current chain + jump secrets.
+  const jumps = await resolveJumpHops(conn.proxyJumpId, conn.id, list);
 
   // `sshReconnectAttempts` is bumped by `scheduleSshReconnect`. 0 means first open.
   const attempt = Math.max(1, s.sshReconnectAttempts);
@@ -110,10 +115,16 @@ export async function openSshForSession(
           conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
         // Pin against the last recorded fingerprint. First connect is TOFU; later connects fail fast on mismatch.
         expectedFingerprint: conn.lastFingerprint || undefined,
+        jumps,
         cols,
         rows,
       },
       {
+        // Pin each jump host's fingerprint on its own saved connection as the
+        // chain authenticates, so the next connect verifies it fail-fast.
+        onJumpConnected: (connectionId, fp) => {
+          void markConnected(connectionId, fp).catch(() => {});
+        },
         onConnected: (fp) => {
           // Handshake cleared the host-key gate (pinned, or the user trusted it
           // via the dialog, which already dequeued the prompt). Drop our ref so

@@ -15,6 +15,14 @@ import {
 } from "@/modules/ai/config";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { normalizeCustomTheme, type CustomTheme } from "./customTheme";
+import {
+  DEFAULT_TERMINAL_PALETTE,
+  DEFAULT_TERMINAL_THEME_ID,
+  normalizeTerminalPalette,
+  type TerminalPalette,
+  type TerminalThemeMode,
+} from "./terminalPalette";
+import { DEFAULT_CONTENT_FONT_ID, isValidContentFontId } from "@/lib/fonts";
 import { DEFAULT_SEARCH_ENGINE_ID, searchEngineById, type SearchEngineId } from "./searchEngines";
 import { DEFAULT_CUSTOM_THEME } from "./themePresets";
 
@@ -76,6 +84,32 @@ export type Preferences = {
   /** Provider for `defaultModelId`. Disambiguates ids shared across providers. Persisted for cold-boot restore. */
   defaultProviderId: ProviderId | null;
   editorTheme: EditorThemeId;
+  /**
+   * Content font family id, applied to BOTH the terminal and the code editor.
+   * One of `CONTENT_FONT_OPTIONS` (lib/fonts). The chosen family is prepended to
+   * the safe fallback chain, so an uninstalled font degrades gracefully.
+   */
+  fontFamily: string;
+  /**
+   * Base code-editor font size in px, before content zoom. The terminal keeps
+   * its own `terminalFontSize`; this is the editor/diff equivalent.
+   */
+  editorFontSize: number;
+  /**
+   * Terminal theme mode. "follow-app" (default) mirrors the app theme so the
+   * terminal matches the chrome with zero visual change; "custom" applies
+   * `terminalCustomPalette` and is fully independent of the app theme. The
+   * terminal reads its own `--tedi-term-*` CSS vars either way.
+   */
+  terminalThemeMode: TerminalThemeMode;
+  /**
+   * Selected terminal preset id, or "custom" once the palette is hand-edited.
+   * Drives which preset chip is highlighted in Settings -> Terminal. The actual
+   * colours applied in "custom" mode live in `terminalCustomPalette`.
+   */
+  terminalThemeId: string;
+  /** Terminal palette applied when `terminalThemeMode === "custom"`. */
+  terminalCustomPalette: TerminalPalette;
   customInstructions: string;
   autostart: boolean;
   restoreWindowState: boolean;
@@ -171,6 +205,15 @@ export type Preferences = {
   /** Toast and beep on AI CLI state transitions. Default on. Per-tab badge still updates when off. */
   aiNotificationsEnabled: boolean;
   /**
+   * Custom AI-CLI notification sounds as `data:audio/...;base64,…` URLs. Empty
+   * string = use the built-in synthesized beep. `aiBlockingSound` plays when an
+   * AI CLI needs approval; `aiCompletionSound` when it finishes. Stored inline
+   * (capped at MAX_SOUND_DATA_URL_LEN) so a custom sound needs no extra files or
+   * filesystem permissions; the upload UI rejects larger files up front.
+   */
+  aiBlockingSound: string;
+  aiCompletionSound: string;
+  /**
    * Brand color as 6-digit hex (`#RRGGBB`). Drives `--primary`, `--ring`,
    * `--sidebar-primary`, `--sidebar-ring`, and a derived `--accent`.
    * Default `#0057fe` (TEDI logo blue).
@@ -251,11 +294,38 @@ export function normalizeBrandColor(value: string | undefined | null): string {
   return BRAND_COLOR_DEFAULT;
 }
 
+/**
+ * Max raw size of an uploaded notification sound. ~1 MB keeps the inline
+ * data-URL approach sane; the upload UI rejects larger files with a message.
+ */
+export const MAX_SOUND_BYTES = 1024 * 1024;
+/** Backstop on a stored data URL (~1 MB file -> ~1.37 MB base64), in chars. */
+const MAX_SOUND_DATA_URL_LEN = 1_500_000;
+
+/**
+ * Accept only an audio data URL under the size cap; anything else (wrong scheme,
+ * non-audio MIME, oversized, corrupt) coerces to "" so playback falls back to
+ * the built-in synthesized beep. Applied on both read and write.
+ */
+export function normalizeSoundData(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const v = value.trim();
+  if (!v) return "";
+  if (!/^data:audio\/[\w.+-]+;base64,/i.test(v)) return "";
+  if (v.length > MAX_SOUND_DATA_URL_LEN) return "";
+  return v;
+}
+
 const STORE_PATH = "tedi-settings.json";
 const KEY_THEME = "theme";
 const KEY_DEFAULT_MODEL = "defaultModelId";
 const KEY_DEFAULT_PROVIDER = "defaultProviderId";
 const KEY_EDITOR_THEME = "editorTheme";
+const KEY_FONT_FAMILY = "fontFamily";
+const KEY_EDITOR_FONT_SIZE = "editorFontSize";
+const KEY_TERMINAL_THEME_MODE = "terminalThemeMode";
+const KEY_TERMINAL_THEME_ID = "terminalThemeId";
+const KEY_TERMINAL_CUSTOM_PALETTE = "terminalCustomPalette";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
@@ -284,6 +354,8 @@ const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
 const KEY_UI_ZOOM = "uiZoom";
 const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
+const KEY_AI_BLOCKING_SOUND = "aiBlockingSound";
+const KEY_AI_COMPLETION_SOUND = "aiCompletionSound";
 const KEY_BRAND_COLOR = "brandColor";
 const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
@@ -306,6 +378,11 @@ export const UI_ZOOM_STEP = 0.1;
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
 export const TERMINAL_FONT_SIZE_MAX = 32;
+
+export const EDITOR_FONT_SIZE_DEFAULT = 13;
+export const EDITOR_FONT_SIZE_MIN = 8;
+export const EDITOR_FONT_SIZE_MAX = 28;
+export const EDITOR_FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20] as const;
 
 export const APP_OPACITY_DEFAULT = 1;
 // 0 = fully transparent (app dissolves into the wallpaper / desktop), 1 = solid.
@@ -354,6 +431,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   defaultModelId: DEFAULT_MODEL_ID,
   defaultProviderId: tryGetModel(DEFAULT_MODEL_ID)?.provider ?? null,
   editorTheme: "atomone",
+  fontFamily: DEFAULT_CONTENT_FONT_ID,
+  editorFontSize: EDITOR_FONT_SIZE_DEFAULT,
+  terminalThemeMode: "follow-app",
+  terminalThemeId: DEFAULT_TERMINAL_THEME_ID,
+  terminalCustomPalette: DEFAULT_TERMINAL_PALETTE,
   customInstructions: "",
   autostart: false,
   restoreWindowState: true,
@@ -382,6 +464,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   contentZoom: CONTENT_ZOOM_DEFAULT,
   uiZoom: UI_ZOOM_DEFAULT,
   aiNotificationsEnabled: true,
+  aiBlockingSound: "",
+  aiCompletionSound: "",
   brandColor: BRAND_COLOR_DEFAULT,
   customThemeEnabled: false,
   customTheme: DEFAULT_CUSTOM_THEME,
@@ -423,6 +507,20 @@ export async function loadPreferences(): Promise<Preferences> {
     defaultProviderId:
       get<ProviderId | null>(KEY_DEFAULT_PROVIDER) ?? DEFAULT_PREFERENCES.defaultProviderId,
     editorTheme: get<EditorThemeId>(KEY_EDITOR_THEME) ?? DEFAULT_PREFERENCES.editorTheme,
+    fontFamily: (() => {
+      const v = get<string>(KEY_FONT_FAMILY);
+      return isValidContentFontId(v) ? v : DEFAULT_CONTENT_FONT_ID;
+    })(),
+    editorFontSize: clampEditorFontSize(
+      get<number>(KEY_EDITOR_FONT_SIZE) ?? DEFAULT_PREFERENCES.editorFontSize,
+    ),
+    terminalThemeMode:
+      get<TerminalThemeMode>(KEY_TERMINAL_THEME_MODE) === "custom" ? "custom" : "follow-app",
+    terminalThemeId: get<string>(KEY_TERMINAL_THEME_ID) ?? DEFAULT_PREFERENCES.terminalThemeId,
+    terminalCustomPalette: normalizeTerminalPalette(
+      get<unknown>(KEY_TERMINAL_CUSTOM_PALETTE),
+      DEFAULT_PREFERENCES.terminalCustomPalette,
+    ),
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
     autostart: get<boolean>(KEY_AUTOSTART) ?? DEFAULT_PREFERENCES.autostart,
@@ -470,6 +568,8 @@ export async function loadPreferences(): Promise<Preferences> {
     uiZoom: clampUiZoom(get<number>(KEY_UI_ZOOM) ?? DEFAULT_PREFERENCES.uiZoom),
     aiNotificationsEnabled:
       get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
+    aiBlockingSound: normalizeSoundData(get<string>(KEY_AI_BLOCKING_SOUND)),
+    aiCompletionSound: normalizeSoundData(get<string>(KEY_AI_COMPLETION_SOUND)),
     brandColor: normalizeBrandColor(get<string>(KEY_BRAND_COLOR)),
     customThemeEnabled:
       get<boolean>(KEY_CUSTOM_THEME_ENABLED) ?? DEFAULT_PREFERENCES.customThemeEnabled,
@@ -599,6 +699,11 @@ export function clampScrollback(value: number): number {
   return Math.min(TERMINAL_SCROLLBACK_MAX, Math.max(TERMINAL_SCROLLBACK_MIN, Math.round(value)));
 }
 
+export function clampEditorFontSize(value: number): number {
+  if (!Number.isFinite(value)) return EDITOR_FONT_SIZE_DEFAULT;
+  return Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(value)));
+}
+
 function clampUiZoom(value: number): number {
   if (!Number.isFinite(value)) return UI_ZOOM_DEFAULT;
   return Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, value));
@@ -632,6 +737,26 @@ export async function setDefaultModel(value: DynamicModelId, provider?: Provider
 
 export async function setEditorTheme(value: EditorThemeId): Promise<void> {
   await writePref(KEY_EDITOR_THEME, value);
+}
+
+export async function setFontFamily(value: string): Promise<void> {
+  await writePref(KEY_FONT_FAMILY, isValidContentFontId(value) ? value : DEFAULT_CONTENT_FONT_ID);
+}
+
+export async function setEditorFontSize(value: number): Promise<void> {
+  await writePref(KEY_EDITOR_FONT_SIZE, clampEditorFontSize(value));
+}
+
+export async function setTerminalThemeMode(value: TerminalThemeMode): Promise<void> {
+  await writePref(KEY_TERMINAL_THEME_MODE, value);
+}
+
+export async function setTerminalThemeId(value: string): Promise<void> {
+  await writePref(KEY_TERMINAL_THEME_ID, value);
+}
+
+export async function setTerminalCustomPalette(value: TerminalPalette): Promise<void> {
+  await writePref(KEY_TERMINAL_CUSTOM_PALETTE, value);
 }
 
 export async function setCustomInstructions(value: string): Promise<void> {
@@ -780,6 +905,16 @@ export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_AI_NOTIFICATIONS_ENABLED, value);
 }
 
+/** Persist (or clear, with "") the custom "needs approval" notification sound. */
+export async function setAiBlockingSound(value: string): Promise<void> {
+  await writePref(KEY_AI_BLOCKING_SOUND, normalizeSoundData(value));
+}
+
+/** Persist (or clear, with "") the custom "task finished" notification sound. */
+export async function setAiCompletionSound(value: string): Promise<void> {
+  await writePref(KEY_AI_COMPLETION_SOUND, normalizeSoundData(value));
+}
+
 export async function setBrandColor(value: string): Promise<void> {
   await writePref(KEY_BRAND_COLOR, normalizeBrandColor(value));
 }
@@ -917,6 +1052,11 @@ export async function onPreferencesChange(
     defaultModelId: KEY_DEFAULT_MODEL,
     defaultProviderId: KEY_DEFAULT_PROVIDER,
     editorTheme: KEY_EDITOR_THEME,
+    fontFamily: KEY_FONT_FAMILY,
+    editorFontSize: KEY_EDITOR_FONT_SIZE,
+    terminalThemeMode: KEY_TERMINAL_THEME_MODE,
+    terminalThemeId: KEY_TERMINAL_THEME_ID,
+    terminalCustomPalette: KEY_TERMINAL_CUSTOM_PALETTE,
     customInstructions: KEY_CUSTOM_INSTRUCTIONS,
     autostart: KEY_AUTOSTART,
     restoreWindowState: KEY_RESTORE_WINDOW,
@@ -945,6 +1085,8 @@ export async function onPreferencesChange(
     contentZoom: KEY_CONTENT_ZOOM,
     uiZoom: KEY_UI_ZOOM,
     aiNotificationsEnabled: KEY_AI_NOTIFICATIONS_ENABLED,
+    aiBlockingSound: KEY_AI_BLOCKING_SOUND,
+    aiCompletionSound: KEY_AI_COMPLETION_SOUND,
     brandColor: KEY_BRAND_COLOR,
     customThemeEnabled: KEY_CUSTOM_THEME_ENABLED,
     customTheme: KEY_CUSTOM_THEME,

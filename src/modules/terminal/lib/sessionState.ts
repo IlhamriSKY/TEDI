@@ -78,6 +78,13 @@ export type Session = {
    */
   firstByteEpoch: number;
   /**
+   * Spawn epoch for which a one-shot blank-viewport repaint check has already
+   * been armed (see `armBlankViewportRepaint`). Guards against arming it twice
+   * for the same spawn (the reattach path and the first-byte path both call
+   * it), so at most one SIGWINCH repaint nudge fires per spawn.
+   */
+  blankRepaintEpoch: number;
+  /**
    * "[tedi] starting shell…" placeholder is currently visible in the term
    * buffer. Cleared (via `\x1b[H\x1b[2J`) on the next PTY byte so the shell
    * paints onto a clean viewport instead of leaving the dim hint as

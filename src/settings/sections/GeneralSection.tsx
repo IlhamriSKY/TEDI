@@ -20,17 +20,23 @@ import {
   UI_ZOOM_STEP,
   TERMINAL_FONT_SIZES,
   TERMINAL_SCROLLBACK_OPTIONS,
+  MAX_SOUND_BYTES,
   setAiNotificationsEnabled,
+  setAiBlockingSound,
+  setAiCompletionSound,
   setAutostart,
   setRestoreWindowState,
   setSearchEngine,
   setUiZoom,
   setShowHiddenFiles,
   setShowSourceControl,
+  setFontFamily,
   setTerminalFontSize,
   setTerminalScrollback,
   setTerminalWebglEnabled,
 } from "@/modules/settings/store";
+import { CONTENT_FONT_OPTIONS } from "@/lib/fonts";
+import { previewNotificationSound } from "@/lib/blockingBeep";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
 import { ArrowDown01Icon, ComputerIcon, Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
@@ -71,8 +77,11 @@ export function GeneralSection() {
     (e) => e.id === "tedi.sql-explorer",
   );
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
+  const aiBlockingSound = usePreferencesStore((s) => s.aiBlockingSound);
+  const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
+  const fontFamily = usePreferencesStore((s) => s.fontFamily);
   // Local mirror for live drag. Persisted on slider release so we don't
   // hit the prefs store + cross-window emit on every mousemove tick.
   const [zoomDraft, setZoomDraft] = useState(uiZoom);
@@ -202,6 +211,42 @@ export function GeneralSection() {
               Reset
             </Button>
           </div>
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Font</Label>
+        <SettingRow
+          title="Font family"
+          description="Monospace font for the terminal and code editor. Falls back to a bundled Nerd Font when the chosen font isn't installed, so the choice is always safe."
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
+                <span>
+                  {CONTENT_FONT_OPTIONS.find((o) => o.id === fontFamily)?.label ?? "System default"}
+                </span>
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={12}
+                  strokeWidth={2}
+                  className="opacity-70"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              {CONTENT_FONT_OPTIONS.map((o) => (
+                <DropdownMenuItem
+                  key={o.id}
+                  onSelect={() => void setFontFamily(o.id)}
+                  className={cn("text-[12px]", o.id === fontFamily && "bg-accent/50")}
+                  style={o.family ? { fontFamily: `"${o.family}", monospace` } : undefined}
+                >
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </SettingRow>
       </div>
 
@@ -415,6 +460,18 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setAiNotificationsEnabled(v)}
           />
         </SettingRow>
+        <SoundSetting
+          title="Approval sound"
+          kind="blocking"
+          value={aiBlockingSound}
+          onChange={setAiBlockingSound}
+        />
+        <SoundSetting
+          title="Completion sound"
+          kind="completion"
+          value={aiCompletionSound}
+          onChange={setAiCompletionSound}
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -444,5 +501,111 @@ export function GeneralSection() {
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
+  );
+}
+
+const AUDIO_EXT_RE = /\.(mp3|wav|ogg|oga|m4a|mp4|aac|flac|opus|weba)$/i;
+
+/**
+ * Coerce a FileReader `readAsDataURL` result into an audio data URL, or null if
+ * the file is not audio. FileReader stamps the data URL with the browser's
+ * detected MIME (`file.type`); when that comes back empty/generic for a clearly
+ * audio file (rare, format-dependent), rebuild the URL with a sensible audio
+ * MIME so it still passes `normalizeSoundData` and plays.
+ */
+function toAudioDataUrl(file: File, result: string): string | null {
+  if (!result.startsWith("data:")) return null;
+  const comma = result.indexOf(",");
+  if (comma < 0) return null;
+  const mime = result.slice(5, comma).split(";")[0];
+  if (/^audio\//i.test(mime)) return result;
+  if (file.type.startsWith("audio/") || AUDIO_EXT_RE.test(file.name)) {
+    const forced = file.type.startsWith("audio/") ? file.type : "audio/mpeg";
+    return `data:${forced};base64,${result.slice(comma + 1)}`;
+  }
+  return null;
+}
+
+/**
+ * One custom-notification-sound row: Play (preview), Upload (.mp3/.wav/.ogg/.m4a
+ * via a hidden file input, read inline as a data URL), and Default (revert to the
+ * built-in beep). `onChange("")` clears the custom sound. No Tauri dialog/fs
+ * permission needed - the HTML file input yields the bytes directly in the webview.
+ */
+function SoundSetting({
+  title,
+  kind,
+  value,
+  onChange,
+}: {
+  title: string;
+  kind: "blocking" | "completion";
+  value: string;
+  onChange: (value: string) => void | Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isCustom = value.length > 0;
+
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    if (file.size > MAX_SOUND_BYTES) {
+      setError(`File too large (max ${(MAX_SOUND_BYTES / (1024 * 1024)).toFixed(0)} MB).`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const audio = typeof reader.result === "string" ? toAudioDataUrl(file, reader.result) : null;
+      if (audio) {
+        setError(null);
+        void onChange(audio);
+      } else {
+        setError("Unsupported file. Try an .mp3, .wav, .ogg, or .m4a.");
+      }
+    };
+    reader.onerror = () => setError("Could not read that file.");
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <SettingRow
+        title={title}
+        description={
+          isCustom
+            ? "Custom sound. Press play to preview, or revert to the built-in beep."
+            : "Built-in beep. Upload an .mp3, .wav, .ogg, or .m4a (max 1 MB) to customize."
+        }
+      >
+        <div className="flex shrink-0 items-center gap-1.5">
+          <input ref={inputRef} type="file" accept="audio/*" className="hidden" onChange={onPick} />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => previewNotificationSound(kind, value)}
+            title="Preview"
+          >
+            Play
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}>
+            Upload
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!isCustom}
+            onClick={() => {
+              setError(null);
+              void onChange("");
+            }}
+          >
+            Default
+          </Button>
+        </div>
+      </SettingRow>
+      {error ? <span className="text-destructive px-1 text-[10.5px]">{error}</span> : null}
+    </div>
   );
 }

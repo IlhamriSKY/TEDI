@@ -44,7 +44,11 @@ export function HostKeyPromptDialog() {
           <div className="bg-muted text-foreground rounded-md p-2.5 font-mono text-xs break-all select-all">
             {current.fingerprint}
           </div>
-          <DialogFooter>
+          {/* Two-column full-width footer to match the app's other
+              confirmation modals (AlertDialogFooter's `grid grid-cols-2`):
+              Reject + Trust split the row into equal columns that fill the
+              dialog width, instead of clustering on the right. */}
+          <DialogFooter className="grid grid-cols-2 gap-2">
             <Button variant="outline" onClick={() => resolve(current.promptId, false)}>
               Reject
             </Button>

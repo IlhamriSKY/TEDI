@@ -61,10 +61,11 @@ const DIFF_THEME = EditorView.theme({
   // ".cm-deletedLineGutter": {
   //   backgroundColor: "#ef4444",
   // },
-  // Inline added-text highlight inside merge view. Reads `--tedi-diff-added`
-  // so Solarized/Monokai/etc. pick their canonical green tint.
+  // Inline added-text highlight inside merge view. Reads the EDITOR-owned
+  // `--tedi-editor-diff-added` token so the diff tint follows the code-editor
+  // theme (set by `applyEditorDiffColors`), not the app theme.
   ".cm-changedText": {
-    background: "color-mix(in srgb, var(--tedi-diff-added) 18%, transparent) !important",
+    background: "color-mix(in srgb, var(--tedi-editor-diff-added) 18%, transparent) !important",
   },
 });
 

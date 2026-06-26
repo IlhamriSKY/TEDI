@@ -49,10 +49,31 @@ const HOST_KEY_ALGOS: &[Algorithm] = &[
 ];
 
 #[derive(Serialize, Clone)]
-#[serde(tag = "type", rename_all = "camelCase")]
+// `rename_all` only camelCases the variant TAGS (e.g. `hostKeyPrompt`); it does
+// NOT touch the fields inside struct variants - that needs `rename_all_fields`.
+// Without it, `HostKeyPrompt::prompt_id` went over the IPC channel as snake_case
+// `prompt_id`, so the frontend's `event.promptId` was `undefined`. The
+// first-connect host-key dialog still rendered (it reads single-word
+// `fingerprint`/`host`), but "Trust & connect" then called
+// `ssh_confirm_host_key(undefined)` - which fails silently - so the paused
+// handshake never got the user's answer and hung for the full 120 s confirm
+// timeout before failing. It also rewrites the `JumpConnected::connection_id`
+// field added below to `connectionId`, which the frontend's `event.connectionId`
+// (bridge.ts) relies on to pin each jump hop - so the attribute is load-bearing,
+// not just for `prompt_id`. The remaining variant fields are single words
+// (`fingerprint`, `data`, `code`, `host`), so camelCasing is a no-op for them.
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SshEvent {
     /// Auth/connect handshake completed; frontend can show "connected".
     Connected { fingerprint: String },
+    /// A jump host in a ProxyJump chain authenticated. Carries the saved
+    /// connection id it came from so the frontend pins the hop's fingerprint on
+    /// the right connection (the target's fingerprint still arrives via
+    /// `Connected`). Emitted once per hop, in connect order, before `Connected`.
+    JumpConnected {
+        connection_id: String,
+        fingerprint: String,
+    },
     /// First-connect host-key confirmation request, emitted from
     /// `check_server_key` when no fingerprint is pinned - BEFORE any credential
     /// is sent. The handshake blocks until the frontend answers via
@@ -202,6 +223,12 @@ pub struct SshSession {
     /// dropping it drops the SSH session. `pub(super)` so the sibling `sftp`
     /// module can open new subsystem channels on it.
     pub(super) handle: Mutex<Option<Handle<HostKeyVerifier>>>,
+    /// Jump-host handles for a ProxyJump chain, in connect order (entry first).
+    /// Retained for the session's whole life: each tunnel rides on the hop
+    /// before it, so dropping a jump handle collapses every hop above it
+    /// (including the target). Empty for a direct connection. Disconnected,
+    /// innermost-first, on `close`.
+    jump_handles: Mutex<Vec<Handle<HostKeyVerifier>>>,
     /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops do
     /// not pay the channel-open + handshake roundtrip each time.
     sftp: Mutex<Option<Arc<SftpSession>>>,
@@ -296,6 +323,13 @@ impl SshSession {
                 .disconnect(Disconnect::ByApplication, "tedi: client closed", "")
                 .await;
         }
+        // Tear the jump chain down from innermost to outermost, after the
+        // target handle that rode on top of it is already gone.
+        for h in self.jump_handles.lock().await.drain(..).rev() {
+            let _ = h
+                .disconnect(Disconnect::ByApplication, "tedi: client closed", "")
+                .await;
+        }
         if let Some(j) = self.pump.lock().await.take() {
             j.abort();
         }
@@ -335,33 +369,33 @@ impl Drop for SshSession {
     }
 }
 
-pub async fn connect(
-    input: SshOpenInput,
-    on_event: IpcChannel<SshEvent>,
-) -> Result<Arc<SshSession>, String> {
-    if input.password.is_none() && input.private_key.is_none() {
-        return Err("ssh: either password or private_key must be provided".into());
-    }
-
-    let config = Arc::new(Config {
+/// Shared russh client config: russh's vetted modern defaults with bare
+/// `ssh-rsa` (SHA-1) dropped from the host-key set (see HOST_KEY_ALGOS). Built
+/// fresh per hop because `client::connect[_stream]` consumes the `Arc<Config>`.
+fn build_config() -> Arc<Config> {
+    Arc::new(Config {
         inactivity_timeout: None,
         keepalive_interval: Some(KEEPALIVE),
-        // Drop bare `ssh-rsa` (SHA-1) from russh's default host-key set while
-        // keeping its vetted KEX / cipher / MAC / compression defaults. See
-        // HOST_KEY_ALGOS for the rationale.
         preferred: russh::Preferred {
             key: std::borrow::Cow::Borrowed(HOST_KEY_ALGOS),
             ..russh::Preferred::DEFAULT
         },
         ..Default::default()
-    });
+    })
+}
 
+/// Build a host-key verifier for one hop. When no fingerprint is pinned, parks
+/// a first-connect confirmation one-shot keyed by the returned prompt id
+/// (resolved by `ssh_confirm_host_key`). Returns the handler plus the shared
+/// report and prompt metadata the caller needs to apply the confirm-timeout
+/// budget and to turn a handshake failure into a specific error.
+fn build_verifier(
+    expected_fingerprint: Option<String>,
+    on_event: IpcChannel<SshEvent>,
+    host: String,
+) -> (HostKeyVerifier, Arc<Mutex<HostKeyReport>>, String, bool) {
     let report: Arc<Mutex<HostKeyReport>> = Arc::new(Mutex::new(HostKeyReport::default()));
-
-    // First connect (no pinned fingerprint) gets an interactive confirmation:
-    // park a one-shot the verifier awaits, resolved by `ssh_confirm_host_key`.
-    // Pinned connects skip this and verify against `expected` directly.
-    let needs_confirm = input.expected_fingerprint.is_none();
+    let needs_confirm = expected_fingerprint.is_none();
     let prompt_id = format!("hk-{}", HOSTKEY_PROMPT_SEQ.fetch_add(1, Ordering::Relaxed));
     let decision = if needs_confirm {
         let (tx, rx) = oneshot::channel::<bool>();
@@ -372,88 +406,270 @@ pub async fn connect(
     } else {
         None
     };
-
     let handler = HostKeyVerifier {
-        expected: input.expected_fingerprint.clone(),
+        expected: expected_fingerprint,
         report: report.clone(),
-        on_event: on_event.clone(),
+        on_event,
         prompt_id: prompt_id.clone(),
-        host: input.host.clone(),
+        host,
         decision,
     };
+    (handler, report, prompt_id, needs_confirm)
+}
 
-    let addr = (input.host.as_str(), input.port);
-    let connect_fut = client::connect(config, addr, handler);
-    // First connect may block on the confirmation dialog, so grant extra time;
-    // pinned connects keep the tight 15s budget.
+/// Turn a russh handshake failure into a specific, user-actionable message
+/// using the verifier's structured report (user rejected a new key, or a
+/// pinned-key mismatch), falling back to the generic disconnect text.
+async fn handshake_error(report: &Arc<Mutex<HostKeyReport>>, e: russh::Error) -> String {
+    let report_guard = report.lock().await;
+    if let Some(seen) = report_guard.rejected.clone() {
+        return format!(
+            "ssh: host key not trusted: the new server key {seen} was not confirmed; \
+             connection aborted before sending credentials."
+        );
+    }
+    if let Some((expected, seen)) = report_guard.mismatch.clone() {
+        return format!(
+            "ssh: host key mismatch: expected={expected} server={seen}. \
+             The server presented a different key than the one recorded on the last \
+             successful connect. If the server key was rotated legitimately, edit the \
+             saved connection and clear the recorded fingerprint before reconnecting; \
+             otherwise this could be a man-in-the-middle attack."
+        );
+    }
+    format!("ssh: connect failed: {e}")
+}
+
+/// Drive a russh connect future under the right timeout budget (first connects
+/// may block on the confirmation dialog, so they get the extra confirm window),
+/// clean up any unconsumed prompt, and map a failure through `handshake_error`.
+/// Works for both `client::connect` (TCP) and `client::connect_stream` (tunnel).
+async fn finish_connect<F>(
+    connect_fut: F,
+    needs_confirm: bool,
+    report: &Arc<Mutex<HostKeyReport>>,
+    prompt_id: &str,
+    host: &str,
+    port: u16,
+) -> Result<Handle<HostKeyVerifier>, String>
+where
+    F: std::future::Future<Output = Result<Handle<HostKeyVerifier>, russh::Error>>,
+{
     let overall_timeout = if needs_confirm {
         CONNECT_TIMEOUT + HOSTKEY_CONFIRM_TIMEOUT
     } else {
         CONNECT_TIMEOUT
     };
-    let connect_result = tokio::time::timeout(overall_timeout, connect_fut)
+    let result = tokio::time::timeout(overall_timeout, connect_fut)
         .await
-        .map_err(|_| format!("ssh: connect to {}:{} timed out", input.host, input.port))?;
+        .map_err(|_| format!("ssh: connect to {host}:{port} timed out"))?;
     // Drop any unconsumed prompt (handshake failed before/around the check).
     if needs_confirm {
         if let Ok(mut m) = pending_host_keys().lock() {
-            m.remove(&prompt_id);
+            m.remove(prompt_id);
         }
     }
-    let mut handle = match connect_result {
-        Ok(h) => h,
-        Err(e) => {
-            // russh rejected the handshake. Prefer the verifier's structured
-            // reasons (user rejected a new key, or a pinned-key mismatch) over
-            // a generic disconnect so the frontend can react specifically.
-            let report_guard = report.lock().await;
-            if let Some(seen) = report_guard.rejected.clone() {
-                return Err(format!(
-                    "ssh: host key not trusted: the new server key {seen} was not confirmed; \
-                     connection aborted before sending credentials."
-                ));
+    match result {
+        Ok(h) => Ok(h),
+        Err(e) => Err(handshake_error(report, e).await),
+    }
+}
+
+/// Open a `direct-tcpip` tunnel from `prev` to `host:port` under the connect
+/// timeout, so a jump host that is up but cannot reach the next hop fails in a
+/// bounded, message-bearing way instead of hanging on the jump's own (often
+/// ~75s) TCP connect timeout - restoring the direct path's deliberate cap for
+/// tunneled hops. Also drops a parked first-connect prompt on failure, since
+/// the tunnel can fail before `finish_connect` (the usual cleanup point) runs,
+/// which would otherwise leak the one-shot in `pending_host_keys()`.
+async fn open_tunnel(
+    prev: &Handle<HostKeyVerifier>,
+    host: &str,
+    port: u16,
+    needs_confirm: bool,
+    prompt_id: &str,
+) -> Result<russh::Channel<Msg>, String> {
+    let opened = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        prev.channel_open_direct_tcpip(host.to_string(), u32::from(port), "127.0.0.1", 0),
+    )
+    .await;
+    let drop_prompt = || {
+        if needs_confirm {
+            if let Ok(mut m) = pending_host_keys().lock() {
+                m.remove(prompt_id);
             }
-            if let Some((expected, seen)) = report_guard.mismatch.clone() {
-                return Err(format!(
-                    "ssh: host key mismatch: expected={expected} server={seen}. \
-                     The server presented a different key than the one recorded on the last \
-                     successful connect. If the server key was rotated legitimately, edit the \
-                     saved connection and clear the recorded fingerprint before reconnecting; \
-                     otherwise this could be a man-in-the-middle attack."
-                ));
-            }
-            return Err(format!("ssh: connect failed: {e}"));
         }
     };
+    match opened {
+        Err(_) => {
+            drop_prompt();
+            Err(format!("ssh: open tunnel to {host}:{port} timed out"))
+        }
+        Ok(Err(e)) => {
+            drop_prompt();
+            Err(format!("ssh: open tunnel to {host}:{port} failed: {e}"))
+        }
+        Ok(Ok(channel)) => Ok(channel),
+    }
+}
 
-    let authed_ok = if let Some(pk_text) = input.private_key.as_deref() {
-        let pass = input.private_key_passphrase.as_deref();
-        let key = russh::keys::decode_secret_key(pk_text, pass)
-            .map_err(|e| format!("ssh: parse private key failed: {e}"))?;
+/// Authenticate a hop with its private key (preferred when present) or password
+/// (with a keyboard-interactive fallback for PAM-only servers). Shared by every
+/// jump hop and the final target so the auth posture stays identical down the
+/// whole chain. `host` only labels error messages, so a failing jump names
+/// itself instead of reading as if it were the target.
+async fn authenticate_hop(
+    handle: &mut Handle<HostKeyVerifier>,
+    host: &str,
+    user: &str,
+    password: Option<&str>,
+    private_key: Option<&str>,
+    passphrase: Option<&str>,
+) -> Result<bool, String> {
+    if let Some(pk_text) = private_key {
+        let key = russh::keys::decode_secret_key(pk_text, passphrase)
+            .map_err(|e| format!("ssh: [{host}] parse private key failed: {e}"))?;
         let pk = PrivateKeyWithHashAlg::new(Arc::new(key), Some(HashAlg::Sha256));
-        handle
-            .authenticate_publickey(&input.user, pk)
+        Ok(handle
+            .authenticate_publickey(user, pk)
             .await
-            .map_err(|e| format!("ssh: pubkey auth error: {e}"))?
-            .success()
+            .map_err(|e| format!("ssh: [{host}] pubkey auth error: {e}"))?
+            .success())
     } else {
-        let password = input.password.as_deref().unwrap_or_default();
+        let password = password.unwrap_or_default();
         let first = handle
-            .authenticate_password(&input.user, password)
+            .authenticate_password(user, password)
             .await
-            .map_err(|e| format!("ssh: password auth error: {e}"))?;
+            .map_err(|e| format!("ssh: [{host}] password auth error: {e}"))?;
         if first.success() {
-            true
+            Ok(true)
         } else {
             // Plenty of PAM-backed servers refuse the `password` method and
             // only offer `keyboard-interactive` (FreeIPA, Duo-only, certain
             // sshd hardening profiles). Try KBI as a fallback, feeding the
             // saved password as the first prompt's answer. 2FA multi-prompt
-            // setups will fail with a clear "too many prompts" error
-            // instead of hanging.
-            try_keyboard_interactive(&mut handle, &input.user, password).await?
+            // setups will fail with a clear "too many prompts" error instead
+            // of hanging.
+            try_keyboard_interactive(handle, user, password).await
         }
+    }
+}
+
+pub async fn connect(
+    input: SshOpenInput,
+    on_event: IpcChannel<SshEvent>,
+) -> Result<Arc<SshSession>, String> {
+    if input.password.is_none() && input.private_key.is_none() {
+        return Err("ssh: either password or private_key must be provided".into());
+    }
+
+    // --- Jump chain (ProxyJump / Termius-style "host chaining") -------------
+    // `input.jumps` is in connect order: jumps[0] is the publicly-reachable
+    // entry we TCP-connect to; each later hop is reached by opening a
+    // `direct-tcpip` channel on the previous hop and running a fresh SSH
+    // handshake over that tunnel stream. The target is reached the same way
+    // over the last jump (or directly when there are no jumps). Every jump
+    // handle is retained on the session: dropping one collapses every tunnel
+    // riding on it (including the target), so they must outlive the session.
+    let mut jump_handles: Vec<Handle<HostKeyVerifier>> = Vec::new();
+    for hop in &input.jumps {
+        if hop.password.is_none() && hop.private_key.is_none() {
+            return Err(format!(
+                "ssh: jump host {} has no password or private key configured",
+                hop.host
+            ));
+        }
+        let (handler, report, prompt_id, needs_confirm) = build_verifier(
+            hop.expected_fingerprint.clone(),
+            on_event.clone(),
+            hop.host.clone(),
+        );
+        let mut handle = if let Some(prev) = jump_handles.last() {
+            let channel = open_tunnel(prev, &hop.host, hop.port, needs_confirm, &prompt_id).await?;
+            finish_connect(
+                client::connect_stream(build_config(), channel.into_stream(), handler),
+                needs_confirm,
+                &report,
+                &prompt_id,
+                &hop.host,
+                hop.port,
+            )
+            .await?
+        } else {
+            finish_connect(
+                client::connect(build_config(), (hop.host.as_str(), hop.port), handler),
+                needs_confirm,
+                &report,
+                &prompt_id,
+                &hop.host,
+                hop.port,
+            )
+            .await?
+        };
+        let ok = authenticate_hop(
+            &mut handle,
+            &hop.host,
+            &hop.user,
+            hop.password.as_deref(),
+            hop.private_key.as_deref(),
+            hop.private_key_passphrase.as_deref(),
+        )
+        .await?;
+        if !ok {
+            return Err(format!(
+                "ssh: authentication rejected for jump host {}",
+                hop.host
+            ));
+        }
+        // Pin the jump's host key against its own saved connection.
+        let fp = report.lock().await.seen.clone().unwrap_or_default();
+        let _ = on_event.send(SshEvent::JumpConnected {
+            connection_id: hop.connection_id.clone(),
+            fingerprint: fp,
+        });
+        jump_handles.push(handle);
+    }
+
+    // --- Target -------------------------------------------------------------
+    // Either a direct TCP connect (no jumps) or a tunnel over the last jump.
+    let (handler, report, prompt_id, needs_confirm) = build_verifier(
+        input.expected_fingerprint.clone(),
+        on_event.clone(),
+        input.host.clone(),
+    );
+    let mut handle = if let Some(prev) = jump_handles.last() {
+        let channel = open_tunnel(prev, &input.host, input.port, needs_confirm, &prompt_id).await?;
+        finish_connect(
+            client::connect_stream(build_config(), channel.into_stream(), handler),
+            needs_confirm,
+            &report,
+            &prompt_id,
+            &input.host,
+            input.port,
+        )
+        .await?
+    } else {
+        finish_connect(
+            client::connect(build_config(), (input.host.as_str(), input.port), handler),
+            needs_confirm,
+            &report,
+            &prompt_id,
+            &input.host,
+            input.port,
+        )
+        .await?
     };
+
+    let authed_ok = authenticate_hop(
+        &mut handle,
+        &input.host,
+        &input.user,
+        input.password.as_deref(),
+        input.private_key.as_deref(),
+        input.private_key_passphrase.as_deref(),
+    )
+    .await?;
 
     if !authed_ok {
         return Err("ssh: authentication rejected".into());
@@ -521,6 +737,7 @@ pub async fn connect(
             write_half,
             pump: Mutex::new(None),
             handle: Mutex::new(Some(handle)),
+            jump_handles: Mutex::new(jump_handles),
             sftp: Mutex::new(None),
             exit_signal: std::sync::Mutex::new(None),
             host: input.host.clone(),
@@ -637,6 +854,7 @@ pub async fn connect(
         write_half,
         pump: Mutex::new(Some(pump)),
         handle: Mutex::new(Some(handle)),
+        jump_handles: Mutex::new(jump_handles),
         sftp: Mutex::new(None),
         exit_signal: std::sync::Mutex::new(Some(exit_rx)),
         host: input.host.clone(),
@@ -698,4 +916,79 @@ async fn try_keyboard_interactive(
         }
     }
     Err("ssh: keyboard-interactive: too many prompt rounds".into())
+}
+
+#[cfg(test)]
+mod chain_tests {
+    use super::*;
+    use crate::modules::ssh::SshJumpHop;
+    use tauri::ipc::Channel as IpcChannel;
+
+    /// Live end-to-end check that the REAL `session::connect` reaches a target
+    /// through a ProxyJump chain. Network + a real key + real creds, so it is
+    /// `#[ignore]`d (run with `cargo test --release chain -- --ignored`). All
+    /// inputs come from env vars - nothing about anyone's infra is hard-coded:
+    ///
+    ///   TEDI_IT_KEY_PATH     PEM private key file (used for every hop)
+    ///   TEDI_IT_TARGET_HOST  final host, TEDI_IT_TARGET_USER, TEDI_IT_TARGET_FP
+    ///   TEDI_IT_JUMP_HOST    jump host (optional), TEDI_IT_JUMP_USER, TEDI_IT_JUMP_FP
+    ///
+    /// The `*_FP` SHA256 fingerprints pin each hop so the handshake never blocks
+    /// on the interactive host-key dialog (there is no GUI in a test). Missing
+    /// required vars => the test prints a skip notice and passes.
+    #[test]
+    #[ignore]
+    fn connects_through_jump_chain() {
+        let (Ok(key_path), Ok(target_host)) = (
+            std::env::var("TEDI_IT_KEY_PATH"),
+            std::env::var("TEDI_IT_TARGET_HOST"),
+        ) else {
+            eprintln!("[chain_tests] skipped: set TEDI_IT_KEY_PATH + TEDI_IT_TARGET_HOST");
+            return;
+        };
+        let key = std::fs::read_to_string(&key_path).expect("read key file");
+        let env_opt = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+
+        let mut jumps = Vec::new();
+        if let Some(jump_host) = env_opt("TEDI_IT_JUMP_HOST") {
+            jumps.push(SshJumpHop {
+                connection_id: "it-jump".into(),
+                host: jump_host,
+                port: 22,
+                user: env_opt("TEDI_IT_JUMP_USER").unwrap_or_else(|| "ubuntu".into()),
+                password: None,
+                private_key: Some(key.clone()),
+                private_key_passphrase: None,
+                expected_fingerprint: env_opt("TEDI_IT_JUMP_FP"),
+            });
+        }
+
+        let input = SshOpenInput {
+            host: target_host.clone(),
+            port: 22,
+            user: env_opt("TEDI_IT_TARGET_USER").unwrap_or_else(|| "ubuntu".into()),
+            password: None,
+            private_key: Some(key),
+            private_key_passphrase: None,
+            expected_fingerprint: env_opt("TEDI_IT_TARGET_FP"),
+            jumps,
+            cols: 80,
+            rows: 24,
+        };
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let channel = IpcChannel::new(|_msg| Ok(()));
+            let session = connect(input, channel).await.expect("chain connect failed");
+            let (host, _user, _cols, _rows, alive, _ts) = session.mirror_info();
+            assert_eq!(host, target_host, "session bound to target host");
+            assert!(alive, "session should be live after connecting through chain");
+            session.close().await;
+            eprintln!("[chain_tests] OK: connected to {target_host} through chain");
+        });
+    }
 }

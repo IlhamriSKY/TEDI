@@ -1,5 +1,6 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
+import { buildContentFontFamily } from "@/lib/fonts";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { SearchAddon } from "@xterm/addon-search";
 import { type TediOpenInput, type TediSpawnTabInput } from "./osc-handlers";
@@ -220,6 +221,26 @@ export function useTerminalSession({
       syncPtySize(s);
     }
   }, [leafId, fontSize]);
+
+  const fontFamilyPref = usePreferencesStore((p) => p.fontFamily);
+  useEffect(() => {
+    const s = sessions.get(leafId);
+    if (!s) return;
+    const family = buildContentFontFamily(fontFamilyPref);
+    if (s.term.options.fontFamily === family) return;
+    s.term.options.fontFamily = family;
+    // WebGL caches glyphs keyed by the old font. Dispose + recreate so the new
+    // family renders instead of stale atlas tiles, then refit (glyph metrics
+    // change the cell size).
+    if (s.webglAddon && s.term.element) {
+      disposeWebglRenderer(s);
+      if (s.webglEnabled) loadWebglRenderer(s);
+    }
+    if (canFit(s.term.element?.parentElement)) {
+      s.fitAddon.fit();
+      syncPtySize(s);
+    }
+  }, [leafId, fontFamilyPref]);
 
   const scrollback = usePreferencesStore((p) => p.terminalScrollback);
   useEffect(() => {

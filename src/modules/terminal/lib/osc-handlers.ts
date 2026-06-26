@@ -53,6 +53,37 @@ export function registerPromptTracker(
   };
 }
 
+/**
+ * OSC 9;4 progress / taskbar-progress (ConEmu origin, adopted by Windows
+ * Terminal, Ghostty, WezTerm, Kitty, iTerm2 …). Wire form:
+ *   ESC ] 9 ; 4 ; <state> [ ; <progress> ] ST   (ST = BEL or ESC \)
+ * States: 0 = clear/remove, 1 = set value (0-100), 2 = error, 3 = indeterminate
+ * ("busy", ignores value), 4 = paused. Claude Code emits `9;4;3` while a turn is
+ * running - including while background sub-agents work, when the on-screen footer
+ * looks idle - and `9;4;0` when the whole turn settles, so this is the most
+ * reliable per-turn busy/idle oracle we can read straight from the byte stream
+ * (Kitty #55614 shows Claude's `ESC]9;4;0;BEL` on exit). The other OSC 9 payload
+ * (a bare message) is an iTerm2-style desktop notification, which we leave for a
+ * future "needs attention" edge rather than claim here.
+ */
+export function registerProgressHandler(
+  term: Terminal,
+  onProgress: (state: number, progress: number | null) => void,
+): () => void {
+  const d = term.parser.registerOscHandler(9, (data) => {
+    // Only the ConEmu progress sub-protocol ("4;<state>…") is ours; decline the
+    // rest (iTerm2 notification message) so any other handler/default can run.
+    if (!data.startsWith("4;")) return false;
+    const parts = data.split(";");
+    const state = Number.parseInt(parts[1] ?? "", 10);
+    if (!Number.isFinite(state)) return false;
+    const rawProgress = parts.length > 2 ? Number.parseInt(parts[2], 10) : NaN;
+    onProgress(state, Number.isFinite(rawProgress) ? rawProgress : null);
+    return true;
+  });
+  return () => d.dispose();
+}
+
 export type TediOpenInput = {
   file: string;
 };

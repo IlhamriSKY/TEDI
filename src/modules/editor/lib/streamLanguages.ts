@@ -364,3 +364,85 @@ export const hare = mk({
   number: NUM_CLIKE,
   indentSwitch: false,
 });
+
+// ── Prisma ───────────────────────────────────────────────────────────────────
+// https://prisma.io schema files - block declarations (`model`, `enum`, …),
+// `//` + `///` line comments, `"..."` strings, and `@`/`@@` field/block
+// attributes (colored as meta).
+
+export const prisma = mk({
+  name: "prisma",
+  keywords: words("datasource generator model enum type view"),
+  types: words("String Boolean Int BigInt Float Decimal DateTime Json Bytes Unsupported"),
+  builtin: words(
+    "autoincrement now uuid cuid ulid nanoid dbgenerated auto env map id default " +
+      "unique relation updatedAt index fields references onDelete onUpdate length " +
+      "sort fulltext ignore raw",
+  ),
+  atoms: words("true false null"),
+  defKeywords: words("model enum type view datasource generator"),
+  number: NUM_CLIKE,
+  indentSwitch: false,
+  hooks: {
+    // `@id`, `@default`, `@@unique`, `@@map`, … - attributes. Fires once per
+    // `@`, so `@@` lands two meta tokens, which still renders as one run.
+    "@": (stream: StringStream) => {
+      stream.eatWhile(/[\w.]/);
+      return "meta";
+    },
+  },
+});
+
+// ── GraphQL ──────────────────────────────────────────────────────────────────
+// https://graphql.org SDL + operations - `type`/`query`/`fragment` keywords,
+// `#` line comments, `@directive`, and `$variable` references.
+
+export const graphql = mk({
+  name: "graphql",
+  keywords: words(
+    "type query mutation subscription fragment on enum interface union scalar " +
+      "input schema extend implements directive repeatable",
+  ),
+  types: words("Int Float String Boolean ID"),
+  atoms: words("true false null"),
+  number: NUM_CLIKE,
+  indentSwitch: false,
+  hooks: {
+    "#": (stream: StringStream) => {
+      stream.skipToEnd();
+      return "comment";
+    },
+    "@": (stream: StringStream) => {
+      stream.eatWhile(/[\w]/);
+      return "meta";
+    },
+    $: (stream: StringStream) => {
+      stream.eatWhile(/[\w]/);
+      return "variable";
+    },
+  },
+});
+
+// ── Terraform / HCL ──────────────────────────────────────────────────────────
+// https://terraform.io - block-structured (`resource "x" "y" { … }`), `#` +
+// `//` line comments, `/* */` blocks, `"..."` strings. clike handles the
+// `//` and `/* */` comments; only `#` needs a hook.
+
+export const terraform = mk({
+  name: "terraform",
+  keywords: words(
+    "resource variable module output provider data locals terraform for_each " +
+      "count depends_on lifecycle dynamic provisioner connection if for in " +
+      "endfor endif",
+  ),
+  builtin: words("var local module path each self"),
+  atoms: words("true false null"),
+  number: NUM_CLIKE,
+  indentSwitch: false,
+  hooks: {
+    "#": (stream: StringStream) => {
+      stream.skipToEnd();
+      return "comment";
+    },
+  },
+});

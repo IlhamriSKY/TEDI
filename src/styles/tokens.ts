@@ -66,3 +66,49 @@ export function readAppTokens(): AppTokens {
   for (const name of ANSI_TOKENS) out[name] = resolve(name);
   return out;
 }
+
+/**
+ * Terminal-owned tokens, kept SEPARATE from the app chrome tokens above. The
+ * terminal reads its own `--tedi-term-*` vars so it can be themed independently
+ * of the app. In `follow-app` mode those vars default (in globals.css) to the
+ * app tokens, so this still resolves to the chrome palette without any coupling
+ * in the read path.
+ */
+const TERM_ANSI_NAMES = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
+  "bright-black",
+  "bright-red",
+  "bright-green",
+  "bright-yellow",
+  "bright-blue",
+  "bright-magenta",
+  "bright-cyan",
+  "bright-white",
+] as const;
+
+export type TerminalTokens = {
+  bg: string;
+  fg: string;
+  cursor: string;
+  selection: string;
+  ansi: Record<(typeof TERM_ANSI_NAMES)[number], string>;
+};
+
+export function readTerminalTokens(): TerminalTokens {
+  const ansi = {} as Record<(typeof TERM_ANSI_NAMES)[number], string>;
+  for (const name of TERM_ANSI_NAMES) ansi[name] = resolve(`tedi-term-ansi-${name}`);
+  return {
+    bg: resolve("tedi-term-bg"),
+    fg: resolve("tedi-term-fg"),
+    cursor: resolve("tedi-term-cursor"),
+    selection: resolve("tedi-term-selection"),
+    ansi,
+  };
+}

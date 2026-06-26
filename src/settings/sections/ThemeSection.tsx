@@ -40,6 +40,7 @@ import { SettingRow } from "../components/SettingRow";
 import { ColorSwatch } from "./theme/ColorPicker";
 import { CompactSliderRow } from "./theme/Sliders";
 import { COLOR_FIELDS, GROUPS, type Group } from "./theme/colorFields";
+import { TerminalThemePanel } from "./TerminalThemePanel";
 import type { FsReadResult } from "@/lib/ipc";
 
 type ReadResult = FsReadResult;
@@ -522,6 +523,8 @@ export function ThemeSection() {
           ))}
         </div>
       </div>
+
+      <TerminalThemePanel />
 
       <div className="flex flex-col gap-2">
         <Label>Background &amp; transparency</Label>

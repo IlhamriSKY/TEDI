@@ -23,6 +23,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
@@ -184,6 +185,9 @@ export function AppSidebar({
 }: Props) {
   const [order, setOrder] = useState<SectionKey[]>(() => readOrder());
   const [dragKey, setDragKey] = useState<SectionKey | null>(null);
+  // The section currently hovered as the drop target, so a thin insertion line
+  // can preview where the dragged section will land before release.
+  const [overKey, setOverKey] = useState<SectionKey | null>(null);
   // Per-section panel handles + their collapsed state (driven by onResize, the
   // only collapse signal this version of react-resizable-panels exposes).
   const panelRefs = useRef<Record<SectionKey, PanelImperativeHandle | null>>({});
@@ -254,8 +258,16 @@ export function AppSidebar({
     else ref.collapse();
   };
 
+  // Track the hovered drop target. Fires only when `over` changes (not per
+  // pixel), and we bail out on no-op updates, so the preview stays cheap.
+  const handleDragOver = (ev: DragOverEvent) => {
+    const next = ev.over ? (ev.over.id as SectionKey) : null;
+    setOverKey((prev) => (prev === next ? prev : next));
+  };
+
   const handleDragEnd = (ev: DragEndEvent) => {
     setDragKey(null);
+    setOverKey(null);
     const { active, over } = ev;
     if (!over || active.id === over.id) return;
     const base = effectiveOrder;
@@ -364,34 +376,53 @@ export function AppSidebar({
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={(ev) => setDragKey(ev.active.id as SectionKey)}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
-          onDragCancel={() => setDragKey(null)}
+          onDragCancel={() => {
+            setDragKey(null);
+            setOverKey(null);
+          }}
         >
           <SortableContext items={visible} strategy={verticalListSortingStrategy}>
             <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-              {visible.map((key, i) => (
-                <Fragment key={key}>
-                  {i > 0 && <ResizableHandle withHandle />}
-                  <ResizablePanel
-                    id={`sidebar-${key}`}
-                    defaultSize={defaultSizeFor(key)}
-                    minSize={SECTION_MIN_SIZE}
-                    collapsible
-                    collapsedSize={SECTION_COLLAPSED_SIZE}
-                    panelRef={getPanelRefSetter(key)}
-                    onResize={() => syncCollapsed(key)}
-                  >
-                    <SortableSection
-                      sectionKey={key}
-                      title={titleFor(key)}
-                      collapsed={!!collapsed[key]}
-                      onToggleCollapse={() => toggleCollapse(key)}
-                    >
-                      {(controls) => renderSection(key, controls)}
-                    </SortableSection>
-                  </ResizablePanel>
-                </Fragment>
-              ))}
+              {(() => {
+                // Insertion preview: the dragged section keeps its slot (no
+                // reflow, so the resizable layout is untouched); instead a thin
+                // line marks the boundary it will drop at. Direction mirrors
+                // handleDragEnd: dragging down lands after the target (bottom
+                // edge), dragging up lands before it (top edge).
+                const dragIdx = dragKey ? visible.indexOf(dragKey) : -1;
+                const overIdx = overKey ? visible.indexOf(overKey) : -1;
+                const showDrop = dragIdx >= 0 && overIdx >= 0 && dragIdx !== overIdx;
+                return visible.map((key, i) => {
+                  const dropEdge: "top" | "bottom" | null =
+                    showDrop && key === overKey ? (dragIdx < overIdx ? "bottom" : "top") : null;
+                  return (
+                    <Fragment key={key}>
+                      {i > 0 && <ResizableHandle withHandle />}
+                      <ResizablePanel
+                        id={`sidebar-${key}`}
+                        defaultSize={defaultSizeFor(key)}
+                        minSize={SECTION_MIN_SIZE}
+                        collapsible
+                        collapsedSize={SECTION_COLLAPSED_SIZE}
+                        panelRef={getPanelRefSetter(key)}
+                        onResize={() => syncCollapsed(key)}
+                      >
+                        <SortableSection
+                          sectionKey={key}
+                          title={titleFor(key)}
+                          collapsed={!!collapsed[key]}
+                          onToggleCollapse={() => toggleCollapse(key)}
+                          dropEdge={dropEdge}
+                        >
+                          {(controls) => renderSection(key, controls)}
+                        </SortableSection>
+                      </ResizablePanel>
+                    </Fragment>
+                  );
+                });
+              })()}
             </ResizablePanelGroup>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
@@ -422,12 +453,16 @@ function SortableSection({
   title,
   collapsed,
   onToggleCollapse,
+  dropEdge,
   children,
 }: {
   sectionKey: SectionKey;
   title: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** When this section is the hovered drop target, which edge the dragged
+   *  section will land at. `null` otherwise (and for the dragged section). */
+  dropEdge: "top" | "bottom" | null;
   children: (controls: ReactNode) => ReactNode;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useSortable({ id: sectionKey });
@@ -458,7 +493,22 @@ function SortableSection({
     </span>
   );
   return (
-    <div ref={setNodeRef} className={cn("h-full overflow-hidden", isDragging && "opacity-40")}>
+    <div
+      ref={setNodeRef}
+      className={cn("relative h-full overflow-hidden", isDragging && "opacity-40")}
+    >
+      {dropEdge && (
+        // Insertion line: a thin primary bar pinned to the target edge. Purely
+        // decorative and pointer-transparent so it never interferes with the
+        // drag, and absolutely positioned so it adds no layout cost.
+        <span
+          aria-hidden
+          className={cn(
+            "bg-primary shadow-primary/60 pointer-events-none absolute inset-x-0 z-20 h-0.5 shadow-[0_0_4px]",
+            dropEdge === "top" ? "top-0" : "bottom-0",
+          )}
+        />
+      )}
       {children(controls)}
     </div>
   );

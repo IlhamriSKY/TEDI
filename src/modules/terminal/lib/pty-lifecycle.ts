@@ -64,6 +64,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     }
     // First bytes from the shell. Disarm the watchdog and record the epoch
     // so `armNoDataWatchdog` won't arm against a shell that already spoke.
+    const isFirstByte = s.firstByteEpoch !== myEpoch;
     s.firstByteEpoch = myEpoch;
     if (s.noDataTimer !== null) {
       clearTimeout(s.noDataTimer);
@@ -81,6 +82,18 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     s.term.write(bytes);
     s.aiCliDetector?.pushOutput(bytes);
     maybeNudgeOnRendererSwitch(s, bytes);
+    // Defense-in-depth for the "first byte heals everything" trap: the block
+    // above disarmed the no-data watchdog and cleared the placeholder on this
+    // first byte. If that byte carried no visible content (an OSC title, a
+    // cursor-position reply, bracketed-paste enable) because the real
+    // prompt-bearing bytes were lost upstream, the pane would pin blank with
+    // every auto-recovery path inert (s.pty is set). Arm a one-shot check that
+    // SIGWINCH-nudges the shell to repaint if the viewport is still blank. Inert
+    // when the prompt actually paints (the common case). SSH runs its own
+    // banner / reconnect flow, so skip it there.
+    if (isFirstByte && !s.sshConnectionId) {
+      armBlankViewportRepaint(s, myEpoch);
+    }
     if (containsSchemeSeparator(bytes)) {
       const text = urlDecoder.decode(bytes, { stream: true });
       const matches = text.match(LOCAL_URL_RE);
@@ -193,7 +206,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
         // are both inert, so the pane would stay blank forever. Arm a one-shot
         // check that nudges the shell to repaint if the viewport is still blank
         // shortly after the replay.
-        armReattachRepaintWatchdog(s, myEpoch);
+        armBlankViewportRepaint(s, myEpoch);
         return attached;
       })(),
     );
@@ -279,22 +292,29 @@ export function armNoDataWatchdog(s: Session, epoch: number): void {
 }
 
 /**
- * After an `alive` reattach, verify the daemon's scrollback replay actually
- * produced a usable screen; if the viewport is still blank, force the live
- * shell to repaint its prompt.
+ * Arm a one-shot blank-viewport repaint check for the current spawn. A short
+ * time after a byte that should have painted, if the normal-screen viewport is
+ * still empty while the shell is live, force the shell's line editor
+ * (PSReadLine / readline / zle / fish) to repaint its prompt via a SIGWINCH
+ * round-trip (toggle the PTY row count). It injects no input, the alt-screen
+ * guard skips TUIs, and a healthy spawn (prompt already painted) never trips
+ * the blank check - so it is inert except in the broken case.
  *
- * The replay reconstructs the screen from a raw byte stream, not a snapshot, so
- * it can net to an empty viewport (saved tail ended on a clear, the ring was
- * front-trimmed mid-escape, or ConPTY re-rendered at a new size). When that
- * happens the idle shell emits nothing more and there is no recovery: the
- * replay byte disarmed the no-data watchdog, and `s.pty` being set makes both
- * Enter-to-retry and stuck-recovery no-ops. The repaint is a SIGWINCH
- * round-trip (toggle the PTY row count) so it injects no input - a running
- * command or full-screen TUI is left undisturbed, the alt-screen guard skips
- * TUIs outright, and a healthy reattach (prompt rendered) never trips the blank
- * check, so this is inert except in the broken case.
+ * Covers two distinct ways a pane ends up live-but-blank with every recovery
+ * path disarmed (the arriving byte cleared the no-data watchdog, and `s.pty`
+ * being set makes Enter-to-retry and stuck-recovery no-ops):
+ *   1. An `alive` daemon reattach whose raw scrollback replay nets to an empty
+ *      screen (saved tail ended on a clear, the 1 MiB ring was front-trimmed
+ *      mid-escape, or ConPTY re-rendered at a new size).
+ *   2. A fresh spawn whose prompt-bearing bytes were lost upstream (a transient
+ *      routing drop) while a later non-visible chunk survived to clear the
+ *      placeholder and disarm the watchdog.
+ * Guarded by `blankRepaintEpoch` so it arms at most once per spawn even when
+ * both the reattach and first-byte call sites fire for the same epoch.
  */
-function armReattachRepaintWatchdog(s: Session, epoch: number): void {
+function armBlankViewportRepaint(s: Session, epoch: number): void {
+  if (s.blankRepaintEpoch === epoch) return; // already armed for this spawn
+  s.blankRepaintEpoch = epoch;
   setTimeout(() => {
     if (s.disposed) return;
     if (epoch !== s.ptySpawnEpoch) return; // superseded by a respawn
@@ -306,7 +326,7 @@ function armReattachRepaintWatchdog(s: Session, epoch: number): void {
       return;
     }
     if (isAlt) return; // a foreground TUI owns the screen; never nudge it
-    if (readTerminalViewport(s.term).trim() !== "") return; // replay painted something
+    if (readTerminalViewport(s.term).trim() !== "") return; // something painted
     // Blank viewport + live shell: toggle the PTY row count so the shell's line
     // editor (PSReadLine / readline / zle / fish) repaints its prompt. Two
     // spaced resizes so ConPTY can't coalesce them into a net no-op.
@@ -314,7 +334,7 @@ function armReattachRepaintWatchdog(s: Session, epoch: number): void {
     const rows = Math.max(MIN_PTY_DIM, s.term.rows);
     const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
     if (isDebugPty()) {
-      console.info("[tedi-pty] reattach repaint nudge: viewport blank after alive reattach, forcing redraw");
+      console.info("[tedi-pty] blank-viewport repaint nudge: viewport empty after first paint, forcing redraw");
     }
     void s.pty.resize(cols, nudgeRows);
     s.lastSentCols = cols;
@@ -417,7 +437,7 @@ function maybeNudgeOnRendererSwitch(s: Session, bytes: Uint8Array): void {
  * round-trip so the foreground program redraws its frame at the correct current
  * size - which is what brings the prompt back on-screen and "un-deads" input.
  * The row toggle defeats ConPTY's same-size resize coalescing. Mirrors
- * `armReattachRepaintWatchdog`; fires only on the alt->normal edge so a TUI
+ * `armBlankViewportRepaint`; fires only on the alt->normal edge so a TUI
  * being launched (normal->alt) is never disturbed.
  */
 export function armAltExitRepaintWatchdog(s: Session): void {

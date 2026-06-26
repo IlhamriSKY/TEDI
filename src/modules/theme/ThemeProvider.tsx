@@ -5,8 +5,18 @@ import {
   setAppOpacity,
   setCustomThemeEnabled,
   setTheme as persistTheme,
+  type EditorThemeId,
   type ThemePref,
 } from "@/modules/settings/store";
+import {
+  applyTerminalTheme,
+  normalizeTerminalPalette,
+  DEFAULT_TERMINAL_PALETTE,
+  type TerminalPalette,
+  type TerminalThemeMode,
+} from "@/modules/settings/terminalPalette";
+import { applyEditorDiffColors } from "@/modules/editor/lib/diffColors";
+import { applyMonoFontVar, applyEditorFontSizeVar } from "@/lib/fonts";
 import {
   applyBrandColor,
   applyBrandColorFastPath,
@@ -75,6 +85,14 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
     theme: null,
   });
 
+  // Latest terminal-theme state so a mode change and a palette change can each
+  // re-apply the terminal theme without re-fetching the other half from the
+  // store. The terminal is themed independently of the app chrome.
+  const terminalStateRef = useRef<{ mode: TerminalThemeMode; palette: TerminalPalette }>({
+    mode: "follow-app",
+    palette: DEFAULT_TERMINAL_PALETTE,
+  });
+
   const reconcileLayers = useCallback((brand: string) => {
     if (customStateRef.current.enabled && customStateRef.current.theme) {
       applyCustomTheme(customStateRef.current.theme);
@@ -101,6 +119,20 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         };
         reconcileLayers(p.brandColor);
         applyAppOpacity(p.appOpacity);
+        // Terminal theme is independent of the app chrome. follow-app clears
+        // the overrides (globals.css defaults track the app); custom applies
+        // the saved palette.
+        terminalStateRef.current = {
+          mode: p.terminalThemeMode,
+          palette: p.terminalCustomPalette,
+        };
+        applyTerminalTheme(p.terminalThemeMode, p.terminalCustomPalette);
+        // Diff views follow the editor theme, not the app theme.
+        applyEditorDiffColors(p.editorTheme);
+        // Content font + editor font size (terminal applies its own font in
+        // useTerminalSession; this drives the editor CSS vars).
+        applyMonoFontVar(p.fontFamily);
+        applyEditorFontSizeVar(p.editorFontSize);
         // Wallpaper image is independent of the colour theme so it always
         // paints when set (won't vanish when the custom theme is off).
         applyBackground(p.customTheme.background);
@@ -146,6 +178,19 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         applyBackground(normalized.background);
       } else if (key === "appOpacity" && typeof value === "number") {
         applyAppOpacity(value);
+      } else if (key === "terminalThemeMode" && (value === "follow-app" || value === "custom")) {
+        terminalStateRef.current = { ...terminalStateRef.current, mode: value };
+        applyTerminalTheme(terminalStateRef.current.mode, terminalStateRef.current.palette);
+      } else if (key === "terminalCustomPalette" && value && typeof value === "object") {
+        const palette = normalizeTerminalPalette(value, DEFAULT_TERMINAL_PALETTE);
+        terminalStateRef.current = { ...terminalStateRef.current, palette };
+        applyTerminalTheme(terminalStateRef.current.mode, palette);
+      } else if (key === "editorTheme" && typeof value === "string") {
+        applyEditorDiffColors(value as EditorThemeId);
+      } else if (key === "fontFamily" && typeof value === "string") {
+        applyMonoFontVar(value);
+      } else if (key === "editorFontSize" && typeof value === "number") {
+        applyEditorFontSizeVar(value);
       }
     });
     // Live drag preview from the settings opacity slider (transient, applies

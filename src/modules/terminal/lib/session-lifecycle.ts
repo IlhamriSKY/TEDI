@@ -7,9 +7,9 @@
  * `useTerminalSession` hook stays a thin binding layer over these functions.
  */
 
-import { detectMonoFontFamily } from "@/lib/fonts";
+import { buildContentFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { buildTerminalTheme, resolveCanvasBackground } from "@/styles/terminalTheme";
+import { buildTerminalTheme, resolveTerminalBackground } from "@/styles/terminalTheme";
 import { isHostKeyMismatchError } from "@/modules/ssh/bridge";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SearchAddon } from "@xterm/addon-search";
@@ -18,6 +18,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import {
   registerCwdHandler,
+  registerProgressHandler,
   registerPromptTracker,
   registerTediOpenHandler,
   registerTediSpawnTabHandler,
@@ -104,15 +105,14 @@ if (opacityWin && !opacityWin.__tediCanvasOpacityBound) {
     requestAnimationFrame(() => {
       scheduled = false;
       // Only the canvas background alpha changes during an opacity drag; the
-      // ANSI + chrome palette is identical. Resolve the background ONCE per
-      // frame and patch each session's theme.background, instead of calling
-      // buildTerminalTheme() per session (which forces ~27 getComputedStyle
-      // probe reads each). The full rebuild still runs on real palette changes
-      // (ensureSession + the React re-theme effect in TerminalPane).
-      const solid =
-        getComputedStyle(document.documentElement).getPropertyValue("--tedi-canvas-bg").trim() ||
-        "#1e1e1e";
-      const background = resolveCanvasBackground(solid);
+      // ANSI + terminal palette is identical. Resolve the terminal background
+      // ONCE per frame and patch each session's theme.background, instead of
+      // calling buildTerminalTheme() per session (which forces ~20
+      // getComputedStyle probe reads each). The full rebuild still runs on real
+      // palette changes (ensureSession + the React re-theme effect in
+      // TerminalPane). Reads the terminal-owned `--tedi-term-bg`, so a custom
+      // terminal theme keeps its own background under glass.
+      const background = resolveTerminalBackground();
       for (const s of sessions.values()) {
         syncRendererForWallpaper(s);
         s.term.options.theme = { ...s.term.options.theme, background };
@@ -154,7 +154,7 @@ export function ensureSession(
   const fontSize = effectiveTerminalFontSize(prefs.terminalFontSize, prefs.contentZoom);
 
   const term = new Terminal({
-    fontFamily: detectMonoFontFamily(),
+    fontFamily: buildContentFontFamily(prefs.fontFamily),
     fontSize,
     lineHeight: 1.05,
     theme: buildTerminalTheme(),
@@ -207,6 +207,7 @@ export function ensureSession(
     ptySpawnEpoch: 0,
     noDataTimer: null,
     firstByteEpoch: 0,
+    blankRepaintEpoch: 0,
     sshStatus: { kind: "idle" },
     sshUserClose: false,
     sshReconnectAttempts: 0,
@@ -295,6 +296,10 @@ export function ensureSession(
   // shows next to the folder name. Lives for the term's life; the entry is
   // dropped in `disposeSession`.
   const titleSub = term.onTitleChange((title) => {
+    // Feed the RAW title (glyph intact) to the detector first - it reads the
+    // leading spinner glyph as a working signal. setTitle then strips that glyph
+    // for the Workspaces-panel label.
+    session.aiCliDetector?.pushTitle(title);
     useTerminalTitles.getState().setTitle(leafId, title);
   });
   session.cleanups.push(() => titleSub.dispose());
@@ -386,6 +391,12 @@ export function ensureSession(
       }),
       registerTediSpawnTabHandler(term, (input) => {
         session.callbacks.onTediSpawnTab?.(input);
+      }),
+      // OSC 9;4 progress (Claude Code emits `9;4;3` busy / `9;4;0` done). The
+      // detector treats this as its most reliable per-turn busy/idle oracle -
+      // it survives the subagent case where the on-screen footer looks idle.
+      registerProgressHandler(term, (state, progress) => {
+        session.aiCliDetector?.pushProgress(state, progress);
       }),
     );
   })();

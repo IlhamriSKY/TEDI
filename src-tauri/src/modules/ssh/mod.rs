@@ -58,6 +58,24 @@ impl Default for SshState {
     }
 }
 
+/// One hop in a ProxyJump chain. Resolved on the frontend (the chain is walked
+/// from saved connections and each hop's secrets are read from the keychain),
+/// then passed in connect order so the backend just dials them in sequence.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshJumpHop {
+    /// Saved-connection id this hop came from, so the backend can echo it back
+    /// in `JumpConnected` and the frontend pins the fingerprint on the right row.
+    pub connection_id: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: Option<String>,
+    pub private_key: Option<String>,
+    pub private_key_passphrase: Option<String>,
+    pub expected_fingerprint: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshOpenInput {
@@ -76,6 +94,10 @@ pub struct SshOpenInput {
     /// connections. `None` on first connect (TOFU) and on dialog-time
     /// test connections for brand-new hosts.
     pub expected_fingerprint: Option<String>,
+    /// ProxyJump chain in connect order (publicly-reachable entry host first;
+    /// the hop closest to the target last). Empty/absent = direct connection.
+    #[serde(default)]
+    pub jumps: Vec<SshJumpHop>,
     pub cols: u16,
     pub rows: u16,
 }

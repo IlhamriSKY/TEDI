@@ -14,7 +14,9 @@ import type { FsReadResult } from "@/lib/ipc";
 import {
   clearFingerprint,
   getConnectionSecrets,
+  listConnections,
   newConnectionId,
+  resolveJumpHops,
   upsertConnection,
   type SshAuthMode,
   type SshConnection,
@@ -42,6 +44,8 @@ type Draft = {
   password: string;
   privateKey: string;
   keyPassphrase: string;
+  /** Saved-connection id of the jump host, or "" for a direct connection. */
+  proxyJumpId: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -53,6 +57,7 @@ const EMPTY_DRAFT: Draft = {
   password: "",
   privateKey: "",
   keyPassphrase: "",
+  proxyJumpId: "",
 };
 
 type TestState =
@@ -76,6 +81,8 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
   // Local state so the in-dialog Test sees the current pin without waiting
   // for a parent re-render.
   const [pinnedFingerprint, setPinnedFingerprint] = useState<string | null>(null);
+  // Other saved hosts, offered as jump-host (ProxyJump) options.
+  const [allConns, setAllConns] = useState<SshConnection[]>([]);
 
   // Reset and populate when the dialog opens. Secrets load async.
   useEffect(() => {
@@ -84,6 +91,15 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     setSaving(false);
     setTest({ kind: "idle" });
     setImported({ kind: "idle" });
+    void listConnections().then((cs) => {
+      setAllConns(cs);
+      // If this connection's jump host was deleted, drop the dangling reference
+      // so the <select> and a subsequent save reflect a direct connection
+      // instead of silently keeping a dead id that fails every connect.
+      setDraft((d) =>
+        d.proxyJumpId && !cs.some((c) => c.id === d.proxyJumpId) ? { ...d, proxyJumpId: "" } : d,
+      );
+    });
     if (!editing) {
       setDraft(EMPTY_DRAFT);
       setPinnedFingerprint(null);
@@ -98,6 +114,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       password: "",
       privateKey: "",
       keyPassphrase: "",
+      proxyJumpId: editing.proxyJumpId ?? "",
     });
     setPinnedFingerprint(editing.lastFingerprint ?? null);
     void getConnectionSecrets(editing.id).then((s) => {
@@ -146,15 +163,22 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     // remember the id so it can be cleared if the probe ends without an answer.
     let testPromptId: string | null = null;
     try {
-      // Open a probe session, wait for Connected, then close. Never touches
-      // the keychain. Runs against the current form values.
+      // Resolve the jump chain (if a jump host is selected) so the probe dials
+      // through it, exactly like a real connect would.
+      const jumps = await resolveJumpHops(draft.proxyJumpId || undefined, editing?.id, allConns);
+      // Open a probe session, wait for Connected, then close. Runs against the
+      // current form values.
+      // Budget scales with chain depth: each hop is a full handshake the backend
+      // caps at ~15s, and a fully-pinned chain fires no host-key prompt to clear
+      // this timer, so a deep chain needs more than the base 20s.
+      const probeTimeoutMs = 20_000 + jumps.length * 15_000;
       let resolved = false;
       const result = await new Promise<{ fingerprint: string }>((resolve, reject) => {
         const timer = setTimeout(() => {
           if (resolved) return;
           resolved = true;
-          reject(new Error("test timed out after 20s"));
-        }, 20_000);
+          reject(new Error(`test timed out after ${Math.round(probeTimeoutMs / 1000)}s`));
+        }, probeTimeoutMs);
         openSsh(
           {
             host: draft.host.trim(),
@@ -168,6 +192,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             // silently re-anchor on a different key. New connections leave
             // this unset and use TOFU on first connect.
             expectedFingerprint: pinnedFingerprint || undefined,
+            jumps,
             cols: 80,
             rows: 24,
           },
@@ -276,6 +301,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     try {
       const id = editing?.id ?? newConnectionId();
       const conn: SshConnection = {
+        // Spread the existing record first so an edit preserves fields the form
+        // doesn't own (lastFingerprint, lastConnectedAt, description) instead of
+        // wiping them - important now that editing is also how a jump host gets
+        // attached to an already-pinned connection.
+        ...(editing ?? {}),
         id,
         name: draft.name.trim(),
         host: draft.host.trim(),
@@ -285,6 +315,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         hasPassword: false,
         hasPrivateKey: false,
         hasKeyPassphrase: false,
+        proxyJumpId: draft.proxyJumpId || undefined,
       };
       await upsertConnection(conn, {
         password: draft.authMode === "password" ? draft.password : "",
@@ -429,6 +460,27 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
               </Field>
             </>
           )}
+
+          <Field label="Jump host (optional)">
+            <select
+              value={draft.proxyJumpId}
+              onChange={(e) => setDraft({ ...draft, proxyJumpId: e.target.value })}
+              className="border-border/60 bg-muted/30 focus-visible:border-ring focus-visible:ring-ring/40 h-8 w-full cursor-pointer rounded-md border px-2 text-[12px] outline-none focus-visible:ring-2"
+            >
+              <option value="">None (direct connection)</option>
+              {allConns
+                .filter((c) => c.id !== editing?.id)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.user}@{c.host}:{c.port})
+                  </option>
+                ))}
+            </select>
+            <span className="text-muted-foreground text-[10.5px]">
+              Tunnel through another saved host to reach this one (ProxyJump). Chains
+              transitively if the jump host has its own jump host.
+            </span>
+          </Field>
 
           {editing ? (
             <Field label="Recorded server key">

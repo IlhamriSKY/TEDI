@@ -30,6 +30,16 @@ import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
 
 initVimGlobals();
 import { resolveLanguage } from "./lib/languageResolver";
+import { detectLanguageId, languageLabel, resolveLanguageById } from "./lib/languages";
+import { LanguagePickerDialog } from "./LanguagePickerDialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { useDocument } from "./lib/useDocument";
 import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
 import { getKey } from "@/modules/ai/lib/keyring";
@@ -148,6 +158,9 @@ function computeMarkers(
   };
 }
 
+// Compact context-menu item sizing, matching the explorer's menu density.
+const CTX_ITEM = "rounded-xl px-2.5 py-1.5 text-xs gap-2";
+
 export function EditorPane({
   path,
   onDirtyChange,
@@ -190,6 +203,23 @@ export function EditorPane({
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const languageRef = useRef<string | null>(null);
   const apiKeyRef = useRef<string | null>(null);
+
+  // Manual "Change Language Mode" override (right-click). `null` follows path
+  // detection. Reset whenever the open file changes so a forced mode never
+  // leaks onto the next file shown in this pane.
+  const [langOverride, setLangOverride] = useState<string | null>(null);
+  const [langPickerOpen, setLangPickerOpen] = useState(false);
+  const [detectedLangId, setDetectedLangId] = useState<string | null>(null);
+  // Selection presence sampled when the context menu opens, so Copy/Cut can be
+  // disabled without re-rendering the pane on every cursor move.
+  const [menuHasSelection, setMenuHasSelection] = useState(false);
+  useEffect(() => {
+    setLangOverride(null);
+  }, [path]);
+  const activeLangId = langOverride ?? detectedLangId;
+  // Stable identity so the memoized picker stays idle across cursor-move
+  // re-renders (which fire constantly via the marker overlay).
+  const handlePickLanguage = useCallback((id: string | null) => setLangOverride(id), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,9 +455,15 @@ export function EditorPane({
 
   useEffect(() => {
     let cancelled = false;
-    const ext = path.split(".").pop()?.toLowerCase() ?? null;
-    languageRef.current = ext;
-    resolveLanguage(path).then((ext) => {
+    const detected = detectLanguageId(path);
+    setDetectedLangId(detected);
+    const activeId = langOverride ?? detected;
+    // Autocomplete language hint: prefer the resolved language id, fall back to
+    // the bare extension so unknown file types still pass something useful.
+    languageRef.current = activeId ?? path.split(".").pop()?.toLowerCase() ?? null;
+    // A manual override resolves by language id; otherwise follow the path.
+    const loader = langOverride ? resolveLanguageById(langOverride) : resolveLanguage(path);
+    loader.then((ext) => {
       if (cancelled) return;
       const view = cmRef.current?.view;
       if (!view) return;
@@ -438,7 +474,7 @@ export function EditorPane({
     return () => {
       cancelled = true;
     };
-  }, [path, doc.status]);
+  }, [path, doc.status, langOverride]);
 
   // Marker overlay: refresh on scroll + resize. The updateListener handles
   // selection/doc/viewport; this effect handles scroll-without-edit and
@@ -558,6 +594,68 @@ export function EditorPane({
     [path],
   );
 
+  // ── Context-menu editor commands ──────────────────────────────────────────
+  // Clipboard ops go through the WebView clipboard (same as the explorer's
+  // copyToClipboard); all are best-effort and refocus the editor afterward.
+  const focusView = () => cmRef.current?.view?.focus();
+  const handleCopy = () => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    void navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)).catch(() => {});
+    focusView();
+  };
+  const handleCut = () => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    void navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)).catch(() => {});
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: "" },
+      selection: { anchor: sel.from },
+    });
+    focusView();
+  };
+  const handlePaste = () => {
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        const v = cmRef.current?.view;
+        if (!v || !text) return;
+        const sel = v.state.selection.main;
+        v.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+        });
+        v.focus();
+      })
+      .catch(() => {});
+  };
+  const handleSelectAll = () => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    focusView();
+  };
+  const handleFormat = () => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    void (async () => {
+      try {
+        const current = view.state.doc.toString();
+        const formatted = await formatDocument({ path: pathRef.current, content: current });
+        const live = cmRef.current?.view;
+        if (live === view && live.state.doc.toString() === current) {
+          applyFormattedToView(formatted);
+        }
+      } catch (err) {
+        toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
+      }
+    })();
+  };
+
   if (doc.status === "loading") {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-xs">
@@ -610,38 +708,88 @@ export function EditorPane({
   // language compartment and loses highlighting until path changes.
   return (
     <div ref={outerRef} className="relative flex h-full min-h-0 flex-col">
-      <div
-        className={
-          showMdPreview
-            ? "pointer-events-none invisible flex min-h-0 flex-1 flex-col"
-            : "flex min-h-0 flex-1 flex-col"
+      <ContextMenu
+        onOpenChange={(open) =>
+          open && setMenuHasSelection(!cmRef.current?.view?.state.selection.main.empty)
         }
-        aria-hidden={showMdPreview ? "true" : "false"}
       >
-        <CodeMirror
-          ref={cmRef}
-          value={doc.content}
-          onChange={onChange}
-          theme={themeExt ?? undefined}
-          extensions={extensions}
-          height="100%"
-          className="min-h-0 flex-1 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: false,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            // Custom Ctrl+F / Ctrl+H bar lives in <EditorFindReplace>; the
-            // built-in CM panel would compete with it and stack at the top.
-            searchKeymap: false,
-          }}
-        />
-        <EditorFindReplace ref={findReplaceRef} getView={getView} />
-      </div>
+        <ContextMenuTrigger asChild>
+          <div
+            className={
+              showMdPreview
+                ? "pointer-events-none invisible flex min-h-0 flex-1 flex-col"
+                : "flex min-h-0 flex-1 flex-col"
+            }
+            aria-hidden={showMdPreview ? "true" : "false"}
+          >
+            <CodeMirror
+              ref={cmRef}
+              value={doc.content}
+              onChange={onChange}
+              theme={themeExt ?? undefined}
+              extensions={extensions}
+              height="100%"
+              className="min-h-0 flex-1 overflow-hidden"
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                foldGutter: false,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+                // Custom Ctrl+F / Ctrl+H bar lives in <EditorFindReplace>; the
+                // built-in CM panel would compete with it and stack at the top.
+                searchKeymap: false,
+              }}
+            />
+            <EditorFindReplace ref={findReplaceRef} getView={getView} />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-52 rounded-2xl p-1">
+          <ContextMenuItem className={CTX_ITEM} disabled={!menuHasSelection} onSelect={handleCopy}>
+            Copy
+            <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem className={CTX_ITEM} disabled={!menuHasSelection} onSelect={handleCut}>
+            Cut
+            <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem className={CTX_ITEM} onSelect={handlePaste}>
+            Paste
+            <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem className={CTX_ITEM} onSelect={handleSelectAll}>
+            Select All
+            <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem className={CTX_ITEM} onSelect={handleFormat}>
+            Format Document
+            <ContextMenuShortcut>Shift+Alt+F</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className={CTX_ITEM}
+            // Defer past the menu's close/focus-restore so the dialog opens cleanly.
+            onSelect={() => requestAnimationFrame(() => setLangPickerOpen(true))}
+          >
+            Change Language Mode
+            <span className="text-muted-foreground ml-auto pl-3 text-[11px]">
+              {activeLangId ? languageLabel(activeLangId) : "Plain Text"}
+            </span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      <LanguagePickerDialog
+        open={langPickerOpen}
+        onOpenChange={setLangPickerOpen}
+        currentId={activeLangId}
+        detectedId={detectedLangId}
+        isOverridden={langOverride !== null}
+        onPick={handlePickLanguage}
+      />
       {/* Scrollbar marker overlay: paints caret + selection over the native
           scrollbar. Outside CodeMirror's ViewPlugin lifecycle; refreshed by
           the updateListener plus the scroll/resize effect above. */}

@@ -30,6 +30,19 @@ const SUBMIT_OPTIMISTIC_EXTRA_MS = 5_000;
 const BLOCKING_HOLD_MS = 60_000;
 
 /**
+ * Crash-safety window for the OSC 9;4 progress busy signal. The protocol has no
+ * auto-clear, so a tool that set "busy" (state 3) and died without sending
+ * "clear" (state 0) would otherwise pin the badge to working forever. A genuine
+ * turn (however long, incl. subagents) animates its spinner/elapsed timer, so
+ * `hasFreshOutput()` stays true throughout; once BOTH the last progress update is
+ * older than this AND output has stopped, we stop trusting a stuck "busy". Tool
+ * exit is handled earlier/harder by `clearTool` (shell prompt / alt-screen exit).
+ * Generous (20s) so a quiet gap in a long turn never trips it. Mirrors Ghostty's
+ * ~15s staleness timeout, but combined with output-freshness instead of replacing it.
+ */
+const PROGRESS_STALE_MS = 20_000;
+
+/**
  * Streaming-rate fallback for tools without spinner activity (e.g. opencode).
  * Requires both >= STREAMING_MIN_CHUNKS chunks and >= STREAMING_MIN_BYTES
  * within RATE_WINDOW_MS. Tuned so cursor blinks (1-2 chunks/s) and idle
@@ -153,6 +166,60 @@ export function isSpinnerLeadChar(ch: string): boolean {
   return code >= BRAILLE_LO && code <= BRAILLE_HI;
 }
 
+/**
+ * Tools that prefix their OSC 0/2 window title with a spinner/status glyph while
+ * a turn is in progress and drop it when the turn ends. The title is set by the
+ * real process, so it reflects the tool's true state even when the on-screen
+ * footer looks idle - exactly the subagent case: Claude Code can render an
+ * interactive-looking prompt while background sub-agents run, but its title keeps
+ * the working glyph throughout. So a leading working glyph is a strong working
+ * signal we trust over the screen heuristics. Per-tool (research-verified):
+ * Claude Code = cycling Braille spinner / its `✳` brand mark; Codex = animated
+ * spinner via OSC 0; Gemini CLI = `✦` Working (`◇` Ready, `✋` Action Required -
+ * see TITLE_APPROVAL_TOOLS). Reuses the curated SPINNER_CHARS alphabet (which
+ * already includes `✦`; middle-dot excluded) that
+ * `terminalTitles.stripLeadingStatusGlyph` strips, so the two stay consistent.
+ * NOTE: Claude leaves a STALE title on exit/`/clear`, so titleHit is gated on
+ * hasFreshOutput() in reclassify - a stale glyph with no output never fires.
+ */
+const TITLE_GLYPH_TOOLS: ReadonlySet<AiCliKind> = new Set<AiCliKind>(["claude", "codex", "gemini"]);
+
+/**
+ * Tools that put a DISTINCT "waiting for the user" glyph in the title: Gemini's
+ * `✋` Action Required. A deterministic blocking signal - and, unlike a working
+ * glyph, it must NOT be output-gated (an approval wait produces no output).
+ * Bounded by clearTool on CLI exit and by the tool replacing the glyph once the
+ * user answers. Claude/Codex have no distinct approval title, so they are absent.
+ */
+const TITLE_APPROVAL_TOOLS: ReadonlySet<AiCliKind> = new Set<AiCliKind>(["gemini"]);
+const TITLE_APPROVAL_CHARS = new Set(Array.from("✋"));
+
+/** First non-whitespace, non-variation-selector char of a title, or "". */
+function titleLeadChar(title: string): string {
+  for (let i = 0; i < title.length; i++) {
+    const ch = title[i];
+    const code = title.charCodeAt(i);
+    if (ch === " " || ch === "\t") continue;
+    if (code >= 0xfe00 && code <= 0xfe0f) continue; // variation selector
+    return ch;
+  }
+  return "";
+}
+
+/**
+ * True when a window title begins with a spinner lead glyph - i.e. the program
+ * is signalling an in-progress turn. Mirrors the leading-glyph scan in
+ * `terminalTitles.stripLeadingStatusGlyph`.
+ */
+export function titleIndicatesWorking(title: string): boolean {
+  return isSpinnerLeadChar(titleLeadChar(title));
+}
+
+/** True when a window title begins with an "action required" glyph (Gemini `✋`). */
+function titleIndicatesApproval(title: string): boolean {
+  return TITLE_APPROVAL_CHARS.has(titleLeadChar(title));
+}
+
 const ALPHANUM_RE = /[\p{L}\p{N}]/u;
 
 /** Detect a line like "Pondering... (35s)" with spinner glyph + space + ellipsis + alphanumeric. */
@@ -268,9 +335,21 @@ const BLOCKED_SUBSTRINGS: readonly string[] = [
   "(y)es",
   "(n)o",
   "(d)on't",
-  // "esc to cancel" is a wait state (approval, file picker). Distinct from
-  // "esc to interrupt" which marks active generation.
-  "esc to cancel",
+  // Codex CLI approval prompts (source-verified exact phrasing).
+  "would you like to run the following command?",
+  "would you like to make the following edits?",
+  "would you like to grant these permissions?",
+  "do you want to approve network access",
+  // Gemini CLI approvals. NOTE: Gemini's "(esc to cancel, Ns)" is a WORKING
+  // marker (handled in detectWorking), deliberately NOT listed here - which is
+  // why bare "esc to cancel" is no longer a blocking substring (it falsely
+  // flagged Gemini's spinner as waiting-for-approval).
+  "apply this change?",
+  "allow execution of",
+  // opencode / crush permission gate.
+  "permission required",
+  // GitHub Copilot CLI.
+  "yes, and approve",
 ];
 
 // Confirmation prefixes. The phrase alone isn't enough since chat content
@@ -369,6 +448,11 @@ function hasInProgressBackgroundAgents(text: string): boolean {
 
 // Live token counter like "↓ 279 tokens". Near-universal during streaming.
 const TOKEN_COUNTER_RE = /[↓↑⬇⬆]\s*\d[\d.,]*\s*(?:k|m)?\s*tokens?/i;
+// Gemini CLI loading indicator: "(esc to cancel, 12s)". The parenthesized form
+// (with or without the elapsed-seconds timer) marks ACTIVE generation, not a
+// wait - so it is a working signal and must never be read as blocking. This is
+// why bare "esc to cancel" was removed from BLOCKED_SUBSTRINGS.
+const GEMINI_WORKING_RE = /\(\s*esc to cancel\b/i;
 // Status verb plus ellipsis or "(". Covers "Thinking..." without needing the spinner glyph.
 const STATUS_VERB_RE =
   /\b(?:thinking|generating|loading|processing|streaming|working|reading|writing|editing|analyzing|reviewing|searching|running|executing|fetching|downloading|uploading|building|compiling|installing|planning|coding|exploring|inspecting|considering|reasoning|brainstorming|drafting|refining|finalizing|calling|invoking|querying|computing)(?:[.…]{1,3}|\s*\()/i;
@@ -384,7 +468,8 @@ function detectWorking(content: string, hasFreshOutput: boolean): boolean {
   const aboveLower = above.toLowerCase();
   if (aboveLower.includes("esc to interrupt")) return true;
   if (aboveLower.includes("ctrl+c to interrupt")) return true;
-  // "esc to cancel" is a wait state, not working. See BLOCKED_SUBSTRINGS.
+  // Gemini's "(esc to cancel, Ns)" loading line is active generation, not a wait.
+  if (GEMINI_WORKING_RE.test(above)) return true;
   if (hasSpinnerActivity(above)) return true;
   if (!hasFreshOutput) return false;
   if (TOKEN_COUNTER_RE.test(above)) return true;
@@ -412,6 +497,17 @@ export type AiCliDetector = {
   pushInput: (chunk: string) => void;
   /** PTY output bytes. Drives the streaming-rate fallback. */
   pushOutput: (chunk: Uint8Array | string) => void;
+  /**
+   * xterm `onTitleChange` payloads (OSC 0/2 window title). Drives the
+   * title-glyph working signal for {@link TITLE_GLYPH_TOOLS}.
+   */
+  pushTitle: (title: string) => void;
+  /**
+   * OSC 9;4 progress updates from the byte stream (state: 0 clear, 1 value,
+   * 2 error, 3 indeterminate/busy, 4 paused). The most reliable per-turn
+   * busy/idle oracle for tools that emit it (Claude Code).
+   */
+  pushProgress: (state: number, progress: number | null) => void;
   /** Drop the active tool. */
   reset: () => void;
   /**
@@ -441,6 +537,14 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
   let hasSeenWorking = false;
   let userSubmittedAtLeastOnce = false;
   let pendingPrintable = false;
+  /** Latest OSC 0/2 title carries a leading spinner glyph (see TITLE_GLYPH_TOOLS). */
+  let lastTitleIsWorking = false;
+  /** Latest title carries a distinct "action required" glyph (see TITLE_APPROVAL_TOOLS). */
+  let lastTitleIsApproval = false;
+  /** Last OSC 9;4 progress state was busy (1=value / 3=indeterminate). */
+  let progressWorking = false;
+  /** Wall-clock ms of the last OSC 9;4 progress update. See PROGRESS_STALE_MS. */
+  let lastProgressAt = 0;
 
   let reclassifyTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -502,6 +606,10 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     hasSeenWorking = false;
     userSubmittedAtLeastOnce = false;
     pendingPrintable = false;
+    lastTitleIsWorking = false;
+    lastTitleIsApproval = false;
+    progressWorking = false;
+    lastProgressAt = 0;
   }
 
   function pruneRecentOutput(now: number) {
@@ -605,6 +713,28 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       // Restores working detection for inline tools (claude v2.1+, opencode).
       const rateHit = isStreamingOutput();
 
+      // Title-glyph signal: the tool's own OSC 0/2 title still carries a working
+      // glyph (see TITLE_GLYPH_TOOLS). This is the process speaking, so it beats
+      // the screen heuristics - it is what lets us keep "working" through a
+      // subagent run, where the footer reads as idle (explicitIdle) yet the title
+      // keeps its glyph. Gated on hasFreshOutput() so a title the tool forgot to
+      // reset on exit can't pin the badge to "working" forever: real work always
+      // animates its spinner/elapsed timer, so fresh bytes are present throughout;
+      // once output truly stops, the glyph decays out within the working hold.
+      const titleHit =
+        TITLE_GLYPH_TOOLS.has(activeTool) && lastTitleIsWorking && hasFreshOutput();
+
+      // OSC 9;4 progress signal: the STRONGEST, most deterministic working oracle.
+      // The tool itself reports "busy" (state 1/3) until it reports "clear" (0),
+      // so this is the one signal that survives the subagent case even when the
+      // footer reads idle AND output goes quiet. NOT gated on hasFreshOutput (that
+      // is the whole point - quiet background subagents). Bounded only by the
+      // crash-safety window: trust a busy state while it is fresh OR output is
+      // still flowing; see PROGRESS_STALE_MS. Cleared deterministically by state 0
+      // and by clearTool on CLI exit.
+      const progressHit =
+        progressWorking && (now - lastProgressAt < PROGRESS_STALE_MS || hasFreshOutput());
+
       // Background agents/workflows render their "N/M agents done" progress
       // below the input box while the main prompt stays interactive, so
       // detectWorking (above-box only) can't see them. We scan the below-box
@@ -628,6 +758,10 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       // producing output, so a just-answered prompt cached in the buffer
       // doesn't refire blocking.
       let blockingHit = detectBlocking(content, lower);
+      // Gemini's "✋ Action Required" title is a deterministic approval signal -
+      // it holds even when no approval text is on screen and no output flows
+      // (the AI is idle waiting for the user), so it is NOT output-gated.
+      if (!blockingHit && lastTitleIsApproval) blockingHit = true;
       if (!blockingHit && !workingHit && !rateHit && recentOutput.length > 0) {
         const recent = getRecentOutput();
         if (recent) {
@@ -638,12 +772,12 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       // An in-progress "N/M agents" line outranks an explicit-idle hint: if a
       // background workflow is genuinely still running, a stray search box or
       // toggle hint elsewhere on screen must not flip the badge to idle.
-      if (!explicitIdle || bgAgentsHit) {
+      if (!explicitIdle || bgAgentsHit || titleHit || progressHit) {
         // Blocking takes priority over working. Many CLIs render an approval
-        // prompt while still showing "esc to cancel" or a token counter, so
-        // both signals can fire together. `workingHit` only clears blocking
-        // when blocking is absent; `blockingHit` refreshes last so it wins.
-        if (workingHit || rateHit || bgAgentsHit) {
+        // prompt while still showing a token counter, so both signals can fire
+        // together. `workingHit` only clears blocking when blocking is absent;
+        // `blockingHit` refreshes last so it wins.
+        if (workingHit || rateHit || bgAgentsHit || titleHit || progressHit) {
           lastWorkingAt = now;
           hasSeenWorking = true;
           if (!blockingHit) lastBlockingAt = 0;
@@ -745,6 +879,43 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       }
       // Reclassification is timer-driven (250ms) rather than per-chunk.
       // A noisy dev server can emit dozens of chunks per second.
+    },
+    pushTitle(title: string) {
+      if (!activeTool) return;
+      const working = TITLE_GLYPH_TOOLS.has(activeTool) && titleIndicatesWorking(title);
+      lastTitleIsWorking = working;
+      // Gemini's "✋ Action Required" title (mutually exclusive with its "✦"
+      // working glyph) is a deterministic approval signal; reclassify reads it.
+      lastTitleIsApproval = TITLE_APPROVAL_TOOLS.has(activeTool) && titleIndicatesApproval(title);
+      if (working) {
+        // The real process is signalling an in-progress turn. Seed the same
+        // optimistic working window a submit does so the badge flips even if the
+        // user never typed inside the TUI this session (e.g. `claude -c` resumes
+        // straight into work). reclassify() re-confirms via the gated titleHit.
+        if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
+        hasSeenWorking = true;
+        lastWorkingAt = Date.now();
+      } else if (lastTitleIsApproval) {
+        // An approval wait is a real turn boundary too; satisfy the blocking
+        // gate's hasSeenWorking precondition even if we never saw a working tick.
+        if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
+        hasSeenWorking = true;
+      }
+    },
+    pushProgress(state: number, _progress: number | null) {
+      lastProgressAt = Date.now();
+      // 1 = set value, 3 = indeterminate => busy. 0 = clear, 2 = error,
+      // 4 = paused => not busy.
+      progressWorking = state === 1 || state === 3;
+      if (progressWorking && activeTool) {
+        // Deterministic busy from the tool itself. Seed working immediately so
+        // the badge flips without waiting for the next reclassify tick, and arm
+        // the optimistic window even if the user never typed inside the TUI
+        // (e.g. `claude -c` resumes straight into work).
+        if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
+        hasSeenWorking = true;
+        lastWorkingAt = Date.now();
+      }
     },
     reset() {
       cmdBuffer = "";

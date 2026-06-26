@@ -1,108 +1,100 @@
-import { readAppTokens } from "@/styles/tokens";
+import { readTerminalTokens } from "@/styles/tokens";
 import type { ITheme } from "@xterm/xterm";
 
 /**
- * Semantic palette reused by the code editor. Keeps the terminal ANSI and
- * syntax highlighting coherent. Reads the same `--tedi-ansi-*` CSS vars
- * the terminal uses so the editor's syntax tokens stay in sync with the
- * active Theme preset.
- */
-export const syntaxPalette = {
-  comment: "var(--tedi-ansi-bright-black)",
-  keyword: "var(--tedi-ansi-blue)",
-  string: "var(--tedi-ansi-green)",
-  number: "var(--tedi-ansi-yellow)",
-  constant: "var(--tedi-ansi-magenta)",
-  fn: "var(--tedi-ansi-cyan)",
-  type: "var(--tedi-ansi-bright-cyan)",
-  tag: "var(--tedi-ansi-red)",
-  punctuation: "var(--muted-foreground)",
-  invalid: "var(--tedi-ansi-red)",
-  link: "var(--tedi-ansi-blue)",
-} as const;
-
-/**
- * Builds an xterm theme from the current app tokens. Call after first
- * paint; globals.css variables are read via getComputedStyle.
+ * Builds an xterm theme from the TERMINAL tokens (`--tedi-term-*`), which are
+ * independent of the app chrome. In `follow-app` mode those vars default (in
+ * globals.css) to the app palette, so the result is identical to the app theme;
+ * in `custom` mode they carry the user's own terminal palette, fully decoupled
+ * from the app theme. See `modules/settings/terminalPalette.ts`.
  *
- * When a wallpaper is active, `theme.background` becomes a semi-transparent
- * rgba (so per-cell backgrounds let the image bleed through). The
- * companion logic in `useTerminalSession.ts` switches the renderer from
- * WebGL to DOM at the same time. The DOM renderer paints each cell as
- * a `<span>` with independent `background-color` and `color`, so the
- * foreground glyph stays fully opaque while the cell background is rgba.
- * (The WebGL renderer has a known bug, xterm.js #4054, that dims the
- * foreground when the background has alpha < 1.)
+ * Call after first paint; the CSS variables are read via getComputedStyle.
  *
- * The full ANSI 16-colour palette is themable through the same custom
- * theme machinery: each preset can ship its own matched palette and the
- * UI editor under Settings > Theme > Terminal exposes every slot.
+ * When a wallpaper/glass is active, `background` becomes a semi-transparent
+ * rgba (so per-cell backgrounds let the image bleed through). The companion
+ * logic in `useTerminalSession.ts` switches the renderer from WebGL to DOM at
+ * the same time. The DOM renderer paints each cell as a `<span>` with
+ * independent `background-color` and `color`, so the foreground glyph stays
+ * fully opaque while the cell background is rgba. (The WebGL renderer has a
+ * known bug, xterm.js #4054, that dims the foreground when the background has
+ * alpha < 1.)
+ *
+ * The full ANSI 16-colour palette is themable through the dedicated Terminal
+ * theme (Settings -> Terminal): a prebuilt preset or a custom 16-slot palette.
  */
 export function buildTerminalTheme(): ITheme {
-  const t = readAppTokens();
-  const bg = resolveCanvasBackground(t.background);
+  const t = readTerminalTokens();
   return {
-    background: bg,
-    foreground: t.foreground,
-    cursor: t.foreground,
-    // The glyph under a block cursor must stay OPAQUE. Under glass `--background`
-    // is forced transparent, so reading `t.background` here would make the
-    // character invisible; resolve the SOLID canvas colour instead (no alpha).
-    cursorAccent: resolveCanvasSolid(t.background),
-    selectionBackground: t.accent,
-    black: t["tedi-ansi-black"],
-    red: t["tedi-ansi-red"],
-    green: t["tedi-ansi-green"],
-    yellow: t["tedi-ansi-yellow"],
-    blue: t["tedi-ansi-blue"],
-    magenta: t["tedi-ansi-magenta"],
-    cyan: t["tedi-ansi-cyan"],
-    white: t["tedi-ansi-white"],
-    brightBlack: t["tedi-ansi-bright-black"],
-    brightRed: t["tedi-ansi-bright-red"],
-    brightGreen: t["tedi-ansi-bright-green"],
-    brightYellow: t["tedi-ansi-bright-yellow"],
-    brightBlue: t["tedi-ansi-bright-blue"],
-    brightMagenta: t["tedi-ansi-bright-magenta"],
-    brightCyan: t["tedi-ansi-bright-cyan"],
-    brightWhite: t["tedi-ansi-bright-white"],
+    background: applyGlassAlpha(t.bg),
+    foreground: t.fg,
+    cursor: t.cursor,
+    // The glyph under a block cursor must stay OPAQUE. Use the SOLID terminal
+    // background (no alpha) so the character is never dimmed under glass.
+    cursorAccent: t.bg,
+    selectionBackground: t.selection,
+    black: t.ansi.black,
+    red: t.ansi.red,
+    green: t.ansi.green,
+    yellow: t.ansi.yellow,
+    blue: t.ansi.blue,
+    magenta: t.ansi.magenta,
+    cyan: t.ansi.cyan,
+    white: t.ansi.white,
+    brightBlack: t.ansi["bright-black"],
+    brightRed: t.ansi["bright-red"],
+    brightGreen: t.ansi["bright-green"],
+    brightYellow: t.ansi["bright-yellow"],
+    brightBlue: t.ansi["bright-blue"],
+    brightMagenta: t.ansi["bright-magenta"],
+    brightCyan: t.ansi["bright-cyan"],
+    brightWhite: t.ansi["bright-white"],
   };
 }
 
-export function resolveCanvasBackground(fallback: string): string {
-  if (typeof document === "undefined") return fallback;
+/**
+ * The glass-aware terminal background. Solid when glass is off; under glass it
+ * applies the single "App opacity" alpha so the wallpaper bleeds through. Used
+ * by the per-frame opacity-drag refresh in `session-lifecycle.ts`, which
+ * patches only `theme.background` instead of rebuilding the whole theme.
+ */
+export function resolveTerminalBackground(): string {
+  return applyGlassAlpha(readTerminalTokens().bg);
+}
+
+function applyGlassAlpha(solidResolved: string): string {
+  if (typeof document === "undefined") return solidResolved;
   const root = document.documentElement;
   // Transparency is owned by the single "App opacity" control
   // (`data-tedi-glass` + `--tedi-app-opacity`). When off, the canvas is solid.
-  if (root.dataset.tediGlass !== "on") return fallback;
+  if (root.dataset.tediGlass !== "on") return solidResolved;
   const cs = getComputedStyle(root);
-  const canvasBg = cs.getPropertyValue("--tedi-canvas-bg").trim();
-  if (!canvasBg) return fallback;
-  const alpha = parseFloat(cs.getPropertyValue("--tedi-app-opacity").trim() || "1");
-  const a = isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1;
-  return hexToRgba(canvasBg, a) ?? fallback;
+  const raw = parseFloat(cs.getPropertyValue("--tedi-app-opacity").trim() || "1");
+  const a = isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 1;
+  return withAlpha(solidResolved, a) ?? solidResolved;
 }
 
 /**
- * Solid (alpha = 1) canvas colour for the active theme. Unlike
- * `resolveCanvasBackground` this never applies the opacity alpha - used for the
- * block-cursor glyph fill which must stay opaque even under glass.
+ * Apply an alpha to a resolved color string. The token probe returns `rgb(...)`
+ * (comma or space separated); a custom palette may also pass a `#rrggbb` hex.
  */
-function resolveCanvasSolid(fallback: string): string {
-  if (typeof document === "undefined") return fallback;
-  const canvasBg = getComputedStyle(document.documentElement)
-    .getPropertyValue("--tedi-canvas-bg")
-    .trim();
-  return canvasBg || fallback;
-}
-
-/** `#rrggbb` -> `rgba(r, g, b, alpha)`. Returns null when not a 6-digit hex. */
-function hexToRgba(hex: string, alpha: number): string | null {
-  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
-  if (!m) return null;
-  const v = m[1];
-  const r = parseInt(v.slice(0, 2), 16);
-  const g = parseInt(v.slice(2, 4), 16);
-  const b = parseInt(v.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+function withAlpha(color: string, alpha: number): string | null {
+  const c = color.trim();
+  const rgb = /^rgba?\(([^)]+)\)/i.exec(c);
+  if (rgb) {
+    let parts = rgb[1].split(",").map((s) => s.trim());
+    if (parts.length < 3) parts = rgb[1].trim().split(/\s+/);
+    if (parts.length >= 3) {
+      const [r, g, b] = parts;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+  }
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(c);
+  if (hex) {
+    const v = hex[1];
+    const r = parseInt(v.slice(0, 2), 16);
+    const g = parseInt(v.slice(2, 4), 16);
+    const b = parseInt(v.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return null;
 }

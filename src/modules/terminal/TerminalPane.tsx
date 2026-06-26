@@ -85,6 +85,13 @@ export function TerminalPane({
   // setter call so identity comparison is enough.
   const customTheme = usePreferencesStore((s) => s.customTheme);
   const customThemeEnabled = usePreferencesStore((s) => s.customThemeEnabled);
+  // Terminal theme is independent of the app chrome. In custom mode these drive
+  // the palette; in follow-app mode the customTheme/resolvedTheme deps already
+  // cover it. `applyTerminalTheme` (ThemeProvider) sets the CSS vars on the same
+  // store change; the rAF below defers a frame so they're in place first.
+  const terminalThemeMode = usePreferencesStore((s) => s.terminalThemeMode);
+  const terminalThemeId = usePreferencesStore((s) => s.terminalThemeId);
+  const terminalCustomPalette = usePreferencesStore((s) => s.terminalCustomPalette);
   // Note: app-opacity changes re-theme the terminal via the rAF-throttled
   // `tedi:canvas-opacity` window listener in `useTerminalSession`, so it stays
   // smooth during live slider drags (not a per-tick effect here).
@@ -120,7 +127,14 @@ export function TerminalPane({
     // `--tedi-canvas-*` values written by `applyCustomTheme`.
     const id = requestAnimationFrame(() => sessionRef.current.applyTheme());
     return () => cancelAnimationFrame(id);
-  }, [resolvedTheme, customTheme, customThemeEnabled]);
+  }, [
+    resolvedTheme,
+    customTheme,
+    customThemeEnabled,
+    terminalThemeMode,
+    terminalThemeId,
+    terminalCustomPalette,
+  ]);
 
   useImperativeHandle(
     ref,

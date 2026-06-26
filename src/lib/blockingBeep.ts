@@ -1,5 +1,9 @@
 // Two-tone Web Audio beep for AI CLI transitions into "blocking" (waiting
-// for approval). No external asset, no media permission prompt.
+// for approval). No external asset, no media permission prompt. A user can
+// override each sound with an uploaded file (Settings -> General -> Notifications);
+// the custom sound is a `data:audio/...` URL read from preferences.
+
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 let ctx: AudioContext | null = null;
 
@@ -38,8 +42,8 @@ function playToneSequence(freqs: Array<[number, number]>, gain = 0.15): void {
   }
 }
 
-/** Rising two-tone. Plays when AI blocks for approval. */
-export function playBlockingBeep(): void {
+/** Rising two-tone: the built-in "needs approval" sound. */
+function synthBlockingBeep(): void {
   playToneSequence([
     [880, 0.12],
     [1320, 0.12],
@@ -47,7 +51,7 @@ export function playBlockingBeep(): void {
 }
 
 /** Falling two-tone for task complete. Softer than the blocking beep. */
-export function playCompletionBeep(): void {
+function synthCompletionBeep(): void {
   playToneSequence(
     [
       [1320, 0.1],
@@ -55,4 +59,52 @@ export function playCompletionBeep(): void {
     ],
     0.1,
   );
+}
+
+/**
+ * Play a user-uploaded sound from a `data:audio/...` URL. Returns false only
+ * when the element can't be constructed, so the caller falls back to the synth
+ * beep; a later async play() rejection (autoplay policy, decode error) is
+ * swallowed and does NOT fall back, to avoid a doubled sound.
+ */
+function playCustomSound(dataUrl: string): boolean {
+  try {
+    const audio = new Audio(dataUrl);
+    audio.volume = 0.9;
+    void audio.play().catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rising attention sound: the user's custom approval sound if set, else the
+ * built-in beep. Plays when an AI CLI transitions into "blocking".
+ */
+export function playBlockingBeep(): void {
+  const custom = usePreferencesStore.getState().aiBlockingSound;
+  if (custom && playCustomSound(custom)) return;
+  synthBlockingBeep();
+}
+
+/**
+ * Completion sound: the user's custom finished sound if set, else the built-in
+ * beep. Plays when an AI CLI returns to idle after working.
+ */
+export function playCompletionBeep(): void {
+  const custom = usePreferencesStore.getState().aiCompletionSound;
+  if (custom && playCustomSound(custom)) return;
+  synthCompletionBeep();
+}
+
+/**
+ * Preview a notification sound from a LOCAL value (not the store), so the
+ * Settings UI can play exactly what the user just picked without waiting for the
+ * async pref write to round-trip. An empty `dataUrl` previews the built-in beep.
+ */
+export function previewNotificationSound(kind: "blocking" | "completion", dataUrl: string): void {
+  if (dataUrl && playCustomSound(dataUrl)) return;
+  if (kind === "blocking") synthBlockingBeep();
+  else synthCompletionBeep();
 }
