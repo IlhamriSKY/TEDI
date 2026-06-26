@@ -34,6 +34,22 @@ export function syncPtySize(s: Session): boolean {
   return true;
 }
 
+/**
+ * Flush terminal-originated bytes buffered while the PTY handle was null.
+ * Call immediately after assigning `s.pty`. The critical payload is xterm's
+ * reply to a DSR cursor-position query (`ESC[6n`) the shell streams during
+ * startup: PSReadLine (and readline/zle) block on that reply before painting
+ * the prompt, and the daemon can deliver the query before `invoke("pty_open")`
+ * resolves and sets `s.pty`. Without this flush the reply is dropped, the shell
+ * hangs, and the pane stays blank.
+ */
+export function flushPendingInput(s: Session): void {
+  if (!s.pty || s.pendingInput.length === 0) return;
+  const data = s.pendingInput.join("");
+  s.pendingInput = [];
+  void s.pty.write(data);
+}
+
 export function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySession> {
   // Capture spawn epoch. Late exit events for a superseded spawn bail before mutating newer state.
   s.ptySpawnEpoch += 1;
@@ -508,6 +524,7 @@ export async function retryPty(s: Session): Promise<void> {
     }
     s.ptyOpening = false;
     s.pty = pty;
+    flushPendingInput(s);
     s.ptySpawnedAt = Date.now();
     syncPtySize(s);
     armNoDataWatchdog(s, s.ptySpawnEpoch);
@@ -567,6 +584,7 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   }
   s.ptyOpening = false;
   s.pty = pty;
+  flushPendingInput(s);
   s.ptySpawnedAt = Date.now();
   if (s.observer) syncPtySize(s);
   armNoDataWatchdog(s, s.ptySpawnEpoch);

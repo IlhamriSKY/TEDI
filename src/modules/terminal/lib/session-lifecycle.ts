@@ -42,6 +42,7 @@ import {
 import {
   armNoDataWatchdog,
   armAltExitRepaintWatchdog,
+  flushPendingInput,
   openPtyForSession,
   retryPty,
   syncPtySize,
@@ -219,6 +220,7 @@ export function ensureSession(
     commandRunning: false,
     sawShellIntegration: false,
     pendingCommandInput: false,
+    pendingInput: [],
   };
   sessions.set(leafId, session);
 
@@ -350,7 +352,18 @@ export function ensureSession(
     const out = session.imeJustEnded ? data.normalize("NFC") : data;
     session.aiCliDetector?.pushInput(out);
     trackCommandInput(session, out);
-    session.pty?.write(out);
+    if (session.pty) {
+      session.pty.write(out);
+    } else {
+      // No live PTY handle yet. This fires for xterm's auto-replies to device
+      // queries the shell streams during startup - notably the DSR
+      // cursor-position report answering `ESC[6n`, which PSReadLine (and other
+      // line editors) block on before drawing the prompt. The daemon can
+      // deliver that query before `invoke("pty_open")` resolves and assigns
+      // `session.pty`; dropping the reply hangs the shell and leaves a blank
+      // pane. Buffer it and flush via `flushPendingInput` once the PTY is live.
+      session.pendingInput.push(out);
+    }
   });
   session.cleanups.push(() => onDataDisposable.dispose());
 
@@ -514,6 +527,9 @@ export function attachSession(
         }
         s.ptyOpening = false;
         s.pty = pty;
+        // Flush any terminal replies (e.g. the DSR cursor-position report the
+        // shell is blocking on) that xterm produced before the PTY went live.
+        flushPendingInput(s);
         s.ptySpawnedAt = Date.now();
         syncPtySize(s);
         armNoDataWatchdog(s, s.ptySpawnEpoch);

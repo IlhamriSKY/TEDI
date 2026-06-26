@@ -49,7 +49,10 @@ function CommandDialog({
         className={cn("top-1/3 translate-y-0 overflow-hidden rounded-4xl! p-0", className)}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/* cmdk's Input/List/Item read their state from this root store via
+            context; without it they hit `store.subscribe` on `undefined` and
+            throw "Cannot read properties of undefined (reading 'subscribe')". */}
+        <Command className="rounded-none bg-transparent">{children}</Command>
       </DialogContent>
     </Dialog>
   );

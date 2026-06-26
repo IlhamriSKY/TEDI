@@ -11,7 +11,7 @@ import type { SshStatus } from "@/modules/ssh/status";
 import type { PtySession } from "./pty-bridge";
 import { sessions, type Session } from "./sessionState";
 import { describeError } from "./session-helpers";
-import { openPtyForSession, syncPtySize } from "./pty-lifecycle";
+import { flushPendingInput, openPtyForSession, syncPtySize } from "./pty-lifecycle";
 
 const RECONNECT_BACKOFF_MS = [1_000, 3_000, 7_000] as const;
 const MAX_SSH_RECONNECT_ATTEMPTS = RECONNECT_BACKOFF_MS.length;
@@ -242,6 +242,7 @@ async function runSshReconnect(s: Session): Promise<void> {
       return;
     }
     s.pty = pty;
+    flushPendingInput(s);
     s.ptySpawnedAt = Date.now();
     // Only sync after the ResizeObserver is wired. Pre-fit defaults would push the wrong size.
     if (s.observer) syncPtySize(s);

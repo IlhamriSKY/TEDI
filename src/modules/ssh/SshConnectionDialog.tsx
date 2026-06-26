@@ -23,6 +23,18 @@ import {
 } from "@/modules/ssh/connections";
 import { openSsh } from "@/modules/ssh/bridge";
 import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
@@ -83,6 +95,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
   const [pinnedFingerprint, setPinnedFingerprint] = useState<string | null>(null);
   // Other saved hosts, offered as jump-host (ProxyJump) options.
   const [allConns, setAllConns] = useState<SshConnection[]>([]);
+  const [jumpPickerOpen, setJumpPickerOpen] = useState(false);
 
   // Reset and populate when the dialog opens. Secrets load async.
   useEffect(() => {
@@ -268,6 +281,15 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         multiple: false,
         directory: false,
         title: "Pick SSH private key",
+        filters: [
+          {
+            name: "Private key (.pem, .key, .ppk, .pub)",
+            extensions: ["pem", "key", "ppk", "pub"],
+          },
+          // OpenSSH keys (id_rsa, id_ed25519, …) have no extension, so keep an
+          // all-files fallback the user can switch to.
+          { name: "All files", extensions: ["*"] },
+        ],
       });
       if (typeof picked !== "string") return;
       const result = await invoke<FsReadResult>("fs_read_file", { path: picked });
@@ -330,6 +352,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       setSaving(false);
     }
   };
+
+  // Jump-host options (every saved host except this one) plus the current pick,
+  // for the searchable combobox below.
+  const jumpOptions = allConns.filter((c) => c.id !== editing?.id);
+  const selectedJump = allConns.find((c) => c.id === draft.proxyJumpId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -444,7 +471,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                       </span>
                     ) : (
                       <span className="text-muted-foreground text-[10.5px]">
-                        Paste or import a private key
+                        Paste, or import a .pem / key file
                       </span>
                     )}
                   </div>
@@ -462,20 +489,75 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           )}
 
           <Field label="Jump host (optional)">
-            <select
-              value={draft.proxyJumpId}
-              onChange={(e) => setDraft({ ...draft, proxyJumpId: e.target.value })}
-              className="border-border/60 bg-muted/30 focus-visible:border-ring focus-visible:ring-ring/40 h-8 w-full cursor-pointer rounded-md border px-2 text-[12px] outline-none focus-visible:ring-2"
-            >
-              <option value="">None (direct connection)</option>
-              {allConns
-                .filter((c) => c.id !== editing?.id)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.user}@{c.host}:{c.port})
-                  </option>
-                ))}
-            </select>
+            <Popover open={jumpPickerOpen} onOpenChange={setJumpPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={jumpPickerOpen}
+                  className="h-8 w-full justify-between px-2.5 text-[12px] font-normal"
+                >
+                  <span className={cn("truncate", !selectedJump && "text-muted-foreground")}>
+                    {selectedJump
+                      ? `${selectedJump.name} (${selectedJump.user}@${selectedJump.host}:${selectedJump.port})`
+                      : "None (direct connection)"}
+                  </span>
+                  <HugeiconsIcon
+                    icon={ArrowDown01Icon}
+                    size={13}
+                    strokeWidth={2}
+                    className="ml-2 shrink-0 opacity-60"
+                  />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={6}
+                className="w-[var(--radix-popover-trigger-width)] gap-0 overflow-hidden rounded-2xl p-0"
+              >
+                <Command className="rounded-2xl">
+                  <CommandInput placeholder="Search saved hosts…" className="text-[12px]" />
+                  <CommandList className="max-h-56">
+                    <CommandEmpty className="py-4 text-[11px]">No saved host found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="none direct connection"
+                        data-checked={!draft.proxyJumpId ? "true" : undefined}
+                        onSelect={() => {
+                          setDraft((d) => ({ ...d, proxyJumpId: "" }));
+                          setJumpPickerOpen(false);
+                        }}
+                        className="gap-2 rounded-xl px-2.5 py-1.5 text-[12px]"
+                      >
+                        <span className="truncate">None (direct connection)</span>
+                      </CommandItem>
+                      {jumpOptions.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          // Searchable on name + user@host:port; the id keeps the
+                          // value unique so cmdk never collapses two like-named hosts.
+                          value={`${c.name} ${c.user}@${c.host}:${c.port} ${c.id}`}
+                          data-checked={draft.proxyJumpId === c.id ? "true" : undefined}
+                          onSelect={() => {
+                            setDraft((d) => ({ ...d, proxyJumpId: c.id }));
+                            setJumpPickerOpen(false);
+                          }}
+                          className="gap-2 rounded-xl px-2.5 py-1.5 text-[12px]"
+                        >
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{c.name}</span>
+                            <span className="text-muted-foreground truncate font-mono text-[10px]">
+                              {c.user}@{c.host}:{c.port}
+                            </span>
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <span className="text-muted-foreground text-[10.5px]">
               Tunnel through another saved host to reach this one (ProxyJump). Chains
               transitively if the jump host has its own jump host.

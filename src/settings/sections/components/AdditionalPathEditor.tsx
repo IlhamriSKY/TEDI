@@ -18,6 +18,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
+import { SettingsAccordion } from "../../components/SettingsAccordion";
 
 /**
  * Editor for the terminal's "Additional PATH" list. Each row is an explicit
@@ -116,71 +117,80 @@ export function AdditionalPathEditor() {
   const removeEntry = (index: number) => persist(entries.filter((_, i) => i !== index));
 
   return (
-    <div className="border-border/60 bg-card/60 flex flex-col gap-3 rounded-lg border px-3 py-2.5">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-[12.5px] font-medium">Additional PATH</span>
-        <span className="text-muted-foreground text-[10.5px] leading-relaxed">
+    <SettingsAccordion
+      title="Additional PATH"
+      description={
+        <>
           Extra folders prepended to the terminal's PATH. Run tools that aren't on your system PATH
           (e.g. a Laragon <code className="text-foreground">composer</code>) without editing your OS
           environment variables.
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addEntry();
+        </>
+      }
+      summary={
+        entries.length > 0 ? `${entries.length} folder${entries.length === 1 ? "" : "s"}` : "None"
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addEntry();
+              }
+            }}
+            spellCheck={false}
+            placeholder={
+              IS_WINDOWS ? "D:\\Ilham\\Project\\laragon\\bin\\composer" : "/opt/tools/bin"
             }
-          }}
-          spellCheck={false}
-          placeholder={IS_WINDOWS ? "D:\\Ilham\\Project\\laragon\\bin\\composer" : "/opt/tools/bin"}
-          className="h-9 rounded-lg font-mono text-[11.5px]"
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9 shrink-0 gap-1.5 px-3 text-[12px]"
-          disabled={!draft.trim()}
-          onClick={addEntry}
-        >
-          <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
-          Add
-        </Button>
-      </div>
-
-      {entries.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          {entries.map((entry, index) => (
-            <div
-              key={`${entry.path}-${index}`}
-              className="border-border/50 bg-background/40 flex items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-2.5"
-            >
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate font-mono text-[11.5px]" title={entry.path}>
-                  {entry.path}
-                </span>
-                <ProbeStatus state={probes[entry.path]} />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive size-7 shrink-0"
-                onClick={() => removeEntry(index)}
-                aria-label="Remove this folder"
-              >
-                <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} />
-              </Button>
-            </div>
-          ))}
+            className="h-9 rounded-lg font-mono text-[11.5px]"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 gap-1.5 px-3 text-[12px]"
+            disabled={!draft.trim()}
+            onClick={addEntry}
+          >
+            <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
+            Add
+          </Button>
         </div>
-      ) : (
-        <span className="text-muted-foreground/70 text-[10.5px] italic">No folders added yet.</span>
-      )}
-    </div>
+
+        {entries.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            {entries.map((entry, index) => (
+              <div
+                key={`${entry.path}-${index}`}
+                className="border-border/50 bg-background/40 flex items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-2.5"
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate font-mono text-[11.5px]" title={entry.path}>
+                    {entry.path}
+                  </span>
+                  <ProbeStatus state={probes[entry.path]} />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive size-7 shrink-0"
+                  onClick={() => removeEntry(index)}
+                  aria-label="Remove this folder"
+                >
+                  <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="text-muted-foreground/70 text-[10.5px] italic">
+            No folders added yet.
+          </span>
+        )}
+      </div>
+    </SettingsAccordion>
   );
 }
 

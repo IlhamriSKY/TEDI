@@ -138,6 +138,16 @@ export type Session = {
    * an empty Enter (no pending input) stays idle.
    */
   pendingCommandInput: boolean;
+  /**
+   * Terminal-originated bytes (xterm `onData`) produced while `pty` is still
+   * null. The daemon can stream a DSR cursor-position query (`ESC[6n`) before
+   * `invoke("pty_open")` resolves and assigns `pty`; PSReadLine (and other line
+   * editors) block on the reply before painting their prompt. xterm
+   * auto-replies through `onData`, so dropping it when `pty` is null hangs the
+   * shell and leaves a blank pane. We stash those bytes here and flush them via
+   * `flushPendingInput` the instant the PTY goes live.
+   */
+  pendingInput: string[];
 };
 
 export const sessions = new Map<number, Session>();

@@ -41,6 +41,8 @@ import { ColorSwatch } from "./theme/ColorPicker";
 import { CompactSliderRow } from "./theme/Sliders";
 import { COLOR_FIELDS, GROUPS, type Group } from "./theme/colorFields";
 import { TerminalThemePanel } from "./TerminalThemePanel";
+import { PalettePreview } from "./theme/PalettePreview";
+import { SettingsAccordion } from "../components/SettingsAccordion";
 import type { FsReadResult } from "@/lib/ipc";
 
 type ReadResult = FsReadResult;
@@ -318,464 +320,450 @@ export function ThemeSection() {
         <Switch checked={enabled} onCheckedChange={(v) => void setCustomThemeEnabled(v)} />
       </SettingRow>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label>Preset</Label>
-          <div className="flex items-center gap-1">
-            {savePresetName === null ? (
+      <SettingsAccordion title="Presets" summary={theme.name} defaultOpen>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center gap-1">
+              {savePresetName === null ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[11px]"
+                  onClick={() => {
+                    // Seed the input with the current name minus any
+                    // "(modified)" suffix so a quick Enter saves over.
+                    const seed = theme.name.replace(/\s*\(modified\)\s*$/i, "");
+                    setSavePresetName(seed);
+                  }}
+                >
+                  <HugeiconsIcon icon={BookmarkAdd02Icon} size={12} strokeWidth={1.75} />
+                  Save as preset
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={savePresetName}
+                    onChange={(e) => setSavePresetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        onSaveAsPreset(savePresetName);
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setSavePresetName(null);
+                      }
+                    }}
+                    placeholder="Preset name"
+                    autoFocus
+                    spellCheck={false}
+                    className="h-7 w-40 text-[11.5px]"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    disabled={!savePresetName.trim()}
+                    onClick={() => onSaveAsPreset(savePresetName)}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => setSavePresetName(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="h-7 gap-1 px-2 text-[11px]"
-                onClick={() => {
-                  // Seed the input with the current name minus any
-                  // "(modified)" suffix so a quick Enter saves over.
-                  const seed = theme.name.replace(/\s*\(modified\)\s*$/i, "");
-                  setSavePresetName(seed);
-                }}
+                className="h-7 px-2 text-[11px]"
+                onClick={onResetToDefault}
               >
-                <HugeiconsIcon icon={BookmarkAdd02Icon} size={12} strokeWidth={1.75} />
-                Save as preset
+                Reset
               </Button>
-            ) : (
-              <div className="flex items-center gap-1">
-                <Input
-                  value={savePresetName}
-                  onChange={(e) => setSavePresetName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      onSaveAsPreset(savePresetName);
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setSavePresetName(null);
-                    }
-                  }}
-                  placeholder="Preset name"
-                  autoFocus
-                  spellCheck={false}
-                  className="h-7 w-40 text-[11.5px]"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-7 px-2 text-[11px]"
-                  disabled={!savePresetName.trim()}
-                  onClick={() => onSaveAsPreset(savePresetName)}
-                >
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={() => setSavePresetName(null)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-[11px]"
-              onClick={onResetToDefault}
-            >
-              Reset
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {[
-            ...THEME_PRESETS.map((p) => ({ preset: p, deletable: false })),
-            ...userPresets.map((p) => ({ preset: p, deletable: true })),
-          ].map(({ preset: p, deletable }) => {
-            const active = p.name === theme.name;
-            return (
-              <div key={p.name} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => onPickPreset(p)}
-                  aria-pressed={active}
-                  className={cn(
-                    "bg-card/60 focus-visible:ring-ring/40 flex w-full items-center gap-2 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
-                    active
-                      ? "border-primary ring-primary/40 ring-1"
-                      : "border-border/60 hover:border-border",
-                  )}
-                >
-                  <div
-                    aria-hidden
-                    className="border-border/40 flex shrink-0 flex-col overflow-hidden border"
-                    style={{ width: 52, height: 24 }}
-                  >
-                    <div className="flex h-1/2 w-full">
-                      {[p.light.background, p.light.button, p.light.accent, p.light.foreground].map(
-                        (c, i) => (
-                          <span
-                            key={`l-${i}`}
-                            className="h-full flex-1"
-                            style={{ background: c }}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <div className="flex h-1/2 w-full">
-                      {[p.dark.background, p.dark.button, p.dark.accent, p.dark.foreground].map(
-                        (c, i) => (
-                          <span
-                            key={`d-${i}`}
-                            className="h-full flex-1"
-                            style={{ background: c }}
-                          />
-                        ),
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[12px] font-medium">{p.name}</span>
-                    <span className="text-muted-foreground text-[10px] tracking-wider uppercase">
-                      {deletable ? "your preset" : "light / dark"}
-                    </span>
-                  </div>
-                </button>
-                {deletable ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteUserPreset(p.name);
-                        }}
-                        className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex"
-                        aria-label={`Delete preset ${p.name}`}
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Delete &ldquo;{p.name}&rdquo;</TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <Label>Colors</Label>
-          <div className="bg-muted/40 inline-flex h-7 items-center p-0.5 text-[11px]">
-            <button
-              type="button"
-              onClick={() => setEditMode("light")}
-              className={cn(
-                "h-6 px-2.5 transition-colors",
-                editMode === "light"
-                  ? "bg-background text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Light
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditMode("dark")}
-              className={cn(
-                "h-6 px-2.5 transition-colors",
-                editMode === "dark"
-                  ? "bg-background text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Dark
-            </button>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {GROUPS.map((g) => (
-            <Button
-              key={g}
-              type="button"
-              variant={g === activeGroup ? "default" : "outline"}
-              size="sm"
-              className="h-7 px-2.5 text-[11px]"
-              onClick={() => setActiveGroup(g)}
-            >
-              {g}
-            </Button>
-          ))}
-        </div>
-        <div className="border-border/60 bg-card/60 grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
-          {visibleFields.map((field) => (
-            <div key={field.key} className="flex items-center justify-between gap-3 px-2 py-1.5">
-              <span className="text-[11.5px]">{field.label}</span>
-              <ColorSwatch
-                value={activeColors[field.key]}
-                onChange={(next) => updateColor(field.key, next)}
-              />
             </div>
-          ))}
+          </div>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {[
+              ...THEME_PRESETS.map((p) => ({ preset: p, deletable: false })),
+              ...userPresets.map((p) => ({ preset: p, deletable: true })),
+            ].map(({ preset: p, deletable }) => {
+              const active = p.name === theme.name;
+              return (
+                <div key={p.name} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => onPickPreset(p)}
+                    aria-pressed={active}
+                    className={cn(
+                      "bg-card/60 focus-visible:ring-ring/40 flex w-full items-center gap-2 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                      active
+                        ? "border-primary ring-primary/40 ring-1"
+                        : "border-border/60 hover:border-border",
+                    )}
+                  >
+                    <PalettePreview
+                      background={p.dark.background}
+                      dots={[
+                        p.dark.button,
+                        p.dark.accent,
+                        p.dark.ansiRed,
+                        p.dark.ansiGreen,
+                        p.dark.ansiYellow,
+                        p.dark.ansiBlue,
+                        p.dark.ansiMagenta,
+                      ]}
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[12px] font-medium">{p.name}</span>
+                      <span className="text-muted-foreground text-[10px] tracking-wider uppercase">
+                        {deletable ? "your preset" : "light / dark"}
+                      </span>
+                    </div>
+                  </button>
+                  {deletable ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteUserPreset(p.name);
+                          }}
+                          className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex"
+                          aria-label={`Delete preset ${p.name}`}
+                        >
+                          <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Delete &ldquo;{p.name}&rdquo;</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      </SettingsAccordion>
 
-      <TerminalThemePanel />
-
-      <div className="flex flex-col gap-2">
-        <Label>Background &amp; transparency</Label>
-        {/* One opacity control for the whole app. 0% = fully see-through
-         *  (reveals the image below, or the desktop when none is set),
-         *  100% = solid. Each step writes + broadcasts the value, so the main
-         *  window fades live as you drag and the value sticks. */}
-        <div className="border-border/60 bg-card/60 flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
-          <CompactSliderRow
-            label="Opacity"
-            valueLabel={`${Math.round((opacityPreview ?? appOpacity) * 100)}%`}
-            value={appOpacity}
-            min={APP_OPACITY_MIN}
-            max={APP_OPACITY_MAX}
-            step={APP_OPACITY_STEP}
-            onPreview={(n) => {
-              setOpacityPreview(n); // live % label
-              previewAppOpacity(n); // live main-window fade (CSS only, no store write)
-            }}
-            onCommit={(n) => {
-              setOpacityPreview(null);
-              void setAppOpacity(n); // persist once on release (Radix fires this reliably)
-            }}
-          />
-          <span className="text-muted-foreground text-[10.5px]">
-            0% = fully transparent (shows the image below, or your desktop). Applies to everything:
-            editor, terminal, SSH, diff, panels, menus, and extensions.
-          </span>
+      <SettingsAccordion title="Colors" summary={editMode === "dark" ? "Dark" : "Light"}>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-end">
+            <div className="bg-muted/40 inline-flex h-7 items-center p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setEditMode("light")}
+                className={cn(
+                  "h-6 px-2.5 transition-colors",
+                  editMode === "light"
+                    ? "bg-background text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditMode("dark")}
+                className={cn(
+                  "h-6 px-2.5 transition-colors",
+                  editMode === "dark"
+                    ? "bg-background text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Dark
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {GROUPS.map((g) => (
+              <Button
+                key={g}
+                type="button"
+                variant={g === activeGroup ? "default" : "outline"}
+                size="sm"
+                className="h-7 px-2.5 text-[11px]"
+                onClick={() => setActiveGroup(g)}
+              >
+                {g}
+              </Button>
+            ))}
+          </div>
+          <div className="border-border/60 bg-card/60 grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
+            {visibleFields.map((field) => (
+              <div key={field.key} className="flex items-center justify-between gap-3 px-2 py-1.5">
+                <span className="text-[11.5px]">{field.label}</span>
+                <ColorSwatch
+                  value={activeColors[field.key]}
+                  onChange={(next) => updateColor(field.key, next)}
+                />
+              </div>
+            ))}
+          </div>
         </div>
-        {/* Unified source row: ONE input that accepts either a local file
-         *  (via Browse) or a remote URL. Only one source is active at a
-         *  time - picking a file replaces the URL; pasting a URL replaces
-         *  the file. The Switch flips the layer on/off without losing the
-         *  underlying source. */}
-        <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <Input
-              value={bgUrlDraft}
-              onChange={(e) => setBgUrlDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  onImportBackgroundUrl();
-                }
+      </SettingsAccordion>
+
+      <SettingsAccordion title="Terminal">
+        <TerminalThemePanel />
+      </SettingsAccordion>
+
+      <SettingsAccordion title="Background &amp; wallpaper">
+        <div className="flex flex-col gap-2">
+          {/* One opacity control for the whole app. 0% = fully see-through
+           *  (reveals the image below, or the desktop when none is set),
+           *  100% = solid. Each step writes + broadcasts the value, so the main
+           *  window fades live as you drag and the value sticks. */}
+          <div className="border-border/60 bg-card/60 flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
+            <CompactSliderRow
+              label="Opacity"
+              valueLabel={`${Math.round((opacityPreview ?? appOpacity) * 100)}%`}
+              value={appOpacity}
+              min={APP_OPACITY_MIN}
+              max={APP_OPACITY_MAX}
+              step={APP_OPACITY_STEP}
+              onPreview={(n) => {
+                setOpacityPreview(n); // live % label
+                previewAppOpacity(n); // live main-window fade (CSS only, no store write)
               }}
-              placeholder="Paste an image, video (.mp4/.webm), or YouTube URL — or Browse for a local image"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="h-8 flex-1 font-mono text-[11px]"
-              aria-label="Wallpaper source"
+              onCommit={(n) => {
+                setOpacityPreview(null);
+                void setAppOpacity(n); // persist once on release (Radix fires this reliably)
+              }}
             />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 px-2 text-[11px]"
-                  disabled={!bgUrlDraft.trim()}
-                  onClick={onImportBackgroundUrl}
-                  aria-label="Use URL"
-                >
-                  <HugeiconsIcon icon={LinkSquare01Icon} size={12} strokeWidth={1.75} />
-                  Use URL
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                Load the URL above as the wallpaper. URLs are fetched on demand (not stored as
-                base64).
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 px-2 text-[11px]"
-                  onClick={() => void onPickBackground()}
-                >
-                  <HugeiconsIcon icon={Image01Icon} size={12} strokeWidth={1.75} />
-                  Browse
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                Pick a local image (PNG / JPG / GIF / WebP / AVIF, max 10 MB). Animated GIFs play as
-                a live wallpaper. Inlined as a data URI in your prefs.
-              </TooltipContent>
-            </Tooltip>
-            {theme.background.dataUrl ? (
+            <span className="text-muted-foreground text-[10.5px]">
+              0% = fully transparent (shows the image below, or your desktop). Applies to
+              everything: editor, terminal, SSH, diff, panels, menus, and extensions.
+            </span>
+          </div>
+          {/* Unified source row: ONE input that accepts either a local file
+           *  (via Browse) or a remote URL. Only one source is active at a
+           *  time - picking a file replaces the URL; pasting a URL replaces
+           *  the file. The Switch flips the layer on/off without losing the
+           *  underlying source. */}
+          <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Input
+                value={bgUrlDraft}
+                onChange={(e) => setBgUrlDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onImportBackgroundUrl();
+                  }
+                }}
+                placeholder="Paste an image, video (.mp4/.webm), or YouTube URL — or Browse for a local image"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="h-8 flex-1 font-mono text-[11px]"
+                aria-label="Wallpaper source"
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
+                    type="button"
+                    variant="outline"
                     size="sm"
-                    className="h-8 px-2 text-[11px]"
-                    onClick={onClearBackground}
-                    aria-label="Clear background"
+                    className="h-8 gap-1 px-2 text-[11px]"
+                    disabled={!bgUrlDraft.trim()}
+                    onClick={onImportBackgroundUrl}
+                    aria-label="Use URL"
                   >
-                    <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                    <HugeiconsIcon icon={LinkSquare01Icon} size={12} strokeWidth={1.75} />
+                    Use URL
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Clear wallpaper</TooltipContent>
+                <TooltipContent side="top">
+                  Load the URL above as the wallpaper. URLs are fetched on demand (not stored as
+                  base64).
+                </TooltipContent>
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 px-2 text-[11px]"
+                    onClick={() => void onPickBackground()}
+                  >
+                    <HugeiconsIcon icon={Image01Icon} size={12} strokeWidth={1.75} />
+                    Browse
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Pick a local image (PNG / JPG / GIF / WebP / AVIF, max 10 MB). Animated GIFs play
+                  as a live wallpaper. Inlined as a data URI in your prefs.
+                </TooltipContent>
+              </Tooltip>
+              {theme.background.dataUrl ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-[11px]"
+                      onClick={onClearBackground}
+                      aria-label="Clear background"
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Clear wallpaper</TooltipContent>
+                </Tooltip>
+              ) : null}
+              <Switch
+                checked={theme.background.enabled && !!theme.background.dataUrl}
+                disabled={!theme.background.dataUrl}
+                onCheckedChange={(v) => {
+                  updateBackground({ enabled: v });
+                  if (v) ensureWallpaperVisible();
+                }}
+                aria-label="Toggle background image"
+              />
+            </div>
+            {/* Current source line - a faint indicator so the user can tell
+             *  whether the wallpaper came from a file or a URL. */}
+            {theme.background.dataUrl ? (
+              <div className="text-muted-foreground truncate text-[10.5px]">
+                {theme.background.path.startsWith("data:")
+                  ? "Local image (inlined)"
+                  : `Source: ${theme.background.path}`}
+              </div>
             ) : null}
-            <Switch
-              checked={theme.background.enabled && !!theme.background.dataUrl}
-              disabled={!theme.background.dataUrl}
-              onCheckedChange={(v) => {
-                updateBackground({ enabled: v });
-                if (v) ensureWallpaperVisible();
-              }}
-              aria-label="Toggle background image"
-            />
           </div>
-          {/* Current source line - a faint indicator so the user can tell
-           *  whether the wallpaper came from a file or a URL. */}
+          {bgError ? <span className="text-destructive text-[10.5px]">{bgError}</span> : null}
+          {/* Wallpaper adjustments - grouped into a single card with inline
+           *  rows so three sliders + their labels don't take up 3× the
+           *  vertical space of separate `SettingRow`s. */}
           {theme.background.dataUrl ? (
-            <div className="text-muted-foreground truncate text-[10.5px]">
-              {theme.background.path.startsWith("data:")
-                ? "Local image (inlined)"
-                : `Source: ${theme.background.path}`}
+            <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-[11.5px]">
+              <CompactSliderRow
+                label="Blur"
+                valueLabel={`${theme.background.blur}px`}
+                value={theme.background.blur}
+                min={0}
+                max={40}
+                step={1}
+                onPreview={(n) =>
+                  // Live-preview on the main window's real wallpaper layer
+                  // (kind-aware via applyBackground). The old code poked
+                  // `#tedi-bg-layer` directly, but that element doesn't exist in
+                  // the Settings webview, so the preview was a no-op. We send only
+                  // the numbers; the main window merges them onto the wallpaper it
+                  // already holds (no image blob over IPC).
+                  previewWallpaper({
+                    blur: n,
+                    darken: theme.background.darken ?? 0,
+                    opacity: theme.background.opacity ?? 1,
+                  })
+                }
+                onCommit={(n) => updateBackground({ blur: n })}
+              />
+              <CompactSliderRow
+                label="Darken"
+                valueLabel={`${Math.round((theme.background.darken ?? 0) * 100)}%`}
+                value={theme.background.darken ?? 0}
+                min={0}
+                max={1}
+                step={0.05}
+                onPreview={(n) =>
+                  previewWallpaper({
+                    blur: theme.background.blur,
+                    darken: n,
+                    opacity: theme.background.opacity ?? 1,
+                  })
+                }
+                onCommit={(n) => updateBackground({ darken: n })}
+              />
+              <CompactSliderRow
+                label="Image opacity"
+                valueLabel={`${Math.round((theme.background.opacity ?? 1) * 100)}%`}
+                value={theme.background.opacity ?? 1}
+                min={0}
+                max={1}
+                step={0.05}
+                onPreview={(n) =>
+                  previewWallpaper({
+                    blur: theme.background.blur,
+                    darken: theme.background.darken ?? 0,
+                    opacity: n,
+                  })
+                }
+                onCommit={(n) => updateBackground({ opacity: n })}
+              />
+              <span className="text-muted-foreground text-[10.5px]">
+                Image opacity lets your desktop show through the wallpaper itself (100% = the image
+                fully hides the desktop). Combine with App opacity above to layer both.
+              </span>
             </div>
           ) : null}
         </div>
-        {bgError ? <span className="text-destructive text-[10.5px]">{bgError}</span> : null}
-        {/* Wallpaper adjustments - grouped into a single card with inline
-         *  rows so three sliders + their labels don't take up 3× the
-         *  vertical space of separate `SettingRow`s. */}
-        {theme.background.dataUrl ? (
-          <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-[11.5px]">
-            <CompactSliderRow
-              label="Blur"
-              valueLabel={`${theme.background.blur}px`}
-              value={theme.background.blur}
-              min={0}
-              max={40}
-              step={1}
-              onPreview={(n) =>
-                // Live-preview on the main window's real wallpaper layer
-                // (kind-aware via applyBackground). The old code poked
-                // `#tedi-bg-layer` directly, but that element doesn't exist in
-                // the Settings webview, so the preview was a no-op. We send only
-                // the numbers; the main window merges them onto the wallpaper it
-                // already holds (no image blob over IPC).
-                previewWallpaper({
-                  blur: n,
-                  darken: theme.background.darken ?? 0,
-                  opacity: theme.background.opacity ?? 1,
-                })
-              }
-              onCommit={(n) => updateBackground({ blur: n })}
-            />
-            <CompactSliderRow
-              label="Darken"
-              valueLabel={`${Math.round((theme.background.darken ?? 0) * 100)}%`}
-              value={theme.background.darken ?? 0}
-              min={0}
-              max={1}
-              step={0.05}
-              onPreview={(n) =>
-                previewWallpaper({
-                  blur: theme.background.blur,
-                  darken: n,
-                  opacity: theme.background.opacity ?? 1,
-                })
-              }
-              onCommit={(n) => updateBackground({ darken: n })}
-            />
-            <CompactSliderRow
-              label="Image opacity"
-              valueLabel={`${Math.round((theme.background.opacity ?? 1) * 100)}%`}
-              value={theme.background.opacity ?? 1}
-              min={0}
-              max={1}
-              step={0.05}
-              onPreview={(n) =>
-                previewWallpaper({
-                  blur: theme.background.blur,
-                  darken: theme.background.darken ?? 0,
-                  opacity: n,
-                })
-              }
-              onCommit={(n) => updateBackground({ opacity: n })}
-            />
-            <span className="text-muted-foreground text-[10.5px]">
-              Image opacity lets your desktop show through the wallpaper itself (100% = the image
-              fully hides the desktop). Combine with App opacity above to layer both.
-            </span>
-          </div>
-        ) : null}
-      </div>
+      </SettingsAccordion>
 
-      <div className="flex flex-col gap-2">
-        <Label>Import / Export</Label>
-        <SettingRow
-          title=".tedi theme file"
-          description="Share themes with teammates. Files contain all colors plus background settings (image data is excluded from the export)."
-        >
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-[11px]"
-              onClick={() => void onImportFromDialog()}
-            >
-              <HugeiconsIcon icon={FolderUploadIcon} size={12} strokeWidth={1.75} />
-              Import
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-[11px]"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              From file…
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-[11px]"
-              onClick={() => void onExport()}
-            >
-              Export
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".tedi,.json,application/json"
-              aria-label="Import theme file"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void onImportFile(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-        </SettingRow>
-        {importError ? <span className="text-destructive text-[10.5px]">{importError}</span> : null}
-        {importStatus ? (
-          <span className="text-muted-foreground text-[10.5px]">{importStatus}</span>
-        ) : null}
-      </div>
+      <SettingsAccordion title="Import / Export">
+        <div className="flex flex-col gap-2">
+          <SettingRow
+            title=".tedi theme file"
+            description="Share themes with teammates. Files contain all colors plus background settings (image data is excluded from the export)."
+          >
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                onClick={() => void onImportFromDialog()}
+              >
+                <HugeiconsIcon icon={FolderUploadIcon} size={12} strokeWidth={1.75} />
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                From file…
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                onClick={() => void onExport()}
+              >
+                Export
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".tedi,.json,application/json"
+                aria-label="Import theme file"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void onImportFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          </SettingRow>
+          {importError ? (
+            <span className="text-destructive text-[10.5px]">{importError}</span>
+          ) : null}
+          {importStatus ? (
+            <span className="text-muted-foreground text-[10.5px]">{importStatus}</span>
+          ) : null}
+        </div>
+      </SettingsAccordion>
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }
 

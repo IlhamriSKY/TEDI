@@ -4,6 +4,36 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.58] - 26-06-2026
+
+### Fixed
+
+- **New terminal tabs and split panes no longer open blank.** On Windows
+  (ConPTY), PSReadLine emits a DSR cursor-position query (`ESC[6n`) at startup
+  and blocks until the terminal answers before drawing the prompt. The PTY
+  daemon could deliver that query before `pty_open` resolved and assigned the
+  session's PTY handle on the frontend, so xterm's auto-reply was written to a
+  null handle and silently dropped; the shell then waited forever and the pane
+  stayed blank with only a cursor. Terminal-originated bytes are now buffered
+  while the handle is null and flushed the instant the PTY goes live, so the
+  reply always reaches the shell. A blank-viewport repaint watchdog was added as
+  a safety net (it nudges a redraw when a pane is still empty shortly after its
+  first byte), and the daemon client buffers push output that arrives before the
+  session channel is registered so the first prompt bytes can never be lost. See
+  [pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts),
+  [session-lifecycle.ts](src/modules/terminal/lib/session-lifecycle.ts),
+  [sessionState.ts](src/modules/terminal/lib/sessionState.ts),
+  [client.rs](src-tauri/src/modules/pty_daemon/client.rs).
+
+### Changed
+
+- **Settings UI refinements.** Theme and editor settings are grouped into
+  collapsible accordion sections, and the app/terminal theme presets share a
+  small palette-preview swatch so the available palettes are easier to scan. See
+  [SettingsAccordion.tsx](src/settings/components/SettingsAccordion.tsx),
+  [PalettePreview.tsx](src/settings/sections/theme/PalettePreview.tsx),
+  [ThemeSection.tsx](src/settings/sections/ThemeSection.tsx).
+
 ## [0.3.57] - 26-06-2026
 
 ### Added

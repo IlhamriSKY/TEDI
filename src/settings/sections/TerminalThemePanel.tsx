@@ -17,6 +17,7 @@ import {
 } from "@/modules/settings/terminalPalette";
 import { useState } from "react";
 import { ColorSwatch } from "./theme/ColorPicker";
+import { PalettePreview } from "./theme/PalettePreview";
 
 const ANSI_LABELS: Record<keyof TerminalAnsi, string> = {
   black: "Black",
@@ -89,9 +90,9 @@ export function TerminalThemePanel() {
   };
 
   return (
-    <div className="border-border/60 flex flex-col gap-2 border-t pt-4">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <Label>Terminal</Label>
+        <Label>Independent palette</Label>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground text-[10.5px]">
             {isCustom ? "Custom palette" : "Follows app"}
@@ -127,7 +128,10 @@ export function TerminalThemePanel() {
                       : "border-border/60 hover:border-border",
                   )}
                 >
-                  <PaletteChip palette={p} />
+                  <PalettePreview
+                    background={p.background}
+                    dots={SWATCH_HUES.map((k) => p.ansi[k])}
+                  />
                   <span className="truncate text-[12px] font-medium">{p.name}</span>
                 </button>
               );
@@ -231,25 +235,6 @@ function ColorRow({
     <div className="flex items-center justify-between gap-3 px-1.5 py-1">
       <span className="text-[11.5px]">{label}</span>
       <ColorSwatch value={value} onChange={onChange} />
-    </div>
-  );
-}
-
-/** Compact chip: the palette background with a strip of its ANSI hues. */
-function PaletteChip({ palette }: { palette: TerminalPalette }) {
-  return (
-    <div
-      aria-hidden
-      className="border-border/40 flex shrink-0 items-center gap-[3px] overflow-hidden rounded-[2px] border px-1.5"
-      style={{ width: 70, height: 26, background: palette.background }}
-    >
-      {SWATCH_HUES.map((k) => (
-        <span
-          key={k}
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ background: palette.ansi[k] }}
-        />
-      ))}
     </div>
   );
 }

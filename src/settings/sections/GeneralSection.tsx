@@ -46,6 +46,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+import { SettingsAccordion } from "../components/SettingsAccordion";
 import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
 
 type ShimInstallResult =
@@ -79,6 +80,7 @@ export function GeneralSection() {
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
   const aiBlockingSound = usePreferencesStore((s) => s.aiBlockingSound);
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
+  const customSoundCount = [aiBlockingSound, aiCompletionSound].filter(Boolean).length;
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
   const fontFamily = usePreferencesStore((s) => s.fontFamily);
@@ -460,18 +462,26 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setAiNotificationsEnabled(v)}
           />
         </SettingRow>
-        <SoundSetting
-          title="Approval sound"
-          kind="blocking"
-          value={aiBlockingSound}
-          onChange={setAiBlockingSound}
-        />
-        <SoundSetting
-          title="Completion sound"
-          kind="completion"
-          value={aiCompletionSound}
-          onChange={setAiCompletionSound}
-        />
+        <SettingsAccordion
+          title="Notification sounds"
+          description="Customize the approval and completion sounds, or revert to the built-in beep."
+          summary={customSoundCount > 0 ? `${customSoundCount} custom` : "Default"}
+        >
+          <div className="flex flex-col gap-2">
+            <SoundSetting
+              title="Approval sound"
+              kind="blocking"
+              value={aiBlockingSound}
+              onChange={setAiBlockingSound}
+            />
+            <SoundSetting
+              title="Completion sound"
+              kind="completion"
+              value={aiCompletionSound}
+              onChange={setAiCompletionSound}
+            />
+          </div>
+        </SettingsAccordion>
       </div>
 
       <div className="flex flex-col gap-2">

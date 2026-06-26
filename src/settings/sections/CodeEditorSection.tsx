@@ -23,6 +23,7 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+import { SettingsAccordion } from "../components/SettingsAccordion";
 import { FormattersTable } from "./components/FormattersTable";
 
 export function CodeEditorSection() {
@@ -31,6 +32,7 @@ export function CodeEditorSection() {
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
   const editorFontSize = usePreferencesStore((s) => s.editorFontSize);
+  const formatterCount = usePreferencesStore((s) => Object.keys(s.formatters).length);
 
   const onPickEditor = (id: EditorThemeId) => void setEditorTheme(id);
 
@@ -124,7 +126,17 @@ export function CodeEditorSection() {
         >
           <Switch checked={formatOnSave} onCheckedChange={(v) => void setFormatOnSave(v)} />
         </SettingRow>
-        <FormattersTable />
+        <SettingsAccordion
+          title="Per-language formatters"
+          description="Pick the built-in Prettier or an external command per language, and override format-on-save individually."
+          summary={
+            formatterCount > 0
+              ? `${formatterCount} language${formatterCount === 1 ? "" : "s"}`
+              : "None"
+          }
+        >
+          <FormattersTable />
+        </SettingsAccordion>
       </div>
     </div>
   );
