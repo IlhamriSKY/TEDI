@@ -15,6 +15,7 @@ import {
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
   setLeafPtyId as setLeafPtyIdInTree,
+  setLeafTerminalTheme as setLeafTerminalThemeInTree,
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
@@ -499,6 +500,24 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
         const paneTree = setLeafCwdInTree(t.paneTree, leafId, cwd);
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
+
+  /**
+   * Set (or clear, with `null`) a terminal leaf's per-pane theme override.
+   * `themeId` is a `TERMINAL_PRESETS` id. The leaf's `TerminalPane` repaints
+   * in that palette; the serializer persists the choice. No-op for non-terminal
+   * leaves or when the value is unchanged.
+   */
+  const setLeafTerminalTheme = useCallback((leafId: number, themeId: string | null) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const paneTree = setLeafTerminalThemeInTree(t.paneTree, leafId, themeId);
+        if (paneTree === t.paneTree) return t;
         return syncPaneMirror({ ...t, paneTree });
       }),
     );
@@ -1063,6 +1082,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setLeafTerminalTheme,
     setBrowserLeafUrl,
     setBrowserLeafTitle,
     setLeafPtyId,

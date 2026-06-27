@@ -36,7 +36,11 @@ type Props = {
   onPathDeleted: (path: string) => void;
 } & Pick<
   TabsApi,
-  "setBrowserLeafUrl" | "movePaneLeafToEdge" | "moveExtTabToPane" | "openGitDiffTab"
+  | "setBrowserLeafUrl"
+  | "movePaneLeafToEdge"
+  | "moveExtTabToPane"
+  | "openGitDiffTab"
+  | "setLeafTerminalTheme"
 >;
 
 /**
@@ -72,6 +76,7 @@ export function WorkspaceArea({
   movePaneLeafToEdge,
   moveExtTabToPane,
   openGitDiffTab,
+  setLeafTerminalTheme,
 }: Props) {
   return (
     <ResizablePanel id="workspace" defaultSize="58%" minSize="25%">
@@ -112,6 +117,7 @@ export function WorkspaceArea({
               onMovePaneLeaf={movePaneLeafToEdge}
               onCloseLeafRequest={paneHandles.handlePaneHeaderClose}
               onSplitWithExtTab={moveExtTabToPane}
+              onSetTerminalTheme={setLeafTerminalTheme}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
             />

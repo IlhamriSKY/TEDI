@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   MODELS,
+  ORCHESTRATION_PROMPT_BODY,
   PLAN_MODE_PROMPT_BODY,
   SYSTEM_PROMPT,
   SYSTEM_PROMPT_LITE,
@@ -47,6 +48,7 @@ const DEFAULTS: Record<PromptId, string> = {
   core: SYSTEM_PROMPT,
   "core-lite": SYSTEM_PROMPT_LITE,
   "plan-mode": PLAN_MODE_PROMPT_BODY,
+  orchestration: ORCHESTRATION_PROMPT_BODY,
   "subagent:explore": SUBAGENTS.explore.systemPrompt,
   "subagent:code-review": SUBAGENTS["code-review"].systemPrompt,
   "subagent:security": SUBAGENTS.security.systemPrompt,

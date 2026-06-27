@@ -9,6 +9,7 @@
 
 import { buildContentFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { resolveTerminalPreset } from "@/modules/settings/terminalPalette";
 import { buildTerminalTheme, resolveTerminalBackground } from "@/styles/terminalTheme";
 import { isHostKeyMismatchError } from "@/modules/ssh/bridge";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -113,9 +114,14 @@ if (opacityWin && !opacityWin.__tediCanvasOpacityBound) {
       // palette changes (ensureSession + the React re-theme effect in
       // TerminalPane). Reads the terminal-owned `--tedi-term-bg`, so a custom
       // terminal theme keeps its own background under glass.
-      const background = resolveTerminalBackground();
+      const globalBackground = resolveTerminalBackground();
       for (const s of sessions.values()) {
         syncRendererForWallpaper(s);
+        // A pane with a per-leaf theme override keeps its own palette's
+        // background; everything else shares the single global resolve.
+        const background = s.terminalThemeOverride
+          ? resolveTerminalBackground(s.terminalThemeOverride)
+          : globalBackground;
         s.term.options.theme = { ...s.term.options.theme, background };
         s.term.refresh(0, s.term.rows - 1);
       }
@@ -146,6 +152,7 @@ export function ensureSession(
   initialCwd?: string,
   sshConnectionId?: string,
   savedPtyId?: string,
+  terminalThemeId?: string,
 ): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -153,12 +160,16 @@ export function ensureSession(
   const prefs = usePreferencesStore.getState();
   const webglEnabled = prefs.terminalWebglEnabled;
   const fontSize = effectiveTerminalFontSize(prefs.terminalFontSize, prefs.contentZoom);
+  // Per-leaf theme override (Pane header -> "Terminal theme"). Resolved here so
+  // the very first xterm paint already uses it instead of flashing the global
+  // palette for a frame.
+  const terminalThemeOverride = resolveTerminalPreset(terminalThemeId);
 
   const term = new Terminal({
     fontFamily: buildContentFontFamily(prefs.fontFamily),
     fontSize,
     lineHeight: 1.05,
-    theme: buildTerminalTheme(),
+    theme: buildTerminalTheme(terminalThemeOverride),
     cursorBlink: true,
     cursorStyle: "bar",
     cursorInactiveStyle: "outline",
@@ -201,6 +212,7 @@ export function ensureSession(
     disposed: false,
     initialCwd,
     sshConnectionId,
+    terminalThemeOverride,
     savedPtyId,
     ptyOpening: false,
     lastPtyError: null,

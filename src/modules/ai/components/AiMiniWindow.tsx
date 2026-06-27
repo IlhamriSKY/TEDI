@@ -29,6 +29,7 @@ import { usePlanStore } from "../store/planStore";
 import { AiChatView } from "./AiChat";
 import { AiInputBar } from "./AiInputBar";
 import { PlanDiffReview } from "./PlanDiffReview";
+import { SubagentStrip } from "./SubagentStrip";
 import { TodoStrip } from "./TodoStrip";
 
 const SUGGESTIONS = [
@@ -127,6 +128,8 @@ function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }
         )}
       </div>
 
+      <SubagentStrip sessionId={sessionId} />
+
       <TodoStrip sessionId={sessionId} />
 
       <AiInputBar messages={helpers.messages} />
@@ -141,7 +144,7 @@ function PlanModeStrip() {
   if (!active) return null;
   return (
     <div className="border-border/40 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
-      <span className="size-1.5 shrink-0 rounded-full bg-icon-working" />
+      <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
       <span className="text-foreground text-[11px] font-medium">Plan mode</span>
       <span className="text-muted-foreground text-[11px]">
         {queueLen > 0 ? `· ${queueLen} queued` : "· no edits queued"}

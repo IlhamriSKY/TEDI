@@ -24,6 +24,7 @@ import {
 } from "../lib/checkpoint";
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
+import { useSubagentRunStore } from "./subagentRunStore";
 import { useTodosStore } from "./todoStore";
 import { toast } from "@/components/ui/toast";
 import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
@@ -86,9 +87,7 @@ type Live = {
   rotatePaneSplit: (
     leafId: number,
     direction?: "row" | "col",
-  ) =>
-    | { ok: true; orientation: "row" | "col"; changed: boolean }
-    | { ok: false; error: string };
+  ) => { ok: true; orientation: "row" | "col"; changed: boolean } | { ok: false; error: string };
   /** Close one terminal leaf. Refuses the last leaf so at least one tab remains. */
   closeTerminalLeaf: (
     leafId: number,
@@ -763,6 +762,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     disposeSessionShell(id);
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
+    useSubagentRunStore.getState().clearSession(id);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {

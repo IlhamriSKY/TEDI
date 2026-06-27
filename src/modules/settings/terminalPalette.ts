@@ -158,6 +158,16 @@ export const TERMINAL_PRESETS: TerminalPreset[] = THEME_PRESETS.map((p) => ({
 export const DEFAULT_TERMINAL_THEME_ID = TERMINAL_PRESETS[0].id;
 export const DEFAULT_TERMINAL_PALETTE: TerminalPalette = TERMINAL_PRESETS[0].palette;
 
+/**
+ * Resolve a per-leaf theme override id (a `TERMINAL_PRESETS` id) to its
+ * palette. Returns null for an empty / unknown id, in which case the leaf
+ * follows the global terminal theme. Backs the per-pane "Terminal theme" menu.
+ */
+export function resolveTerminalPreset(id: string | null | undefined): TerminalPalette | null {
+  if (!id) return null;
+  return TERMINAL_PRESETS.find((p) => p.id === id)?.palette ?? null;
+}
+
 const FAST_PATH_KEY = "tedi-terminal-theme-shadow";
 
 type Shadow = { mode: TerminalThemeMode; palette: TerminalPalette | null };

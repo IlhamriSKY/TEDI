@@ -4,6 +4,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import {
   AddSquareIcon,
+  ArrowRight01Icon,
   Calendar01Icon,
   CancelSquareIcon,
   CheckListIcon,
@@ -95,6 +96,7 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   cancel_schedule: { label: "Cancel schedule", icon: Calendar01Icon },
   // Delegation / planning
   run_subagent: { label: "Subagent", icon: RobotIcon },
+  run_subagents: { label: "Subagents", icon: RobotIcon },
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
 
@@ -167,6 +169,18 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       if (desc && type) return `${type} · ${desc}`;
       return desc ?? type;
     }
+    case "run_subagents": {
+      const tasks = Array.isArray(i.tasks) ? i.tasks : null;
+      if (!tasks) return null;
+      const hasDeps = tasks.some(
+        (t) =>
+          t &&
+          typeof t === "object" &&
+          Array.isArray((t as { depends_on?: unknown }).depends_on) &&
+          (t as { depends_on: unknown[] }).depends_on.length > 0,
+      );
+      return `${tasks.length} task${tasks.length === 1 ? "" : "s"}${hasDeps ? "" : " in parallel"}`;
+    }
     case "todo_write": {
       const items = Array.isArray(i.todos) ? i.todos : null;
       return items ? `${items.length} item${items.length === 1 ? "" : "s"}` : null;
@@ -193,6 +207,7 @@ const HEAVY_INPUT_TOOLS = new Set([
   "edit",
   "multi_edit",
   "run_subagent",
+  "run_subagents",
   "todo_write",
 ]);
 
@@ -217,12 +232,18 @@ const ToolImpl = ({
     output !== undefined &&
     output !== null &&
     typeof (output as { summary?: unknown }).summary === "string";
+  const hasSubagentResults =
+    toolName === "run_subagents" &&
+    output !== null &&
+    typeof output === "object" &&
+    Array.isArray((output as { results?: unknown }).results);
   const hasScreenshot =
     toolName === "browser_screenshot" &&
     output !== null &&
     typeof output === "object" &&
     typeof (output as { image?: unknown }).image === "string";
-  const open = defaultOpen ?? (isError || hasSubagentSummary || hasScreenshot);
+  const open =
+    defaultOpen ?? (isError || hasSubagentSummary || hasSubagentResults || hasScreenshot);
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
   // Hide streamed input body for heavy tools; output always shows since it's
   // the final result, not per-token streaming.
@@ -727,6 +748,46 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     );
   }
 
+  if (toolName === "run_subagents") {
+    if (typeof o.error === "string") {
+      return (
+        <div className="bg-destructive/10 text-destructive rounded px-2 py-1.5 font-mono text-[11px]">
+          {o.error}
+        </div>
+      );
+    }
+    const results = Array.isArray(o.results) ? (o.results as Array<Record<string, unknown>>) : [];
+    const dropped = typeof o.dropped === "number" ? o.dropped : null;
+    const skipped = typeof o.skipped === "number" ? o.skipped : null;
+    const note = typeof o.note === "string" ? o.note : null;
+    const maxConc = typeof o.maxConcurrency === "number" ? o.maxConcurrency : null;
+    if (results.length === 0) {
+      return <div className="text-muted-foreground text-[11px] italic">(no subagents ran)</div>;
+    }
+    return (
+      <div className="space-y-1.5">
+        <div className="text-muted-foreground flex items-center gap-2 text-[10px]">
+          <span>
+            {results.length} task{results.length === 1 ? "" : "s"}
+          </span>
+          {maxConc != null ? <span>· ≤{maxConc} parallel</span> : null}
+          {skipped != null && skipped > 0 ? <span>· {skipped} skipped</span> : null}
+          {dropped != null && dropped > 0 ? (
+            <span className="text-icon-working">· {dropped} dropped</span>
+          ) : null}
+        </div>
+        {note ? <div className="text-muted-foreground text-[10px] italic">{note}</div> : null}
+        {/* One collapsible per sub-agent: header identifies the session, expand
+            for its output. Keeps a wide fan-out from becoming a wall of text. */}
+        <div className="space-y-1">
+          {results.map((r, idx) => (
+            <SubagentResultRow key={idx} result={r} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (toolName === "browser_screenshot") {
     const image = typeof o.image === "string" ? o.image : null;
     if (image) {
@@ -756,6 +817,94 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
   }
 
   return null;
+}
+
+function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
+  const type = typeof result.type === "string" ? result.type : "subagent";
+  const desc = typeof result.description === "string" ? result.description : null;
+  const err = typeof result.error === "string" ? result.error : null;
+  const summary = typeof result.summary === "string" ? result.summary : "";
+  const steps = typeof result.stepCount === "number" ? result.stepCount : null;
+  const dur = typeof result.durationMs === "number" ? result.durationMs : null;
+  const skipped = result.skipped === true;
+  const reason = typeof result.reason === "string" ? result.reason : null;
+  const stats = [
+    steps != null ? `${steps} step${steps === 1 ? "" : "s"}` : null,
+    dur != null ? formatDuration(dur) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const hasBody = Boolean(err || summary);
+
+  return (
+    <Collapsible
+      defaultOpen={Boolean(err)}
+      className="border-border/60 bg-muted/20 overflow-hidden rounded border"
+    >
+      <CollapsibleTrigger
+        disabled={!hasBody}
+        className={cn(
+          "group/sa flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] transition-colors",
+          "hover:bg-muted/40 cursor-pointer",
+          "disabled:cursor-default disabled:hover:bg-transparent",
+        )}
+      >
+        {hasBody ? (
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            size={11}
+            strokeWidth={2}
+            className="text-muted-foreground shrink-0 transition-transform group-data-[state=open]/sa:rotate-90"
+          />
+        ) : (
+          <span className="w-[11px] shrink-0" />
+        )}
+        <span className="bg-foreground/10 text-foreground shrink-0 rounded px-1.5 py-0.5 font-mono font-medium">
+          {type}
+        </span>
+        {desc ? (
+          <span className="text-muted-foreground min-w-0 flex-1 truncate">{desc}</span>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {err ? (
+          <span className="text-destructive shrink-0 text-[10px] font-medium">failed</span>
+        ) : null}
+        {skipped ? (
+          <span className="text-muted-foreground shrink-0 text-[10px] font-medium">skipped</span>
+        ) : null}
+        {skipped && reason ? (
+          <span
+            title={reason}
+            className="text-muted-foreground/80 max-w-[45%] shrink-0 truncate text-[10px]"
+          >
+            {reason}
+          </span>
+        ) : stats ? (
+          <span className="text-muted-foreground shrink-0 font-mono text-[10px]">{stats}</span>
+        ) : null}
+      </CollapsibleTrigger>
+      {hasBody ? (
+        <CollapsibleContent
+          className={cn(
+            "overflow-hidden",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0",
+          )}
+        >
+          <div className="border-border/60 mt-0.5 border-t px-2 py-1.5">
+            {err ? (
+              <div className="bg-destructive/10 text-destructive rounded px-2 py-1 font-mono text-[11px] whitespace-pre-wrap">
+                {err}
+              </div>
+            ) : (
+              <div className="text-[12px] leading-relaxed whitespace-pre-wrap">{summary}</div>
+            )}
+          </div>
+        </CollapsibleContent>
+      ) : null}
+    </Collapsible>
+  );
 }
 
 function BashRunOutput({ data }: { data: Record<string, unknown> }) {

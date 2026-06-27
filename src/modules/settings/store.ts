@@ -111,6 +111,11 @@ export type Preferences = {
   /** Terminal palette applied when `terminalThemeMode === "custom"`. */
   terminalCustomPalette: TerminalPalette;
   customInstructions: string;
+  /** Master on/off for sub-agent delegation. On exposes the run_subagent /
+   *  run_subagents tools AND injects the auto-orchestration nudge, so broad work
+   *  is delegated to parallel sub-agents and `depends_on` (scatter -> gather) is
+   *  honored. Off hides the tools entirely (zero sub-agent token spend). */
+  subagentsEnabled: boolean;
   autostart: boolean;
   restoreWindowState: boolean;
   autocompleteEnabled: boolean;
@@ -327,6 +332,7 @@ const KEY_TERMINAL_THEME_MODE = "terminalThemeMode";
 const KEY_TERMINAL_THEME_ID = "terminalThemeId";
 const KEY_TERMINAL_CUSTOM_PALETTE = "terminalCustomPalette";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
+const KEY_SUBAGENTS_ENABLED = "subagentsEnabled";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
 const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
@@ -400,6 +406,20 @@ export const TERMINAL_SCROLLBACK_MAX = 100_000;
 // Choices offered in the Settings dropdown. 200 mirrors a CMD-style tight cap.
 export const TERMINAL_SCROLLBACK_OPTIONS = [200, 500, 1000, 2500, 5000, 10000] as const;
 
+// Sub-agent (run_subagent / run_subagents) backstops. Sub-agents are user-gated
+// to ON/OFF only; the AI picks every number per call - defaulting to *_DEFAULT
+// when it omits a param, clamped to *_MAX (the hard backstop it can't exceed).
+export const SUBAGENT_MAX_CONCURRENCY_DEFAULT = 3;
+export const SUBAGENT_MAX_CONCURRENCY_MAX = 8;
+
+export const SUBAGENT_MAX_STEPS_DEFAULT = 12;
+export const SUBAGENT_MAX_STEPS_MAX = 30;
+
+export const SUBAGENT_MAX_TASKS_MAX = 16;
+
+export const SUBAGENT_SUMMARY_KB_DEFAULT = 16;
+export const SUBAGENT_SUMMARY_KB_MAX = 48;
+
 /**
  * First-install formatter defaults. Languages Prettier supports get
  * `builtin`; everything else stays unset so the file extension simply has
@@ -437,6 +457,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalThemeId: DEFAULT_TERMINAL_THEME_ID,
   terminalCustomPalette: DEFAULT_TERMINAL_PALETTE,
   customInstructions: "",
+  subagentsEnabled: true,
   autostart: false,
   restoreWindowState: true,
   autocompleteEnabled: false,
@@ -523,6 +544,7 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
+    subagentsEnabled: get<boolean>(KEY_SUBAGENTS_ENABLED) ?? DEFAULT_PREFERENCES.subagentsEnabled,
     autostart: get<boolean>(KEY_AUTOSTART) ?? DEFAULT_PREFERENCES.autostart,
     restoreWindowState: get<boolean>(KEY_RESTORE_WINDOW) ?? DEFAULT_PREFERENCES.restoreWindowState,
     autocompleteEnabled:
@@ -761,6 +783,10 @@ export async function setTerminalCustomPalette(value: TerminalPalette): Promise<
 
 export async function setCustomInstructions(value: string): Promise<void> {
   await writePref(KEY_CUSTOM_INSTRUCTIONS, value);
+}
+
+export async function setSubagentsEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_SUBAGENTS_ENABLED, value);
 }
 
 export async function setAutostart(value: boolean): Promise<void> {
@@ -1058,6 +1084,7 @@ export async function onPreferencesChange(
     terminalThemeId: KEY_TERMINAL_THEME_ID,
     terminalCustomPalette: KEY_TERMINAL_CUSTOM_PALETTE,
     customInstructions: KEY_CUSTOM_INSTRUCTIONS,
+    subagentsEnabled: KEY_SUBAGENTS_ENABLED,
     autostart: KEY_AUTOSTART,
     restoreWindowState: KEY_RESTORE_WINDOW,
     autocompleteEnabled: KEY_AUTOCOMPLETE_ENABLED,

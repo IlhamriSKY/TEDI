@@ -39,6 +39,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
+import { SubagentsCard } from "./components/SubagentsCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 
 const ICON_OPTIONS: AgentIconId[] = [
@@ -148,6 +149,8 @@ export function AgentsSection() {
       </section>
 
       <SystemPromptsCard />
+
+      <SubagentsCard />
 
       <SettingsAccordion
         title="Snippets"

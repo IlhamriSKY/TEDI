@@ -4,6 +4,68 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.60] - 27-06-2026
+
+### Added
+
+- **Parallel sub-agent orchestration (`run_subagents`).** Building on the existing
+  single `run_subagent`, the AI can now spawn a whole batch of isolated read-only
+  sub-agents in one call to research / review / audit in parallel. `run_subagents`
+  is a bounded-concurrency **DAG scheduler**: independent tasks fan out at once,
+  and a task with `depends_on` waits for its upstream tasks and receives their
+  summaries as context (scatter, then gather), with cascade-skip when a dependency
+  fails and cycle / invalid-index detection. The AI sizes every batch itself (task
+  count, max concurrency, per-task steps, summary size), each clamped to a built-in
+  backstop it cannot exceed. See
+  [subagent.ts](src/modules/ai/tools/subagent.ts),
+  [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **A live "Sub-agents" strip.** Running sub-agents appear in a strip with a
+  per-agent accordion, so you can see which session each belongs to, its current
+  step, and its output as it streams. See
+  [SubagentStrip.tsx](src/modules/ai/components/SubagentStrip.tsx),
+  [subagentRunStore.ts](src/modules/ai/store/subagentRunStore.ts),
+  [tool.tsx](src/components/ai-elements/tool.tsx).
+- **Per-pane terminal theme.** Right-click a terminal pane's header and pick
+  "Terminal theme" to give that pane its own palette (with swatch previews) or
+  follow the global terminal theme. The choice persists across restarts. See
+  [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx),
+  [useTabs.ts](src/modules/tabs/lib/useTabs.ts),
+  [panes.ts](src/modules/terminal/lib/panes.ts),
+  [serialize.ts](src/modules/workspaces/serialize.ts),
+  [TerminalPane.tsx](src/modules/terminal/TerminalPane.tsx).
+
+### Changed
+
+- **Sub-agents are a single on/off that also drives auto-orchestration.** When
+  enabled, broad explore / review / audit / "study this whole project" requests
+  auto-decompose into parallel sub-agents plus a synthesis step instead of reading
+  files inline; the separate "Orchestration" toggle was merged into this one switch.
+  Every number stays AI-decided (bounded by built-in caps), so there are no numeric
+  settings. The auto-orchestration appendix and each per-type sub-agent prompt are
+  user-editable in Settings -> Agents -> System prompts. See
+  [SubagentsCard.tsx](src/settings/sections/components/SubagentsCard.tsx),
+  [store.ts](src/modules/settings/store.ts),
+  [agent.ts](src/modules/ai/lib/agent.ts),
+  [config.ts](src/modules/ai/config.ts),
+  [prompts.ts](src/modules/ai/lib/prompts.ts).
+- **Token-optimized sub-agent prompts.** The `run_subagent` / `run_subagents` tool
+  descriptions and the orchestration appendix were tightened (deduplicated the
+  per-type Types list across the two tools, trimmed parameter descriptions,
+  condensed the appendix) to cut per-turn schema cost while preserving every
+  behavioral instruction. See
+  [subagent.ts](src/modules/ai/tools/subagent.ts),
+  [config.ts](src/modules/ai/config.ts).
+
+### Fixed
+
+- **grep / glob / list_directory no longer fail when the model passes a bare
+  string for an array parameter.** A value like `glob: "**/*.ts"` (or a
+  newline-wrapped one) is now coerced into a single-element array before
+  validation instead of being rejected with `expected: array`, which previously
+  could cascade into a "service error" before the model could retry. Splitting is
+  on newlines only (so a glob brace `{a,b}` survives), and an omitted optional
+  `glob` still stays undefined. See [schedule.ts](src/modules/ai/tools/schedule.ts).
+
 ## [0.3.59] - 26-06-2026
 
 ### Changed

@@ -19,8 +19,15 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { TERMINAL_PRESETS, type TerminalPalette } from "@/modules/settings/terminalPalette";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
@@ -77,6 +84,9 @@ type Props = {
   /** Split this tab's pane (next to `leafId`, in `dir`) with an open extension
    *  tab, relocating it into the pane. */
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
+  /** Set (or clear, with `null`) a terminal leaf's per-pane theme override.
+   *  `themeId` is a `TERMINAL_PRESETS` id. Backs the header "Terminal theme" menu. */
+  onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
   sshHosts?: Map<string, SshConnection>;
   /** Live SSH status per terminal leaf id. Colors the SSH header label. */
@@ -97,12 +107,32 @@ type PaneDndValue = {
   onCloseLeaf?: (leafId: number) => void;
   extTabs?: { id: number; title: string }[];
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
+  onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
   drag: { sourceLeafId: null, overLeafId: null, edge: null },
   leafCount: 1,
 });
+
+/** Radio value for "follow the global terminal theme" (clears the override). */
+const FOLLOW_GLOBAL_THEME = "__follow_global__";
+
+/** Compact palette chip for a terminal-theme menu row. */
+function ThemeSwatch({ palette }: { palette: TerminalPalette }) {
+  const dots = [palette.ansi.red, palette.ansi.green, palette.ansi.blue, palette.ansi.yellow];
+  return (
+    <span
+      aria-hidden
+      className="border-border/40 flex h-3.5 w-7 shrink-0 items-center gap-[2px] overflow-hidden rounded-[3px] border px-1"
+      style={{ background: palette.background }}
+    >
+      {dots.map((c, i) => (
+        <span key={i} className="size-1.5 rounded-full" style={{ background: c }} />
+      ))}
+    </span>
+  );
+}
 
 type PaneMetaValue = {
   sshHosts?: Map<string, SshConnection>;
@@ -203,6 +233,7 @@ const LeafBody = memo(function LeafBody({
             initialCwd={node.cwd}
             sshConnectionId={node.sshConnectionId}
             savedPtyId={node.savedPtyId}
+            terminalThemeId={node.terminalThemeId}
             ref={b.setTerminalRef}
             onSearchReady={(_id, addon) => b.onSearchReady(addon)}
             onCwd={(_id, cwd) => b.onCwd(cwd)}
@@ -286,7 +317,8 @@ function PaneLeafFrame({
   mdPreview: boolean;
   onFocusLeaf: (leafId: number) => void;
 }) {
-  const { drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab } = use(PaneDndContext);
+  const { drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme } =
+    use(PaneDndContext);
   const { sshHosts, sshStatuses, aiCliStatuses } = use(PaneMetaContext);
   const draggable = leafCount > 1;
   const {
@@ -340,107 +372,149 @@ function PaneLeafFrame({
         isSource && "opacity-60",
       )}
     >
-      {/* Per-pane navigation header (drag handle + label + close), wrapped in a
-          right-click menu that offers "Split with <extension>" for each open
-          extension tab — only the header bar carries the menu so the terminal /
-          editor body keeps its own context menu. */}
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
+      {/* Per-pane navigation header (drag handle + label + close). A terminal
+          leaf carries a right-click menu for its per-pane terminal theme; any
+          leaf also offers "Split with <extension>" while an extension panel tab
+          is open. The menu is dropped entirely when there is nothing to show
+          (e.g. an editor pane with no extension tab open), so the header never
+          opens an empty box. Only the header bar carries the menu so the
+          terminal / editor body keeps its own. */}
+      {(() => {
+        const headerBar = (
           <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
-        {(() => {
-          const dragHandle = (
-            <button
-              type="button"
-              ref={setDragRef}
-              {...listeners}
-              {...attributes}
-              disabled={!draggable}
-              aria-label="Drag to move pane"
+            {(() => {
+              const dragHandle = (
+                <button
+                  type="button"
+                  ref={setDragRef}
+                  {...listeners}
+                  {...attributes}
+                  disabled={!draggable}
+                  aria-label="Drag to move pane"
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+                    draggable
+                      ? "text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
+                      : "text-muted-foreground/40 cursor-default",
+                  )}
+                >
+                  <HugeiconsIcon icon={DragDropVerticalIcon} size={14} strokeWidth={2} />
+                </button>
+              );
+              // Only the draggable state earns a tooltip; a disabled button can't
+              // receive the pointer events Radix needs to open one anyway.
+              return draggable ? (
+                <IconTooltip label="Drag to move pane" side="bottom">
+                  {dragHandle}
+                </IconTooltip>
+              ) : (
+                dragHandle
+              );
+            })()}
+            {/* Same glyph the tab strip + drag overlay show for this leaf. The
+            muted default tint is overridden by the AI CLI status when active. */}
+            <LeafIcon
+              info={leafIconInfo(node, aiCliStatuses)}
+              size={13}
+              className="text-muted-foreground/80"
+            />
+            <span
               className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
-                draggable
-                  ? "text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
-                  : "text-muted-foreground/40 cursor-default",
+                "min-w-0 flex-1 truncate text-xs",
+                "text-muted-foreground",
+                node.leafKind === "editor" && node.preview && "italic",
+                // SSH status colors the label, matching the tab strip.
+                isSsh && statusLabelClass(sshStatus),
+                // Extension-panel lifecycle tone (SQL Explorer connection state),
+                // same palette + tab-strip parity.
+                extState && extensionStateLabelClass(extState),
+                // Private signal lives on the label (red), not the icon. Last = wins.
+                isPrivate && "text-destructive",
               )}
             >
-              <HugeiconsIcon icon={DragDropVerticalIcon} size={14} strokeWidth={2} />
-            </button>
-          );
-          // Only the draggable state earns a tooltip; a disabled button can't
-          // receive the pointer events Radix needs to open one anyway.
-          return draggable ? (
-            <IconTooltip label="Drag to move pane" side="bottom">
-              {dragHandle}
-            </IconTooltip>
-          ) : (
-            dragHandle
-          );
-        })()}
-        {/* Same glyph the tab strip + drag overlay show for this leaf. The
-            muted default tint is overridden by the AI CLI status when active. */}
-        <LeafIcon
-          info={leafIconInfo(node, aiCliStatuses)}
-          size={13}
-          className="text-muted-foreground/80"
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-xs",
-            "text-muted-foreground",
-            node.leafKind === "editor" && node.preview && "italic",
-            // SSH status colors the label, matching the tab strip.
-            isSsh && statusLabelClass(sshStatus),
-            // Extension-panel lifecycle tone (SQL Explorer connection state),
-            // same palette + tab-strip parity.
-            extState && extensionStateLabelClass(extState),
-            // Private signal lives on the label (red), not the icon. Last = wins.
-            isPrivate && "text-destructive",
-          )}
-        >
-          {baseLabel}
-          {showTitle ? <span className="opacity-60"> · {termTitle}</span> : null}
-        </span>
-        {node.leafKind === "editor" && node.dirty && (
-          <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
-        )}
-        {onCloseLeaf && (
-          <IconTooltip label="Close pane" side="bottom">
-            <button
-              type="button"
-              aria-label="Close pane"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseLeaf(node.id);
-              }}
-              className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-            </button>
-          </IconTooltip>
-        )}
+              {baseLabel}
+              {showTitle ? <span className="opacity-60"> · {termTitle}</span> : null}
+            </span>
+            {node.leafKind === "editor" && node.dirty && (
+              <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
+            )}
+            {onCloseLeaf && (
+              <IconTooltip label="Close pane" side="bottom">
+                <button
+                  type="button"
+                  aria-label="Close pane"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCloseLeaf(node.id);
+                  }}
+                  className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+                </button>
+              </IconTooltip>
+            )}
           </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {onSplitWithExtTab && extTabs && extTabs.length > 0 ? (
-            extTabs.flatMap((et) => [
-              <ContextMenuItem
-                key={`${et.id}-row`}
-                onSelect={() => onSplitWithExtTab(et.id, node.id, "row")}
-              >
-                Split right with {et.title || "panel"}
-              </ContextMenuItem>,
-              <ContextMenuItem
-                key={`${et.id}-col`}
-                onSelect={() => onSplitWithExtTab(et.id, node.id, "col")}
-              >
-                Split down with {et.title || "panel"}
-              </ContextMenuItem>,
-            ])
-          ) : (
-            <ContextMenuItem disabled>Open an extension panel to split with it</ContextMenuItem>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
+        );
+
+        const showThemeMenu = node.leafKind === "terminal" && !!onSetTerminalTheme;
+        // Split-with-extension only applies while an extension panel is open as
+        // a tab; without one there is nothing to relocate into the split.
+        const hasSplit = !!onSplitWithExtTab && !!extTabs && extTabs.length > 0;
+        // Nothing to offer -> render the bare header (no empty right-click box).
+        if (!showThemeMenu && !hasSplit) return headerBar;
+
+        return (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>{headerBar}</ContextMenuTrigger>
+            <ContextMenuContent>
+              {/* Per-pane terminal theme. Only terminal leaves carry a palette. */}
+              {node.leafKind === "terminal" && onSetTerminalTheme ? (
+                <>
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>Terminal theme</ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="max-h-[60vh] overflow-x-hidden overflow-y-auto">
+                      <ContextMenuRadioGroup
+                        value={node.terminalThemeId ?? FOLLOW_GLOBAL_THEME}
+                        onValueChange={(v) =>
+                          onSetTerminalTheme(node.id, v === FOLLOW_GLOBAL_THEME ? null : v)
+                        }
+                      >
+                        <ContextMenuRadioItem value={FOLLOW_GLOBAL_THEME}>
+                          Default (follow global)
+                        </ContextMenuRadioItem>
+                        <ContextMenuSeparator />
+                        {TERMINAL_PRESETS.map((p) => (
+                          <ContextMenuRadioItem key={p.id} value={p.id}>
+                            <ThemeSwatch palette={p.palette} />
+                            <span className="truncate">{p.palette.name}</span>
+                          </ContextMenuRadioItem>
+                        ))}
+                      </ContextMenuRadioGroup>
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                  {hasSplit ? <ContextMenuSeparator /> : null}
+                </>
+              ) : null}
+              {onSplitWithExtTab && extTabs && extTabs.length > 0
+                ? extTabs.flatMap((et) => [
+                    <ContextMenuItem
+                      key={`${et.id}-row`}
+                      onSelect={() => onSplitWithExtTab(et.id, node.id, "row")}
+                    >
+                      Split right with {et.title || "panel"}
+                    </ContextMenuItem>,
+                    <ContextMenuItem
+                      key={`${et.id}-col`}
+                      onSelect={() => onSplitWithExtTab(et.id, node.id, "col")}
+                    >
+                      Split down with {et.title || "panel"}
+                    </ContextMenuItem>,
+                  ])
+                : null}
+            </ContextMenuContent>
+          </ContextMenu>
+        );
+      })()}
       <div className="relative min-h-0 flex-1">
         <LeafBody
           node={node}
@@ -520,6 +594,7 @@ export function PaneTreeView({
   onCloseLeaf,
   extTabs,
   onSplitWithExtTab,
+  onSetTerminalTheme,
   sshHosts,
   sshStatuses,
   aiCliStatuses,
@@ -592,8 +667,8 @@ export function PaneTreeView({
   };
 
   const ctxValue = useMemo<PaneDndValue>(
-    () => ({ drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab }),
-    [drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab],
+    () => ({ drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme }),
+    [drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme],
   );
   const metaValue = useMemo<PaneMetaValue>(
     () => ({ sshHosts, sshStatuses, aiCliStatuses }),

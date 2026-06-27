@@ -7,6 +7,7 @@ import type { PtySession } from "./pty-bridge";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliDetector } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
+import type { TerminalPalette } from "@/modules/settings/terminalPalette";
 
 export type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
@@ -54,6 +55,14 @@ export type Session = {
   initialCwd: string | undefined;
   /** Bound saved SSH connection id, if any. */
   sshConnectionId: string | undefined;
+  /**
+   * Per-leaf terminal theme override palette (resolved from the leaf's
+   * `terminalThemeId`). When set, `applyTheme` and the opacity-drag refresh
+   * build the xterm theme from this palette instead of the global
+   * `--tedi-term-*` tokens, so this pane is themed independently. Null =
+   * follow the global terminal theme.
+   */
+  terminalThemeOverride: TerminalPalette | null;
   /**
    * Daemon-side PTY UUID from a prior GUI launch. When set,
    * `openPtyForSession` calls `reattachPty` first and falls back to

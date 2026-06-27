@@ -1,4 +1,5 @@
 import { readTerminalTokens } from "@/styles/tokens";
+import type { TerminalPalette } from "@/modules/settings/terminalPalette";
 import type { ITheme } from "@xterm/xterm";
 
 /**
@@ -21,8 +22,14 @@ import type { ITheme } from "@xterm/xterm";
  *
  * The full ANSI 16-colour palette is themable through the dedicated Terminal
  * theme (Settings -> Terminal): a prebuilt preset or a custom 16-slot palette.
+ *
+ * `override` is a per-leaf palette (Pane header -> "Terminal theme"). When
+ * passed, the xterm theme is built straight from it instead of the global
+ * `--tedi-term-*` tokens, so a single pane can carry its own palette while the
+ * rest follow the global theme. Glass alpha is still applied to the background.
  */
-export function buildTerminalTheme(): ITheme {
+export function buildTerminalTheme(override?: TerminalPalette | null): ITheme {
+  if (override) return paletteToTheme(override);
   const t = readTerminalTokens();
   return {
     background: applyGlassAlpha(t.bg),
@@ -51,14 +58,44 @@ export function buildTerminalTheme(): ITheme {
   };
 }
 
+/** Build an xterm theme from a literal terminal palette (per-leaf override).
+ *  Mirrors the token path but reads the palette's hex directly. */
+function paletteToTheme(p: TerminalPalette): ITheme {
+  return {
+    background: applyGlassAlpha(p.background),
+    foreground: p.foreground,
+    cursor: p.cursor || p.foreground,
+    // Keep the under-cursor glyph opaque: solid palette background, no alpha.
+    cursorAccent: p.background,
+    selectionBackground: p.selection || p.foreground,
+    black: p.ansi.black,
+    red: p.ansi.red,
+    green: p.ansi.green,
+    yellow: p.ansi.yellow,
+    blue: p.ansi.blue,
+    magenta: p.ansi.magenta,
+    cyan: p.ansi.cyan,
+    white: p.ansi.white,
+    brightBlack: p.ansi.brightBlack,
+    brightRed: p.ansi.brightRed,
+    brightGreen: p.ansi.brightGreen,
+    brightYellow: p.ansi.brightYellow,
+    brightBlue: p.ansi.brightBlue,
+    brightMagenta: p.ansi.brightMagenta,
+    brightCyan: p.ansi.brightCyan,
+    brightWhite: p.ansi.brightWhite,
+  };
+}
+
 /**
  * The glass-aware terminal background. Solid when glass is off; under glass it
  * applies the single "App opacity" alpha so the wallpaper bleeds through. Used
  * by the per-frame opacity-drag refresh in `session-lifecycle.ts`, which
  * patches only `theme.background` instead of rebuilding the whole theme.
+ * `override` resolves a per-leaf palette's background instead of the global one.
  */
-export function resolveTerminalBackground(): string {
-  return applyGlassAlpha(readTerminalTokens().bg);
+export function resolveTerminalBackground(override?: TerminalPalette | null): string {
+  return applyGlassAlpha(override ? override.background : readTerminalTokens().bg);
 }
 
 function applyGlassAlpha(solidResolved: string): string {

@@ -49,6 +49,7 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
+      ...(leaf.terminalThemeId ? { terminalThemeId: leaf.terminalThemeId } : {}),
       ...(title ? { title } : {}),
       // Only local PTYs use the daemon backend; SSH leaves carry their
       // remote session id separately and aren't restored via pty_attach.
@@ -156,6 +157,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         sshConnectionId: node.sshConnectionId,
         terminalOrdinal: node.terminalOrdinal,
         ...(node.private ? { private: true } : {}),
+        ...(node.terminalThemeId ? { terminalThemeId: node.terminalThemeId } : {}),
         // `savedPtyId` is the signal for `useTerminalSession.attachSession`
         // to attempt `reattachPty` before falling back to `openPty`. The
         // hot `ptyId` field is populated by the session itself on attach.

@@ -477,6 +477,20 @@ export const TERMINAL_BUFFER_LINES = 300;
 export const PLAN_MODE_PROMPT_BODY = `## PLAN MODE - ACTIVE
 Mutating tools (write_file, edit, multi_edit, create_directory) queue changes for the user to review as a single diff. Do NOT execute bash_run or bash_background while plan mode is active - reads (read_file, grep, glob, list_directory) and the queued mutations only. After queueing the full set of edits, stop and return a brief summary; don't continue until the user has accepted/rejected.`;
 
+/** Appended to the system prompt whenever sub-agents are enabled
+ *  (Settings -> Agents -> Sub-agents - a single on/off that also covers
+ *  orchestration). Makes the agent decompose broad read-only work into parallel
+ *  sub-agents with a synthesis step instead of exploring inline. Editable via the
+ *  prompt-override settings UI ("orchestration"). */
+export const ORCHESTRATION_PROMPT_BODY = `## SUB-AGENT ORCHESTRATION - ENABLED (OVERRIDES the grep/glob/list_directory-first guidance above for BROAD read-only work)
+Read-only sub-agents: \`run_subagent\` (one) and \`run_subagents\` (many in parallel, optional \`depends_on\` for scatter -> gather).
+
+For ANY request to STUDY / UNDERSTAND / EXPLORE / REVIEW / AUDIT / MAP / EXPLAIN a project, codebase, module, or anything spanning several files or areas, your FIRST substantive action is ONE \`run_subagents\` call. At most ONE cheap orienting step is allowed first, ONLY to scope the split: a single root list_directory, or git diff / git status for a review (sub-agents are read-only and have no git). Then delegate. Never run the survey inline (no inline read_file / grep over the codebase). Split into independent parallel tasks (one per area / module / concern) and pick the task count, parallelism, step budget, and summary size that fit.
+
+You get EVERY task's summary back, so SYNTHESIZE the answer yourself - do NOT add a separate synthesis sub-agent for a plain write-up (it just re-runs the model on summaries you already have). Add a final \`depends_on\` gather task ONLY when that synthesis must itself READ MORE files based on what the explorers found.
+
+Work inline yourself (no sub-agents) ONLY for small / single-file / single-symbol questions or edits, running commands, or trivial requests.`;
+
 export const SYSTEM_PROMPT = `You are TEDI, an AI engineer in a developer terminal. Do the work; don't narrate.
 
 # Environment

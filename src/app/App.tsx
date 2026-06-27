@@ -135,6 +135,7 @@ export default function App() {
     movePaneLeafToEdge,
     moveExtTabToPane,
     togglePrivate,
+    setLeafTerminalTheme,
   } = useTabs();
 
   // Drop a file from the OS file manager onto a terminal pane to paste its
@@ -864,6 +865,7 @@ export default function App() {
                 movePaneLeafToEdge={movePaneLeafToEdge}
                 moveExtTabToPane={moveExtTabToPane}
                 openGitDiffTab={openGitDiffTab}
+                setLeafTerminalTheme={setLeafTerminalTheme}
               />
               <AppRightSlot
                 rightPanelActive={rightPanelActive}

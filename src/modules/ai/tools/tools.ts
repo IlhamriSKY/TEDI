@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildEditTools } from "./edit";
 import { buildFetchTools } from "./fetch";
 import { buildFsTools } from "./fs";
@@ -45,9 +46,18 @@ export type ChatTools = ReturnType<typeof buildToolsRaw>;
 const toolsCache = new WeakMap<ToolContext, ChatTools>();
 
 export function buildTools(ctx: ToolContext): ChatTools {
-  const cached = toolsCache.get(ctx);
-  if (cached) return cached;
-  const built = buildToolsRaw(ctx);
-  toolsCache.set(ctx, built);
-  return built;
+  let built = toolsCache.get(ctx);
+  if (!built) {
+    built = buildToolsRaw(ctx);
+    toolsCache.set(ctx, built);
+  }
+  // Drop the sub-agent tool schemas on turns where the feature is disabled so
+  // they cost zero tokens. buildTools runs every turn, so the toggle takes
+  // effect on the very next message (both directions); the cached zod schemas
+  // are never rebuilt, just omitted from the returned set.
+  if (usePreferencesStore.getState().subagentsEnabled) return built;
+  const gated = { ...built } as Record<string, unknown>;
+  delete gated.run_subagent;
+  delete gated.run_subagents;
+  return gated as ChatTools;
 }

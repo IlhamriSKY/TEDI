@@ -18,6 +18,9 @@ export type SavedTerminalLeaf = {
   terminalOrdinal?: number;
   /** Per-leaf privacy flag. AI subsystem ignores private leaves. */
   private?: boolean;
+  /** Per-pane terminal theme override (a `TERMINAL_PRESETS` id). Persisted so a
+   *  pane keeps its chosen palette across restart. Absent = follow global. */
+  terminalThemeId?: string;
   /**
    * Daemon-owned PTY UUID. When present on next launch the restore path
    * calls `pty_attach` to resume the shell with its scrollback; on attach

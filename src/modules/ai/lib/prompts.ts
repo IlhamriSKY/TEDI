@@ -24,6 +24,7 @@ export type PromptId =
   | "core"
   | "core-lite"
   | "plan-mode"
+  | "orchestration"
   | "subagent:explore"
   | "subagent:code-review"
   | "subagent:security"
@@ -85,6 +86,14 @@ export const PROMPT_META: readonly PromptMeta[] = [
     id: "plan-mode",
     label: "Plan mode appendix",
     description: "Appended to the system prompt while plan mode is active.",
+    group: "Main agent",
+    capabilities: {},
+  },
+  {
+    id: "orchestration",
+    label: "Orchestration appendix",
+    description:
+      "Appended whenever sub-agents are enabled; makes broad explore/review/audit tasks auto-decompose into parallel sub-agents with a synthesis step.",
     group: "Main agent",
     capabilities: {},
   },

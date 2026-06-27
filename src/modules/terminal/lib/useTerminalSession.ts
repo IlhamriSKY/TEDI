@@ -1,4 +1,5 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { resolveTerminalPreset } from "@/modules/settings/terminalPalette";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { buildContentFontFamily } from "@/lib/fonts";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -33,6 +34,12 @@ type Options = {
    * spawn so a subsequent retry does not reuse the same UUID.
    */
   savedPtyId?: string;
+  /**
+   * Per-leaf terminal theme override id (a `TERMINAL_PRESETS` id). When set,
+   * this pane paints its own palette instead of the global terminal theme.
+   * Undefined follows the global theme.
+   */
+  terminalThemeId?: string;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -59,6 +66,7 @@ export function useTerminalSession({
   initialCwd,
   sshConnectionId,
   savedPtyId,
+  terminalThemeId,
   onSearchReady,
   onExit,
   onCwd,
@@ -97,7 +105,7 @@ export function useTerminalSession({
     let rafId: number | null = null;
     let attachIntervalId: ReturnType<typeof setInterval> | null = null;
     let stuckTimer: ReturnType<typeof setTimeout> | null = null;
-    const s = ensureSession(leafId, initialCwd, sshConnectionId, savedPtyId);
+    const s = ensureSession(leafId, initialCwd, sshConnectionId, savedPtyId, terminalThemeId);
     // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;
@@ -266,6 +274,22 @@ export function useTerminalSession({
     }
   }, [leafId, webglPref]);
 
+  // Per-leaf terminal theme override. `resolveTerminalPreset` returns the
+  // preset's stable palette object (or null), so the dep only changes when the
+  // chosen id actually changes. Writes the override onto the session and
+  // rebuilds the xterm theme so the pane repaints in its own palette without
+  // touching the global terminal theme or any sibling pane.
+  const terminalThemeOverride = resolveTerminalPreset(terminalThemeId);
+  useEffect(() => {
+    const s = sessions.get(leafId);
+    if (!s) return;
+    if (s.terminalThemeOverride === terminalThemeOverride) return;
+    s.terminalThemeOverride = terminalThemeOverride;
+    syncRendererForWallpaper(s);
+    s.term.options.theme = buildTerminalTheme(terminalThemeOverride);
+    s.term.refresh(0, s.term.rows - 1);
+  }, [leafId, terminalThemeOverride]);
+
   useLayoutEffect(() => {
     if (!visible) return;
     const s = sessions.get(leafId);
@@ -354,7 +378,9 @@ export function useTerminalSession({
     const s = sessions.get(leafId);
     if (!s) return;
     syncRendererForWallpaper(s);
-    s.term.options.theme = buildTerminalTheme();
+    // Honor a per-leaf override so a global theme change (this callback's
+    // trigger) never clobbers a pane that opted into its own palette.
+    s.term.options.theme = buildTerminalTheme(s.terminalThemeOverride);
     s.term.refresh(0, s.term.rows - 1);
   }, [leafId]);
 

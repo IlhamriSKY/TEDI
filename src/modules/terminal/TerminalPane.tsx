@@ -43,6 +43,12 @@ type Props = {
    * failure. Forwarded to `useTerminalSession`.
    */
   savedPtyId?: string;
+  /**
+   * Per-leaf terminal theme override id (a `TERMINAL_PRESETS` id). When set,
+   * this pane paints its own palette regardless of the global terminal theme.
+   * Set from the pane header's right-click "Terminal theme" menu.
+   */
+  terminalThemeId?: string;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -67,6 +73,7 @@ export function TerminalPane({
   initialCwd,
   sshConnectionId,
   savedPtyId,
+  terminalThemeId,
   onSearchReady,
   onExit,
   onCwd,
@@ -90,7 +97,11 @@ export function TerminalPane({
   // cover it. `applyTerminalTheme` (ThemeProvider) sets the CSS vars on the same
   // store change; the rAF below defers a frame so they're in place first.
   const terminalThemeMode = usePreferencesStore((s) => s.terminalThemeMode);
-  const terminalThemeId = usePreferencesStore((s) => s.terminalThemeId);
+  // Global terminal theme id (aliased so it doesn't collide with this pane's
+  // per-leaf `terminalThemeId` prop). Both belong in the re-theme effect deps:
+  // the global one re-applies when the pane follows the global theme, the
+  // per-leaf one is handled inside `useTerminalSession`.
+  const globalTerminalThemeId = usePreferencesStore((s) => s.terminalThemeId);
   const terminalCustomPalette = usePreferencesStore((s) => s.terminalCustomPalette);
   // Note: app-opacity changes re-theme the terminal via the rAF-throttled
   // `tedi:canvas-opacity` window listener in `useTerminalSession`, so it stays
@@ -104,6 +115,7 @@ export function TerminalPane({
     initialCwd,
     sshConnectionId,
     savedPtyId,
+    terminalThemeId,
     onSearchReady: (a) => onSearchReady?.(leafId, a),
     onExit: (c) => onExit?.(leafId, c),
     onCwd: (c) => onCwd?.(leafId, c),
@@ -132,7 +144,7 @@ export function TerminalPane({
     customTheme,
     customThemeEnabled,
     terminalThemeMode,
-    terminalThemeId,
+    globalTerminalThemeId,
     terminalCustomPalette,
   ]);
 

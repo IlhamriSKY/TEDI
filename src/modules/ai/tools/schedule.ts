@@ -34,7 +34,7 @@ function coerceNumber(v: unknown): unknown {
   return v;
 }
 
-function coerceInt(v: unknown): unknown {
+export function coerceInt(v: unknown): unknown {
   if (v === null) return undefined;
   if (typeof v === "string") {
     const trimmed = v.trim();
@@ -54,6 +54,46 @@ function coerceBool(v: unknown): unknown {
     if (s === "false" || s === "0" || s === "no") return false;
   }
   return v;
+}
+
+/**
+ * Coerce loose model input into ARRAY shape before zod validates. Distinct from
+ * `coerceJsonObject` (which only un-stringifies JSON): models routinely send a
+ * single value where the schema wants a list - e.g. grep `glob: "**\/*.ts"` or
+ * `glob: "\n**\/*.{ts,tsx}\n"` instead of `["**\/*.ts"]`. Without this the SDK
+ * rejects the tool call with `expected: array` and the turn can cascade into a
+ * "service error" before the model gets a chance to retry. Rules:
+ *   - null / "" -> undefined (let `.optional()` decide)
+ *   - already an array -> unchanged
+ *   - JSON array/object string -> parsed (object wrapped as a single element)
+ *   - any other non-empty string -> single-element array, trimmed; split on
+ *     NEWLINES only (never commas - a glob brace `{a,b}` legitimately has them)
+ *   - any other scalar/object -> wrapped as a single element
+ */
+function coerceArray(v: unknown): unknown {
+  // null/undefined pass through as undefined so `.optional()` stays happy and a
+  // required array still fails (an omitted optional `glob` must NOT become
+  // `[undefined]`, which would reject every glob-less grep/list_directory call).
+  if (v == null) return undefined;
+  if (Array.isArray(v)) return v;
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        // Not valid JSON; fall through to scalar handling.
+      }
+    }
+    const lines = trimmed
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return lines.length > 1 ? lines : [trimmed];
+  }
+  return [v];
 }
 
 /** Optional int that tolerates stringified numbers and explicit null.
@@ -78,14 +118,16 @@ export function flexBoolOpt() {
   return z.preprocess(coerceBool, z.boolean().optional());
 }
 
-/** Array schema that parses JSON-stringified input first. Required variant. */
+/** Array schema. Tolerates a JSON string, a bare scalar, or a single object
+ *  (all coerced to an array via `coerceArray`). Required variant. */
 export function flexArrayReq<T extends z.ZodTypeAny>(item: T) {
-  return z.preprocess(coerceJsonObject, z.array(item));
+  return z.preprocess(coerceArray, z.array(item));
 }
 
-/** Optional array. null -> undefined, JSON string -> parsed array. */
+/** Optional array. null/"" -> undefined; JSON string -> parsed; bare scalar ->
+ *  single-element array (see `coerceArray`). */
 export function flexArrayOpt<T extends z.ZodTypeAny>(item: T) {
-  return z.preprocess(coerceJsonObject, z.array(item).optional());
+  return z.preprocess(coerceArray, z.array(item).optional());
 }
 
 /** Object schema that parses JSON-stringified input first. */

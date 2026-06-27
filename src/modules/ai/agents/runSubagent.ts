@@ -1,6 +1,6 @@
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
-import { buildLanguageModel } from "../lib/agent";
+import { buildLanguageModel, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import type { ProviderKeys } from "../lib/keyring";
 import {
@@ -16,6 +16,10 @@ import { buildSearchTools } from "../tools/search";
 import { SUBAGENTS, type SubagentType } from "./registry";
 
 const SUBAGENT_MAX_STEPS = 12;
+/** Runaway backstop on a caller-supplied per-run step budget (see `maxSteps`).
+ *  The user-facing cap (Settings → Sub-agents) is lower; this only guards
+ *  against a bad caller value. */
+const SUBAGENT_MAX_STEPS_CAP = 50;
 
 type Args = {
   type: SubagentType;
@@ -27,7 +31,30 @@ type Args = {
   openaiCompatibleBaseURL?: string;
   /** Forwarded from parent so Stop also cancels in-flight subagent fetches. */
   abortSignal?: AbortSignal;
+  /** Per-call internal step budget. Defaults to SUBAGENT_MAX_STEPS, clamped to
+   *  [1, SUBAGENT_MAX_STEPS_CAP]. Lets a fan-out give cheap tasks fewer steps. */
+  maxSteps?: number;
+  /** Fires after each internal step with a human label of what the subagent
+   *  just did ("Reading …", "Grepping …") and the running step count, so the UI
+   *  can show live progress for an otherwise-blocking generateText loop. */
+  onStep?: (label: string, stepCount: number) => void;
 };
+
+/** Human label for the subagent's latest step, mirroring the main agent's
+ *  per-step label derivation (reuses the shared TOOL_LABELS map). */
+function describeStep(step: {
+  toolCalls?: Array<{ toolName: string; input?: unknown }>;
+  text?: string;
+}): string {
+  const last = step.toolCalls?.[step.toolCalls.length - 1];
+  if (last) {
+    const label = TOOL_LABELS[last.toolName];
+    return label
+      ? label((last.input ?? {}) as Record<string, unknown>)
+      : `Calling ${last.toolName}`;
+  }
+  return step.text ? "Writing" : "Thinking";
+}
 
 type RunResult = {
   summary: string;
@@ -44,9 +71,16 @@ export async function runSubagent({
   lmstudioBaseURL,
   openaiCompatibleBaseURL,
   abortSignal,
+  maxSteps,
+  onStep,
 }: Args): Promise<RunResult> {
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
+
+  const effectiveMaxSteps = Math.max(
+    1,
+    Math.min(maxSteps ?? SUBAGENT_MAX_STEPS, SUBAGENT_MAX_STEPS_CAP),
+  );
 
   // Read-only tools only. Skip mutating/recursive builders. Disable the
   // out-of-scope read approval gate: this generateText loop has no approval
@@ -93,13 +127,23 @@ export async function runSubagent({
 
   // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
+  let liveSteps = 0;
   const result = await generateText({
     model,
     messages,
     tools: filtered as never,
-    stopWhen: stepCountIs(SUBAGENT_MAX_STEPS) as never,
+    stopWhen: stepCountIs(effectiveMaxSteps) as never,
     ...(temperature !== undefined ? { temperature } : {}),
     abortSignal,
+    // Surface live progress: each finished step reports what the subagent just
+    // did + the running step count to the optional onStep callback.
+    onStepFinish: (step: {
+      toolCalls?: Array<{ toolName: string; input?: unknown }>;
+      text?: string;
+    }) => {
+      liveSteps += 1;
+      onStep?.(describeStep(step), liveSteps);
+    },
   } as never);
   const durationMs = Date.now() - start;
 

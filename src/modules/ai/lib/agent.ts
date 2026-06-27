@@ -8,11 +8,13 @@ import {
   type ToolSet,
   type UIMessage,
 } from "ai";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   DEFAULT_MODEL_ID,
   getModelContextLimit,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
+  ORCHESTRATION_PROMPT_BODY,
   pickSystemPromptVariant,
   PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
@@ -35,7 +37,7 @@ import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
 
-const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
+export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
   list_directory: (i) => `Listing ${shortPath(i.path)}`,
   grep: (i) => `Grepping ${ellipsize(String(i.pattern ?? ""), 40)}`,
@@ -57,6 +59,19 @@ const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = 
   suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
+  run_subagents: (i) => {
+    const tasks = Array.isArray(i.tasks) ? i.tasks : [];
+    // "(orchestrated)" when the batch actually uses depends_on; a plain fan-out
+    // (no deps) shows "in parallel".
+    const orchestrated = tasks.some(
+      (t) =>
+        t &&
+        typeof t === "object" &&
+        Array.isArray((t as { depends_on?: unknown }).depends_on) &&
+        (t as { depends_on: unknown[] }).depends_on.length > 0,
+    );
+    return `Spawning ${tasks.length} subagent${tasks.length === 1 ? "" : "s"}${orchestrated ? " (orchestrated)" : " in parallel"}`;
+  },
 };
 
 /**
@@ -86,6 +101,7 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   bash_kill: "Bash Kill",
   suggest_command: "Suggest Command",
   run_subagent: "Run Subagent",
+  run_subagents: "Run Subagents",
   todo_write: "Todo Write",
   read_terminal: "Read Terminal",
   open_terminal: "Open Terminal",
@@ -141,6 +157,7 @@ export const TOOL_ICONS: Record<string, string> = {
   bash_kill: "cancel-circle",
   suggest_command: "command",
   run_subagent: "user-multiple",
+  run_subagents: "user-multiple",
   todo_write: "check-list",
   read_terminal: "terminal",
   open_terminal: "add-square",
@@ -417,7 +434,19 @@ function buildSystemPrompt(opts: {
       : "";
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
-  return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}`;
+  // Auto-orchestration nudge: appended whenever sub-agents are enabled (the
+  // single on/off now covers orchestration too). Read live (like the overrides
+  // above); the flag is stable across a turn so the prefix stays byte-stable for
+  // caching until the setting changes.
+  const subPrefs = usePreferencesStore.getState();
+  const orchestrationOn = subPrefs.subagentsEnabled;
+  const orchestrationBody = resolvePromptText(
+    overrides,
+    "orchestration",
+    ORCHESTRATION_PROMPT_BODY,
+  );
+  const orchestrationBlock = orchestrationOn ? `\n\n${orchestrationBody}` : "";
+  return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
 }
 
 /** Runs one streaming agent step. Returns a `streamText` result whose

@@ -47,6 +47,14 @@ export type TerminalLeafState = {
    * (or fails to) so a manual close-and-reopen of the tab spawns fresh.
    */
   savedPtyId?: string;
+  /**
+   * Per-leaf terminal theme override. Holds a `TERMINAL_PRESETS` id so this
+   * pane paints its own palette regardless of the global terminal theme.
+   * Undefined = follow the global terminal theme (Settings -> Terminal). Set
+   * from the pane header's right-click "Terminal theme" menu and persisted by
+   * the workspace serializer so it survives restart.
+   */
+  terminalThemeId?: string;
 };
 
 export type EditorLeafState = {
@@ -214,6 +222,26 @@ export function setLeafPrivate(n: PaneNode, id: PaneId, value: boolean): PaneNod
   return { ...n, children: n.children.map((c) => setLeafPrivate(c, id, value)) };
 }
 
+/**
+ * Set or clear a terminal leaf's per-leaf theme override. `themeId` is a
+ * `TERMINAL_PRESETS` id; pass `null` to clear it (the pane reverts to the
+ * global terminal theme). Returns the same tree by reference on no-op. No-op
+ * for non-terminal leaves or mismatched ids.
+ */
+export function setLeafTerminalTheme(n: PaneNode, id: PaneId, themeId: string | null): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "terminal") return n;
+    if (themeId) {
+      if (n.terminalThemeId === themeId) return n;
+      return { ...n, terminalThemeId: themeId };
+    }
+    if (n.terminalThemeId === undefined) return n;
+    const { terminalThemeId: _drop, ...rest } = n;
+    return rest as PaneLeaf;
+  }
+  return { ...n, children: n.children.map((c) => setLeafTerminalTheme(c, id, themeId)) };
+}
+
 /** Update a preview leaf's current URL. No-op for other leaves or mismatched ids. */
 export function updateBrowserLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
   if (isLeaf(n)) {
@@ -291,6 +319,7 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
+      ...(leaf.terminalThemeId ? { terminalThemeId: leaf.terminalThemeId } : {}),
     };
   }
   if (leaf.leafKind === "editor") {
