@@ -226,7 +226,7 @@ export function compactModelMessagesDetailed(
   }
   let approxTokens = approxBytes(working) / 4;
 
-  // Stage 2: elide older tool-result blocks until under 50% or KEEP_TAIL reached.
+  // Stage 2: elide older tool-result blocks until under 60% or KEEP_TAIL reached.
   if (approxTokens >= 0.72 * contextLimit) {
     const out = working.slice();
     const stopIdx = Math.max(0, out.length - KEEP_TAIL);
@@ -275,6 +275,13 @@ export function compactModelMessagesDetailed(
       stages.dropped++;
     }
     if (cut > 0) {
+      // Don't keep an orphaned tool-result at the head: convertToModelMessages
+      // emits the assistant tool-call and its tool result as separate messages,
+      // and a provider rejects a tool_result whose tool_use was just dropped.
+      while (cut < rest.length && rest[cut].role === "tool") {
+        cut++;
+        stages.dropped++;
+      }
       working = [...systemPrefix, ...rest.slice(cut)];
     }
   }

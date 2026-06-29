@@ -127,7 +127,7 @@ export function buildTerminalTools(ctx: ToolContext) {
       },
     }),
 
-    ["Read Terminal"]: tool({
+    read_terminal: tool({
       description:
         "Read focused terminal scrollback. Use when user refers to terminal output. Null if active tab isn't terminal. Auto.",
       inputSchema: z.object({
@@ -405,7 +405,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     run_in_terminal: tool({
       description:
-        "Submit a command into the focused terminal (Enter appended). Output stays in user's tab; use Read Terminal after if needed. Different from Bash Run (hidden shell). Refuses if the active terminal is busy (command running or TUI on the alt-screen); in that case a fresh split is opened for you, retry next step. Approval.",
+        "Submit a command into the focused terminal (Enter appended). Output stays in user's tab; use read_terminal after if needed. Different from Bash Run (hidden shell). Refuses if the active terminal is busy (command running or TUI on the alt-screen); in that case a fresh split is opened for you, retry next step. Approval.",
       inputSchema: z.object({
         command: z.string().describe("Command to submit. No trailing newline."),
       }),

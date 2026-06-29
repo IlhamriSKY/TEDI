@@ -10,12 +10,13 @@ import {
 } from "@hugeicons/core-free-icons";
 import { getModelContextLimit } from "../config";
 import { flushPersist, getChat, useChatStore } from "../store/chatStore";
-import { showInfoModal } from "../store/infoModalStore";
+import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
 import { compactUiMessages } from "./compact";
+import { getMcpServers } from "./mcpConfig";
 import { saveMessages } from "./sessions";
-import { getLoadedSkills, skillSlug } from "./skills";
+import { getLoadedSkills, loadSkills, skillSlug } from "./skills";
 
 /**
  * Outcome of intercepting a slash command.
@@ -89,6 +90,20 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     description: "Trim older messages to reclaim context (keeps the most recent turns).",
     icon: Minimize02Icon,
   },
+  skills: {
+    name: "skills",
+    invocation: "/skills",
+    label: "List skills",
+    description: "Show installed skills (invoke one with /<name>).",
+    icon: SparklesIcon,
+  },
+  mcp: {
+    name: "mcp",
+    invocation: "/mcp",
+    label: "List MCP servers",
+    description: "Show configured MCP servers and their status.",
+    icon: CheckListIcon,
+  },
   init: {
     name: "init",
     invocation: "#init",
@@ -130,8 +145,12 @@ export const HASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).f
  *  users can invoke one directly. Built live from the loaded-skills cache. */
 export function skillSlashCommands(): SlashCommandMeta[] {
   // Full description; the picker clamps the display (line-clamp-2) so there's no
-  // mid-word code truncation.
-  return getLoadedSkills().map((s) => ({
+  // mid-word code truncation. Drop slugs colliding with a built-in command:
+  // tryRunSlashCommand resolves built-ins first, so a collided skill is
+  // unreachable — showing it as a duplicate `/` row would only mislead.
+  return getLoadedSkills()
+    .filter((s) => !(skillSlug(s) in SLASH_COMMANDS))
+    .map((s) => ({
     name: skillSlug(s),
     invocation: `/${skillSlug(s)}`,
     label: s.name,
@@ -186,6 +205,64 @@ function showHelp(): void {
     ],
     footer: "Press Esc to dismiss this dialog.",
   });
+}
+
+/** Render a "what's installed" list into the info modal — shared by /skills and
+ *  /mcp: a count subtitle when non-empty, a "where to add" hint when empty. */
+function showListModal<T>(
+  id: string,
+  title: string,
+  items: T[],
+  whenSome: string,
+  whenEmpty: string,
+  row: (item: T) => InfoRow,
+): void {
+  showInfoModal({
+    id,
+    title,
+    subtitle: items.length ? whenSome : whenEmpty,
+    sections: items.length ? [{ rows: items.map(row) }] : [],
+    footer: "Press Esc to dismiss.",
+  });
+}
+
+/** Modal listing installed skills. Loads fresh so the list is accurate even if
+ *  the picker cache hasn't warmed yet. */
+function showSkillsList(): void {
+  const root = useChatStore.getState().live.getWorkspaceRoot();
+  void loadSkills(root).then((skills) =>
+    showListModal(
+      "slash-skills",
+      "Installed skills",
+      skills,
+      `${skills.length} installed. Invoke one with /<name>, or manage in Settings → Agents → Skills.`,
+      "None installed. Add a GitHub repo with SKILL.md files in Settings → Agents → Skills.",
+      (s) => ({
+        kbd: `/${skillSlug(s)}`,
+        label: s.version ? `${s.name} v${s.version}` : s.name,
+        desc: s.description || "Skill",
+      }),
+    ),
+  );
+}
+
+/** Modal listing configured MCP servers and their enabled state. */
+function showMcpList(): void {
+  void getMcpServers().then((servers) =>
+    showListModal(
+      "slash-mcp",
+      "MCP servers",
+      servers,
+      `${servers.filter((s) => s.enabled).length}/${servers.length} enabled. Manage in Settings → Agents → MCP Servers.`,
+      "None configured. Add one in Settings → Agents → MCP Servers.",
+      (s) => ({
+        kbd: s.name,
+        label: s.enabled ? "enabled" : "disabled",
+        desc: `${s.command} ${s.args.join(" ")}`.trim(),
+        tone: s.enabled ? "ok" : undefined,
+      }),
+    ),
+  );
 }
 
 function clearActiveChat(): SlashOutcome {
@@ -286,6 +363,12 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
     }
     case "compact":
       return compactActiveChat();
+    case "skills":
+      showSkillsList();
+      return { kind: "handled" };
+    case "mcp":
+      showMcpList();
+      return { kind: "handled" };
     case "plan": {
       const store = usePlanStore.getState();
       if (tail === "off" || tail === "exit") {

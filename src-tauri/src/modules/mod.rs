@@ -10,6 +10,7 @@ pub mod fs;
 pub mod git;
 pub mod ids;
 pub mod lockext;
+pub mod mcp;
 pub mod net;
 pub mod preview;
 pub mod pty;

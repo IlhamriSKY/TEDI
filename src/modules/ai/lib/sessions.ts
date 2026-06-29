@@ -50,6 +50,13 @@ export async function saveMessages(id: string, messages: UIMessage[]): Promise<v
   await store.set(messagesKey(id), messages);
 }
 
+/** Force a durable write of all pending store mutations. `autoSave: 200` only
+ *  re-arms a 200ms timer, so an abrupt quit within that window loses the tail;
+ *  explicit flush points call this to guarantee the write landed on disk. */
+export async function saveNow(): Promise<void> {
+  await store.save();
+}
+
 export async function deleteSessionData(id: string): Promise<void> {
   await store.delete(messagesKey(id));
 }

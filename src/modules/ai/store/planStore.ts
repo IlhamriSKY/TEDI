@@ -15,6 +15,9 @@ export type QueuedEdit = {
   isNewFile: boolean;
   /** Description used for create_directory. */
   description?: string;
+  /** False when the pre-edit original couldn't be captured (large/binary file),
+   *  so applyAll must NOT record a modify snapshot (restore would truncate it). */
+  snapshotable?: boolean;
 };
 
 type PlanState = {
@@ -74,7 +77,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
                 kind: "create-file",
                 writtenContent: q.proposedContent,
               });
-            } else {
+            } else if (q.snapshotable !== false) {
               recordFileMutation(sessionId, q.path, {
                 kind: "modify",
                 originalContent: q.originalContent,

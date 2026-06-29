@@ -43,6 +43,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
 import { SkillsCard } from "./components/SkillsCard";
+import { McpServersCard } from "./components/McpServersCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 
 const ICON_OPTIONS: AgentIconId[] = [
@@ -154,6 +155,8 @@ export function AgentsSection() {
 
       <SkillsCard />
 
+      <McpServersCard />
+
       <SettingsAccordion
         title="Snippets"
         description={
@@ -259,13 +262,13 @@ export function AgentsSection() {
         }
       >
         <div className="flex flex-col gap-4">
-          <section className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/30 px-4 py-3">
+          <section className="border-border/60 bg-card/30 flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
             <div className="flex flex-col gap-0.5">
               <span className="text-[12.5px] font-medium">Debug</span>
               <span className="text-muted-foreground text-[11px] leading-relaxed">
-                Capture every request sent to the provider (system prompt, messages, model,
-                params, tool list). View and download each as JSON from the Debug button in the
-                chat input bar. No API keys are captured.
+                Capture every request sent to the provider (system prompt, messages, model, params,
+                tool list). View and download each as JSON from the Debug button in the chat input
+                bar. No API keys are captured.
               </span>
             </div>
             <Switch checked={debugEnabled} onCheckedChange={(v) => void setDebugEnabled(v)} />
@@ -468,10 +471,7 @@ function AgentEditorDialog({
   return (
     <Dialog open={!!agent} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className={cn(
-          "flex max-h-[90vh] flex-col gap-4 overflow-visible",
-          WIDE_DIALOG_WIDTH,
-        )}
+        className={cn("flex max-h-[90vh] flex-col gap-4 overflow-visible", WIDE_DIALOG_WIDTH)}
       >
         <DialogHeader>
           <DialogTitle className="text-[14px]">{dialogTitle}</DialogTitle>
@@ -531,7 +531,7 @@ function AgentEditorDialog({
             />
           </div>
         </div>
-        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+        <DialogFooter className="border-border/50 grid grid-cols-1 gap-2 border-t pt-4 sm:grid-cols-2">
           <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
@@ -571,10 +571,7 @@ function SnippetEditorDialog({
   return (
     <Dialog open={!!snippet} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className={cn(
-          "flex max-h-[90vh] flex-col gap-4 overflow-visible",
-          WIDE_DIALOG_WIDTH,
-        )}
+        className={cn("flex max-h-[90vh] flex-col gap-4 overflow-visible", WIDE_DIALOG_WIDTH)}
       >
         <DialogHeader>
           <DialogTitle className="text-[14px]">
@@ -632,7 +629,7 @@ function SnippetEditorDialog({
             />
           </div>
         </div>
-        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+        <DialogFooter className="border-border/50 grid grid-cols-1 gap-2 border-t pt-4 sm:grid-cols-2">
           <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>

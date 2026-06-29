@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sftpReadFile, sftpWriteFile } from "@/modules/ssh/sftp";
 import type { FsReadResult } from "@/lib/ipc";
+import { notifyMemoryPathChanged } from "@/modules/ai/lib/memoryCache";
+import { notifySkillPathChanged } from "@/modules/ai/lib/skillCache";
 
 type ReadResult = FsReadResult;
 
@@ -145,6 +147,8 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
       } else {
         await invoke("fs_write_file", { path, content });
       }
+      notifyMemoryPathChanged(path);
+      notifySkillPathChanged(path);
       savedRef.current = content;
       if (usingOverride) bufferRef.current = content;
       setDirty(false);

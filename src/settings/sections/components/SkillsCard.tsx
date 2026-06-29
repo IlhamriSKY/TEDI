@@ -15,33 +15,60 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
-import { Add01Icon, ArrowRight01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowRight01Icon,
+  Delete02Icon,
+  Download04Icon,
+  Refresh01Icon,
+  SparklesIcon,
+  Link01Icon,
+  Calendar01Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  checkAllSkillUpdates,
   installSkillsFromGithub,
   loadInstalledSkills,
   loadProjectSkills,
+  previewSkillsFromGithub,
   removeSkill,
+  removeSkillGroup,
   skillGroupDir,
+  updateAllSkillGroups,
+  updateSkillGroup,
   type SkillMeta,
 } from "@/modules/ai/lib/skills";
 
-type PendingDelete = { label: string; dir: string };
+type PendingDelete = { label: string; dir: string; isGroup?: boolean };
+type UpdateInfo = {
+  hasUpdate: boolean;
+  currentSha: string | null;
+  latestSha: string | null;
+  latestCommitMsg: string | null;
+};
 
-const folderName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+const folderName = (p: string) =>
+  p
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .pop() || p;
 
-/** Live workspace root the agent scans (the open project), shared across
- *  webviews via localStorage. Null when nothing is open. */
-function readLiveRoot(): string | null {
-  try {
-    return (
-      localStorage.getItem("tedi.liveWorkspaceRoot") ||
-      localStorage.getItem("tedi.workspaceRoot") ||
-      null
-    );
-  } catch {
-    return null;
-  }
+/** Shorten a SHA to 7 chars. */
+const shortSha = (sha: string | null) => (sha ? sha.slice(0, 7) : null);
+
+/** Format a relative time from ISO string. */
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 /** Group a skill list by source folder; named groups first, ungrouped last. */
@@ -58,14 +85,60 @@ function groupByRepo(list: SkillMeta[]): Array<[string, SkillMeta[]]> {
   );
 }
 
-function SkillRow({ s, onDelete }: { s: SkillMeta; onDelete: () => void }) {
+function SkillRow({
+  s,
+  onUpdate,
+  onDelete,
+}: {
+  s: SkillMeta;
+  onUpdate?: () => void;
+  onDelete: () => void;
+}) {
+  const ver = s.version ?? (s.state?.version ? s.state.version : null);
+  const installDate = s.state?.installedAt;
+  const requires = s.requires ?? s.state?.requires ?? [];
+
   return (
     <li className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2">
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[12px] font-medium">{s.name}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[12px] font-medium">{s.name}</span>
+          {ver && (
+            <span className="text-muted-foreground bg-accent/40 rounded px-1 py-0 font-mono text-[9.5px]">
+              v{ver}
+            </span>
+          )}
+          {onUpdate && (
+            <button
+              type="button"
+              onClick={onUpdate}
+              className="text-accent-foreground/70 hover:text-accent-foreground shrink-0 rounded p-0.5 transition-colors"
+              title="Update this skill"
+            >
+              <HugeiconsIcon icon={Refresh01Icon} size={10} strokeWidth={2} />
+            </button>
+          )}
+        </div>
         <span className="text-muted-foreground line-clamp-2 text-[10.5px] leading-relaxed">
           {s.description}
         </span>
+        <div className="text-muted-foreground/60 mt-0.5 flex items-center gap-2 text-[9.5px]">
+          {installDate && (
+            <span
+              className="flex items-center gap-0.5"
+              title={`Installed ${relativeTime(installDate)}`}
+            >
+              <HugeiconsIcon icon={Calendar01Icon} size={9} />
+              {relativeTime(installDate)}
+            </span>
+          )}
+          {requires.length > 0 && (
+            <span className="flex items-center gap-0.5">
+              <HugeiconsIcon icon={Link01Icon} size={9} />
+              deps: {requires.join(", ")}
+            </span>
+          )}
+        </div>
       </div>
       <IconTooltip label="Remove" side="left">
         <Button
@@ -98,12 +171,43 @@ export function SkillsCard() {
   const [query, setQuery] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
+  // Preview state
+  const [preview, setPreview] = useState<{
+    count: number;
+    skills: string[];
+    group: string;
+    repo: string;
+  } | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
+  // Update tracking
+  const [updates, setUpdates] = useState<Map<string, UpdateInfo>>(new Map());
+  const [updateBusy, setUpdateBusy] = useState<string | null>(null);
+
   // Open folder, kept reactive via the cross-window `storage` event.
-  const [openRoot, setOpenRoot] = useState<string | null>(() => readLiveRoot());
+  const [openRoot, setOpenRoot] = useState<string | null>(() => {
+    try {
+      return (
+        localStorage.getItem("tedi.liveWorkspaceRoot") ||
+        localStorage.getItem("tedi.workspaceRoot") ||
+        null
+      );
+    } catch {
+      return null;
+    }
+  });
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "tedi.liveWorkspaceRoot" || e.key === "tedi.workspaceRoot") {
-        setOpenRoot(readLiveRoot());
+        try {
+          setOpenRoot(
+            localStorage.getItem("tedi.liveWorkspaceRoot") ||
+              localStorage.getItem("tedi.workspaceRoot") ||
+              null,
+          );
+        } catch {
+          setOpenRoot(null);
+        }
       }
     };
     window.addEventListener("storage", onStorage);
@@ -121,6 +225,15 @@ export function SkillsCard() {
     void loadProjectSkills(openRoot).then(setProjectSkills);
   }, [openRoot]);
 
+  // Check for updates on load and refresh
+  const checkUpdates = async () => {
+    const result = await checkAllSkillUpdates();
+    setUpdates(result);
+  };
+  useEffect(() => {
+    void checkUpdates();
+  }, [globalSkills, projectSkills]);
+
   const total = globalSkills.length + projectSkills.length;
   const q = query.trim().toLowerCase();
   const matchesQuery = (s: SkillMeta) =>
@@ -137,17 +250,43 @@ export function SkillsCard() {
       return next;
     });
 
+  // Preview before install
+  const handlePreview = async () => {
+    const value = ref.trim();
+    if (!value) return;
+    setPreviewBusy(true);
+    setPreview(null);
+    try {
+      const p = await previewSkillsFromGithub(value);
+      setPreview({
+        count: p.count,
+        skills: [...p.skills.keys()],
+        group: p.group,
+        repo: `${p.owner}/${p.repo}`,
+      });
+    } catch (e) {
+      setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
+      setPreview(null);
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
+  // Install after preview
   const install = async () => {
     const value = ref.trim();
     if (!value || busy) return;
     setBusy(true);
     setStatus(null);
+    setPreview(null);
     try {
-      const { installed, group } = await installSkillsFromGithub(value, installRoot);
-      const where = installRoot ? `${installRoot.replace(/\\/g, "/")}/.tedi/skills` : "~/.tedi/skills";
+      const { installed, group, sha } = await installSkillsFromGithub(value, installRoot);
+      const where = installRoot
+        ? `${installRoot.replace(/\\/g, "/")}/.tedi/skills`
+        : "~/.tedi/skills";
       setStatus({
         kind: "ok",
-        msg: `Installed ${installed.length} skill${installed.length === 1 ? "" : "s"} into "${group}" at ${where}: ${installed.join(", ")}`,
+        msg: `Installed ${installed.length} skill${installed.length === 1 ? "" : "s"} into "${group}" at ${where}: ${installed.join(", ")}${sha ? ` (${shortSha(sha)})` : ""}`,
       });
       setRef("");
       refresh();
@@ -158,6 +297,48 @@ export function SkillsCard() {
     }
   };
 
+  // Update a single group
+  const handleUpdateGroup = async (group: string) => {
+    setUpdateBusy(group);
+    try {
+      const result = await updateSkillGroup(group);
+      if (result) {
+        setStatus({
+          kind: "ok",
+          msg: `Updated ${result.updated.length} skill(s) in "${group}"${result.sha ? ` (${shortSha(result.sha)})` : ""}`,
+        });
+        refresh();
+      }
+    } catch (e) {
+      setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setUpdateBusy(null);
+    }
+  };
+
+  // Update all
+  const handleUpdateAll = async () => {
+    setUpdateBusy("all");
+    try {
+      const result = await updateAllSkillGroups();
+      if (result) {
+        setStatus({
+          kind: "ok",
+          msg: `Updated ${result.updated.length} skill(s) across ${result.groups.length} group(s): ${result.groups.join(", ")}`,
+        });
+        refresh();
+      } else {
+        setStatus({ kind: "ok", msg: "All skills are up to date." });
+      }
+    } catch (e) {
+      setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setUpdateBusy(null);
+    }
+  };
+
+  const pendingUpdatesCount = [...updates.values()].filter((u) => u.hasUpdate).length;
+
   const renderSection = (title: string, list: SkillMeta[]) => {
     const filtered = list.filter(matchesQuery);
     if (filtered.length === 0) return null;
@@ -167,6 +348,9 @@ export function SkillsCard() {
           {title}
         </div>
         {groupByRepo(filtered).map(([group, items]) => {
+          const groupKey = skillGroupDir(items[0]) ?? group;
+          const updateInfo = group ? (updates.get(group) ?? null) : null;
+          const hasUpdate = updateInfo?.hasUpdate ?? false;
           if (!group) {
             return (
               <ul key="(ungrouped)" className="flex flex-col gap-1.5">
@@ -180,12 +364,11 @@ export function SkillsCard() {
               </ul>
             );
           }
-          const key = skillGroupDir(items[0]) ?? group;
           return (
             <Collapsible
-              key={key}
-              open={q !== "" || openGroups.has(key)}
-              onOpenChange={(o) => toggleGroup(key, o)}
+              key={groupKey}
+              open={q !== "" || openGroups.has(groupKey)}
+              onOpenChange={(o) => toggleGroup(groupKey, o)}
               className="border-border/60 overflow-hidden rounded-lg border"
             >
               <div className="bg-card/40 flex items-center gap-1">
@@ -198,19 +381,49 @@ export function SkillsCard() {
                   />
                   <span className="font-medium">{group}</span>
                   <span className="text-muted-foreground text-[10px]">· {items.length}</span>
+                  {hasUpdate && (
+                    <span className="text-accent-foreground flex items-center gap-0.5 text-[9.5px] font-medium">
+                      <HugeiconsIcon icon={Download04Icon} size={10} />
+                      Update available
+                    </span>
+                  )}
                 </CollapsibleTrigger>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPendingDelete({
-                      label: `the "${group}" group (${items.length} skill${items.length === 1 ? "" : "s"})`,
-                      dir: key,
-                    })
-                  }
-                  className="text-muted-foreground/70 hover:text-destructive shrink-0 px-2.5 text-[10px] underline-offset-2 hover:underline"
-                >
-                  Remove all
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {hasUpdate && (
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateGroup(group)}
+                      disabled={updateBusy === group}
+                      className={cn(
+                        "text-accent-foreground/70 hover:text-accent-foreground flex shrink-0 items-center gap-1 px-2.5 text-[10px] underline-offset-2 transition-colors hover:underline",
+                        updateBusy === group && "cursor-not-allowed opacity-50",
+                      )}
+                      title={`Update "${group}"`}
+                    >
+                      {updateBusy === group ? (
+                        <Spinner className="size-3" />
+                      ) : (
+                        <>
+                          <HugeiconsIcon icon={Refresh01Icon} size={9} />
+                          Update
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPendingDelete({
+                        label: `the "${group}" group (${items.length} skill${items.length === 1 ? "" : "s"})`,
+                        dir: groupKey!,
+                        isGroup: true,
+                      })
+                    }
+                    className="text-muted-foreground/70 hover:text-destructive shrink-0 px-2.5 text-[10px] underline-offset-2 hover:underline"
+                  >
+                    Remove all
+                  </button>
+                </div>
               </div>
               <CollapsibleContent>
                 <ul className="flex flex-col gap-1.5 px-1.5 pt-1.5 pb-1.5">
@@ -231,42 +444,105 @@ export function SkillsCard() {
   };
 
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/30 px-4 py-3">
+    <section className="border-border/60 bg-card/30 flex flex-col gap-2 rounded-lg border px-4 py-3">
       <div className="flex flex-col gap-0.5">
-        <span className="text-[12.5px] font-medium">Skills</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[12.5px] font-medium">Skills</span>
+          {pendingUpdatesCount > 0 && (
+            <span className="text-accent-foreground bg-accent/30 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium">
+              <HugeiconsIcon icon={Download04Icon} size={9} />
+              {pendingUpdatesCount} update{pendingUpdatesCount > 1 ? "s" : ""} available
+            </span>
+          )}
+        </div>
         <span className="text-muted-foreground text-[11px] leading-relaxed">
           Expert playbooks the AI loads on demand or you invoke with a slash command. Install any
           GitHub repo with SKILL.md files, globally or into the open project.
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Input
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void install();
-          }}
-          placeholder="owner/repo or GitHub URL (any repo with SKILL.md files)"
-          className="h-8 flex-1 text-[12px]"
-          spellCheck={false}
-          disabled={busy}
-        />
-        <Button
-          size="sm"
-          className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px]"
-          disabled={busy || !ref.trim()}
-          onClick={() => void install()}
-        >
-          {busy ? (
-            <Spinner className="size-3.5" />
+      {/* Install input + preview */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <Input
+            value={ref}
+            onChange={(e) => {
+              setRef(e.target.value);
+              setPreview(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (!preview) void handlePreview();
+                else void install();
+              }
+            }}
+            placeholder="owner/repo or GitHub URL (any repo with SKILL.md files)"
+            className="h-8 flex-1 text-[12px]"
+            spellCheck={false}
+            disabled={busy || previewBusy}
+          />
+          {!preview ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px]"
+              disabled={busy || previewBusy || !ref.trim()}
+              onClick={() => void handlePreview()}
+            >
+              {previewBusy ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={1.75} />
+              )}
+              Preview
+            </Button>
           ) : (
-            <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+            <Button
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px]"
+              disabled={busy || !ref.trim()}
+              onClick={() => void install()}
+            >
+              {busy ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+              )}
+              {busy ? "Installing…" : "Install"}
+            </Button>
           )}
-          {busy ? "Installing…" : "Install"}
-        </Button>
+        </div>
+
+        {/* Preview card */}
+        {preview && (
+          <div className="border-border/40 bg-accent/10 flex flex-col gap-1 rounded-lg border px-3 py-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <HugeiconsIcon icon={SparklesIcon} size={12} className="text-accent-foreground" />
+              {preview.count} skill{preview.count !== 1 ? "s" : ""} found in{" "}
+              <span className="font-mono text-[10.5px]">{preview.repo}</span>
+            </div>
+            <div className="text-muted-foreground flex flex-wrap gap-1 text-[10px]">
+              {preview.skills.map((s) => (
+                <span
+                  key={s}
+                  className="bg-background/60 rounded px-1.5 py-0.5 font-mono text-[9.5px]"
+                >
+                  /{s}
+                </span>
+              ))}
+            </div>
+            <div className="text-muted-foreground/70 mt-0.5 text-[9.5px]">
+              Will install to:{" "}
+              <strong>
+                {installRoot ? `project ${folderName(installRoot)}` : "global (~/.tedi/skills)"}
+              </strong>{" "}
+              → {preview.group}/
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Install target toggle */}
       <div className="flex items-center gap-1.5 text-[10.5px]">
         <span className="text-muted-foreground">Install to:</span>
         <button
@@ -296,6 +572,8 @@ export function SkillsCard() {
           </button>
         </IconTooltip>
       </div>
+
+      {/* Status message */}
       {status ? (
         <div
           className={cn(
@@ -307,6 +585,30 @@ export function SkillsCard() {
         </div>
       ) : null}
 
+      {/* Update all button */}
+      {pendingUpdatesCount > 0 && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 text-[10.5px]"
+            disabled={updateBusy === "all"}
+            onClick={() => void handleUpdateAll()}
+          >
+            {updateBusy === "all" ? (
+              <Spinner className="size-3" />
+            ) : (
+              <HugeiconsIcon icon={Refresh01Icon} size={11} />
+            )}
+            Update all ({pendingUpdatesCount})
+          </Button>
+          <span className="text-muted-foreground text-[9.5px]">
+            {pendingUpdatesCount} group{pendingUpdatesCount > 1 ? "s" : ""} have updates
+          </span>
+        </div>
+      )}
+
+      {/* Skills list */}
       {total === 0 ? (
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
           No skills installed yet. Paste a GitHub repo with SKILL.md files above to install one.
@@ -327,16 +629,19 @@ export function SkillsCard() {
           )}
           {q && !globalSkills.some(matchesQuery) && !projectSkills.some(matchesQuery) ? (
             <div className="text-muted-foreground/80 text-[10.5px] italic">
-              No skills match “{query}”.
+              No skills match "{query}".
             </div>
           ) : null}
         </div>
       )}
 
+      {/* Delete confirmation */}
       <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove skill?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingDelete?.isGroup ? "Remove skill group?" : "Remove skill?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete ? `${pendingDelete.label} will be permanently deleted.` : ""}
             </AlertDialogDescription>
@@ -346,7 +651,15 @@ export function SkillsCard() {
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (pendingDelete) void removeSkill(pendingDelete.dir).then(refresh);
+                if (pendingDelete) {
+                  if (pendingDelete.isGroup) {
+                    void removeSkillGroup(pendingDelete.dir).then(() => {
+                      refresh();
+                    });
+                  } else {
+                    void removeSkill(pendingDelete.dir).then(refresh);
+                  }
+                }
                 setPendingDelete(null);
               }}
             >

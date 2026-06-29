@@ -198,11 +198,14 @@ export function SourceControlPanel({
   }, [fetchStatus, bumpGraph]);
 
   useEffect(() => {
+    if (collapsed) return;
     void fetchStatus(false);
-  }, [fetchStatus, rootPath]);
+  }, [fetchStatus, rootPath, collapsed]);
 
   useEffect(() => {
-    if (!rootPath) return;
+    // Collapsed to its header: the change list / graph aren't rendered, so
+    // don't poll git status (subprocess spawn every 2.5s) for an unseen view.
+    if (!rootPath || collapsed) return;
     let intervalId: number | null = null;
     const start = () => {
       if (intervalId !== null) return;
@@ -240,7 +243,7 @@ export function SourceControlPanel({
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [rootPath, fetchStatus]);
+  }, [rootPath, fetchStatus, collapsed]);
 
   const sorted = useMemo(() => {
     if (!status) return [] as GitChange[];

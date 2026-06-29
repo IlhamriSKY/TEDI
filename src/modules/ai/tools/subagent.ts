@@ -11,6 +11,7 @@ import {
   SUBAGENT_SUMMARY_KB_DEFAULT,
   SUBAGENT_SUMMARY_KB_MAX,
 } from "@/modules/settings/store";
+import { registerDescriptionCacheInvalidator } from "../lib/skills";
 import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
 import { coerceInt, flexArrayOpt, flexIntOpt } from "./schedule";
 
@@ -40,13 +41,39 @@ function subagentConfig() {
   };
 }
 
+// Memoized subagent type descriptions — rebuilt only when defs change.
+// Avoids serializing the same ~300-500 tokens every turn.
+let _cachedTypeDescriptions: string | null = null;
+let _cachedTypeDescriptionsVersion: string | number = -1;
+
+// Reset cache when subagent defs change at runtime.
+registerDescriptionCacheInvalidator(() => {
+  _cachedTypeDescriptions = null;
+  _cachedTypeDescriptionsVersion = -1;
+});
+
 function buildTypeDescriptions(): string {
   const defs = getAllSubagentDefs();
-  return Object.values(defs)
+  // Version on content (not entry count) so an in-place description/category
+  // edit to a custom sub-agent invalidates the memo — a count-only key missed
+  // edits that kept the entry count unchanged.
+  const ver = Object.values(defs)
+    .map(
+      (d: { id: string; description: string; category?: string }) =>
+        `${d.id}:${d.category ?? ""}:${d.description}`,
+    )
+    .join("|");
+  if (_cachedTypeDescriptions !== null && _cachedTypeDescriptionsVersion === ver) {
+    return _cachedTypeDescriptions;
+  }
+  const desc = Object.values(defs)
     .map((d: { id: string; description: string; category?: string }) =>
       d.category ? `- ${d.id} (${d.category}): ${d.description}` : `- ${d.id}: ${d.description}`,
     )
     .join("\n");
+  _cachedTypeDescriptions = desc;
+  _cachedTypeDescriptionsVersion = ver;
+  return desc;
 }
 
 /** Build the run_subagent / run_subagents tool definitions. */
@@ -200,12 +227,16 @@ export function buildSubagentTools(ctx: ToolContext) {
             if (visiting.has(node)) return true; // cycle found
             if (visited.has(node)) return false;
             visiting.add(node);
+            let cyc = false;
             for (const dep of rawDeps[node]) {
-              if (dfs(dep)) { inCycle[node] = true; return true; }
+              if (dfs(dep)) cyc = true;
             }
+            if (cyc) inCycle[node] = true;
+            // Always restore the stack invariant (don't early-return), else a
+            // stale `visiting` entry mislabels a later sibling as in-cycle.
             visiting.delete(node);
             visited.add(node);
-            return false;
+            return cyc;
           }
           for (let i = 0; i < batch.length; i++) dfs(i);
         }
@@ -270,36 +301,38 @@ export function buildSubagentTools(ctx: ToolContext) {
         }
 
         function pump() {
-          while (active < concurrency) {
-            let launched = false;
-            for (let i = 0; i < batch.length; i++) {
-              if (settled[i] || activeSet.has(i)) continue;
-              if (rawDeps[i].some((d) => !settled[d] || bad[d])) continue;
-              activeSet.add(i);
-              active++;
-              launched = true;
+          // Compute all ready tasks in one pass, then launch up to the remaining
+          // concurrency slots. O(n) per call instead of the old one-at-a-time
+          // loop (which did O(n) scans for each of n tasks).
+          const slots = concurrency - active;
+          if (slots <= 0) return;
+          const ready: number[] = [];
+          for (let i = 0; i < batch.length && ready.length < slots; i++) {
+            if (settled[i] || activeSet.has(i)) continue;
+            if (rawDeps[i].some((d) => !settled[d] || bad[d])) continue;
+            ready.push(i);
+          }
+          for (const i of ready) {
+            activeSet.add(i);
+            active++;
 
-              // Start the run BEFORE execution so UI sees "running" state.
-              if (sessionId) {
-                const runId = runStore.start(sessionId, {
-                  type: batch[i].type,
-                  label: batch[i].description,
-                });
-                runIds.set(i, runId);
-              }
-
-              const depResults = rawDeps[i].map((d) => results[d]).filter((r) => r && r.summary);
-
-              void runOne(i, depResults).then(
-                ({ result, failed }) => settle(result, failed),
-                (err) => {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  settle({ index: i, type: batch[i].type, error: msg }, true);
-                },
-              );
-              break;
+            // Start the run BEFORE execution so UI sees "running" state.
+            if (sessionId) {
+              const runId = runStore.start(sessionId, {
+                type: batch[i].type,
+                label: batch[i].description,
+              });
+              runIds.set(i, runId);
             }
-            if (!launched) break;
+
+            const depResults = rawDeps[i].map((d) => results[d]).filter((r) => r && r.summary);
+
+            void runOne(i, depResults).then(
+              ({ result, failed }) => settle(result, failed),
+              (err) => {
+                settle({ index: i, type: batch[i].type, error: scrubErrorPath(err, ctx) }, true);
+              },
+            );
           }
         }
 

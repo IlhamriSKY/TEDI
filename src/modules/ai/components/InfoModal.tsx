@@ -53,7 +53,7 @@ export function InfoModal() {
                           {row.kbd ? (
                             <code
                               className={cn(
-                                "bg-muted/60 text-foreground rounded px-1.5 py-0.5 font-mono text-[11px]",
+                                "bg-muted/60 text-foreground min-w-0 rounded px-1.5 py-0.5 font-mono text-[11px] break-words",
                                 row.tone === "ok" && "text-diff-added",
                                 row.tone === "warn" && "text-icon-working",
                                 row.tone === "err" && "text-destructive",
@@ -62,9 +62,11 @@ export function InfoModal() {
                               {row.kbd}
                             </code>
                           ) : (
-                            <span className="text-muted-foreground text-[11.5px]">{row.label}</span>
+                            <span className="text-muted-foreground min-w-0 text-[11.5px] break-words">
+                              {row.label}
+                            </span>
                           )}
-                          <span className="text-muted-foreground/95 text-[11.5px] leading-snug">
+                          <span className="text-muted-foreground/95 min-w-0 text-[11.5px] leading-snug break-words">
                             {row.kbd ? (
                               <>
                                 <span className="text-foreground font-medium">{row.label}</span>

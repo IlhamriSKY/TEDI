@@ -2,8 +2,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import { dispatchFsRefreshForFile, dispatchFsRefresh } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
+import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
-import { checkDeletable, checkReadable, checkWritable } from "../lib/security";
+import { notifySkillPathChanged } from "../lib/skillCache";
+import { checkDeletable, checkReadableResolved, checkWritableResolved } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import {
   isReadOutsideScope,
@@ -21,51 +23,14 @@ const DEFAULT_LINE_LIMIT = 2000;
 /** Skip undo snapshot above this size; IPC cost outweighs the value. */
 const SNAPSHOT_SIZE_CAP = 1_000_000;
 
-/**
- * Run the secret deny-list against the symlink-resolved real target, not the
- * literal path string. A string-only check is blind to an innocuously-named
- * symlink (notes.txt -> ~/.ssh/id_rsa); the backend follows symlinks on read,
- * so without this an auto-approved read could exfiltrate the target. Falls
- * back to the literal path if canonicalization fails (e.g. the path does not
- * exist yet) - the read itself surfaces any real error.
- */
-async function checkReadableResolved(abs: string): Promise<ReturnType<typeof checkReadable>> {
-  const literal = checkReadable(abs);
-  if (!literal.ok) return literal;
-  try {
-    const real = await native.canonicalize(abs);
-    if (real && real !== abs) return checkReadable(real);
-  } catch {
-    // Path missing / not resolvable: literal check already passed.
-  }
-  return literal;
-}
-
-/**
- * Write-side counterpart of checkReadableResolved: resolve symlinks before the
- * secret + system-dir check so an innocuously-named symlink can't redirect a
- * write into a protected target (e.g. notes.txt -> /etc/hosts, or a link into
- * C:\Windows). Falls back to the literal check when the path doesn't exist yet
- * (the common brand-new-file case).
- */
-async function checkWritableResolved(abs: string): Promise<ReturnType<typeof checkWritable>> {
-  const literal = checkWritable(abs);
-  if (!literal.ok) return literal;
-  try {
-    const real = await native.canonicalize(abs);
-    if (real && real !== abs) return checkWritable(real);
-  } catch {
-    // Path missing / not resolvable: literal check already passed.
-  }
-  return literal;
-}
-
 export function buildFsTools(
   ctx: ToolContext,
   opts: {
     gateOutOfScopeReads?: boolean;
     refuseOutOfScopeReads?: boolean;
+    refuseOutOfScopeMutations?: boolean;
     autoApproveMutations?: boolean;
+    ignorePlanMode?: boolean;
   } = {},
 ) {
   // Main agent (has an approval UI) gates reads that resolve outside the
@@ -81,6 +46,17 @@ export function buildFsTools(
   // still guarded by the symlink-resolved secret/system denylist, the
   // writable/deletable checks, scope-root protection, and checkpoint/restore.
   const approveMut = opts.autoApproveMutations ? false : true;
+  // An autonomous worker (no approver) refuses mutations outside the
+  // workspace/cwd — mirrors refuseOutOfScopeReads so a prompt-injected task
+  // can't write/delete anywhere on disk with no approval card.
+  const refuseMut = opts.refuseOutOfScopeMutations ?? false;
+  // The worker writes directly even in plan mode (its bash verification must see
+  // real files, not queued edits); the main agent still queues for review.
+  const ignorePlan = opts.ignorePlanMode ?? false;
+  const outOfScope = (p: string) =>
+    refuseMut && isReadOutsideScope(p, ctx)
+      ? { error: "refused: a subagent may not mutate outside the workspace/cwd", path: p }
+      : null;
   return {
     read_file: tool({
       description:
@@ -199,12 +175,18 @@ export function buildFsTools(
       execute: async ({ path, content }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
+        const oos = outOfScope(abs);
+        if (oos) return oos;
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
 
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           let original = "";
           let isNewFile = false;
+          // Whether the original can be round-tripped on Restore. A large/binary
+          // existing file has no captured original, so recording a modify would
+          // truncate it to "" on undo — mark it non-snapshotable instead.
+          let snapshotable = true;
           try {
             // readFilePortion as a size probe (reads 1 line but returns full
             // file size). Full read only if small enough to snapshot.
@@ -212,13 +194,13 @@ export function buildFsTools(
             if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
               const r = await native.readFile(abs);
               if (r.kind === "text") original = r.content;
-            } else if (probe.kind === "text") {
-              // Large text file: plan review shows proposed content only.
+              else snapshotable = false;
             } else {
-              // binary or too large
+              // Large text file or binary/oversized: original not captured.
+              snapshotable = false;
             }
           } catch {
-            isNewFile = true;
+            isNewFile = true; // brand-new file: restore deletes it (snapshotable)
           }
           usePlanStore.getState().enqueue({
             id: newQueuedEditId(),
@@ -227,6 +209,7 @@ export function buildFsTools(
             originalContent: original,
             proposedContent: content,
             isNewFile,
+            snapshotable,
           });
           return {
             path: abs,
@@ -266,6 +249,8 @@ export function buildFsTools(
         try {
           await native.writeFile(abs, content);
           ctx.readCache.add(abs);
+          notifyMemoryPathChanged(abs);
+          notifySkillPathChanged(abs);
           dispatchFsRefreshForFile(abs);
           return { path: abs, bytesWritten: content.length, ok: true };
         } catch (e) {
@@ -283,9 +268,11 @@ export function buildFsTools(
       execute: async ({ path }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
+        const oos = outOfScope(abs);
+        if (oos) return oos;
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           usePlanStore.getState().enqueue({
             id: newQueuedEditId(),
             kind: "create_directory",
@@ -315,6 +302,8 @@ export function buildFsTools(
 
         try {
           await native.createDir(abs);
+          notifyMemoryPathChanged(abs);
+          notifySkillPathChanged(abs);
           dispatchFsRefreshForFile(abs);
           // Refresh the new dir so an immediately-expanded parent sees it.
           dispatchFsRefresh(abs);
@@ -337,13 +326,17 @@ export function buildFsTools(
       needsApproval: approveMut,
       execute: async ({ from, to }) => {
         throwIfAborted(ctx);
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           return {
             error: "move_file is unavailable in plan mode (reads and queued edits only).",
           };
         }
         const absFrom = resolvePath(from, ctx.getCwd());
         const absTo = resolvePath(to, ctx.getCwd());
+        const oosFrom = outOfScope(absFrom);
+        if (oosFrom) return oosFrom;
+        const oosTo = outOfScope(absTo);
+        if (oosTo) return oosTo;
         // Both endpoints pass the write guard: the source is being removed and
         // the destination created, so neither may touch a protected target.
         const sFrom = await checkWritableResolved(absFrom);
@@ -367,6 +360,10 @@ export function buildFsTools(
             recordFileMutation(sessionId, absTo, { kind: "move", from: absFrom, to: absTo });
           }
           ctx.readCache.delete(absFrom);
+          notifyMemoryPathChanged(absFrom);
+          notifyMemoryPathChanged(absTo);
+          notifySkillPathChanged(absFrom);
+          notifySkillPathChanged(absTo);
           dispatchFsRefreshForFile(absFrom);
           dispatchFsRefreshForFile(absTo);
           return { from: absFrom, to: absTo, ok: true };
@@ -388,13 +385,17 @@ export function buildFsTools(
       needsApproval: approveMut,
       execute: async ({ from, to }) => {
         throwIfAborted(ctx);
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           return {
             error: "copy_file is unavailable in plan mode (reads and queued edits only).",
           };
         }
         const absFrom = resolvePath(from, ctx.getCwd());
         const absTo = resolvePath(to, ctx.getCwd());
+        const oosFrom = outOfScope(absFrom);
+        if (oosFrom) return oosFrom;
+        const oosTo = outOfScope(absTo);
+        if (oosTo) return oosTo;
         // Source is read, destination is written - apply the matching guards.
         const sFrom = await checkReadableResolved(absFrom);
         if (!sFrom.ok) return { error: sFrom.reason, path: absFrom };
@@ -407,21 +408,20 @@ export function buildFsTools(
           // create-file semantics. A directory copy or a binary/oversized file
           // is skipped (no safe content to restore from). Matters now that the
           // autonomous worker can copy files without an approval card.
+          // No probe needed — the file just created is known to exist; read it
+          // directly to snapshot (one IPC instead of probe+read).
           const sessionId = ctx.getSessionId();
           if (sessionId) {
             try {
-              const probe = await native.readFilePortion(absTo, 0, 1);
-              if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
-                const r = await native.readFile(absTo);
-                if (r.kind === "text") {
-                  recordFileMutation(sessionId, absTo, {
-                    kind: "create-file",
-                    writtenContent: r.content,
-                  });
-                }
+              const r = await native.readFile(absTo);
+              if (r.kind === "text" && r.size <= SNAPSHOT_SIZE_CAP) {
+                recordFileMutation(sessionId, absTo, {
+                  kind: "create-file",
+                  writtenContent: r.content,
+                });
               }
             } catch {
-              // Probe failed (e.g. a directory copy): not undoable, skip.
+              // Read failed (e.g. a directory copy or binary): not undoable, skip.
             }
           }
           dispatchFsRefreshForFile(absTo);
@@ -434,7 +434,7 @@ export function buildFsTools(
 
     delete_file: tool({
       description:
-        "Delete a file or directory (recursive for directories). Destructive - prefer this over a shell rm so the change is checkpointed. Approval.",
+        "Delete a file or directory (recursive for directories). Destructive. Only a text file under ~1MB is checkpoint-undoable; directory and binary/oversized deletes are permanent (stage git first). Approval.",
       inputSchema: z.object({
         path: z
           .string()
@@ -443,12 +443,14 @@ export function buildFsTools(
       needsApproval: approveMut,
       execute: async ({ path }) => {
         throwIfAborted(ctx);
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           return {
             error: "delete_file is unavailable in plan mode (reads and queued edits only).",
           };
         }
         const abs = resolvePath(path, ctx.getCwd());
+        const oos = outOfScope(abs);
+        if (oos) return oos;
         // Layered guards: symlink-resolved secret/system check, then the
         // root/top-level block (delete recurses), then workspace/cwd protection.
         const safety = await checkWritableResolved(abs);
@@ -480,6 +482,8 @@ export function buildFsTools(
         try {
           await native.deletePath(abs);
           ctx.readCache.delete(abs);
+          notifyMemoryPathChanged(abs);
+          notifySkillPathChanged(abs);
           dispatchFsRefreshForFile(abs);
           return { path: abs, deleted: true, ok: true };
         } catch (e) {
@@ -508,7 +512,7 @@ export function buildFsTools(
       needsApproval: approveMut,
       execute: async ({ pattern, replacement, root, glob, case_insensitive }) => {
         throwIfAborted(ctx);
-        if (usePlanStore.getState().active) {
+        if (!ignorePlan && usePlanStore.getState().active) {
           return {
             error: "replace_in_files is unavailable in plan mode (reads and queued edits only).",
           };

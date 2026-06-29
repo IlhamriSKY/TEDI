@@ -2,43 +2,112 @@ import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { findLastIndex } from "@/lib/utils";
 import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
-import { type DynamicModelId } from "../config";
+import { getModelContextLimit, type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import { formatSkillsPrompt, loadSkills } from "./skills";
+import { buildMcpToolsAsync, getMcpToolsSummary } from "../tools/mcp";
+import { compactUiMessages } from "./compact";
 import type { CompactStages } from "./compact";
 import { classifyError, newCorrelationId, tediError, TediErrorCode, toChatError } from "./errors";
 import type { ProviderKeys } from "./keyring";
-import { native } from "./native";
+import { native, type DirEntry } from "./native";
+import { subscribeMemoryPathChanges } from "./memoryCache";
 import type { ToolContext } from "../tools/tools";
 
 const TEDI_MD_MAX_BYTES = 32 * 1024;
-type MemoryCacheEntry = { content: string | null; cachedAt: number };
-const projectMemoryCache = new Map<string, MemoryCacheEntry>();
+type FileSignature = { mtime: number; size: number };
+type ProjectMemoryCacheEntry = {
+  content: string | null;
+  cachedAt: number;
+  signature?: FileSignature;
+};
+type FolderMemoryCacheEntry = { content: string | null; cachedAt: number; signature?: string };
+const projectMemoryCache = new Map<string, ProjectMemoryCacheEntry>();
+
+/** Cache key for the per-workspace memory caches. The live workspaceRoot is
+ *  already forward-slashed; fold trailing slash + case so it matches the
+ *  lowercased key clearMemoryCachesForPath deletes with — otherwise a Windows
+ *  drive letter alone guarantees a miss and edits aren't picked up until the
+ *  30s TTL. */
+function memoryCacheKey(workspaceRoot: string): string {
+  return workspaceRoot.replace(/\/$/, "").toLowerCase();
+}
+
+function clearMemoryCachesForPath(path: string): void {
+  const normalized = path.replace(/\/$/, "").toLowerCase();
+  if (normalized.endsWith("/tedi.md")) {
+    const workspaceRoot = normalized.slice(0, -"/tedi.md".length);
+    projectMemoryCache.delete(workspaceRoot);
+    return;
+  }
+  const marker = "/.tedi/memory/";
+  const idx = normalized.indexOf(marker);
+  if (idx === -1) return;
+  const workspaceRoot = normalized.slice(0, idx);
+  projectMemoryCache.delete(workspaceRoot);
+  memoryCache.delete(workspaceRoot);
+  const filename = normalized.slice(idx + marker.length);
+  if (filename) memoryFileCache.delete(memoryFileCacheKey(workspaceRoot, filename));
+}
+
+subscribeMemoryPathChanges(clearMemoryCachesForPath);
+
+async function readFileSignature(path: string): Promise<FileSignature | null> {
+  const slash = path.replace(/\\/g, "/");
+  const idx = slash.lastIndexOf("/");
+  const dir = idx === -1 ? "." : path.slice(0, idx);
+  const name = idx === -1 ? path : slash.slice(idx + 1);
+  try {
+    const entries = await native.readDir(dir);
+    const match = entries.find((entry) => entry.name === name);
+    return match ? { mtime: match.mtime, size: match.size } : null;
+  } catch {
+    return null;
+  }
+}
 
 async function readTediMd(workspaceRoot: string | null): Promise<string | null> {
   if (!workspaceRoot) return null;
+  const key = memoryCacheKey(workspaceRoot);
   const path = `${workspaceRoot.replace(/\/$/, "")}/TEDI.md`;
-  const cached = projectMemoryCache.get(workspaceRoot);
+  const cached = projectMemoryCache.get(key);
   // Cache for 30s. Re-read after that to pick up edits.
   if (cached && Date.now() - cached.cachedAt < 30_000) return cached.content;
   try {
+    const signature = await readFileSignature(path);
+    if (
+      cached &&
+      signature &&
+      cached.signature &&
+      cached.signature.mtime === signature.mtime &&
+      cached.signature.size === signature.size
+    ) {
+      projectMemoryCache.set(key, {
+        content: cached.content,
+        cachedAt: Date.now(),
+        signature,
+      });
+      return cached.content;
+    }
     const r = await native.readFile(path);
     if (r.kind !== "text") {
-      projectMemoryCache.set(workspaceRoot, {
+      projectMemoryCache.set(key, {
         content: null,
         cachedAt: Date.now(),
+        signature: signature ?? undefined,
       });
       return null;
     }
     const content =
       r.content.length > TEDI_MD_MAX_BYTES ? r.content.slice(0, TEDI_MD_MAX_BYTES) : r.content;
-    projectMemoryCache.set(workspaceRoot, {
+    projectMemoryCache.set(key, {
       content,
       cachedAt: Date.now(),
+      signature: signature ?? undefined,
     });
     return content;
   } catch {
-    projectMemoryCache.set(workspaceRoot, {
+    projectMemoryCache.set(key, {
       content: null,
       cachedAt: Date.now(),
     });
@@ -47,7 +116,17 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
 }
 
 const MEMORY_MAX_BYTES = 32 * 1024;
-const memoryCache = new Map<string, MemoryCacheEntry>();
+const memoryCache = new Map<string, FolderMemoryCacheEntry>();
+type MemoryFileCacheEntry = { content: string; mtime: number; size: number };
+const memoryFileCache = new Map<string, MemoryFileCacheEntry>();
+
+function memorySignature(files: readonly DirEntry[]): string {
+  return files.map((f) => `${f.name}:${f.mtime}:${f.size}`).join("|");
+}
+
+function memoryFileCacheKey(workspaceRoot: string, name: string): string {
+  return `${workspaceRoot}\u0000${name}`;
+}
 
 /** Read durable project memory from `.tedi/memory/*.md` (Claude-CLI style),
  *  concatenated oldest-name first under per-file headers and capped in total.
@@ -55,24 +134,51 @@ const memoryCache = new Map<string, MemoryCacheEntry>();
 async function readMemory(workspaceRoot: string | null): Promise<string | null> {
   if (!workspaceRoot) return null;
   const dir = `${workspaceRoot.replace(/\/$/, "")}/.tedi/memory`;
-  const cached = memoryCache.get(workspaceRoot);
+  const cacheWorkspaceRoot = memoryCacheKey(workspaceRoot);
+  const cached = memoryCache.get(cacheWorkspaceRoot);
   if (cached && Date.now() - cached.cachedAt < 30_000) return cached.content;
   let content: string | null = null;
   try {
     const files = (await native.readDir(dir))
       .filter((e) => e.name.toLowerCase().endsWith(".md"))
       .sort((a, b) => a.name.localeCompare(b.name));
+    const signature = memorySignature(files);
+    if (cached && cached.signature === signature) {
+      memoryCache.set(cacheWorkspaceRoot, {
+        content: cached.content,
+        cachedAt: Date.now(),
+        signature,
+      });
+      return cached.content;
+    }
     const blocks: string[] = [];
     let budget = MEMORY_MAX_BYTES;
     for (const f of files) {
       if (budget <= 0) break;
-      const r = await native.readFile(`${dir}/${f.name}`);
-      if (r.kind !== "text") continue;
-      const body = r.content.length > budget ? r.content.slice(0, budget) : r.content;
-      budget -= body.length;
-      blocks.push(`### ${f.name}\n${body.trim()}`);
+      const separatorBytes = blocks.length > 0 ? 2 : 0;
+      const header = `### ${f.name}\n`;
+      const overhead = separatorBytes + header.length;
+      if (budget <= overhead) break;
+      const cacheKey = memoryFileCacheKey(cacheWorkspaceRoot, f.name.toLowerCase());
+      const fileCached = memoryFileCache.get(cacheKey);
+      let raw =
+        fileCached && fileCached.mtime === f.mtime && fileCached.size === f.size
+          ? fileCached.content
+          : null;
+      if (raw === null) {
+        const r = await native.readFile(`${dir}/${f.name}`);
+        if (r.kind !== "text") continue;
+        raw =
+          r.content.length > MEMORY_MAX_BYTES ? r.content.slice(0, MEMORY_MAX_BYTES) : r.content;
+        memoryFileCache.set(cacheKey, { content: raw, mtime: f.mtime, size: f.size });
+      }
+      const body = raw.trim().slice(0, budget - overhead);
+      budget -= overhead + body.length;
+      blocks.push(`${header}${body}`);
     }
     content = blocks.length > 0 ? blocks.join("\n\n") : null;
+    memoryCache.set(workspaceRoot, { content, cachedAt: Date.now(), signature });
+    return content;
   } catch {
     content = null; // folder absent -> no memory
   }
@@ -95,6 +201,11 @@ type LiveSnapshot = {
 type Deps = {
   getKeys: () => ProviderKeys;
   toolContext: ToolContext;
+  getPersistedMessages?: () => UIMessage[];
+  persistCompactedMessages?: (
+    messages: UIMessage[],
+    info: { dropped: number; kept: number },
+  ) => void;
   getModelId: () => DynamicModelId;
   getCustomInstructions: () => string;
   getAgentPersona: () => { name: string; instructions: string } | null;
@@ -116,9 +227,30 @@ type Deps = {
 const MAX_RETRIES = 3;
 /** Base backoff in ms. With jitter: ~1s, ~2s, ~4s. */
 const RETRY_BASE_MS = 1000;
+const OVER_CONTEXT_RECOVERY_KEEP_TAIL = 12;
 
 function jitter(ms: number): number {
   return ms * (0.75 + Math.random() * 0.5);
+}
+
+function tryRecoverPersistedOverflow(
+  messages: UIMessage[],
+  contextLimit: number,
+): {
+  recovered: boolean;
+  messages: UIMessage[];
+  info: { dropped: number; kept: number };
+} {
+  const { messages: trimmed, info } = compactUiMessages(messages, {
+    contextLimit,
+    keepTail: OVER_CONTEXT_RECOVERY_KEEP_TAIL,
+    force: true,
+  });
+  return {
+    recovered: info.dropped > 0,
+    messages: trimmed,
+    info,
+  };
 }
 
 export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage> {
@@ -149,9 +281,19 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         loadSkills(live.workspaceRoot),
       ]);
       const skillsPrompt = formatSkillsPrompt(skills);
-      const augmented = injectContext(messages, live);
+
+      // Load MCP tools and summary (async, parallel). Pass the same cwd to both
+      // so the deduped connect (mcpClient.getMcpClient) is cwd-deterministic.
+      const mcpCwd = deps.toolContext.getCwd?.() ?? undefined;
+      const [mcpTools, mcpSummary] = await Promise.all([
+        buildMcpToolsAsync(deps.toolContext),
+        getMcpToolsSummary(mcpCwd),
+      ]);
+
+      let requestMessages = messages;
 
       let lastError: unknown;
+      let triedOverflowRecovery = false;
       // retry loop: each attempt depends on the previous failing
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (abortSignal?.aborted) {
@@ -161,6 +303,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         }
 
         try {
+          const augmented = injectContext(requestMessages, live);
           const result = await runAgentStream({
             keys: snapshot.keys,
             modelId: snapshot.modelId,
@@ -170,6 +313,20 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             onStep: deps.onStep,
             onUsage: deps.onUsage,
             onCompact: deps.onCompact,
+            onOverContext: () => {
+              // Streaming over-context surfaces after runAgentStream returns, so
+              // the synchronous catch below never sees it. Compact persisted
+              // history here so the user's next send fits.
+              const persisted = deps.getPersistedMessages?.();
+              if (!persisted) return;
+              const recovery = tryRecoverPersistedOverflow(
+                persisted,
+                getModelContextLimit(snapshot.modelId),
+              );
+              if (recovery.recovered) {
+                deps.persistCompactedMessages?.(recovery.messages, recovery.info);
+              }
+            },
             onFinishMeta: deps.onFinishMeta,
             lmstudioBaseURL: snapshot.lmstudioBaseURL,
             openaiCompatibleBaseURL: snapshot.openaiCompatibleBaseURL,
@@ -177,6 +334,8 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             projectMemory,
             memory,
             skillsPrompt,
+            mcpTools,
+            mcpSummary,
             uiMessages: augmented,
             abortSignal,
           });
@@ -192,6 +351,20 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
           }
 
           const code = classifyError(err);
+          if (code === TediErrorCode.OVER_CONTEXT && !triedOverflowRecovery) {
+            triedOverflowRecovery = true;
+            const persisted = deps.getPersistedMessages?.() ?? requestMessages;
+            const recovery = tryRecoverPersistedOverflow(
+              persisted,
+              getModelContextLimit(snapshot.modelId),
+            );
+            if (recovery.recovered) {
+              deps.persistCompactedMessages?.(recovery.messages, recovery.info);
+              requestMessages = recovery.messages;
+              deps.onStep?.("Context full - compacting and retrying…");
+              continue;
+            }
+          }
           // Only retry on transient errors. Auth failures, no-key, etc.
           // should fail fast so the user can fix the root cause.
           if (code !== TediErrorCode.RATE_LIMITED && code !== TediErrorCode.PROVIDER_UNAVAILABLE) {

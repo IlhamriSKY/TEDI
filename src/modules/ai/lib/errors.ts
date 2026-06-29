@@ -15,6 +15,8 @@ export enum TediErrorCode {
   NO_API_KEY = "NO_API_KEY",
   /** Provider returned 401/403; key is invalid or expired. */
   AUTH_FAILED = "AUTH_FAILED",
+  /** Provider rejected the request because the prompt exceeded the context window. */
+  OVER_CONTEXT = "OVER_CONTEXT",
   /** Provider returned 429 (rate limited). */
   RATE_LIMITED = "RATE_LIMITED",
   /** Provider returned 5xx or network error after retries. */
@@ -83,10 +85,28 @@ export function classifyError(err: unknown): TediErrorCode {
   if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("invalid api key"))
     return TediErrorCode.AUTH_FAILED;
   if (msg.includes("403") || msg.includes("forbidden")) return TediErrorCode.AUTH_FAILED;
+  if (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("maximum context length") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("context window exceeded") ||
+    msg.includes("input length and max_tokens exceed") ||
+    msg.includes("too many tokens") ||
+    msg.includes("token limit exceeded") ||
+    ((msg.includes("context") || msg.includes("prompt")) &&
+      (msg.includes("too large") || msg.includes("too long") || msg.includes("exceed")))
+  ) {
+    return TediErrorCode.OVER_CONTEXT;
+  }
   if (msg.includes("429") || msg.includes("rate limit")) return TediErrorCode.RATE_LIMITED;
   if (
-    msg.includes("5") &&
-    (msg.includes("server error") || msg.includes("service") || msg.includes("unavailable"))
+    /\b5\d\d\b/.test(msg) ||
+    msg.includes("server error") ||
+    msg.includes("internal server") ||
+    msg.includes("service unavailable") ||
+    msg.includes("bad gateway") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("temporarily unavailable")
   )
     return TediErrorCode.PROVIDER_UNAVAILABLE;
   if (
@@ -103,8 +123,8 @@ export function classifyError(err: unknown): TediErrorCode {
 }
 
 /**
- * Generate a short correlation id for tracing. 8 hex chars = 4 bytes of
- * entropy, enough to de-duplicate in a single session.
+ * Generate a short correlation id for tracing, formatted `<epoch36>-<counterHex>`
+ * (variable length, monotonic) — enough to de-duplicate within a session.
  */
 let correlationCounter = 0;
 let correlationEpoch = Date.now().toString(36);
@@ -126,6 +146,8 @@ export function errorCodeLabel(code: TediErrorCode): string {
       return "No API key";
     case TediErrorCode.AUTH_FAILED:
       return "Auth failed";
+    case TediErrorCode.OVER_CONTEXT:
+      return "Context full";
     case TediErrorCode.RATE_LIMITED:
       return "Rate limited";
     case TediErrorCode.PROVIDER_UNAVAILABLE:

@@ -62,7 +62,11 @@ const HOST_KEY_ALGOS: &[Algorithm] = &[
 // (bridge.ts) relies on to pin each jump hop - so the attribute is load-bearing,
 // not just for `prompt_id`. The remaining variant fields are single words
 // (`fingerprint`, `data`, `code`, `host`), so camelCasing is a no-op for them.
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum SshEvent {
     /// Auth/connect handshake completed; frontend can show "connected".
     Connected { fingerprint: String },
@@ -986,7 +990,10 @@ mod chain_tests {
             let session = connect(input, channel).await.expect("chain connect failed");
             let (host, _user, _cols, _rows, alive, _ts) = session.mirror_info();
             assert_eq!(host, target_host, "session bound to target host");
-            assert!(alive, "session should be live after connecting through chain");
+            assert!(
+                alive,
+                "session should be live after connecting through chain"
+            );
             session.close().await;
             eprintln!("[chain_tests] OK: connected to {target_host} through chain");
         });

@@ -122,6 +122,9 @@ const STATUS_ICON_COLOR: Record<ToolPart["state"], string> = {
   "output-error": "text-destructive",
 };
 
+// States where the tool is still executing — icon breathes/pulses to show activity.
+const ACTIVE_STATES: ReadonlySet<ToolPart["state"]> = new Set(["input-streaming", "input-available", "approval-requested"]);
+
 const STATUS_LABEL: Record<ToolPart["state"], string> = {
   "approval-requested": "awaiting approval",
   "approval-responded": "responded",
@@ -297,7 +300,7 @@ const ToolImpl = ({
           icon={Icon}
           size={13}
           strokeWidth={1.75}
-          className={cn("shrink-0 transition-colors", STATUS_ICON_COLOR[state])}
+          className={cn("shrink-0 transition-colors", ACTIVE_STATES.has(state) && "animate-ai-breathe", STATUS_ICON_COLOR[state])}
           aria-label={STATUS_LABEL[state]}
         />
         <span className="text-foreground shrink-0 font-medium">{label}</span>

@@ -129,7 +129,10 @@ export function FileExplorer({
   // Git status + ignored list for VSCode-style decorations (colored names +
   // M/A/U badges, dimmed gitignored rows). Self-contained: polls independently
   // of the Source Control panel so it shows even when that panel is closed.
-  const gitData = useGitStatusPoll(rootPath);
+  // Pass null while collapsed: the tree body isn't rendered, so polling git
+  // every 2.5s behind the clip just burns CPU + spawns git subprocesses for
+  // decorations nobody can see. Resumes (with an immediate fetch) on expand.
+  const gitData = useGitStatusPoll(collapsed ? null : rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);

@@ -4,6 +4,55 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.62] - 29-06-2026
+
+### Added
+
+- **MCP (Model Context Protocol) servers.** Connect external stdio tool servers
+  (e.g. `npx -y chrome-devtools-mcp`); their tools reach the agent each turn
+  behind per-call approval. A webview cannot spawn processes, so the stdio
+  transport runs through the Rust backend (newline-framed JSON-RPC over a Tauri
+  channel). See [mcp.rs](src-tauri/src/modules/mcp.rs),
+  [mcpTransport.ts](src/modules/ai/lib/mcpTransport.ts),
+  [mcpClient.ts](src/modules/ai/lib/mcpClient.ts).
+- **`/skills` and `/mcp` composer commands.** List installed skills and
+  configured MCP servers in a modal; Tab completes a partial command (typing
+  `/sk` then Tab gives `/skills`). See
+  [slashCommands.ts](src/modules/ai/lib/slashCommands.ts).
+
+### Changed
+
+- **Compact MCP server settings.** Adding a server is a single run-command input
+  (name auto-derived); editing is one form too, with an optional credentials
+  (env) field shown only when needed. See
+  [McpServersCard.tsx](src/settings/sections/components/McpServersCard.tsx).
+
+### Fixed
+
+- **AI-native correctness pass (64 audited issues).** Across the agent loop,
+  sub-agent orchestration, skills, MCP, tools, memory, checkpoint, and composer.
+  Highlights: an MCP connect race that double-spawned and leaked a server
+  process; a crashed MCP server staying "connected" with stale tools;
+  `edit`/`multi_edit` failing to match on CRLF files; an invalid tool key
+  (`Read Terminal`) that rejected strict providers; a boot path that could wipe
+  a session's persisted messages; a plan-mode large-file write truncating the
+  file on Restore; memory/TEDI.md cache invalidation no-op on Windows;
+  false-positive tool-repetition stops; and streaming over-context recovery. See
+  [agent.ts](src/modules/ai/lib/agent.ts),
+  [transport.ts](src/modules/ai/lib/transport.ts),
+  [edit.ts](src/modules/ai/tools/edit.ts),
+  [skills.ts](src/modules/ai/lib/skills.ts).
+
+### Security
+
+- **Autonomous worker and shell guards hardened.** The Odyssey worker now
+  refuses out-of-scope mutations (previously only reads were scoped) and writes
+  directly past plan mode so its verification is honest. The `rm -rf ~/` family
+  and a symlinked-parent write path are blocked; protected-directory and gcloud
+  credential patterns extended; the `fetch` tool routes through the SSRF-guarded
+  backend. See [security.ts](src/modules/ai/lib/security.ts),
+  [fs.ts](src/modules/ai/tools/fs.ts), [fetch.ts](src/modules/ai/tools/fetch.ts).
+
 ## [0.3.61] - 29-06-2026
 
 ### Added

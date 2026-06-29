@@ -5,6 +5,7 @@ import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
+import { loadSkills } from "./skills";
 import { toast } from "@/components/ui/toast";
 import type { FsReadResult } from "@/lib/ipc";
 import { getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
@@ -308,7 +309,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     }
   }, []);
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     if (isBusy) return;
     const trimmed = value.trim();
     if (
@@ -337,6 +338,12 @@ export function AiComposerProvider({ children }: ProviderProps) {
     let toastVariant: "success" | "info" | "warning" | "error" | undefined;
 
     if (trimmed.startsWith("/") || trimmed.startsWith("#")) {
+      // Warm the skill cache (cached ~30s, near-instant when warm) so a cold
+      // `/<skill>` submit resolves to its prompt instead of leaking the literal
+      // command text to the model.
+      if (trimmed.startsWith("/")) {
+        await loadSkills(useChatStore.getState().live.getWorkspaceRoot());
+      }
       const outcome = tryRunSlashCommand(trimmed);
       if (outcome.kind === "handled") {
         textConsumedByCommand = true;

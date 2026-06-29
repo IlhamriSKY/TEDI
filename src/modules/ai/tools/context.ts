@@ -166,6 +166,25 @@ export function clampForModel(s: string, max = 48 * 1024): string {
   return `${s.slice(0, head)}\n\n...[${s.length - max} chars truncated]...\n\n${s.slice(s.length - tail)}`;
 }
 
+// Per-path advisory locks so two concurrent odyssey workers doing a
+// read-modify-write on the SAME file (edit/multi_edit) can't lose each other's
+// update; different paths still run in parallel (the intended worker feature).
+const fileLocks = new Map<string, Promise<unknown>>();
+
+/** Serialize async ops keyed by `key` (a normalized path). Advisory: it only
+ *  orders callers that go through it, not raw native writes. */
+export async function withFileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = fileLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn); // run after the previous holder settles
+  const tail = run.catch(() => {});
+  fileLocks.set(key, tail);
+  try {
+    return await run;
+  } finally {
+    if (fileLocks.get(key) === tail) fileLocks.delete(key);
+  }
+}
+
 /** Normalize a path for scope comparison: forward slashes, collapse `.`/`..`
  *  segments (so `ws/../etc` can't masquerade as inside `ws`), lowercase
  *  (Windows is case-insensitive), and strip a trailing slash. */

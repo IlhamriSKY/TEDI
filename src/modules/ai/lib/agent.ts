@@ -28,10 +28,12 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../config";
+import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
+import type { Tool } from "ai";
 import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed, type CompactStages } from "./compact";
 import { HOST_PROMPT_LINE } from "./osTag";
@@ -338,11 +340,22 @@ export async function buildLanguageModel(
   return built;
 }
 
-/** Fingerprint for a tool call. Sorts arg keys so equivalent inputs match. */
+/** Deterministic JSON with keys sorted at EVERY level, so equivalent inputs
+ *  fingerprint equal. A top-level-keys array passed as JSON.stringify's replacer
+ *  strips nested keys (`{todos:[{},{}]}`), collapsing distinct payloads. */
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+    .join(",")}}`;
+}
+
+/** Fingerprint for a tool call. Canonicalizes args so equivalent inputs match. */
 function toolCallFingerprint(toolName: string, input: unknown): string {
-  if (!input || typeof input !== "object") return `${toolName}::${JSON.stringify(input)}`;
-  const sortedKeys = Object.keys(input as Record<string, unknown>).sort();
-  return `${toolName}::${JSON.stringify(input, sortedKeys)}`;
+  return `${toolName}::${stableStringify(input)}`;
 }
 
 /**
@@ -393,6 +406,10 @@ export type RunAgentOptions = {
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number; stages: CompactStages }) => void;
+  /** Fired when a streaming OVER_CONTEXT error surfaces (after runAgentStream
+   *  has returned, so the transport's synchronous retry can't see it). The
+   *  transport compacts persisted history so the next send fits. */
+  onOverContext?: () => void;
   onFinishMeta?: (info: {
     hitStepCap: boolean;
     finishReason: string;
@@ -408,9 +425,13 @@ export type RunAgentOptions = {
   /** Pre-formatted "## SKILLS" block (name + description per available skill).
    *  Byte-stable across turns so it stays in the cacheable prefix. */
   skillsPrompt?: string | null;
+  /** Pre-formatted "## MCP SERVERS" block for the system prompt. */
+  mcpSummary?: string | null;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
+
+export type McpToolRecord = Record<string, Tool>;
 
 /** Build the full system message. Carries no dynamic data (cwd, terminal
  *  output) so the prefix is byte-stable across turns for prompt caching. */
@@ -421,6 +442,7 @@ function buildSystemPrompt(opts: {
   projectMemory?: string | null;
   memory?: string | null;
   skillsPrompt?: string | null;
+  mcpSummary?: string | null;
   planMode?: boolean;
 }): string {
   // Resolve the core prompt: the user can override the full or compact variant
@@ -449,6 +471,7 @@ function buildSystemPrompt(opts: {
     opts.memory && opts.memory.trim().length > 0 ? `\n\nSaved memory:\n${opts.memory.trim()}` : ""
   }`;
   const skillsBlock = opts.skillsPrompt?.trim() ? `\n\n${opts.skillsPrompt.trim()}` : "";
+  const mcpBlock = opts.mcpSummary?.trim() ? `\n\n${opts.mcpSummary.trim()}` : "";
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
   // Auto-orchestration nudge: appended whenever sub-agents are enabled (the
@@ -457,10 +480,11 @@ function buildSystemPrompt(opts: {
   // caching until the setting changes. Lite models get a compact prompt.
   const subPrefs = usePreferencesStore.getState();
   const orchestrationOn = subPrefs.subagentsEnabled;
-  const orchestrationDefault = variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
+  const orchestrationDefault =
+    variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
   const orchestrationBody = resolvePromptText(overrides, "orchestration", orchestrationDefault);
   const orchestrationBlock = orchestrationOn ? `\n\n${orchestrationBody}` : "";
-  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
+  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
 }
 
 /** Appended for the turn when the user writes "ultrathink": a provider-agnostic
@@ -483,7 +507,9 @@ function lastUserText(messages: UIMessage[]): string {
 
 /** Runs one streaming agent step. Returns a `streamText` result whose
  *  `.toUIMessageStream()` plugs into `@ai-sdk/react`'s Chat. */
-export async function runAgentStream(opts: RunAgentOptions) {
+export async function runAgentStream(
+  opts: RunAgentOptions & { mcpTools?: McpToolRecord; mcpSummary?: string | null },
+) {
   const requestedModelId = opts.modelId ?? DEFAULT_MODEL_ID;
   const modelInfo: ModelInfo =
     tryGetModel(requestedModelId) ??
@@ -521,6 +547,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
       projectMemory: opts.projectMemory,
       memory: opts.memory,
       skillsPrompt: opts.skillsPrompt,
+      mcpSummary: opts.mcpSummary,
       planMode: opts.planMode,
     }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
 
@@ -595,9 +622,14 @@ export async function runAgentStream(opts: RunAgentOptions) {
       return false;
     },
   ];
-  // Extension-contributed AI tools first, built-ins spread AFTER so an
-  // extension can never shadow a built-in tool name (e.g. bash_run).
-  const tools = { ...buildExtensionTools(), ...buildTools(opts.toolContext) };
+  // Extension-contributed AI tools first, then MCP tools, then built-ins.
+  // Built-ins spread AFTER so an extension/MCP can never shadow a built-in
+  // tool name (e.g. bash_run).
+  const tools = {
+    ...buildExtensionTools(opts.toolContext),
+    ...opts.mcpTools,
+    ...buildTools(opts.toolContext),
+  };
 
   // Debug capture: snapshot the assembled request (no secrets) when the user
   // turned Debug on, so they can inspect / download exactly what TEDI sends.
@@ -629,6 +661,13 @@ export async function runAgentStream(opts: RunAgentOptions) {
     // a structural cast is safe.
     stopWhen: trackingStopWhen as never,
     abortSignal: opts.abortSignal,
+    // streamText errors surface during stream consumption — after this function
+    // returns — so the transport's synchronous retry/recovery can't observe
+    // them. Route an over-context streaming failure to the recovery hook so the
+    // persisted history is compacted for the user's next send.
+    onError: ({ error }) => {
+      if (classifyError(error) === TediErrorCode.OVER_CONTEXT) opts.onOverContext?.();
+    },
     onStepFinish: (step) => {
       stepsSeen++;
       if (opts.onStep) {

@@ -1,10 +1,26 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { native } from "../lib/native";
-import { getLoadedSkills, skillSlug } from "../lib/skills";
+import { getLoadedSkills, registerDescriptionCacheInvalidator, skillSlug } from "../lib/skills";
 import type { ToolContext } from "./context";
 
 const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const MAX_LISTED_SKILLS = 12;
+
+// Memoized skill description list — rebuilt only when skill count changes.
+// Avoids serializing the same ~100-500 tokens every turn.
+let _cachedSkillList: string | null = null;
+let _cachedSkillListKey = "";
+
+function skillListKey(skills: ReturnType<typeof getLoadedSkills>): string {
+  return skills.map((s) => `${skillSlug(s)}:${s.description}:${s.argHint ?? ""}`).join("\n");
+}
+
+// Reset cache when skills are installed/removed externally.
+registerDescriptionCacheInvalidator(() => {
+  _cachedSkillList = null;
+  _cachedSkillListKey = "";
+});
 
 /**
  * `skill` tool: load an installed skill's SKILL.md so the agent can follow it.
@@ -15,9 +31,24 @@ const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…
  */
 export function buildSkillTools(_ctx: ToolContext) {
   const skills = getLoadedSkills();
-  const list = skills.length
-    ? skills.map((s) => `- ${skillSlug(s)}: ${trunc(s.description, 400)}`).join("\n")
-    : "(none installed yet)";
+  const nextKey = skillListKey(skills);
+  let list: string;
+  if (_cachedSkillList !== null && _cachedSkillListKey === nextKey) {
+    list = _cachedSkillList;
+  } else {
+    if (skills.length === 0) {
+      list = "(none installed yet)";
+    } else {
+      const shown = skills
+        .slice(0, MAX_LISTED_SKILLS)
+        .map((s) => `- ${skillSlug(s)}: ${trunc(s.description, 240)}`)
+        .join("\n");
+      const hidden = skills.length - MAX_LISTED_SKILLS;
+      list = hidden > 0 ? `${shown}\n- …and ${hidden} more installed skills` : shown;
+    }
+    _cachedSkillList = list;
+    _cachedSkillListKey = nextKey;
+  }
   return {
     skill: tool({
       description: `Load an installed skill (an expert playbook) and follow its instructions for the current task. Call this whenever the user's request matches one of these skills:\n${list}\n\nReturns the skill's full SKILL.md text. Auto.`,

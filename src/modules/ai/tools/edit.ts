@@ -2,22 +2,45 @@ import { tool } from "ai";
 import { z } from "zod";
 import { dispatchFsRefreshForFile } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
+import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
-import { checkWritable } from "../lib/security";
+import { notifySkillPathChanged } from "../lib/skillCache";
+import { checkWritableResolved } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
-import { resolvePath, scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
+import {
+  isReadOutsideScope,
+  resolvePath,
+  scrubErrorPath,
+  throwIfAborted,
+  withFileLock,
+  type ToolContext,
+} from "./context";
 import { flexArrayReq, flexBoolOpt } from "./schedule";
 
 type EditResult =
   | { ok: true; replacements: number; bytesWritten: number; path: string }
   | { error: string; path: string };
 
-async function applyEdits(
+function applyEdits(
   abs: string,
   edits: { old_string: string; new_string: string; replace_all?: boolean }[],
   kind: "edit" | "multi_edit",
   sessionId: string | null,
   ctx: ToolContext,
+  ignorePlan: boolean,
+): Promise<EditResult> {
+  // Serialize concurrent edits to the same path (parallel workers) so an
+  // interleaved read-modify-write can't drop one agent's change.
+  return withFileLock(abs, () => applyEditsLocked(abs, edits, kind, sessionId, ctx, ignorePlan));
+}
+
+async function applyEditsLocked(
+  abs: string,
+  edits: { old_string: string; new_string: string; replace_all?: boolean }[],
+  kind: "edit" | "multi_edit",
+  sessionId: string | null,
+  ctx: ToolContext,
+  ignorePlan: boolean,
 ): Promise<EditResult> {
   const r = await native.readFile(abs);
   if (r.kind === "binary") return { error: "binary file refused", path: abs };
@@ -27,6 +50,13 @@ async function applyEdits(
   const original = r.content;
   let content = original;
   let totalReplacements = 0;
+
+  // read_file strips \r (the model copies LF-only text), but native.readFile
+  // preserves the file's CRLF. On a CRLF file, translate each edit's LF newlines
+  // to CRLF so a multi-line old_string matches and the write keeps the file's
+  // line endings. Single-line edits (no \n) are unaffected.
+  const crlf = original.includes("\r\n");
+  const norm = (s: string) => (crlf ? s.replace(/\r?\n/g, "\r\n") : s);
 
   for (const e of edits) {
     if (e.old_string === e.new_string) {
@@ -38,17 +68,14 @@ async function applyEdits(
     if (e.old_string.length === 0) {
       return { error: "old_string cannot be empty", path: abs };
     }
+    const oldS = norm(e.old_string);
+    const newS = norm(e.new_string);
     if (e.replace_all) {
-      const before = content;
-      content = content.split(e.old_string).join(e.new_string);
-      const occurrences =
-        (before.length - content.length) / (e.old_string.length - e.new_string.length || 1) || 0;
-      // Recover count via direct search to avoid divide-by-zero edge cases.
       let n = 0;
       let i = 0;
-      while ((i = before.indexOf(e.old_string, i)) !== -1) {
+      while ((i = content.indexOf(oldS, i)) !== -1) {
         n++;
-        i += e.old_string.length;
+        i += oldS.length;
       }
       if (n === 0) {
         return {
@@ -56,17 +83,17 @@ async function applyEdits(
           path: abs,
         };
       }
+      content = content.split(oldS).join(newS);
       totalReplacements += n;
-      void occurrences;
     } else {
-      const first = content.indexOf(e.old_string);
+      const first = content.indexOf(oldS);
       if (first === -1) {
         return {
           error: `old_string not found: ${JSON.stringify(e.old_string.slice(0, 80))}`,
           path: abs,
         };
       }
-      const second = content.indexOf(e.old_string, first + 1);
+      const second = content.indexOf(oldS, first + 1);
       if (second !== -1) {
         return {
           error:
@@ -74,12 +101,12 @@ async function applyEdits(
           path: abs,
         };
       }
-      content = content.slice(0, first) + e.new_string + content.slice(first + e.old_string.length);
+      content = content.slice(0, first) + newS + content.slice(first + oldS.length);
       totalReplacements += 1;
     }
   }
 
-  if (usePlanStore.getState().active) {
+  if (!ignorePlan && usePlanStore.getState().active) {
     usePlanStore.getState().enqueue({
       id: newQueuedEditId(),
       kind,
@@ -109,6 +136,8 @@ async function applyEdits(
       });
     }
     await native.writeFile(abs, content);
+    notifyMemoryPathChanged(abs);
+    notifySkillPathChanged(abs);
     // Edit keeps the directory entry but bumps mtime/size. Refresh so the
     // explorer's mtime and size columns stay accurate.
     dispatchFsRefreshForFile(abs);
@@ -123,12 +152,18 @@ async function applyEdits(
   }
 }
 
-export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean } = {}) {
+export function buildEditTools(
+  ctx: ToolContext,
+  opts: { autoApprove?: boolean; refuseOutOfScopeMutations?: boolean; ignorePlanMode?: boolean } = {},
+) {
   // Normally edit/multi_edit raise an approval card. An autonomous worker
   // subagent has no approver in its generateText loop, so it passes autoApprove
   // to execute directly (still guarded by checkWritable + read-before-edit +
   // checkpoint/restore). Default keeps approval on for the main agent.
   const approve = opts.autoApprove ? false : true;
+  const refuseMut = opts.refuseOutOfScopeMutations ?? false;
+  // Worker writes directly even in plan mode (its bash verify must see real files).
+  const ignorePlan = opts.ignorePlanMode ?? false;
   return {
     edit: tool({
       description:
@@ -145,7 +180,10 @@ export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean }
       execute: async ({ path, old_string, new_string, replace_all }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkWritable(abs);
+        if (refuseMut && isReadOutsideScope(path, ctx)) {
+          return { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs };
+        }
+        const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         if (!ctx.readCache.has(abs)) {
           return {
@@ -159,6 +197,7 @@ export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean }
           "edit",
           ctx.getSessionId(),
           ctx,
+          ignorePlan,
         );
       },
     }),
@@ -180,7 +219,10 @@ export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean }
       execute: async ({ path, edits }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const safety = checkWritable(abs);
+        if (refuseMut && isReadOutsideScope(path, ctx)) {
+          return { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs };
+        }
+        const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         if (!ctx.readCache.has(abs)) {
           return {
@@ -188,7 +230,7 @@ export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean }
             path: abs,
           };
         }
-        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId(), ctx);
+        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId(), ctx, ignorePlan);
       },
     }),
   } as const;

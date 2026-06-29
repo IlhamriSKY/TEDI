@@ -148,36 +148,44 @@ fn current_branch(repo: &Path) -> Option<String> {
     }
 }
 
-fn upstream_and_counts(repo: &Path) -> (Option<String>, u32, u32) {
-    let mut up = git(repo);
-    up.arg("rev-parse").arg("--abbrev-ref").arg("@{u}");
-    let upstream = match up.output() {
-        Ok(o) if o.status.success() => {
-            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
+/// Parse the `## ...` header that `git status --branch` prepends as the first
+/// `-z` record. Folds branch name, upstream, and ahead/behind counts into the
+/// single status process so the poller no longer fans out separate
+/// `rev-parse`/`rev-list` subprocesses every refresh. Branch is `None` only for
+/// a detached HEAD (`## HEAD (no branch)`); the caller then resolves the short
+/// SHA. Git ref names cannot contain spaces or `..`, so the `" ["` and `"..."`
+/// splits are unambiguous.
+fn parse_branch_header(line: &str) -> (Option<String>, Option<String>, u32, u32) {
+    let rest = line.strip_prefix("## ").unwrap_or(line);
+    // Unborn branch (no commits yet): "No commits yet on <b>" / "Initial commit on <b>".
+    for prefix in ["No commits yet on ", "Initial commit on "] {
+        if let Some(b) = rest.strip_prefix(prefix) {
+            return (Some(b.trim().to_string()), None, 0, 0);
+        }
+    }
+    if rest.starts_with("HEAD (no branch)") {
+        return (None, None, 0, 0);
+    }
+    // Optional " [ahead N, behind M]" suffix follows the branch/upstream names.
+    let (names, ab) = match rest.split_once(" [") {
+        Some((n, a)) => (n, Some(a.trim_end_matches(']'))),
+        None => (rest, None),
+    };
+    let (branch, upstream) = match names.split_once("...") {
+        Some((b, u)) => (b.to_string(), Some(u.to_string())),
+        None => (names.to_string(), None),
+    };
+    let (mut ahead, mut behind) = (0u32, 0u32);
+    if let Some(ab) = ab {
+        for part in ab.split(", ") {
+            if let Some(n) = part.strip_prefix("ahead ") {
+                ahead = n.trim().parse().unwrap_or(0);
+            } else if let Some(n) = part.strip_prefix("behind ") {
+                behind = n.trim().parse().unwrap_or(0);
             }
         }
-        _ => None,
-    };
-    if upstream.is_none() {
-        return (None, 0, 0);
     }
-    let mut counts = git(repo);
-    counts.args(["rev-list", "--left-right", "--count", "HEAD...@{u}"]);
-    let (ahead, behind) = match counts.output() {
-        Ok(o) if o.status.success() => {
-            let s = String::from_utf8_lossy(&o.stdout);
-            let mut parts = s.split_whitespace();
-            let a: u32 = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
-            let b: u32 = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
-            (a, b)
-        }
-        _ => (0, 0),
-    };
-    (upstream, ahead, behind)
+    (Some(branch), upstream, ahead, behind)
 }
 
 fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
@@ -329,8 +337,11 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         });
     };
 
-    // Fan out four independent git subprocesses. Each spawn on Windows costs
-    // ~10ms; serial runs added ~40ms per refresh (the panel auto-polls).
+    // Fan out two independent git subprocesses. `--branch` folds the branch
+    // name, upstream, and ahead/behind counts into the status output's first
+    // `-z` record, so we no longer spawn separate rev-parse/rev-list processes
+    // every refresh (the panel auto-polls, and two pollers ran in parallel -
+    // that fan-out piled up dozens of short-lived git.exe in Task Manager).
     // Joining here blocks, which is why the public `git_status` command hands
     // this entire body to the blocking pool (see the async wrapper above): a
     // sync command would run on the Windows UI thread and freeze the app.
@@ -338,17 +349,15 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         let root = root.clone();
         thread::spawn(move || {
             let mut cmd = git(&root);
-            cmd.args(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+            cmd.args([
+                "status",
+                "--porcelain=v1",
+                "--branch",
+                "-z",
+                "--untracked-files=all",
+            ]);
             run(cmd)
         })
-    };
-    let branch_handle = {
-        let root = root.clone();
-        thread::spawn(move || current_branch(&root))
-    };
-    let upstream_handle = {
-        let root = root.clone();
-        thread::spawn(move || upstream_and_counts(&root))
     };
     let numstat_handle = {
         let root = root.clone();
@@ -366,17 +375,21 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     let raw = status_handle
         .join()
         .map_err(|_| "git status thread panicked".to_string())??;
-    let branch = branch_handle
-        .join()
-        .map_err(|_| "branch thread panicked".to_string())?;
-    let (upstream, ahead, behind) = upstream_handle
-        .join()
-        .map_err(|_| "upstream thread panicked".to_string())?;
     let stats_raw = numstat_handle
         .join()
         .map_err(|_| "numstat thread panicked".to_string())?;
 
-    let mut changes = parse_porcelain_v1(&root, &raw);
+    // First `-z` record is the `## ...` branch header; the rest are file
+    // entries. Split it off so the porcelain parser never sees the header.
+    let (header, entries_raw) = raw.split_once('\0').unwrap_or((raw.as_str(), ""));
+    let (mut branch, upstream, ahead, behind) = parse_branch_header(header);
+    if branch.is_none() {
+        // Detached HEAD: resolve the short SHA (rare, so the extra process
+        // only ever runs off the normal-branch hot path).
+        branch = current_branch(&root);
+    }
+
+    let mut changes = parse_porcelain_v1(&root, entries_raw);
     let stats = parse_numstat(&stats_raw);
     for c in changes.iter_mut() {
         if let Some(s) = stats.get(&c.relative) {
@@ -1050,4 +1063,43 @@ fn git_push_inner(repo_path: String) -> Result<String, String> {
     let mut push = git(&root);
     push.args(["push", "-u", "origin", branch.as_str()]);
     run(push)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_branch_header;
+
+    #[test]
+    fn branch_header_variants() {
+        // tracked + ahead/behind
+        assert_eq!(
+            parse_branch_header("## main...origin/main [ahead 2, behind 3]"),
+            (Some("main".into()), Some("origin/main".into()), 2, 3)
+        );
+        // ahead only
+        assert_eq!(
+            parse_branch_header("## main...origin/main [ahead 2]"),
+            (Some("main".into()), Some("origin/main".into()), 2, 0)
+        );
+        // up to date with upstream
+        assert_eq!(
+            parse_branch_header("## main...origin/main"),
+            (Some("main".into()), Some("origin/main".into()), 0, 0)
+        );
+        // no upstream configured
+        assert_eq!(
+            parse_branch_header("## feature/x"),
+            (Some("feature/x".into()), None, 0, 0)
+        );
+        // unborn branch (fresh repo)
+        assert_eq!(
+            parse_branch_header("## No commits yet on main"),
+            (Some("main".into()), None, 0, 0)
+        );
+        // detached HEAD -> caller resolves the short SHA
+        assert_eq!(
+            parse_branch_header("## HEAD (no branch)"),
+            (None, None, 0, 0)
+        );
+    }
 }

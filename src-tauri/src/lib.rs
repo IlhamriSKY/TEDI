@@ -11,7 +11,7 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    cli, cli_ext, cli_theme, cli_update, extensions, format, fs, git, net, preview, pty,
+    cli, cli_ext, cli_theme, cli_update, extensions, format, fs, git, mcp, net, preview, pty,
     pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -481,6 +481,9 @@ pub fn run() {
             net::http_ping,
             net::http_stream,
             net::http_abort,
+            mcp::mcp_spawn,
+            mcp::mcp_write,
+            mcp::mcp_kill,
             ssh::ssh_open,
             ssh::ssh_write,
             ssh::ssh_resize,

@@ -36,6 +36,7 @@ import {
   newSessionId,
   saveActiveId,
   saveMessages,
+  saveNow,
   saveSessionsList,
   type SessionMeta,
 } from "../lib/sessions";
@@ -44,6 +45,8 @@ import { disposeSessionShell } from "../tools/shell";
 import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
+
+const OVERFLOW_RECOVERY_KEEP_TAIL = 12;
 
 type Live = {
   getCwd: () => string | null;
@@ -326,13 +329,18 @@ function hibernateOldestChat(): void {
       // getOrCreateChat re-hydrates correctly. Disk could be stale if the
       // debounced persist hasn't fired.
       seedMessages.set(oldest, victim.messages);
-      // Durably persist before eviction. A turn that streamed in this
-      // background session may never have been queued (only the active
-      // session is mirrored by AgentRunBridge), so flushPersistEntry would
-      // no-op and the messages would be lost on restart. Write directly.
-      void saveMessages(oldest, victim.messages);
+      // Durably persist before eviction. Drop any pending debounced write FIRST
+      // (without flushing) so its older snapshot can't land last and clobber the
+      // fresh tail; then write the live snapshot.
+      const pend = pendingPersist.get(oldest);
+      if (pend) {
+        clearTimeout(pend.timer);
+        pendingPersist.delete(oldest);
+      }
+      void saveMessages(oldest, victim.messages).then(() => saveNow());
+    } else {
+      flushPersistEntry(oldest);
     }
-    flushPersistEntry(oldest);
     chats.delete(oldest);
     // Retain readCaches: tiny, and still valid after rehydration.
   }
@@ -340,6 +348,10 @@ function hibernateOldestChat(): void {
 // Initial messages for a session, populated at hydration and consumed when
 // the matching Chat is constructed.
 const seedMessages = new Map<string, UIMessage[]>();
+
+// Monotonic token so a slow loadMessages from an earlier switchSession can't
+// flip the active session after a newer switch already won.
+let switchSeq = 0;
 
 // Trailing debounce for per-token persistence. Without it we'd serialize the
 // full message array and round-trip to the store on every token. Flush on
@@ -355,7 +367,9 @@ function flushPersistEntry(id: string) {
   if (!entry) return;
   clearTimeout(entry.timer);
   pendingPersist.delete(id);
-  void saveMessages(id, entry.latest);
+  // Force a durable write: flush points (idle, switch, unmount) must guarantee
+  // the tail survives an abrupt quit, not just re-arm the autoSave debounce.
+  void saveMessages(id, entry.latest).then(() => saveNow());
 }
 
 export function flushPersist(id?: string): void {
@@ -443,6 +457,24 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   const transport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
+    getPersistedMessages: () => chats.get(sessionId)?.messages ?? [],
+    persistCompactedMessages: (messages, info) => {
+      const chat = chats.get(sessionId);
+      if (chat) chat.messages = messages;
+      flushPersist(sessionId);
+      void saveMessages(sessionId, messages);
+      if (!isActiveSession()) return;
+      useChatStore.getState().patchAgentMeta({
+        lastCompact: {
+          at: Date.now(),
+          stages: { lossless: 0, elided: 0, dropped: info.dropped },
+        },
+      });
+      toast(
+        `Context full: compacted chat and kept the last ${Math.min(info.kept, OVERFLOW_RECOVERY_KEEP_TAIL)} messages before retrying.`,
+        { variant: "warning" },
+      );
+    },
     getModelId: () => useChatStore.getState().selectedModelId,
     getCustomInstructions: () => usePreferencesStore.getState().customInstructions,
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
@@ -689,6 +721,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (reusable) {
       nextSessions = sessions;
       freshId = reusable.id;
+      // Seed the reused session's persisted messages (mirroring switchSession)
+      // BEFORE it mounts — a "New chat" title can still hold messages (image /
+      // selection-only sends). Without this the chat mounts empty and the
+      // debounced persist overwrites its on-disk conversation with [].
+      const persisted = await loadMessages(reusable.id);
+      if (persisted && persisted.length > 0) seedMessages.set(reusable.id, persisted);
     } else {
       freshId = newSessionId();
       const fresh: SessionMeta = {
@@ -738,7 +776,9 @@ export const useChatStore = create<StoreState>((set, get) => ({
       flip();
       return;
     }
+    const myTurn = ++switchSeq;
     void loadMessages(id).then((m) => {
+      if (myTurn !== switchSeq) return; // a newer switch superseded this one
       if (m && m.length > 0 && !chats.has(id)) seedMessages.set(id, m);
       flip();
     });
@@ -771,7 +811,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      set({ sessions: [fresh], activeSessionId: fresh.id });
+      set({ sessions: [fresh], activeSessionId: fresh.id, agentMeta: IDLE_META });
       void saveSessionsList([fresh]);
       void saveActiveId(fresh.id);
       return;
@@ -779,7 +819,13 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
     const wasActive = get().activeSessionId === id;
     const nextActive = wasActive ? remaining[0].id : get().activeSessionId;
-    set({ sessions: remaining, activeSessionId: nextActive });
+    // Reset agent meta when the active session changes, else the deleted
+    // session's token usage / compaction badge lingers on the new one.
+    set({
+      sessions: remaining,
+      activeSessionId: nextActive,
+      ...(wasActive ? { agentMeta: IDLE_META } : {}),
+    });
     void saveSessionsList(remaining);
     if (wasActive) void saveActiveId(nextActive);
   },

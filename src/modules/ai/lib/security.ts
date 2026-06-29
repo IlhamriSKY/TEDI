@@ -11,6 +11,7 @@
  */
 
 import { basename, toForwardSlash } from "@/lib/path";
+import { invoke } from "@tauri-apps/api/core";
 
 const SECRET_BASENAME_PATTERNS: RegExp[] = [
   /^\.env(\..+)?$/i, // .env, .env.local, .env.production
@@ -23,7 +24,9 @@ const SECRET_BASENAME_PATTERNS: RegExp[] = [
   /^authorized_keys$/i,
   /^htpasswd$/i,
   /^\.netrc$/i,
-  /^credentials$/i, // .aws/credentials, gcloud
+  /^credentials$/i, // .aws/credentials
+  /^application_default_credentials\.json$/i, // gcloud ADC
+  /^credentials\.db$/i, // gcloud
   /^\.git-credentials$/i, // plaintext https tokens in $HOME
   /^\.pgpass$/i,
   /^\.npmrc$/i,
@@ -43,6 +46,7 @@ const SECRET_PATH_SEGMENTS = [
   "/.docker/",
   "/.config/gh/",
   "/.config/git/",
+  "/.config/gcloud/",
   "/.git/", // refuse to avoid mutating refs/objects
 ];
 
@@ -80,7 +84,10 @@ export function checkReadable(path: string): SafetyResult {
   // so `~/.SSH/id` or `/.AWS/` must not slip past the lowercase segment list.
   const normLower = norm.toLowerCase();
   for (const seg of SECRET_PATH_SEGMENTS) {
-    if (normLower.includes(seg)) {
+    // seg carries a trailing slash; also match the directory node itself
+    // (e.g. ".../.ssh" with no trailing slash, what list_directory resolves to),
+    // else its filenames could be enumerated.
+    if (normLower.includes(seg) || normLower.endsWith(seg.slice(0, -1))) {
       return {
         ok: false,
         reason: `Refused: path is inside a protected directory (${seg.replace(/\//g, "")}).`,
@@ -138,6 +145,80 @@ export function checkDeletable(path: string): SafetyResult {
   return { ok: true };
 }
 
+// ─── Symlink-resolved guards ───────────────────────────────────────────
+
+/**
+ * Run the secret deny-list against the symlink-resolved real target, not the
+ * literal path string. A string-only check is blind to an innocuously-named
+ * symlink (notes.txt -> ~/.ssh/id_rsa); the backend follows symlinks on read,
+ * so without this an auto-approved read could exfiltrate the target. Falls
+ * back to the literal path if canonicalization fails (e.g. the path does not
+ * exist yet) - the read itself surfaces any real error.
+ */
+/**
+ * Canonicalize the nearest EXISTING ancestor of a not-yet-created path, then
+ * re-append the unresolved tail. fs_canonicalize requires the full path to
+ * exist, so for a brand-new file it throws and only the literal string would be
+ * checked — letting a symlinked parent (workspace/link -> /etc) redirect the
+ * write outside scope. Returns null if no ancestor resolves.
+ */
+async function resolveExistingAncestor(abs: string): Promise<string | null> {
+  const parts = toForwardSlash(abs).replace(/\/+$/, "").split("/");
+  for (let i = parts.length - 1; i > 0; i--) {
+    const ancestor = parts.slice(0, i).join("/");
+    if (!ancestor) continue;
+    try {
+      const real = await invoke<string>("fs_canonicalize", { path: ancestor });
+      if (real) {
+        const tail = parts.slice(i).join("/");
+        return `${toForwardSlash(real).replace(/\/+$/, "")}/${tail}`;
+      }
+    } catch {
+      // keep walking up to the next existing ancestor
+    }
+  }
+  return null;
+}
+
+export async function checkReadableResolved(
+  abs: string,
+): Promise<ReturnType<typeof checkReadable>> {
+  const literal = checkReadable(abs);
+  if (!literal.ok) return literal;
+  try {
+    const real = await invoke<string>("fs_canonicalize", { path: abs });
+    if (real && real !== abs) return checkReadable(real);
+  } catch {
+    // Path missing / not resolvable: literal check already passed.
+  }
+  return literal;
+}
+
+/**
+ * Write-side counterpart of checkReadableResolved: resolve symlinks before the
+ * secret + system-dir check so an innocuously-named symlink can't redirect a
+ * write into a protected target (e.g. notes.txt -> /etc/hosts, or a link into
+ * C:\Windows). Falls back to the literal check when the path doesn't exist yet
+ * (the common brand-new-file case).
+ */
+export async function checkWritableResolved(
+  abs: string,
+): Promise<ReturnType<typeof checkWritable>> {
+  const literal = checkWritable(abs);
+  if (!literal.ok) return literal;
+  try {
+    const real = await invoke<string>("fs_canonicalize", { path: abs });
+    if (real && real !== abs) return checkWritable(real);
+  } catch {
+    // Brand-new path: the leaf doesn't exist yet so canonicalize throws. Resolve
+    // the nearest existing ancestor so a symlinked parent can't land the write
+    // outside scope (e.g. workspace/link -> /etc, then link/newfile -> /etc/newfile).
+    const resolved = await resolveExistingAncestor(abs);
+    if (resolved && resolved !== abs) return checkWritable(resolved);
+  }
+  return literal;
+}
+
 /**
  * Heuristic block for destructive shell commands even after user approval.
  * The approval UI is the primary gate; this catches obvious model mistakes.
@@ -152,7 +233,11 @@ export function checkShellCommand(cmd: string): SafetyResult {
     const flagChars = (c.match(/(?:^|\s)-[A-Za-z]+/g) ?? []).join("");
     const recursive = /[rR]/.test(flagChars) || /--recursive\b/.test(c);
     const force = /f/.test(flagChars) || /--force\b/.test(c);
-    const rootTarget = /(?:^|\s)(['"]?)(\/|\/\*|~|\$\{?HOME\}?)\1(?:\s|;|&|\||$)/.test(c);
+    // Token (/, ~, $HOME) optionally followed by /, *, or . — so `~/`, `~/*`,
+    // `$HOME/`, `/*`, `/.` are all caught — then a terminator. A home SUBDIR
+    // (`~/proj/build`) has a non-terminator after the token, so it stays allowed.
+    const rootTarget =
+      /(?:^|\s)['"]?(?:\/|~|\$\{?HOME\}?)(?:\/|\*|\.)*['"]?(?:\s|;|&|\||$)/.test(c);
     if (recursive && force && rootTarget) {
       return {
         ok: false,

@@ -1,6 +1,23 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { clampForModel } from "./context";
+import { corsFallbackFetch } from "../lib/httpProxy";
+
+/** Block the cloud-metadata / link-local SSRF class on the native-first path
+ *  (the Rust proxy fallback re-checks with DNS resolution). Mirrors net.rs's
+ *  intent: private LAN stays allowed, only metadata/link-local is refused. */
+function isBlockedFetchHost(rawUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(rawUrl).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return true; // unparseable -> refuse
+  }
+  if (host === "metadata.google.internal" || host === "metadata") return true;
+  if (/^169\.254\./.test(host)) return true; // IPv4 link-local incl. 169.254.169.254
+  if (host.startsWith("fe80:")) return true; // IPv6 link-local
+  return false;
+}
 
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -63,6 +80,10 @@ export function buildFetchTools() {
         const effectiveFormat = format ?? "auto";
         const charLimit = max_chars ?? 100_000;
 
+        if (isBlockedFetchHost(url)) {
+          return { error: "refused: blocked host (cloud-metadata / link-local)", url };
+        }
+
         try {
           const controller = new AbortController();
           const timeout = setTimeout(
@@ -89,8 +110,9 @@ export function buildFetchTools() {
             fetchOpts.body = body;
           }
 
-          const response = await fetch(url, fetchOpts);
-          clearTimeout(timeout);
+          // corsFallbackFetch: native first, then the SSRF-guarded Rust proxy
+          // when the WebView blocks a non-CORS endpoint (Failed to fetch).
+          const response = await corsFallbackFetch(url, fetchOpts);
 
           const contentType = response.headers.get("content-type") ?? "";
           const status = response.status;
@@ -121,6 +143,7 @@ export function buildFetchTools() {
             chunks.push(value);
             totalBytes += value.length;
           }
+          clearTimeout(timeout); // body fully read — only now is the request done
 
           const decoder = new TextDecoder("utf-8", { fatal: false });
 

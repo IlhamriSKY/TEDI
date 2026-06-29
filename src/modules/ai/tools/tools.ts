@@ -10,10 +10,12 @@ import { buildSubagentTools } from "./subagent";
 import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
 import { buildTodoTools } from "./todo";
+import { buildMcpToolsAsync, getMcpToolsSummary } from "./mcp";
 
 import type { ToolContext } from "./context";
 
 export { resolvePath, type ToolContext } from "./context";
+export { buildMcpToolsAsync, getMcpToolsSummary };
 
 /**
  * AI tool definitions.

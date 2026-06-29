@@ -93,11 +93,21 @@ export async function runSubagent({
       gateOutOfScopeReads: false,
       refuseOutOfScopeReads: true,
       autoApproveMutations: isWorker,
+      // No approver + no scope check would let a prompt-injected worker write or
+      // delete anywhere; refuse out-of-scope mutations. Write directly past plan
+      // mode so the worker's bash verification sees the real edited tree (in
+      // plan mode its edits would otherwise queue while bash ran on the old one).
+      refuseOutOfScopeMutations: isWorker,
+      ignorePlanMode: isWorker,
     }),
     ...buildSearchTools(toolContext, { gateOutOfScopeReads: false, refuseOutOfScopeReads: true }),
     ...(isWorker
       ? {
-          ...buildEditTools(toolContext, { autoApprove: true }),
+          ...buildEditTools(toolContext, {
+            autoApprove: true,
+            refuseOutOfScopeMutations: true,
+            ignorePlanMode: true,
+          }),
           ...buildShellTools(toolContext, { autoApprove: true }),
         }
       : {}),

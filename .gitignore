@@ -36,6 +36,7 @@ Thumbs.db
 !.env.example
 .claude
 .opencode
+.omo
 
 # Recovered WinSCP credentials — local only, never commit
 plan.txt

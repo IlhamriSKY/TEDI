@@ -1,5 +1,7 @@
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { aiToolsRegistry } from "@/modules/extensions/registries";
+import { scrubErrorPath } from "./context";
+import { sanitizeToolName } from "./mcp";
 
 type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown;
 
@@ -23,16 +25,21 @@ type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unkn
  *     extension can never shadow a built-in tool (e.g. `bash_run`). Within this
  *     set, the first registration of a name wins.
  */
-export function buildExtensionTools(): ToolSet {
+export function buildExtensionTools(ctx: import("./context").ToolContext): ToolSet {
   const out: ToolSet = {};
   for (const { extensionId, item } of aiToolsRegistry.list()) {
     const name = item.name;
-    if (!name || out[name]) continue;
+    if (!name) continue;
+    // Sanitize to the provider-safe charset (Anthropic/Gemini reject spaces &
+    // punctuation in tool names — a bad one 400s the whole request). Only the
+    // model-facing KEY is sanitized; dispatch still uses the original `name`.
+    const toolName = sanitizeToolName(name);
+    if (!toolName || out[toolName]) continue;
     const schema =
       item.parameters && typeof item.parameters === "object"
         ? item.parameters
         : { type: "object", properties: {} };
-    out[name] = tool({
+    out[toolName] = tool({
       description: item.description,
       inputSchema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
       // ALWAYS route an extension tool call through the approval flow. The
@@ -56,7 +63,9 @@ export function buildExtensionTools(): ToolSet {
           // when the handler returns nothing.
           return result ?? { ok: true };
         } catch (e) {
-          return { error: e instanceof Error ? e.message : String(e) };
+          // Scrub filesystem paths from extension errors to prevent leaking
+          // local paths back to the model (consistent with built-in tools).
+          return { error: scrubErrorPath(e, ctx) };
         }
       },
     });
