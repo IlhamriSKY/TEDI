@@ -12,6 +12,8 @@ type Workspace = ReturnType<typeof useWorkspacesStore.getState>["workspaces"][nu
 type Params = {
   wsHydrate: () => void;
   wsHydrated: boolean;
+  restoreTabsOnHydrate?: boolean;
+  persistTabsSnapshot?: boolean;
   wsList: Workspace[];
   wsActiveId: string | null;
   wsSaveTabs: (
@@ -41,6 +43,8 @@ type Params = {
 export function useWorkspacePersistence({
   wsHydrate,
   wsHydrated,
+  restoreTabsOnHydrate = true,
+  persistTabsSnapshot = true,
   wsList,
   wsActiveId,
   wsSaveTabs,
@@ -60,6 +64,10 @@ export function useWorkspacePersistence({
   const hydratedWorkspaceRef = useRef(false);
   useEffect(() => {
     if (!wsHydrated || hydratedWorkspaceRef.current) return;
+    if (!restoreTabsOnHydrate) {
+      hydratedWorkspaceRef.current = true;
+      return;
+    }
     const active = wsList.find((w) => w.id === wsActiveId);
     if (!active) {
       hydratedWorkspaceRef.current = true;
@@ -78,6 +86,7 @@ export function useWorkspacePersistence({
   // Auto-snapshot tabs whenever they change. Lightly debounced via the
   // autoSave window inside the workspaces LazyStore.
   useEffect(() => {
+    if (!persistTabsSnapshot) return;
     if (!wsHydrated || !wsActiveId || !hydratedWorkspaceRef.current) return;
     if (skipNextSnapshotRef.current) {
       skipNextSnapshotRef.current = false;

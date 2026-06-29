@@ -97,6 +97,7 @@ import { WorkspaceArea } from "./components/WorkspaceArea";
 import { AppRightSlot } from "./components/AppRightSlot";
 
 export default function App() {
+  const isDevSession = import.meta.env.DEV;
   const {
     tabs,
     activeId,
@@ -178,10 +179,14 @@ export default function App() {
   // These are read/written by several domain hooks and the layout components,
   // so they stay here and are threaded in. Single-consumer state lives inside
   // its owning hook instead (e.g. pendingClose in useTabActions).
-  const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
-  const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
-  const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
-  const detectedUrls = useRef<Map<number, string>>(new Map());
+  const searchAddons = useRef<Map<number, SearchAddon>>(undefined!);
+  if (!searchAddons.current) searchAddons.current = new Map();
+  const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(undefined!);
+  if (!terminalRefs.current) terminalRefs.current = new Map();
+  const editorRefs = useRef<Map<number, EditorPaneHandle>>(undefined!);
+  if (!editorRefs.current) editorRefs.current = new Map();
+  const detectedUrls = useRef<Map<number, string>>(undefined!);
+  if (!detectedUrls.current) detectedUrls.current = new Map();
   const [activeSearchAddon, setActiveSearchAddon] = useState<SearchAddon | null>(null);
   const [activeEditorHandle, setActiveEditorHandle] = useState<EditorPaneHandle | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
@@ -327,8 +332,9 @@ export default function App() {
   // recovery, but live state wins on switch. Shared by useWorkspaceSwitching
   // (writes) and useSessionDisposal (reads to keep cached leaves alive).
   const liveTabsByWorkspace = useRef<Map<string, { tabs: Tab[]; activeId: number | null }>>(
-    new Map(),
+    undefined!,
   );
+  if (!liveTabsByWorkspace.current) liveTabsByWorkspace.current = new Map();
 
   // -------- home / picked root + CLI targets --------
   const { home, pickedRoot, setPickedRoot, openWorkspaceFolder } = useWorkspaceRoot({
@@ -394,6 +400,8 @@ export default function App() {
   useWorkspacePersistence({
     wsHydrate,
     wsHydrated,
+    restoreTabsOnHydrate: !isDevSession,
+    persistTabsSnapshot: !isDevSession,
     wsList,
     wsActiveId,
     wsSaveTabs,
@@ -428,6 +436,18 @@ export default function App() {
     home,
     pickedRoot,
   );
+
+  // Persist the live workspace root so the Settings window (separate webview,
+  // shared localStorage) can target/scan the open project for AI skills. This
+  // mirrors exactly what the agent scans (explorerRoot ?? home), so a skill
+  // installed "to this project" lands where the agent actually looks.
+  useEffect(() => {
+    try {
+      localStorage.setItem("tedi.liveWorkspaceRoot", explorerRoot ?? home ?? "");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [explorerRoot, home]);
 
   // Register the extension-host tabs/sidebar bridge setters and run the
   // sidebar / right-aux auto-restore effects. The shared refs (sidebar
@@ -498,7 +518,13 @@ export default function App() {
   // Safe to re-enable: the launch hang was git commands on the UI thread (fixed
   // in 0.3.50), not this hook, and the adopt poll's pty_list_sessions is now
   // async so a slow daemon can't freeze the UI.
-  useAdoptDaemonSessions({ tabsRef, liveTabsByWorkspace, newTab, restoreDone: wsHydrated });
+  useAdoptDaemonSessions({
+    tabsRef,
+    liveTabsByWorkspace,
+    newTab,
+    restoreDone: wsHydrated,
+    enabled: !isDevSession,
+  });
 
   // Wire the SSH-connection bridge so a permitted extension (the Remote Access
   // browser "+ New SSH") can list saved hosts and open one BY ID. Secrets never
@@ -510,16 +536,26 @@ export default function App() {
     setSshConnectionBridge(
       async () => {
         const list = await listConnections();
-        return list
-          .filter((c) => !!c.lastFingerprint)
-          .map((c) => ({
+        const pinnedConnections: Array<{
+          id: string;
+          name: string;
+          host: string;
+          port: number;
+          user: string;
+          pinned: true;
+        }> = [];
+        for (const c of list) {
+          if (!c.lastFingerprint) continue;
+          pinnedConnections.push({
             id: c.id,
             name: c.name,
             host: c.host,
             port: c.port,
             user: c.user,
             pinned: true,
-          }));
+          });
+        }
+        return pinnedConnections;
       },
       async (id) => {
         const conn = (await listConnections()).find((c) => c.id === id);

@@ -1,13 +1,22 @@
 "use client";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/modules/ai/store/chatStore";
+import {
+  useSubagentRunStore,
+  type SubagentRun,
+} from "@/modules/ai/store/subagentRunStore";
+import { getAllSubagentDefs } from "@/modules/ai/store/subagentsStore";
 import {
   AddSquareIcon,
+  AlertCircleIcon,
   ArrowRight01Icon,
   Calendar01Icon,
   CancelSquareIcon,
   CheckListIcon,
+  CheckmarkSquare02Icon,
   Copy01Icon,
   Cursor01Icon,
   CursorInWindowIcon,
@@ -41,7 +50,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
-import { isValidElement, memo, useState } from "react";
+import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
@@ -95,6 +104,7 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   list_schedules: { label: "Schedules", icon: Calendar01Icon },
   cancel_schedule: { label: "Cancel schedule", icon: Calendar01Icon },
   // Delegation / planning
+  skill: { label: "Skill", icon: SparklesIcon },
   run_subagent: { label: "Subagent", icon: RobotIcon },
   run_subagents: { label: "Subagents", icon: RobotIcon },
   todo_write: { label: "Todos", icon: CheckListIcon },
@@ -159,6 +169,8 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       const rep = str("replacement");
       return rep == null ? pat : `${pat} → ${rep}`;
     }
+    case "skill":
+      return str("name");
     case "suggest_command":
       return str("intent") ?? str("description");
     case "open_browser":
@@ -242,18 +254,32 @@ const ToolImpl = ({
     output !== null &&
     typeof output === "object" &&
     typeof (output as { image?: unknown }).image === "string";
-  const open =
-    defaultOpen ?? (isError || hasSubagentSummary || hasSubagentResults || hasScreenshot);
+  const sessionId = useChatStore((s) => s.activeSessionId);
+  const sessionRuns =
+    useSubagentRunStore((s) => (sessionId ? s.bySession[sessionId] : undefined)) ?? [];
+  const liveSubagentRuns = useMemo(
+    () => matchSubagentRuns(toolName, input, sessionRuns),
+    [toolName, input, sessionRuns],
+  );
+  const showLiveSubagentBody =
+    (toolName === "run_subagent" || toolName === "run_subagents") &&
+    output === undefined &&
+    !errorText &&
+    liveSubagentRuns.length > 0;
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
   // Hide streamed input body for heavy tools; output always shows since it's
   // the final result, not per-token streaming.
   const showInputBody = !heavyInput && Boolean(input);
   const showOutputBody = output !== undefined;
-  const hasDetails = showInputBody || showOutputBody || Boolean(errorText);
+  const hasDetails = showInputBody || showOutputBody || Boolean(errorText) || showLiveSubagentBody;
+
+  const resolvedOpen =
+    defaultOpen ??
+    (isError || hasSubagentSummary || hasSubagentResults || hasScreenshot || showLiveSubagentBody);
 
   return (
     <Collapsible
-      defaultOpen={open}
+      defaultOpen={resolvedOpen}
       className={cn("group/tool not-prose w-full", className)}
       {...props}
     >
@@ -297,6 +323,7 @@ const ToolImpl = ({
         >
           <div className="border-border/60 mt-1 ml-3 space-y-2 border-l pb-1 pl-3">
             {showInputBody ? <ToolInput toolName={toolName} input={input} /> : null}
+            {showLiveSubagentBody ? <SubagentLiveDetails runs={liveSubagentRuns} /> : null}
             {showOutputBody || errorText ? (
               <ToolOutput
                 toolName={toolName}
@@ -323,6 +350,156 @@ export const Tool = memo(ToolImpl, (a, b) => {
   }
   return a.input === b.input;
 });
+
+function SubagentLiveDetails({ runs }: { runs: SubagentRun[] }) {
+  const active = runs.some((run) => run.status === "running");
+  const now = useLiveNow(active);
+  // Resolve the friendly agent name (e.g. "Comet", "Odyssey") from the
+  // type id; falls back to the raw id for anything unregistered.
+  const defs = getAllSubagentDefs();
+
+  return (
+    <div className="space-y-1">
+      <div className="text-muted-foreground text-[10px] font-medium">Progress</div>
+      <div className="space-y-1">
+        {runs.map((run) => {
+          const agentName = defs[run.type]?.label ?? run.type;
+          const isRunning = run.status === "running";
+          const isError = run.status === "error";
+          const elapsed = isRunning
+            ? now - run.startedAt
+            : (run.durationMs ?? (run.endedAt ? run.endedAt - run.startedAt : 0));
+          const stats = [
+            run.stepCount != null ? `${run.stepCount} step${run.stepCount === 1 ? "" : "s"}` : null,
+            elapsed > 0 ? formatDuration(elapsed) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+
+          return (
+            <div
+              key={run.id}
+              className={cn(
+                "border-border/50 bg-muted/25 flex flex-col gap-1 rounded-md border px-2 py-1.5 text-[11px]",
+                isRunning && "border-icon-working/40 bg-icon-working/5",
+                isError && "border-destructive/30 bg-destructive/5",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                  {isRunning ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <HugeiconsIcon
+                      icon={isError ? AlertCircleIcon : CheckmarkSquare02Icon}
+                      size={12}
+                      strokeWidth={1.75}
+                      className={isError ? "text-destructive" : "text-diff-added"}
+                    />
+                  )}
+                </span>
+                <span className="bg-foreground/10 text-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
+                  {agentName}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    isError
+                      ? "text-destructive"
+                      : isRunning
+                        ? "text-foreground"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {isError ? (run.error?.trim() || "failed") : run.label || "working"}
+                </span>
+                {stats ? (
+                  <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+                    {stats}
+                  </span>
+                ) : null}
+              </div>
+              {isRunning && run.currentStep ? (
+                <div className="text-muted-foreground/80 truncate pl-5 font-mono text-[10px]">
+                  {run.currentStep}
+                </div>
+              ) : null}
+              {isError && run.error ? (
+                <div className="text-destructive/90 break-all pl-5 font-mono text-[10px] leading-relaxed">
+                  {run.error}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function useLiveNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+function matchSubagentRuns(toolName: string, input: unknown, runs: SubagentRun[]): SubagentRun[] {
+  const expected = expectedSubagentRuns(toolName, input);
+  if (expected.length === 0 || runs.length === 0) return [];
+
+  const matched: SubagentRun[] = [];
+  let cursor = runs.length - 1;
+
+  for (let i = expected.length - 1; i >= 0; i--) {
+    const want = expected[i];
+    let found: SubagentRun | null = null;
+    for (let j = cursor; j >= 0; j--) {
+      const run = runs[j];
+      if (!sameSubagentRun(run, want)) continue;
+      found = run;
+      cursor = j - 1;
+      break;
+    }
+    if (!found) return [];
+    matched.push(found);
+  }
+
+  return matched.reverse();
+}
+
+function expectedSubagentRuns(toolName: string, input: unknown): Array<{ type: string; label?: string }> {
+  if (!input || typeof input !== "object") return [];
+  const data = input as Record<string, unknown>;
+
+  if (toolName === "run_subagent") {
+    return typeof data.type === "string"
+      ? [{ type: data.type, label: typeof data.description === "string" ? data.description : undefined }]
+      : [];
+  }
+
+  if (toolName !== "run_subagents" || !Array.isArray(data.tasks)) return [];
+  const out: Array<{ type: string; label?: string }> = [];
+  for (const task of data.tasks) {
+    if (!task || typeof task !== "object") continue;
+    const value = task as Record<string, unknown>;
+    if (typeof value.type !== "string") continue;
+    out.push({
+      type: value.type,
+      label: typeof value.description === "string" ? value.description : undefined,
+    });
+  }
+  return out;
+}
+
+function sameSubagentRun(run: SubagentRun, expected: { type: string; label?: string }): boolean {
+  if (run.type !== expected.type) return false;
+  return (run.label ?? "") === (expected.label ?? "");
+}
 
 function ToolInput({ toolName, input }: { toolName: string; input: unknown }) {
   if (input == null) return null;
@@ -784,6 +961,28 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
             <SubagentResultRow key={idx} result={r} />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (toolName === "skill") {
+    if (typeof o.error === "string") {
+      return (
+        <div className="bg-destructive/10 text-destructive rounded px-2 py-1.5 font-mono text-[11px]">
+          {o.error}
+        </div>
+      );
+    }
+    const name = typeof o.name === "string" ? o.name : "";
+    const content = typeof o.content === "string" ? o.content : "";
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 font-mono text-[11px]">
+          <span className="text-diff-added">✓</span>
+          <span className="text-foreground">loaded skill</span>
+          {name ? <span className="text-muted-foreground">· {name}</span> : null}
+        </div>
+        {content ? <CodeBlockMini code={content} language="markdown" /> : null}
       </div>
     );
   }

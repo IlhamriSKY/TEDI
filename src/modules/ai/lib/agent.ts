@@ -15,6 +15,7 @@ import {
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   ORCHESTRATION_PROMPT_BODY,
+  ORCHESTRATION_PROMPT_BODY_LITE,
   pickSystemPromptVariant,
   PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
@@ -36,6 +37,7 @@ import { compactModelMessagesDetailed, type CompactStages } from "./compact";
 import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
+import { useDebugStore } from "../store/debugStore";
 
 export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -58,6 +60,7 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   bash_kill: () => `Stopping background process`,
   suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
+  skill: (i) => `Using ${String(i.name ?? "skill")} skill`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
     const tasks = Array.isArray(i.tasks) ? i.tasks : [];
@@ -347,7 +350,7 @@ function toolCallFingerprint(toolName: string, input: unknown): string {
  * input. Default 3 because some tools (e.g. `bash_logs`) repeat twice
  * legitimately.
  */
-function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
+export function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
   return ({ steps }) => {
     if (steps.length < maxRepeats) return false;
     const recent = steps.slice(-maxRepeats);
@@ -366,7 +369,7 @@ function noToolRepetition<T extends ToolSet>(maxRepeats = 3): StopCondition<T> {
 
 /** Stops after `maxIdle` consecutive text-only steps. A real text turn ends
  *  on its own and never chains another empty step. */
-function noProgressStop<T extends ToolSet>(maxIdle = 2): StopCondition<T> {
+export function noProgressStop<T extends ToolSet>(maxIdle = 2): StopCondition<T> {
   return ({ steps }) => {
     if (steps.length < maxIdle) return false;
     return steps.slice(-maxIdle).every((s) => (s.toolCalls?.length ?? 0) === 0);
@@ -400,6 +403,11 @@ export type RunAgentOptions = {
   openaiCompatibleBaseURL?: string;
   planMode?: boolean;
   projectMemory?: string | null;
+  /** Concatenated `.tedi/memory/*.md` (durable project memory). */
+  memory?: string | null;
+  /** Pre-formatted "## SKILLS" block (name + description per available skill).
+   *  Byte-stable across turns so it stays in the cacheable prefix. */
+  skillsPrompt?: string | null;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
@@ -411,6 +419,8 @@ function buildSystemPrompt(opts: {
   customInstructions?: string;
   agentPersona?: { name: string; instructions: string } | null;
   projectMemory?: string | null;
+  memory?: string | null;
+  skillsPrompt?: string | null;
   planMode?: boolean;
 }): string {
   // Resolve the core prompt: the user can override the full or compact variant
@@ -432,21 +442,43 @@ function buildSystemPrompt(opts: {
     opts.projectMemory && opts.projectMemory.trim().length > 0
       ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
       : "";
+  // Persistent memory (Claude-CLI style): files under .tedi/memory are loaded as
+  // durable context. The instruction is always present so the agent knows it can
+  // record facts there; the saved content is appended when any exists.
+  const memBlock = `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\` and is auto-loaded here. To remember a fact across sessions, write or update a short markdown file there (create the folder if missing).${
+    opts.memory && opts.memory.trim().length > 0 ? `\n\nSaved memory:\n${opts.memory.trim()}` : ""
+  }`;
+  const skillsBlock = opts.skillsPrompt?.trim() ? `\n\n${opts.skillsPrompt.trim()}` : "";
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
   // Auto-orchestration nudge: appended whenever sub-agents are enabled (the
   // single on/off now covers orchestration too). Read live (like the overrides
   // above); the flag is stable across a turn so the prefix stays byte-stable for
-  // caching until the setting changes.
+  // caching until the setting changes. Lite models get a compact prompt.
   const subPrefs = usePreferencesStore.getState();
   const orchestrationOn = subPrefs.subagentsEnabled;
-  const orchestrationBody = resolvePromptText(
-    overrides,
-    "orchestration",
-    ORCHESTRATION_PROMPT_BODY,
-  );
+  const orchestrationDefault = variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
+  const orchestrationBody = resolvePromptText(overrides, "orchestration", orchestrationDefault);
   const orchestrationBlock = orchestrationOn ? `\n\n${orchestrationBody}` : "";
-  return `${hostBlock}${base}${memoryBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
+  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
+}
+
+/** Appended for the turn when the user writes "ultrathink": a provider-agnostic
+ *  push for deeper reasoning (TEDI runs many model families, so this is a prompt
+ *  directive rather than a per-provider thinking-budget knob). */
+const ULTRATHINK_DIRECTIVE = `\n\n## ULTRATHINK\nThe user asked you to think hard this turn. Before any tool call or final answer, reason step by step and exhaustively: restate the problem, weigh multiple approaches and their trade-offs, check edge cases and failure modes, and verify your plan against the actual code. Prioritize correctness over speed.`;
+
+/** Text of the latest user message (concatenated text parts), for keyword
+ *  detection like "ultrathink". Empty when there is no user message. */
+function lastUserText(messages: UIMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== "user") continue;
+    return (messages[i].parts ?? [])
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join(" ");
+  }
+  return "";
 }
 
 /** Runs one streaming agent step. Returns a `streamText` result whose
@@ -478,13 +510,19 @@ export async function runAgentStream(opts: RunAgentOptions) {
     openaiCompatibleBaseURL: opts.openaiCompatibleBaseURL,
   });
 
-  const systemText = buildSystemPrompt({
-    modelId: modelInfo.id,
-    customInstructions: opts.customInstructions,
-    agentPersona: opts.agentPersona,
-    projectMemory: opts.projectMemory,
-    planMode: opts.planMode,
-  });
+  // "ultrathink" in the latest user message escalates reasoning for this turn
+  // (breaks the cached prefix only on those turns, which is the intent).
+  const ultrathink = /\bultra ?think\b/i.test(lastUserText(opts.uiMessages));
+  const systemText =
+    buildSystemPrompt({
+      modelId: modelInfo.id,
+      customInstructions: opts.customInstructions,
+      agentPersona: opts.agentPersona,
+      projectMemory: opts.projectMemory,
+      memory: opts.memory,
+      skillsPrompt: opts.skillsPrompt,
+      planMode: opts.planMode,
+    }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
 
   // Optional main-agent temperature override. Only sent when the user set one,
   // so reasoning models that reject sampling params stay untouched by default.
@@ -557,13 +595,35 @@ export async function runAgentStream(opts: RunAgentOptions) {
       return false;
     },
   ];
+  // Extension-contributed AI tools first, built-ins spread AFTER so an
+  // extension can never shadow a built-in tool name (e.g. bash_run).
+  const tools = { ...buildExtensionTools(), ...buildTools(opts.toolContext) };
+
+  // Debug capture: snapshot the assembled request (no secrets) when the user
+  // turned Debug on, so they can inspect / download exactly what TEDI sends.
+  if (usePreferencesStore.getState().debugEnabled) {
+    useDebugStore.getState().add({
+      kind: "main",
+      sessionId: opts.toolContext.getSessionId(),
+      model: { id: modelInfo.id, provider, label: modelInfo.label },
+      params: {
+        ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
+        maxSteps: MAX_AGENT_STEPS,
+      },
+      system: systemText,
+      messages: finalMessages,
+      tools: Object.entries(tools).map(([name, t]) => ({
+        name,
+        description: (t as { description?: string } | undefined)?.description,
+      })),
+    });
+  }
+
   return streamText({
     model,
     messages: finalMessages,
     ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
-    // Extension-contributed AI tools first, built-ins spread AFTER so an
-    // extension can never shadow a built-in tool name (e.g. bash_run).
-    tools: { ...buildExtensionTools(), ...buildTools(opts.toolContext) },
+    tools,
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.

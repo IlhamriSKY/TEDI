@@ -131,6 +131,12 @@ function DialogDescription({
   );
 }
 
+/** Shared width for the wide editor dialogs (system prompts, sub-agents,
+ *  built-in agents, debug viewer): near-full-width on desktop with a small-screen
+ *  gutter. One source of truth so these editors can't drift apart. */
+export const WIDE_DIALOG_WIDTH =
+  "w-[min(96rem,calc(100vw-2rem))] sm:max-w-[min(96rem,calc(100vw-3rem))]";
+
 export {
   Dialog,
   DialogClose,

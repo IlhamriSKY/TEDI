@@ -19,7 +19,11 @@ type Props = {
 };
 
 export function SnippetPickerContent({ items, activeIndex, onPick, onHover, emptyText }: Props) {
-  const commands = items.filter((it) => it.kind === "command");
+  // Built-in commands, installed skills, and snippets render in separate
+  // sections (Claude-Code style). Order matches the flat `items` array so the
+  // running `cursor` stays in sync with keyboard nav.
+  const builtinCommands = items.filter((it) => it.kind === "command" && !it.command.isSkill);
+  const skillCommands = items.filter((it) => it.kind === "command" && it.command.isSkill);
   const snippets = items.filter((it) => it.kind === "snippet");
   let cursor = -1;
 
@@ -30,6 +34,46 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
     const el = itemRefs.current[activeIndex];
     if (el) el.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
+
+  const renderCommand = (it: PickerItem, i: number) => {
+    if (it.kind !== "command") return null;
+    const c = it.command;
+    return (
+      <li key={`cmd-${c.name}`}>
+        <button
+          ref={(el) => {
+            itemRefs.current[i] = el;
+          }}
+          type="button"
+          onMouseEnter={() => onHover(i)}
+          onClick={() => onPick(it)}
+          className={cn(
+            "flex w-full cursor-pointer flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
+            i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
+          )}
+        >
+          <span className="flex w-full items-center gap-1.5">
+            <HugeiconsIcon
+              icon={c.icon}
+              size={13}
+              strokeWidth={1.75}
+              className="text-muted-foreground shrink-0"
+            />
+            <span className="text-primary font-mono font-medium">{c.invocation}</span>
+            {c.argHint ? (
+              <span className="text-icon-working font-mono text-[10.5px]">{c.argHint}</span>
+            ) : null}
+            {c.label && c.label !== c.name ? (
+              <span className="font-medium">{c.label}</span>
+            ) : null}
+          </span>
+          <span className="text-muted-foreground line-clamp-2 pl-[18px] text-[10.5px]">
+            {c.description}
+          </span>
+        </button>
+      </li>
+    );
+  };
 
   return (
     <PopoverContent
@@ -47,50 +91,24 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
         </div>
       ) : (
         <div className="max-h-72 overflow-y-auto py-1">
-          {commands.length > 0 && (
+          {builtinCommands.length > 0 && (
             <>
               <SectionHeader label="Commands" />
               <ul>
-                {commands.map((it) => {
+                {builtinCommands.map((it) => {
                   cursor += 1;
-                  const i = cursor;
-                  if (it.kind !== "command") return null;
-                  const c = it.command;
-                  return (
-                    <li key={`cmd-${c.name}`}>
-                      <button
-                        ref={(el) => {
-                          itemRefs.current[i] = el;
-                        }}
-                        type="button"
-                        onMouseEnter={() => onHover(i)}
-                        onClick={() => onPick(it)}
-                        className={cn(
-                          "flex w-full cursor-pointer flex-col items-start gap-0.5 px-2 py-1.5 text-left text-[12px]",
-                          i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
-                        )}
-                      >
-                        <span className="flex w-full items-center gap-1.5">
-                          <HugeiconsIcon
-                            icon={c.icon}
-                            size={13}
-                            strokeWidth={1.75}
-                            className="text-muted-foreground shrink-0"
-                          />
-                          <span className="text-muted-foreground font-mono">{c.invocation}</span>
-                          {c.argHint ? (
-                            <span className="text-muted-foreground/70 font-mono text-[10.5px]">
-                              {c.argHint}
-                            </span>
-                          ) : null}
-                          <span className="font-medium">{c.label}</span>
-                        </span>
-                        <span className="text-muted-foreground line-clamp-1 pl-[18px] text-[10.5px]">
-                          {c.description}
-                        </span>
-                      </button>
-                    </li>
-                  );
+                  return renderCommand(it, cursor);
+                })}
+              </ul>
+            </>
+          )}
+          {skillCommands.length > 0 && (
+            <>
+              <SectionHeader label="Skills" />
+              <ul>
+                {skillCommands.map((it) => {
+                  cursor += 1;
+                  return renderCommand(it, cursor);
                 })}
               </ul>
             </>

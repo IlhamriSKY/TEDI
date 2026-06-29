@@ -116,6 +116,10 @@ export type Preferences = {
    *  is delegated to parallel sub-agents and `depends_on` (scatter -> gather) is
    *  honored. Off hides the tools entirely (zero sub-agent token spend). */
   subagentsEnabled: boolean;
+  /** Debug capture: when on, every request sent to the provider/API (system
+   *  prompt, messages, model, params, tool list) is snapshotted in-memory so it
+   *  can be inspected and downloaded as JSON from the chat. Off = no capture. */
+  debugEnabled: boolean;
   autostart: boolean;
   restoreWindowState: boolean;
   autocompleteEnabled: boolean;
@@ -333,6 +337,7 @@ const KEY_TERMINAL_THEME_ID = "terminalThemeId";
 const KEY_TERMINAL_CUSTOM_PALETTE = "terminalCustomPalette";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_SUBAGENTS_ENABLED = "subagentsEnabled";
+const KEY_DEBUG_ENABLED = "debugEnabled";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
 const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
@@ -412,8 +417,8 @@ export const TERMINAL_SCROLLBACK_OPTIONS = [200, 500, 1000, 2500, 5000, 10000] a
 export const SUBAGENT_MAX_CONCURRENCY_DEFAULT = 3;
 export const SUBAGENT_MAX_CONCURRENCY_MAX = 8;
 
-export const SUBAGENT_MAX_STEPS_DEFAULT = 12;
-export const SUBAGENT_MAX_STEPS_MAX = 30;
+// Sub-agents have no step cap (they run a task to completion); the budget lives
+// in runSubagent as a runaway backstop, not a user/AI-facing knob.
 
 export const SUBAGENT_MAX_TASKS_MAX = 16;
 
@@ -458,6 +463,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalCustomPalette: DEFAULT_TERMINAL_PALETTE,
   customInstructions: "",
   subagentsEnabled: true,
+  debugEnabled: false,
   autostart: false,
   restoreWindowState: true,
   autocompleteEnabled: false,
@@ -545,6 +551,7 @@ export async function loadPreferences(): Promise<Preferences> {
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
     subagentsEnabled: get<boolean>(KEY_SUBAGENTS_ENABLED) ?? DEFAULT_PREFERENCES.subagentsEnabled,
+    debugEnabled: get<boolean>(KEY_DEBUG_ENABLED) ?? DEFAULT_PREFERENCES.debugEnabled,
     autostart: get<boolean>(KEY_AUTOSTART) ?? DEFAULT_PREFERENCES.autostart,
     restoreWindowState: get<boolean>(KEY_RESTORE_WINDOW) ?? DEFAULT_PREFERENCES.restoreWindowState,
     autocompleteEnabled:
@@ -787,6 +794,10 @@ export async function setCustomInstructions(value: string): Promise<void> {
 
 export async function setSubagentsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_SUBAGENTS_ENABLED, value);
+}
+
+export async function setDebugEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_DEBUG_ENABLED, value);
 }
 
 export async function setAutostart(value: boolean): Promise<void> {
@@ -1085,6 +1096,7 @@ export async function onPreferencesChange(
     terminalCustomPalette: KEY_TERMINAL_CUSTOM_PALETTE,
     customInstructions: KEY_CUSTOM_INSTRUCTIONS,
     subagentsEnabled: KEY_SUBAGENTS_ENABLED,
+    debugEnabled: KEY_DEBUG_ENABLED,
     autostart: KEY_AUTOSTART,
     restoreWindowState: KEY_RESTORE_WINDOW,
     autocompleteEnabled: KEY_AUTOCOMPLETE_ENABLED,

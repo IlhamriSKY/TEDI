@@ -9,6 +9,7 @@ import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumop
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { usePromptsStore } from "@/modules/ai/store/promptsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
+import { useSubagentsStore } from "@/modules/ai/store/subagentsStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged, setLastModelId, setLastProviderId } from "@/modules/settings/store";
 import { useEffect, useRef, useState } from "react";
@@ -161,6 +162,7 @@ export function useAiBootstrap(): { keysLoaded: boolean } {
     // at runtime without waiting for the Settings panel to mount.
     void usePromptsStore.getState().hydrate();
     void useSnippetsStore.getState().hydrate();
+    void useSubagentsStore.getState().hydrate();
   }, [hydrateSessions]);
 
   return { keysLoaded };

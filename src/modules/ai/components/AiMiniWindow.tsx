@@ -29,7 +29,6 @@ import { usePlanStore } from "../store/planStore";
 import { AiChatView } from "./AiChat";
 import { AiInputBar } from "./AiInputBar";
 import { PlanDiffReview } from "./PlanDiffReview";
-import { SubagentStrip } from "./SubagentStrip";
 import { TodoStrip } from "./TodoStrip";
 
 const SUGGESTIONS = [
@@ -127,8 +126,6 @@ function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }
           </div>
         )}
       </div>
-
-      <SubagentStrip sessionId={sessionId} />
 
       <TodoStrip sessionId={sessionId} />
 

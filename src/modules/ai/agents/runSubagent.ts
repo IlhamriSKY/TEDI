@@ -1,6 +1,6 @@
-import { generateText, stepCountIs, type ModelMessage } from "ai";
+import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
 import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
-import { buildLanguageModel, TOOL_LABELS } from "../lib/agent";
+import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import type { ProviderKeys } from "../lib/keyring";
 import {
@@ -13,16 +13,21 @@ import { getPromptOverrides } from "../store/promptsStore";
 import type { ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
 import { buildSearchTools } from "../tools/search";
-import { SUBAGENTS, type SubagentType } from "./registry";
+import { buildEditTools } from "../tools/edit";
+import { buildShellTools } from "../tools/shell";
+import { READ_ONLY_TOOLS, type SubagentDef } from "./registry";
+import { getAllSubagentDefs } from "../store/subagentsStore";
+import { useDebugStore } from "../store/debugStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
-const SUBAGENT_MAX_STEPS = 12;
-/** Runaway backstop on a caller-supplied per-run step budget (see `maxSteps`).
- *  The user-facing cap (Settings → Sub-agents) is lower; this only guards
- *  against a bad caller value. */
-const SUBAGENT_MAX_STEPS_CAP = 50;
+/** Sub-agents have no user-facing step cap so they can run a task to completion.
+ *  Termination is driven by natural finish plus the same anti-loop guards the
+ *  main agent uses (tool-repetition + no-progress); this high number is only a
+ *  runaway backstop the guards almost always trip well before. */
+const SUBAGENT_STEP_BUDGET = 100;
 
 type Args = {
-  type: SubagentType;
+  type: string;
   prompt: string;
   keys: ProviderKeys;
   modelId: DynamicModelId;
@@ -31,9 +36,6 @@ type Args = {
   openaiCompatibleBaseURL?: string;
   /** Forwarded from parent so Stop also cancels in-flight subagent fetches. */
   abortSignal?: AbortSignal;
-  /** Per-call internal step budget. Defaults to SUBAGENT_MAX_STEPS, clamped to
-   *  [1, SUBAGENT_MAX_STEPS_CAP]. Lets a fan-out give cheap tasks fewer steps. */
-  maxSteps?: number;
   /** Fires after each internal step with a human label of what the subagent
    *  just did ("Reading …", "Grepping …") and the running step count, so the UI
    *  can show live progress for an otherwise-blocking generateText loop. */
@@ -71,36 +73,47 @@ export async function runSubagent({
   lmstudioBaseURL,
   openaiCompatibleBaseURL,
   abortSignal,
-  maxSteps,
   onStep,
 }: Args): Promise<RunResult> {
-  const def = SUBAGENTS[type];
+  const def = getAllSubagentDefs()[type] as SubagentDef | undefined;
   if (!def) throw new Error(`unknown subagent type: ${type}`);
 
-  const effectiveMaxSteps = Math.max(
-    1,
-    Math.min(maxSteps ?? SUBAGENT_MAX_STEPS, SUBAGENT_MAX_STEPS_CAP),
-  );
+  // A worker (its tool list includes anything beyond READ_ONLY_TOOLS, e.g.
+  // Odyssey) gets the mutating + shell tools; a read-only agent does not.
+  const isWorker = def.tools.some((t) => !READ_ONLY_TOOLS.includes(t));
 
-  // Read-only tools only. Skip mutating/recursive builders. Disable the
-  // out-of-scope read approval gate: this generateText loop has no approval
-  // responder, so a gated read would stall instead of running.
-  const readOnly: Record<string, unknown> = {
-    ...buildFsTools(toolContext, { gateOutOfScopeReads: false, refuseOutOfScopeReads: true }),
+  // Disable the out-of-scope read approval gate: this generateText loop has no
+  // approval responder, so a gated read would stall instead of running. A
+  // worker additionally gets edit/write/fs-mutation/shell tools with approval
+  // OFF (autoApprove): same no-responder reason. Mutations stay guarded by the
+  // secret/system denylist, writable/deletable checks, scope-root protection,
+  // and checkpoint/restore. run_subagent is never built here, so no recursion.
+  const available: Record<string, unknown> = {
+    ...buildFsTools(toolContext, {
+      gateOutOfScopeReads: false,
+      refuseOutOfScopeReads: true,
+      autoApproveMutations: isWorker,
+    }),
     ...buildSearchTools(toolContext, { gateOutOfScopeReads: false, refuseOutOfScopeReads: true }),
+    ...(isWorker
+      ? {
+          ...buildEditTools(toolContext, { autoApprove: true }),
+          ...buildShellTools(toolContext, { autoApprove: true }),
+        }
+      : {}),
   };
   const filtered: Record<string, unknown> = {};
   for (const t of def.tools) {
-    if (t in readOnly) filtered[t] = readOnly[t];
+    if (t in available) filtered[t] = available[t];
   }
 
   // User overrides: system prompt, model, and (opt-in) temperature per sub-agent.
   const overrides = getPromptOverrides();
   const promptId = `subagent:${type}` as PromptId;
   const systemPrompt = resolvePromptText(overrides, promptId, def.systemPrompt);
-  // Model override defaults to the parent's model id so unconfigured sub-agents
-  // behave exactly as before.
-  const effectiveModelId = resolvePromptModel(overrides, promptId, modelId);
+  // Model resolution: an explicit prompt-override (built-ins) wins, else the
+  // def's own model (custom sub-agents), else the parent chat model.
+  const effectiveModelId = resolvePromptModel(overrides, promptId, def.model ?? modelId);
   const temperature = resolvePromptTemperature(overrides, promptId);
 
   // Unknown ids fall back to SumoPod (runtime discovery via /v1/models).
@@ -125,6 +138,26 @@ export async function runSubagent({
   ];
   const messages = applyCacheBreakpoints(baseMessages, info.provider);
 
+  // Debug capture: snapshot this sub-agent's request (no secrets) when Debug is on.
+  if (usePreferencesStore.getState().debugEnabled) {
+    useDebugStore.getState().add({
+      kind: "subagent",
+      sessionId: toolContext.getSessionId(),
+      subagentType: type,
+      model: { id: info.id, provider: info.provider, label: info.label },
+      params: {
+        ...(temperature !== undefined ? { temperature } : {}),
+        stepBudget: SUBAGENT_STEP_BUDGET,
+      },
+      system: systemPrompt,
+      messages,
+      tools: Object.entries(filtered).map(([name, t]) => ({
+        name,
+        description: (t as { description?: string } | undefined)?.description,
+      })),
+    });
+  }
+
   // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
   let liveSteps = 0;
@@ -132,7 +165,13 @@ export async function runSubagent({
     model,
     messages,
     tools: filtered as never,
-    stopWhen: stepCountIs(effectiveMaxSteps) as never,
+    // No low step cap (powerful sub-agents): natural finish plus the main
+    // agent's anti-loop guards terminate; the count is just a runaway backstop.
+    stopWhen: [
+      stepCountIs(SUBAGENT_STEP_BUDGET),
+      noToolRepetition<ToolSet>(3),
+      noProgressStop<ToolSet>(2),
+    ] as never,
     ...(temperature !== undefined ? { temperature } : {}),
     abortSignal,
     // Surface live progress: each finished step reports what the subagent just

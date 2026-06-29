@@ -15,6 +15,7 @@ import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
 import { compactUiMessages } from "./compact";
 import { saveMessages } from "./sessions";
+import { getLoadedSkills, skillSlug } from "./skills";
 
 /**
  * Outcome of intercepting a slash command.
@@ -48,6 +49,8 @@ export type SlashCommandMeta = {
    *  (`init`, `plan`) that persist on a message or the session. Ephemeral
    *  actions stay slash-only. */
   hashOnly?: boolean;
+  /** True for installed-skill commands so the picker groups them separately. */
+  isSkill?: boolean;
 };
 
 export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
@@ -122,6 +125,22 @@ export const VISIBLE_SLASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_CO
 export const HASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
   (c) => c.hashOnly,
 );
+
+/** Installed skills surfaced as `/` commands (one per skill, named after it) so
+ *  users can invoke one directly. Built live from the loaded-skills cache. */
+export function skillSlashCommands(): SlashCommandMeta[] {
+  // Full description; the picker clamps the display (line-clamp-2) so there's no
+  // mid-word code truncation.
+  return getLoadedSkills().map((s) => ({
+    name: skillSlug(s),
+    invocation: `/${skillSlug(s)}`,
+    label: s.name,
+    description: s.description || "Skill",
+    icon: SparklesIcon,
+    isSkill: true,
+    argHint: s.argHint,
+  }));
+}
 
 export const TEDI_CMD_RE =
   /^<tedi-command\s+name="([a-z0-9-]+)"(?:\s+state="([a-z]+)")?\s*\/>(?:\n+|$)/;
@@ -294,7 +313,22 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
         prompt: `Schedule a terminal command: ${tail}\n\nUse the schedule_command tool. Parse the time from the input (e.g., "in 5 minutes", "at 3pm", "tomorrow at 9am") and the command to run. If no terminal is specified, use the active terminal.`,
       };
     }
-    default:
+    default: {
+      // Installed skill invoked by name, e.g. `/<skill> [task]`.
+      if (lead === "/") {
+        const skill = getLoadedSkills().find((s) => skillSlug(s) === head);
+        if (skill) {
+          // Clean body (no absolute path); the agent loads it via the `skill`
+          // tool, which lists this skill by name.
+          const task = tail ? ` Apply it to: ${tail}` : "";
+          return {
+            kind: "send-prompt",
+            prompt: `Use the "${skill.name}" skill.${task}`,
+            commandName: head,
+          };
+        }
+      }
       return { kind: "none" };
+    }
   }
 }

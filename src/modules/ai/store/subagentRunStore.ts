@@ -15,7 +15,7 @@ export type SubagentRunStatus = "running" | "done" | "error";
 export type SubagentRun = {
   id: string;
   sessionId: string;
-  /** Subagent type id (explore / code-review / security / general / ...). */
+  /** Subagent type id (comet / nebula / nova / orbit / eclipse / odyssey / ...). */
   type: string;
   /** Optional human label from the spawning tool's `description`. */
   label?: string;

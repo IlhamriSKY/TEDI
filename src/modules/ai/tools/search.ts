@@ -64,7 +64,7 @@ export function buildSearchTools(
         if (!r.ok) return { error: r.error };
         if (refuseOutOfScope && root && isReadOutsideScope(root, ctx)) {
           return {
-            error: "refused: a read-only subagent may not search outside the workspace/cwd",
+            error: "refused: a subagent may not search outside the workspace/cwd",
             root: r.path,
           };
         }
@@ -120,7 +120,7 @@ export function buildSearchTools(
         if (!r.ok) return { error: r.error };
         if (refuseOutOfScope && root && isReadOutsideScope(root, ctx)) {
           return {
-            error: "refused: a read-only subagent may not search outside the workspace/cwd",
+            error: "refused: a subagent may not search outside the workspace/cwd",
             root: r.path,
           };
         }

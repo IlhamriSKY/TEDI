@@ -5,9 +5,18 @@ import { native } from "./native";
  *
  * One checkpoint per session, pointing at the most recent user turn. Sending
  * a new message drops the previous checkpoint; only the last turn is undoable.
- * Mutating tools (`edit`, `multi_edit`, `write_file`, `create_directory`)
- * record file originals before the on-disk write. Restore replays those
- * originals and trims chat history to before the user's last message.
+ * Mutating tools (`edit`, `multi_edit`, `write_file`, `create_directory`,
+ * `move_file`, `copy_file`, `delete_file`) record originals before the on-disk
+ * write, so restore can replay them and trim chat history to before the user's
+ * last message. Sub-agent edits (the autonomous `odyssey` worker) run under
+ * the parent session's context, so they record into the SAME checkpoint and are
+ * undoable too.
+ *
+ * Not undoable (no snapshot): `replace_in_files` (multi-file regex; stage git
+ * first) and any side effects of `bash_run` / `bash_background` (guarded by the
+ * shell denylist instead). Restore is conservative: a file reverts only if
+ * on-disk still matches the agent's last write, so manual edits made after are
+ * always preserved.
  *
  * Snapshots live in-process only. They're bounded by files touched this turn
  * (typically <= 10), each capped by the read-file 200KB limit. Not persisted

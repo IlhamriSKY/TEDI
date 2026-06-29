@@ -12,7 +12,6 @@ import type { UIMessage } from "@ai-sdk/react";
 import { Minimize02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { getModel, getModelContextLimit } from "../config";
 import { useChatStore } from "../store/chatStore";
 
@@ -131,9 +130,9 @@ function LastCompactLine() {
 
 export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
   const modelId = useChatStore((s) => s.selectedModelId);
-  const usage = useChatStore(
-    useShallow((s) => s.agentMeta.usage),
-  );
+  // Prompt-cache hit ratio (provider-reported). The one number that proves
+  // caching is working; 0% on cache-less providers (Groq/Cerebras/LM Studio).
+  const usage = useChatStore((s) => s.agentMeta.usage);
   const used = useMemo(() => estimateTokens(messages), [messages]);
   const max = getModelContextLimit(modelId);
   const modelLabel = useMemo(() => {
@@ -143,11 +142,6 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
       return modelId;
     }
   }, [modelId]);
-
-  // Cache hit ratio. Meaningful only after one round-trip; show "-" until then.
-  const hasReportedUsage = usage.input > 0;
-  const cacheRatio = hasReportedUsage ? usage.cached / usage.input : 0;
-  const cacheRatioPct = Math.round(cacheRatio * 100);
 
   return (
     <div className="flex shrink-0 items-center gap-1">
@@ -162,49 +156,31 @@ export function ContextIndicator({ messages }: { messages: UIMessage[] }) {
               <span className="text-foreground font-mono">{modelLabel}</span>
             </div>
             <div className="text-muted-foreground mt-1 flex items-center justify-between">
-              <span>Estimated used</span>
+              <span>Current context</span>
               <span className="text-foreground font-mono">{formatTokens(used)}</span>
             </div>
             <div className="text-muted-foreground flex items-center justify-between">
-              <span>Window</span>
+              <span>Context window</span>
               <span className="text-foreground font-mono">{formatTokens(max)}</span>
             </div>
             <LastCompactLine />
-
-            <div className="border-border/40 my-2 border-t" />
-
-            <div className="text-muted-foreground/70 text-[10px] font-medium tracking-wider uppercase">
-              Session usage
-            </div>
-            <div className="text-muted-foreground mt-1 flex items-center justify-between">
-              <span>Input</span>
-              <span className="text-foreground font-mono">
-                {hasReportedUsage ? formatTokens(usage.input) : "-"}
-              </span>
-            </div>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Output</span>
-              <span className="text-foreground font-mono">
-                {hasReportedUsage ? formatTokens(usage.output) : "-"}
-              </span>
-            </div>
-            <div className="text-muted-foreground flex items-center justify-between">
-              <span>Cached (prompt cache hit)</span>
-              <span
-                className={cn(
-                  "font-mono",
-                  hasReportedUsage && cacheRatioPct >= 50
-                    ? "text-diff-added"
-                    : "text-foreground",
-                )}
-              >
-                {hasReportedUsage ? `${formatTokens(usage.cached)} (${cacheRatioPct}%)` : "-"}
-              </span>
-            </div>
+            {usage.input > 0 ? (
+              <div className="text-muted-foreground flex items-center justify-between">
+                <span>Cache hit</span>
+                <span
+                  className={cn(
+                    "font-mono",
+                    usage.cached / usage.input >= 0.5 ? "text-diff-added" : "text-foreground",
+                  )}
+                >
+                  {Math.round((usage.cached / usage.input) * 100)}%
+                </span>
+              </div>
+            ) : null}
           </ContextContentBody>
           <ContextContentFooter>
             <span className="text-muted-foreground text-[10px] italic">
-              Used = local estimate (chars/4). Session = reported by provider.
+              Estimate is based on visible chat content and tool payloads.
             </span>
           </ContextContentFooter>
         </ContextContent>

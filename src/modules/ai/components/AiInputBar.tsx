@@ -13,7 +13,13 @@ import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
 import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
-import { HASH_COMMANDS, VISIBLE_SLASH_COMMANDS } from "../lib/slashCommands";
+import {
+  HASH_COMMANDS,
+  VISIBLE_SLASH_COMMANDS,
+  skillSlashCommands,
+  type SlashCommandMeta,
+} from "../lib/slashCommands";
+import { loadSkills } from "../lib/skills";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
@@ -21,12 +27,29 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { AiStatusBarControls } from "./AiStatusBarControls";
 import { ChipsRow } from "./ChipsRow";
 import { ContextIndicator } from "./ContextIndicator";
+import { DebugRequestViewer } from "./DebugRequestViewer";
 import { InfoModal } from "./InfoModal";
 import { MentionPickerContent, type MentionItem } from "./MentionPicker";
 import { OpenFilesRow } from "./OpenFilesRow";
 import { QueueRow } from "./QueueRow";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
+
+/** Paint only the leading `/command` or `#tag` token in the theme accent; the
+ *  rest of the message stays the normal text color. Only the color differs from
+ *  the textarea (same font / size / weight), so the mirror layer stays
+ *  glyph-aligned with the caret. */
+function renderInputHighlight(value: string) {
+  if (!value) return null;
+  const m = /^([/#][A-Za-z0-9_-]+)([\s\S]*)$/.exec(value);
+  if (!m) return value;
+  return (
+    <>
+      <span className="text-primary">{m[1]}</span>
+      {m[2]}
+    </>
+  );
+}
 
 export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
@@ -51,6 +74,21 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
 
   const [trigger, setTrigger] = useState<PickerTrigger | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Mirror layer that paints the command token behind the transparent-text
+  // textarea; scroll-synced via the textarea's onScroll below.
+  const highlightRef = useRef<HTMLDivElement>(null);
+
+  // Installed skills surfaced in the `/` picker. Reloaded each time the slash
+  // picker opens so a just-installed skill shows without a restart, and the
+  // workspace root is already live (a mount-time read can land before the live
+  // bridge is set and miss project-local skills under `<root>/.tedi/skills`).
+  const [skillCmds, setSkillCmds] = useState<SlashCommandMeta[]>([]);
+  const slashPickerOpen = trigger?.kind === "slash";
+  useEffect(() => {
+    if (!slashPickerOpen) return;
+    const root = useChatStore.getState().live.getWorkspaceRoot();
+    void loadSkills(root).then(() => setSkillCmds(skillSlashCommands()));
+  }, [slashPickerOpen]);
 
   // Shell-style ArrowUp/Down through sent user messages. `histIndex` is the
   // position in `history` (0 = newest). `null` means not navigating; stepping
@@ -60,7 +98,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   // (only the streaming assistant message is replaced each token), so the user
   // refs in `messages` stay stable across the session. WeakMap keyed on the
   // message avoids re-parsing <file>/<selection> blocks on every token.
-  const recallCacheRef = useRef<WeakMap<UIMessage, RecalledMessage>>(new WeakMap());
+  const recallCacheRef = useRef<WeakMap<UIMessage, RecalledMessage>>(undefined!);
+  if (!recallCacheRef.current) recallCacheRef.current = new WeakMap();
   const history = useMemo<RecalledMessage[]>(() => {
     if (!messages) return [];
     const cache = recallCacheRef.current;
@@ -127,7 +166,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     //   `#` -> snippets plus tag-style commands (`init`, `plan`); they behave
     //          like persistent session tags, not one-shot actions.
     if (trigger.kind === "slash") {
-      return VISIBLE_SLASH_COMMANDS.flatMap((command) =>
+      return [...VISIBLE_SLASH_COMMANDS, ...skillCmds].flatMap((command) =>
         !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
           ? [{ kind: "command" as const, command }]
           : [],
@@ -148,7 +187,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         : [],
     );
     return [...hashCmds, ...snipItems];
-  }, [trigger, snippets]);
+  }, [trigger, snippets, skillCmds]);
 
   /** Length of the navigable list. Drives ArrowUp/Down/Tab/Enter for any picker. */
   const navLength = isMention ? mention.items.length : filteredItems.length;
@@ -376,7 +415,15 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         <Popover open={pickerOpen}>
           <PopoverAnchor asChild>
             <div className="flex items-start gap-2">
-              <textarea
+              <div className="relative min-w-0 flex-1">
+                <div
+                  ref={highlightRef}
+                  aria-hidden
+                  className="text-foreground pointer-events-none absolute inset-0 max-h-40 overflow-hidden px-1 text-[13px] leading-relaxed break-words whitespace-pre-wrap"
+                >
+                  {renderInputHighlight(c.value)}
+                </div>
+                <textarea
                 ref={c.textareaRef}
                 value={c.value}
                 aria-label="Message to the agent"
@@ -485,11 +532,16 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                       "Ask TEDI · / @ #"
                 }
                 rows={1}
+                onScroll={(e) => {
+                  if (highlightRef.current)
+                    highlightRef.current.scrollTop = e.currentTarget.scrollTop;
+                }}
                 className={cn(
-                  "max-h-40 flex-1 resize-none bg-transparent px-1 text-[13px] leading-relaxed outline-none",
+                  "relative max-h-40 w-full resize-none bg-transparent px-1 text-[13px] leading-relaxed text-transparent caret-foreground outline-none",
                   "placeholder:text-muted-foreground/60",
                 )}
               />
+              </div>
             </div>
           </PopoverAnchor>
           {isMention ? (
@@ -547,10 +599,11 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           <div className="flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
             {/* Hide the percent label from `ContextTrigger` so the chip stays
-                compact. The ring shows usage; the hovercard has exact numbers. */}
+                compact while the hovercard focuses on context details. */}
             <div className="shrink-0 [&_button>span:first-child]:hidden">
               <ContextIndicator messages={messages ?? []} />
             </div>
+            <DebugRequestViewer />
           </div>
           <AiStatusBarControls />
         </div>

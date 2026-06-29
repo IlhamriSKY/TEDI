@@ -50,7 +50,12 @@ export function disposeSessionShell(sessionId: string): void {
     });
 }
 
-export function buildShellTools(ctx: ToolContext) {
+export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean } = {}) {
+  // bash_run / bash_background normally raise an approval card. An autonomous
+  // worker subagent has no approver in its generateText loop, so it passes
+  // autoApprove to execute directly - still guarded by checkShellCommand's
+  // destructive-command denylist. Default keeps approval on for the main agent.
+  const approve = opts.autoApprove ? false : true;
   return {
     bash_run: tool({
       description:
@@ -61,7 +66,7 @@ export function buildShellTools(ctx: ToolContext) {
           "Seconds before the command is killed (max 300). Omit for the default.",
         ),
       }),
-      needsApproval: true,
+      needsApproval: approve,
       execute: async ({ command, timeout_secs }) => {
         throwIfAborted(ctx);
         const safety = checkShellCommand(command);
@@ -99,7 +104,7 @@ export function buildShellTools(ctx: ToolContext) {
         command: z.string(),
         cwd: z.string().nullable().optional(),
       }),
-      needsApproval: true,
+      needsApproval: approve,
       execute: async ({ command, cwd }) => {
         throwIfAborted(ctx);
         const safety = checkShellCommand(command);

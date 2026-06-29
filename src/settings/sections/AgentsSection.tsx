@@ -15,6 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  WIDE_DIALOG_WIDTH,
 } from "@/components/ui/dialog";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
@@ -25,8 +26,9 @@ import { BUILTIN_AGENTS, type Agent, type AgentIconId } from "@/modules/ai/lib/a
 import { isValidHandle, normalizeHandle, type Snippet } from "@/modules/ai/lib/snippets";
 import { newAgentId, useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { newSnippetId, useSnippetsStore } from "@/modules/ai/store/snippetsStore";
+import { Switch } from "@/components/ui/switch";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setCustomInstructions } from "@/modules/settings/store";
+import { setCustomInstructions, setDebugEnabled } from "@/modules/settings/store";
 import {
   Add01Icon,
   CheckmarkCircle02Icon,
@@ -40,6 +42,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
+import { SkillsCard } from "./components/SkillsCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 
 const ICON_OPTIONS: AgentIconId[] = [
@@ -53,6 +56,7 @@ const ICON_OPTIONS: AgentIconId[] = [
 
 export function AgentsSection() {
   const customInstructions = usePreferencesStore((s) => s.customInstructions);
+  const debugEnabled = usePreferencesStore((s) => s.debugEnabled);
   const customAgents = useAgentsStore((s) => s.customAgents);
   const builtinOverrides = useAgentsStore((s) => s.builtinOverrides);
   const activeAgentId = useAgentsStore((s) => s.activeId);
@@ -94,10 +98,8 @@ export function AgentsSection() {
     <div className="flex flex-col gap-7">
       <SectionHeader
         title="Agents"
-        description="Personas and snippets the AI uses. Switch agents from the input bar."
+        description="Pick a persona and toggle sub-agents. Switch agents from the input bar. Every prompt stays editable under Advanced & debugging."
       />
-
-      <CustomInstructionsBlock value={customInstructions} />
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -148,9 +150,9 @@ export function AgentsSection() {
         </div>
       </section>
 
-      <SystemPromptsCard />
-
       <SubagentsCard />
+
+      <SkillsCard />
 
       <SettingsAccordion
         title="Snippets"
@@ -242,6 +244,34 @@ export function AgentsSection() {
               ))}
             </ul>
           )}
+        </div>
+      </SettingsAccordion>
+
+      <SettingsAccordion
+        title="Advanced & debugging"
+        description="Personal instructions and every built-in prompt: core, plan mode, orchestration, each sub-agent, autocomplete, and commit. For power users and debugging; defaults are fine for everyone else."
+        summary={
+          debugEnabled
+            ? "Debug on"
+            : customInstructions.trim()
+              ? "Custom instructions on"
+              : "Defaults"
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <section className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/30 px-4 py-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[12.5px] font-medium">Debug</span>
+              <span className="text-muted-foreground text-[11px] leading-relaxed">
+                Capture every request sent to the provider (system prompt, messages, model,
+                params, tool list). View and download each as JSON from the Debug button in the
+                chat input bar. No API keys are captured.
+              </span>
+            </div>
+            <Switch checked={debugEnabled} onCheckedChange={(v) => void setDebugEnabled(v)} />
+          </section>
+          <CustomInstructionsBlock value={customInstructions} />
+          <SystemPromptsCard />
         </div>
       </SettingsAccordion>
 
@@ -437,7 +467,12 @@ function AgentEditorDialog({
 
   return (
     <Dialog open={!!agent} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg gap-4">
+      <DialogContent
+        className={cn(
+          "flex max-h-[90vh] flex-col gap-4 overflow-visible",
+          WIDE_DIALOG_WIDTH,
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="text-[14px]">{dialogTitle}</DialogTitle>
         </DialogHeader>
@@ -492,15 +527,15 @@ function AgentEditorDialog({
               value={draft.instructions}
               onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
               placeholder="Persona & rules. Appended to TEDI's core system prompt."
-              className="min-h-40 resize-y text-[12px] leading-relaxed"
+              className="min-h-72 resize-y text-[12px] leading-relaxed"
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>
+        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+          <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onSave(draft)}>
+          <Button className="h-9 w-full" disabled={!canSave} onClick={() => onSave(draft)}>
             Save
           </Button>
         </DialogFooter>
@@ -535,7 +570,12 @@ function SnippetEditorDialog({
 
   return (
     <Dialog open={!!snippet} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg gap-4">
+      <DialogContent
+        className={cn(
+          "flex max-h-[90vh] flex-col gap-4 overflow-visible",
+          WIDE_DIALOG_WIDTH,
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="text-[14px]">
             {existing.some((s) => s.id === draft.id) ? "Edit snippet" : "New snippet"}
@@ -588,15 +628,15 @@ function SnippetEditorDialog({
               value={draft.content}
               onChange={(e) => setDraft({ ...draft, content: e.target.value })}
               placeholder="Inserted into the prompt as a <snippet> block when you use #handle."
-              className="min-h-40 resize-y font-mono text-[11.5px] leading-relaxed"
+              className="min-h-72 resize-y font-mono text-[11.5px] leading-relaxed"
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>
+        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+          <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onSave(draft)}>
+          <Button className="h-9 w-full" disabled={!canSave} onClick={() => onSave(draft)}>
             Save
           </Button>
         </DialogFooter>
@@ -617,19 +657,21 @@ function CustomInstructionsBlock({ value }: { value: string }) {
   }, [value]);
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <Label>Custom instructions</Label>
-        {/* {savedTick > 0 ? (
-          <span className="text-[10px] text-muted-foreground">Saved</span>
-        ) : null} */}
-        {draft && (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <Label>Custom instructions</Label>
+          <p className="text-muted-foreground text-[10.5px] leading-relaxed">
+            Use this only for personal defaults that should apply across all agents and chats.
+          </p>
+        </div>
+        {draft !== value && (
           <Button
             size="sm"
-            className="h-8 px-2 text-[11px]"
+            className="h-8 shrink-0 px-2 text-[11px]"
             onClick={() => void setCustomInstructions(draft)}
           >
-            Save
+            {draft.trim() ? "Save" : "Clear"}
           </Button>
         )}
       </div>
@@ -637,7 +679,7 @@ function CustomInstructionsBlock({ value }: { value: string }) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder="e.g. Always reply in concise bullet points. Prefer pnpm over npm. My machine is an M-series Mac."
-        className="bg-card/60 border-border min-h-[100px] resize-y border font-sans text-[12px] leading-relaxed"
+        className="bg-card/60 border-border min-h-[112px] resize-y border font-sans text-[12px] leading-relaxed"
       />
     </div>
   );

@@ -4,6 +4,66 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.61] - 29-06-2026
+
+### Added
+
+- **Space-themed agent roster with the Polaris orchestrator.** The built-in AI
+  persona is now a single orchestrator, **Polaris**, that delegates to six
+  specialist sub-agents: **Comet** (codebase search), **Nebula** (third-party
+  library / dependency research), **Nova** (deep debugging / architecture
+  advisor), **Orbit** (pre-planning analysis), **Eclipse** (plan / change
+  review), and **Odyssey** (autonomous worker). See
+  [registry.ts](src/modules/ai/agents/registry.ts), [agents.ts](src/modules/ai/lib/agents.ts).
+- **Odyssey, an autonomous worker sub-agent.** Beyond the read-only explorers
+  and advisors, Odyssey implements a scoped change end to end: it edits,
+  creates, moves, copies, and deletes files and runs shell commands, then
+  verifies. Its mutating tools auto-execute inside the sub-agent loop, guarded
+  by the secret / system denylist, writable / deletable checks, and
+  checkpoint / restore. See [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **Persistent project memory (`.tedi/memory`).** Markdown files under
+  `.tedi/memory/*.md` are auto-loaded into context (Claude-CLI style) alongside
+  `TEDI.md`, and the agent is told it can record durable facts there. See
+  [transport.ts](src/modules/ai/lib/transport.ts), [agent.ts](src/modules/ai/lib/agent.ts).
+- **Skills.** Install expert playbooks (`SKILL.md` folders) from any GitHub repo,
+  globally or per-project, under `~/.tedi/skills` and `.tedi/skills`; the agent
+  surfaces them by name + description and loads the full playbook on demand via
+  the `skill` tool. See [skills.ts](src/modules/ai/lib/skills.ts),
+  [SkillsCard.tsx](src/settings/sections/components/SkillsCard.tsx).
+- **Debug capture.** A Debug toggle (Settings -> Agents -> Advanced & debugging)
+  snapshots every request sent to the provider (system prompt, messages, model,
+  params, tool list) in memory; a viewer in the chat input bar lists them and
+  downloads each (or all) as JSON. No API keys are captured. See
+  [debugStore.ts](src/modules/ai/store/debugStore.ts),
+  [DebugRequestViewer.tsx](src/modules/ai/components/DebugRequestViewer.tsx).
+- **`ultrathink` keyword.** When the latest message contains "ultrathink", the
+  turn receives a provider-agnostic deep-reasoning directive. See
+  [agent.ts](src/modules/ai/lib/agent.ts).
+
+### Changed
+
+- **Simplified AI settings.** The Agents section collapses every editable prompt
+  and personal instructions into one "Advanced & debugging" accordion; the
+  default surface is the persona, the Sub-agents toggle, and Skills. See
+  [AgentsSection.tsx](src/settings/sections/AgentsSection.tsx).
+- **Sub-agents have no step cap.** They run a task to completion; termination is
+  a natural finish plus the main agent's anti-loop guards (tool-repetition and
+  no-progress), with only a high runaway backstop. See
+  [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **More context kept before compaction.** History compaction now triggers later
+  (72% / 85% of the window, up from 60% / 80%). See [compact.ts](src/modules/ai/lib/compact.ts).
+- **Consistent wide editor dialogs** via a single shared width constant. See
+  [dialog.tsx](src/components/ui/dialog.tsx).
+
+### Fixed
+
+- **Custom instructions could not be cleared.** The Save button only appeared
+  for non-empty text, so emptying the field could not be persisted; it now shows
+  a Save / Clear action whenever the value changes. See
+  [AgentsSection.tsx](src/settings/sections/AgentsSection.tsx).
+- **`copy_file` is now checkpointed**, so a file copy made by the agent (including
+  the autonomous worker) is undoable via restore. See [fs.ts](src/modules/ai/tools/fs.ts).
+
 ## [0.3.60] - 27-06-2026
 
 ### Added

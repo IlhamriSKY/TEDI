@@ -62,7 +62,11 @@ async function checkWritableResolved(abs: string): Promise<ReturnType<typeof che
 
 export function buildFsTools(
   ctx: ToolContext,
-  opts: { gateOutOfScopeReads?: boolean; refuseOutOfScopeReads?: boolean } = {},
+  opts: {
+    gateOutOfScopeReads?: boolean;
+    refuseOutOfScopeReads?: boolean;
+    autoApproveMutations?: boolean;
+  } = {},
 ) {
   // Main agent (has an approval UI) gates reads that resolve outside the
   // workspace/cwd; the autonomous read-only subagent passes false so its
@@ -71,6 +75,12 @@ export function buildFsTools(
   // approver means no silent out-of-scope exfil through a subagent).
   const gateReads = opts.gateOutOfScopeReads ?? true;
   const refuseOutOfScope = opts.refuseOutOfScopeReads ?? false;
+  // Mutating fs tools (write/create/move/copy/delete/replace) normally raise an
+  // approval card. An autonomous worker subagent runs in a generateText loop
+  // with no approver, so it passes autoApproveMutations to execute directly -
+  // still guarded by the symlink-resolved secret/system denylist, the
+  // writable/deletable checks, scope-root protection, and checkpoint/restore.
+  const approveMut = opts.autoApproveMutations ? false : true;
   return {
     read_file: tool({
       description:
@@ -91,7 +101,7 @@ export function buildFsTools(
         const abs = resolvePath(path, ctx.getCwd());
         if (refuseOutOfScope && isReadOutsideScope(path, ctx)) {
           return {
-            error: "refused: a read-only subagent may not read outside the workspace/cwd",
+            error: "refused: a subagent may not read outside the workspace/cwd",
             path: abs,
           };
         }
@@ -185,7 +195,7 @@ export function buildFsTools(
         path: z.string(),
         content: z.string(),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ path, content }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
@@ -269,7 +279,7 @@ export function buildFsTools(
       inputSchema: z.object({
         path: z.string(),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ path }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
@@ -324,7 +334,7 @@ export function buildFsTools(
           .string()
           .describe("Destination path. Absolute, or relative to the active terminal cwd."),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ from, to }) => {
         throwIfAborted(ctx);
         if (usePlanStore.getState().active) {
@@ -375,7 +385,7 @@ export function buildFsTools(
           .string()
           .describe("Destination path. Absolute, or relative to the active terminal cwd."),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ from, to }) => {
         throwIfAborted(ctx);
         if (usePlanStore.getState().active) {
@@ -392,6 +402,28 @@ export function buildFsTools(
         if (!sTo.ok) return { error: sTo.reason, path: absTo };
         try {
           await native.copy(absFrom, absTo);
+          // Checkpoint the copy so it's undoable (best-effort, file-only).
+          // copy_file refuses to overwrite, so the destination is always new ->
+          // create-file semantics. A directory copy or a binary/oversized file
+          // is skipped (no safe content to restore from). Matters now that the
+          // autonomous worker can copy files without an approval card.
+          const sessionId = ctx.getSessionId();
+          if (sessionId) {
+            try {
+              const probe = await native.readFilePortion(absTo, 0, 1);
+              if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
+                const r = await native.readFile(absTo);
+                if (r.kind === "text") {
+                  recordFileMutation(sessionId, absTo, {
+                    kind: "create-file",
+                    writtenContent: r.content,
+                  });
+                }
+              }
+            } catch {
+              // Probe failed (e.g. a directory copy): not undoable, skip.
+            }
+          }
           dispatchFsRefreshForFile(absTo);
           return { from: absFrom, to: absTo, ok: true };
         } catch (e) {
@@ -408,7 +440,7 @@ export function buildFsTools(
           .string()
           .describe("Path to delete. Absolute, or relative to the active terminal cwd."),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ path }) => {
         throwIfAborted(ctx);
         if (usePlanStore.getState().active) {
@@ -473,7 +505,7 @@ export function buildFsTools(
         ),
         case_insensitive: flexBoolOpt(),
       }),
-      needsApproval: true,
+      needsApproval: approveMut,
       execute: async ({ pattern, replacement, root, glob, case_insensitive }) => {
         throwIfAborted(ctx);
         if (usePlanStore.getState().active) {

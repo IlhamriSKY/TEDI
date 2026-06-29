@@ -4,6 +4,7 @@ import { findLastIndex } from "@/lib/utils";
 import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
 import { type DynamicModelId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
+import { formatSkillsPrompt, loadSkills } from "./skills";
 import type { CompactStages } from "./compact";
 import { classifyError, newCorrelationId, tediError, TediErrorCode, toChatError } from "./errors";
 import type { ProviderKeys } from "./keyring";
@@ -43,6 +44,40 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
     });
     return null;
   }
+}
+
+const MEMORY_MAX_BYTES = 32 * 1024;
+const memoryCache = new Map<string, MemoryCacheEntry>();
+
+/** Read durable project memory from `.tedi/memory/*.md` (Claude-CLI style),
+ *  concatenated oldest-name first under per-file headers and capped in total.
+ *  Cached 30s, mirroring readTediMd. Null when the folder is absent or empty. */
+async function readMemory(workspaceRoot: string | null): Promise<string | null> {
+  if (!workspaceRoot) return null;
+  const dir = `${workspaceRoot.replace(/\/$/, "")}/.tedi/memory`;
+  const cached = memoryCache.get(workspaceRoot);
+  if (cached && Date.now() - cached.cachedAt < 30_000) return cached.content;
+  let content: string | null = null;
+  try {
+    const files = (await native.readDir(dir))
+      .filter((e) => e.name.toLowerCase().endsWith(".md"))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const blocks: string[] = [];
+    let budget = MEMORY_MAX_BYTES;
+    for (const f of files) {
+      if (budget <= 0) break;
+      const r = await native.readFile(`${dir}/${f.name}`);
+      if (r.kind !== "text") continue;
+      const body = r.content.length > budget ? r.content.slice(0, budget) : r.content;
+      budget -= body.length;
+      blocks.push(`### ${f.name}\n${body.trim()}`);
+    }
+    content = blocks.length > 0 ? blocks.join("\n\n") : null;
+  } catch {
+    content = null; // folder absent -> no memory
+  }
+  memoryCache.set(workspaceRoot, { content, cachedAt: Date.now() });
+  return content;
 }
 
 type LiveSnapshot = {
@@ -108,7 +143,12 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       };
 
       const live = deps.getLive();
-      const projectMemory = await readTediMd(live.workspaceRoot);
+      const [projectMemory, memory, skills] = await Promise.all([
+        readTediMd(live.workspaceRoot),
+        readMemory(live.workspaceRoot),
+        loadSkills(live.workspaceRoot),
+      ]);
+      const skillsPrompt = formatSkillsPrompt(skills);
       const augmented = injectContext(messages, live);
 
       let lastError: unknown;
@@ -135,6 +175,8 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             openaiCompatibleBaseURL: snapshot.openaiCompatibleBaseURL,
             planMode: snapshot.planMode,
             projectMemory,
+            memory,
+            skillsPrompt,
             uiMessages: augmented,
             abortSignal,
           });

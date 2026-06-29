@@ -17,14 +17,15 @@ function activeTerminalCwd(tab: Tab | undefined): string | undefined {
   return leaf.cwd;
 }
 
-function anyTerminalCwd(tabs: Tab[]): string | undefined {
+function terminalCwds(tabs: Tab[]): string[] {
+  const out: string[] = [];
   for (const t of tabs) {
     if (t.kind !== "pane") continue;
     for (const l of leaves(t.paneTree)) {
-      if (l.leafKind === "terminal" && !l.sshConnectionId && l.cwd) return l.cwd;
+      if (l.leafKind === "terminal" && !l.sshConnectionId && l.cwd) out.push(l.cwd);
     }
   }
-  return undefined;
+  return out;
 }
 
 export function useWorkspaceCwd(
@@ -47,9 +48,15 @@ export function useWorkspaceCwd(
     // open yet (and as the default path for "Open Folder").
     const cwd = activeTerminalCwd(activeTab);
     if (cwd) return cwd;
-    if (lastTerminalCwd.current) return lastTerminalCwd.current;
-    const any = anyTerminalCwd(tabs);
-    if (any) return any;
+    // The last-focused terminal keeps the explorer pinned while a non-terminal
+    // tab (editor/diff) is active - but only while that terminal still lives in
+    // the current tab set. After a workspace switch the ref is stale (it points
+    // at the previous workspace's folder), so validate it against the live tabs
+    // and otherwise fall back to a terminal the current workspace actually has.
+    const cwds = terminalCwds(tabs);
+    const last = lastTerminalCwd.current;
+    if (last && cwds.includes(last)) return last;
+    if (cwds.length > 0) return cwds[0];
     if (pickedRoot) return pickedRoot;
     return home;
   }, [pickedRoot, activeTab, tabs, home]);
@@ -61,9 +68,14 @@ export function useWorkspaceCwd(
     // the workspace root they picked weeks ago.
     const cwd = activeTerminalCwd(activeTab);
     if (cwd) return cwd;
-    if (lastTerminalCwd.current) return lastTerminalCwd.current;
+    // Same staleness guard as explorerRoot: don't inherit a cwd from a terminal
+    // that no longer exists in the current tab set (e.g. after a workspace switch).
+    const cwds = terminalCwds(tabs);
+    const last = lastTerminalCwd.current;
+    if (last && cwds.includes(last)) return last;
+    if (cwds.length > 0) return cwds[0];
     return pickedRoot ?? home ?? undefined;
-  }, [pickedRoot, activeTab, home]);
+  }, [pickedRoot, activeTab, tabs, home]);
 
   return { explorerRoot, inheritedCwdForNewTab };
 }

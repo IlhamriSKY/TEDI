@@ -64,6 +64,7 @@ export function deriveTitle(messages: UIMessage[]): string {
     for (const p of m.parts) {
       if (p.type !== "text") continue;
       const text = (p as { text: string }).text
+        .replace(/<tedi-command[^>]*\/>\s*/g, "")
         .replace(/<terminal-context[\s\S]*?<\/terminal-context>\s*/g, "")
         .replace(/<selection[\s\S]*?<\/selection>\s*/g, "")
         .replace(/<file[\s\S]*?<\/file>\s*/g, "")

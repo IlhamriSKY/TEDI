@@ -35,6 +35,7 @@ Thumbs.db
 .env.*
 !.env.example
 .claude
+.opencode
 
 # Recovered WinSCP credentials — local only, never commit
 plan.txt

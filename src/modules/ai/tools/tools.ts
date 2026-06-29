@@ -5,7 +5,9 @@ import { buildFsTools } from "./fs";
 import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
 import { buildShellTools } from "./shell";
+import { buildSkillTools } from "./skill";
 import { buildSubagentTools } from "./subagent";
+import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
 import { buildTodoTools } from "./todo";
 
@@ -32,6 +34,7 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildSearchTools(ctx),
     ...buildShellTools(ctx),
     ...buildSubagentTools(ctx),
+    ...buildSkillTools(ctx),
     ...buildTerminalTools(ctx),
     ...buildTodoTools(ctx),
     ...buildScheduleTools(ctx),
@@ -51,13 +54,21 @@ export function buildTools(ctx: ToolContext): ChatTools {
     built = buildToolsRaw(ctx);
     toolsCache.set(ctx, built);
   }
-  // Drop the sub-agent tool schemas on turns where the feature is disabled so
-  // they cost zero tokens. buildTools runs every turn, so the toggle takes
-  // effect on the very next message (both directions); the cached zod schemas
-  // are never rebuilt, just omitted from the returned set.
-  if (usePreferencesStore.getState().subagentsEnabled) return built;
-  const gated = { ...built } as Record<string, unknown>;
-  delete gated.run_subagent;
-  delete gated.run_subagents;
-  return gated as ChatTools;
+  // Rebuild the sub-agent + skill tools each turn so their descriptions (the
+  // current sub-agent types / installed skills, baked into the description
+  // string) stay fresh without an app restart. Cheap: a few zod schemas vs the
+  // ~12 kept cached above. The rest of the toolset stays memoized.
+  const fresh = {
+    ...built,
+    ...buildSubagentTools(ctx),
+    ...buildSkillTools(ctx),
+  } as Record<string, unknown>;
+  // Sub-agent tools cost zero tokens on turns where the feature is off.
+  if (!usePreferencesStore.getState().subagentsEnabled) {
+    delete fresh.run_subagent;
+    delete fresh.run_subagents;
+  }
+  // Drop the `skill` tool when nothing is installed (no noise, no tokens).
+  if (getLoadedSkills().length === 0) delete fresh.skill;
+  return fresh as ChatTools;
 }

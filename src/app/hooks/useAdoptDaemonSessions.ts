@@ -17,6 +17,7 @@ type Params = {
   newTab: (cwd?: string, opts?: { private?: boolean; savedPtyId?: string }) => number;
   /** True once workspace restore has run (so we don't double-adopt restored leaves). */
   restoreDone: boolean;
+  enabled?: boolean;
 };
 
 function collectOwned(tabs: Tab[], into: Set<string>): void {
@@ -60,6 +61,7 @@ export function useAdoptDaemonSessions({
   liveTabsByWorkspace,
   newTab,
   restoreDone,
+  enabled = true,
 }: Params): void {
   // Lazily-initialised once (useRef has no lazy-init form; a `new Set()` literal
   // would allocate on every render and be discarded). Both live for the
@@ -69,6 +71,7 @@ export function useAdoptDaemonSessions({
   const watermarkRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!restoreDone) return;
     const adopting = (adoptingRef.current ??= new Set<string>());
     const everOwned = (everOwnedRef.current ??= new Set<string>());
@@ -116,5 +119,5 @@ export function useAdoptDaemonSessions({
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [restoreDone, newTab, tabsRef, liveTabsByWorkspace]);
+  }, [enabled, restoreDone, newTab, tabsRef, liveTabsByWorkspace]);
 }

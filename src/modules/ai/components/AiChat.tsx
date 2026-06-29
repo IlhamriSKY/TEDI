@@ -20,7 +20,7 @@ import {
 } from "../lib/messageBody";
 import { PROVIDERS } from "../config";
 import { humanizeChatErrorMessage } from "../lib/errors";
-import { SLASH_COMMANDS } from "../lib/slashCommands";
+import { SLASH_COMMANDS, skillSlashCommands } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
@@ -32,7 +32,9 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
 
 function CommandSnippet({ name }: { name: string }) {
-  const meta = SLASH_COMMANDS[name];
+  // Built-in command first, then an installed skill (`/ponytail-gain` etc.) so
+  // skill commands render with a proper icon + label, not a bare fallback.
+  const meta = SLASH_COMMANDS[name] ?? skillSlashCommands().find((c) => c.name === name);
   if (!meta) {
     return (
       <div className="border-border/50 bg-muted/40 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px]">
@@ -49,7 +51,9 @@ function CommandSnippet({ name }: { name: string }) {
         className="text-foreground shrink-0"
       />
       <span className="text-foreground font-mono text-[11px]">{meta.invocation}</span>
-      <span className="text-muted-foreground truncate text-[11px]">{meta.label}</span>
+      {meta.label && meta.label !== name ? (
+        <span className="text-muted-foreground truncate text-[11px]">{meta.label}</span>
+      ) : null}
     </div>
   );
 }

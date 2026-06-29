@@ -15,20 +15,48 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  WIDE_DIALOG_WIDTH,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
+  getDetectedModels,
   MODELS,
   ORCHESTRATION_PROMPT_BODY,
   PLAN_MODE_PROMPT_BODY,
+  PROVIDERS,
   SYSTEM_PROMPT,
   SYSTEM_PROMPT_LITE,
+  providerNeedsKey,
+  tryGetModel,
+  type ModelInfo,
 } from "@/modules/ai/config";
 import { SUBAGENTS } from "@/modules/ai/agents/registry";
+import {
+  clearOpenAICompatibleInstance,
+  refreshOpenAICompatibleInstance,
+  useOpenAICompatibleModels,
+} from "@/modules/ai/lib/openaiCompatible";
+import {
+  EMPTY_PROVIDER_KEYS,
+  getAllKeys,
+  getOpenAICompatibleInstanceKey,
+  type ProviderKeys,
+} from "@/modules/ai/lib/keyring";
+import {
+  clearSumopodModels,
+  refreshSumopodModels,
+  useSumopodModels,
+} from "@/modules/ai/lib/sumopod";
 import {
   MAX_PROMPT_CHARS,
   PROMPT_META,
@@ -36,9 +64,15 @@ import {
   type PromptMeta,
 } from "@/modules/ai/lib/prompts";
 import { usePromptsStore } from "@/modules/ai/store/promptsStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { onKeysChanged } from "@/modules/settings/store";
 import { COMPLETION_SYSTEM_PROMPT } from "@/modules/editor/lib/autocomplete/prompt";
 import { COMMIT_SYSTEM_PROMPT } from "@/modules/scm/commitAi";
-import { ArrowReloadHorizontalIcon, Edit02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowReloadHorizontalIcon,
+  Edit02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -49,10 +83,12 @@ const DEFAULTS: Record<PromptId, string> = {
   "core-lite": SYSTEM_PROMPT_LITE,
   "plan-mode": PLAN_MODE_PROMPT_BODY,
   orchestration: ORCHESTRATION_PROMPT_BODY,
-  "subagent:explore": SUBAGENTS.explore.systemPrompt,
-  "subagent:code-review": SUBAGENTS["code-review"].systemPrompt,
-  "subagent:security": SUBAGENTS.security.systemPrompt,
-  "subagent:general": SUBAGENTS.general.systemPrompt,
+  "subagent:comet": SUBAGENTS.comet.systemPrompt,
+  "subagent:nebula": SUBAGENTS.nebula.systemPrompt,
+  "subagent:nova": SUBAGENTS.nova.systemPrompt,
+  "subagent:orbit": SUBAGENTS.orbit.systemPrompt,
+  "subagent:eclipse": SUBAGENTS.eclipse.systemPrompt,
+  "subagent:odyssey": SUBAGENTS.odyssey.systemPrompt,
   autocomplete: COMPLETION_SYSTEM_PROMPT,
   commit: COMMIT_SYSTEM_PROMPT,
 };
@@ -66,7 +102,29 @@ type Draft = {
   temperature: string;
 };
 
-export function SystemPromptsCard() {
+function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
+  if (!q) return true;
+  const t = q.toLowerCase();
+  return (
+    m.id.toLowerCase().includes(t) ||
+    m.label.toLowerCase().includes(t) ||
+    m.hint.toLowerCase().includes(t)
+  );
+}
+
+type SystemPromptsCardProps = {
+  title?: string;
+  description?: string;
+  groups?: readonly PromptMeta["group"][];
+  promptIds?: readonly PromptId[];
+};
+
+export function SystemPromptsCard({
+  title = "System prompts",
+  description = "Edit the built-in instructions for TEDI's AI agents. Reset restores the default.",
+  groups = GROUP_ORDER,
+  promptIds,
+}: SystemPromptsCardProps = {}) {
   const hydrate = usePromptsStore((s) => s.hydrate);
   const overrides = usePromptsStore((s) => s.overrides);
   const setOverride = usePromptsStore((s) => s.setOverride);
@@ -79,8 +137,20 @@ export function SystemPromptsCard() {
   // All prompts stay hidden behind this toggle so the card is collapsed by
   // default. Any existing override forces it open so the user always sees what
   // they changed (and can't lose track of an edit hidden behind the switch).
-  const hasAnyEdit = useMemo(() => PROMPT_META.some((m) => overrides[m.id]), [overrides]);
-  const editedCount = useMemo(() => PROMPT_META.filter((m) => overrides[m.id]).length, [overrides]);
+  const visibleGroups = useMemo(() => new Set(groups), [groups]);
+  const visiblePromptIds = useMemo(() => (promptIds ? new Set(promptIds) : null), [promptIds]);
+  const visibleMeta = useMemo(
+    () =>
+      PROMPT_META.filter(
+        (m) => visibleGroups.has(m.group) && (!visiblePromptIds || visiblePromptIds.has(m.id)),
+      ),
+    [visibleGroups, visiblePromptIds],
+  );
+  const hasAnyEdit = useMemo(() => visibleMeta.some((m) => overrides[m.id]), [overrides, visibleMeta]);
+  const editedCount = useMemo(
+    () => visibleMeta.filter((m) => overrides[m.id]).length,
+    [overrides, visibleMeta],
+  );
   const [showAll, setShowAll] = useState(false);
   // An existing override force-shows the list; keep `showAll` in sync so the
   // list doesn't collapse the moment the user resets the last override.
@@ -108,25 +178,30 @@ export function SystemPromptsCard() {
 
   const grouped = useMemo(() => {
     const by = new Map<string, PromptMeta[]>();
-    for (const m of PROMPT_META) {
+    for (const m of visibleMeta) {
       const list = by.get(m.group) ?? [];
       list.push(m);
       by.set(m.group, list);
     }
     return by;
-  }, []);
+  }, [visibleMeta]);
+
+  const orderedGroups = useMemo(
+    () => GROUP_ORDER.filter((group) => visibleGroups.has(group)),
+    [visibleGroups],
+  );
 
   return (
     <>
       <SettingsAccordion
-        title="System prompts"
-        description="Edit the built-in instructions for TEDI's AI agents. Reset restores the default."
+        title={title}
+        description={description}
         summary={editedCount > 0 ? `${editedCount} edited` : "Default"}
         open={listVisible}
         onOpenChange={(o) => setShowAll(o || hasAnyEdit)}
       >
         <div className="flex flex-col gap-3">
-          {GROUP_ORDER.map((group) => {
+          {orderedGroups.map((group) => {
             const items = grouped.get(group) ?? [];
             if (items.length === 0) return null;
             return (
@@ -225,7 +300,9 @@ function PromptRow({
             </span>
           ) : null}
         </span>
-        <span className="text-muted-foreground line-clamp-1 text-[10.5px]">{meta.description}</span>
+        <span className="text-muted-foreground line-clamp-2 text-[10.5px] leading-snug">
+          {meta.description}
+        </span>
       </div>
       <div className="flex shrink-0 gap-0.5">
         <IconTooltip label="Edit" side="top">
@@ -282,13 +359,18 @@ function PromptEditorDialog({
       Number(draft.temperature) < 0 ||
       Number(draft.temperature) > 2);
 
+  // All prompt editors share the wide sub-agent dialog size for a consistent feel.
+  const dialogWidthClass = WIDE_DIALOG_WIDTH;
+
   return (
     <Dialog open={!!meta} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-4">
+      <DialogContent
+        className={cn("flex max-h-[90vh] flex-col gap-4 overflow-visible", dialogWidthClass)}
+      >
         <DialogHeader>
           <DialogTitle className="text-[14px]">{meta.label}</DialogTitle>
         </DialogHeader>
-        <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6">
+        <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pb-1">
           <span className="text-muted-foreground text-[11px] leading-relaxed">
             {meta.description}
           </span>
@@ -325,18 +407,10 @@ function PromptEditorDialog({
           {meta.capabilities.model ? (
             <div className="flex flex-col gap-1">
               <Label>Model</Label>
-              <select
+              <PromptModelDropdown
                 value={draft.model}
-                onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-                className="border-border bg-card/60 h-8 rounded-md border px-2 text-[12px]"
-              >
-                <option value="">Same as chat (default)</option>
-                {MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} · {m.hint}
-                  </option>
-                ))}
-              </select>
+                onChange={(model) => setDraft({ ...draft, model })}
+              />
               <span className="text-muted-foreground text-[10px]">
                 Run this sub-agent on its own model (e.g. a cheaper one for large searches).
               </span>
@@ -359,16 +433,207 @@ function PromptEditorDialog({
             </div>
           ) : null}
         </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>
+        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+          <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" disabled={tempInvalid} onClick={() => onSave(draft)}>
+          <Button className="h-9 w-full" disabled={tempInvalid} onClick={() => onSave(draft)}>
             Save
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Model picker shared by the built-in sub-agent prompt editor and the custom
+ *  sub-agent editor. Empty value = "same as chat". */
+export function PromptModelDropdown({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [keys, setKeys] = useState<ProviderKeys>(EMPTY_PROVIDER_KEYS);
+  const [instanceKeys, setInstanceKeys] = useState<Record<string, string | null>>({});
+  const [query, setQuery] = useState("");
+  const sumopodModels = useSumopodModels();
+  useOpenAICompatibleModels();
+  const oaiCompatInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
+  const oaiCompatModels = getDetectedModels("openai-compatible");
+
+  useEffect(() => {
+    let alive = true;
+    const reload = () => {
+      void Promise.all([
+        getAllKeys(),
+        Promise.all(
+          oaiCompatInstances.map(
+            async (inst) => [inst.id, await getOpenAICompatibleInstanceKey(inst.id)] as const,
+          ),
+        ),
+      ]).then(([nextKeys, nextInstanceEntries]) => {
+        if (!alive) return;
+        const firstInstanceKey = nextInstanceEntries.find(([, key]) => !!key)?.[1] ?? null;
+        setKeys({
+          ...nextKeys,
+          "openai-compatible": firstInstanceKey ?? nextKeys["openai-compatible"],
+        });
+        setInstanceKeys(Object.fromEntries(nextInstanceEntries));
+      });
+    };
+    reload();
+    const unlistenP = onKeysChanged(reload);
+    return () => {
+      alive = false;
+      void unlistenP.then((fn) => fn());
+    };
+  }, [oaiCompatInstances]);
+
+  useEffect(() => {
+    if (keys.sumopod) {
+      void refreshSumopodModels(keys.sumopod);
+      return;
+    }
+    clearSumopodModels();
+  }, [keys.sumopod]);
+
+  useEffect(() => {
+    for (const inst of oaiCompatInstances) {
+      const key = instanceKeys[inst.id] ?? null;
+      if (!inst.baseURL || !key) {
+        clearOpenAICompatibleInstance(inst.id);
+        continue;
+      }
+      void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL, inst.label);
+    }
+  }, [instanceKeys, oaiCompatInstances]);
+
+  const selected = value ? tryGetModel(value) : null;
+  const availableModels = useMemo(() => {
+    const out: ModelInfo[] = [];
+    const seen = new Set<string>();
+    const add = (models: readonly ModelInfo[]) => {
+      for (const model of models) {
+        const key = `${model.provider}::${model.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(model);
+      }
+    };
+
+    for (const provider of PROVIDERS) {
+      const hasAccess =
+        providerNeedsKey(provider.id) ? !!keys[provider.id] : false;
+      if (!hasAccess) continue;
+      if (provider.id === "sumopod") {
+        add(sumopodModels.models);
+        continue;
+      }
+      if (provider.id === "openai-compatible") {
+        add(oaiCompatModels);
+        continue;
+      }
+      add(MODELS.filter((model) => model.provider === provider.id));
+    }
+
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  }, [keys, oaiCompatModels, sumopodModels.models]);
+  const filteredModels = useMemo(
+    () => availableModels.filter((m) => matchesQuery(m, query)),
+    [availableModels, query],
+  );
+
+  return (
+    <DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className="min-h-11 w-full items-start justify-between gap-2 px-2.5 py-2 text-[12px]"
+        >
+          <span className="flex min-w-0 flex-1 flex-col items-start text-left">
+            <span className="truncate font-medium">
+              {selected ? selected.label : "Same as chat (default)"}
+            </span>
+            <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug whitespace-normal">
+              {selected ? selected.hint : "Uses the active chat model"}
+            </span>
+          </span>
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            size={12}
+            strokeWidth={2}
+            className="shrink-0 opacity-70"
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        className="max-h-[min(22rem,var(--radix-dropdown-menu-content-available-height))] w-(--radix-dropdown-menu-trigger-width) max-w-(--radix-dropdown-menu-trigger-width) overflow-hidden p-0"
+      >
+        <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                e.key !== "Escape" &&
+                e.key !== "ArrowDown" &&
+                e.key !== "ArrowUp" &&
+                e.key !== "Enter"
+              ) {
+                e.stopPropagation();
+              }
+            }}
+            placeholder="Search models…"
+            spellCheck={false}
+            autoFocus
+            className="h-7 text-[11.5px]"
+          />
+        </div>
+        <div className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto p-1">
+          <DropdownMenuItem
+            className="flex flex-col items-start gap-0.5"
+            onSelect={() => onChange("")}
+          >
+            <span>Same as chat (default)</span>
+            <span className="text-muted-foreground text-[10px] font-normal">
+              Uses the active chat model
+            </span>
+          </DropdownMenuItem>
+          {filteredModels.map((m) => (
+            <DropdownMenuItem
+              key={`${m.provider}::${m.id}`}
+              className={cn(
+                "flex items-start justify-between gap-3",
+                value === m.id && "bg-accent/50",
+              )}
+              onSelect={() => onChange(m.id)}
+            >
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{m.label}</span>
+                <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug font-normal whitespace-normal">
+                  {m.hint}
+                </span>
+              </span>
+            </DropdownMenuItem>
+          ))}
+          {availableModels.length === 0 ? (
+            <div className="text-muted-foreground px-2 py-3 text-[10px] leading-snug">
+              No configured models available yet. Add a provider key first.
+            </div>
+          ) : null}
+          {availableModels.length > 0 && filteredModels.length === 0 ? (
+            <div className="text-muted-foreground px-2 py-3 text-[10px] leading-snug">
+              No models match “{query}”.
+            </div>
+          ) : null}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

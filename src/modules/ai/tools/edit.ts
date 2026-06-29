@@ -123,7 +123,12 @@ async function applyEdits(
   }
 }
 
-export function buildEditTools(ctx: ToolContext) {
+export function buildEditTools(ctx: ToolContext, opts: { autoApprove?: boolean } = {}) {
+  // Normally edit/multi_edit raise an approval card. An autonomous worker
+  // subagent has no approver in its generateText loop, so it passes autoApprove
+  // to execute directly (still guarded by checkWritable + read-before-edit +
+  // checkpoint/restore). Default keeps approval on for the main agent.
+  const approve = opts.autoApprove ? false : true;
   return {
     edit: tool({
       description:
@@ -136,7 +141,7 @@ export function buildEditTools(ctx: ToolContext) {
         new_string: z.string().describe("Replacement substring."),
         replace_all: flexBoolOpt(),
       }),
-      needsApproval: true,
+      needsApproval: approve,
       execute: async ({ path, old_string, new_string, replace_all }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
@@ -171,7 +176,7 @@ export function buildEditTools(ctx: ToolContext) {
           }),
         ).refine((arr) => arr.length >= 1, "edits must have at least one entry"),
       }),
-      needsApproval: true,
+      needsApproval: approve,
       execute: async ({ path, edits }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());

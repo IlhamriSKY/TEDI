@@ -203,10 +203,10 @@ const MIN_TAIL = Math.min(KEEP_TAIL, 8);
  *
  *  1. Always: elide superseded read_file results. Lossless and doubles as
  *     anti-loop. The freshest read or the mutation is still in history.
- *  2. At 60% of context: elide older tool-result blocks (oldest first)
- *     until back under 50%. Preserves the last KEEP_TAIL and system messages.
- *  3. Still over 80% after Stage 2: hard-drop oldest non-system messages
- *     until under 65%, preserving the last KEEP_TAIL. Only path that loses info.
+ *  2. At 72% of context: elide older tool-result blocks (oldest first)
+ *     until back under 60%. Preserves the last KEEP_TAIL and system messages.
+ *  3. Still over 85% after Stage 2: hard-drop oldest non-system messages
+ *     until under 72%, preserving the last KEEP_TAIL. Only path that loses info.
  *
  *  Callers can pass a smaller contextLimit to trigger compaction sooner. */
 export function compactModelMessagesDetailed(
@@ -227,7 +227,7 @@ export function compactModelMessagesDetailed(
   let approxTokens = approxBytes(working) / 4;
 
   // Stage 2: elide older tool-result blocks until under 50% or KEEP_TAIL reached.
-  if (approxTokens >= 0.6 * contextLimit) {
+  if (approxTokens >= 0.72 * contextLimit) {
     const out = working.slice();
     const stopIdx = Math.max(0, out.length - KEEP_TAIL);
     for (let i = 0; i < stopIdx; i++) {
@@ -242,7 +242,7 @@ export function compactModelMessagesDetailed(
       if (local) {
         out[i] = { ...out[i], content: next } as ModelMessage;
         stages.elided++;
-        if (approxBytes(out) / 4 < 0.5 * contextLimit) break;
+        if (approxBytes(out) / 4 < 0.6 * contextLimit) break;
       }
     }
     working = out;
@@ -251,7 +251,7 @@ export function compactModelMessagesDetailed(
 
   // Stage 3: conversation itself exceeds the window (huge pastes, runaway
   // streaming). Elision isn't enough; hard-drop oldest non-system messages.
-  if (approxTokens >= 0.8 * contextLimit) {
+  if (approxTokens >= 0.85 * contextLimit) {
     const systemPrefix: ModelMessage[] = [];
     const rest: ModelMessage[] = [];
     for (const m of working) {
@@ -267,7 +267,7 @@ export function compactModelMessagesDetailed(
     const stopIdx = Math.max(0, rest.length - tail);
     let cut = 0;
     let runningTokens = approxTokens;
-    while (cut < stopIdx && runningTokens >= 0.65 * contextLimit) {
+    while (cut < stopIdx && runningTokens >= 0.72 * contextLimit) {
       const drop = rest[cut];
       const dropTokens = approxBytes([drop]) / 4;
       runningTokens -= dropTokens;

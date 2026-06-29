@@ -6,7 +6,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
  * The chat personas (Coder, Architect, …) already have their own override
  * system in `agents.ts`. THIS module covers the other, previously-uneditable
  * prompts: the core agent prompt (full + compact), the plan-mode appendix, the
- * four read-only sub-agents, the inline-completion prompt, and the
+ * built-in sub-agents, the inline-completion prompt, and the
  * commit-message prompt.
  *
  * Every entry is hidden behind a "Show all" toggle in settings, since editing
@@ -25,10 +25,12 @@ export type PromptId =
   | "core-lite"
   | "plan-mode"
   | "orchestration"
-  | "subagent:explore"
-  | "subagent:code-review"
-  | "subagent:security"
-  | "subagent:general"
+  | "subagent:comet"
+  | "subagent:nebula"
+  | "subagent:nova"
+  | "subagent:orbit"
+  | "subagent:eclipse"
+  | "subagent:odyssey"
   | "autocomplete"
   | "commit";
 
@@ -98,30 +100,44 @@ export const PROMPT_META: readonly PromptMeta[] = [
     capabilities: {},
   },
   {
-    id: "subagent:explore",
-    label: "Explore sub-agent",
-    description: "Read-only codebase explorer spawned via run_subagent.",
+    id: "subagent:comet",
+    label: "Comet sub-agent",
+    description: "Read-only codebase search specialist spawned via run_subagent.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
-    id: "subagent:code-review",
-    label: "Code-review sub-agent",
-    description: "Reviews changed code for bugs, perf, security.",
+    id: "subagent:nebula",
+    label: "Nebula sub-agent",
+    description: "Read-only research on third-party libraries and dependencies.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
-    id: "subagent:security",
-    label: "Security sub-agent",
-    description: "Audits a scope for security risks.",
+    id: "subagent:nova",
+    label: "Nova sub-agent",
+    description: "Read-only strategic advisor: hard debugging, architecture, self-review.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
-    id: "subagent:general",
-    label: "General research sub-agent",
-    description: "Multi-step research across many files.",
+    id: "subagent:orbit",
+    label: "Orbit sub-agent",
+    description: "Read-only pre-planning consultant: intent, scope, AI-slop risks.",
+    group: "Sub-agents",
+    capabilities: { model: true, temperature: true },
+  },
+  {
+    id: "subagent:eclipse",
+    label: "Eclipse sub-agent",
+    description: "Read-only reviewer: is a plan or proposed change executable?",
+    group: "Sub-agents",
+    capabilities: { model: true, temperature: true },
+  },
+  {
+    id: "subagent:odyssey",
+    label: "Odyssey sub-agent",
+    description: "Autonomous worker: edits files and runs commands to implement a scoped task.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
