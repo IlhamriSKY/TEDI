@@ -76,9 +76,12 @@ export class McpClient {
     }
   }
 
-  /** Close the connection and kill the server process. */
+  /** Closes the connection and terminates the server process. Safe to call at
+   *  any lifecycle point: while connect() is still in flight, after a prior
+   *  close, or on a connection that never opened. close() is idempotent, and
+   *  always invoking it prevents an interrupted connect from leaking the
+   *  spawned process. */
   async disconnect(): Promise<void> {
-    if (!this._connected) return;
     try {
       await this.client.close();
     } catch {
@@ -168,14 +171,6 @@ export async function getMcpClient(config: McpServerConfig, cwd?: string): Promi
   }
 }
 
-/** Disconnect all active MCP clients. */
-export async function disconnectAllMcpClients(): Promise<void> {
-  for (const [, entry] of activeClients.entries()) {
-    void entry.client.disconnect();
-  }
-  activeClients.clear();
-}
-
 /** Drop a server's cached connection so the next turn reconnects and re-fetches
  *  its tool list. Call after a server's config is edited/removed in settings. */
 export async function refreshMcpTools(serverName: string): Promise<void> {
@@ -185,4 +180,64 @@ export async function refreshMcpTools(serverName: string): Promise<void> {
     activeClients.delete(serverName);
   }
   connecting.delete(serverName);
+}
+
+export type McpValidation =
+  | { ok: true; toolCount: number }
+  // `reason` separates the two failure modes the UI surfaces differently:
+  // "spawn" means the command could not launch (missing binary or not on PATH);
+  // "handshake" means it launched but never completed the MCP protocol (wrong
+  // program, missing credentials or arguments, crash, or hang).
+  | { ok: false; reason: "spawn" | "handshake"; error: string };
+
+/**
+ * Validates a server config by spawning the process and completing the MCP
+ * handshake, letting callers distinguish a working server from an arbitrary
+ * command. Runs against a throwaway client rather than the shared connection
+ * cache and races the handshake against a timeout, so a process that starts but
+ * never speaks MCP cannot stall the check or pollute the cache. Resolves with
+ * the advertised tool count, or a typed failure reason.
+ */
+export async function validateMcpServer(
+  config: McpServerConfig,
+  cwd?: string,
+  // 30s accommodates an `npx -y` first run that downloads the package before it
+  // responds; raise it if a slow registry causes false timeouts.
+  timeoutMs = 30_000,
+): Promise<McpValidation> {
+  const client = new McpClient(config, cwd);
+  const connectPromise = client.connect();
+  // If the timeout wins the race below, connect() can still reject afterwards;
+  // attach a no-op catch so that late rejection is not reported as unhandled.
+  connectPromise.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      connectPromise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Timed out after ${Math.round(timeoutMs / 1000)}s. The process started but never completed the MCP handshake (is it really an MCP server?).`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+    return { ok: true, toolCount: client.tools.length };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    // mcp_spawn reports "spawn failed: ..." (and OS "not found" / ENOENT) when
+    // the command cannot launch; any other error means it launched but the
+    // protocol did not complete.
+    const reason = /spawn failed|not found|enoent|empty command/i.test(error)
+      ? "spawn"
+      : "handshake";
+    return { ok: false, reason, error };
+  } finally {
+    if (timer) clearTimeout(timer);
+    await client.disconnect();
+  }
 }

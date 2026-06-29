@@ -84,12 +84,10 @@ export function buildFetchTools() {
           return { error: "refused: blocked host (cloud-metadata / link-local)", url };
         }
 
+        let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(
-            () => controller.abort(),
-            FETCH_TIMEOUT_MS,
-          );
+          timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
           const fetchHeaders: Record<string, string> = {};
           if (headers) {
@@ -218,6 +216,10 @@ export function buildFetchTools() {
             error: e instanceof Error ? e.message : String(e),
             url,
           };
+        } finally {
+          // Clear the abort timer on every exit path (success, error, timeout).
+          // clearTimeout is idempotent, so the duplicate clear on success is safe.
+          clearTimeout(timeout);
         }
       },
     }),

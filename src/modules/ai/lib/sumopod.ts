@@ -72,10 +72,6 @@ function emit() {
   for (const l of listeners) l(state);
 }
 
-export function getSumopodModelsState(): FetchState {
-  return state;
-}
-
 export function subscribeSumopodModels(cb: (s: FetchState) => void): () => void {
   listeners.add(cb);
   cb(state);

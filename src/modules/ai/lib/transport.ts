@@ -177,12 +177,12 @@ async function readMemory(workspaceRoot: string | null): Promise<string | null> 
       blocks.push(`${header}${body}`);
     }
     content = blocks.length > 0 ? blocks.join("\n\n") : null;
-    memoryCache.set(workspaceRoot, { content, cachedAt: Date.now(), signature });
+    memoryCache.set(cacheWorkspaceRoot, { content, cachedAt: Date.now(), signature });
     return content;
   } catch {
     content = null; // folder absent -> no memory
   }
-  memoryCache.set(workspaceRoot, { content, cachedAt: Date.now() });
+  memoryCache.set(cacheWorkspaceRoot, { content, cachedAt: Date.now() });
   return content;
 }
 

@@ -94,8 +94,3 @@ export function newAgentId(): string {
 export function effectiveBuiltins(overrides: BuiltinOverrides): Agent[] {
   return BUILTIN_AGENTS.map((a) => (overrides[a.id] ? { ...overrides[a.id], builtIn: true } : a));
 }
-
-export function findAgent(agents: readonly Agent[], id: string | null | undefined): Agent {
-  if (!id) return BUILTIN_AGENTS[0];
-  return agents.find((a) => a.id === id) ?? BUILTIN_AGENTS[0];
-}

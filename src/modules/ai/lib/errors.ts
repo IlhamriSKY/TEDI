@@ -133,40 +133,6 @@ export function newCorrelationId(): string {
   return `${correlationEpoch}-${correlationCounter.toString(16)}`;
 }
 
-/** Reset the correlation epoch (call on session switch). */
-export function resetCorrelationEpoch(): void {
-  correlationEpoch = Date.now().toString(36);
-  correlationCounter = 0;
-}
-
-/** Human-readable label for each error code (UI chips, toasts). */
-export function errorCodeLabel(code: TediErrorCode): string {
-  switch (code) {
-    case TediErrorCode.NO_API_KEY:
-      return "No API key";
-    case TediErrorCode.AUTH_FAILED:
-      return "Auth failed";
-    case TediErrorCode.OVER_CONTEXT:
-      return "Context full";
-    case TediErrorCode.RATE_LIMITED:
-      return "Rate limited";
-    case TediErrorCode.PROVIDER_UNAVAILABLE:
-      return "Provider unavailable";
-    case TediErrorCode.STEP_CAP:
-      return "Step limit reached";
-    case TediErrorCode.TOOL_REPETITION:
-      return "Tool loop detected";
-    case TediErrorCode.NO_PROGRESS:
-      return "No progress";
-    case TediErrorCode.SECURITY_BLOCKED:
-      return "Security blocked";
-    case TediErrorCode.ABORTED:
-      return "Aborted";
-    default:
-      return "Error";
-  }
-}
-
 /**
  * Map a raw provider error message to a clearer, actionable one for the chat
  * error card. Falls back to the original message when nothing matches.

@@ -30,7 +30,7 @@ import {
   toggleMcpServer,
   type McpServerConfig,
 } from "@/modules/ai/lib/mcpConfig";
-import { refreshMcpTools } from "@/modules/ai/lib/mcpClient";
+import { refreshMcpTools, validateMcpServer } from "@/modules/ai/lib/mcpClient";
 
 /**
  * Derive a compact server name from a run command, so adding an MCP server
@@ -102,13 +102,33 @@ export function McpServersCard() {
     // args; edit the server afterward for the rare one that does.
     const [command, ...args] = raw.split(/\s+/);
     const name = deriveName(args, command, servers);
+    const config: McpServerConfig = { name, command, args, env: {}, enabled: true };
     setBusy(true);
-    setStatus(null);
+    setStatus({ kind: "ok", msg: `Connecting to "${name}"…` });
     try {
-      await saveMcpServer({ name, command, args, env: {}, enabled: true });
-      setStatus({ kind: "ok", msg: `Added "${name}".` });
+      // Validate by spawning and handshaking before persisting. A command that
+      // cannot launch is rejected and left in the input for correction; one that
+      // launches but fails the handshake (commonly a missing credential or
+      // argument) is still saved so it can be edited, but reported as failed.
+      const result = await validateMcpServer(config);
+      if (!result.ok && result.reason === "spawn") {
+        setStatus({ kind: "err", msg: `Couldn't start "${command}": ${result.error}` });
+        return;
+      }
+      await saveMcpServer(config);
       setCmd("");
       refresh();
+      setStatus(
+        result.ok
+          ? {
+              kind: "ok",
+              msg: `Added "${name}" (${result.toolCount} tool${result.toolCount === 1 ? "" : "s"}).`,
+            }
+          : {
+              kind: "err",
+              msg: `Added "${name}", but it didn't complete the MCP handshake: ${result.error} Edit it to add credentials/args, or remove it.`,
+            },
+      );
     } catch (e) {
       setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -120,14 +140,26 @@ export function McpServersCard() {
     if (!editing) return;
     const [command, ...args] = editCmd.trim().split(/\s+/);
     if (!command) return;
+    const config: McpServerConfig = { ...editing, command, args, env: parseEnv(envText) };
     setBusy(true);
-    setStatus(null);
+    setStatus({ kind: "ok", msg: `Connecting to "${editing.name}"…` });
     try {
-      await saveMcpServer({ ...editing, command, args, env: parseEnv(envText) });
+      // An edit is an explicit user action (often fixing a broken server), so
+      // the change is always persisted; validation only decides whether the
+      // result is reported as connected or as a save with a connection error.
+      const result = await validateMcpServer(config);
+      await saveMcpServer(config);
       void refreshMcpTools(editing.name); // drop the stale connection so edits take effect next turn
-      setStatus({ kind: "ok", msg: `Saved "${editing.name}".` });
       setEditing(null);
       refresh();
+      setStatus(
+        result.ok
+          ? {
+              kind: "ok",
+              msg: `Saved "${config.name}" (${result.toolCount} tool${result.toolCount === 1 ? "" : "s"}).`,
+            }
+          : { kind: "err", msg: `Saved "${config.name}", but connection failed: ${result.error}` },
+      );
     } catch (e) {
       setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
     } finally {

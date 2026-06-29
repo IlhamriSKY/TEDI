@@ -640,14 +640,32 @@ export async function updateSkillGroup(group: string): Promise<{
   const updated: string[] = [];
   const stateEntries: [string, SkillState][] = [];
 
-  for (const [slug, filePath] of bySlug) {
+  for (const [rawSlug, filePath] of bySlug) {
+    // Sanitize the slug from the (untrusted) repo tree before it becomes a path.
+    const slug = rawSlug
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (!slug) continue;
     const raw = await fetch(
       `https://raw.githubusercontent.com/${owner}/${repo}/${meta.branch}/${filePath}`,
     );
     if (!raw.ok) continue;
     const content = await raw.text();
     const destDir = `${groupDir}/${slug}`;
-    await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
+    // A slug added upstream since install has no directory yet, so create it,
+    // and guard the write: a single failure must not abort the whole loop and
+    // leave the written files out of sync with the state map recorded below.
+    try {
+      await native.createDir(destDir); // recursive; throws if it already exists
+    } catch {
+      /* already there - we overwrite the SKILL.md below */
+    }
+    try {
+      await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
+    } catch {
+      continue; // skip on write failure so state stays in sync with disk
+    }
     updated.push(slug);
 
     const fm = parseFrontmatter(content);

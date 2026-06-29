@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.63] - 29-06-2026
+
+### Added
+
+- **MCP server validation on add/edit.** Adding or editing an MCP server now spawns the process and runs the MCP handshake before saving, so arbitrary text can no longer be stored as a working server. A command that cannot launch is rejected (and kept in the input for correction), one that launches but fails the handshake is saved yet reported as failed, and a success shows the advertised tool count. The probe runs on a throwaway client with a timeout so a process that never speaks MCP cannot stall the check or pollute the connection cache. See [mcpClient.ts](src/modules/ai/lib/mcpClient.ts), [McpServersCard.tsx](src/settings/sections/components/McpServersCard.tsx).
+
+### Changed
+
+- **Agent output bans emoji and em dashes.** The system prompt now forbids both in the assistant's prose across the full and lite variants. See [config.ts](src/modules/ai/config.ts).
+- **Dead-code sweep of the AI module.** Removed 17 unused exports (including two ~50-line tool label/icon maps) with no behaviour change, verified against the whole tree. See [agent.ts](src/modules/ai/lib/agent.ts).
+
+### Fixed
+
+- **Project memory cache never hit and leaked entries.** `readMemory` wrote its cache under the raw workspace key while reads and eviction used the normalized key, so `.tedi/memory` was re-listed every turn and stale entries were never evicted. See [transport.ts](src/modules/ai/lib/transport.ts).
+- **Skill group update could desync disk from state.** `updateSkillGroup` now creates the destination directory and guards each write (matching install), so a skill added upstream since install can no longer abort the whole update mid-loop and leave the written files out of sync with the recorded state. See [skills.ts](src/modules/ai/lib/skills.ts).
+- **Fetch abort timer leaked on the error path.** The request timeout is now cleared in a `finally` rather than only after a fully successful read. See [fetch.ts](src/modules/ai/tools/fetch.ts).
+- **Needless re-renders and a render-time side effect.** Removed a `useMemo` that called `setState` during render in the debug request viewer, and a dead store subscription in the AI mini window. See [DebugRequestViewer.tsx](src/modules/ai/components/DebugRequestViewer.tsx), [AiMiniWindow.tsx](src/modules/ai/components/AiMiniWindow.tsx).
+
 ## [0.3.62] - 29-06-2026
 
 ### Added

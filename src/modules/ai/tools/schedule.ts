@@ -130,11 +130,6 @@ export function flexArrayOpt<T extends z.ZodTypeAny>(item: T) {
   return z.preprocess(coerceArray, z.array(item).optional());
 }
 
-/** Object schema that parses JSON-stringified input first. */
-export function flexObjectOpt<T extends z.ZodRawShape>(shape: T) {
-  return z.preprocess(coerceJsonObject, z.object(shape).optional());
-}
-
 const targetObjectSchema = z
   .object({
     leaf_id: flexIntOpt(),

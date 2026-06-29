@@ -174,28 +174,6 @@ export function clearOpenAICompatibleInstance(instanceId: string): void {
   emit();
 }
 
-// --- Backward-compatible single-endpoint API --------------------------------
-// Older call sites (App.tsx, ModelsSection.tsx) used these without an instance
-// id. They now target the default instance.
-
-export async function refreshOpenAICompatibleModels(
-  apiKey: string,
-  baseURL: string,
-  signal?: AbortSignal,
-): Promise<ModelInfo[]> {
-  return refreshOpenAICompatibleInstance(
-    OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
-    apiKey,
-    baseURL,
-    undefined,
-    signal,
-  );
-}
-
-export function clearOpenAICompatibleModels(): void {
-  clearOpenAICompatibleInstance(OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID);
-}
-
 /** Subscribe to detection-state changes for any instance. The callback fires
  *  on every instance's update; consumers read the instances they care about. */
 function subscribe(cb: () => void): () => void {

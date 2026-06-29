@@ -618,8 +618,6 @@ function autoresize(el: HTMLTextAreaElement | null) {
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
 }
 
-export type AiInputBarProps = { tabId: number };
-
 export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
   const closePanel = useChatStore((s) => s.closePanel);
   return (

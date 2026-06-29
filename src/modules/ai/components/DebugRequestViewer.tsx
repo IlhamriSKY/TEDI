@@ -83,7 +83,6 @@ export function DebugRequestViewer() {
   const sessions = useMemo(() => groupSessions(caps), [caps]);
   const list = useMemo(() => mode === "cat" ? filters.find(f => f.key === cat) ? caps.filter(filters.find(f => f.key === cat)!.fn) : caps : sess === null ? caps : caps.filter(c => (c.sessionId ?? "_") === sess), [mode, cat, sess, caps, filters]);
   const picked = useMemo(() => list.find(c => c.id === sel) ?? list[0] ?? null, [list, sel]);
-  useMemo(() => { if (list.length && !list.find(c => c.id === sel)) setSel(list[0].id); else if (!list.length) setSel(null); }, [list, sel]);
   if (!enabled) return null;
   return (<><Button type="button" variant="ghost" size="sm" className="text-muted-foreground h-7 shrink-0 px-2 text-[11px]" onClick={() => setOpen(true)}>Debug{caps.length ? ` · ${caps.length}` : ""}</Button>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className={cn("flex max-h-[90vh] flex-col gap-4 overflow-hidden", WIDE_DIALOG_WIDTH)}>

@@ -23,7 +23,6 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useMemo } from "react";
 import type { SessionMeta } from "../lib/sessions";
-import { useAgentsStore } from "../store/agentsStore";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
 import { AiChatView } from "./AiChat";
@@ -178,9 +177,6 @@ function Header({
   isBusy: boolean;
   onClose: () => void;
 }) {
-  const customAgents = useAgentsStore((s) => s.customAgents);
-  void customAgents;
-
   return (
     <div className="border-border/60 relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-0">
       <div className="flex min-w-0 flex-1 items-center">

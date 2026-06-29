@@ -129,8 +129,3 @@ export function getAllSubagentDefs(): Record<string, SubagentDef> {
     ]);
   return { ...builtIn, ...Object.fromEntries(customEntries) };
 }
-
-/** Check if a sub-agent id is built-in. */
-export function isBuiltinSubagentId(id: string): boolean {
-  return id in SUBAGENTS;
-}

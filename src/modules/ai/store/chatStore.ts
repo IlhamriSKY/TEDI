@@ -869,10 +869,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setShowHistoryPicker: (open: boolean) => set({ showHistoryPicker: open }),
 }));
 
-export function getAgentMeta(): AgentMeta {
-  return useChatStore.getState().agentMeta;
-}
-
 export function getActiveProviderKey(): string | null {
   const { selectedModelId, apiKeys } = useChatStore.getState();
   return apiKeys[resolveProvider(selectedModelId)] ?? null;

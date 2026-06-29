@@ -47,19 +47,6 @@ async function saveState(state: SkillsStateMap): Promise<void> {
   await store.save();
 }
 
-/** Get metadata for a single skill by its directory path. */
-export async function getSkillState(dir: string): Promise<SkillState | null> {
-  const state = await loadState();
-  return state[dir] ?? null;
-}
-
-/** Set metadata for a skill. */
-export async function setSkillState(dir: string, meta: SkillState): Promise<void> {
-  const state = await loadState();
-  state[dir] = meta;
-  await saveState(state);
-}
-
 /** Remove metadata for a skill. */
 export async function removeSkillState(dir: string): Promise<void> {
   const state = await loadState();

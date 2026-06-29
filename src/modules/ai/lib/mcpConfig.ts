@@ -48,12 +48,6 @@ export async function getMcpServers(): Promise<McpServerConfig[]> {
   return Object.values(configs).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Get a single MCP server config by name. */
-export async function getMcpServer(name: string): Promise<McpServerConfig | null> {
-  const configs = await loadConfigs();
-  return configs[name] ?? null;
-}
-
 /** Save (create or update) an MCP server config. */
 export async function saveMcpServer(config: McpServerConfig): Promise<void> {
   const configs = await loadConfigs();
