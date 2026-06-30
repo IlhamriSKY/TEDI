@@ -191,7 +191,7 @@ function FileTreeNodeImpl({
           )}
           {isHtml && onPreviewInBrowser && (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onPreviewInBrowser(path)}>
-              Preview in Browser
+              Open in Browser
             </ContextMenuItem>
           )}
           {isDir && onRevealInTerminal && (

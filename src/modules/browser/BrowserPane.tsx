@@ -419,7 +419,7 @@ function SelfBlockedState() {
         <HugeiconsIcon icon={AlertCircleIcon} size={20} strokeWidth={1.5} />
       </div>
       <div className="space-y-1.5">
-        <p className="text-foreground text-sm font-medium">Preview blocked</p>
+        <p className="text-foreground text-sm font-medium">Browser blocked</p>
         <p className="text-muted-foreground max-w-sm text-xs leading-relaxed">
           {SELF_REFERENCE_NOTICE} Pick a different URL to continue.
         </p>

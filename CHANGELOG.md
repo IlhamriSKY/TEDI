@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.65] - 30-06-2026
+
+### Changed
+
+- **The in-app browser is now called "Browser" instead of "Preview".** The `+` new-tab menu item, the "New browser tab" shortcut, the self-reference blocked screen, and the explorer's HTML context-menu action ("Open in Browser") were renamed for consistency with the rest of the UI, which already used "browser". Internal ids and the on-disk format are unchanged. See [NewTabMenu.tsx](src/modules/tabs/components/NewTabMenu.tsx), [shortcuts.ts](src/modules/shortcuts/shortcuts.ts), [BrowserPane.tsx](src/modules/browser/BrowserPane.tsx), [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx).
+
+### Fixed
+
+- **Ctrl/Cmd+W closed the whole app instead of the active tab.** A native shortcut intercepted the key before the app's own handler could run: on Windows, WebView2's browser accelerator keys treat Ctrl+W as "close window"; on macOS, the default app menu binds Cmd+W to "Close Window". TEDI now disables browser accelerator keys on the Windows main webview (which also frees Ctrl+P / Ctrl+R / Ctrl+F for the app's own shortcuts) and builds a custom macOS menu that keeps the standard App / Edit / Window items but omits Close Window. Ctrl/Cmd+W now closes the active tab (or the focused pane in a split) on every platform; Linux already behaved correctly. See [lib.rs](src-tauri/src/lib.rs).
+
 ## [0.3.64] - 30-06-2026
 
 ### Added

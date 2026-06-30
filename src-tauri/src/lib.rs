@@ -143,6 +143,34 @@ fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "windows"))]
 fn apply_windows_frame_fixes(_window: &tauri::WebviewWindow) {}
 
+/// Disable WebView2 "browser accelerator keys" on the MAIN webview. By default
+/// WebView2 treats Ctrl+W (close window), Ctrl+N/T, Ctrl+P, Ctrl+R/F5, etc. as
+/// browser shortcuts and acts on them BEFORE web content can cancel them with
+/// `preventDefault` - so Ctrl+W closed the whole window (quitting the app)
+/// instead of running the app's own close-tab shortcut. TEDI is an app shell,
+/// not a browser, so the app's keyboard handlers should own those combos. The
+/// in-app browser child webview is a separate webview and keeps its own defaults.
+#[cfg(target_os = "windows")]
+fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows::core::Interface;
+    let _ = window.with_webview(|platform| unsafe {
+        let Ok(core) = platform.controller().CoreWebView2() else {
+            return;
+        };
+        let Ok(settings) = core.Settings() else {
+            return;
+        };
+        let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() else {
+            return;
+        };
+        let _ = settings3.SetAreBrowserAcceleratorKeysEnabled(false);
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn disable_browser_accelerator_keys(_window: &tauri::WebviewWindow) {}
+
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
@@ -375,6 +403,10 @@ pub fn run() {
                 // Clamp borderless maximize to the work area + restore the
                 // taskbar minimize affordance (see fn docs).
                 apply_windows_frame_fixes(&window);
+                // Stop WebView2 from hijacking Ctrl+W/Ctrl+P/Ctrl+R/etc. as
+                // browser shortcuts so the app's own handlers run (Ctrl+W must
+                // close the active tab, not the whole window).
+                disable_browser_accelerator_keys(&window);
                 // A session saved while maximized may have been restored before
                 // the work-area clamp was installed, leaving it over the taskbar.
                 // Re-assert maximize now - the window is still hidden (the
@@ -384,6 +416,50 @@ pub fn run() {
                     let _ = window.unmaximize();
                     let _ = window.maximize();
                 }
+            }
+            // macOS: the default app menu binds Cmd+W to "Close Window", and
+            // that native accelerator fires before the webview's JS handler - so
+            // Cmd+W closed the whole window (quitting the app) instead of the
+            // active tab. Rebuild a standard menu that keeps the App/Edit/Window
+            // items (so copy/paste/quit and the system shortcuts still work) but
+            // OMITS Close Window, leaving Cmd+W for the app's own close-tab
+            // shortcut. Windows/Linux have no such menu accelerator (Windows is
+            // handled by disable_browser_accelerator_keys; Linux's WebKitGTK does
+            // not bind Cmd/Ctrl+W), so this is macOS-only.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, SubmenuBuilder};
+                let h = app.handle();
+                let app_menu = SubmenuBuilder::new(h, "TEDI")
+                    .about(None)
+                    .separator()
+                    .services()
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .show_all()
+                    .separator()
+                    .quit()
+                    .build()?;
+                let edit_menu = SubmenuBuilder::new(h, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let window_menu = SubmenuBuilder::new(h, "Window")
+                    .minimize()
+                    .maximize()
+                    .separator()
+                    .fullscreen()
+                    .build()?;
+                let menu = MenuBuilder::new(h)
+                    .items(&[&app_menu, &edit_menu, &window_menu])
+                    .build()?;
+                h.set_menu(menu)?;
             }
             // Heal a stale `~/.local/bin/tedi` shim after an update that moved
             // the binary (macOS .app relocation, AppImage filename change).

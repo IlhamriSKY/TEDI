@@ -91,7 +91,7 @@ export function NewTabMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNewPreview()}>
           <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
-          <span className="flex-1 whitespace-nowrap">Preview</span>
+          <span className="flex-1 whitespace-nowrap">Browser</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "P")}
           </span>

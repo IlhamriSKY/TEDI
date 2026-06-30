@@ -93,7 +93,7 @@ export const SHORTCUTS: Shortcut[] = [
   },
   {
     id: "tab.newPreview",
-    label: "New preview tab",
+    label: "New browser tab",
     group: "Tabs",
     defaultBindings: [{ [MOD_PROP]: true, alt: true, key: "p" }],
   },
