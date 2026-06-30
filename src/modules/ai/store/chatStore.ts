@@ -413,9 +413,23 @@ function getReadCache(sessionId: string): Set<string> {
 
 function makeChat(sessionId: string): Chat<UIMessage> {
   const readCache = getReadCache(sessionId);
+  // Per-turn working-directory pin. Set once at turn start by the transport;
+  // while pinned, tools resolve paths against the snapshot instead of the live
+  // active terminal, so switching tabs mid-turn can't relocate the agent. Held
+  // in the closure (not a clone) so the ctx identity stays stable and
+  // buildTools' per-ctx cache keeps hitting across turns.
+  let turnPinned = false;
+  let pinnedCwd: string | null = null;
+  let pinnedWorkspaceRoot: string | null = null;
   const toolContext: ToolContext = {
-    getCwd: () => useChatStore.getState().live.getCwd(),
-    getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
+    getCwd: () => (turnPinned ? pinnedCwd : useChatStore.getState().live.getCwd()),
+    getWorkspaceRoot: () =>
+      turnPinned ? pinnedWorkspaceRoot : useChatStore.getState().live.getWorkspaceRoot(),
+    pinTurnCwd: (cwd, workspaceRoot) => {
+      turnPinned = true;
+      pinnedCwd = cwd;
+      pinnedWorkspaceRoot = workspaceRoot;
+    },
     getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),

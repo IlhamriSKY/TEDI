@@ -131,6 +131,12 @@ export function OpenAICompatibleBlock({
     return OPENAI_COMPATIBLE_PRESETS.find((p) => p.baseURL.replace(/\/$/, "") === norm)?.id;
   })();
 
+  // Unsaved label/URL edit on an existing endpoint. The footer normally shows
+  // "Detect" once configured; surface "Save" while these differ so a label (or
+  // URL) change can be persisted without first entering key-replace mode.
+  const dirty =
+    !!instance && (labelDraft.trim() !== instance.label || urlDraft.trim() !== instance.baseURL);
+
   return (
     <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -311,7 +317,7 @@ export function OpenAICompatibleBlock({
         >
           Test
         </Button>
-        {configured && !editingKey ? (
+        {configured && !editingKey && !dirty ? (
           <Button size="sm" variant="outline" onClick={refresh} className="h-8 px-2 text-[11px]">
             Detect
           </Button>

@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.70] - 30-06-2026
+
+### Added
+
+- **Skills install/preview/update fetch a repo's text files via codeload instead of the GitHub REST API.** The skills installer used the REST API (git tree + per-file raw fetch), which is capped at 60 requests/hour unauthenticated. It now downloads the repo's source archive from `codeload.github.com` (not under that cap) through new Rust commands `github_head_sha` and `github_repo_text_files`, keeps only the small UTF-8 text files under fixed size caps, and never needs a token. Tradeoff: a skill repo that bundles a large binary asset (whole archive over the 50 MB download cap) can no longer be installed even if its `SKILL.md` is tiny. See [github.rs](src-tauri/src/modules/extensions/github.rs), [commands.rs](src-tauri/src/modules/extensions/commands.rs), [skills.ts](src/modules/ai/lib/skills.ts).
+
+### Fixed
+
+- **The AI agent no longer follows you into another folder mid-task.** Tools resolve relative paths and shell cwd through the *currently active* terminal, so working in folder A and then switching to (or opening) a tab in folder B would re-point every subsequent tool - and the agent's sub-agents - at folder B. The working directory and workspace root are now pinned to a snapshot taken at the start of each turn and held for the whole turn (sub-agents included); terminal and browser actions stay live. The pin mutates the stable per-session tool context (no per-turn clone) so the tool-schema cache keeps hitting. See [transport.ts](src/modules/ai/lib/transport.ts), [chatStore.ts](src/modules/ai/store/chatStore.ts), [context.ts](src/modules/ai/tools/context.ts).
+- **A model reachable through a configured gateway no longer fails with "something went wrong - no API key".** When the provider resolved from a model id needs a key the user doesn't have, the model builder now falls back to any configured provider that serves the same id (e.g. `deepseek-v4-pro` routes to SumoPod when there's a SumoPod key but no native DeepSeek key), instead of throwing. It still throws when no configured provider can serve the model. See [agent.ts](src/modules/ai/lib/agent.ts), [config.ts](src/modules/ai/config.ts).
+- **An OpenAI-Compatible endpoint's label and URL can be edited and saved.** A configured endpoint only showed a "Detect" button, so changing its label (or base URL) had no Save affordance unless you first entered key-replace mode. A "Save" button now appears whenever the label or URL differs from what's stored; saving keeps the existing key. See [OpenAICompatibleBlock.tsx](src/settings/sections/components/OpenAICompatibleBlock.tsx).
+- **Security: the codeload skills extractor is bounded against a decompression bomb.** Decompressed bytes were counted toward the aggregate size cap only after the UTF-8 text check passed, so a hostile public repo full of highly-compressible non-UTF8 entries could decompress unbounded (a CPU/memory DoS) without ever tripping the cap. Bytes are now counted before the text filter, and the extraction runs off the async worker. See [github.rs](src-tauri/src/modules/extensions/github.rs).
+
+### Changed
+
+- **Multi-file builds fan out into parallel workers instead of one slow serial worker.** The orchestration guidance only *mandated* parallel sub-agents for explore/review intents and made parallel workers *optional* for implementation, so a "build this multi-file project" request often handed the entire build to a single worker that implemented serially. The prompt now directs a multi-file build to split into multiple worker tasks in one `run_subagents` call, each owning a disjoint file set (one per module or layer), running in parallel; a single worker is reserved for single-file or tightly-coupled changes. See [config.ts](src/modules/ai/config.ts).
+
 ## [0.3.69] - 30-06-2026
 
 ### Fixed

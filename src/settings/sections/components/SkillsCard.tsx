@@ -595,12 +595,12 @@ export function SkillsCard() {
         </div>
       ) : null}
 
-      {/* Couldn't-check note: distinguishes a failed update check (rate limit /
-          offline) from "all up to date" so a silent failure isn't misread. */}
+      {/* Couldn't-check note: distinguishes a failed update check (offline /
+          GitHub unreachable) from "all up to date" so a silent failure isn't misread. */}
       {checkFailed > 0 && (
         <div className="text-muted-foreground/70 text-[10px] leading-relaxed">
           Couldn&apos;t check {checkFailed} skill group{checkFailed > 1 ? "s" : ""} for updates
-          (GitHub rate limit or offline). Try again later.
+          (offline or GitHub unreachable). Try again later.
         </div>
       )}
 

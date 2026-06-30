@@ -643,6 +643,8 @@ pub fn run() {
             extensions::commands::ext_enable,
             extensions::commands::ext_disable,
             extensions::commands::ext_uninstall,
+            extensions::commands::github_head_sha,
+            extensions::commands::github_repo_text_files,
         ])
         .on_window_event(|window, event| {
             // Mirror main-window minimize/restore onto the settings child.

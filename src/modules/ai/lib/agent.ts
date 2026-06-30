@@ -19,6 +19,7 @@ import {
   pickSystemPromptVariant,
   PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
+  providersServingModel,
   resolveOpenAICompatibleModel,
   SUMOPOD_BASE_URL,
   SYSTEM_PROMPT,
@@ -111,7 +112,18 @@ export async function buildLanguageModel(
   options: BuildModelOptions = {},
 ): Promise<LanguageModel> {
   if (providerNeedsKey(provider) && !keys[provider]) {
-    throw new Error(`No API key configured for ${provider}. Open Settings → AI to add one.`);
+    // The resolved provider has no key. If the same model id is served by a
+    // configured provider (one the user has a key for), route there instead of
+    // failing - covers ids shared across providers (e.g. deepseek-v4-pro on both
+    // native DeepSeek and SumoPod) when the pick lands on the keyless native one.
+    const alt = providersServingModel(resolvedModelId).find(
+      (p) => !providerNeedsKey(p) || !!keys[p],
+    );
+    if (alt && alt !== provider) {
+      provider = alt;
+    } else {
+      throw new Error(`No API key configured for ${provider}. Open Settings → AI to add one.`);
+    }
   }
   const key = keys[provider] ?? "";
   const baseURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;

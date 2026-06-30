@@ -3,10 +3,16 @@ import type { ProviderKeys } from "../lib/keyring";
 import type { DynamicModelId, ProviderId } from "../config";
 
 export type ToolContext = {
-  /** Active terminal cwd for resolving relative paths. Null means home. */
+  /** Active terminal cwd for resolving relative paths. Null means home.
+   *  While a turn is pinned (see `pinTurnCwd`), returns the turn-start snapshot
+   *  so a mid-turn tab switch can't move the agent to another folder. */
   getCwd: () => string | null;
-  /** Workspace (explorer) root. */
+  /** Workspace (explorer) root. Pinned for the turn alongside the cwd. */
   getWorkspaceRoot: () => string | null;
+  /** Freeze `getCwd`/`getWorkspaceRoot` to this turn's snapshot. Called once at
+   *  turn start; re-pinned each turn. Mutates the stable session context (no
+   *  clone) so `buildTools`' per-ctx cache keeps hitting across turns. */
+  pinTurnCwd?: (cwd: string | null, workspaceRoot: string | null) => void;
   /** Last N lines (default 300) of the active terminal buffer, or null if the
    *  active tab isn't a terminal. */
   getTerminalContext: (lines?: number) => string | null;

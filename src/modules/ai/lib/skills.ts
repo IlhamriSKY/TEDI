@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { native, type DirEntry } from "./native";
 import { subscribeSkillPathChanges } from "./skillCache";
@@ -388,22 +389,50 @@ function parseGithubRef(ref: string): { owner: string; repo: string } {
   return { owner: parts[0], repo: parts[1] };
 }
 
-async function ghJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
-  if (!res.ok) {
-    if (res.status === 404) throw new Error("Repo not found.");
-    // Unauthenticated GitHub API is 60 req/hr; a 403/429 with the rate-limit
-    // budget exhausted is a transient limit the user can wait out, not an
-    // auth/permission failure. Distinguish it so the message is actionable.
-    if (
-      (res.status === 403 || res.status === 429) &&
-      res.headers.get("x-ratelimit-remaining") === "0"
-    ) {
-      throw new Error("GitHub rate limit reached (unauthenticated, 60/hr). Try again later.");
-    }
-    throw new Error(`GitHub error ${res.status}.`);
+/** A repo's text files fetched off codeload (no GitHub REST API, so no 60/hr
+ *  rate limit and no token needed). `files` keys are repo-relative paths. */
+type RepoTextFiles = { branch: string; sha: string; files: Array<{ path: string; content: string }> };
+
+function friendlyGhError(e: unknown, owner: string, repo: string): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/HTTP 404/.test(msg)) {
+    return new Error(`"${owner}/${repo}" not found, or it's private (skills install needs a public repo).`);
   }
-  return res.json() as Promise<T>;
+  if (/download too large/.test(msg)) {
+    return new Error(`"${owner}/${repo}" is too large to download as a skills archive.`);
+  }
+  return e instanceof Error ? e : new Error(msg);
+}
+
+// Single-slot cache so Preview → Install doesn't download the same repo twice.
+let _repoCache: { key: string; at: number; data: RepoTextFiles } | null = null;
+
+/** Fetch a repo's text files via the backend's codeload path. No API, no rate
+ *  limit, no token. Cached 60s by owner/repo so the common preview→install
+ *  flow downloads once. */
+async function fetchRepoFiles(owner: string, repo: string): Promise<RepoTextFiles> {
+  const key = `${owner}/${repo}`.toLowerCase();
+  if (_repoCache && _repoCache.key === key && Date.now() - _repoCache.at < 60_000) {
+    return _repoCache.data;
+  }
+  try {
+    const data = await invoke<RepoTextFiles>("github_repo_text_files", { owner, repo });
+    _repoCache = { key, at: Date.now(), data };
+    return data;
+  } catch (e) {
+    throw friendlyGhError(e, owner, repo);
+  }
+}
+
+/** Default branch + latest commit SHA, off github.com's git smart-HTTP (not the
+ *  REST API). Cheap and rate-limit-free — used by the update check so it never
+ *  downloads the repo just to see if a newer commit exists. */
+async function fetchHeadSha(owner: string, repo: string): Promise<{ branch: string; sha: string }> {
+  try {
+    return await invoke<{ branch: string; sha: string }>("github_head_sha", { owner, repo });
+  } catch (e) {
+    throw friendlyGhError(e, owner, repo);
+  }
 }
 
 /** Score a SKILL.md path to prefer canonical `skills/<name>/SKILL.md`. */
@@ -456,20 +485,11 @@ function resolveSkillSlugs(skillFiles: string[], repo: string): Map<string, stri
 export async function previewSkillsFromGithub(ref: string): Promise<SkillPreview> {
   const { owner, repo } = parseGithubRef(ref);
 
-  const info = await ghJson<{ default_branch: string }>(
-    `https://api.github.com/repos/${owner}/${repo}`,
-  );
-  const branch = info.default_branch || "main";
-  const tree = await ghJson<{ tree: Array<{ path: string; type: string }> }>(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
-  );
-  const skillFiles = tree.tree
-    .filter((n) => n.type === "blob" && /(^|\/)SKILL\.md$/i.test(n.path))
-    .map((n) => n.path);
+  const { branch, files } = await fetchRepoFiles(owner, repo);
+  const skillFiles = files.map((f) => f.path).filter((p) => /(^|\/)SKILL\.md$/i.test(p));
 
   if (skillFiles.length === 0) {
-    const looksMcp =
-      /mcp/i.test(repo) || tree.tree.some((n) => /(^|\/)package\.json$/i.test(n.path));
+    const looksMcp = /mcp/i.test(repo) || files.some((f) => /(^|\/)package\.json$/i.test(f.path));
     throw new Error(
       looksMcp
         ? `"${owner}/${repo}" has no SKILL.md - it looks like an MCP server or npm package, not a TEDI skill.`
@@ -487,51 +507,32 @@ export async function previewSkillsFromGithub(ref: string): Promise<SkillPreview
   return { owner, repo, branch, skills, count: skills.size, group };
 }
 
-// Bounds + binary guard for co-fetching a skill's bundled sibling files.
+// Bounds for writing a skill's bundled sibling files.
 const COFETCH_MAX_FILES = 50;
 const COFETCH_MAX_BYTES = 512 * 1024;
-const BINARY_EXT =
-  /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|woff2?|ttf|otf|mp[34]|wav|bin|exe|dll|so|dylib)$/i;
 
 /**
- * Co-fetch a skill's bundled sibling files (scripts, reference docs) from the
- * repo tree so a multi-file skill isn't installed half-broken (the agent's
- * read_file on a referenced script would otherwise fail at runtime). Text-only:
- * native.writeFile takes a string, so binary assets are skipped and counted.
- * Bounded so a misshaped repo can't pull an unbounded tree. Untrusted tree paths
- * are rejected if they escape the skill dir.
- * ponytail: text-only; add a bytes-write backend command to also land binaries.
+ * Write a skill's bundled sibling files (scripts, reference docs) from the
+ * already-downloaded repo file map so a multi-file skill isn't installed
+ * half-broken (the agent's read_file on a referenced script would otherwise
+ * fail at runtime). The backend already dropped binaries (text-only archive),
+ * so this is a pure in-memory walk — no network. Bounded so a misshaped repo
+ * can't write an unbounded tree; untrusted paths that escape the dir are rejected.
  */
-async function cofetchSkillAssets(
-  owner: string,
-  repo: string,
-  branch: string,
+async function writeSkillSiblings(
   skillMdPath: string,
   destDir: string,
-  allBlobs: string[],
-): Promise<{ skippedBinary: number }> {
+  fileMap: Map<string, string>,
+): Promise<void> {
   const slash = skillMdPath.lastIndexOf("/");
-  if (slash === -1) return { skippedBinary: 0 }; // root-level skill: no prefix → never pull whole repo
+  if (slash === -1) return; // root-level skill: no prefix → never pull whole repo
   const prefix = skillMdPath.slice(0, slash + 1); // trailing slash included
   let count = 0;
-  let skippedBinary = 0;
-  for (const p of allBlobs) {
+  for (const [p, body] of fileMap) {
     if (count >= COFETCH_MAX_FILES) break;
     if (p === skillMdPath || !p.startsWith(prefix)) continue;
     const rel = p.slice(prefix.length);
     if (!rel || rel.includes("..") || rel.startsWith("/")) continue; // path-safety
-    if (BINARY_EXT.test(rel)) {
-      skippedBinary++;
-      continue;
-    }
-    let res: Response;
-    try {
-      res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${p}`);
-    } catch {
-      continue;
-    }
-    if (!res.ok) continue;
-    const body = await res.text();
     if (body.length > COFETCH_MAX_BYTES) continue;
     const relSlash = rel.lastIndexOf("/");
     try {
@@ -542,14 +543,14 @@ async function cofetchSkillAssets(
       /* skip an unwritable sibling rather than aborting the install */
     }
   }
-  return { skippedBinary };
 }
 
 /**
  * Install every `SKILL.md` found in a GitHub repo into a skills root. Targets
  * the workspace `.tedi/skills` when `workspaceRoot` is given, else the global
- * `~/.tedi/skills`. Each skill's bundled text siblings are co-fetched too (see
- * cofetchSkillAssets); binary assets are skipped.
+ * `~/.tedi/skills`. The whole repo is downloaded once via codeload (no GitHub
+ * API, no rate limit, no token); SKILL.md files and their bundled text siblings
+ * are written from that in-memory archive (binaries were dropped backend-side).
  *
  * Also saves metadata (SHA, version, requires, install date) to skillState store.
  */
@@ -569,19 +570,11 @@ export async function installSkillsFromGithub(
     : await homeSkillsDir();
   if (!base) throw new Error("Could not resolve a skills directory.");
 
-  const info = await ghJson<{ default_branch: string }>(
-    `https://api.github.com/repos/${owner}/${repo}`,
-  );
-  const branch = info.default_branch || "main";
-  const tree = await ghJson<{ tree: Array<{ path: string; type: string }> }>(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
-  );
-  const skillFiles = tree.tree
-    .filter((n) => n.type === "blob" && /(^|\/)SKILL\.md$/i.test(n.path))
-    .map((n) => n.path);
+  const { branch, sha, files } = await fetchRepoFiles(owner, repo);
+  const fileMap = new Map(files.map((f) => [f.path, f.content]));
+  const skillFiles = [...fileMap.keys()].filter((p) => /(^|\/)SKILL\.md$/i.test(p));
   if (skillFiles.length === 0) {
-    const looksMcp =
-      /mcp/i.test(repo) || tree.tree.some((n) => /(^|\/)package\.json$/i.test(n.path));
+    const looksMcp = /mcp/i.test(repo) || fileMap.has("package.json");
     throw new Error(
       looksMcp
         ? `"${owner}/${repo}" has no SKILL.md - it looks like an MCP server or npm package, not a TEDI skill. TEDI doesn't run MCP servers; for browser automation it already has built-in browser tools (open_browser, browser_click, …).`
@@ -589,7 +582,6 @@ export async function installSkillsFromGithub(
     );
   }
 
-  const allBlobs = tree.tree.filter((n) => n.type === "blob").map((n) => n.path);
   const bySlug = resolveSkillSlugs(skillFiles, repo);
 
   // Group every skill from this repo under one folder.
@@ -600,12 +592,6 @@ export async function installSkillsFromGithub(
       .replace(/^-+|-+$/g, "") || "skills";
   const groupDir = `${base}/${group}`;
 
-  // Get the latest commit SHA for the branch (used for version tracking).
-  const commits = await ghJson<Array<{ sha: string }>>(
-    `https://api.github.com/repos/${owner}/${repo}/commits?sha=${branch}&per_page=1`,
-  );
-  const sha = commits[0]?.sha ?? null;
-
   const installed: string[] = [];
   const failed: string[] = [];
   const stateEntries: [string, SkillState][] = [];
@@ -614,14 +600,11 @@ export async function installSkillsFromGithub(
     // resolveSkillSlugs already sanitized the slug; keep idempotent guard.
     const slug = sanitizeSlug(rawSlug);
     if (!slug) continue;
-    const raw = await fetch(
-      `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`,
-    );
-    if (!raw.ok) {
+    const content = fileMap.get(filePath);
+    if (content === undefined) {
       failed.push(slug);
       continue;
     }
-    const content = await raw.text();
     const destDir = `${groupDir}/${slug}`;
     try {
       await native.createDir(destDir); // recursive; throws if it already exists
@@ -636,20 +619,9 @@ export async function installSkillsFromGithub(
     }
     installed.push(slug);
 
-    // Co-fetch bundled text siblings so a multi-file skill isn't half-installed.
-    const { skippedBinary } = await cofetchSkillAssets(
-      owner,
-      repo,
-      branch,
-      filePath,
-      destDir,
-      allBlobs,
-    );
-    if (skippedBinary > 0) {
-      console.warn(
-        `[skills] "${slug}": skipped ${skippedBinary} binary asset(s) (text-only install).`,
-      );
-    }
+    // Write bundled siblings from the same archive so a multi-file skill isn't
+    // half-installed.
+    await writeSkillSiblings(filePath, destDir, fileMap);
 
     // Parse frontmatter for version and requires.
     const fm = parseFrontmatter(content);
@@ -688,45 +660,13 @@ function splitSkillDir(dir: string): { base: string; group: string } | null {
   return group ? { base, group } : null;
 }
 
-/** Re-resolve a repo's current default branch (null if the repo is gone). */
-async function repoDefaultBranch(owner: string, repo: string): Promise<string | null> {
-  try {
-    const info = await ghJson<{ default_branch: string }>(
-      `https://api.github.com/repos/${owner}/${repo}`,
-    );
-    return info.default_branch || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Fetch a branch-pinned GitHub URL; if the pinned branch fails (commonly a 404
- *  after an upstream rename/delete), re-resolve the repo's current default branch
- *  and retry once, returning the branch that worked. A genuine network/rate-limit
- *  error (the re-resolve also fails) propagates so callers can tell "couldn't
- *  check" from "up to date". */
-async function ghJsonForBranch<T>(
-  owner: string,
-  repo: string,
-  branch: string,
-  buildUrl: (b: string) => string,
-): Promise<{ data: T; branch: string }> {
-  try {
-    return { data: await ghJson<T>(buildUrl(branch)), branch };
-  } catch (e) {
-    const fresh = await repoDefaultBranch(owner, repo);
-    if (fresh && fresh !== branch) {
-      return { data: await ghJson<T>(buildUrl(fresh)), branch: fresh };
-    }
-    throw e;
-  }
-}
-
 /**
  * Check if an installed skill group has updates available.
  * Returns null when the group is not update-tracked or already current; THROWS
- * on a real fetch failure (network/rate-limit) so callers don't mistake an
- * unreachable check for "up to date".
+ * on a real fetch failure (network) so callers don't mistake an unreachable
+ * check for "up to date". Resolves the repo's current HEAD off git smart-HTTP
+ * (no API, no rate limit) and compares its SHA — a renamed default branch is
+ * handled automatically since HEAD always points at whatever is current.
  */
 export async function checkSkillUpdate(group: string): Promise<{
   hasUpdate: boolean;
@@ -740,24 +680,16 @@ export async function checkSkillUpdate(group: string): Promise<{
   if (!skillInGroup) return null;
 
   const [, meta] = skillInGroup;
-  if (!meta.source || !meta.branch || !meta.sha) return null;
+  if (!meta.source || !meta.sha) return null;
 
   const [owner, repo] = meta.source.split("/");
-  const { data: commits } = await ghJsonForBranch<
-    Array<{ sha: string; commit: { message: string } }>
-  >(
-    owner,
-    repo,
-    meta.branch,
-    (b) => `https://api.github.com/repos/${owner}/${repo}/commits?sha=${b}&per_page=1`,
-  );
-  if (commits.length === 0) return null;
-  const latestSha = commits[0].sha;
+  const { sha: latestSha } = await fetchHeadSha(owner, repo);
   return {
     hasUpdate: latestSha !== meta.sha,
     currentSha: meta.sha,
     latestSha,
-    latestCommitMsg: commits[0].commit.message.split("\n")[0] ?? null,
+    // No commit message without the REST API; the badge only needs hasUpdate.
+    latestCommitMsg: null,
   };
 }
 
@@ -772,8 +704,8 @@ type SkillUpdateInfo = {
  *  "couldn't check" instead of silently implying everything is current. */
 export type SkillUpdateCheck = { updates: Map<string, SkillUpdateInfo>; failed: number };
 
-// TTL-cache the update check (one unauthenticated GitHub /commits call per group)
-// so Settings re-render / refresh churn can't spam the 60 req/hr rate limit.
+// TTL-cache the update check (one git info/refs call per group — no API, no rate
+// limit) so Settings re-render / refresh churn doesn't re-hit the network each time.
 // Cleared by invalidateSkillsCache on install/update/remove.
 let _updateCheckCache: { at: number; result: SkillUpdateCheck } | null = null;
 const UPDATE_CHECK_TTL_MS = 5 * 60_000;
@@ -812,10 +744,11 @@ export async function checkAllSkillUpdates(): Promise<SkillUpdateCheck> {
 }
 
 /**
- * Update a skill group by re-downloading from the source repo. Updates EVERY
- * root that holds the group (a repo installed both globally and into a project
- * updates both, not just the first match). Re-resolves a renamed default branch,
- * co-fetches bundled text siblings, and reports per-skill download failures.
+ * Update a skill group by re-downloading from the source repo (via codeload, no
+ * API/rate limit). Updates EVERY root that holds the group (a repo installed
+ * both globally and into a project updates both, not just the first match).
+ * A renamed default branch is handled automatically (HEAD is always current),
+ * writes bundled text siblings, and reports per-skill failures.
  */
 export async function updateSkillGroup(group: string): Promise<{
   updated: string[];
@@ -827,7 +760,7 @@ export async function updateSkillGroup(group: string): Promise<{
   const bases = new Map<string, SkillState>();
   for (const [dir, meta] of Object.entries(state)) {
     const sd = splitSkillDir(dir);
-    if (sd?.group === group && meta.source && meta.branch && !bases.has(sd.base)) {
+    if (sd?.group === group && meta.source && !bases.has(sd.base)) {
       bases.set(sd.base, meta);
     }
   }
@@ -839,64 +772,35 @@ export async function updateSkillGroup(group: string): Promise<{
   const stateEntries: [string, SkillState][] = [];
 
   for (const [base, meta] of bases) {
-    if (!meta.branch) continue;
     const [owner, repo] = meta.source.split("/");
 
-    let tree: { tree: Array<{ path: string; type: string }> };
     let branch: string;
+    let sha: string | null;
+    let fileMap: Map<string, string>;
     try {
-      const r = await ghJsonForBranch<{ tree: Array<{ path: string; type: string }> }>(
-        owner,
-        repo,
-        meta.branch,
-        (b) => `https://api.github.com/repos/${owner}/${repo}/git/trees/${b}?recursive=1`,
-      );
-      tree = r.data;
-      branch = r.branch;
+      const data = await fetchRepoFiles(owner, repo);
+      branch = data.branch;
+      sha = data.sha;
+      fileMap = new Map(data.files.map((f) => [f.path, f.content]));
     } catch {
       continue; // couldn't fetch this root — leave it; other roots may still update
     }
 
-    const skillFiles = tree.tree
-      .filter((n) => n.type === "blob" && /(^|\/)SKILL\.md$/i.test(n.path))
-      .map((n) => n.path);
+    const skillFiles = [...fileMap.keys()].filter((p) => /(^|\/)SKILL\.md$/i.test(p));
     if (skillFiles.length === 0) continue;
 
-    const allBlobs = tree.tree.filter((n) => n.type === "blob").map((n) => n.path);
     const bySlug = resolveSkillSlugs(skillFiles, repo);
     const groupDir = `${base}/${SKILLS_SUBPATH}/${group}`;
-
-    let sha: string | null = null;
-    try {
-      const c = await ghJsonForBranch<Array<{ sha: string }>>(
-        owner,
-        repo,
-        branch,
-        (b) => `https://api.github.com/repos/${owner}/${repo}/commits?sha=${b}&per_page=1`,
-      );
-      sha = c.data[0]?.sha ?? null;
-    } catch {
-      sha = null;
-    }
     lastSha = sha ?? lastSha;
 
     for (const [rawSlug, filePath] of bySlug) {
       const slug = sanitizeSlug(rawSlug);
       if (!slug) continue;
-      let raw: Response;
-      try {
-        raw = await fetch(
-          `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`,
-        );
-      } catch {
+      const content = fileMap.get(filePath);
+      if (content === undefined) {
         failed.push(slug);
         continue;
       }
-      if (!raw.ok) {
-        failed.push(slug);
-        continue;
-      }
-      const content = await raw.text();
       const destDir = `${groupDir}/${slug}`;
       // A slug added upstream since install has no directory yet, so create it,
       // and guard the write: a single failure must not abort the whole loop and
@@ -914,19 +818,7 @@ export async function updateSkillGroup(group: string): Promise<{
       }
       updated.push(slug);
 
-      const { skippedBinary } = await cofetchSkillAssets(
-        owner,
-        repo,
-        branch,
-        filePath,
-        destDir,
-        allBlobs,
-      );
-      if (skippedBinary > 0) {
-        console.warn(
-          `[skills] "${slug}": skipped ${skippedBinary} binary asset(s) (text-only update).`,
-        );
-      }
+      await writeSkillSiblings(filePath, destDir, fileMap);
 
       const fm = parseFrontmatter(content);
       stateEntries.push([

@@ -279,6 +279,13 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       };
 
       const live = deps.getLive();
+      // Pin cwd + workspace root to this turn's snapshot so a mid-turn tab
+      // switch can't move the agent (or its sub-agents) into another folder:
+      // every tool resolves paths through `ctx.getCwd()`, which otherwise reads
+      // the *currently active* terminal live. Mutate the stable session context
+      // (re-pinned each turn) rather than cloning, so buildTools' per-ctx cache
+      // keeps hitting. The UI/<env> read live cwd directly, so they stay live.
+      deps.toolContext.pinTurnCwd?.(live.cwd, live.workspaceRoot);
       const [projectMemory, memory, skills] = await Promise.all([
         readTediMd(live.workspaceRoot),
         readMemory(live.workspaceRoot),
