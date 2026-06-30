@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.67"
+version = "0.3.68"
 description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -58,6 +58,13 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Global allocator. The default Windows system heap retains freed commit on
+# bursty, fragmented workloads, so a heavy-output PTY burst (base64 chunks
+# streamed host->webview) inflates the process commit to multiple GB and it
+# never recedes. mimalloc decommits freed segments back to the OS on its purge
+# timer, turning that high-watermark back into transient peaks. See the
+# `#[global_allocator]` in lib.rs.
+mimalloc = "0.1"
 # `unstable` enables the multi-webview API (`Window::add_child`) used to embed
 # a real native browser webview inside the preview tab.
 tauri = { version = "2", features = ["unstable"] }

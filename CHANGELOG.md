@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.68] - 30-06-2026
+
+### Fixed
+
+- **The app no longer holds multiple GB of RAM long after a heavy-output burst.** On Windows the GUI host process (`TEDIApp.exe`) could climb past 3 GB of committed memory while driving heavy terminals (an AI CLI redrawing, dev-server logs, large builds across many panes) and never give it back, so it "stayed at ~1 GB" even at idle. This was not a leak: trimming the working set dropped resident pages to a few MB while the committed bytes stayed put, the signature of an allocator high-watermark. The default Windows system heap holds onto freed commit for the bursty, fragmented allocations the host makes while buffering base64 PTY output on its way to the webview. TEDI now uses **mimalloc** as its global allocator (the GUI and the `--pty-daemon` sidecar share the binary), which purges freed segments back to the OS on a timer, so the watermark recedes once a burst ends. The `--pty-daemon` sidecar and the in-process PTY backend were already bounded (1 MiB scrollback ring, 4 MiB pending cap); the host's commit retention was the remaining gap. See [Cargo.toml](src-tauri/Cargo.toml), [lib.rs](src-tauri/src/lib.rs).
+
 ## [0.3.67] - 30-06-2026
 
 ### Added

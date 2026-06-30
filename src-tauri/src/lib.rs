@@ -2,6 +2,19 @@
 // (src-tauri/tedi-cli/src/main.rs) can reach `cli::help_text()` and the
 // version constants - keeps the help text single-sourced between the GUI
 // binary and the launcher.
+// Process-wide allocator (GUI + the `--pty-daemon` sidecar share this binary).
+// The default Windows system heap holds onto freed commit when a workload is
+// bursty and fragmented - which is exactly the host process's job of buffering
+// heavy PTY output (large base64 chunks) on its way to the webview. A single
+// flood (a dev server, an AI CLI redrawing, a big build) inflates the commit to
+// several GB and the heap never gives it back, so the process "stays at ~1 GB"
+// long after the burst (a high-watermark, not a live leak: trimming the working
+// set drops resident pages to a few MB while the committed bytes stay put).
+// mimalloc purges freed segments back to the OS on a timer, so the watermark
+// recedes once the burst ends.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod modules;
 
 /// Version string this crate was compiled against. Re-exposed so the
