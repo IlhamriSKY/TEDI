@@ -82,9 +82,13 @@ export function buildSubagentTools(ctx: ToolContext) {
 
   return {
     run_subagent: tool({
-      description: `Spawn ONE isolated subagent (own tools, fresh history). Read-only explorers/advisors keep your context clean for a search / review / audit; the worker (odyssey) autonomously implements a scoped change (edits files, runs commands - no approval card, checkpointed). Returns one text summary.\n\nTypes:\n${typeDescriptions}\n\nFor several INDEPENDENT scopes at once, use run_subagents (parallel) instead of repeating this.\n\nAuto.`,
+      description: `Spawn ONE isolated subagent (own tools, fresh history). Read-only explorers/advisors keep your context clean for a search / review / audit; the worker (odyssey) autonomously implements a scoped change (edits files, runs commands - no approval card, checkpointed). Returns one text summary.\n\nTypes:\n${typeDescriptions}\n\nFor several INDEPENDENT scopes at once, use run_subagents (parallel) instead of repeating this.\n\nCall this yourself, proactively, the moment a task fits - do not ask the user for permission and do not explore inline first.`,
       inputSchema: z.object({
-        type: z.string(),
+        type: z
+          .string()
+          .describe(
+            "The sub-agent id to run. Common synonyms like 'explore', 'review', or 'implement' map to the closest agent.",
+          ),
         prompt: z
           .string()
           .describe(
@@ -154,11 +158,15 @@ export function buildSubagentTools(ctx: ToolContext) {
     }),
 
     run_subagents: tool({
-      description: `Spawn MULTIPLE isolated subagents in one call; get all summaries back together. Read-only explorers/advisors plus the autonomous worker (odyssey, which edits files + runs commands - no approval card, checkpointed). Two combinable patterns:\n- PARALLEL fan-out: independent tasks run at once (far faster than repeating run_subagent). For worker tasks, give each a disjoint set of files so edits cannot collide.\n- scatter -> gather: a task's \`depends_on\` lists other tasks it waits for, receiving their summaries as context. e.g. tasks 0,1,2 explore three modules; task 3 (depends_on [0,1,2]) synthesizes or implements from them.\nIndependent tasks run in parallel (bounded by max_concurrency); a task is SKIPPED if any dependency fails; cycles/self-refs are rejected. Each task has its own tools, fresh history, and no other memory, so every prompt must be self-contained (dependency summaries are injected for you). Types: same as run_subagent.\n\nYou pick the numbers (task count, max_concurrency, summary_kb), each bounded by a built-in cap; tasks beyond the cap are dropped (reported, not silent). Returns { count, maxConcurrency, skipped?, dropped?, note?, results: [{ index, type, summary | error | skipped+reason, stepCount, durationMs }] } in input order.\n\nAuto.`,
+      description: `Spawn MULTIPLE isolated subagents in one call; get all summaries back together. Read-only explorers/advisors plus the autonomous worker (odyssey, which edits files + runs commands - no approval card, checkpointed). Two combinable patterns:\n- PARALLEL fan-out: independent tasks run at once (far faster than repeating run_subagent). For worker tasks, give each a disjoint set of files so edits cannot collide.\n- scatter -> gather: a task's \`depends_on\` lists other tasks it waits for, receiving their summaries as context. e.g. tasks 0,1,2 explore three modules; task 3 (depends_on [0,1,2]) synthesizes or implements from them.\nIndependent tasks run in parallel (bounded by max_concurrency); a task is SKIPPED if any dependency fails; cycles/self-refs are rejected. Each task has its own tools, fresh history, and no other memory, so every prompt must be self-contained (dependency summaries are injected for you). Types: same as run_subagent.\n\nYou pick the numbers (task count, max_concurrency, summary_kb), each bounded by a built-in cap; tasks beyond the cap are dropped (reported, not silent). Returns { count, maxConcurrency, skipped?, dropped?, note?, results: [{ index, type, summary | error | skipped+reason, stepCount, durationMs }] } in input order.\n\nWhen the user says to study, explore, review, or audit the codebase (or anything spanning more than one file), THIS is your first tool call - proactively, without asking. Do not grep or read files one by one for that work.`,
       inputSchema: z.object({
         tasks: flexArrayOpt(
           z.object({
-            type: z.string(),
+            type: z
+              .string()
+              .describe(
+                "The sub-agent id to run. Common synonyms like 'explore', 'review', or 'implement' map to the closest agent.",
+              ),
             prompt: z
               .string()
               .describe("Self-contained instruction; the subagent has no memory of this chat."),

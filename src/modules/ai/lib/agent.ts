@@ -381,6 +381,44 @@ function buildSystemPrompt(opts: {
  *  directive rather than a per-provider thinking-budget knob). */
 const ULTRATHINK_DIRECTIVE = `\n\n## ULTRATHINK\nThe user asked you to think hard this turn. Before any tool call or final answer, reason step by step and exhaustively: restate the problem, weigh multiple approaches and their trade-offs, check edge cases and failure modes, and verify your plan against the actual code. Prioritize correctness over speed.`;
 
+/** Orchestration-intent cues that mechanically enforce the SUB-AGENT mandate.
+ *  When a turn matches and sub-agents are on, step 0 is pinned to a
+ *  `run_subagents` fan-out (see forceSpawnStep0). This is the model-agnostic way
+ *  to get RELIABLE auto-delegation: a soft prompt mandate is followed by strong
+ *  instruction-tuned models but ignored by many others, which reach for the
+ *  easy inline tools (read/grep/list) instead. Restricting step 0 to the spawn
+ *  tool removes that choice, so delegation happens regardless of the model - the
+ *  same principle as opencode's orchestrator, which simply denies inline tools.
+ *  Mirrors the mandate's own verb list; EN + ID because the user base writes
+ *  both. Deliberately broad: over-delegating a borderline task still returns a
+ *  correct answer, just via a sub-agent. ponytail: keyword heuristic, not intent
+ *  parsing; add languages or tighten only if it misfires. */
+const ORCHESTRATION_INTENT = new RegExp(
+  [
+    "sub[-\\s]?agents?",
+    "orchestrat\\w*",
+    "stud(?:y|ies)",
+    "explor\\w*",
+    "understand",
+    "audit",
+    "trace",
+    "analy[sz]e\\w*",
+    "investigat\\w*",
+    "map\\s+out",
+    // Indonesian
+    "pelajari",
+    "eksplor\\w*",
+    "telusuri",
+    "pahami",
+    "tinjau",
+    "petakan",
+    "analis\\w*",
+    "selidiki",
+    "menyeluruh",
+  ].join("|"),
+  "i",
+);
+
 /** Text of the latest user message (concatenated text parts), for keyword
  *  detection like "ultrathink". Empty when there is no user message. */
 function lastUserText(messages: UIMessage[]): string {
@@ -427,7 +465,8 @@ export async function runAgentStream(
 
   // "ultrathink" in the latest user message escalates reasoning for this turn
   // (breaks the cached prefix only on those turns, which is the intent).
-  const ultrathink = /\bultra ?think\b/i.test(lastUserText(opts.uiMessages));
+  const latestUserText = lastUserText(opts.uiMessages);
+  const ultrathink = /\bultra ?think\b/i.test(latestUserText);
   const systemText =
     buildSystemPrompt({
       modelId: modelInfo.id,
@@ -520,6 +559,20 @@ export async function runAgentStream(
     ...buildTools(opts.toolContext),
   };
 
+  // Forced spawn: a soft orchestration mandate in the prompt is unreliable -
+  // many models start reading files inline instead of calling run_subagents.
+  // opencode's orchestrator solves this by DENYING inline tools so the model can
+  // only delegate; we apply the same idea per-turn, model-agnostically: when the
+  // request matches the mandate's intent and the feature is on, pin step 0 to
+  // run_subagents only and require a tool call. Endpoints that honor toolChoice
+  // then emit a well-formed multi-task spawn; those that don't are unaffected.
+  // Only step 0 is constrained, so the model still synthesizes the summaries
+  // itself afterwards (TEDI's run_subagents fans out the whole batch in one go).
+  const forceSpawnStep0 =
+    usePreferencesStore.getState().subagentsEnabled &&
+    "run_subagents" in tools &&
+    ORCHESTRATION_INTENT.test(latestUserText);
+
   // Debug capture: snapshot the assembled request (no secrets) when the user
   // turned Debug on, so they can inspect / download exactly what TEDI sends.
   if (usePreferencesStore.getState().debugEnabled) {
@@ -549,6 +602,13 @@ export async function runAgentStream(
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.
     stopWhen: trackingStopWhen as never,
+    // Pin the first step to a run_subagents call when the user explicitly asked
+    // for sub-agents (see forceSpawnStep0). No-op otherwise; later steps are
+    // always unconstrained. Cast for the same reason as stopWhen above.
+    prepareStep: (({ stepNumber }: { stepNumber: number }) =>
+      forceSpawnStep0 && stepNumber === 0
+        ? { activeTools: ["run_subagents"], toolChoice: "required" }
+        : {}) as never,
     abortSignal: opts.abortSignal,
     // streamText errors surface during stream consumption — after this function
     // returns — so the transport's synchronous retry/recovery can't observe

@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.64] - 30-06-2026
+
+### Added
+
+- **Auto-orchestration: broad commands fan out to sub-agents automatically.** When sub-agents are enabled and a request matches the orchestration intent (study, explore, review, audit, trace, analyze, and their Indonesian equivalents), the main agent's first step is pinned to a single `run_subagents` fan-out. This is model-agnostic: it makes models that otherwise ignore a soft prompt mandate (e.g. GLM-5.2 via an OpenAI-compatible gateway) delegate reliably instead of reading files inline - the same principle as opencode's tool-restricted orchestrator. See [agent.ts](src/modules/ai/lib/agent.ts).
+- **Four new built-in sub-agents for full multi-agent parity.** Vega (read-only strategic planner), Zenith (autonomous multi-step plan executor with a verification gate), Aurora (read-only image/diagram/PDF analyst), and Meteor (autonomous focused leaf executor) join Comet, Nebula, Nova, Orbit, Eclipse, and Odyssey. Each is space-themed and adapted from the oh-my-openagent roster, and each is independently prompt/model/temperature-overridable in Settings. See [registry.ts](src/modules/ai/agents/registry.ts), [prompts.ts](src/modules/ai/lib/prompts.ts).
+- **Find-in-files reveals the exact match in the editor.** Clicking a grep hit now jumps to and highlights the matched line (and the exact term within it) instead of only opening the file, via a small reveal bus. See [reveal.ts](src/modules/editor/lib/reveal.ts), [EditorPane.tsx](src/modules/editor/EditorPane.tsx), [ExplorerGrep.tsx](src/modules/explorer/ExplorerGrep.tsx).
+
+### Changed
+
+- **Sub-agent prompts aligned with the oh-my-openagent reference.** Odyssey gained a Manual QA Gate (verify by actually using the deliverable, not just a green build) and hard invariants (no `as any` / `@ts-ignore` to fake green, never delete a failing test, never run destructive git, never claim an un-run verification); Nova gained a Confidence tag and an opener blacklist. See [registry.ts](src/modules/ai/agents/registry.ts).
+- **Orchestration prompt and tool descriptions are now roster-agnostic.** The system-prompt roster describes agents by category and points to the `run_subagents` tool's live list instead of hardcoding ids, so renaming or adding sub-agents never leaves the prompt stale. See [config.ts](src/modules/ai/config.ts), [subagent.ts](src/modules/ai/tools/subagent.ts).
+
+### Fixed
+
+- **Sub-agents returned "(no output)" on some models and gateways.** A model that returns empty `content` once the conversation contains tool calls (verified with GLM-5.2 via GenFlow), or a run cut off by the step budget, left the summary empty. The runner now recovers by re-summarizing in a clean tool-free text turn (with `reasoningText` as an intermediate fallback), and forces a tool call on the sub-agent's first step so it actually explores before answering. See [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **A sub-agent fan-out failed wholesale on a loose type name.** Models often name a task by intent ("explore", "review") rather than a roster id, which raised "unknown subagent type" and failed every task in the batch. Types now resolve by exact id, then case-insensitive id or label, normalized slug, semantic synonym, and finally category - never hard-failing, and never falling back to a worker, so a mislabeled task cannot silently edit files. This stays correct when built-ins are renamed or custom agents are added. See [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+
 ## [0.3.63] - 29-06-2026
 
 ### Added

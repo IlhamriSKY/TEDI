@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { UnfoldLessIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
+import { requestReveal } from "@/modules/editor/lib/reveal";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { GrepFileRow } from "./components/GrepFileRow";
 import { GrepHitRow } from "./components/GrepHitRow";
@@ -201,7 +202,18 @@ export function ExplorerGrep({
     el?.scrollIntoView({ block: "nearest" });
   }, [clampedActive, hitCount]);
 
-  const openHit = (h: GrepHit) => onOpenFile(h.path);
+  const openHit = (h: GrepHit) => {
+    // Ask the editor to jump to + highlight this exact line/match, then open
+    // the file. Order is safe either way: the target is keyed by path and the
+    // EditorPane consumes it once mounted (new file) or immediately (already open).
+    requestReveal(h.path, {
+      line: h.line,
+      needle: query.trim(),
+      useRegex,
+      caseInsensitive: !caseSensitive,
+    });
+    onOpenFile(h.path);
+  };
 
   const toggleGroup = (rel: string) => {
     setCollapsed((prev) => {

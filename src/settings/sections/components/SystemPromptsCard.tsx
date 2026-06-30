@@ -89,6 +89,10 @@ const DEFAULTS: Record<PromptId, string> = {
   "subagent:orbit": SUBAGENTS.orbit.systemPrompt,
   "subagent:eclipse": SUBAGENTS.eclipse.systemPrompt,
   "subagent:odyssey": SUBAGENTS.odyssey.systemPrompt,
+  "subagent:vega": SUBAGENTS.vega.systemPrompt,
+  "subagent:zenith": SUBAGENTS.zenith.systemPrompt,
+  "subagent:aurora": SUBAGENTS.aurora.systemPrompt,
+  "subagent:meteor": SUBAGENTS.meteor.systemPrompt,
   autocomplete: COMPLETION_SYSTEM_PROMPT,
   commit: COMMIT_SYSTEM_PROMPT,
 };

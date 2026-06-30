@@ -47,6 +47,7 @@ import { onKeysChanged } from "@/modules/settings/store";
 import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
 import { MarkdownFindBar, type MarkdownFindBarHandle } from "./MarkdownFindBar";
 import { formatDocument, NoFormatterError, shouldFormatOnSave } from "./lib/formatters";
+import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
 import { toast } from "@/components/ui/toast";
 
 export type EditorPaneHandle = {
@@ -156,6 +157,37 @@ function computeMarkers(
     cursorY,
     selection,
   };
+}
+
+/** Locate the search match within a line so the editor can select the exact
+ *  hit (VSCode-style) rather than the whole line. Falls back to null on a bad
+ *  regex or no match, in which case the caller selects the whole line. */
+function matchColumn(lineText: string, t: RevealTarget): [number, number] | null {
+  const needle = t.needle?.trim();
+  if (!needle) return null;
+  try {
+    const src = t.useRegex ? needle : needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = new RegExp(src, t.caseInsensitive ? "i" : "").exec(lineText);
+    if (m && m[0].length > 0) return [m.index, m.index + m[0].length];
+  } catch {
+    /* invalid regex — fall through to whole-line select */
+  }
+  return null;
+}
+
+/** Select + center the target line (or the exact match within it) and focus
+ *  the view. Clamps the line number to the document so a stale hit can't throw. */
+function revealInView(view: EditorView, t: RevealTarget): void {
+  const lineNo = Math.min(Math.max(1, Math.floor(t.line)), view.state.doc.lines);
+  const line = view.state.doc.line(lineNo);
+  const col = matchColumn(line.text, t);
+  const from = col ? line.from + col[0] : line.from;
+  const to = col ? line.from + col[1] : line.to;
+  view.dispatch({
+    selection: { anchor: from, head: to },
+    effects: EditorView.scrollIntoView(from, { y: "center" }),
+  });
+  view.focus();
 }
 
 // Compact context-menu item sizing, matching the explorer's menu density.
@@ -499,6 +531,34 @@ export function EditorPane({
       ro.disconnect();
     };
   }, [doc.status]);
+
+  // Reveal-on-open: when find-in-files (or anything) requests a jump to a line
+  // in THIS file, select + center it like VSCode. Two paths feed the same
+  // action: the `doc.status` effect handles "file was just opened" (consume the
+  // pending target once the view is mounted and the doc is ready); the bus
+  // listener handles "file already open" (reveal immediately on request).
+  useEffect(() => {
+    if (doc.status !== "ready") return;
+    const id = requestAnimationFrame(() => {
+      const view = cmRef.current?.view;
+      if (!view) return;
+      const target = takeReveal(pathRef.current);
+      if (target) revealInView(view, target);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [doc.status, path]);
+
+  useEffect(() => {
+    return onReveal((p) => {
+      if (p !== pathRef.current) return;
+      requestAnimationFrame(() => {
+        const view = cmRef.current?.view;
+        if (!view) return;
+        const target = takeReveal(pathRef.current);
+        if (target) revealInView(view, target);
+      });
+    });
+  }, []);
 
   useImperativeHandle(
     ref,

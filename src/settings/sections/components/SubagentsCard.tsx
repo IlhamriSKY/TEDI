@@ -95,7 +95,8 @@ function CustomSubagentsSection() {
           <span className="text-[12.5px] font-medium">Custom sub-agents</span>
           <span className="text-muted-foreground text-[11px] leading-relaxed">
             Your own read-only workers. The AI can delegate to enabled ones by type, alongside
-            the built-ins (comet, nebula, nova, orbit, eclipse, odyssey).
+            the built-ins (comet, nebula, nova, orbit, eclipse, odyssey, vega, zenith, aurora,
+            meteor).
           </span>
         </div>
         <Button
