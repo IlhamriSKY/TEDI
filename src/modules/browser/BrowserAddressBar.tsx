@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { pathToFileUrl } from "@/lib/path";
+import { fmtShortcut, MOD_KEY, ALT_KEY, SHIFT_KEY } from "@/lib/platform";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import {
   ArrowLeft01Icon,
@@ -125,7 +126,7 @@ export function BrowserAddressBar({
   return (
     <div className="border-border/60 shrink-0 border-b">
       <div className="bg-card/40 flex h-9 items-center gap-1 px-1.5">
-        <IconTooltip label="Back" side="top">
+        <IconTooltip label={`Back (${fmtShortcut(ALT_KEY, "←")})`} side="top">
           <Button
             type="button"
             variant="ghost"
@@ -138,7 +139,7 @@ export function BrowserAddressBar({
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
-        <IconTooltip label="Forward" side="top">
+        <IconTooltip label={`Forward (${fmtShortcut(ALT_KEY, "→")})`} side="top">
           <Button
             type="button"
             variant="ghost"
@@ -151,7 +152,10 @@ export function BrowserAddressBar({
             <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
-        <IconTooltip label={loading ? "Loading…" : "Reload"} side="top">
+        <IconTooltip
+          label={loading ? "Loading…" : `Reload (${fmtShortcut(MOD_KEY, SHIFT_KEY, "R")})`}
+          side="top"
+        >
           <Button
             type="button"
             variant="ghost"

@@ -732,7 +732,15 @@ export default function App() {
     ],
   );
 
-  useGlobalShortcuts(shortcutHandlers);
+  // Gate the browser.* shortcuts to a focused browser pane so they fall through
+  // to the shell/editor everywhere else - the terminal keeps Ctrl+Shift+R,
+  // Alt+Left/Right, etc. on Windows, Linux, and macOS. pane.splitBrowser is
+  // intentionally not gated: like the other splits it acts on whatever pane is
+  // focused. The options object is read fresh each keydown (see useGlobalShortcuts),
+  // so closing over activeLeafKindCurrent without a dep array is fine.
+  useGlobalShortcuts(shortcutHandlers, {
+    isDisabled: (id) => id.startsWith("browser.") && activeLeafKindCurrent !== "browser",
+  });
 
   // Generic dispatcher for extension-contributed keybindings. Walks
   // `keybindingsRegistry` and `commandsRegistry` on each keydown and

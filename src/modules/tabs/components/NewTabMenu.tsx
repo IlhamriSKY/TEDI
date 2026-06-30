@@ -93,7 +93,7 @@ export function NewTabMenu({
           <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
           <span className="flex-1 whitespace-nowrap">Browser</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
-            {fmtShortcut(MOD_KEY, "P")}
+            {fmtShortcut(MOD_KEY, "Alt", "P")}
           </span>
         </DropdownMenuItem>
         {onSplit ? (
@@ -116,6 +116,9 @@ export function NewTabMenu({
             <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row", "browser")}>
               <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split with browser</span>
+              <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
+                {fmtShortcut(MOD_KEY, "Shift", "B")}
+              </span>
             </DropdownMenuItem>
           </>
         ) : null}

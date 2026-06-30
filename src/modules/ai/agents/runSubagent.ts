@@ -2,6 +2,7 @@ import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
 import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
 import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
+import { classifyError, TediErrorCode } from "../lib/errors";
 import type { ProviderKeys } from "../lib/keyring";
 import {
   resolvePromptModel,
@@ -30,6 +31,15 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
  *  main agent uses (tool-repetition + no-progress); this high number is only a
  *  runaway backstop the guards almost always trip well before. */
 const SUBAGENT_STEP_BUDGET = 100;
+
+/** Subagents retry transient provider failures (429 / 5xx / network) themselves
+ *  with JITTERED backoff (see withRateLimitRetry). 4 retries -> ~2/4/8/16s plus
+ *  jitter. Jitter is the point: a fan-out of N subagents that all trip a
+ *  per-minute rate limit at the same instant would, under the SDK's lockstep
+ *  no-jitter retry, back off in unison and collide again; spreading them lets
+ *  the batch drain instead of failing together ("Terlalu banyak penggunaan"). */
+const SUBAGENT_MAX_RETRIES = 4;
+const SUBAGENT_RETRY_BASE_MS = 2000;
 
 type Args = {
   type: string;
@@ -324,38 +334,44 @@ export async function runSubagent({
   // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
   let liveSteps = 0;
-  const result = await generateText({
-    model,
-    messages,
-    tools: filtered as never,
-    // No low step cap (powerful sub-agents): natural finish plus the main
-    // agent's anti-loop guards terminate; the count is just a runaway backstop.
-    stopWhen: [
-      stepCountIs(SUBAGENT_STEP_BUDGET),
-      noToolRepetition<ToolSet>(3),
-      noProgressStop<ToolSet>(2),
-    ] as never,
-    // Force a tool call on the FIRST step. Handed an agentic brief, some models
-    // answer with a single text- or reasoning-only step and never touch a tool -
-    // the "one step, no work" failure the caller sees. Every sub-agent's job
-    // begins by reading or searching, so requiring a tool on step 0 is always
-    // correct here; it reverts to auto afterwards so the agent finishes
-    // naturally. Provider-agnostic: endpoints that ignore toolChoice simply skip
-    // the constraint, so this never hurts a model that already calls tools.
-    prepareStep: ({ stepNumber }: { stepNumber: number }) =>
-      stepNumber === 0 ? { toolChoice: "required" } : {},
-    ...(temperature !== undefined ? { temperature } : {}),
-    abortSignal,
-    // Surface live progress: each finished step reports what the subagent just
-    // did + the running step count to the optional onStep callback.
-    onStepFinish: (step: {
-      toolCalls?: Array<{ toolName: string; input?: unknown }>;
-      text?: string;
-    }) => {
-      liveSteps += 1;
-      onStep?.(describeStep(step), liveSteps);
-    },
-  } as never);
+  const result = await withRateLimitRetry(() =>
+    generateText({
+      model,
+      messages,
+      tools: filtered as never,
+      // No low step cap (powerful sub-agents): natural finish plus the main
+      // agent's anti-loop guards terminate; the count is just a runaway backstop.
+      stopWhen: [
+        stepCountIs(SUBAGENT_STEP_BUDGET),
+        noToolRepetition<ToolSet>(3),
+        noProgressStop<ToolSet>(2),
+      ] as never,
+      // Force a tool call on the FIRST step. Handed an agentic brief, some models
+      // answer with a single text- or reasoning-only step and never touch a tool -
+      // the "one step, no work" failure the caller sees. Every sub-agent's job
+      // begins by reading or searching, so requiring a tool on step 0 is always
+      // correct here; it reverts to auto afterwards so the agent finishes
+      // naturally. Provider-agnostic: endpoints that ignore toolChoice simply skip
+      // the constraint, so this never hurts a model that already calls tools.
+      prepareStep: ({ stepNumber }: { stepNumber: number }) =>
+        stepNumber === 0 ? { toolChoice: "required" } : {},
+      ...(temperature !== undefined ? { temperature } : {}),
+      // Own the retry (jittered) in withRateLimitRetry below. The SDK's default
+      // retry is lockstep (no jitter), so a parallel fan-out that all trips a
+      // rate limit at once backs off in unison and collides on the same tick.
+      maxRetries: 0,
+      abortSignal,
+      // Surface live progress: each finished step reports what the subagent just
+      // did + the running step count to the optional onStep callback.
+      onStepFinish: (step: {
+        toolCalls?: Array<{ toolName: string; input?: unknown }>;
+        text?: string;
+      }) => {
+        liveSteps += 1;
+        onStep?.(describeStep(step), liveSteps);
+      },
+    } as never),
+  );
   const durationMs = Date.now() - start;
   const stepCount = result.steps?.length ?? 0;
 
@@ -371,6 +387,33 @@ export async function runSubagent({
   if (!summary) summary = (await summarizeToolRun()) || "(no output)";
 
   return { summary, stepCount, durationMs };
+
+  /** Retry transient provider failures (rate limit / 5xx / network) with
+   *  jittered exponential backoff, owning the loop so parallel subagents that
+   *  trip a per-minute limit at the same instant spread out instead of retrying
+   *  in lockstep. generateText is called with maxRetries:0 so this is the only
+   *  retry. Non-transient errors (auth, bad request) and aborts fail fast. */
+  async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= SUBAGENT_MAX_RETRIES; attempt++) {
+      if (abortSignal?.aborted) throw new Error("aborted");
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        if (abortSignal?.aborted) throw err;
+        const code = classifyError(err);
+        const transient =
+          code === TediErrorCode.RATE_LIMITED || code === TediErrorCode.PROVIDER_UNAVAILABLE;
+        if (!transient || attempt === SUBAGENT_MAX_RETRIES) throw err;
+        const base = SUBAGENT_RETRY_BASE_MS * Math.pow(2, attempt);
+        const wait = Math.round(base * (0.75 + Math.random() * 0.5));
+        onStep?.(`Rate limited - retrying in ${Math.round(wait / 1000)}s`, liveSteps);
+        await new Promise<void>((resolve) => setTimeout(resolve, wait));
+      }
+    }
+    throw lastErr;
+  }
 
   async function summarizeToolRun(): Promise<string> {
     const lines: string[] = [];
@@ -418,7 +461,7 @@ export async function runSubagent({
 
 function safeJson(v: unknown): string {
   try {
-    return typeof v === "string" ? v : JSON.stringify(v) ?? String(v);
+    return typeof v === "string" ? v : (JSON.stringify(v) ?? String(v));
   } catch {
     return String(v);
   }

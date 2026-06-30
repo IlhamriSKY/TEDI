@@ -5,6 +5,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref
 import {
   markPreviewCreated,
   BROWSER_NAV_EVENT,
+  BROWSER_FOCUS_ADDRESS_EVENT,
   previewEmbedDispatch,
   previewEmbedNavigate,
   previewEmbedSetBg,
@@ -305,6 +306,18 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
       unlisten?.();
     };
   }, [id, reconcile]);
+
+  // Focus the address bar on the browser.focusAddressBar shortcut, delivered as
+  // a window event keyed by leaf id so only the focused browser pane reacts.
+  useEffect(() => {
+    const onFocusAddress = (e: Event) => {
+      if ((e as CustomEvent<{ leafId: number }>).detail?.leafId === id) {
+        addressRef.current?.focus();
+      }
+    };
+    window.addEventListener(BROWSER_FOCUS_ADDRESS_EVENT, onFocusAddress);
+    return () => window.removeEventListener(BROWSER_FOCUS_ADDRESS_EVENT, onFocusAddress);
+  }, [id]);
 
   // Live-follow the app-opacity slider: drive the transparent browser backdrop
   // to the canvas color at the current alpha. Only for alpha-capable webviews

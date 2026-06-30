@@ -9,6 +9,7 @@ import {
   CONTENT_ZOOM_MIN,
   CONTENT_ZOOM_STEP,
 } from "@/modules/settings/store";
+import { previewEmbedDispatch, focusBrowserAddressBar } from "@/modules/browser";
 import { type ShortcutHandlers } from "@/modules/shortcuts";
 import { leaves, type TerminalPaneHandle } from "@/modules/terminal";
 import { type EditorPaneHandle } from "@/modules/editor";
@@ -28,7 +29,10 @@ export interface ShortcutHandlerDeps {
   handleCloseTabOrPane: () => void;
   cycleTab: (delta: 1 | -1) => void;
   selectByIndex: (idx: number) => void;
-  splitActivePaneInActiveTab: (dir: "row" | "col") => void;
+  splitActivePaneInActiveTab: (
+    dir: "row" | "col",
+    kind?: "terminal" | "editor" | "browser",
+  ) => void;
   focusNextPaneInTab: (tabId: number, delta: 1 | -1) => void;
   togglePanelAndFocus: () => void;
   askFromSelection: () => void;
@@ -84,6 +88,29 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "pane.splitDown": () => splitActivePaneInActiveTab("col"),
     "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
     "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+    // Split the active pane to the right with a browser instead of a terminal.
+    "pane.splitBrowser": () => splitActivePaneInActiveTab("row", "browser"),
+    // Browser-pane actions. App's isDisabled gates these to a focused browser
+    // pane, so the guards below are belt-and-suspenders. previewEmbedDispatch
+    // drives the native webview's own history/reload by leaf id (the same path
+    // the AI uses), so no browser-handle registry is needed; address-bar focus
+    // goes through a leaf-id window event for the same reason.
+    "browser.reload": () => {
+      if (activeLeafKindCurrent !== "browser" || activeLeafIdInTab === null) return;
+      void previewEmbedDispatch(activeLeafIdInTab, "reload").catch(() => {});
+    },
+    "browser.back": () => {
+      if (activeLeafKindCurrent !== "browser" || activeLeafIdInTab === null) return;
+      void previewEmbedDispatch(activeLeafIdInTab, "back").catch(() => {});
+    },
+    "browser.forward": () => {
+      if (activeLeafKindCurrent !== "browser" || activeLeafIdInTab === null) return;
+      void previewEmbedDispatch(activeLeafIdInTab, "forward").catch(() => {});
+    },
+    "browser.focusAddressBar": () => {
+      if (activeLeafKindCurrent !== "browser" || activeLeafIdInTab === null) return;
+      focusBrowserAddressBar(activeLeafIdInTab);
+    },
     "search.focus": () => searchInlineRef.current?.focus(),
     "editor.findReplace": () => {
       // VSCode-style Ctrl+H opens the find/replace overlay inside the

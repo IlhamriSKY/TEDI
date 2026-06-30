@@ -256,8 +256,8 @@ function showMcpList(): void {
       `${servers.filter((s) => s.enabled).length}/${servers.length} enabled. Manage in Settings → Agents → MCP Servers.`,
       "None configured. Add one in Settings → Agents → MCP Servers.",
       (s) => ({
-        kbd: s.name,
-        label: s.enabled ? "enabled" : "disabled",
+        kbd: s.enabled ? "●" : "○",
+        label: s.name,
         desc: `${s.command} ${s.args.join(" ")}`.trim(),
         tone: s.enabled ? "ok" : undefined,
       }),

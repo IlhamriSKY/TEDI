@@ -1,8 +1,13 @@
 import { tool, jsonSchema, type Tool } from "ai";
 import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
+import { toast } from "@/components/ui/toast";
 import { getMcpClient } from "../lib/mcpClient";
 import { getMcpServers, type McpServerConfig } from "../lib/mcpConfig";
 import type { ToolContext } from "./context";
+
+/** Image/audio payload carried out of an MCP tool result so toModelOutput can
+ *  hand it to a multimodal model as a real file part. */
+type McpMedia = { data: string; mimeType: string };
 
 /** Sanitize a tool name to the provider-safe charset for use as an AI SDK tool
  *  key (also reused by extension tools). */
@@ -11,6 +16,26 @@ export function sanitizeToolName(name: string): string {
     .replace(/[^a-zA-Z0-9_-]/g, "_")
     .replace(/^[0-9]/, "_$&")
     .toLowerCase();
+}
+
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Clamp a tool key to the provider limit (Anthropic/OpenAI cap names at
+ *  `^[A-Za-z0-9_-]{1,64}$`; an over-long key 400s the WHOLE request, not just
+ *  that tool). Over the cap, truncate and append a short stable hash so two long
+ *  keys sharing a 64-char prefix don't collapse to one. Reused by extension
+ *  tools, whose names are equally unbounded. */
+export function clampToolKey(key: string, max = 64): string {
+  if (key.length <= max) return key;
+  const hash = fnv1a(key).toString(36).slice(0, 6);
+  return `${key.slice(0, max - 1 - hash.length)}_${hash}`;
 }
 
 /** Convert an MCP tool definition to an AI SDK tool. */
@@ -35,35 +60,63 @@ function mcpToolToAiTool(
         const client = await getMcpClient(config, ctx.getCwd() ?? undefined);
         const result = await client.callTool(mcpTool.name, input);
 
-        // Format the result for the AI model.
-        const parts: string[] = [];
+        // Collect text inline; carry image/audio as media parts so they reach a
+        // multimodal model (toModelOutput below) instead of being flattened to a
+        // useless "[Image: …]" placeholder.
+        const textParts: string[] = [];
+        const media: McpMedia[] = [];
         for (const content of result.content ?? []) {
           if (content.type === "text") {
-            parts.push(content.text);
+            textParts.push(content.text);
           } else if (content.type === "image") {
-            parts.push(
-              `[Image: ${content.mimeType ?? "unknown"}, ${content.data.length} bytes base64]`,
-            );
+            media.push({ data: content.data, mimeType: content.mimeType || "image/png" });
+          } else if (content.type === "audio") {
+            media.push({ data: content.data, mimeType: content.mimeType || "audio/mpeg" });
           } else if (content.type === "resource") {
             const res = content.resource;
-            if ("text" in res) {
-              parts.push(`[Resource: ${res.uri}] ${res.text}`);
-            } else {
-              parts.push(`[Resource: ${res.uri}] (blob)`);
-            }
+            if ("text" in res) textParts.push(`[Resource: ${res.uri}]\n${res.text}`);
+            else
+              textParts.push(`[Resource: ${res.uri}] (binary blob, ${res.mimeType ?? "unknown"})`);
+          } else if (content.type === "resource_link") {
+            textParts.push(`[Resource link: ${content.uri}]`);
           }
         }
 
+        const text = textParts.join("\n");
         if (result.isError) {
-          return { error: parts.join("\n") || "MCP tool returned an error." };
+          return { error: text || "MCP tool returned an error." };
         }
-
-        return { content: parts.join("\n") };
+        // A side-effect-only success (no text, no media) must not return "" — the
+        // model can't tell that from a no-op and may pointlessly retry.
+        if (!text && media.length === 0) {
+          return { content: "(tool succeeded; no displayable content)" };
+        }
+        return { content: text, media };
       } catch (e) {
         return {
           error: e instanceof Error ? e.message : `MCP tool "${mcpTool.name}" failed.`,
         };
       }
+    },
+    // Map the execute result to model-facing content: text plus real image/audio
+    // file parts (mirrors terminal.ts browser_screenshot). Persistence still uses
+    // the plain { content } / { error } shape returned above.
+    toModelOutput: ({ output }) => {
+      if (output && typeof output === "object" && "error" in output) {
+        return { type: "text", value: String((output as { error: unknown }).error) };
+      }
+      const o = (output ?? {}) as { content?: string; media?: McpMedia[] };
+      const value: Array<
+        { type: "text"; text: string } | { type: "file-data"; data: string; mediaType: string }
+      > = [];
+      if (o.content) value.push({ type: "text", text: o.content });
+      for (const m of o.media ?? []) {
+        value.push({ type: "file-data", data: m.data, mediaType: m.mimeType });
+      }
+      if (value.length === 0) {
+        value.push({ type: "text", text: "(tool succeeded; no displayable content)" });
+      }
+      return { type: "content", value };
     },
   });
 }
@@ -72,6 +125,10 @@ function mcpToolToAiTool(
  * Async version: actually connects to servers and builds tools. Called from
  * the agent loop before streamText so that tools are ready.
  */
+// Servers we've already toasted as down, so an enabled-but-unreachable server is
+// flagged once per outage (not every turn). Cleared when the server reconnects.
+const _warnedFailedServers = new Set<string>();
+
 export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<string, Tool>> {
   const servers = await getMcpServers();
   const enabled = servers.filter((s) => s.enabled);
@@ -82,24 +139,48 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   for (const server of enabled) {
     try {
       const client = await getMcpClient(server, ctx.getCwd() ?? undefined);
+      _warnedFailedServers.delete(server.name); // recovered
       for (const mcpTool of client.tools) {
-        const base = `mcp__${sanitizeToolName(server.name)}__${sanitizeToolName(mcpTool.name)}`;
+        // Clamp to 64 chars: a long server+tool combo overflows the provider's
+        // tool-name limit and 400s the WHOLE turn, not just this tool.
+        const base = clampToolKey(
+          `mcp__${sanitizeToolName(server.name)}__${sanitizeToolName(mcpTool.name)}`,
+        );
         // Two names differing only by case/punctuation sanitize to one key;
-        // suffix on conflict so neither tool is silently dropped.
+        // suffix on conflict (re-clamped) so neither tool is silently dropped.
         let aiName = base;
-        for (let n = 2; tools[aiName]; n++) aiName = `${base}_${n}`;
+        for (let n = 2; tools[aiName]; n++) aiName = clampToolKey(`${base}_${n}`);
         tools[aiName] = mcpToolToAiTool(mcpTool, server.name, server, ctx);
       }
     } catch (e) {
-      // Server failed to start — skip it.
+      // Server failed to start — skip its tools, and tell the user once (an
+      // enabled server silently dropping its tools otherwise reads as "the AI
+      // can't do that" rather than "your server is down").
       console.warn(`[MCP] Failed to connect to "${server.name}":`, e);
+      if (!_warnedFailedServers.has(server.name)) {
+        _warnedFailedServers.add(server.name);
+        toast(
+          `MCP server "${server.name}" is enabled but failed to connect; its tools are unavailable.`,
+          {
+            variant: "error",
+          },
+        );
+      }
     }
   }
 
   return tools;
 }
 
-/** Get a summary of available MCP tools for the system prompt. */
+// Last-known tool count per server, so a transient reconnect failure reuses the
+// prior count instead of flipping the summary text (which lives in the cacheable
+// system-prompt prefix — any change busts the provider prompt cache for the whole
+// conversation).
+const _lastToolCounts = new Map<string, number>();
+
+/** Get a summary of available MCP tools for the system prompt. Emits only server
+ *  name + tool count (the tools themselves are already in the model's tool list,
+ *  so re-listing every name just duplicated tokens every turn). */
 export async function getMcpToolsSummary(cwd?: string): Promise<string | null> {
   const servers = await getMcpServers();
   const enabled = servers.filter((s) => s.enabled);
@@ -107,18 +188,21 @@ export async function getMcpToolsSummary(cwd?: string): Promise<string | null> {
 
   const lines: string[] = [];
   for (const server of enabled) {
+    let count: number | null;
     try {
       const client = await getMcpClient(server, cwd);
-      if (client.tools.length > 0) {
-        lines.push(
-          `- **${server.name}** (${client.tools.length} tools): ${client.tools.map((t) => t.name).join(", ")}`,
-        );
-      }
+      count = client.tools.length;
+      _lastToolCounts.set(server.name, count);
     } catch {
-      lines.push(`- **${server.name}**: (connection failed)`);
+      // Reuse the last-known count; do NOT inline "(connection failed)" — that
+      // would mutate the cached prefix. The failure surfaces out-of-band.
+      count = _lastToolCounts.get(server.name) ?? null;
+    }
+    if (count && count > 0) {
+      lines.push(`- **${server.name}** (${count} tool${count === 1 ? "" : "s"})`);
     }
   }
 
   if (lines.length === 0) return null;
-  return `## MCP SERVERS\nYou have access to tools from these MCP servers:\n${lines.join("\n")}`;
+  return `## MCP SERVERS\nThese MCP servers' tools are available in your tool list:\n${lines.join("\n")}`;
 }

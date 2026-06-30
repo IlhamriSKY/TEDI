@@ -36,17 +36,15 @@ export type ShortcutId =
   | "editor.formatDocument"
   | "terminal.copy"
   | "terminal.paste"
-  | "terminal.close";
+  | "terminal.close"
+  | "pane.splitBrowser"
+  | "browser.focusAddressBar"
+  | "browser.reload"
+  | "browser.back"
+  | "browser.forward";
 
 export type ShortcutGroup =
-  | "General"
-  | "Tabs"
-  | "Panes"
-  | "Search"
-  | "AI"
-  | "View"
-  | "Editor"
-  | "Terminal";
+  "General" | "Tabs" | "Panes" | "Search" | "AI" | "View" | "Editor" | "Terminal" | "Browser";
 
 export type KeyBinding = {
   key: string;
@@ -122,6 +120,17 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Split pane vertically",
     group: "Panes",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "d" }],
+  },
+  {
+    // Split the active pane to the right with an in-app browser, vs. the
+    // terminal that splitRight/splitDown create. Mnemonic: B = Browser.
+    // Mod+Shift+B (Ctrl+Shift+B / Cmd+Shift+B) is in the terminal-UI modifier
+    // family (like the app's Ctrl+Shift+C/V/X), so it never shadows a shell
+    // control code. Works from any focused pane, like the other splits.
+    id: "pane.splitBrowser",
+    label: "Split with browser",
+    group: "Panes",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "b" }],
   },
   {
     id: "pane.focusNext",
@@ -280,9 +289,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "terminal.copy",
     label: "Copy selection",
     group: "Terminal",
-    defaultBindings: IS_MAC
-      ? [{ meta: true, key: "c" }]
-      : [{ ctrl: true, shift: true, key: "c" }],
+    defaultBindings: IS_MAC ? [{ meta: true, key: "c" }] : [{ ctrl: true, shift: true, key: "c" }],
   },
   {
     // Uses xterm's bracketed-paste so multi-line snippets aren't executed
@@ -306,6 +313,42 @@ export const SHORTCUTS: Shortcut[] = [
     group: "Terminal",
     defaultBindings: [{ ctrl: true, shift: true, key: "x" }],
   },
+  // Browser-pane actions. All four are gated to a focused browser pane in
+  // App's `useGlobalShortcuts` isDisabled, so when a terminal or editor is
+  // focused they fall through instead of being captured - the shell keeps
+  // Ctrl+Shift+R, Alt+Left/Right, etc. on every OS. The native browser webview
+  // floats above the DOM, so these fire from the address bar / pane chrome
+  // (when our window, not the page, holds keyboard focus).
+  {
+    // Edge/Chrome "focus location bar" is Ctrl+L, but that's taken by
+    // ai.askSelection; Mod+Shift+L keeps the L (Location) mnemonic, unused.
+    id: "browser.focusAddressBar",
+    label: "Focus address bar",
+    group: "Browser",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "l" }],
+  },
+  {
+    // Matches browsers' hard-reload chord; bare Mod+R is left free so the
+    // shell's Ctrl+R reverse-search is never at risk even if gating regresses.
+    id: "browser.reload",
+    label: "Reload page",
+    group: "Browser",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "r" }],
+  },
+  {
+    // Alt+Arrow (the universal browser back/forward), NOT Mod+Shift+Arrow, so
+    // editing address-bar text with Shift+Arrow selection still works.
+    id: "browser.back",
+    label: "Go back",
+    group: "Browser",
+    defaultBindings: [{ alt: true, key: "ArrowLeft" }],
+  },
+  {
+    id: "browser.forward",
+    label: "Go forward",
+    group: "Browser",
+    defaultBindings: [{ alt: true, key: "ArrowRight" }],
+  },
 ];
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -315,6 +358,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   "View",
   "Editor",
   "Terminal",
+  "Browser",
   "Search",
   "AI",
 ];
@@ -451,12 +495,16 @@ export function getBindingTokens(binding?: KeyBinding): string[] {
     if (binding.meta) tokens.push("Win");
   }
 
+  // Compare case-insensitively: defaults store "ArrowLeft" but the recorder
+  // stores the canonical lowercase ("arrowleft"), so a rebind to an arrow must
+  // still render as a glyph.
   let keyLabel = binding.key;
-  if (keyLabel === " ") keyLabel = "Space";
-  else if (keyLabel === "ArrowUp") keyLabel = "↑";
-  else if (keyLabel === "ArrowDown") keyLabel = "↓";
-  else if (keyLabel === "ArrowLeft") keyLabel = "←";
-  else if (keyLabel === "ArrowRight") keyLabel = "→";
+  const lowerKey = keyLabel.toLowerCase();
+  if (lowerKey === " ") keyLabel = "Space";
+  else if (lowerKey === "arrowup") keyLabel = "↑";
+  else if (lowerKey === "arrowdown") keyLabel = "↓";
+  else if (lowerKey === "arrowleft") keyLabel = "←";
+  else if (lowerKey === "arrowright") keyLabel = "→";
   else if (keyLabel.length === 1) keyLabel = keyLabel.toUpperCase();
 
   tokens.push(keyLabel);

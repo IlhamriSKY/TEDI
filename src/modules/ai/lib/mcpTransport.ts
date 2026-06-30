@@ -18,6 +18,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 /** Payload mirrored from the Rust `McpEvent` enum (serde tag = "type"). */
 type McpEvent =
   | { type: "message"; line: string }
+  | { type: "stderr"; line: string }
   | { type: "exit"; code: number | null }
   | { type: "error"; message: string };
 
@@ -37,6 +38,13 @@ export class TauriStdioTransport implements Transport {
 
   private started = false;
   private closed = false;
+  private stderrTail: string[] = [];
+
+  /** Recent stderr lines (bounded), surfaced when a connect/handshake fails so
+   *  the real reason (missing key, bad arg, crash) isn't lost. */
+  get lastStderr(): string {
+    return this.stderrTail.join("\n");
+  }
 
   constructor(private params: TauriStdioParams) {}
 
@@ -57,6 +65,9 @@ export class TauriStdioTransport implements Transport {
           return;
         }
         this.onmessage?.(parsed);
+      } else if (ev.type === "stderr") {
+        this.stderrTail.push(ev.line);
+        if (this.stderrTail.length > 40) this.stderrTail.shift();
       } else if (ev.type === "error") {
         this.onerror?.(new Error(ev.message));
         this.fireClose();

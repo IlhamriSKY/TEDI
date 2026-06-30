@@ -75,12 +75,46 @@ const RETRYABLE_CODES = new Set<TediErrorCode>([
   TediErrorCode.PROVIDER_UNAVAILABLE,
 ]);
 
+/** Pull an HTTP status off a provider error, walking the AI SDK's wrappers
+ *  (RetryError carries `.lastError` / `.errors[]`; APICallError exposes
+ *  `.statusCode`, and may sit on `.cause`). The status is the only reliable,
+ *  language-agnostic signal: a provider whose 429 body is non-English (e.g.
+ *  GenFlow's "Terlalu banyak penggunaan dalam 1 menit") carries no "429" or
+ *  "rate limit" text for the string heuristics below to catch. */
+function extractHttpStatus(err: unknown): number | undefined {
+  const seen = new Set<unknown>();
+  const visit = (e: unknown): number | undefined => {
+    if (!e || typeof e !== "object" || seen.has(e)) return undefined;
+    seen.add(e);
+    const o = e as Record<string, unknown>;
+    for (const k of ["statusCode", "status", "httpStatus"]) {
+      const v = o[k];
+      if (typeof v === "number" && v >= 100 && v < 600) return v;
+    }
+    return (
+      visit(o.cause) ??
+      visit(o.lastError) ??
+      (Array.isArray(o.errors)
+        ? o.errors.reduce<number | undefined>((acc, e2) => acc ?? visit(e2), undefined)
+        : undefined)
+    );
+  };
+  return visit(err);
+}
+
 /**
  * Classify an HTTP status code or error string into a TediErrorCode.
  * Use this at the provider boundary to normalize errors before surfacing.
  */
 export function classifyError(err: unknown): TediErrorCode {
   const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+
+  // HTTP status wins over the string heuristics: it's reliable and works
+  // regardless of the provider's error-body language.
+  const status = extractHttpStatus(err);
+  if (status === 429) return TediErrorCode.RATE_LIMITED;
+  if (status === 401 || status === 403) return TediErrorCode.AUTH_FAILED;
+  if (status !== undefined && status >= 500) return TediErrorCode.PROVIDER_UNAVAILABLE;
 
   if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("invalid api key"))
     return TediErrorCode.AUTH_FAILED;

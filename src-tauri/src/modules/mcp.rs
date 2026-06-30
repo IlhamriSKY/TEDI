@@ -32,12 +32,38 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Hard cap on an un-newline-terminated stdout run. A conforming MCP server frames
+/// JSON-RPC as newline-delimited lines; a malicious/buggy one writing a huge blob
+/// with no newline would otherwise grow the accumulator until the host OOMs. Set
+/// well above any realistic single message (large base64 image results included)
+/// so it only trips on genuine abuse.
+const MAX_LINE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Best-effort kill of the child's whole process group on Unix. The child is a
+/// group leader (`process_group(0)` below ⇒ pgid == pid), so `kill -KILL -pid`
+/// reaps an `npx`/`uvx` shim's `node`/`python` grandchild that would otherwise
+/// orphan to init. Dep-free (shells out to `kill`). No-op on Windows, where the
+/// kill-on-close Job Object already reaps descendants.
+#[cfg(unix)]
+fn kill_process_group(child: &SharedChild) {
+    let pid = child.id();
+    let _ = std::process::Command::new("kill")
+        .arg("-KILL")
+        .arg(format!("-{pid}"))
+        .status();
+}
+#[cfg(not(unix))]
+fn kill_process_group(_child: &SharedChild) {}
+
 /// Events pushed to the webview for one MCP server process.
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum McpEvent {
     /// One complete newline-delimited JSON-RPC message line from stdout.
     Message { line: String },
+    /// One line the server wrote to stderr (kept for failure diagnostics; the
+    /// frontend buffers a tail and surfaces it when a connect/handshake fails).
+    Stderr { line: String },
     /// The server process exited (`code` is None when killed by signal).
     Exit { code: Option<i32> },
     /// Terminal spawn/IO error.
@@ -60,6 +86,7 @@ struct McpProc {
 impl Drop for McpProc {
     fn drop(&mut self) {
         self.stop_readers.store(true, Ordering::Release);
+        kill_process_group(&self.child); // Unix: reap the grandchild before the direct child
         let _ = self.child.kill();
     }
 }
@@ -127,6 +154,7 @@ pub fn mcp_spawn(
 
     // Replace any existing process under this id (reconnect) so we never leak.
     if let Some(old) = procs().lock().unwrap().remove(&id) {
+        kill_process_group(&old.child); // Unix: reap the grandchild too, not just the shim
         let _ = old.child.kill();
     }
 
@@ -204,6 +232,18 @@ pub fn mcp_spawn(
                                 return; // frontend tore the channel down
                             }
                         }
+                        // A run this large with no newline can only be a broken or
+                        // hostile server — terminate before it exhausts host memory.
+                        if acc.len() > MAX_LINE_BYTES {
+                            let _ = on_event.send(McpEvent::Error {
+                                message: format!(
+                                    "MCP server sent {MAX_LINE_BYTES}+ bytes with no newline; terminating."
+                                ),
+                            });
+                            proc_ref.stop_readers.store(true, Ordering::Release);
+                            let _ = proc_ref.child.kill();
+                            return;
+                        }
                     }
                     Err(_) => break,
                 }
@@ -211,12 +251,15 @@ pub fn mcp_spawn(
         });
     }
 
-    // stderr drain: MCP servers log diagnostics here. Read and discard so a
-    // full pipe never blocks the child (matches the old JS host's behavior).
+    // stderr reader: frame into lines and forward as Stderr events so a failed
+    // handshake can surface the server's own diagnostic (missing key, bad arg).
+    // Still fully drained so a full pipe never blocks the child.
     {
+        let on_event = on_event.clone();
         let proc_ref = proc.clone();
         let mut pipe = stderr;
         thread::spawn(move || {
+            let mut acc: Vec<u8> = Vec::new();
             let mut buf = [0u8; 8192];
             loop {
                 if proc_ref.stop_readers.load(Ordering::Acquire) {
@@ -224,7 +267,24 @@ pub fn mcp_spawn(
                 }
                 match pipe.read(&mut buf) {
                     Ok(0) => break,
-                    Ok(_) => {}
+                    Ok(n) => {
+                        acc.extend_from_slice(&buf[..n]);
+                        while let Some(nl) = acc.iter().position(|&b| b == b'\n') {
+                            let line: Vec<u8> = acc.drain(..=nl).collect();
+                            let mut end = line.len() - 1;
+                            if end > 0 && line[end - 1] == b'\r' {
+                                end -= 1;
+                            }
+                            if end == 0 {
+                                continue;
+                            }
+                            let text = String::from_utf8_lossy(&line[..end]).into_owned();
+                            let _ = on_event.send(McpEvent::Stderr { line: text });
+                        }
+                        if acc.len() > MAX_LINE_BYTES {
+                            acc.clear(); // don't let a no-newline blob grow unbounded
+                        }
+                    }
                     Err(_) => break,
                 }
             }
@@ -275,6 +335,7 @@ pub fn mcp_write(id: String, data: String) -> Result<(), String> {
 pub fn mcp_kill(id: String) -> Result<(), String> {
     if let Some(proc) = procs().lock().unwrap().remove(&id) {
         proc.stop_readers.store(true, Ordering::Release);
+        kill_process_group(&proc.child); // Unix: reap the grandchild too
         let _ = proc.child.kill();
         *proc.stdin.lock().unwrap() = None; // drop stdin → EOF to the child
     }

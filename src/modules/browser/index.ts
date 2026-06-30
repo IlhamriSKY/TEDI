@@ -9,6 +9,8 @@ export {
   previewEmbedRead,
   previewEmbedScreenshot,
   previewEmbedSetBg,
+  focusBrowserAddressBar,
   BROWSER_NAV_EVENT,
+  BROWSER_FOCUS_ADDRESS_EVENT,
   type BrowserNavEvent,
 } from "./lib/native";

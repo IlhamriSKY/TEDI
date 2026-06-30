@@ -182,6 +182,7 @@ export function SkillsCard() {
 
   // Update tracking
   const [updates, setUpdates] = useState<Map<string, UpdateInfo>>(new Map());
+  const [checkFailed, setCheckFailed] = useState(0);
   const [updateBusy, setUpdateBusy] = useState<string | null>(null);
 
   // Open folder, kept reactive via the cross-window `storage` event.
@@ -227,8 +228,9 @@ export function SkillsCard() {
 
   // Check for updates on load and refresh
   const checkUpdates = async () => {
-    const result = await checkAllSkillUpdates();
+    const { updates: result, failed } = await checkAllSkillUpdates();
     setUpdates(result);
+    setCheckFailed(failed);
   };
   useEffect(() => {
     void checkUpdates();
@@ -280,13 +282,17 @@ export function SkillsCard() {
     setStatus(null);
     setPreview(null);
     try {
-      const { installed, group, sha } = await installSkillsFromGithub(value, installRoot);
+      const { installed, failed, group, sha } = await installSkillsFromGithub(value, installRoot);
       const where = installRoot
         ? `${installRoot.replace(/\\/g, "/")}/.tedi/skills`
         : "~/.tedi/skills";
+      const failNote =
+        failed.length > 0
+          ? ` (${failed.length} could not be downloaded: ${failed.join(", ")})`
+          : "";
       setStatus({
-        kind: "ok",
-        msg: `Installed ${installed.length} skill${installed.length === 1 ? "" : "s"} into "${group}" at ${where}: ${installed.join(", ")}${sha ? ` (${shortSha(sha)})` : ""}`,
+        kind: failed.length > 0 ? "err" : "ok",
+        msg: `Installed ${installed.length} skill${installed.length === 1 ? "" : "s"} into "${group}" at ${where}: ${installed.join(", ")}${sha ? ` (${shortSha(sha)})` : ""}${failNote}`,
       });
       setRef("");
       refresh();
@@ -303,9 +309,13 @@ export function SkillsCard() {
     try {
       const result = await updateSkillGroup(group);
       if (result) {
+        const failNote =
+          result.failed.length > 0
+            ? ` (${result.failed.length} failed: ${result.failed.join(", ")})`
+            : "";
         setStatus({
-          kind: "ok",
-          msg: `Updated ${result.updated.length} skill(s) in "${group}"${result.sha ? ` (${shortSha(result.sha)})` : ""}`,
+          kind: result.failed.length > 0 ? "err" : "ok",
+          msg: `Updated ${result.updated.length} skill(s) in "${group}"${result.sha ? ` (${shortSha(result.sha)})` : ""}${failNote}`,
         });
         refresh();
       }
@@ -584,6 +594,15 @@ export function SkillsCard() {
           {status.msg}
         </div>
       ) : null}
+
+      {/* Couldn't-check note: distinguishes a failed update check (rate limit /
+          offline) from "all up to date" so a silent failure isn't misread. */}
+      {checkFailed > 0 && (
+        <div className="text-muted-foreground/70 text-[10px] leading-relaxed">
+          Couldn&apos;t check {checkFailed} skill group{checkFailed > 1 ? "s" : ""} for updates
+          (GitHub rate limit or offline). Try again later.
+        </div>
+      )}
 
       {/* Update all button */}
       {pendingUpdatesCount > 0 && (

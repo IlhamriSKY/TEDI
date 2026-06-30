@@ -36,6 +36,10 @@ export type SkillMeta = {
   requires?: string[];
   /** Runtime state (from skillState store). */
   state?: SkillState | null;
+  /** Disambiguated invocation slug set by loadSkills when two skills share a
+   *  bare leaf slug. When present, skillSlug() returns this instead of the leaf
+   *  so neither skill is silently shadowed in the `skill` tool / slash picker. */
+  slugOverride?: string;
 };
 
 /** Preview result for a GitHub repo before installing. */
@@ -74,11 +78,17 @@ async function homeSkillsDir(): Promise<string | null> {
   return _homeSkillsDir;
 }
 
-/** Minimal YAML frontmatter reader for `name` / `description`. Handles plain,
- *  quoted, AND block-scalar (`>` / `|`) values - the folded `description: >`
- *  form is why a description was rendering as just ">". */
+/** Minimal YAML frontmatter reader for name / description / argument-hint /
+ *  version / requires. Handles plain, quoted, block-scalar (`>` / `|`, the folded
+ *  `description: >` form), and block-sequence (`requires:` then indented `- item`)
+ *  values, and tolerates a leading BOM / blank lines before the `---` fence. */
 function parseFrontmatter(md: string): ParsedFrontmatter {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(md);
+  // Strip a UTF-8 BOM and tolerate leading blank lines before the `---` fence;
+  // otherwise a SKILL.md saved with a BOM or a blank first line fails the match,
+  // yields an empty description, and the skill silently vanishes (readSkill
+  // returns null on no description).
+  const src = md.replace(/^﻿/, "");
+  const m = /^\s*---\r?\n([\s\S]*?)\r?\n---/.exec(src);
   if (!m) return {};
   const lines = m[1].split(/\r?\n/);
   const out: ParsedFrontmatter = {};
@@ -92,6 +102,21 @@ function parseFrontmatter(md: string): ParsedFrontmatter {
     const key = kv[1].toLowerCase();
     let val = kv[2].trim();
     i++;
+    // YAML block sequence: `key:` on its own line followed by indented `- item`
+    // lines. Without this, `requires:`\n`  - a`\n`  - b` parsed to [] because the
+    // inline value was empty and the `- a` lines failed the `key:` regex.
+    let seq: string[] | null = null;
+    if (val === "") {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const it = /^\s*-\s+(.*)$/.exec(lines[i]);
+        if (!it) break;
+        const v = it[1].trim().replace(/^["']|["']$/g, "");
+        if (v) items.push(v);
+        i++;
+      }
+      if (items.length) seq = items;
+    }
     if (/^[|>][+-]?$/.test(val)) {
       // Block scalar: fold the following indented/blank lines until a dedent.
       const block: string[] = [];
@@ -108,12 +133,14 @@ function parseFrontmatter(md: string): ParsedFrontmatter {
     else if ((key === "argument-hint" || key === "arghint") && !out.argHint) out.argHint = val;
     else if (key === "version" && !out.version) out.version = val;
     else if (key === "requires") {
-      // Parse: requires: [skill-a, skill-b] or requires: skill-a
-      const list = val
-        .replace(/^\[|\]$/g, "")
-        .split(",")
-        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-        .filter(Boolean);
+      // Parse: block sequence (seq), or inline `requires: [a, b]` / `requires: x`.
+      const list =
+        seq ??
+        val
+          .replace(/^\[|\]$/g, "")
+          .split(",")
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
       if (list.length && !out.requires) out.requires = list;
       else if (list.length) out.requires = [...(out.requires ?? []), ...list];
     }
@@ -218,8 +245,23 @@ async function scanDir(skillsDir: string): Promise<SkillMeta[]> {
 /** Attach runtime state (version, SHA, install date, etc.) to skill metadata. */
 async function attachSkillState(skills: SkillMeta[]): Promise<SkillMeta[]> {
   const allStates = await getAllSkillStates();
+  // Fallback index by (group, leaf): state is keyed by absolute install dir, so a
+  // moved home/project path changes the key and would orphan the version/SHA. On
+  // a miss, match by relative identity instead. Read-only (the store isn't
+  // rewritten here); built lazily so the common all-hit case pays nothing.
+  let byGroupLeaf: Map<string, SkillState> | null = null;
+  const leafOf = (dir: string) => dir.replace(/\\/g, "/").split("/").pop() ?? "";
   return skills.map((s) => {
-    const state = allStates[s.dir] ?? null;
+    let state: SkillState | null = allStates[s.dir] ?? null;
+    if (!state) {
+      if (!byGroupLeaf) {
+        byGroupLeaf = new Map();
+        for (const [dir, meta] of Object.entries(allStates)) {
+          byGroupLeaf.set(`${splitSkillDir(dir)?.group ?? ""} ${leafOf(dir)}`, meta);
+        }
+      }
+      state = byGroupLeaf.get(`${s.group} ${leafOf(s.dir)}`) ?? null;
+    }
     return { ...s, state };
   });
 }
@@ -238,8 +280,10 @@ export function getLoadedSkills(): SkillMeta[] {
   return loadedSkills;
 }
 
-/** Slash-safe token for a skill: its folder name, used as its `/` command. */
+/** Slash-safe token for a skill: its folder name, used as its `/` command.
+ *  loadSkills may set `slugOverride` to disambiguate a leaf-slug collision. */
 export function skillSlug(s: SkillMeta): string {
+  if (s.slugOverride) return s.slugOverride;
   const last = s.dir.split("/").pop() ?? s.name;
   return last
     .toLowerCase()
@@ -269,14 +313,36 @@ export async function loadSkills(workspaceRoot: string | null): Promise<SkillMet
   if (home) roots.push(home);
   if (workspaceRoot) roots.push(`${normSlashes(workspaceRoot)}/${SKILLS_SUBPATH}`);
 
-  // Key by slug (the invocation identity = folder leaf), not the display name:
-  // two skills sharing a frontmatter `name` but distinct slugs must both survive
-  // (every consumer resolves by skillSlug). Later root (workspace) still wins.
-  const bySlug = new Map<string, SkillMeta>();
+  // Dedup by skill IDENTITY = group + leaf slug. A later root (workspace) still
+  // overrides a same-identity skill from an earlier root (project beats global),
+  // but two DISTINCT identities that merely share a leaf (e.g. `repoA/review` and
+  // `repoB/review`) must both survive — keying by leaf alone silently dropped one
+  // with a nondeterministic winner.
+  const byId = new Map<string, SkillMeta>();
   for (const root of roots) {
-    for (const s of await scanDir(root)) bySlug.set(skillSlug(s), s);
+    for (const s of await scanDir(root)) byId.set(`${s.group} ${skillSlug(s)}`, s);
   }
-  const skills = await attachSkillState(Array.from(bySlug.values()));
+  // Assign a disambiguating invocation slug only when two survivors share a bare
+  // leaf. Unique leaves keep their bare slug (the common case, no UX change);
+  // collisions get a stable `-2`/`-3` suffix in sorted-dir order so assignment is
+  // deterministic across runs.
+  // ponytail: numeric suffix, not group-qualified `group:leaf`; bump to qualified
+  // if users want readable disambiguated commands.
+  const survivors = Array.from(byId.values()).sort((a, b) => a.dir.localeCompare(b.dir));
+  const taken = new Set<string>();
+  for (const s of survivors) {
+    const base = skillSlug(s);
+    if (!taken.has(base)) {
+      taken.add(base);
+      continue;
+    }
+    let n = 2;
+    let alt = `${base}-${n}`;
+    while (taken.has(alt)) alt = `${base}-${++n}`;
+    s.slugOverride = alt;
+    taken.add(alt);
+  }
+  const skills = await attachSkillState(survivors);
   cache.set(key, { skills, at: Date.now() });
   loadedSkills = skills;
   return skills;
@@ -325,7 +391,17 @@ function parseGithubRef(ref: string): { owner: string; repo: string } {
 async function ghJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
   if (!res.ok) {
-    throw new Error(res.status === 404 ? "Repo not found." : `GitHub error ${res.status}.`);
+    if (res.status === 404) throw new Error("Repo not found.");
+    // Unauthenticated GitHub API is 60 req/hr; a 403/429 with the rate-limit
+    // budget exhausted is a transient limit the user can wait out, not an
+    // auth/permission failure. Distinguish it so the message is actionable.
+    if (
+      (res.status === 403 || res.status === 429) &&
+      res.headers.get("x-ratelimit-remaining") === "0"
+    ) {
+      throw new Error("GitHub rate limit reached (unauthenticated, 60/hr). Try again later.");
+    }
+    throw new Error(`GitHub error ${res.status}.`);
   }
   return res.json() as Promise<T>;
 }
@@ -338,14 +414,37 @@ function scoreSkillPath(p: string): number {
   return 0;
 }
 
-/** Resolve the best SKILL.md path per skill slug from a GitHub tree. */
+/** Sanitize a (possibly untrusted) folder name into a slash/path-safe slug. */
+function sanitizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Resolve the best SKILL.md path per skill slug from a GitHub tree. Keys are the
+ *  SANITIZED invocation slug (so the install preview shows the real `/command`),
+ *  and two distinct parent-leaves that sanitize to the same slug are disambiguated
+ *  with a `-2`/`-3` suffix instead of silently dropping one. */
 function resolveSkillSlugs(skillFiles: string[], repo: string): Map<string, string> {
-  const bySlug = new Map<string, string>();
+  // First pick the best SKILL.md per raw parent-leaf (canonical path wins on score).
+  const byLeaf = new Map<string, string>();
   for (const p of skillFiles) {
     const parts = p.split("/");
-    const slug = parts.length >= 2 ? parts[parts.length - 2] : repo;
-    const existing = bySlug.get(slug);
-    if (!existing || scoreSkillPath(p) > scoreSkillPath(existing)) bySlug.set(slug, p);
+    const leaf = parts.length >= 2 ? parts[parts.length - 2] : repo;
+    const existing = byLeaf.get(leaf);
+    if (!existing || scoreSkillPath(p) > scoreSkillPath(existing)) byLeaf.set(leaf, p);
+  }
+  // Then map to sanitized slugs, disambiguating sanitize-collisions.
+  const bySlug = new Map<string, string>();
+  for (const [leaf, p] of byLeaf) {
+    let slug = sanitizeSlug(leaf) || sanitizeSlug(repo) || "skill";
+    if (bySlug.has(slug)) {
+      let n = 2;
+      while (bySlug.has(`${slug}-${n}`)) n++;
+      slug = `${slug}-${n}`;
+    }
+    bySlug.set(slug, p);
   }
   return bySlug;
 }
@@ -388,18 +487,82 @@ export async function previewSkillsFromGithub(ref: string): Promise<SkillPreview
   return { owner, repo, branch, skills, count: skills.size, group };
 }
 
+// Bounds + binary guard for co-fetching a skill's bundled sibling files.
+const COFETCH_MAX_FILES = 50;
+const COFETCH_MAX_BYTES = 512 * 1024;
+const BINARY_EXT =
+  /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|woff2?|ttf|otf|mp[34]|wav|bin|exe|dll|so|dylib)$/i;
+
+/**
+ * Co-fetch a skill's bundled sibling files (scripts, reference docs) from the
+ * repo tree so a multi-file skill isn't installed half-broken (the agent's
+ * read_file on a referenced script would otherwise fail at runtime). Text-only:
+ * native.writeFile takes a string, so binary assets are skipped and counted.
+ * Bounded so a misshaped repo can't pull an unbounded tree. Untrusted tree paths
+ * are rejected if they escape the skill dir.
+ * ponytail: text-only; add a bytes-write backend command to also land binaries.
+ */
+async function cofetchSkillAssets(
+  owner: string,
+  repo: string,
+  branch: string,
+  skillMdPath: string,
+  destDir: string,
+  allBlobs: string[],
+): Promise<{ skippedBinary: number }> {
+  const slash = skillMdPath.lastIndexOf("/");
+  if (slash === -1) return { skippedBinary: 0 }; // root-level skill: no prefix → never pull whole repo
+  const prefix = skillMdPath.slice(0, slash + 1); // trailing slash included
+  let count = 0;
+  let skippedBinary = 0;
+  for (const p of allBlobs) {
+    if (count >= COFETCH_MAX_FILES) break;
+    if (p === skillMdPath || !p.startsWith(prefix)) continue;
+    const rel = p.slice(prefix.length);
+    if (!rel || rel.includes("..") || rel.startsWith("/")) continue; // path-safety
+    if (BINARY_EXT.test(rel)) {
+      skippedBinary++;
+      continue;
+    }
+    let res: Response;
+    try {
+      res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${p}`);
+    } catch {
+      continue;
+    }
+    if (!res.ok) continue;
+    const body = await res.text();
+    if (body.length > COFETCH_MAX_BYTES) continue;
+    const relSlash = rel.lastIndexOf("/");
+    try {
+      if (relSlash !== -1) await native.createDir(`${destDir}/${rel.slice(0, relSlash)}`);
+      await native.writeFile(`${destDir}/${rel}`, body);
+      count++;
+    } catch {
+      /* skip an unwritable sibling rather than aborting the install */
+    }
+  }
+  return { skippedBinary };
+}
+
 /**
  * Install every `SKILL.md` found in a GitHub repo into a skills root. Targets
  * the workspace `.tedi/skills` when `workspaceRoot` is given, else the global
- * `~/.tedi/skills`. Only the SKILL.md is fetched (instructions); bundled scripts
- * are not - add that if a skill needs them.
+ * `~/.tedi/skills`. Each skill's bundled text siblings are co-fetched too (see
+ * cofetchSkillAssets); binary assets are skipped.
  *
  * Also saves metadata (SHA, version, requires, install date) to skillState store.
  */
 export async function installSkillsFromGithub(
   ref: string,
   workspaceRoot?: string | null,
-): Promise<{ installed: string[]; group: string; branch: string; sha: string | null }> {
+): Promise<{
+  installed: string[];
+  failed: string[];
+  group: string;
+  branch: string;
+  sha: string | null;
+}> {
   const { owner, repo } = parseGithubRef(ref);
   const base = workspaceRoot
     ? `${normSlashes(workspaceRoot)}/${SKILLS_SUBPATH}`
@@ -426,6 +589,7 @@ export async function installSkillsFromGithub(
     );
   }
 
+  const allBlobs = tree.tree.filter((n) => n.type === "blob").map((n) => n.path);
   const bySlug = resolveSkillSlugs(skillFiles, repo);
 
   // Group every skill from this repo under one folder.
@@ -443,19 +607,20 @@ export async function installSkillsFromGithub(
   const sha = commits[0]?.sha ?? null;
 
   const installed: string[] = [];
+  const failed: string[] = [];
   const stateEntries: [string, SkillState][] = [];
 
   for (const [rawSlug, filePath] of bySlug) {
-    // Sanitize the slug from the (untrusted) repo tree before it becomes a path.
-    const slug = rawSlug
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+    // resolveSkillSlugs already sanitized the slug; keep idempotent guard.
+    const slug = sanitizeSlug(rawSlug);
     if (!slug) continue;
     const raw = await fetch(
       `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`,
     );
-    if (!raw.ok) continue;
+    if (!raw.ok) {
+      failed.push(slug);
+      continue;
+    }
     const content = await raw.text();
     const destDir = `${groupDir}/${slug}`;
     try {
@@ -466,9 +631,25 @@ export async function installSkillsFromGithub(
     try {
       await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
     } catch {
-      continue; // skip on write failure so state stays in sync with disk
+      failed.push(slug); // skip on write failure so state stays in sync with disk
+      continue;
     }
     installed.push(slug);
+
+    // Co-fetch bundled text siblings so a multi-file skill isn't half-installed.
+    const { skippedBinary } = await cofetchSkillAssets(
+      owner,
+      repo,
+      branch,
+      filePath,
+      destDir,
+      allBlobs,
+    );
+    if (skippedBinary > 0) {
+      console.warn(
+        `[skills] "${slug}": skipped ${skippedBinary} binary asset(s) (text-only install).`,
+      );
+    }
 
     // Parse frontmatter for version and requires.
     const fm = parseFrontmatter(content);
@@ -491,7 +672,7 @@ export async function installSkillsFromGithub(
   await setSkillStates(stateEntries);
   invalidateSkillsCache();
   invalidateSkillDescriptionCache();
-  return { installed, group, branch, sha };
+  return { installed, failed, group, branch, sha };
 }
 
 /** Split a skill dir `<base>/.tedi/skills/<group>/<slug>` into {base, group}.
@@ -507,9 +688,45 @@ function splitSkillDir(dir: string): { base: string; group: string } | null {
   return group ? { base, group } : null;
 }
 
+/** Re-resolve a repo's current default branch (null if the repo is gone). */
+async function repoDefaultBranch(owner: string, repo: string): Promise<string | null> {
+  try {
+    const info = await ghJson<{ default_branch: string }>(
+      `https://api.github.com/repos/${owner}/${repo}`,
+    );
+    return info.default_branch || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch a branch-pinned GitHub URL; if the pinned branch fails (commonly a 404
+ *  after an upstream rename/delete), re-resolve the repo's current default branch
+ *  and retry once, returning the branch that worked. A genuine network/rate-limit
+ *  error (the re-resolve also fails) propagates so callers can tell "couldn't
+ *  check" from "up to date". */
+async function ghJsonForBranch<T>(
+  owner: string,
+  repo: string,
+  branch: string,
+  buildUrl: (b: string) => string,
+): Promise<{ data: T; branch: string }> {
+  try {
+    return { data: await ghJson<T>(buildUrl(branch)), branch };
+  } catch (e) {
+    const fresh = await repoDefaultBranch(owner, repo);
+    if (fresh && fresh !== branch) {
+      return { data: await ghJson<T>(buildUrl(fresh)), branch: fresh };
+    }
+    throw e;
+  }
+}
+
 /**
  * Check if an installed skill group has updates available.
- * Returns null if no update, or the new SHA + commit message if there is one.
+ * Returns null when the group is not update-tracked or already current; THROWS
+ * on a real fetch failure (network/rate-limit) so callers don't mistake an
+ * unreachable check for "up to date".
  */
 export async function checkSkillUpdate(group: string): Promise<{
   hasUpdate: boolean;
@@ -526,21 +743,22 @@ export async function checkSkillUpdate(group: string): Promise<{
   if (!meta.source || !meta.branch || !meta.sha) return null;
 
   const [owner, repo] = meta.source.split("/");
-  try {
-    const commits = await ghJson<Array<{ sha: string; commit: { message: string } }>>(
-      `https://api.github.com/repos/${owner}/${repo}/commits?sha=${meta.branch}&per_page=1`,
-    );
-    if (commits.length === 0) return null;
-    const latestSha = commits[0].sha;
-    return {
-      hasUpdate: latestSha !== meta.sha,
-      currentSha: meta.sha,
-      latestSha,
-      latestCommitMsg: commits[0].commit.message.split("\n")[0] ?? null,
-    };
-  } catch {
-    return null;
-  }
+  const { data: commits } = await ghJsonForBranch<
+    Array<{ sha: string; commit: { message: string } }>
+  >(
+    owner,
+    repo,
+    meta.branch,
+    (b) => `https://api.github.com/repos/${owner}/${repo}/commits?sha=${b}&per_page=1`,
+  );
+  if (commits.length === 0) return null;
+  const latestSha = commits[0].sha;
+  return {
+    hasUpdate: latestSha !== meta.sha,
+    currentSha: meta.sha,
+    latestSha,
+    latestCommitMsg: commits[0].commit.message.split("\n")[0] ?? null,
+  };
 }
 
 type SkillUpdateInfo = {
@@ -549,27 +767,23 @@ type SkillUpdateInfo = {
   latestSha: string | null;
   latestCommitMsg: string | null;
 };
+/** Result of a bulk update check: groups that have updates, plus how many group
+ *  checks could not be completed (offline / rate-limited) so the UI can say
+ *  "couldn't check" instead of silently implying everything is current. */
+export type SkillUpdateCheck = { updates: Map<string, SkillUpdateInfo>; failed: number };
+
 // TTL-cache the update check (one unauthenticated GitHub /commits call per group)
 // so Settings re-render / refresh churn can't spam the 60 req/hr rate limit.
 // Cleared by invalidateSkillsCache on install/update/remove.
-let _updateCheckCache: { at: number; result: Map<string, SkillUpdateInfo> } | null = null;
+let _updateCheckCache: { at: number; result: SkillUpdateCheck } | null = null;
 const UPDATE_CHECK_TTL_MS = 5 * 60_000;
 
 /**
- * Check all installed skill groups for updates. Returns a map of
- * group → update info for groups that have updates.
+ * Check all installed skill groups for updates. Returns the groups that have an
+ * update plus a count of checks that failed (so a rate-limit/offline state is
+ * not reported as "all up to date").
  */
-export async function checkAllSkillUpdates(): Promise<
-  Map<
-    string,
-    {
-      hasUpdate: boolean;
-      currentSha: string | null;
-      latestSha: string | null;
-      latestCommitMsg: string | null;
-    }
-  >
-> {
+export async function checkAllSkillUpdates(): Promise<SkillUpdateCheck> {
   if (_updateCheckCache && Date.now() - _updateCheckCache.at < UPDATE_CHECK_TTL_MS) {
     return _updateCheckCache.result;
   }
@@ -582,104 +796,152 @@ export async function checkAllSkillUpdates(): Promise<
     }
   }
 
-  const results = new Map<
-    string,
-    {
-      hasUpdate: boolean;
-      currentSha: string | null;
-      latestSha: string | null;
-      latestCommitMsg: string | null;
-    }
-  >();
+  const updates = new Map<string, SkillUpdateInfo>();
+  let failed = 0;
   for (const group of groups) {
-    const info = await checkSkillUpdate(group);
-    if (info?.hasUpdate) results.set(group, info);
+    try {
+      const info = await checkSkillUpdate(group);
+      if (info?.hasUpdate) updates.set(group, info);
+    } catch {
+      failed++; // couldn't reach GitHub for this group — not the same as up-to-date
+    }
   }
-  _updateCheckCache = { at: Date.now(), result: results };
-  return results;
+  const result: SkillUpdateCheck = { updates, failed };
+  _updateCheckCache = { at: Date.now(), result };
+  return result;
 }
 
 /**
- * Update a skill group by re-downloading from the source repo.
+ * Update a skill group by re-downloading from the source repo. Updates EVERY
+ * root that holds the group (a repo installed both globally and into a project
+ * updates both, not just the first match). Re-resolves a renamed default branch,
+ * co-fetches bundled text siblings, and reports per-skill download failures.
  */
 export async function updateSkillGroup(group: string): Promise<{
   updated: string[];
+  failed: string[];
   sha: string | null;
 } | null> {
   const state = await getAllSkillStates();
-  const skillInGroup = Object.entries(state).find(([dir]) => splitSkillDir(dir)?.group === group);
-  if (!skillInGroup) return null;
-
-  const [firstDir, meta] = skillInGroup;
-  if (!meta.source || !meta.branch) return null;
-
-  const [owner, repo] = meta.source.split("/");
-
-  // Determine base dir from the first skill's path (anchored on `.tedi/skills`).
-  const split = splitSkillDir(firstDir);
-  if (!split) return null;
-  const base = split.base;
-
-  const tree = await ghJson<{ tree: Array<{ path: string; type: string }> }>(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${meta.branch}?recursive=1`,
-  );
-  const skillFiles = tree.tree
-    .filter((n) => n.type === "blob" && /(^|\/)SKILL\.md$/i.test(n.path))
-    .map((n) => n.path);
-
-  if (skillFiles.length === 0) return null;
-
-  const bySlug = resolveSkillSlugs(skillFiles, repo);
-  const groupDir = `${base}/${SKILLS_SUBPATH}/${group}`;
-
-  const commits = await ghJson<Array<{ sha: string }>>(
-    `https://api.github.com/repos/${owner}/${repo}/commits?sha=${meta.branch}&per_page=1`,
-  );
-  const sha = commits[0]?.sha ?? null;
+  // Every distinct base (root) that holds this group, with a representative meta.
+  const bases = new Map<string, SkillState>();
+  for (const [dir, meta] of Object.entries(state)) {
+    const sd = splitSkillDir(dir);
+    if (sd?.group === group && meta.source && meta.branch && !bases.has(sd.base)) {
+      bases.set(sd.base, meta);
+    }
+  }
+  if (bases.size === 0) return null;
 
   const updated: string[] = [];
+  const failed: string[] = [];
+  let lastSha: string | null = null;
   const stateEntries: [string, SkillState][] = [];
 
-  for (const [rawSlug, filePath] of bySlug) {
-    // Sanitize the slug from the (untrusted) repo tree before it becomes a path.
-    const slug = rawSlug
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    if (!slug) continue;
-    const raw = await fetch(
-      `https://raw.githubusercontent.com/${owner}/${repo}/${meta.branch}/${filePath}`,
-    );
-    if (!raw.ok) continue;
-    const content = await raw.text();
-    const destDir = `${groupDir}/${slug}`;
-    // A slug added upstream since install has no directory yet, so create it,
-    // and guard the write: a single failure must not abort the whole loop and
-    // leave the written files out of sync with the state map recorded below.
-    try {
-      await native.createDir(destDir); // recursive; throws if it already exists
-    } catch {
-      /* already there - we overwrite the SKILL.md below */
-    }
-    try {
-      await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
-    } catch {
-      continue; // skip on write failure so state stays in sync with disk
-    }
-    updated.push(slug);
+  for (const [base, meta] of bases) {
+    if (!meta.branch) continue;
+    const [owner, repo] = meta.source.split("/");
 
-    const fm = parseFrontmatter(content);
-    stateEntries.push([
-      destDir,
-      {
-        sha,
-        source: meta.source,
-        installedAt: new Date().toISOString(),
-        version: fm.version ?? meta.version,
-        requires: fm.requires ?? meta.requires,
-        branch: meta.branch,
-      },
-    ]);
+    let tree: { tree: Array<{ path: string; type: string }> };
+    let branch: string;
+    try {
+      const r = await ghJsonForBranch<{ tree: Array<{ path: string; type: string }> }>(
+        owner,
+        repo,
+        meta.branch,
+        (b) => `https://api.github.com/repos/${owner}/${repo}/git/trees/${b}?recursive=1`,
+      );
+      tree = r.data;
+      branch = r.branch;
+    } catch {
+      continue; // couldn't fetch this root — leave it; other roots may still update
+    }
+
+    const skillFiles = tree.tree
+      .filter((n) => n.type === "blob" && /(^|\/)SKILL\.md$/i.test(n.path))
+      .map((n) => n.path);
+    if (skillFiles.length === 0) continue;
+
+    const allBlobs = tree.tree.filter((n) => n.type === "blob").map((n) => n.path);
+    const bySlug = resolveSkillSlugs(skillFiles, repo);
+    const groupDir = `${base}/${SKILLS_SUBPATH}/${group}`;
+
+    let sha: string | null = null;
+    try {
+      const c = await ghJsonForBranch<Array<{ sha: string }>>(
+        owner,
+        repo,
+        branch,
+        (b) => `https://api.github.com/repos/${owner}/${repo}/commits?sha=${b}&per_page=1`,
+      );
+      sha = c.data[0]?.sha ?? null;
+    } catch {
+      sha = null;
+    }
+    lastSha = sha ?? lastSha;
+
+    for (const [rawSlug, filePath] of bySlug) {
+      const slug = sanitizeSlug(rawSlug);
+      if (!slug) continue;
+      let raw: Response;
+      try {
+        raw = await fetch(
+          `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`,
+        );
+      } catch {
+        failed.push(slug);
+        continue;
+      }
+      if (!raw.ok) {
+        failed.push(slug);
+        continue;
+      }
+      const content = await raw.text();
+      const destDir = `${groupDir}/${slug}`;
+      // A slug added upstream since install has no directory yet, so create it,
+      // and guard the write: a single failure must not abort the whole loop and
+      // leave the written files out of sync with the state map recorded below.
+      try {
+        await native.createDir(destDir); // recursive; throws if it already exists
+      } catch {
+        /* already there - we overwrite the SKILL.md below */
+      }
+      try {
+        await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
+      } catch {
+        failed.push(slug); // skip on write failure so state stays in sync with disk
+        continue;
+      }
+      updated.push(slug);
+
+      const { skippedBinary } = await cofetchSkillAssets(
+        owner,
+        repo,
+        branch,
+        filePath,
+        destDir,
+        allBlobs,
+      );
+      if (skippedBinary > 0) {
+        console.warn(
+          `[skills] "${slug}": skipped ${skippedBinary} binary asset(s) (text-only update).`,
+        );
+      }
+
+      const fm = parseFrontmatter(content);
+      stateEntries.push([
+        destDir,
+        {
+          sha,
+          source: meta.source,
+          installedAt: new Date().toISOString(),
+          // Per-skill defaults (not the first sibling's old state).
+          version: fm.version ?? null,
+          requires: fm.requires ?? [],
+          branch,
+        },
+      ]);
+    }
   }
 
   if (updated.length === 0) return null;
@@ -687,7 +949,7 @@ export async function updateSkillGroup(group: string): Promise<{
   await setSkillStates(stateEntries);
   invalidateSkillsCache();
   invalidateSkillDescriptionCache();
-  return { updated, sha };
+  return { updated, failed, sha: lastSha };
 }
 
 /**
@@ -697,7 +959,7 @@ export async function updateAllSkillGroups(): Promise<{
   updated: string[];
   groups: string[];
 } | null> {
-  const updates = await checkAllSkillUpdates();
+  const { updates } = await checkAllSkillUpdates();
   if (updates.size === 0) return null;
 
   const allUpdated: string[] = [];
