@@ -18,7 +18,8 @@ import {
   type ExtractedFile,
   type ExtractedSelection,
 } from "../lib/messageBody";
-import { PROVIDERS } from "../config";
+import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
 import { SLASH_COMMANDS, skillSlashCommands } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
@@ -158,9 +159,20 @@ function UserMessageModelChip({
   // Prefer the model maker (e.g. "Xiaomi" for mimo) over the gateway label
   // so the chip credits the brand. Exception: SumoPod proxies many makers, so
   // always render the SumoPod gateway label and ignore any upstream owned_by.
+  const oacInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
+  // OpenAI-Compatible: credit the endpoint by its configured label (multiple
+  // can be added). Its `owned_by` is a gateway-internal tag (often "cx") that
+  // means nothing, so ignore it and never show the generic provider name.
+  const oacLabel =
+    meta.tediProvider === "openai-compatible"
+      ? openAICompatibleInstanceLabel(meta.tediModel, oacInstances)
+      : null;
   const gatewayLabel =
-    PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ?? meta.tediProvider;
-  const showOwner = meta.tediProvider !== "sumopod" && !!meta.tediOwnedBy;
+    oacLabel ?? PROVIDERS.find((p) => p.id === meta.tediProvider)?.label ?? meta.tediProvider;
+  const showOwner =
+    meta.tediProvider !== "openai-compatible" &&
+    meta.tediProvider !== "sumopod" &&
+    !!meta.tediOwnedBy;
   const ownerLabel = showOwner ? capitalize(meta.tediOwnedBy as string) : gatewayLabel;
   const tooltip =
     showOwner && (meta.tediOwnedBy as string).toLowerCase() !== gatewayLabel.toLowerCase()

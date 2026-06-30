@@ -11,8 +11,11 @@ import {
 
 /** Treat unknown model ids as SumoPod. They surface when the user picked a
  *  runtime-detected SumoPod model and the registry hasn't re-hydrated yet. */
-function resolveProvider(modelId: DynamicModelId): ProviderId {
-  return tryGetModel(modelId)?.provider ?? "sumopod";
+// `explicit` is the provider the user picked alongside the model id; it wins
+// over id-based lookup so an id shared by two providers (e.g. `deepseek-v4-pro`
+// on both DeepSeek and SumoPod) resolves to the one actually selected.
+function resolveProvider(modelId: DynamicModelId, explicit?: ProviderId): ProviderId {
+  return explicit ?? tryGetModel(modelId)?.provider ?? "sumopod";
 }
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
@@ -443,6 +446,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSessionId: () => sessionId,
     getApiKeys: () => useChatStore.getState().apiKeys,
     getSelectedModelId: () => useChatStore.getState().selectedModelId,
+    getSelectedProvider: () => useChatStore.getState().selectedProvider,
   };
 
   // `agentMeta` is a single global field the UI renders for the ACTIVE session
@@ -476,6 +480,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       );
     },
     getModelId: () => useChatStore.getState().selectedModelId,
+    getSelectedProvider: () => useChatStore.getState().selectedProvider,
     getCustomInstructions: () => usePreferencesStore.getState().customInstructions,
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
     getOpenaiCompatibleBaseURL: () => usePreferencesStore.getState().openaiCompatibleBaseURL,
@@ -870,8 +875,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
 }));
 
 export function getActiveProviderKey(): string | null {
-  const { selectedModelId, apiKeys } = useChatStore.getState();
-  return apiKeys[resolveProvider(selectedModelId)] ?? null;
+  const { selectedModelId, selectedProvider, apiKeys } = useChatStore.getState();
+  return apiKeys[resolveProvider(selectedModelId, selectedProvider)] ?? null;
 }
 
 export function hasKeyForModel(modelId: DynamicModelId): boolean {
@@ -902,7 +907,10 @@ export async function sendMessage(text: string): Promise<boolean> {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
-  if (providerNeedsKey(resolveProvider(state.selectedModelId)) && !getActiveProviderKey())
+  if (
+    providerNeedsKey(resolveProvider(state.selectedModelId, state.selectedProvider)) &&
+    !getActiveProviderKey()
+  )
     return false;
   // Restore-race guard: a new user message during `c.messages = trimmed`
   // would either be lost or land in an inconsistent state.

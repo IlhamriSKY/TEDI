@@ -11,6 +11,8 @@ import {
   MODELS,
   PROVIDERS,
   getDetectedModels,
+  groupOpenAICompatibleByInstance,
+  parseOpenAICompatibleModelId,
   providerNeedsKey,
   tryGetModel,
   type DynamicModelId,
@@ -36,25 +38,6 @@ function matchesQuery(m: { id: string; label: string; hint: string }, q: string)
   );
 }
 
-/** Combine per-instance detection statuses into one for the dropdown header:
- *  "loading" if any instance is loading, "ok" if any resolved, else "error"
- *  when at least one failed, else "idle". */
-function aggregateOaiCompatStatus(
-  instances: ReadonlyArray<OpenAICompatibleInstance>,
-): "idle" | "loading" | "ok" | "error" {
-  let sawError = false;
-  let sawOk = false;
-  for (const inst of instances) {
-    const s = getOpenAICompatibleModelsState(inst.id).status;
-    if (s === "loading") return "loading";
-    if (s === "ok") sawOk = true;
-    if (s === "error") sawError = true;
-  }
-  if (sawOk) return "ok";
-  if (sawError) return "error";
-  return "idle";
-}
-
 /**
  * Default-model dropdown rendered in the AI defaults card. The card itself owns
  * the surrounding layout (label, description, hr) - this is the trigger +
@@ -74,15 +57,21 @@ export function DefaultModelDropdown({
   oaiCompatInstances: OpenAICompatibleInstance[];
 }) {
   const [modelQuery, setModelQuery] = useState("");
-  // Open provider accordions. Reset on dropdown open to start with the current default expanded.
-  const [expandedProviders, setExpandedProviders] = useState<Set<ProviderId>>(new Set());
-  const toggleProvider = (id: ProviderId) =>
+  // Open accordions, keyed by section (provider id, or `oac:<instanceId>` for
+  // each OpenAI-Compatible endpoint). Reset on open to expand the current default.
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
+  const toggleProvider = (key: string) =>
     setExpandedProviders((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
+  // Section key holding the current default model, used to auto-expand on open.
+  const defaultSectionKey =
+    defaultProvider === "openai-compatible"
+      ? `oac:${parseOpenAICompatibleModelId(defaultModel)?.instanceId ?? ""}`
+      : (defaultProvider ?? null);
 
   // All detected openai-compatible models across every instance. Aggregated
   // from the dynamic registry so the dropdown lists each endpoint's catalogue
@@ -123,7 +112,7 @@ export function DefaultModelDropdown({
     <DropdownMenu
       onOpenChange={(open) => {
         if (open) {
-          setExpandedProviders(defaultProvider ? new Set([defaultProvider]) : new Set());
+          setExpandedProviders(defaultSectionKey ? new Set([defaultSectionKey]) : new Set());
         } else {
           setModelQuery("");
         }
@@ -181,25 +170,48 @@ export function DefaultModelDropdown({
             // The previous behaviour listed all 10 providers as "no key"
             // rows, padding the dropdown with affordances for accounts
             // the user has not (and may never) sign up for.
-            const blocks = PROVIDERS.flatMap((p) => {
+            // Expand each provider to one section, except OpenAI-Compatible which
+            // yields one section per configured endpoint, headed by its label.
+            const sectionDefs = PROVIDERS.flatMap((p) => {
               if (!(providerNeedsKey(p.id) && !!keys[p.id])) return [];
+              if (p.id === "openai-compatible") {
+                return groupOpenAICompatibleByInstance(oaiCompatModels, oaiCompatInstances).map(
+                  (g) => ({
+                    provider: p,
+                    sectionKey: `oac:${g.instanceId}`,
+                    title: g.label,
+                    instanceId: g.instanceId as string | null,
+                    all: g.models,
+                  }),
+                );
+              }
               const all =
                 p.id === "sumopod"
                   ? sumopodModels.models
-                  : p.id === "openai-compatible"
-                    ? oaiCompatModels
-                    : MODELS.filter((m) => m.provider === p.id);
-              const filtered = all.filter((m) => matchesQuery(m, modelQuery));
+                  : MODELS.filter((m) => m.provider === p.id);
+              return [
+                {
+                  provider: p,
+                  sectionKey: p.id,
+                  title: p.label,
+                  instanceId: null as string | null,
+                  all,
+                },
+              ];
+            });
+            const blocks = sectionDefs.map((s) => {
+              const p = s.provider;
+              const filtered = s.all.filter((m) => matchesQuery(m, modelQuery));
               totalMatches += filtered.length;
               if (filtered.length === 0 && searching) return null;
               const hasKey = !!keys[p.id];
-              // Aggregate detection status: SumoPod has one stream;
-              // openai-compatible combines every instance's status.
+              // Detection status: SumoPod has one stream; each OAC endpoint reads
+              // its own instance status.
               const dynamicStatus =
                 p.id === "sumopod"
                   ? sumopodModels.status
-                  : p.id === "openai-compatible"
-                    ? aggregateOaiCompatStatus(oaiCompatInstances)
+                  : s.instanceId
+                    ? getOpenAICompatibleModelsState(s.instanceId).status
                     : null;
               const isDynamicEmpty = !!dynamicStatus && hasKey && filtered.length === 0;
               const dynamicNote =
@@ -210,13 +222,13 @@ export function DefaultModelDropdown({
                       ? "Detection failed - check key / URL"
                       : null
                   : null;
-              // While searching, expand every provider with matches.
-              const isOpen = searching || expandedProviders.has(p.id);
+              // While searching, expand every section with matches.
+              const isOpen = searching || expandedProviders.has(s.sectionKey);
               return (
-                <div key={p.id} className="px-1 pt-1">
+                <div key={s.sectionKey} className="px-1 pt-1">
                   <button
                     type="button"
-                    onClick={() => !searching && toggleProvider(p.id)}
+                    onClick={() => !searching && toggleProvider(s.sectionKey)}
                     aria-expanded={isOpen}
                     disabled={searching}
                     className={cn(
@@ -232,7 +244,7 @@ export function DefaultModelDropdown({
                       className={cn("opacity-60", searching && "invisible")}
                     />
                     <ProviderIcon provider={p.id} size={11} />
-                    <span>{p.label}</span>
+                    <span>{s.title}</span>
                     <span className="text-muted-foreground/60 tracking-normal normal-case">
                       ({filtered.length})
                     </span>

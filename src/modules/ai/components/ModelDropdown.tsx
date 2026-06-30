@@ -29,6 +29,7 @@ import { setPinnedModelIds } from "@/modules/settings/store";
 import {
   getDetectedModels,
   getModel,
+  groupOpenAICompatibleByInstance,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
@@ -78,19 +79,6 @@ export function ModelDropdown() {
   useOpenAICompatibleModels();
   const oaiCompatInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
   const oaiCompatModels = getDetectedModels("openai-compatible");
-  const oaiCompatAggStatus = (() => {
-    let sawError = false;
-    let sawOk = false;
-    for (const inst of oaiCompatInstances) {
-      const s = getOpenAICompatibleModelsState(inst.id).status;
-      if (s === "loading") return "loading" as const;
-      if (s === "ok") sawOk = true;
-      if (s === "error") sawError = true;
-    }
-    if (sawOk) return "ok" as const;
-    if (sawError) return "error" as const;
-    return "idle" as const;
-  })();
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
   // Sections start expanded; component-local state resets each open.
@@ -155,16 +143,33 @@ export function ModelDropdown() {
     () =>
       PROVIDERS.flatMap((p) => {
         if (providerNeedsKey(p.id) && !apiKeys[p.id]) return [];
+        // OpenAI-Compatible: one section per configured endpoint, headed by its
+        // label, since several can be added under the one provider id.
+        if (p.id === "openai-compatible") {
+          return groupOpenAICompatibleByInstance(oaiCompatModels, oaiCompatInstances).map((g) => ({
+            provider: p,
+            sectionKey: `oac:${g.instanceId}`,
+            title: g.label,
+            instanceId: g.instanceId as string | null,
+            all: g.models,
+            filtered: g.models.filter((m) => matchesQuery(m, query)),
+          }));
+        }
         const all =
-          p.id === "sumopod"
-            ? sumopodModels.models
-            : p.id === "openai-compatible"
-              ? oaiCompatModels
-              : MODELS.filter((m) => m.provider === p.id);
+          p.id === "sumopod" ? sumopodModels.models : MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
-        return [{ provider: p, all, filtered }];
+        return [
+          {
+            provider: p,
+            sectionKey: p.id,
+            title: p.label,
+            instanceId: null as string | null,
+            all,
+            filtered,
+          },
+        ];
       }),
-    [query, apiKeys, sumopodModels.models, oaiCompatModels],
+    [query, apiKeys, sumopodModels.models, oaiCompatModels, oaiCompatInstances],
   );
 
   // Resolve pinned ids to ModelInfo. Two lookups: qualified (provider::modelId)
@@ -269,46 +274,49 @@ export function ModelDropdown() {
               onTogglePin={togglePin}
             />
           ) : null}
-          {sections.map(({ provider: p, filtered }) => {
-            if (filtered.length === 0 && query) return null;
+          {sections.map((s) => {
+            const p = s.provider;
+            if (s.filtered.length === 0 && query) return null;
             const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
-            // Detection status note for providers whose catalogue is fetched
-            // dynamically (SumoPod, OpenRouter, OpenAI-Compatible). The
-            // variable name is historic; it now covers three gateways.
-            const sumopodNote =
+            // Detection status note for gateways whose catalogue is fetched
+            // dynamically. OpenAI-Compatible reads its own instance's status.
+            const note =
               p.id === "sumopod" && hasKey
                 ? sumopodModels.status === "loading"
                   ? "Detecting models…"
                   : sumopodModels.status === "error"
                     ? "Detection failed"
-                    : filtered.length === 0
+                    : s.filtered.length === 0
                       ? "No models detected"
                       : null
-                : p.id === "openai-compatible" && hasKey
-                  ? oaiCompatAggStatus === "loading"
-                    ? "Detecting models…"
-                    : oaiCompatAggStatus === "error"
-                      ? "Detection failed"
-                      : filtered.length === 0
-                        ? "No models detected · open Settings → Models"
-                        : null
+                : p.id === "openai-compatible" && hasKey && s.instanceId
+                  ? (() => {
+                      const st = getOpenAICompatibleModelsState(s.instanceId).status;
+                      return st === "loading"
+                        ? "Detecting models…"
+                        : st === "error"
+                          ? "Detection failed"
+                          : s.filtered.length === 0
+                            ? "No models detected · open Settings → Models"
+                            : null;
+                    })()
                   : null;
             return (
               <ModelSection
-                key={p.id}
-                sectionKey={p.id}
-                title={p.label}
+                key={s.sectionKey}
+                sectionKey={s.sectionKey}
+                title={s.title}
                 providerIcon={PROVIDER_ICON[p.id]}
                 missingKey={!hasKey}
                 onSetKey={() => void openSettingsWindow("models")}
-                note={sumopodNote}
-                models={filtered.map((m) => ({
+                note={note}
+                models={s.filtered.map((m) => ({
                   model: m,
                   provider: p,
                   hasKey,
                 }))}
-                collapsed={collapsed.has(p.id)}
-                onToggle={() => toggleSection(p.id)}
+                collapsed={collapsed.has(s.sectionKey)}
+                onToggle={() => toggleSection(s.sectionKey)}
                 query={query}
                 selectedId={selected}
                 selectedProviderId={selectedProvider}

@@ -324,7 +324,8 @@ function CustomSubagentDialog({
             <Label>Model</Label>
             <PromptModelDropdown
               value={draft.model ?? ""}
-              onChange={(model) => setDraft({ ...draft, model })}
+              provider={draft.modelProvider}
+              onChange={(model, modelProvider) => setDraft({ ...draft, model, modelProvider })}
             />
             <span className="text-muted-foreground text-[10px]">
               Run this worker on its own model (e.g. a cheaper one for large searches). Default =

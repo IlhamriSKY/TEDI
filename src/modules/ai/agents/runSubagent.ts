@@ -1,5 +1,5 @@
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
-import { tryGetModel, type DynamicModelId, type ModelInfo } from "../config";
+import { tryGetModel, type DynamicModelId, type ModelInfo, type ProviderId } from "../config";
 import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import { classifyError, TediErrorCode } from "../lib/errors";
@@ -41,6 +41,9 @@ type Args = {
   prompt: string;
   keys: ProviderKeys;
   modelId: DynamicModelId;
+  /** Parent's selected provider; wins over id-based lookup for ids shared by
+   *  two providers (e.g. `deepseek-v4-pro` on both DeepSeek and SumoPod). */
+  provider?: ProviderId;
   toolContext: ToolContext;
   lmstudioBaseURL?: string;
   openaiCompatibleBaseURL?: string;
@@ -79,6 +82,7 @@ export async function runSubagent({
   prompt,
   keys,
   modelId,
+  provider: parentProvider,
   toolContext,
   lmstudioBaseURL,
   openaiCompatibleBaseURL,
@@ -137,15 +141,27 @@ export async function runSubagent({
   const effectiveModelId = resolvePromptModel(overrides, promptId, def.model ?? modelId);
   const temperature = resolvePromptTemperature(overrides, promptId);
 
+  // Provider must track the SOURCE of effectiveModelId so ids shared by two
+  // providers (e.g. `deepseek-v4-pro` on DeepSeek and SumoPod) route correctly:
+  // a prompt override > the def's own model > the inherited parent model.
   // Unknown ids fall back to SumoPod (runtime discovery via /v1/models).
+  const overrideModel = overrides[promptId]?.model?.trim();
+  const explicitProvider: ProviderId | undefined = overrideModel
+    ? (overrides[promptId]?.modelProvider ?? undefined)
+    : def.model
+      ? (def.modelProvider ?? undefined)
+      : parentProvider;
+  const known = tryGetModel(effectiveModelId);
+  const provider: ProviderId = explicitProvider ?? known?.provider ?? "sumopod";
   const info: ModelInfo =
-    tryGetModel(effectiveModelId) ??
-    ({
-      id: effectiveModelId,
-      provider: "sumopod",
-      label: effectiveModelId,
-      hint: "SumoPod",
-    } as ModelInfo);
+    known && known.provider === provider
+      ? known
+      : {
+          id: effectiveModelId,
+          provider,
+          label: known?.label ?? effectiveModelId,
+          hint: known?.hint ?? "",
+        };
 
   const model = await buildLanguageModel(info.provider, keys, info.id, {
     lmstudioBaseURL,

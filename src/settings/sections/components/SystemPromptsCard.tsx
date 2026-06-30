@@ -39,6 +39,7 @@ import {
   providerNeedsKey,
   tryGetModel,
   type ModelInfo,
+  type ProviderId,
 } from "@/modules/ai/config";
 import { SUBAGENTS } from "@/modules/ai/agents/registry";
 import {
@@ -102,6 +103,8 @@ const GROUP_ORDER = ["Main agent", "Sub-agents", "Other"] as const;
 type Draft = {
   prompt: string;
   model: string;
+  /** Provider for `model`; disambiguates ids shared across providers. */
+  modelProvider: ProviderId | null;
   /** Kept as a string so the field can be empty (= unset). */
   temperature: string;
 };
@@ -175,6 +178,7 @@ export function SystemPromptsCard({
       initial: {
         prompt: o?.prompt ?? DEFAULTS[m.id],
         model: o?.model ?? "",
+        modelProvider: o?.modelProvider ?? null,
         temperature: o?.temperature != null ? String(o.temperature) : "",
       },
     });
@@ -245,6 +249,8 @@ export function SystemPromptsCard({
             // entry can collapse back to stock when nothing custom remains.
             prompt: draft.prompt.trim() !== "" && draft.prompt !== def ? draft.prompt : undefined,
             model: meta.capabilities.model ? draft.model || null : undefined,
+            modelProvider:
+              meta.capabilities.model && draft.model ? (draft.modelProvider ?? null) : undefined,
             temperature:
               meta.capabilities.temperature && tempNum != null && Number.isFinite(tempNum)
                 ? tempNum
@@ -413,7 +419,8 @@ function PromptEditorDialog({
               <Label>Model</Label>
               <PromptModelDropdown
                 value={draft.model}
-                onChange={(model) => setDraft({ ...draft, model })}
+                provider={draft.modelProvider}
+                onChange={(model, modelProvider) => setDraft({ ...draft, model, modelProvider })}
               />
               <span className="text-muted-foreground text-[10px]">
                 Run this sub-agent on its own model (e.g. a cheaper one for large searches).
@@ -454,10 +461,12 @@ function PromptEditorDialog({
  *  sub-agent editor. Empty value = "same as chat". */
 export function PromptModelDropdown({
   value,
+  provider,
   onChange,
 }: {
   value: string;
-  onChange: (model: string) => void;
+  provider?: ProviderId | null;
+  onChange: (model: string, provider: ProviderId | null) => void;
 }) {
   const [keys, setKeys] = useState<ProviderKeys>(EMPTY_PROVIDER_KEYS);
   const [instanceKeys, setInstanceKeys] = useState<Record<string, string | null>>({});
@@ -514,7 +523,6 @@ export function PromptModelDropdown({
     }
   }, [instanceKeys, oaiCompatInstances]);
 
-  const selected = value ? tryGetModel(value) : null;
   const availableModels = useMemo(() => {
     const out: ModelInfo[] = [];
     const seen = new Set<string>();
@@ -544,6 +552,13 @@ export function PromptModelDropdown({
 
     return out.sort((a, b) => a.label.localeCompare(b.label));
   }, [keys, oaiCompatModels, sumopodModels.models]);
+  // Resolve the selected entry by id AND provider so a shared id shows the right
+  // provider's label; fall back to id-based lookup for pre-provider saved data.
+  const selected = value
+    ? (availableModels.find((m) => m.id === value && (!provider || m.provider === provider)) ??
+      tryGetModel(value) ??
+      null)
+    : null;
   const filteredModels = useMemo(
     () => availableModels.filter((m) => matchesQuery(m, query)),
     [availableModels, query],
@@ -601,7 +616,7 @@ export function PromptModelDropdown({
         <div className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto p-1">
           <DropdownMenuItem
             className="flex flex-col items-start gap-0.5"
-            onSelect={() => onChange("")}
+            onSelect={() => onChange("", null)}
           >
             <span>Same as chat (default)</span>
             <span className="text-muted-foreground text-[10px] font-normal">
@@ -613,9 +628,9 @@ export function PromptModelDropdown({
               key={`${m.provider}::${m.id}`}
               className={cn(
                 "flex items-start justify-between gap-3",
-                value === m.id && "bg-accent/50",
+                value === m.id && (!provider || provider === m.provider) && "bg-accent/50",
               )}
-              onSelect={() => onChange(m.id)}
+              onSelect={() => onChange(m.id, m.provider)}
             >
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate">{m.label}</span>

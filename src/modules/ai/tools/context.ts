@@ -1,6 +1,6 @@
 import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { ProviderKeys } from "../lib/keyring";
-import type { DynamicModelId } from "../config";
+import type { DynamicModelId, ProviderId } from "../config";
 
 export type ToolContext = {
   /** Active terminal cwd for resolving relative paths. Null means home. */
@@ -103,6 +103,9 @@ export type ToolContext = {
    *  Used by `run_subagent` to spawn with the parent agent's credentials. */
   getApiKeys: () => ProviderKeys;
   getSelectedModelId: () => DynamicModelId;
+  /** Provider picked alongside the selected model; disambiguates ids shared by
+   *  two providers so a sub-agent inherits the parent's actual provider. */
+  getSelectedProvider?: () => ProviderId | undefined;
   /** Fires when the agent loop is cancelled (Stop, session deleted, provider
    *  error). Tools should bail early. Undefined means never-aborted. */
   abortSignal?: AbortSignal;

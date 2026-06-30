@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { SUBAGENTS, type SubagentDef, READ_ONLY_TOOLS } from "../agents/registry";
+import type { ProviderId } from "../config";
 
 const STORE_PATH = "tedi-subagents.json";
 const KEY_CUSTOM = "customSubagents";
@@ -29,6 +30,8 @@ export type CustomSubagentDef = {
   tools: string[]; // subset of READ_ONLY_TOOLS
   /** Optional model id; empty/undefined = same as the parent chat model. */
   model?: string;
+  /** Provider for `model`. Disambiguates ids shared across providers. */
+  modelProvider?: ProviderId | null;
   enabled: boolean;
 };
 
@@ -125,6 +128,7 @@ export function getAllSubagentDefs(): Record<string, SubagentDef> {
         tools: a.tools.filter((t) => READ_ONLY_TOOLS.includes(t)),
         systemPrompt: a.systemPrompt,
         model: a.model || undefined,
+        modelProvider: a.modelProvider || undefined,
       } as SubagentDef,
     ]);
   return { ...builtIn, ...Object.fromEntries(customEntries) };

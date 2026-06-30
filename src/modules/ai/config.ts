@@ -65,6 +65,10 @@ export function openaiCompatibleKeyringAccount(id: string): string { return id =
 const OAI_COMPAT_MODEL_SEP = "::";
 export function openaiCompatibleModelId(instanceId: string, rawModelId: string): string { return `${instanceId}${OAI_COMPAT_MODEL_SEP}${rawModelId}`; }
 export function parseOpenAICompatibleModelId(modelId: string): { instanceId: string; rawModelId: string } | null { const i = modelId.indexOf(OAI_COMPAT_MODEL_SEP); return i === -1 ? null : { instanceId: modelId.slice(0, i), rawModelId: modelId.slice(i + OAI_COMPAT_MODEL_SEP.length) }; }
+// Group detected openai-compatible models per configured instance, headed by the instance label; several OAC endpoints can be added so the picker groups by label, not the shared provider name.
+export function groupOpenAICompatibleByInstance(models: readonly ModelInfo[], instances: readonly OpenAICompatibleInstance[]): Array<{ instanceId: string; label: string; models: ModelInfo[] }> { return instances.map((inst) => ({ instanceId: inst.id, label: inst.label, models: models.filter((m) => parseOpenAICompatibleModelId(m.id)?.instanceId === inst.id) })); }
+// Instance label for a namespaced openai-compatible model id; null if not OAC or the instance is gone. Credits the chat chip to the endpoint.
+export function openAICompatibleInstanceLabel(modelId: string, instances: readonly OpenAICompatibleInstance[]): string | null { const p = parseOpenAICompatibleModelId(modelId); if (!p) return null; return instances.find((i) => i.id === p.instanceId)?.label ?? null; }
 
 type OAIRuntime = { baseURL: string; apiKey: string };
 const oaiCompatRuntime = new Map<string, OAIRuntime>();

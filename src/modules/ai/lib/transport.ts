@@ -2,7 +2,7 @@ import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { findLastIndex } from "@/lib/utils";
 import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
-import { getModelContextLimit, type DynamicModelId } from "../config";
+import { getModelContextLimit, type DynamicModelId, type ProviderId } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import { formatSkillsPrompt, loadSkills } from "./skills";
 import { buildMcpToolsAsync, getMcpToolsSummary } from "../tools/mcp";
@@ -207,6 +207,9 @@ type Deps = {
     info: { dropped: number; kept: number },
   ) => void;
   getModelId: () => DynamicModelId;
+  /** Provider picked alongside the model id; disambiguates ids shared by two
+   *  providers (e.g. `deepseek-v4-pro` on both DeepSeek and SumoPod). */
+  getSelectedProvider?: () => ProviderId | undefined;
   getCustomInstructions: () => string;
   getAgentPersona: () => { name: string; instructions: string } | null;
   getLive: () => LiveSnapshot;
@@ -267,6 +270,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       const snapshot = {
         keys: deps.getKeys(),
         modelId: deps.getModelId(),
+        provider: deps.getSelectedProvider?.(),
         customInstructions: deps.getCustomInstructions(),
         agentPersona: deps.getAgentPersona(),
         lmstudioBaseURL: deps.getLmstudioBaseURL?.(),
@@ -307,6 +311,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
           const result = await runAgentStream({
             keys: snapshot.keys,
             modelId: snapshot.modelId,
+            provider: snapshot.provider,
             customInstructions: snapshot.customInstructions,
             agentPersona: snapshot.agentPersona,
             toolContext: deps.toolContext,

@@ -289,6 +289,10 @@ export type AgentUsageDelta = {
 export type RunAgentOptions = {
   keys: ProviderKeys;
   modelId?: DynamicModelId;
+  /** Provider the user picked alongside `modelId`. Wins over id-based lookup so
+   *  a model id shared by two providers (e.g. `deepseek-v4-pro` on both the
+   *  native DeepSeek provider and SumoPod) routes to the one actually selected. */
+  provider?: ProviderId;
   customInstructions?: string;
   agentPersona?: { name: string; instructions: string } | null;
   toolContext: ToolContext;
@@ -438,26 +442,28 @@ export async function runAgentStream(
   opts: RunAgentOptions & { mcpTools?: McpToolRecord; mcpSummary?: string | null },
 ) {
   const requestedModelId = opts.modelId ?? DEFAULT_MODEL_ID;
+  const known = tryGetModel(requestedModelId);
+  // Unknown id that carries an openai-compatible namespace routes back through
+  // that provider so the agent resolves the right endpoint instead of
+  // mislabelling it as SumoPod.
+  const fallbackProvider: ProviderId = resolveOpenAICompatibleModel(requestedModelId)
+    ? "openai-compatible"
+    : "sumopod";
+  // The explicitly-selected provider wins over id-based lookup. `tryGetModel`
+  // prefers the static MODELS table, so a SumoPod id that also exists natively
+  // (deepseek-v4-pro, claude-sonnet-4-6) would otherwise resolve to the native
+  // provider and fail with "no API key".
+  const provider: ProviderId = opts.provider ?? known?.provider ?? fallbackProvider;
   const modelInfo: ModelInfo =
-    tryGetModel(requestedModelId) ??
-    // Unknown id: if it carries an openai-compatible namespace, route it back
-    // through that provider so the agent resolves the right endpoint instead of
-    // mislabelling it as SumoPod.
-    (resolveOpenAICompatibleModel(requestedModelId)
-      ? ({
+    known && known.provider === provider
+      ? known
+      : {
           id: requestedModelId,
-          provider: "openai-compatible",
-          label: requestedModelId,
-          hint: "OpenAI Compatible",
-        } as ModelInfo)
-      : ({
-          id: requestedModelId,
-          provider: "sumopod",
-          label: requestedModelId,
-          hint: "SumoPod",
-        } as ModelInfo));
+          provider,
+          label: known?.label ?? requestedModelId,
+          hint: known?.hint ?? "",
+        };
 
-  const provider = modelInfo.provider;
   const model = await buildLanguageModel(provider, opts.keys, modelInfo.id, {
     lmstudioBaseURL: opts.lmstudioBaseURL,
     openaiCompatibleBaseURL: opts.openaiCompatibleBaseURL,

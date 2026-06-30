@@ -4,6 +4,8 @@
 // auto-execute in runSubagent, guarded by the denylist + checkpoint/restore).
 // Polaris (the orchestrator) is TEDI's main chat agent. Sub-agents run on the
 // parent chat model by default.
+import type { ProviderId } from "../config";
+
 export type BuiltinSubagentType =
   | "comet"
   | "nebula"
@@ -55,6 +57,8 @@ export type SubagentDef = {
   /** Optional per-agent model id. Custom sub-agents may set this; built-ins
    *  leave it unset and inherit the parent chat model. */
   model?: string;
+  /** Provider for `model`. Disambiguates ids shared across providers. */
+  modelProvider?: ProviderId;
 };
 
 const COMET_PROMPT = `You are Comet, a read-only codebase search specialist. Your job: find files and code, return actionable results. Your only tools are read_file, list_directory, grep, and glob - no edits, no commands.

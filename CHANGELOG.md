@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.69] - 30-06-2026
+
+### Fixed
+
+- **Models served by a gateway under a name that also exists natively no longer fail with "something went wrong - no API key".** A model id is not unique across providers: `deepseek-v4-pro` and `claude-sonnet-4-6` exist both as native-provider models and in the SumoPod catalogue. The request path re-derived the provider from the model id alone via `tryGetModel`, which prefers the static model table, so picking the SumoPod variant resolved to the native DeepSeek/Anthropic provider and threw because that provider had no key (while GLM via an OpenAI-Compatible gateway worked, because its id is namespaced). The provider the user actually picked was already tracked (`selectedProvider`) but dropped before the request. It is now threaded through the transport into the agent and wins over id-based lookup, and the send-gate / active-key check honour it too. The same disambiguation now covers the default-model picker, the per-prompt and custom sub-agent model overrides (a `modelProvider` is stored alongside the id), and orchestration fan-outs (sub-agents inherit the parent's provider). See [agent.ts](src/modules/ai/lib/agent.ts), [transport.ts](src/modules/ai/lib/transport.ts), [chatStore.ts](src/modules/ai/store/chatStore.ts), [runSubagent.ts](src/modules/ai/agents/runSubagent.ts), [prompts.ts](src/modules/ai/lib/prompts.ts).
+- **The Settings tab bar is centered.** The tab container is laid out as a flex column (the `Tabs` base sets `flex-col` for horizontal orientation), so `justify-center` only centered on the vertical axis and the `w-fit` tab list sat against the left edge; it now uses `items-center` (the cross axis) so the tabs are horizontally centered. See [SettingsApp.tsx](src/settings/SettingsApp.tsx).
+
+### Changed
+
+- **OpenAI-Compatible endpoints are grouped by their own label in the model pickers, and the chat credits the endpoint by name.** Several OpenAI-Compatible endpoints can be added, but the chat and default-model pickers lumped them all under one generic "OpenAI Compatible" section and the message chip showed the provider name plus a meaningless gateway tag (e.g. `cx`). Each configured endpoint now gets its own section headed by its configured label (with per-endpoint detection status), and the sent-message chip credits the endpoint label instead of the provider name. See [config.ts](src/modules/ai/config.ts), [ModelDropdown.tsx](src/modules/ai/components/ModelDropdown.tsx), [DefaultModelDropdown.tsx](src/settings/sections/components/DefaultModelDropdown.tsx), [AiChat.tsx](src/modules/ai/components/AiChat.tsx).
+
 ## [0.3.68] - 30-06-2026
 
 ### Fixed

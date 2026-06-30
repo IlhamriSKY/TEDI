@@ -212,7 +212,7 @@ export function SettingsApp() {
             value={active}
             onValueChange={(v) => setActive(v as SettingsTab)}
             orientation="horizontal"
-            className="flex shrink-0 justify-center px-4 pt-3 pb-1"
+            className="flex shrink-0 items-center px-4 pt-3 pb-1"
           >
             <TabsList className="bg-muted/40 h-7 px-2">
               {TABS.map((t) => (

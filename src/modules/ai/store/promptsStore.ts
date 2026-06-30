@@ -32,7 +32,11 @@ function broadcast(): void {
 function normalize(entry: PromptOverride): PromptOverride | undefined {
   const out: PromptOverride = {};
   if (entry.prompt && entry.prompt.trim().length > 0) out.prompt = clampPrompt(entry.prompt);
-  if (entry.model && entry.model.trim().length > 0) out.model = entry.model;
+  if (entry.model && entry.model.trim().length > 0) {
+    out.model = entry.model;
+    // Provider only travels with a model; dropped when the model clears.
+    if (entry.modelProvider) out.modelProvider = entry.modelProvider;
+  }
   if (typeof entry.temperature === "number" && Number.isFinite(entry.temperature)) {
     out.temperature = entry.temperature;
   }

@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import type { ProviderId } from "../config";
 
 /**
  * User-editable system prompts for every hard-coded AI agent in TEDI.
@@ -52,6 +53,9 @@ export type PromptCapabilities = {
 export type PromptOverride = {
   prompt?: string;
   model?: string | null;
+  /** Provider for `model`. Disambiguates ids shared across providers (e.g.
+   *  `deepseek-v4-pro` on both DeepSeek and SumoPod). */
+  modelProvider?: ProviderId | null;
   temperature?: number | null;
 };
 
