@@ -396,7 +396,8 @@ html[data-chrome="borderless"] body {
   background: transparent !important;
 }
 html[data-chrome="borderless"] #root,
-html[data-chrome="borderless"] #settings-root {
+html[data-chrome="borderless"] #settings-root,
+html[data-chrome="borderless"] #debug-root {
   height: 100%;
   border-radius: 0;
   overflow: hidden;
@@ -411,12 +412,13 @@ html[data-chrome="borderless"] #settings-root {
   background: var(--background);
 }
 
-/* Settings window reads as a modal floating over the main app, so it gets
- * the brand `--primary` accent outline + rounded corners. `overflow: hidden`
- * inherited from the rule above clips header/main children to the curve,
- * so the inner React root does NOT need its own border/rounded classes. */
-html[data-chrome="borderless"] #settings-root {
-  outline-color: var(--primary);
+/* Settings + Debug windows read as modals floating over the main app: rounded
+ * corners over the neutral `--border` outline from the rule above (no brand
+ * accent, matching the in-app debug panel look). `overflow: hidden` inherited
+ * from that rule clips header/main children to the curve, so the inner React
+ * root does NOT need its own border/rounded classes. */
+html[data-chrome="borderless"] #settings-root,
+html[data-chrome="borderless"] #debug-root {
   border-radius: 0.5rem;
 }
 

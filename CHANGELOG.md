@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.67] - 30-06-2026
+
+### Added
+
+- **The Debug-requests viewer is now its own native window.** It moved from an in-app floating panel to a separate OS window (same owner-window chrome as Settings, opened from the toolbar Debug button). Because the capture store is in-memory in the main window, an event bridge mirrors it into the new webview: the main window broadcasts the capture array only while a Debug window is listening, and the Debug window pulls a snapshot on open and stays in sync. See [DebugApp.tsx](src/debug/DebugApp.tsx), [debugBridge.ts](src/modules/ai/store/debugBridge.ts), [DebugRequestViewer.tsx](src/modules/ai/components/DebugRequestViewer.tsx), [lib.rs](src-tauri/src/lib.rs).
+- **Sub-agent results appear the moment each one finishes.** In a parallel `run_subagents` fan-out, each sub-agent's summary now shows in the live progress view (as collapsible markdown, expanded by default) the instant that agent lands, instead of all summaries appearing together when the whole call returns. See [subagentRunStore.ts](src/modules/ai/store/subagentRunStore.ts), [subagent.ts](src/modules/ai/tools/subagent.ts), [tool.tsx](src/components/ai-elements/tool.tsx).
+
+### Changed
+
+- **Sub-agent badges show the agent that actually runs.** A caller synonym like `explore` now resolves to its real agent name (`Comet`) at every badge site, via a single shared resolver that uses the same logic as the runtime, so the label matches what executed. See [resolveSubagent.ts](src/modules/ai/agents/resolveSubagent.ts), [tool.tsx](src/components/ai-elements/tool.tsx), [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **Sub-agent summaries render as formatted markdown** instead of raw monospace text, in both the live progress rows and the final result views. See [tool.tsx](src/components/ai-elements/tool.tsx).
+- **The Settings window now matches the Debug window.** Its tab nav moved out of the title bar into the top of the body and is centered; the brand-blue accent outline on the window is now a neutral border (matching the in-app debug-panel look); and the header is a plain "Settings" title with a close button. See [SettingsApp.tsx](src/settings/SettingsApp.tsx), [globals.css](src/styles/globals.css).
+- **Selected chips and cards use an accent-filled border, not a white one.** The white-ish `border-foreground` selection borders became `border-accent` so a selected item reads as a filled accent block: debug filter chips + capture rows, the sub-agent read-only tool toggles, the agent icon picker, and the OpenAI-compatible / SSH preset chips. See [DebugApp.tsx](src/debug/DebugApp.tsx), [SubagentsCard.tsx](src/settings/sections/components/SubagentsCard.tsx), [AgentsSection.tsx](src/settings/sections/AgentsSection.tsx), [OpenAICompatibleBlock.tsx](src/settings/sections/components/OpenAICompatibleBlock.tsx), [SshConnectionDialog.tsx](src/modules/ssh/SshConnectionDialog.tsx).
+- **`/mcp` is compact: server name on the left (green when enabled), command on the right.** The dot gutter that left a large empty gap is gone; the row is now a clean two-column name/command layout, with the name tinted green when the server is enabled. See [slashCommands.ts](src/modules/ai/lib/slashCommands.ts), [InfoModal.tsx](src/modules/ai/components/InfoModal.tsx).
+
+### Fixed
+
+- **The Debug and Settings utility windows no longer trip main-window-only theme logic.** Window detection switched from "the `#settings-root` element is absent" (which was also true in the new Debug window) to "the `#root` element is present", so the Debug window opts out of the wallpaper migration and the whole-app opacity glass exactly like the Settings window. See [ThemeProvider.tsx](src/modules/theme/ThemeProvider.tsx), [customTheme.ts](src/modules/settings/customTheme.ts), [appOpacity.ts](src/modules/settings/appOpacity.ts).
+
 ## [0.3.66] - 30-06-2026
 
 ### Added

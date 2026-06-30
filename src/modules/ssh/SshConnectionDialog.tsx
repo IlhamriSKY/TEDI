@@ -657,7 +657,7 @@ function AuthTab({
       className={
         "flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors " +
         (active
-          ? "border-foreground/40 bg-accent/60"
+          ? "border-accent bg-accent/60"
           : "border-border/60 hover:bg-accent/30 bg-transparent")
       }
     >

@@ -24,6 +24,7 @@ export default defineConfig(async ({ mode }) => ({
       input: {
         main: path.resolve(__dirname, "index.html"),
         settings: path.resolve(__dirname, "settings.html"),
+        debug: path.resolve(__dirname, "debug.html"),
       },
       output: {
         manualChunks(id: string) {

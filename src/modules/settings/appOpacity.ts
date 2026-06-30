@@ -33,9 +33,13 @@ function writeShadow(value: number): void {
   }
 }
 
-function isSettingsWindow(): boolean {
+// Secondary utility windows (Settings, Debug) opt out of app transparency so
+// their controls stay solid/readable. Detect "not the main window" by the
+// absence of `#root` (only index.html mounts there), so any future utility
+// window opts out too.
+function isSecondaryWindow(): boolean {
   if (typeof document === "undefined") return false;
-  return document.getElementById("settings-root") !== null;
+  return document.getElementById("root") === null;
 }
 
 /**
@@ -48,7 +52,7 @@ function isSettingsWindow(): boolean {
  * persistence. Settings window opts out so its controls stay solid/readable.
  */
 function applyOpacityCss(value: number): void {
-  if (isSettingsWindow()) return;
+  if (isSecondaryWindow()) return;
   const root = document.documentElement;
   root.style.setProperty("--tedi-app-opacity", String(value));
   if (value < GLASS_EPSILON) root.dataset.tediGlass = "on";

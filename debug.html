@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TEDI - Debug</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("tedi-ui-theme-shadow");
+          var resolved =
+            t === "light" || t === "dark"
+              ? t
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.classList.add(resolved);
+          document.documentElement.style.backgroundColor =
+            resolved === "dark" ? "#0a0a0a" : "#ffffff";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="debug-root"></div>
+    <script type="module" src="/src/debug/main.tsx"></script>
+  </body>
+</html>

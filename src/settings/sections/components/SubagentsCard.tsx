@@ -297,7 +297,7 @@ function CustomSubagentDialog({
                     className={cn(
                       "cursor-pointer rounded-md border px-2 py-1 font-mono text-[11px] transition-colors",
                       on
-                        ? "border-foreground/40 bg-accent text-foreground"
+                        ? "border-accent bg-accent text-foreground"
                         : "border-border/60 text-muted-foreground hover:bg-accent/40",
                     )}
                   >

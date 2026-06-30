@@ -492,7 +492,7 @@ function AgentEditorDialog({
                       className={cn(
                         "flex size-7 cursor-pointer items-center justify-center rounded-md border transition-colors",
                         active
-                          ? "border-foreground/40 bg-accent"
+                          ? "border-accent bg-accent"
                           : "border-border/60 hover:bg-accent/40",
                       )}
                     >

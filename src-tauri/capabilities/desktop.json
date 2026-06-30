@@ -7,7 +7,8 @@
   ],
   "windows": [
     "main",
-    "settings"
+    "settings",
+    "debug"
   ],
   "permissions": [
     "autostart:default",

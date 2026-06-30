@@ -143,7 +143,7 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         // custom theme is on and opacity drops below solid so it reappears.
         // Persisted, so it self-corrects just once.
         if (
-          document.getElementById("settings-root") === null &&
+          document.getElementById("root") !== null &&
           p.customTheme.background.enabled &&
           !!p.customTheme.background.dataUrl
         ) {

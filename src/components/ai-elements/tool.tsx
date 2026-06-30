@@ -1,6 +1,7 @@
 "use client";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { MessageResponse } from "./message";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
@@ -8,7 +9,7 @@ import {
   useSubagentRunStore,
   type SubagentRun,
 } from "@/modules/ai/store/subagentRunStore";
-import { getAllSubagentDefs } from "@/modules/ai/store/subagentsStore";
+import { resolveSubagentLabel } from "@/modules/ai/agents/resolveSubagent";
 import {
   AddSquareIcon,
   AlertCircleIcon,
@@ -181,8 +182,9 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     case "run_subagent": {
       const desc = str("description");
       const type = str("type");
-      if (desc && type) return `${type} · ${desc}`;
-      return desc ?? type;
+      const name = type ? resolveSubagentLabel(type) : null;
+      if (desc && name) return `${name} · ${desc}`;
+      return desc ?? name;
     }
     case "run_subagents": {
       const tasks = Array.isArray(i.tasks) ? i.tasks : null;
@@ -357,88 +359,133 @@ export const Tool = memo(ToolImpl, (a, b) => {
 function SubagentLiveDetails({ runs }: { runs: SubagentRun[] }) {
   const active = runs.some((run) => run.status === "running");
   const now = useLiveNow(active);
-  // Resolve the friendly agent name (e.g. "Comet", "Odyssey") from the
-  // type id; falls back to the raw id for anything unregistered.
-  const defs = getAllSubagentDefs();
 
   return (
     <div className="space-y-1">
       <div className="text-muted-foreground text-[10px] font-medium">Progress</div>
       <div className="space-y-1">
-        {runs.map((run) => {
-          const agentName = defs[run.type]?.label ?? run.type;
-          const isRunning = run.status === "running";
-          const isError = run.status === "error";
-          const elapsed = isRunning
-            ? now - run.startedAt
-            : (run.durationMs ?? (run.endedAt ? run.endedAt - run.startedAt : 0));
-          const stats = [
-            run.stepCount != null ? `${run.stepCount} step${run.stepCount === 1 ? "" : "s"}` : null,
-            elapsed > 0 ? formatDuration(elapsed) : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-
-          return (
-            <div
-              key={run.id}
-              className={cn(
-                "border-border/50 bg-muted/25 flex flex-col gap-1 rounded-md border px-2 py-1.5 text-[11px]",
-                isRunning && "border-icon-working/40 bg-icon-working/5",
-                isError && "border-destructive/30 bg-destructive/5",
-              )}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
-                  {isRunning ? (
-                    <Spinner className="size-3" />
-                  ) : (
-                    <HugeiconsIcon
-                      icon={isError ? AlertCircleIcon : CheckmarkSquare02Icon}
-                      size={12}
-                      strokeWidth={1.75}
-                      className={isError ? "text-destructive" : "text-diff-added"}
-                    />
-                  )}
-                </span>
-                <span className="bg-foreground/10 text-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
-                  {agentName}
-                </span>
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate",
-                    isError
-                      ? "text-destructive"
-                      : isRunning
-                        ? "text-foreground"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  {isError ? (run.error?.trim() || "failed") : run.label || "working"}
-                </span>
-                {stats ? (
-                  <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
-                    {stats}
-                  </span>
-                ) : null}
-              </div>
-              {isRunning && run.currentStep ? (
-                <div className="text-muted-foreground/80 truncate pl-5 font-mono text-[10px]">
-                  {run.currentStep}
-                </div>
-              ) : null}
-              {isError && run.error ? (
-                <div className="text-destructive/90 break-all pl-5 font-mono text-[10px] leading-relaxed">
-                  {run.error}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+        {runs.map((run) => (
+          <SubagentRunRow key={run.id} run={run} now={now} />
+        ))}
       </div>
     </div>
   );
 }
+
+// One live row. As soon as a run finishes with a summary, its result shows here
+// (rendered as markdown, expanded by default) - so a fan-out's results appear
+// one by one the moment each subagent lands, not all at once when the whole
+// run_subagents call returns. Memoized so finished rows don't re-render on the
+// 1s elapsed-time tick (their run object is referentially stable between ticks).
+const SubagentRunRow = memo(
+  function SubagentRunRow({ run, now }: { run: SubagentRun; now: number }) {
+    // Friendly agent name (e.g. "Comet"), resolving caller synonyms like
+    // "explore" the same way the runtime does, so the badge shows the agent that
+    // actually runs - not the raw label the model typed.
+    const agentName = resolveSubagentLabel(run.type);
+    const isRunning = run.status === "running";
+    const isError = run.status === "error";
+    const elapsed = isRunning
+      ? now - run.startedAt
+      : (run.durationMs ?? (run.endedAt ? run.endedAt - run.startedAt : 0));
+    const stats = [
+      run.stepCount != null ? `${run.stepCount} step${run.stepCount === 1 ? "" : "s"}` : null,
+      elapsed > 0 ? formatDuration(elapsed) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const summary = run.status === "done" && run.summary?.trim() ? run.summary : null;
+
+    const containerClass = cn(
+      "border-border/50 bg-muted/25 flex flex-col gap-1 rounded-md border px-2 py-1.5 text-[11px]",
+      isRunning && "border-icon-working/40 bg-icon-working/5",
+      isError && "border-destructive/30 bg-destructive/5",
+    );
+
+    const statusIcon = (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+        {isRunning ? (
+          <Spinner className="size-3" />
+        ) : (
+          <HugeiconsIcon
+            icon={isError ? AlertCircleIcon : CheckmarkSquare02Icon}
+            size={12}
+            strokeWidth={1.75}
+            className={isError ? "text-destructive" : "text-diff-added"}
+          />
+        )}
+      </span>
+    );
+
+    const headerInner = (
+      <>
+        {statusIcon}
+        <span className="bg-foreground/10 text-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
+          {agentName}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            isError ? "text-destructive" : isRunning ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {isError ? (run.error?.trim() || "failed") : run.label || "working"}
+        </span>
+        {stats ? (
+          <span className="text-muted-foreground shrink-0 font-mono text-[10px]">{stats}</span>
+        ) : null}
+      </>
+    );
+
+    // Done with a summary -> collapsible result, open by default so it's visible
+    // immediately. Running/errored rows stay as a plain status line.
+    if (summary) {
+      return (
+        <Collapsible defaultOpen className={containerClass}>
+          <CollapsibleTrigger className="group/sar flex w-full cursor-pointer items-center gap-1.5 text-left">
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              size={11}
+              strokeWidth={2}
+              className="text-muted-foreground shrink-0 transition-transform group-data-[state=open]/sar:rotate-90"
+            />
+            {headerInner}
+          </CollapsibleTrigger>
+          <CollapsibleContent
+            className={cn(
+              "overflow-hidden",
+              "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+              "data-[state=open]:animate-in data-[state=open]:fade-in-0",
+            )}
+          >
+            <div className="border-border/60 mt-1 ml-2 border-l pt-1 pl-2.5">
+              <MessageResponse className="text-[12px] leading-relaxed">{summary}</MessageResponse>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      );
+    }
+
+    return (
+      <div className={containerClass}>
+        <div className="flex items-center gap-1.5">{headerInner}</div>
+        {isRunning && run.currentStep ? (
+          <div className="text-muted-foreground/80 truncate pl-5 font-mono text-[10px]">
+            {run.currentStep}
+          </div>
+        ) : null}
+        {isError && run.error ? (
+          <div className="text-destructive/90 break-all pl-5 font-mono text-[10px] leading-relaxed">
+            {run.error}
+          </div>
+        ) : null}
+      </div>
+    );
+  },
+  // Skip the 1s tick re-render for non-running rows: the elapsed clock only
+  // matters while running, and a finished run's object is referentially stable.
+  (a, b) => a.run === b.run && (a.run.status === "running" ? a.now === b.now : true),
+);
 
 function useLiveNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -891,24 +938,25 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     }
     const summary = typeof o.summary === "string" ? o.summary : "";
     const type = typeof o.type === "string" ? o.type : null;
+    const typeName = type ? resolveSubagentLabel(type) : null;
     const description = typeof o.description === "string" ? o.description : null;
     const stepCount = typeof o.stepCount === "number" ? o.stepCount : null;
     const durationMs = typeof o.durationMs === "number" ? o.durationMs : null;
     return (
       <div className="space-y-2">
-        {(type || description) && (
+        {(typeName || description) && (
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            {type ? (
+            {typeName ? (
               <span className="bg-foreground/10 text-foreground rounded px-1.5 py-0.5 font-mono font-medium">
-                {type}
+                {typeName}
               </span>
             ) : null}
             {description ? <span className="text-muted-foreground">{description}</span> : null}
           </div>
         )}
         {summary ? (
-          <div className="border-border/60 bg-muted/30 rounded border p-2 text-[12px] leading-relaxed whitespace-pre-wrap">
-            {summary}
+          <div className="border-border/60 bg-muted/30 rounded border p-2">
+            <MessageResponse className="text-[12px] leading-relaxed">{summary}</MessageResponse>
           </div>
         ) : (
           <div className="text-muted-foreground text-[11px] italic">(no output)</div>
@@ -1023,6 +1071,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
 
 function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
   const type = typeof result.type === "string" ? result.type : "subagent";
+  const typeName = resolveSubagentLabel(type);
   const desc = typeof result.description === "string" ? result.description : null;
   const err = typeof result.error === "string" ? result.error : null;
   const summary = typeof result.summary === "string" ? result.summary : "";
@@ -1062,7 +1111,7 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
           <span className="w-[11px] shrink-0" />
         )}
         <span className="bg-foreground/10 text-foreground shrink-0 rounded px-1.5 py-0.5 font-mono font-medium">
-          {type}
+          {typeName}
         </span>
         {desc ? (
           <span className="text-muted-foreground min-w-0 flex-1 truncate">{desc}</span>
@@ -1100,7 +1149,7 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
                 {err}
               </div>
             ) : (
-              <div className="text-[12px] leading-relaxed whitespace-pre-wrap">{summary}</div>
+              <MessageResponse className="text-[12px] leading-relaxed">{summary}</MessageResponse>
             )}
           </div>
         </CollapsibleContent>

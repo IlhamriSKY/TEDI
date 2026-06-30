@@ -27,6 +27,9 @@ export type SubagentRun = {
   currentStep?: string;
   durationMs?: number;
   error?: string;
+  /** Final summary text once done, so the live view can show each subagent's
+   *  result the moment it finishes - without waiting for the whole fan-out. */
+  summary?: string;
 };
 
 /** Keep the per-session list bounded; oldest runs fall off the front. */
@@ -41,11 +44,11 @@ type SubagentRunState = {
   hidden: Set<string>;
   /** Register a freshly-spawned subagent. Returns its run id. */
   start: (sessionId: string, info: { type: string; label?: string }) => string;
-  /** Mark a run finished with its stats. */
+  /** Mark a run finished with its stats and final summary. */
   finish: (
     sessionId: string,
     id: string,
-    patch: { stepCount?: number; durationMs?: number },
+    patch: { stepCount?: number; durationMs?: number; summary?: string },
   ) => void;
   /** Mark a run failed (or aborted) with a message. */
   fail: (sessionId: string, id: string, error: string) => void;

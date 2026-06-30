@@ -180,28 +180,17 @@ export function SettingsApp() {
       {/* Outer border lives on `#settings-root` via globals.css; doing it on
           the inner root would clip 2px under `h-screen`. macOS keeps native chrome. */}
       <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden select-none">
+        {/* Header: just a title + close, matching the Debug window. The tab nav
+            lives in the body below (not the header), also like Debug. */}
         <header
           data-tauri-drag-region
-          className={`border-border/60 bg-card/60 flex h-11 shrink-0 items-center border-b ${
+          className={`border-border/60 bg-card/60 flex h-11 shrink-0 items-center gap-2 border-b ${
             IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
           }`}
         >
-          <Tabs
-            value={active}
-            onValueChange={(v) => setActive(v as SettingsTab)}
-            orientation="horizontal"
-            className="flex-1 items-center"
-            data-tauri-drag-region
-          >
-            <TabsList className="bg-muted/40 mx-auto h-7 px-2">
-              {TABS.map((t) => (
-                <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
-                  <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />
-                  <span>{t.label}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="text-[12px] font-medium">Settings</span>
+          </div>
           {USE_CUSTOM_WINDOW_CONTROLS && (
             <div className="flex h-full shrink-0 items-center pr-2 pl-1">
               <Button
@@ -218,11 +207,28 @@ export function SettingsApp() {
           )}
         </header>
 
-        <main className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-6 pb-7">
-          <div className="mx-auto w-full max-w-3xl">
-            <SectionErrorBoundary tabId={active}>
-              <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
-            </SectionErrorBoundary>
+        <main className="flex min-h-0 flex-1 flex-col">
+          <Tabs
+            value={active}
+            onValueChange={(v) => setActive(v as SettingsTab)}
+            orientation="horizontal"
+            className="flex shrink-0 justify-center px-4 pt-3 pb-1"
+          >
+            <TabsList className="bg-muted/40 h-7 px-2">
+              {TABS.map((t) => (
+                <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
+                  <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />
+                  <span>{t.label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-4 pb-7">
+            <div className="mx-auto w-full max-w-3xl">
+              <SectionErrorBoundary tabId={active}>
+                <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>
+              </SectionErrorBoundary>
+            </div>
           </div>
         </main>
       </div>

@@ -294,14 +294,15 @@ function clearCssVars(): void {
 }
 
 /**
- * Wallpaper is intentionally main-window only. The Settings window has its
- * own root (`#settings-root`) and we don't want a busy image behind the
- * controls. Colors still apply through the rest of the theme so the
- * settings UI stays in palette.
+ * Wallpaper is intentionally main-window only. The secondary utility windows
+ * (Settings, Debug) have their own roots and we don't want a busy image behind
+ * their controls. Colors still apply through the rest of the theme so their UI
+ * stays in palette. Detect "not the main window" by the absence of `#root`
+ * (only index.html mounts there), so any future utility window opts out too.
  */
-function isSettingsWindow(): boolean {
+function isSecondaryWindow(): boolean {
   if (typeof document === "undefined") return false;
-  return document.getElementById("settings-root") !== null;
+  return document.getElementById("root") === null;
 }
 
 const BG_MEDIA_ATTR = "data-tedi-bg-media";
@@ -366,7 +367,7 @@ function setDarkenOverlay(el: HTMLElement, darken: number): void {
 export function applyBackground(bg: ThemeBackground): void {
   if (typeof document === "undefined") return;
 
-  if (isSettingsWindow()) {
+  if (isSecondaryWindow()) {
     const existing = document.getElementById(BG_ELEMENT_ID);
     if (existing) existing.remove();
     return;

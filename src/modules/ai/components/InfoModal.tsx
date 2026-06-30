@@ -62,7 +62,21 @@ export function InfoModal() {
                               {row.kbd}
                             </code>
                           ) : (
-                            <span className="text-muted-foreground min-w-0 text-[11.5px] break-words">
+                            // No kbd: the label IS the left column (e.g. an MCP
+                            // server name). Prominent by default; tinted by tone
+                            // (green = enabled/connected).
+                            <span
+                              className={cn(
+                                "min-w-0 text-[11.5px] font-medium break-words",
+                                row.tone === "ok"
+                                  ? "text-diff-added"
+                                  : row.tone === "warn"
+                                    ? "text-icon-working"
+                                    : row.tone === "err"
+                                      ? "text-destructive"
+                                      : "text-foreground",
+                              )}
+                            >
                               {row.label}
                             </span>
                           )}

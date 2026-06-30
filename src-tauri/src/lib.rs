@@ -181,17 +181,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     if let Some(window) = app.get_webview_window("settings") {
         // Re-center over the main window so reopening follows the user
         // across displays.
-        if let Some(main) = app.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
-                main.outer_position(),
-                main.outer_size(),
-                window.outer_size(),
-            ) {
-                let x = main_pos.x + (main_size.width as i32 - settings_size.width as i32) / 2;
-                let y = main_pos.y + (main_size.height as i32 - settings_size.height as i32) / 2;
-                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-            }
-        }
+        recenter_over_main(&app, &window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -241,17 +231,68 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     // Tauri's default placement lands at the primary monitor's center even
     // when main is on a secondary display, which makes settings jump screens.
     // Re-center over main so it follows the user.
+    recenter_over_main(&app, &window);
+    let _ = window;
+    Ok(())
+}
+
+/// Center a child window over the main window (so it follows the user across
+/// monitors instead of landing on the primary display). No-op if either
+/// window's geometry can't be read. Shared by the Settings and Debug windows.
+fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
     if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
-            main.outer_position(),
-            main.outer_size(),
-            window.outer_size(),
-        ) {
-            let x = main_pos.x + (main_size.width as i32 - settings_size.width as i32) / 2;
-            let y = main_pos.y + (main_size.height as i32 - settings_size.height as i32) / 2;
+        if let (Ok(main_pos), Ok(main_size), Ok(win_size)) =
+            (main.outer_position(), main.outer_size(), window.outer_size())
+        {
+            let x = main_pos.x + (main_size.width as i32 - win_size.width as i32) / 2;
+            let y = main_pos.y + (main_size.height as i32 - win_size.height as i32) / 2;
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
         }
     }
+}
+
+/// Open (or reveal) the Debug-requests window. A separate native window that
+/// mirrors the main window's in-memory debug captures over Tauri events (see
+/// src/modules/ai/store/debugBridge.ts). Same owner-window chrome as Settings.
+#[tauri::command]
+async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("debug") {
+        recenter_over_main(&app, &window);
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let mut builder = WebviewWindowBuilder::new(&app, "debug", WebviewUrl::App("debug.html".into()))
+        .title("Debug")
+        .inner_size(980.0, 680.0)
+        .min_inner_size(460.0, 360.0)
+        .resizable(true)
+        .visible(false);
+
+    // Owner-window relationship, identical to Settings: stays above main without
+    // pinning above other apps, and the OS hides it when main minimizes.
+    if let Some(main) = app.get_webview_window("main") {
+        builder = builder.parent(&main).map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.decorations(false).transparent(true);
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.set_decorations(false);
+    }
+    disable_windows_corner_rounding(&window);
+    recenter_over_main(&app, &window);
     let _ = window;
     Ok(())
 }
@@ -473,7 +514,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
-                .with_denylist(&["settings"])
+                .with_denylist(&["settings", "debug"])
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
@@ -538,6 +579,7 @@ pub fn run() {
             shell::shell_bg_list,
             format::fmt_run_external,
             open_settings_window,
+            open_debug_window,
             preview::preview_embed_update,
             preview::preview_embed_navigate,
             preview::preview_embed_dispatch,
@@ -594,32 +636,39 @@ pub fn run() {
             // Owner-window semantics handle this on Windows; the explicit
             // mirroring below covers Linux/macOS and decoration-less
             // transparent windows where the OS auto-mirror is unreliable.
+            // Only the main window's events drive the mirroring onto its
+            // children (settings + debug); ignore the children's own events.
             let label = window.label();
-            if label != "main" && label != "settings" {
+            if label != "main" {
                 return;
             }
             let app = window.app_handle().clone();
+            const CHILDREN: [&str; 2] = ["settings", "debug"];
             match event {
                 // On Windows, minimize arrives as a Resized event (Tauri 2 has
                 // no Minimized variant). Sample the state and mirror it.
-                tauri::WindowEvent::Resized(_) if label == "main" => {
+                tauri::WindowEvent::Resized(_) => {
                     let Some(main) = app.get_webview_window("main") else {
                         return;
                     };
-                    let Some(settings) = app.get_webview_window("settings") else {
-                        return;
-                    };
                     let minimized = main.is_minimized().unwrap_or(false);
-                    if minimized {
-                        let _ = settings.minimize();
-                    } else if settings.is_minimized().unwrap_or(false) {
-                        let _ = settings.unminimize();
-                        let _ = settings.show();
+                    for child in CHILDREN {
+                        let Some(w) = app.get_webview_window(child) else {
+                            continue;
+                        };
+                        if minimized {
+                            let _ = w.minimize();
+                        } else if w.is_minimized().unwrap_or(false) {
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                        }
                     }
                 }
-                tauri::WindowEvent::CloseRequested { .. } if label == "main" => {
-                    if let Some(settings) = app.get_webview_window("settings") {
-                        let _ = settings.close();
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    for child in CHILDREN {
+                        if let Some(w) = app.get_webview_window(child) {
+                            let _ = w.close();
+                        }
                     }
                 }
                 _ => {}

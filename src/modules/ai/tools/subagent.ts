@@ -134,18 +134,20 @@ export function buildSubagentTools(ctx: ToolContext) {
                 runStore.step(sessionId, runId, { currentStep: label, stepCount: n });
             },
           });
+          const summary = clampForModel(
+            r.summary,
+            summaryCapFor(summary_kb, cfg.defaultSummaryKb, cfg.maxSummaryKb),
+          );
           if (sessionId && runId)
             runStore.finish(sessionId, runId, {
               stepCount: r.stepCount,
               durationMs: r.durationMs,
+              summary,
             });
           return {
             type,
             description,
-            summary: clampForModel(
-              r.summary,
-              summaryCapFor(summary_kb, cfg.defaultSummaryKb, cfg.maxSummaryKb),
-            ),
+            summary,
             stepCount: r.stepCount,
             durationMs: r.durationMs,
           };
@@ -357,6 +359,7 @@ export function buildSubagentTools(ctx: ToolContext) {
               runStore.finish(sessionId, runId, {
                 stepCount: result.stepCount,
                 durationMs: result.durationMs,
+                summary: result.summary,
               });
           }
           if (failed) skipDependentsOf(result.index);
