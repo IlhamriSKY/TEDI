@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { SettingsCard } from "../../components/SettingsCard";
 import {
   Add01Icon,
   Delete02Icon,
@@ -183,22 +184,17 @@ export function McpServersCard() {
   };
 
   return (
-    <section className="border-border/60 bg-card/30 flex flex-col gap-2 rounded-lg border px-4 py-3">
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[12.5px] font-medium">MCP Servers</span>
-          {servers.length > 0 && (
-            <span className="text-muted-foreground text-[10px]">
-              {servers.filter((s) => s.enabled).length}/{servers.length} enabled
-            </span>
-          )}
-        </div>
-        <span className="text-muted-foreground text-[11px] leading-relaxed">
-          Connect external tool servers via the Model Context Protocol. Each server exposes tools
-          the AI agent can use (e.g. browser automation, database access).
-        </span>
-      </div>
-
+    <SettingsCard
+      title="MCP Servers"
+      badge={
+        servers.length > 0 ? (
+          <span className="text-muted-foreground text-[10px]">
+            {servers.filter((s) => s.enabled).length}/{servers.length} enabled
+          </span>
+        ) : null
+      }
+      description="Connect external tool servers via the Model Context Protocol. Each server exposes tools the AI agent can use (e.g. browser automation, database access)."
+    >
       {/* Add: paste the run command (name auto-derived), like installing a skill */}
       <div className="flex items-center gap-2">
         <Input
@@ -400,6 +396,6 @@ export function McpServersCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </SettingsCard>
   );
 }

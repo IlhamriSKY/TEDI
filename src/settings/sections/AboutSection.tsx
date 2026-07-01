@@ -12,7 +12,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
-import { SettingsAccordion } from "../components/SettingsAccordion";
+import { SettingsCard } from "../components/SettingsCard";
 
 const REPO_URL = "https://github.com/IlhamriSKY/TEDI";
 const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
@@ -97,10 +97,9 @@ export function AboutSection() {
         </div>
       </div>
 
-      <SettingsAccordion
+      <SettingsCard
         title="Build details"
         description="Platform, bundle id, license, and source repositories."
-        summary={build ? `${build} · v${version}` : `v${version}`}
       >
         <dl className="grid grid-cols-[110px_1fr] gap-y-2.5 text-[12px]">
           <dt className="text-muted-foreground">Build</dt>
@@ -138,7 +137,7 @@ export function AboutSection() {
             </button>
           </dd>
         </dl>
-      </SettingsAccordion>
+      </SettingsCard>
 
       <div className="flex flex-col gap-2">
         <p className="text-muted-foreground text-[11px]">{updaterMessage(checkState)}</p>

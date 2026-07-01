@@ -78,7 +78,13 @@ const PLUGINS_BY_PARSER: Record<string, (() => Promise<Plugin>)[]> = {
     () => import("prettier/plugins/typescript").then((m) => m.default ?? m),
     () => import("prettier/plugins/estree").then((m) => m.default ?? m),
   ],
-  json: [() => import("prettier/plugins/babel").then((m) => m.default ?? m)],
+  json: [
+    () => import("prettier/plugins/babel").then((m) => m.default ?? m),
+    // The `json` parser emits an estree AST, so standalone needs the estree
+    // printer too — without it prettier.format throws "Couldn't find plugin
+    // for AST format estree".
+    () => import("prettier/plugins/estree").then((m) => m.default ?? m),
+  ],
   css: [() => import("prettier/plugins/postcss").then((m) => m.default ?? m)],
   scss: [() => import("prettier/plugins/postcss").then((m) => m.default ?? m)],
   less: [() => import("prettier/plugins/postcss").then((m) => m.default ?? m)],

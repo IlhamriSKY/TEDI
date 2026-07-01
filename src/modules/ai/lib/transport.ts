@@ -14,7 +14,31 @@ import { native, type DirEntry } from "./native";
 import { subscribeMemoryPathChanges } from "./memoryCache";
 import type { ToolContext } from "../tools/tools";
 
-const TEDI_MD_MAX_BYTES = 32 * 1024;
+// Preload budget for the workspace-root memory file (TEDI.md). It lands in the
+// cacheable system-prompt prefix every turn, so an exhaustive doc (this repo's
+// own TEDI.md is >100 KB) would dominate the prompt even for a "hi". Bound it to
+// a compact head; the full doc stays one read_file away (see boundProjectMemory).
+const TEDI_MD_PRELOAD_BYTES = 12 * 1024;
+const PROJECT_MEMORY_TRUNCATION_NOTE =
+  "\n\n[TEDI.md is large; only its header is preloaded here. Full architecture reference (backend/frontend internals, PTY daemon, module layout) is on disk - use read_file on TEDI.md when a task needs subsystem depth.]";
+
+/** Bound the preloaded project-memory doc so it does not dominate the prompt.
+ *  Under budget: return trimmed as-is. Over budget: cut at the last markdown
+ *  section header (\n#{1,6} ) at or before the budget so it never severs a table
+ *  or sentence, then append a read-on-demand pointer. Falls back to a paragraph
+ *  break, then a hard slice, when no header sits in range.
+ *  ponytail: head-truncation, not section-aware pruning; good enough because the
+ *  useful head (identity, stack, commands, backend map) leads the doc. */
+function boundProjectMemory(content: string, budget = TEDI_MD_PRELOAD_BYTES): string {
+  const trimmed = content.trim();
+  if (trimmed.length <= budget) return trimmed;
+  const window = trimmed.slice(0, budget);
+  let sectionCut = -1;
+  for (const m of window.matchAll(/\n#{1,6} /g)) sectionCut = m.index ?? sectionCut;
+  const cut = sectionCut > 0 ? sectionCut : window.lastIndexOf("\n\n");
+  const head = (cut > 0 ? trimmed.slice(0, cut) : window).trimEnd();
+  return head + PROJECT_MEMORY_TRUNCATION_NOTE;
+}
 type FileSignature = { mtime: number; size: number };
 type ProjectMemoryCacheEntry = {
   content: string | null;
@@ -98,8 +122,7 @@ async function readTediMd(workspaceRoot: string | null): Promise<string | null> 
       });
       return null;
     }
-    const content =
-      r.content.length > TEDI_MD_MAX_BYTES ? r.content.slice(0, TEDI_MD_MAX_BYTES) : r.content;
+    const content = boundProjectMemory(r.content);
     projectMemoryCache.set(key, {
       content,
       cachedAt: Date.now(),

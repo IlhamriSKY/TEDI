@@ -76,6 +76,7 @@ import { useWorkspaceSwitching } from "./hooks/useWorkspaceSwitching";
 import { useSshLeafState } from "./hooks/useSshLeafState";
 import { useAppContextBridge } from "./hooks/useAppContextBridge";
 import { usePaneHandles } from "./hooks/usePaneHandles";
+import { useEditorFileDrop } from "./hooks/useEditorFileDrop";
 import { useTabActions } from "./hooks/useTabActions";
 import { useFileActions } from "./hooks/useFileActions";
 import { useHeaderActions } from "./hooks/useHeaderActions";
@@ -143,6 +144,10 @@ export default function App() {
   // shell-quoted path. Tauri captures OS drops globally, so one listener
   // at the app root hit-tests the cursor.
   useTerminalFileDrop();
+
+  // Drop a file onto an editor pane (not a terminal) to open it, VSCode-style —
+  // works for any absolute path, even outside the current workspace root.
+  useEditorFileDrop(openFileTab);
 
   // HTML5 drags from `[data-fs-path]` elements (sidebar tree, extension
   // panels via `ctx.ui.mountFolderTree`, etc.) populate dataTransfer at a

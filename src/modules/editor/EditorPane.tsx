@@ -46,7 +46,12 @@ import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
 import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
 import { MarkdownFindBar, type MarkdownFindBarHandle } from "./MarkdownFindBar";
-import { formatDocument, NoFormatterError, shouldFormatOnSave } from "./lib/formatters";
+import {
+  formatDocument,
+  FormatterUnavailableError,
+  NoFormatterError,
+  shouldFormatOnSave,
+} from "./lib/formatters";
 import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
 import { toast } from "@/components/ui/toast";
 
@@ -354,10 +359,11 @@ export function EditorPane({
           return;
         }
       } catch (err) {
-        // NoFormatterError means the user has format-on-save on but no
-        // formatter for this language — that's expected, fall through to
-        // a plain save without nagging.
-        if (!(err instanceof NoFormatterError)) {
+        // NoFormatterError (no formatter for this language) and
+        // FormatterUnavailableError (the external tool isn't installed) are
+        // both expected with format-on-save on: fall through to a plain save
+        // without nagging. Only real formatter failures toast.
+        if (!(err instanceof NoFormatterError) && !(err instanceof FormatterUnavailableError)) {
           toast(`Format on save failed: ${(err as Error).message}`, {
             variant: "error",
           });

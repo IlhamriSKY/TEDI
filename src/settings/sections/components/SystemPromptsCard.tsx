@@ -555,26 +555,20 @@ export function PromptModelDropdown({
     () => availableModels.filter((m) => matchesQuery(m, query)),
     [availableModels, query],
   );
+  const triggerLabel = selected ? selected.label : "Same as chat (default)";
+  const triggerHint = selected ? selected.hint : "Uses the active chat model";
 
   return (
     <DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className="min-h-11 w-full items-start justify-between gap-2 px-2.5 py-2 text-[12px]"
-        >
-          <span className="flex min-w-0 flex-1 items-start gap-2 text-left">
-            {selected ? (
-              <ProviderIcon provider={selected.provider} size={14} className="mt-0.5 shrink-0" />
+        {/* Single-line trigger matching the default-model dropdown's style. */}
+        <Button variant="outline" className="h-9 w-full justify-between gap-2 px-2.5 text-[12px]">
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {selected ? <ProviderIcon provider={selected.provider} size={14} /> : null}
+            <span className="truncate font-medium">{triggerLabel}</span>
+            {triggerHint ? (
+              <span className="text-muted-foreground truncate">· {triggerHint}</span>
             ) : null}
-            <span className="flex min-w-0 flex-1 flex-col items-start">
-              <span className="truncate font-medium">
-                {selected ? selected.label : "Same as chat (default)"}
-              </span>
-              <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug whitespace-normal">
-                {selected ? selected.hint : "Uses the active chat model"}
-              </span>
-            </span>
           </span>
           <HugeiconsIcon
             icon={ArrowDown01Icon}

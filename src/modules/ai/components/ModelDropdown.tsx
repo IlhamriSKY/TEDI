@@ -202,12 +202,8 @@ export function ModelDropdown() {
                 currentProviderHasKey ? "text-muted-foreground" : "text-icon-working",
               )}
             >
-              <HugeiconsIcon
-                icon={PROVIDER_ICON[current.provider]}
-                size={13}
-                strokeWidth={1.75}
-                className="shrink-0"
-              />
+              {/* Provider icon intentionally omitted here - it lives only in the
+                  dropdown's section headers, keeping the composer trigger compact. */}
               <span className="truncate font-medium">{current.label}</span>
               {current.hint ? (
                 <span className="text-muted-foreground/70 shrink-0 truncate font-normal">

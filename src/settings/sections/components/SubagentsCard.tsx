@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "../../components/Label";
+import { SettingsCard } from "../../components/SettingsCard";
 import {
   Dialog,
   DialogContent,
@@ -42,30 +43,23 @@ export function SubagentsCard() {
   const enabled = usePreferencesStore((s) => s.subagentsEnabled);
 
   return (
-    <div className="flex flex-col gap-3">
-      <section className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/30 px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[12.5px] font-medium">Sub-agents</span>
-            <span className="text-muted-foreground text-[11px] leading-relaxed">
-              Workers the AI can spawn in parallel to study, review, and audit the codebase
-              (read-only), plus an autonomous worker (Odyssey) that edits files and runs
-              commands to implement a scoped task. When on, broad work is auto-delegated; the AI
-              decides how many workers, their depth, and summary size. Off means all work is done
-              inline.
-            </span>
-          </div>
+    <>
+      <SettingsCard
+        title="Sub-agents"
+        description="Workers the AI can spawn in parallel to study, review, and audit the codebase (read-only), plus an autonomous worker (Odyssey) that edits files and runs commands to implement a scoped task. When on, broad work is auto-delegated; the AI decides how many workers, their depth, and summary size. Off means all work is done inline."
+        headerRight={
           <Switch checked={enabled} onCheckedChange={(v) => void setSubagentsEnabled(v)} />
-        </div>
+        }
+      >
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
           {enabled
             ? "Sub-agents are active. The AI auto-delegates broad explore/review/audit work, and can hand a scoped change to the Odyssey worker, which edits files and runs commands directly (no approval card; changes are checkpointed and can be reverted)."
             : "Sub-agents are off. The AI will handle all tasks inline using its own tools."}
         </div>
-      </section>
+      </SettingsCard>
 
       <CustomSubagentsSection />
-    </div>
+    </>
   );
 }
 
@@ -89,16 +83,10 @@ function CustomSubagentsSection() {
   const [pendingDelete, setPendingDelete] = useState<CustomSubagentDef | null>(null);
 
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/30 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[12.5px] font-medium">Custom sub-agents</span>
-          <span className="text-muted-foreground text-[11px] leading-relaxed">
-            Your own read-only workers. The AI can delegate to enabled ones by type, alongside
-            the built-ins (comet, nebula, nova, orbit, eclipse, odyssey, vega, zenith, aurora,
-            meteor).
-          </span>
-        </div>
+    <SettingsCard
+      title="Custom sub-agents"
+      description="Your own read-only workers. The AI can delegate to enabled ones by type, alongside the built-ins (comet, nebula, nova, orbit, eclipse, odyssey, vega, zenith, aurora, meteor)."
+      headerRight={
         <Button
           size="sm"
           variant="outline"
@@ -118,8 +106,8 @@ function CustomSubagentsSection() {
           <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
           New
         </Button>
-      </div>
-
+      }
+    >
       {custom.length === 0 ? (
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
           No custom sub-agents yet. Create one to give the AI a specialized read-only worker.
@@ -213,7 +201,7 @@ function CustomSubagentsSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </SettingsCard>
   );
 }
 

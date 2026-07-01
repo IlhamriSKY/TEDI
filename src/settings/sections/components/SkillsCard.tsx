@@ -15,6 +15,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { SettingsCard } from "../../components/SettingsCard";
 import {
   Add01Icon,
   ArrowRight01Icon,
@@ -454,23 +455,18 @@ export function SkillsCard() {
   };
 
   return (
-    <section className="border-border/60 bg-card/30 flex flex-col gap-2 rounded-lg border px-4 py-3">
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[12.5px] font-medium">Skills</span>
-          {pendingUpdatesCount > 0 && (
-            <span className="text-accent-foreground bg-accent/30 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium">
-              <HugeiconsIcon icon={Download04Icon} size={9} />
-              {pendingUpdatesCount} update{pendingUpdatesCount > 1 ? "s" : ""} available
-            </span>
-          )}
-        </div>
-        <span className="text-muted-foreground text-[11px] leading-relaxed">
-          Expert playbooks the AI loads on demand or you invoke with a slash command. Install any
-          GitHub repo with SKILL.md files, globally or into the open project.
-        </span>
-      </div>
-
+    <SettingsCard
+      title="Skills"
+      badge={
+        pendingUpdatesCount > 0 ? (
+          <span className="text-accent-foreground bg-accent/30 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium">
+            <HugeiconsIcon icon={Download04Icon} size={9} />
+            {pendingUpdatesCount} update{pendingUpdatesCount > 1 ? "s" : ""} available
+          </span>
+        ) : null
+      }
+      description="Expert playbooks the AI loads on demand or you invoke with a slash command. Install any GitHub repo with SKILL.md files, globally or into the open project."
+    >
       {/* Install input + preview */}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
@@ -687,6 +683,6 @@ export function SkillsCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </SettingsCard>
   );
 }

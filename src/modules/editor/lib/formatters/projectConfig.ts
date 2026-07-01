@@ -87,6 +87,15 @@ async function tryReadText(path: string): Promise<string | null> {
 /** Strips // line comments and trailing commas. Just enough JSON5 to read
  *  the common prettier config flavours; not a full JSON5 implementation. */
 function parseRelaxedJson(input: string): unknown {
+  // Strict JSON first: a valid `.prettierrc`/`.prettierrc.json` may hold a
+  // "$schema" URL whose `//` the comment-stripper below would otherwise eat,
+  // breaking the parse and silently dropping the whole config. Only fall back
+  // to the relaxed pass for genuinely JSON5-flavoured files.
+  try {
+    return JSON.parse(input);
+  } catch {
+    // not strict JSON — try the relaxed stripping below
+  }
   let cleaned = input.replace(/\/\/[^\n]*\n/g, "\n");
   // Strip /* */ block comments.
   cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, "");

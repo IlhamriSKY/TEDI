@@ -92,7 +92,11 @@ function DialogFooter({
   return (
     <div
       data-slot="dialog-footer"
-      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
+      // Full-width buttons: each footer button grows to split the row evenly
+      // (one fills, two go 50/50, three thirds) instead of hugging the right.
+      // Matches AlertDialogFooter. Override with `sm:[&>button]:flex-none` for a
+      // bespoke footer layout (see SshConnectionDialog).
+      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:[&>button]:flex-1", className)}
       {...props}
     >
       {children}

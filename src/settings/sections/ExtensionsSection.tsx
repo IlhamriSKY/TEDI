@@ -13,7 +13,7 @@ import { safeParseManifest } from "@/modules/extensions/manifest";
 
 import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
-import { SettingsAccordion } from "../components/SettingsAccordion";
+import { SettingsCard } from "../components/SettingsCard";
 import { UploadButton } from "../components/UploadButton";
 import { ExtensionCard } from "./components/ExtensionCard";
 import { checkSingleUpdate, updateOne } from "./components/extensionUpdate";
@@ -421,10 +421,9 @@ export function ExtensionsSection() {
         description="Install extensions to add themes, slash commands, AI tools, or custom integrations. Extensions run inside the app and can request permissions like settings access or Rust command invocation. Review the manifest before installing."
       />
 
-      <SettingsAccordion
+      <SettingsCard
         title="Install extension"
         description="Add an extension from a packaged file, a GitHub release, or the marketplace."
-        summary="From file · GitHub · Marketplace"
       >
         <div className="flex flex-col gap-3">
           <div className="flex gap-1">
@@ -499,7 +498,7 @@ export function ExtensionsSection() {
             <div className="text-destructive text-[11px]">{lastError}</div>
           ) : null}
         </div>
-      </SettingsAccordion>
+      </SettingsCard>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">

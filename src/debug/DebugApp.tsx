@@ -9,6 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { cn } from "@/lib/utils";
+import { toast, Toaster } from "@/components/ui/toast";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { useDebugStore, type DebugCapture } from "@/modules/ai/store/debugStore";
 import { startDebugClient, clearDebugRemote } from "@/modules/ai/store/debugBridge";
@@ -22,6 +23,7 @@ const dl = (f: string, d: unknown) => {
   a.click();
   a.remove();
   URL.revokeObjectURL(u);
+  toast(`Downloaded ${f}`, { variant: "success" });
 };
 const msgC = (c: DebugCapture) => (Array.isArray(c.messages) ? c.messages.length : 0);
 const toolC = (c: DebugCapture) => c.tools?.length ?? 0;
@@ -407,6 +409,7 @@ export function DebugApp() {
             Close
           </Button>
         </div>
+        <Toaster />
       </div>
     </TooltipProvider>
   );

@@ -212,9 +212,13 @@ export function SettingsApp() {
             value={active}
             onValueChange={(v) => setActive(v as SettingsTab)}
             orientation="horizontal"
-            className="flex shrink-0 items-center overflow-x-auto px-4 pt-3 pb-1"
+            className="shrink-0 overflow-x-auto px-4 pt-3 pb-1"
           >
-            <TabsList className="bg-muted/40 h-7 px-2">
+            {/* mx-auto centers when the tabs fit and collapses to 0 on overflow,
+                so a narrow window scrolls from the first tab instead of clipping
+                it (items-center would push the start tab past the unreachable
+                negative-scroll edge). */}
+            <TabsList className="bg-muted/40 mx-auto h-7 px-2">
               {TABS.map((t) => (
                 <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
                   <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />

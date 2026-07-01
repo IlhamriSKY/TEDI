@@ -4,6 +4,28 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.72] - 02-07-2026
+
+### Added
+
+- **Format-on-save now covers every supported language, not just the web ones.** Previously only the 14 Prettier languages were wired by default, so saving a `.rs`/`.go`/`.py`/etc. did nothing even with format-on-save on. A language with no explicit config now falls back to its shipped default (built-in Prettier for the web languages, the external preset — rustfmt, gofmt, ruff, … — for the rest), so all 44 known languages format on save out of the box. A missing external tool is silent (the save falls through to a plain write instead of nagging on every Ctrl+S); only a real formatter error toasts. Explicit **Format Document** (Shift+Alt+F) still surfaces a missing tool. See [index.ts](src/modules/editor/lib/formatters/index.ts), [external.ts](src/modules/editor/lib/formatters/external.ts).
+- **Drop a file onto an editor pane to open it.** Dragging a file from the OS onto an editor leaf (not a terminal) opens it VSCode-style, for any absolute path — even one outside the current workspace root. See [useEditorFileDrop.ts](src/app/hooks/useEditorFileDrop.ts), [App.tsx](src/app/App.tsx).
+
+### Fixed
+
+- **Built-in JSON/JSONC formatting no longer throws every time.** The `json` parser emits an estree AST, but the standalone Prettier build only had the `babel` plugin registered for it, so every save/format of a `.json`/`.jsonc` file threw `Couldn't find plugin for AST format "estree"`. The estree printer is now loaded alongside babel. See [prettier.ts](src/modules/editor/lib/formatters/prettier.ts).
+- **A project `.prettierrc.json` with a `$schema` URL is no longer silently ignored.** The relaxed-JSON reader stripped `//` line comments without skipping string literals, so the `//` inside a `"$schema": "https://…"` value broke `JSON.parse` and the whole config was dropped (this repo's own `.prettierrc.json` included). It now tries strict `JSON.parse` first and only falls back to comment/trailing-comma stripping for genuinely JSON5-flavoured files. See [projectConfig.ts](src/modules/editor/lib/formatters/projectConfig.ts).
+- **An external formatter can no longer blank a file, and several presets that silently did nothing are fixed.** A formatter that exits 0 with empty output would overwrite the buffer with `""` and persist it; a non-empty buffer now refuses an empty result and keeps the original. The C/C++ (`clang-format`), XML (`xmllint`), Protocol Buffers (`buf`), F# (`fantomas`), and PowerShell presets were corrected to invocations that actually format the buffer (they were no-ops or spawn failures before). See [index.ts](src/modules/editor/lib/formatters/index.ts), [presets.ts](src/modules/editor/lib/formatters/presets.ts).
+- **The Settings tab bar centers when it fits and scrolls from the first tab when narrow.** Centering with `items-center` pushed the first tab past the unreachable negative-scroll edge on a small window; it now uses `mx-auto`, which centers when the tabs fit and collapses to 0 on overflow so the row scrolls from the start. See [SettingsApp.tsx](src/settings/SettingsApp.tsx).
+- **The Debug window confirms a capture download.** Exporting a capture now shows a "Downloaded …" toast (the window gained a `Toaster`). See [DebugApp.tsx](src/debug/DebugApp.tsx).
+
+### Changed
+
+- **Settings sections share one static card component.** A new `SettingsCard` reuses `SettingsAccordion`'s chrome (border, background, padding, header typography) so always-open cards and collapsible accordions sit together without a visual seam; the Agents, Sub-agents, Skills, MCP, System-prompts, About, and Extensions sections adopt it. See [SettingsCard.tsx](src/settings/components/SettingsCard.tsx).
+- **Dialog footer buttons fill the row.** `DialogFooter` now splits its width evenly across buttons (one fills, two go 50/50) instead of hugging the right, matching `AlertDialogFooter`; a bespoke footer opts out with `sm:[&>button]:flex-none` (see the SSH dialog). See [dialog.tsx](src/components/ui/dialog.tsx), [SshConnectionDialog.tsx](src/modules/ssh/SshConnectionDialog.tsx).
+- **The composer model button stays compact.** The provider icon was dropped from the composer trigger (it still lives in the dropdown's section headers). See [ModelDropdown.tsx](src/modules/ai/components/ModelDropdown.tsx).
+- **The workspace `TEDI.md` preload is bounded to a compact head.** The project-memory doc lands in the cacheable system-prompt prefix every turn, so an exhaustive `TEDI.md` (>100 KB here) would dominate the prompt even for a trivial message. It is now cut to a ~12 KB head at the last markdown section header before the budget (never mid-table/sentence), with a read-on-demand pointer; the full doc stays one `read_file` away. See [transport.ts](src/modules/ai/lib/transport.ts).
+
 ## [0.3.71] - 01-07-2026
 
 ### Added

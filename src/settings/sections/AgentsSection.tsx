@@ -41,6 +41,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
+import { SettingRow } from "../components/SettingRow";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
 import { SkillsCard } from "./components/SkillsCard";
@@ -97,7 +98,7 @@ export function AgentsSection() {
   } | null>(null);
 
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-6">
       <SectionHeader
         title="Agents"
         description="Pick a persona and toggle sub-agents. Switch agents from the input bar. Every prompt stays editable under Advanced & debugging."
@@ -263,17 +264,12 @@ export function AgentsSection() {
         }
       >
         <div className="flex flex-col gap-4">
-          <section className="border-border/60 bg-card/30 flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[12.5px] font-medium">Debug</span>
-              <span className="text-muted-foreground text-[11px] leading-relaxed">
-                Capture every request sent to the provider (system prompt, messages, model, params,
-                tool list). View and download each as JSON from the Debug button in the chat input
-                bar. No API keys are captured.
-              </span>
-            </div>
+          <SettingRow
+            title="Debug"
+            description="Capture every request sent to the provider (system prompt, messages, model, params, tool list). View and download each as JSON from the Debug button in the chat input bar. No API keys are captured."
+          >
             <Switch checked={debugEnabled} onCheckedChange={(v) => void setDebugEnabled(v)} />
-          </section>
+          </SettingRow>
           <CustomInstructionsBlock value={customInstructions} />
           <SystemPromptsCard />
         </div>

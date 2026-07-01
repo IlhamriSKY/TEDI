@@ -78,6 +78,37 @@ async function deleteFile(path: string): Promise<void> {
   }
 }
 
+/** Thrown when the formatter binary can't be launched (not installed / not on
+ *  PATH). Format-on-save treats this as "no formatter" and stays silent so a
+ *  user with format-on-save enabled isn't nagged for languages whose tool they
+ *  don't have; explicit "Format Document" still surfaces it. */
+export class FormatterUnavailableError extends Error {
+  constructor(public program: string) {
+    super(`Formatter "${program}" is not installed or not on PATH.`);
+    this.name = "FormatterUnavailableError";
+  }
+}
+
+/** Invokes the Rust runner, mapping a spawn failure to a typed error so the
+ *  caller can distinguish "binary missing" from "formatter ran and errored". */
+async function runFormatter(params: {
+  program: string;
+  args: string[];
+  stdin: string | null;
+  cwd: string | undefined;
+  timeoutSecs: number | undefined;
+}): Promise<FormatOutput> {
+  try {
+    return await invoke<FormatOutput>("fmt_run_external", params);
+  } catch (e) {
+    const msg = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+    if (msg.includes("spawn failed") || msg.includes("empty program")) {
+      throw new FormatterUnavailableError(params.program);
+    }
+    throw e instanceof Error ? e : new Error(msg);
+  }
+}
+
 export async function formatWithExternal(args: {
   command: string;
   args: string[];
@@ -92,7 +123,7 @@ export async function formatWithExternal(args: {
   const cwd = dirOf(args.filepath) || undefined;
 
   if (!usesTempFile) {
-    const res = await invoke<FormatOutput>("fmt_run_external", {
+    const res = await runFormatter({
       program: args.command,
       args: args.args,
       stdin: args.content,
@@ -117,7 +148,7 @@ export async function formatWithExternal(args: {
   await writeFile(tempPath, args.content);
   try {
     const substituted = args.args.map((a) => a.replaceAll(TEMP_FILE_TOKEN, tempPath));
-    const res = await invoke<FormatOutput>("fmt_run_external", {
+    const res = await runFormatter({
       program: args.command,
       args: substituted,
       stdin: null,

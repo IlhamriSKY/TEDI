@@ -607,7 +607,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
 
         {/* Override DialogFooter's flex-col-reverse so Cancel stays on the
             left at any viewport width. */}
-        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between sm:[&>button]:flex-none">
           <Button
             variant="outline"
             size="sm"

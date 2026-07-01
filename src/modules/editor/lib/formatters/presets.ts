@@ -34,25 +34,35 @@ export const EXTERNAL_PRESETS: Record<string, Preset> = {
   java: { command: "google-java-format", args: ["-"] }, // stdin
   kotlin: { command: "ktlint", args: ["--format", "${file}"] }, // temp-file
   csharp: { command: "dotnet", args: ["csharpier", "--write-stdout"] }, // stdin
-  c: { command: "clang-format", args: ["--assume-filename=${file}"] }, // stdin, uses .clang-format from cwd
-  cpp: { command: "clang-format", args: ["--assume-filename=${file}"] }, // stdin
+  c: { command: "clang-format", args: ["-i", "${file}"] }, // temp-file, in-place; uses .clang-format from cwd
+  cpp: { command: "clang-format", args: ["-i", "${file}"] }, // temp-file, in-place
   swift: { command: "swift-format", args: [] }, // stdin
   dart: { command: "dart", args: ["format", "${file}"] }, // temp-file
   lua: { command: "stylua", args: ["-"] }, // stdin (--search-parent-directories is default)
   shell: { command: "shfmt", args: ["-"] }, // stdin (respects .editorconfig)
-  powershell: { command: "Invoke-Formatter", args: ["${file}"] }, // temp-file via PSScriptAnalyzer
+  // temp-file via PSScriptAnalyzer's Invoke-Formatter cmdlet — it isn't an exe,
+  // so it must be hosted by powershell. ponytail: needs PSScriptAnalyzer
+  // installed; falls through to a plain save (with a toast) if the module is missing.
+  powershell: {
+    command: "powershell",
+    args: [
+      "-NoProfile",
+      "-Command",
+      "Set-Content -NoNewline -Path '${file}' -Value (Invoke-Formatter -ScriptDefinition (Get-Content -Raw '${file}'))",
+    ],
+  },
   sql: { command: "sqlfluff", args: ["format", "-", "--dialect", "ansi"] }, // stdin
   toml: { command: "taplo", args: ["format", "-"] }, // stdin
-  xml: { command: "xmllint", args: ["--format", "${file}"] }, // temp-file
+  xml: { command: "xmllint", args: ["--format", "-"] }, // stdin (--format FILE writes stdout, so read stdin instead)
   dockerfile: { command: "dockerfmt", args: [] }, // stdin
   elixir: { command: "mix", args: ["format", "${file}"] }, // temp-file (mix uses .formatter.exs)
   haskell: { command: "ormolu", args: [] }, // stdin
   nix: { command: "alejandra", args: ["--quiet", "-"] }, // stdin
   terraform: { command: "terraform", args: ["fmt", "-"] }, // stdin
-  protobuf: { command: "buf", args: ["format"] }, // stdin
+  protobuf: { command: "buf", args: ["format", "-"] }, // stdin (`-` = read the piped buffer, not cwd)
   zig: { command: "zig", args: ["fmt", "--stdin"] }, // stdin
   elm: { command: "elm-format", args: ["--stdin"] }, // stdin
-  fsharp: { command: "fantomas", args: ["--stdout", "${file}"] }, // temp-file with stdout flag
+  fsharp: { command: "fantomas", args: ["${file}"] }, // temp-file, in-place (bare `fantomas FILE` rewrites it)
   scala: { command: "scalafmt", args: ["--stdin", "--quiet"] }, // stdin (uses .scalafmt.conf)
   perl: { command: "perltidy", args: ["-st", "-se"] }, // stdin → stdout
   r: { command: "R", args: ["--quiet", "--vanilla", "-e", "styler::style_file('${file}')"] }, // temp-file
