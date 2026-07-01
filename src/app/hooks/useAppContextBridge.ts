@@ -2,9 +2,10 @@ import { setAppContext } from "@/modules/extensions/appBridge";
 import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
+import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import type { SshStatus } from "@/modules/ssh/status";
 import { countSavedTerminalLeaves, useWorkspacesStore } from "@/modules/workspaces";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type RefObject } from "react";
 
 type Workspace = ReturnType<typeof useWorkspacesStore.getState>["workspaces"][number];
 
@@ -18,6 +19,10 @@ type Params = {
   /** Live SSH status per leaf (kind/sessionId). Lets us publish SSH tab numbers
    *  keyed by the runtime SSH session id so a mirror labels SSH tabs correctly. */
   sshStatuses: Map<number, SshStatus>;
+  /** Cached live Tab[] per NON-active workspace (leaf ids intact, PTYs still
+   *  attached). Lets us publish terminals for every visited workspace, not just
+   *  the active one, so a mirror can group tabs by workspace. */
+  liveTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
 };
 
 /**
@@ -34,6 +39,7 @@ export function useAppContextBridge({
   wsActiveId,
   explorerRoot,
   sshStatuses,
+  liveTabsByWorkspace,
 }: Params): void {
   // Snapshot of "what the user is doing now", pushed to extensions via
   // `setAppContext`. Extensions subscribe via `tedi.app.onContextChange`.
@@ -69,36 +75,54 @@ export function useAppContextBridge({
     }
     return n;
   }, [terminalCount, wsList, wsActiveId]);
-  // Map of daemon ptyId -> the tab's FIFO number (terminalOrdinal) for the
-  // active workspace's live terminals. Lets a mirror label tabs with the same
-  // number the desktop shows. Only terminals already bound to a daemon session
-  // (ptyId set) are included.
+  // Live per-leaf AI-CLI status (idle/working/blocking), so the tabmeta a mirror
+  // receives carries the SAME working indicator the desktop shows, on every tab.
+  const aiStatuses = useAiCliStatuses((s) => s.statuses);
+  // Per-terminal metadata (daemon ptyId -> FIFO number + AI-CLI state + owning
+  // workspace) for EVERY live workspace, so a mirror labels tabs with the same
+  // number the desktop shows AND groups them into the same workspaces. The
+  // active workspace uses the live `tabs`; other visited workspaces use their
+  // cached live tabs (their PTYs stay attached across a switch, so they're still
+  // mirrored). Only terminals bound to a daemon session (ptyId) or a connected
+  // SSH session are included; the first occurrence of an id wins (dedup).
   const terminals = useMemo<AppContextSnapshot["terminals"]>(() => {
     const out: AppContextSnapshot["terminals"] = [];
     const seen = new Set<string>();
-    const add = (key: string, ordinal: number) => {
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ ptyId: key, ordinal });
-    };
-    for (const t of tabs) {
-      if (t.kind !== "pane") continue;
-      for (const l of leaves(t.paneTree)) {
-        if (l.leafKind !== "terminal" || typeof l.terminalOrdinal !== "number") continue;
-        if (l.ptyId) {
-          // Local terminal: key by daemon ptyId (the mirror's session id).
-          add(l.ptyId, l.terminalOrdinal);
-        } else {
-          // SSH leaf has no daemon ptyId. Key by its live SSH session id as
-          // `ssh:<id>` - the exact id the browser mirror uses for SSH tabs - so
-          // the web labels SSH tabs with the same number the desktop shows.
-          const st = sshStatuses.get(l.id);
-          if (st && st.kind === "connected") add(`ssh:${st.sessionId}`, l.terminalOrdinal);
+    const walk = (wsTabs: Tab[], wsId: string, wsName: string, wsActive: boolean) => {
+      for (const t of wsTabs) {
+        if (t.kind !== "pane") continue;
+        for (const l of leaves(t.paneTree)) {
+          if (l.leafKind !== "terminal" || typeof l.terminalOrdinal !== "number") continue;
+          let key: string | null = null;
+          if (l.ptyId) {
+            // Local terminal: key by daemon ptyId (the mirror's session id).
+            key = l.ptyId;
+          } else {
+            // SSH leaf has no daemon ptyId. Key by its live SSH session id as
+            // `ssh:<id>` - the exact id the browser mirror uses for SSH tabs.
+            const st = sshStatuses.get(l.id);
+            if (st && st.kind === "connected") key = `ssh:${st.sessionId}`;
+          }
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            ptyId: key,
+            ordinal: l.terminalOrdinal,
+            state: aiStatuses[l.id]?.state,
+            wsId,
+            wsName,
+            wsActive,
+          });
         }
       }
+    };
+    for (const w of wsList) {
+      const isActive = w.id === wsActiveId;
+      const wsTabs = isActive ? tabs : (liveTabsByWorkspace.current?.get(w.id)?.tabs ?? []);
+      walk(wsTabs, w.id, w.name, isActive);
     }
     return out;
-  }, [tabs, sshStatuses]);
+  }, [tabs, sshStatuses, aiStatuses, wsList, wsActiveId, liveTabsByWorkspace]);
   const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;

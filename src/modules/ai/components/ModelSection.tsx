@@ -48,8 +48,8 @@ export function ModelSection({
   // Active query force-expands the section so search hits aren't hidden.
   const showItems = !!query || !collapsed;
   return (
-    <div className="px-1 pt-1.5 first:pt-1">
-      <div className="mb-0.5 flex items-center gap-1.5 px-1">
+    <div className="px-1 pt-1 first:pt-1">
+      <div className="flex items-center gap-1.5">
         <button
           type="button"
           onClick={(e) => {
@@ -61,33 +61,32 @@ export function ModelSection({
           aria-expanded={showItems}
           aria-controls={`section-${sectionKey}`}
           className={cn(
-            "group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5",
-            "text-muted-foreground text-[9.5px] font-medium tracking-wide uppercase",
-            "hover:bg-accent/50 hover:text-foreground",
+            "group hover:bg-accent/50 hover:text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 transition-colors",
+            "text-muted-foreground text-[10px] font-medium tracking-wide uppercase",
           )}
         >
           <HugeiconsIcon
             icon={ArrowDown01Icon}
-            size={11}
+            size={10}
             strokeWidth={2}
             className={cn(
-              "shrink-0 transition-transform duration-150",
+              "shrink-0 opacity-60 transition-transform duration-150",
               showItems ? "rotate-0" : "-rotate-90",
             )}
           />
           {providerIcon ? (
-            <HugeiconsIcon icon={providerIcon} size={14} strokeWidth={1.25} className="shrink-0" />
+            <HugeiconsIcon icon={providerIcon} size={11} strokeWidth={1.75} className="shrink-0" />
           ) : (
             <HugeiconsIcon
               icon={PinIcon}
-              size={12}
+              size={11}
               strokeWidth={1.75}
               className="fill-foreground/70 shrink-0"
             />
           )}
           <span className="truncate">{title}</span>
-          <span className="text-muted-foreground/70 ml-auto text-[9px] tracking-normal normal-case tabular-nums">
-            {models.length}
+          <span className="text-muted-foreground/60 tracking-normal normal-case">
+            ({models.length})
           </span>
         </button>
         {missingKey && onSetKey ? (
@@ -119,11 +118,11 @@ export function ModelSection({
                 onSelect={() => onPick(m.id, p.id)}
                 className={cn(
                   "group flex items-center gap-2 text-xs",
-                  isSelected && "bg-accent/40",
+                  isSelected && "bg-accent/50",
                 )}
               >
                 <div className="flex min-w-0 flex-1 flex-col items-start gap-0">
-                  <span className="truncate font-medium">{m.label}</span>
+                  <span className="truncate">{m.label}</span>
                   <span className="text-muted-foreground truncate text-[10px]">{m.hint}</span>
                 </div>
                 <Tooltip>

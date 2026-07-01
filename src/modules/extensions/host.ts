@@ -116,10 +116,25 @@ export type AppContextSnapshot = {
    *  live tabs, inactive workspaces use their last-saved tab snapshot). */
   terminalCountAll: number;
   /** Per-terminal map (daemon PTY id -> the tab's FIFO number/`terminalOrdinal`)
-   *  across all workspaces, so a mirror (e.g. the Remote Access browser client)
-   *  can label tabs with the SAME number the desktop shows instead of guessing
-   *  from position. Only terminals with a live daemon `ptyId` are included. */
-  terminals: { ptyId: string; ordinal: number }[];
+   *  across all LIVE workspaces (the active one plus any the user has visited
+   *  this run, whose PTYs stay attached), so a mirror (e.g. the Remote Access
+   *  browser client) can label tabs with the SAME number the desktop shows and
+   *  group them into the SAME workspaces. Only terminals with a live daemon
+   *  `ptyId` (or SSH `ssh:<id>`) are included.
+   *  - `state`: AI-CLI run state (idle/working/blocking) when a tool is detected,
+   *    so a mirror shows the same working indicator on EVERY tab (the browser
+   *    can't derive this: PowerShell emits no OSC 133 C, and only the host sees
+   *    commands started from the desktop).
+   *  - `wsId`/`wsName`/`wsActive`: the workspace the terminal belongs to, so a
+   *    mirror can offer the same per-workspace switcher instead of one flat list. */
+  terminals: {
+    ptyId: string;
+    ordinal: number;
+    state?: "idle" | "working" | "blocking";
+    wsId?: string;
+    wsName?: string;
+    wsActive?: boolean;
+  }[];
 };
 
 export type ExtensionContext = {

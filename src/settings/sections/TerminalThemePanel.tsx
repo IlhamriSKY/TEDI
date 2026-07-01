@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { Label } from "../components/Label";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   setTerminalCustomPalette,
@@ -282,11 +283,5 @@ function TerminalPreview({ palette }: { palette: TerminalPalette }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

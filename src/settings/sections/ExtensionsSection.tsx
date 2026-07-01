@@ -11,6 +11,7 @@ import { useExtensionsStore } from "@/modules/extensions";
 import type { InstalledExtension } from "@/modules/extensions";
 import { safeParseManifest } from "@/modules/extensions/manifest";
 
+import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { UploadButton } from "../components/UploadButton";
@@ -551,11 +552,5 @@ export function ExtensionsSection() {
         onConfirm={onConfirmInstall}
       />
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

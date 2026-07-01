@@ -29,3 +29,12 @@ export const KEY_SEP = IS_MAC ? "" : "+";
 export function fmtShortcut(...parts: string[]): string {
   return parts.join(KEY_SEP);
 }
+
+/** Secondary utility windows (Settings, Debug) mount their own root, not `#root`
+ *  (only index.html mounts there). Used to opt them out of main-window-only
+ *  effects like wallpaper + app transparency, so any future utility window opts
+ *  out too. */
+export function isSecondaryWindow(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.getElementById("root") === null;
+}

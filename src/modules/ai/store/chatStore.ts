@@ -4,6 +4,7 @@ import { create } from "zustand";
 import {
   DEFAULT_MODEL_ID,
   providerNeedsKey,
+  providersServingModel,
   tryGetModel,
   type DynamicModelId,
   type ProviderId,
@@ -895,8 +896,13 @@ export function getActiveProviderKey(): string | null {
 
 export function hasKeyForModel(modelId: DynamicModelId): boolean {
   const { apiKeys } = useChatStore.getState();
-  const provider = resolveProvider(modelId);
-  return providerNeedsKey(provider) ? !!apiKeys[provider] : true;
+  // A model id can be served by more than one provider (e.g. claude-sonnet-4-6 on
+  // both Anthropic and SumoPod). Usable if ANY serving provider is keyless or has
+  // a key - so a legacy pick with no saved provider isn't dropped just because the
+  // static-table provider (Anthropic) has no key while the real one (SumoPod) does.
+  const serving = providersServingModel(modelId);
+  const candidates = serving.length > 0 ? serving : [resolveProvider(modelId)];
+  return candidates.some((p) => (providerNeedsKey(p) ? !!apiKeys[p] : true));
 }
 
 export function getOrCreateChat(sessionId: string): Chat<UIMessage> {

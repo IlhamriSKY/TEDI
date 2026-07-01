@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import { cn, maskKey } from "@/lib/utils";
 import type { ProviderInfo } from "@/modules/ai/config";
 import {
   Cancel01Icon,
@@ -23,11 +23,6 @@ type Props = {
   onSave: (key: string) => Promise<void>;
   onClear: () => Promise<void>;
 };
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return "•".repeat(key.length);
-  return `${key.slice(0, 4)}${"•".repeat(8)}${key.slice(-4)}`;
-}
 
 export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props) {
   const [editing, setEditing] = useState(!currentKey);

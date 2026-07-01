@@ -212,7 +212,7 @@ export function SettingsApp() {
             value={active}
             onValueChange={(v) => setActive(v as SettingsTab)}
             orientation="horizontal"
-            className="flex shrink-0 items-center px-4 pt-3 pb-1"
+            className="flex shrink-0 items-center overflow-x-auto px-4 pt-3 pb-1"
           >
             <TabsList className="bg-muted/40 h-7 px-2">
               {TABS.map((t) => (
@@ -223,7 +223,7 @@ export function SettingsApp() {
               ))}
             </TabsList>
           </Tabs>
-          <div className="themed-scroll min-h-0 flex-1 overflow-y-auto px-8 pt-4 pb-7">
+          <div className="themed-scroll min-h-0 flex-1 overflow-auto px-8 pt-4 pb-7">
             <div className="mx-auto w-full max-w-3xl">
               <SectionErrorBoundary tabId={active}>
                 <Suspense fallback={null}>{ActiveSection && <ActiveSection />}</Suspense>

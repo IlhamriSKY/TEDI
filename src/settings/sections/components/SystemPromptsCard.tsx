@@ -27,7 +27,9 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { cn, matchesQuery } from "@/lib/utils";
+import { Label } from "../../components/Label";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   getDetectedModels,
   MODELS,
@@ -108,16 +110,6 @@ type Draft = {
   /** Kept as a string so the field can be empty (= unset). */
   temperature: string;
 };
-
-function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
-  if (!q) return true;
-  const t = q.toLowerCase();
-  return (
-    m.id.toLowerCase().includes(t) ||
-    m.label.toLowerCase().includes(t) ||
-    m.hint.toLowerCase().includes(t)
-  );
-}
 
 type SystemPromptsCardProps = {
   title?: string;
@@ -571,12 +563,17 @@ export function PromptModelDropdown({
           variant="outline"
           className="min-h-11 w-full items-start justify-between gap-2 px-2.5 py-2 text-[12px]"
         >
-          <span className="flex min-w-0 flex-1 flex-col items-start text-left">
-            <span className="truncate font-medium">
-              {selected ? selected.label : "Same as chat (default)"}
-            </span>
-            <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug whitespace-normal">
-              {selected ? selected.hint : "Uses the active chat model"}
+          <span className="flex min-w-0 flex-1 items-start gap-2 text-left">
+            {selected ? (
+              <ProviderIcon provider={selected.provider} size={14} className="mt-0.5 shrink-0" />
+            ) : null}
+            <span className="flex min-w-0 flex-1 flex-col items-start">
+              <span className="truncate font-medium">
+                {selected ? selected.label : "Same as chat (default)"}
+              </span>
+              <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug whitespace-normal">
+                {selected ? selected.hint : "Uses the active chat model"}
+              </span>
             </span>
           </span>
           <HugeiconsIcon
@@ -627,11 +624,12 @@ export function PromptModelDropdown({
             <DropdownMenuItem
               key={`${m.provider}::${m.id}`}
               className={cn(
-                "flex items-start justify-between gap-3",
+                "flex items-start gap-2",
                 value === m.id && (!provider || provider === m.provider) && "bg-accent/50",
               )}
               onSelect={() => onChange(m.id, m.provider)}
             >
+              <ProviderIcon provider={m.provider} size={14} className="mt-0.5 shrink-0" />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate">{m.label}</span>
                 <span className="text-muted-foreground line-clamp-2 text-[10px] leading-snug font-normal whitespace-normal">
@@ -653,11 +651,5 @@ export function PromptModelDropdown({
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

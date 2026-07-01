@@ -1,5 +1,11 @@
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
-import { tryGetModel, type DynamicModelId, type ModelInfo, type ProviderId } from "../config";
+import {
+  resolveModelInfo,
+  tryGetModel,
+  type DynamicModelId,
+  type ModelInfo,
+  type ProviderId,
+} from "../config";
 import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import { classifyError, TediErrorCode } from "../lib/errors";
@@ -153,15 +159,7 @@ export async function runSubagent({
       : parentProvider;
   const known = tryGetModel(effectiveModelId);
   const provider: ProviderId = explicitProvider ?? known?.provider ?? "sumopod";
-  const info: ModelInfo =
-    known && known.provider === provider
-      ? known
-      : {
-          id: effectiveModelId,
-          provider,
-          label: known?.label ?? effectiveModelId,
-          hint: known?.hint ?? "",
-        };
+  const info: ModelInfo = resolveModelInfo(effectiveModelId, provider, known);
 
   const model = await buildLanguageModel(info.provider, keys, info.id, {
     lmstudioBaseURL,

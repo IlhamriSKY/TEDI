@@ -15,9 +15,14 @@ let snapshot: AppContextSnapshot = {
   terminals: [],
 };
 
-// Stable signature of the terminals map for the equality check below.
+// Stable signature of the terminals map for the equality check below. Includes
+// `state` (so an AI-CLI status flip idle<->working propagates) and the workspace
+// fields (so a switch / rename / new-workspace propagates) instead of being
+// swallowed as "unchanged".
 function terminalsSig(t: AppContextSnapshot["terminals"]): string {
-  return t.map((x) => `${x.ptyId}:${x.ordinal}`).join(",");
+  return t
+    .map((x) => `${x.ptyId}:${x.ordinal}:${x.state ?? ""}:${x.wsId ?? ""}:${x.wsName ?? ""}:${x.wsActive ? 1 : 0}`)
+    .join(",");
 }
 
 const listeners = new Set<(ctx: AppContextSnapshot) => void>();

@@ -6,7 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn, matchesQuery } from "@/lib/utils";
 import {
   MODELS,
   PROVIDERS,
@@ -27,16 +27,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { KeysMap } from "./modelsTypes";
-
-function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
-  if (!q) return true;
-  const t = q.toLowerCase();
-  return (
-    m.id.toLowerCase().includes(t) ||
-    m.label.toLowerCase().includes(t) ||
-    m.hint.toLowerCase().includes(t)
-  );
-}
 
 /**
  * Default-model dropdown rendered in the AI defaults card. The card itself owns

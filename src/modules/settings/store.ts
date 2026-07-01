@@ -824,10 +824,6 @@ export async function setLmstudioBaseURL(value: string): Promise<void> {
   await writePref(KEY_LMSTUDIO_BASE_URL, value);
 }
 
-export async function setOpenAICompatibleBaseURL(value: string): Promise<void> {
-  await writePref(KEY_OPENAI_COMPATIBLE_BASE_URL, value);
-}
-
 /**
  * Persist the full list of OpenAI-compatible endpoints. Also mirrors the
  * default instance's base URL into the legacy `openaiCompatibleBaseURL` field
@@ -950,10 +946,6 @@ export async function setAiBlockingSound(value: string): Promise<void> {
 /** Persist (or clear, with "") the custom "task finished" notification sound. */
 export async function setAiCompletionSound(value: string): Promise<void> {
   await writePref(KEY_AI_COMPLETION_SOUND, normalizeSoundData(value));
-}
-
-export async function setBrandColor(value: string): Promise<void> {
-  await writePref(KEY_BRAND_COLOR, normalizeBrandColor(value));
 }
 
 export async function setCustomThemeEnabled(value: boolean): Promise<void> {

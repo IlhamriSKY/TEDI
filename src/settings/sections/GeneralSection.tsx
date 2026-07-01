@@ -50,6 +50,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "react";
+import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SettingsAccordion } from "../components/SettingsAccordion";
@@ -520,12 +521,6 @@ export function GeneralSection() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }
 

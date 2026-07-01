@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, maskKey } from "@/lib/utils";
 import {
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_PRESETS,
@@ -117,12 +117,7 @@ export function OpenAICompatibleBlock({
     );
   };
 
-  const maskedKey =
-    apiKey && apiKey.length > 8
-      ? `${apiKey.slice(0, 4)}${"•".repeat(8)}${apiKey.slice(-4)}`
-      : apiKey
-        ? "•".repeat(apiKey.length)
-        : "";
+  const maskedKey = maskKey(apiKey ?? "");
 
   // Highlight the chip whose baseURL matches the current draft. Trims trailing
   // slashes so "/v1" and "/v1/" both stay matched.

@@ -142,7 +142,7 @@ const InfoCard = ({ label, children }: { label: string; children: React.ReactNod
 function Detail({ c }: { c: DebugCapture }) {
   const [v, setV] = useState<(typeof TABS)[number]>("summary");
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+    <div className="flex min-h-0 min-w-64 flex-1 flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Badge
@@ -346,7 +346,7 @@ export function DebugApp() {
                   </div>
                 </TabsContent>
               </Tabs>
-              <div className="flex min-h-0 flex-1 gap-3">
+              <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto">
                 <ScrollArea className="border-border/60 w-60 shrink-0 rounded-md border">
                   <div className="space-y-1 p-1">
                     {list.length ? (

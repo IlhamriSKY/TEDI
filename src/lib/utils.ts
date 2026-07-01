@@ -12,3 +12,21 @@ export function findLastIndex<T>(arr: readonly T[], pred: (x: T) => boolean): nu
   for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) return i;
   return -1;
 }
+
+/** Case-insensitive substring match of `q` across an item's id/label/hint.
+ *  Shared by the model + prompt search pickers. */
+export function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
+  if (!q) return true;
+  const t = q.toLowerCase();
+  return (
+    m.id.toLowerCase().includes(t) ||
+    m.label.toLowerCase().includes(t) ||
+    m.hint.toLowerCase().includes(t)
+  );
+}
+
+/** Mask a secret for display: dots-only when <= 8 chars, else first 4 + 8 dots + last 4. */
+export function maskKey(key: string): string {
+  if (key.length <= 8) return "•".repeat(key.length);
+  return `${key.slice(0, 4)}${"•".repeat(8)}${key.slice(-4)}`;
+}

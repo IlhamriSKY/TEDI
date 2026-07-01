@@ -42,6 +42,15 @@ export function tryGetModel(id: DynamicModelId): ModelInfo | undefined { return 
 // Every provider that serves a model with this exact id (static table + dynamic registry). Lets the model builder fall back to a configured provider when an id is shared across providers (e.g. deepseek-v4-pro on native DeepSeek and SumoPod).
 export function providersServingModel(id: DynamicModelId): ProviderId[] { const out: ProviderId[] = []; const seen = new Set<ProviderId>(); for (const m of MODELS) if (m.id === id && !seen.has(m.provider)) { seen.add(m.provider); out.push(m.provider); } const dyn = dynamicModels.get(id); if (dyn && !seen.has(dyn.provider)) out.push(dyn.provider); return out; }
 
+// ModelInfo for a picked (id, provider). Returns the known catalogue entry only when it belongs to the chosen provider; otherwise a synthetic entry under that provider, so an id shared across providers routes to the one actually selected (not the id-lookup winner). Shared by runAgentStream + runSubagent.
+export function resolveModelInfo(id: DynamicModelId, provider: ProviderId, known: ModelInfo | undefined = tryGetModel(id)): ModelInfo { return known && known.provider === provider ? known : { id, provider, label: known?.label ?? id, hint: known?.hint ?? "" }; }
+
+// OpenAI-style `/models` response, and the valid {id, owned_by} rows it carries. Shared by the SumoPod + OpenAI-compatible detectors.
+export type OpenAIModelsResponse = { data?: Array<{ id?: string; owned_by?: string }> };
+export function parseModelsList(json: OpenAIModelsResponse | null | undefined): Array<{ id: string; owned_by?: string }> { const out: Array<{ id: string; owned_by?: string }> = []; for (const m of json?.data ?? []) if (typeof m?.id === "string" && m.id.length > 0) out.push({ id: m.id, owned_by: m.owned_by }); return out; }
+// Friendly label for a raw model id: strip any path prefix ("openai/gpt-4o" -> "gpt-4o"), spacers to spaces, case common maker names.
+export function friendlyModelLabel(rawId: string): string { const tail = rawId.includes("/") ? rawId.slice(rawId.lastIndexOf("/") + 1) : rawId; return tail.replace(/[-_]/g, " ").replace(/\bgpt\b/gi, "GPT").replace(/\bclaude\b/gi, "Claude").replace(/\bgemini\b/gi, "Gemini").replace(/\bdeepseek\b/gi, "DeepSeek").replace(/\bllama\b/gi, "Llama").replace(/\bqwen\b/gi, "Qwen").replace(/\bmistral\b/gi, "Mistral").replace(/\s+/g, " ").trim(); }
+
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {

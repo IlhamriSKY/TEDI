@@ -39,6 +39,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
@@ -679,11 +680,5 @@ function CustomInstructionsBlock({ value }: { value: string }) {
         className="bg-card/60 border-border min-h-[112px] resize-y border font-sans text-[12px] leading-relaxed"
       />
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

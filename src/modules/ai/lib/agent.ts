@@ -20,6 +20,7 @@ import {
   PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
   providersServingModel,
+  resolveModelInfo,
   resolveOpenAICompatibleModel,
   SUMOPOD_BASE_URL,
   SYSTEM_PROMPT,
@@ -466,15 +467,7 @@ export async function runAgentStream(
   // (deepseek-v4-pro, claude-sonnet-4-6) would otherwise resolve to the native
   // provider and fail with "no API key".
   const provider: ProviderId = opts.provider ?? known?.provider ?? fallbackProvider;
-  const modelInfo: ModelInfo =
-    known && known.provider === provider
-      ? known
-      : {
-          id: requestedModelId,
-          provider,
-          label: known?.label ?? requestedModelId,
-          hint: known?.hint ?? "",
-        };
+  const modelInfo: ModelInfo = resolveModelInfo(requestedModelId, provider, known);
 
   const model = await buildLanguageModel(provider, opts.keys, modelInfo.id, {
     lmstudioBaseURL: opts.lmstudioBaseURL,

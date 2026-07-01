@@ -1089,7 +1089,11 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
 
   return (
     <Collapsible
-      defaultOpen={Boolean(err)}
+      // Open by default so a fan-out's results stay visible when the run
+      // finishes - matching the live rows (SubagentRunRow) and the single
+      // run_subagent output, instead of collapsing the summaries the user just
+      // watched stream in. Rows with nothing to show (skipped, no body) can't open.
+      defaultOpen={hasBody}
       className="border-border/60 bg-muted/20 overflow-hidden rounded border"
     >
       <CollapsibleTrigger

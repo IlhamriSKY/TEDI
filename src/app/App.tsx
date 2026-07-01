@@ -488,6 +488,7 @@ export default function App() {
     wsActiveId,
     explorerRoot,
     sshStatuses,
+    liveTabsByWorkspace,
   });
 
   const disposeTab = useCallback(

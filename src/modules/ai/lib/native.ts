@@ -1,11 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FsReadResult, FsReadPortionResult } from "@/lib/ipc";
 
-/** @deprecated Import `FsReadResult` from `@/lib/ipc` instead. */
-export type ReadResult = FsReadResult;
-/** @deprecated Import `FsReadPortionResult` from `@/lib/ipc` instead. */
-export type ReadPortionResult = FsReadPortionResult;
-
 export type DirEntry = {
   name: string;
   kind: "file" | "dir" | "symlink";
@@ -46,9 +41,9 @@ export type GrepReplaceResponse = {
 };
 
 export const native = {
-  readFile: (path: string) => invoke<ReadResult>("fs_read_file", { path }),
+  readFile: (path: string) => invoke<FsReadResult>("fs_read_file", { path }),
   readFilePortion: (path: string, offset?: number, limit?: number) =>
-    invoke<ReadPortionResult>("fs_read_file_portion", {
+    invoke<FsReadPortionResult>("fs_read_file_portion", {
       path,
       offset: offset ?? null,
       limit: limit ?? null,

@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, matchesQuery } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
@@ -28,11 +28,11 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setPinnedModelIds } from "@/modules/settings/store";
 import {
   getDetectedModels,
-  getModel,
   groupOpenAICompatibleByInstance,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
+  resolveModelInfo,
   type DynamicModelId,
   type ModelInfo,
   type ProviderId,
@@ -57,16 +57,6 @@ const PROVIDER_ICON = {
   lmstudio: ComputerIcon,
 } as const satisfies Record<ProviderId, typeof ChatGptIcon>;
 
-function matchesQuery(m: { id: string; label: string; hint: string }, q: string): boolean {
-  if (!q) return true;
-  const t = q.toLowerCase();
-  return (
-    m.id.toLowerCase().includes(t) ||
-    m.label.toLowerCase().includes(t) ||
-    m.hint.toLowerCase().includes(t)
-  );
-}
-
 export function ModelDropdown() {
   const selected = useChatStore((s) => s.selectedModelId);
   const selectedProvider = useChatStore((s) => s.selectedProvider);
@@ -83,25 +73,18 @@ export function ModelDropdown() {
   const [query, setQuery] = useState("");
   // Sections start expanded; component-local state resets each open.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  // `getModel` throws for runtime-detected ids missing from MODELS. Fall back
-  // to a synthetic ModelInfo so the trigger doesn't mislabel them.
-  let current: ModelInfo;
-  try {
-    current = getModel(selected);
-  } catch {
-    const providerLabel =
-      PROVIDERS.find((p) => p.id === selectedProvider)?.label ?? selectedProvider;
-    current = {
-      id: selected,
-      provider: selectedProvider,
-      label: selected,
-      hint: providerLabel,
-    };
-  }
-  const currentProviderHasKey = !!apiKeys[current.provider];
+  // Resolve against the SELECTED provider, not id-lookup: an id shared by two
+  // providers (e.g. deepseek-v4-pro on native DeepSeek + SumoPod) must report the
+  // key status of the one actually picked, else the trigger shows a false "no key"
+  // warning for a model that works. Mirrors the send path (resolveModelInfo), and
+  // never throws for runtime-detected ids missing from MODELS.
+  const current = resolveModelInfo(selected, selectedProvider);
+  const currentProviderHasKey = !providerNeedsKey(current.provider) || !!apiKeys[current.provider];
 
   const onPick = (id: DynamicModelId, providerId: ProviderId) => {
-    if (!apiKeys[providerId]) {
+    // Keyless providers (LM Studio) have no apiKeys entry; only gate the pick on a
+    // missing key for providers that actually need one.
+    if (providerNeedsKey(providerId) && !apiKeys[providerId]) {
       void openSettingsWindow("models");
       return;
     }
@@ -215,11 +198,22 @@ export function ModelDropdown() {
               aria-label={modelTooltip}
               className={cn(
                 TOOLBAR_HOVER,
-                "my-1 h-5.5 max-w-28 min-w-0 gap-1 rounded-md px-1.5 text-xs",
+                "my-1 h-5.5 max-w-52 min-w-0 gap-1.5 rounded-md px-1.5 text-xs",
                 currentProviderHasKey ? "text-muted-foreground" : "text-icon-working",
               )}
             >
-              <span className="truncate">{current.label}</span>
+              <HugeiconsIcon
+                icon={PROVIDER_ICON[current.provider]}
+                size={13}
+                strokeWidth={1.75}
+                className="shrink-0"
+              />
+              <span className="truncate font-medium">{current.label}</span>
+              {current.hint ? (
+                <span className="text-muted-foreground/70 shrink-0 truncate font-normal">
+                  · {current.hint}
+                </span>
+              ) : null}
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
                 size={11}

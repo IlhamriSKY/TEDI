@@ -40,6 +40,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ProviderKeyCard } from "../components/ProviderKeyCard";
+import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { AutocompleteBlock } from "./components/AutocompleteBlock";
 import { DefaultModelDropdown } from "./components/DefaultModelDropdown";
@@ -449,11 +450,5 @@ export function ModelsSection() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
   );
 }

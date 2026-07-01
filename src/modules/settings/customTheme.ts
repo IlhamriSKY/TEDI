@@ -11,6 +11,7 @@
  */
 
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isSecondaryWindow } from "@/lib/platform";
 
 export type ThemeColors = {
   /** App-wide canvas (`--background`). */
@@ -293,18 +294,9 @@ function clearCssVars(): void {
   root.style.removeProperty("--tedi-canvas-bg");
 }
 
-/**
- * Wallpaper is intentionally main-window only. The secondary utility windows
- * (Settings, Debug) have their own roots and we don't want a busy image behind
- * their controls. Colors still apply through the rest of the theme so their UI
- * stays in palette. Detect "not the main window" by the absence of `#root`
- * (only index.html mounts there), so any future utility window opts out too.
- */
-function isSecondaryWindow(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.getElementById("root") === null;
-}
-
+// Wallpaper is intentionally main-window only (isSecondaryWindow): the utility
+// windows have their own roots and we don't want a busy image behind their
+// controls. Colors still apply so their UI stays in palette.
 const BG_MEDIA_ATTR = "data-tedi-bg-media";
 const BG_DARKEN_ATTR = "data-tedi-bg-darken";
 

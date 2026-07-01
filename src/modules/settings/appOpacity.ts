@@ -9,6 +9,7 @@
  * settings dialog) is the live feedback while dragging the slider.
  */
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isSecondaryWindow } from "@/lib/platform";
 import { APP_OPACITY_DEFAULT, clampOpacity } from "./store";
 
 const FAST_PATH_KEY = "tedi-app-opacity-shadow";
@@ -31,15 +32,6 @@ function writeShadow(value: number): void {
   } catch {
     // ignore: localStorage may be unavailable in some embeddings.
   }
-}
-
-// Secondary utility windows (Settings, Debug) opt out of app transparency so
-// their controls stay solid/readable. Detect "not the main window" by the
-// absence of `#root` (only index.html mounts there), so any future utility
-// window opts out too.
-function isSecondaryWindow(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.getElementById("root") === null;
 }
 
 /**

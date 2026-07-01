@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import {
   AlertDialog,
@@ -11,6 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "../../components/Label";
 import {
   Dialog,
   DialogContent,
@@ -376,10 +376,4 @@ function uniqueCustomId(name: string, existing: string[]): string {
   let n = 2;
   while (existing.includes(`${base}-${n}`)) n++;
   return `${base}-${n}`;
-}
-
-function Label({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{children}</span>
-  );
 }

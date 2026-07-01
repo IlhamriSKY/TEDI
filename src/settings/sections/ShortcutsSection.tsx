@@ -278,13 +278,6 @@ function Recorder({
   onRecord: (b: KeyBinding) => void;
   onCancel: () => void;
 }) {
-  const [_mods, setMods] = useState({
-    ctrl: false,
-    shift: false,
-    alt: false,
-    meta: false,
-  });
-
   const onRecordRef = useRef(onRecord);
   const onCancelRef = useRef(onCancel);
   useEffect(() => {
@@ -302,16 +295,7 @@ function Recorder({
         return;
       }
 
-      const isMod = ["Control", "Shift", "Alt", "Meta"].includes(e.key);
-      if (isMod) {
-        setMods({
-          ctrl: e.ctrlKey,
-          shift: e.shiftKey,
-          alt: e.altKey,
-          meta: e.metaKey,
-        });
-        return;
-      }
+      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // Require at least one primary modifier (Ctrl, Alt, Meta). Reject
       // Shift-only shortcuts that would insert a character.
@@ -332,23 +316,9 @@ function Recorder({
       });
     };
 
-    const onUp = (e: KeyboardEvent) => {
-      const isMod = ["Control", "Shift", "Alt", "Meta"].includes(e.key);
-      if (isMod) {
-        setMods({
-          ctrl: e.ctrlKey,
-          shift: e.shiftKey,
-          alt: e.altKey,
-          meta: e.metaKey,
-        });
-      }
-    };
-
     window.addEventListener("keydown", onDown, { capture: true });
-    window.addEventListener("keyup", onUp, { capture: true });
     return () => {
       window.removeEventListener("keydown", onDown, { capture: true });
-      window.removeEventListener("keyup", onUp, { capture: true });
     };
   }, []);
 

@@ -1,18 +1,16 @@
 import { useEffect, useState } from "react";
 import { corsFallbackFetch } from "./httpProxy";
 import {
-  OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   clearOpenAICompatibleRuntime,
+  friendlyModelLabel,
   normalizeOpenAICompatibleBaseURL,
+  OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   openaiCompatibleModelId,
+  parseModelsList,
   setDetectedModelsForInstance,
   setOpenAICompatibleRuntime,
   type ModelInfo,
 } from "../config";
-
-type ModelsResponse = {
-  data?: Array<{ id?: string; owned_by?: string }>;
-};
 
 type FetchState = {
   status: "idle" | "loading" | "ok" | "error";
@@ -46,21 +44,6 @@ export function getOpenAICompatibleModelsState(
   instanceId: string = OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
 ): FetchState {
   return stateFor(instanceId);
-}
-
-function labelFor(id: string): string {
-  const tail = id.includes("/") ? id.slice(id.lastIndexOf("/") + 1) : id;
-  return tail
-    .replace(/[-_]/g, " ")
-    .replace(/\bgpt\b/gi, "GPT")
-    .replace(/\bclaude\b/gi, "Claude")
-    .replace(/\bgemini\b/gi, "Gemini")
-    .replace(/\bdeepseek\b/gi, "DeepSeek")
-    .replace(/\bllama\b/gi, "Llama")
-    .replace(/\bqwen\b/gi, "Qwen")
-    .replace(/\bmistral\b/gi, "Mistral")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 // The dropdown subtitle. Prefer the provider's own configured label (e.g.
@@ -123,20 +106,14 @@ export async function refreshOpenAICompatibleInstance(
       const body = await res.text().catch(() => "");
       throw new Error(`/models returned ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
     }
-    const json = (await res.json()) as ModelsResponse;
-    const raws: Array<{ id: string; owned_by?: string }> = [];
-    for (const m of json?.data ?? []) {
-      if (typeof m?.id === "string" && m.id.length > 0) {
-        raws.push({ id: m.id, owned_by: m.owned_by });
-      }
-    }
+    const raws = parseModelsList(await res.json());
     const detected: ModelInfo[] = raws
       .map((raw) => ({
         // Namespace the id so the agent can route the model to this instance,
         // and so two endpoints exposing the same model id stay distinct.
         id: openaiCompatibleModelId(instanceId, raw.id),
         provider: "openai-compatible" as const,
-        label: labelFor(raw.id),
+        label: friendlyModelLabel(raw.id),
         hint: hintFor(raw, label),
         ownedBy: raw.owned_by,
       }))
