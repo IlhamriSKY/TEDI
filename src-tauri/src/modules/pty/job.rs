@@ -9,7 +9,7 @@ use std::mem::{size_of, zeroed};
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
@@ -59,6 +59,17 @@ impl PtyJob {
             }
 
             Ok(Self { handle: job })
+        }
+    }
+
+    /// Kill every process in the job *now*, synchronously. `KILL_ON_JOB_CLOSE`
+    /// also fires the tree kill when this handle drops, but that drop is
+    /// deferred to a detached thread (and can queue behind `SPAWN_LOCK`), which
+    /// is why a just-closed terminal's child could linger. Terminating on the
+    /// close path itself kills the tree before we return.
+    pub fn terminate(&self) {
+        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
+            unsafe { TerminateJobObject(self.handle, 1) };
         }
     }
 }

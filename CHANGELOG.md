@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.74] - 03-07-2026
+
+### Fixed
+
+- **Closing a terminal now kills the whole child process tree, not just the shell leader.** On Windows `killer.kill()` only terminates the ConPTY shell leader, so a `claude` / `node` (or anything the shell spawned) inside a just-closed tab was orphaned until the deferred `Session` drop closed the Job Object — or forever, if the job was never created. The close path now terminates the child tree synchronously: `PtyJob::terminate` fires `TerminateJobObject` immediately, with a `taskkill /T` fallback keyed on the shell-leader pid when no Job Object exists. Applied on both the in-process (`pty_close`) and daemon (`close_session`) backends; on Unix `killer.kill()` was already the whole story. See [session.rs](src-tauri/src/modules/pty/session.rs), [job.rs](src-tauri/src/modules/pty/job.rs), [mod.rs](src-tauri/src/modules/pty/mod.rs), [server.rs](src-tauri/src/modules/pty_daemon/server.rs).
+- **Editor: escape the horizontal-scroll trap on a long single line.** With line wrap off, drag-selecting past the right edge auto-scrolls the view sideways and strands it there; on a doc that fits vertically the plain vertical wheel had nothing to scroll, so a mouse-only user couldn't get back to the left. A plain vertical wheel is now redirected to the horizontal axis when that is the only scrollable one (same pattern as the tab strip). See [EditorPane.tsx](src/modules/editor/EditorPane.tsx).
+- **Four source files were invisible to code search.** `skills.ts`, `mcpClient.ts`, `useTabSideEffects.ts`, and `inlineExtension.ts` used a literal NUL (`\0`) byte as an in-memory cache-key / join separator; git and ripgrep treat any file containing a NUL as binary and skip it, so every search over them silently returned nothing (this had also masked a live caller during dead-code review). Replaced with the visible, collision-proof `\x1f` unit separator, with build/read pairs kept consistent so behavior is unchanged. See [skills.ts](src/modules/ai/lib/skills.ts), [mcpClient.ts](src/modules/ai/lib/mcpClient.ts).
+
+### Removed
+
+- **Dead-code sweep (~420 lines).** Removed verified-unused code with no runtime references: three orphaned UI components (`ui/alert.tsx`, `ui/toggle.tsx`, `ai-elements/snippet.tsx`); unused daemon-client internals (`PtyClient::detach` / `is_alive`, `transport::bind_daemon` / `incoming`, `PtyState::is_daemon`, `fs::atomic_write_string`); and unused frontend exports (`resetShortcuts`, `resetExtensionShortcuts`, `statusIconClass`, `isLive`, `getLanguageDef`, `sftpStat`, `parseManifest`, the `CTRL/TAB/ENTER_KEY` constants, and more). Verified with `tsc`, `cargo check`, and `clippy -D warnings`. See [transport.rs](src-tauri/src/modules/pty_daemon/transport.rs).
+
 ## [0.3.73] - 03-07-2026
 
 ### Added

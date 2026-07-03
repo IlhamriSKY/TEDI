@@ -14,13 +14,6 @@ export type SftpDirEntry = {
   permissions: string;
 };
 
-export type SftpStat = {
-  kind: "file" | "dir" | "symlink";
-  size: number;
-  mtime: number;
-  permissions: string;
-};
-
 export function sftpHome(sessionId: number): Promise<string> {
   return invoke<string>("ssh_sftp_home", { id: sessionId });
 }
@@ -35,10 +28,6 @@ export function sftpReadDir(
     path,
     includeHidden,
   });
-}
-
-export function sftpStat(sessionId: number, path: string): Promise<SftpStat> {
-  return invoke<SftpStat>("ssh_sftp_stat", { id: sessionId, path });
 }
 
 export function sftpReadFile(sessionId: number, path: string): Promise<string> {

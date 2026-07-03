@@ -37,23 +37,6 @@ export function aiCliLabel(s: NonNullable<AiCliStatus>): string {
 }
 
 /**
- * Tailwind classes for the inline state pill. Colors resolve from the
- * themable `--tedi-icon-*` CSS variables (set in globals.css with sensible
- * defaults, overridable via Settings → Theme). Background is a soft tint
- * mixed from the same var via `color-mix()`.
- */
-export function aiCliStateChipClass(s: NonNullable<AiCliStatus>): string {
-  switch (s.state) {
-    case "idle":
-      return "text-[color:var(--tedi-icon-idle)] bg-[color:color-mix(in_oklab,var(--tedi-icon-idle)_15%,transparent)]";
-    case "working":
-      return "text-[color:var(--tedi-icon-working)] bg-[color:color-mix(in_oklab,var(--tedi-icon-working)_15%,transparent)]";
-    case "blocking":
-      return "text-[color:var(--tedi-icon-blocked)] bg-[color:color-mix(in_oklab,var(--tedi-icon-blocked)_18%,transparent)] animate-pulse";
-  }
-}
-
-/**
  * Just the themable text color for the terminal-leaf icon, WITHOUT any
  * animation. The building block for {@link aiCliIconClass}.
  */

@@ -168,11 +168,6 @@ export function findLeaf(n: PaneNode, id: PaneId): PaneLeaf | null {
   return null;
 }
 
-export function findLeafCwd(n: PaneNode, id: PaneId): string | undefined {
-  const leaf = findLeaf(n, id);
-  return leaf && leaf.leafKind === "terminal" ? leaf.cwd : undefined;
-}
-
 export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
   return findLeaf(tree, id) !== null;
 }
@@ -624,12 +619,4 @@ export function normalizePaneTree(node: PaneNode): PaneNode {
   }
   if (flattened.length === 1) return flattened[0];
   return { ...node, children: flattened };
-}
-
-/** First leaf of a given kind. */
-export function firstLeafOfKind(tree: PaneNode, kind: LeafState["leafKind"]): PaneLeaf | null {
-  for (const l of leaves(tree)) {
-    if (l.leafKind === kind) return l;
-  }
-  return null;
 }

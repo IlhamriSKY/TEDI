@@ -198,9 +198,3 @@ export async function resolvePrettierConfig(
   }
   return null;
 }
-
-/** Forget cached config lookups. Wire this to a Tauri fs-change watcher if
- *  we ever want hot config reload; for now it's invoked only from tests. */
-export function _clearPrettierConfigCache(): void {
-  cache.clear();
-}

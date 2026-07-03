@@ -836,10 +836,6 @@ export async function resolveLanguageById(id: string): Promise<Extension | null>
   return loadLanguageExtension(def);
 }
 
-export function getLanguageDef(id: string): LanguageDef | undefined {
-  return byId.get(id);
-}
-
 /** Display label for a language id, falling back to the id itself. */
 export function languageLabel(id: string): string {
   return byId.get(id)?.label ?? id;

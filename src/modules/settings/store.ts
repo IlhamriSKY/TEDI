@@ -896,18 +896,10 @@ export async function setShortcuts(value: Record<ShortcutId, KeyBinding[]> | {})
   await writePref(KEY_SHORTCUTS, value);
 }
 
-export async function resetShortcuts(): Promise<void> {
-  await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
-}
-
 export async function setExtensionShortcuts(
   value: Record<string, KeyBinding[]> | {},
 ): Promise<void> {
   await writePref(KEY_EXTENSION_SHORTCUTS, value);
-}
-
-export async function resetExtensionShortcuts(): Promise<void> {
-  await writePref(KEY_EXTENSION_SHORTCUTS, DEFAULT_PREFERENCES.extensionShortcuts);
 }
 
 export async function setPinnedModelIds(value: string[]): Promise<void> {

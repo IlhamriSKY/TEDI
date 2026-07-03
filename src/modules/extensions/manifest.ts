@@ -136,10 +136,6 @@ export type ContributedKeybinding = z.infer<typeof KeybindingSchema>;
 export type ContributedPanel = z.infer<typeof PanelSchema>;
 export type ContributedAiTool = z.infer<typeof AiToolSchema>;
 
-export function parseManifest(input: unknown): Manifest {
-  return ManifestSchema.parse(input);
-}
-
 export function safeParseManifest(
   input: unknown,
 ): { ok: true; manifest: Manifest } | { ok: false; error: string } {

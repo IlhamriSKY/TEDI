@@ -849,9 +849,11 @@ fn resize_session(
 fn close_session(state: &Arc<DaemonState>, session_id: Uuid) {
     let removed = state.sessions.write().unwrap().remove(&session_id);
     let Some(shell) = removed else { return };
-    if let Err(e) = shell.pty().killer.lock().unwrap().kill() {
-        log::debug!("close session {session_id}: kill returned {e}");
-    }
+    // Kill the whole child tree synchronously (not just the shell leader), so a
+    // `claude`/`node` running inside dies now rather than lingering until the
+    // deferred `Session` drop closes the Job Object - or forever, if the job
+    // was never created. See `Session::kill_tree`.
+    shell.pty().kill_tree();
     shell.alive.store(false, Ordering::Release);
     // Notify subscribers BEFORE handing the shell off to the drop thread,
     // since the drop chain can take seconds (ConPTY close on Windows blocks

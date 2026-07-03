@@ -55,23 +55,6 @@ export function statusDotClass(s: SshStatus): string {
   }
 }
 
-/** Tailwind `text-*` class for the SSH cloud icon. Colour carries the
- *  connection status so no extra dot overlay is needed. `info` is the
- *  resting tint before the session settles. */
-export function statusIconClass(s: SshStatus | undefined): string {
-  if (!s) return "text-info";
-  switch (statusTone(s)) {
-    case "neutral":
-      return "text-info";
-    case "warn":
-      return "text-icon-working animate-pulse";
-    case "ok":
-      return "text-icon-idle";
-    case "bad":
-      return "text-icon-blocked";
-  }
-}
-
 /** Tailwind `text-*` class for the SSH tab title text. Carries the status
  *  on the label. `connecting` / `reconnecting` pulse for visibility.
  *  Returns "" for idle/unknown so the label inherits the tab's default
@@ -105,8 +88,4 @@ export function statusLabel(s: SshStatus): string {
     case "error":
       return `Error · ${s.message}`;
   }
-}
-
-export function isLive(s: SshStatus): boolean {
-  return s.kind === "connecting" || s.kind === "connected" || s.kind === "reconnecting";
 }

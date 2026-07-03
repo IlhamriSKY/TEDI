@@ -57,12 +57,6 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-/// String convenience wrapper over [`atomic_write`].
-#[allow(dead_code)]
-pub fn atomic_write_string(path: &Path, contents: &str) -> io::Result<()> {
-    atomic_write(path, contents.as_bytes())
-}
-
 /// Unix-only [`atomic_write`] variant that creates the staging temp with the
 /// given permission `mode` BEFORE any bytes are written, so the contents are
 /// never briefly world-readable. Used for the Linux secrets file (mode

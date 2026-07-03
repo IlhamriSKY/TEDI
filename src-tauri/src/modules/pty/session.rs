@@ -71,9 +71,52 @@ pub struct Session {
     //   4. `master`: ClosePseudoConsole on Windows. The child is dead by now.
     #[cfg(windows)]
     _job: Option<super::job::PtyJob>,
+    // Shell leader pid, kept so the Windows tree-kill can fall back to
+    // `taskkill /T` when the Job Object was never created (see `kill_tree`).
+    #[cfg(windows)]
+    leader_pid: Option<u32>,
     pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pub writer: Mutex<Box<dyn Write + Send>>,
     pub master: Mutex<Box<dyn MasterPty + Send>>,
+}
+
+impl Session {
+    /// Kill the whole child process tree, best-effort and synchronous. On Unix
+    /// `killer.kill()` is the whole story. On Windows `killer.kill()` only
+    /// `TerminateProcess`es the shell leader (portable-pty's ConPTY killer),
+    /// so a `claude`/`node` running inside would be orphaned - the tree only
+    /// dies via the Job Object. Terminate the job here so children die the
+    /// instant the tab closes instead of waiting for the deferred `Session`
+    /// drop; if the job was never created (create_for failed), walk the pid
+    /// tree with `taskkill /T` BEFORE the leader kill, while the tree is still
+    /// rooted at the live leader.
+    pub fn kill_tree(&self) {
+        #[cfg(windows)]
+        {
+            if let Some(job) = &self._job {
+                job.terminate();
+            } else if let Some(pid) = self.leader_pid {
+                taskkill_tree(pid);
+            }
+        }
+        if let Ok(mut k) = self.killer.lock() {
+            let _ = k.kill();
+        }
+    }
+}
+
+/// `taskkill /F /T /PID <pid>` - forcibly kill a process and its descendants.
+/// The only job-independent tree kill on Windows; used as the fallback when
+/// the Job Object is absent. Detached and best-effort (a closing tab must not
+/// block on it); `CREATE_NO_WINDOW` keeps a console flash from appearing.
+#[cfg(windows)]
+fn taskkill_tree(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
 }
 
 impl Drop for Session {
@@ -82,6 +125,18 @@ impl Drop for Session {
         // disconnected, window crashed, dev HMR), the reader/flusher threads
         // would stay alive forever holding the child. Kill the child here so
         // the reader hits EOF and the threads unwind.
+        #[cfg(windows)]
+        {
+            // Job present: closing its handle (in the field drop below) fires
+            // KILL_ON_JOB_CLOSE and reaps the tree. Job absent (create_for
+            // failed): the leader kill can't reach descendants, so walk the pid
+            // tree first while the leader is still alive.
+            if self._job.is_none() {
+                if let Some(pid) = self.leader_pid {
+                    taskkill_tree(pid);
+                }
+            }
+        }
         if let Ok(mut k) = self.killer.lock() {
             let _ = k.kill();
         }
@@ -145,7 +200,9 @@ pub fn spawn_with_sink(
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
     #[cfg(windows)]
-    let job = match child.process_id() {
+    let leader_pid = child.process_id();
+    #[cfg(windows)]
+    let job = match leader_pid {
         Some(pid) => match super::job::PtyJob::create_for(pid) {
             Ok(j) => Some(j),
             Err(e) => {
@@ -159,6 +216,8 @@ pub fn spawn_with_sink(
     let session = Arc::new(Session {
         #[cfg(windows)]
         _job: job,
+        #[cfg(windows)]
+        leader_pid,
         killer: Mutex::new(killer),
         writer: Mutex::new(writer),
         master: Mutex::new(pair.master),

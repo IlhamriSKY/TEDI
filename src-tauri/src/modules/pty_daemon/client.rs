@@ -329,22 +329,6 @@ impl PtyClient {
         }
     }
 
-    pub fn detach(&self, session_id: Uuid) -> Result<(), String> {
-        // Local routing entry removed first so events arriving in-flight
-        // are quietly dropped instead of waking a dead xterm.
-        {
-            let mut routing = self.state.routing.lock().unwrap();
-            routing.channels.remove(&session_id);
-            routing.early.remove(&session_id);
-        }
-        let req_id = self.next_req_id();
-        match self.send_request(req_id, &ClientMsg::Detach { req_id, session_id })? {
-            DaemonMsg::Ok { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(message),
-            other => Err(format!("unexpected detach response: {other:?}")),
-        }
-    }
-
     pub fn write(&self, session_id: Uuid, data_b64: String) -> Result<(), String> {
         let req_id = self.next_req_id();
         match self.send_request(
@@ -415,10 +399,6 @@ impl PtyClient {
             DaemonMsg::Err { message, .. } => Err(message),
             other => Err(format!("unexpected killAll response: {other:?}")),
         }
-    }
-
-    pub fn is_alive(&self) -> bool {
-        self.state.alive.load(Ordering::Acquire)
     }
 }
 

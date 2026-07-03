@@ -538,6 +538,33 @@ export function EditorPane({
     };
   }, [doc.status]);
 
+  // Escape the horizontal-scroll trap: with line wrap off, drag-selecting past
+  // the right edge auto-scrolls the view sideways and strands it there. On a
+  // doc that fits vertically (a note/config with one long line) the plain
+  // vertical wheel has nothing to scroll, so a mouse user can't get back to the
+  // left without knowing Shift+wheel or hunting the far-right scrollbar thumb,
+  // and ends up reopening the file. Redirect a plain vertical wheel to the only
+  // scrollable axis in that case. Same pattern as the tab strip's wheel handler.
+  useEffect(() => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const sc = view.scrollDOM;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaX !== 0 || e.deltaY === 0 || e.shiftKey || e.ctrlKey || e.metaKey) return;
+      const hasH = sc.scrollWidth > sc.clientWidth + 1;
+      // Use the real text height, not scrollDOM.scrollHeight (the minimap
+      // inflates the latter to the viewport height, so a short doc would
+      // otherwise read as vertically scrollable and this handler never fires).
+      const hasV = view.contentHeight > sc.clientHeight + 1;
+      if (hasH && !hasV) {
+        sc.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    };
+    sc.addEventListener("wheel", onWheel, { passive: false });
+    return () => sc.removeEventListener("wheel", onWheel);
+  }, [doc.status]);
+
   // Reveal-on-open: when find-in-files (or anything) requests a jump to a line
   // in THIS file, select + center it like VSCode. Two paths feed the same
   // action: the `doc.status` effect handles "file was just opened" (consume the

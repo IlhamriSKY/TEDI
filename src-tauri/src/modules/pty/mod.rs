@@ -75,12 +75,6 @@ impl PtyState {
             }
         }
     }
-
-    /// True when the backend is the persistent daemon. The frontend uses
-    /// this to decide whether to persist `ptyId` for restore.
-    pub fn is_daemon(&self) -> bool {
-        matches!(self.backend, PtyBackend::Daemon { .. })
-    }
 }
 
 impl Default for PtyState {
@@ -289,9 +283,10 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
         PtyBackend::InProcess(map) => {
             let session = map.write().unwrap().remove(&id);
             if let Some(s) = session {
-                if let Err(e) = s.killer.lock().unwrap().kill() {
-                    log::debug!("pty_close: kill id={id} returned {e}");
-                }
+                // Kill the whole child tree synchronously, not just the shell
+                // leader (portable-pty's Windows kill hits only the leader). See
+                // `Session::kill_tree`.
+                s.kill_tree();
                 log::info!("pty closed id={id}");
                 // Drop the Arc on a detached thread. On Windows
                 // `MasterPty`'s Drop calls `ClosePseudoConsole`, which can

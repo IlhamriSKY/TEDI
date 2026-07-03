@@ -226,7 +226,3 @@ export async function resolveEditorConfig(filepath: string): Promise<PartialPret
   }
   return out;
 }
-
-export function _clearEditorConfigCache(): void {
-  cache.clear();
-}

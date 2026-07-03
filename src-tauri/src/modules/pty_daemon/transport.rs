@@ -16,10 +16,7 @@ use std::io::{self, Read, Write};
 use interprocess::local_socket::GenericFilePath;
 #[cfg(windows)]
 use interprocess::local_socket::GenericNamespaced;
-use interprocess::local_socket::{
-    traits::{ListenerExt, Stream as _StreamTrait},
-    ListenerOptions, Stream,
-};
+use interprocess::local_socket::{traits::Stream as _StreamTrait, Stream};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
@@ -82,58 +79,6 @@ pub fn connect_to_daemon() -> io::Result<Stream> {
         let name = name_str.as_str().to_ns_name::<GenericNamespaced>()?;
         Stream::connect(name)
     }
-}
-
-/// Bind the daemon's listening socket. On Unix the file may persist past a
-/// daemon crash; we probe first by trying to connect - if that succeeds a
-/// peer is alive and we refuse to start a second daemon. If connect fails
-/// the file is stale and we remove it before binding.
-pub fn bind_daemon() -> io::Result<interprocess::local_socket::Listener> {
-    #[cfg(unix)]
-    {
-        use interprocess::local_socket::ToFsName;
-        let path = super::paths::socket_path();
-        // Probe: an active daemon answers a connect; a dead one leaves a
-        // stale file we need to unlink before our bind succeeds.
-        if let Ok(_stream) = connect_to_daemon() {
-            return Err(io::Error::new(
-                io::ErrorKind::AddrInUse,
-                "daemon already running",
-            ));
-        }
-        let _ = std::fs::remove_file(&path);
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let name = path.as_path().to_fs_name::<GenericFilePath>()?;
-        let listener = ListenerOptions::new().name(name).create_sync()?;
-        // Lock down to user-only access. The XDG_RUNTIME_DIR fallback is
-        // already mode 0700, but `/tmp/` is world-writable.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-        Ok(listener)
-    }
-    #[cfg(windows)]
-    {
-        use interprocess::local_socket::ToNsName;
-        let name_str = super::paths::socket_name();
-        let name = name_str.as_str().to_ns_name::<GenericNamespaced>()?;
-        // `interprocess` returns AddrInUse if the pipe is already owned.
-        ListenerOptions::new().name(name).create_sync()
-    }
-}
-
-/// Iterator adapter so the daemon's accept loop can write
-/// `for client in incoming(&listener) { ... }`.
-pub fn incoming(
-    listener: &interprocess::local_socket::Listener,
-) -> impl Iterator<Item = io::Result<Stream>> + '_ {
-    listener.incoming()
 }
 
 #[cfg(test)]

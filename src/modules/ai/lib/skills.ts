@@ -258,10 +258,10 @@ async function attachSkillState(skills: SkillMeta[]): Promise<SkillMeta[]> {
       if (!byGroupLeaf) {
         byGroupLeaf = new Map();
         for (const [dir, meta] of Object.entries(allStates)) {
-          byGroupLeaf.set(`${splitSkillDir(dir)?.group ?? ""} ${leafOf(dir)}`, meta);
+          byGroupLeaf.set(`${splitSkillDir(dir)?.group ?? ""}\x1f${leafOf(dir)}`, meta);
         }
       }
-      state = byGroupLeaf.get(`${s.group} ${leafOf(s.dir)}`) ?? null;
+      state = byGroupLeaf.get(`${s.group}\x1f${leafOf(s.dir)}`) ?? null;
     }
     return { ...s, state };
   });
@@ -321,7 +321,7 @@ export async function loadSkills(workspaceRoot: string | null): Promise<SkillMet
   // with a nondeterministic winner.
   const byId = new Map<string, SkillMeta>();
   for (const root of roots) {
-    for (const s of await scanDir(root)) byId.set(`${s.group} ${skillSlug(s)}`, s);
+    for (const s of await scanDir(root)) byId.set(`${s.group}\x1f${skillSlug(s)}`, s);
   }
   // Assign a disambiguating invocation slug only when two survivors share a bare
   // leaf. Unique leaves keep their bare slug (the common case, no UX change);
