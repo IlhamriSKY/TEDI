@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.73] - 03-07-2026
+
+### Added
+
+- **Extensions can create a workspace and switch the active one.** New `ctx.app.createWorkspace(name)` and `ctx.app.setActiveWorkspace(id)` (gated by a new `workspaces:manage` permission) let a permitted extension make a workspace (creating one switches to it, which auto-seeds a default terminal) or switch which workspace is active. This is what lets the Remote Access browser open a new terminal / SSH tab in a chosen workspace and create workspaces from the web: only a workspace id / name ever crosses the bridge, and the actual shell spawn stays on the existing, separately-gated open path. See [workspaceMgmtBridge.ts](src/modules/extensions/workspaceMgmtBridge.ts), [host.ts](src/modules/extensions/host.ts), [App.tsx](src/app/App.tsx).
+
 ## [0.3.72] - 02-07-2026
 
 ### Added

@@ -56,6 +56,10 @@ import {
   closeSshConnection as closeSshConnectionBridge,
   type SafeSshConnection,
 } from "./sshBridge";
+import {
+  createWorkspace as createWorkspaceBridge,
+  setActiveWorkspace as setActiveWorkspaceBridge,
+} from "./workspaceMgmtBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 
@@ -167,6 +171,12 @@ export type ExtensionContext = {
      *  prior surface so it can replay when the extension's tab goes
      *  away. */
     setRightSidebarVisible(visible: boolean): void;
+    /** Create a new workspace and switch to it; resolves with its id. Requires
+     *  `workspaces:manage`. Switching to the fresh (empty) workspace auto-seeds
+     *  a default terminal tab, so the new workspace becomes visible to a mirror. */
+    createWorkspace(name: string): Promise<{ ok: boolean; wsId?: string; error?: string }>;
+    /** Switch the active workspace by id. Requires `workspaces:manage`. */
+    setActiveWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }>;
   };
   /** Read/write app settings. Writes require `settings:write`. */
   settings: {
@@ -440,6 +450,14 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       },
       setSidebarVisible: (visible) => setSidebarVisibleBridge(visible, ext.id),
       setRightSidebarVisible: (visible) => setRightSidebarVisibleBridge(visible, ext.id),
+      createWorkspace: (name) => {
+        requirePermission(ext.id, declared, "workspaces:manage");
+        return createWorkspaceBridge(String(name ?? ""));
+      },
+      setActiveWorkspace: (wsId) => {
+        requirePermission(ext.id, declared, "workspaces:manage");
+        return setActiveWorkspaceBridge(String(wsId ?? ""));
+      },
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {

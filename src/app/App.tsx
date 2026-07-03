@@ -59,6 +59,7 @@ import {
 import { ThemeProvider } from "@/modules/theme";
 import { listConnections, type SshConnection } from "@/modules/ssh/connections";
 import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
+import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -593,6 +594,33 @@ export default function App() {
     );
     return () => setSshConnectionBridge(null, null, null);
   }, [newSshTab, sshStatuses, tabs, closeTab]);
+
+  // Wire the workspace-management bridge so the Remote Access extension can let
+  // the browser SWITCH to a target workspace or CREATE a new one. Only a
+  // workspace id / name ever crosses; the shell spawn stays on the existing,
+  // separately-gated open path (the terminal the browser then opens is adopted
+  // into the now-active workspace). Creating switches to the fresh workspace,
+  // which auto-seeds a default terminal so it shows up in the mirror.
+  useEffect(() => {
+    setWorkspaceMgmtBridge(
+      async (name) => {
+        const trimmed = (name || "").trim().slice(0, 60);
+        const finalName =
+          trimmed || `Workspace ${useWorkspacesStore.getState().workspaces.length + 1}`;
+        const ws = wsCreate(finalName);
+        switchToWorkspace(ws.id);
+        return { ok: true, wsId: ws.id };
+      },
+      async (wsId) => {
+        if (!useWorkspacesStore.getState().workspaces.some((w) => w.id === wsId)) {
+          return { ok: false, error: "workspace not found" };
+        }
+        switchToWorkspace(wsId);
+        return { ok: true };
+      },
+    );
+    return () => setWorkspaceMgmtBridge(null, null);
+  }, [wsCreate, switchToWorkspace]);
 
   const {
     pendingClose,
