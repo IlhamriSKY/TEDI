@@ -119,11 +119,3 @@ export type ExtensionTab = {
 };
 
 export type Tab = PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab;
-
-export type TabPatch = Partial<{
-  title: string;
-  cwd: string;
-  path: string;
-  dirty: boolean;
-  url: string;
-}>;

@@ -20,7 +20,7 @@ A few facts shape everything else in this guide:
   behavior_ through a host-provided `ctx` object.
 - **Install-time review is the trust boundary.** Extensions run JavaScript
   inside the app with full privileges. The permission gate on `ctx.*` is an
-  advisory convenience, not a sandbox. See [Section 9](#9-security-model) — read
+  advisory convenience, not a sandbox. See [Section 9](#9-security-model), read
   it before you ship, and especially before you install someone else's
   extension.
 
@@ -76,7 +76,7 @@ export async function activate(ctx) {
 
   ctx.statusBar.setItem({
     id: "hello",
-    icon: "hugeicon:Sun01Icon", // see ctx.ui.icon for the icon name set
+    icon: "lucide:Sun", // Lucide icon name; see ctx.ui.icon
     tooltip: "Say hello",
     tone: "success",
   });
@@ -114,11 +114,11 @@ pnpm tauri:dev:ext      # link every extensions/<id> into the dev app, then run 
 This runs [`scripts/link-dev-extensions.mjs`](../scripts/link-dev-extensions.mjs),
 which creates a **directory junction (Windows) / symlink (Unix)** from the dev
 build's app-data extensions folder (`<appData>/id.ilhamrisky.tedi.dev/extensions/<id>`)
-to your repo working copy — no copying. `ext_list` follows the link and, with no
+to your repo working copy, no copying. `ext_list` follows the link and, with no
 `state.json` entry, loads the extension **enabled with all its manifest
 permissions auto-approved**; `extension.js`, assets, and `ctx.installPath`
 resolve through the link. Edit `extension.js` (or, if you build from `src/`, run
-`npm run build` to regenerate it — see
+`npm run build` to regenerate it, see
 [Build pipeline](#build-pipeline-src--extensionjs)), then **reload the window
 (Ctrl+R)** or toggle the extension in _Settings → Extensions_ to pick up the
 change (the loader re-reads the live file).
@@ -132,7 +132,7 @@ change (the loader re-reads the live file).
 
 The links live only in the **dev** profile (`…tedi.dev`), so they never affect a
 real install. If an id was previously installed into the dev build, `link:ext`
-skips it to avoid clobbering — run `pnpm relink:ext` to switch it to the repo
+skips it to avoid clobbering, run `pnpm relink:ext` to switch it to the repo
 link.
 
 ### Build pipeline (src/ → extension.js)
@@ -152,7 +152,7 @@ The convention (use any official extension as a template):
 ├── build.mjs            esbuild config (bundle, format:"esm", target:"es2022")
 ├── package.json         "build": "node build.mjs"
 ├── .gitignore           ignores /extension.js and node_modules/
-└── extension.js         GENERATED — never committed
+└── extension.js         GENERATED, never committed
 ```
 
 ```bash
@@ -167,13 +167,13 @@ Key rules that keep the fleet consistent:
 - **Bundle, don't ship `src/`.** The host imports exactly one `manifest.main`
   file; esbuild inlines every `src/` import into it (`bundle: true`,
   `format: "esm"`). `activate` / `deactivate` stay exported from the bundle.
-- **No host-side build.** TEDI loads `extension.js` verbatim — there is no
+- **No host-side build.** TEDI loads `extension.js` verbatim: there is no
   transpile step at install or runtime, so the bundle must be plain ES2022.
 - **Share mutable state via setters.** Put singletons + `setX()` writers in one
   `runtime.js`; other modules import the live bindings (esbuild preserves ESM
   live-binding semantics across the bundle) instead of duplicating state.
 
-CI builds the same bundle into the release zip — see
+CI builds the same bundle into the release zip, see
 [Packaging](#packaging) and [Releasing via CI](#releasing-via-ci) below.
 
 ### How `activate` / `deactivate` are resolved
@@ -188,7 +188,7 @@ CI builds the same bundle into the release zip — see
   activation; the host revokes the script, runs disposers, and re-seeds your
   declarative contributions so your settings card still renders.
 - `deactivate()` is **optional**, awaited before disposers run, and may be
-  called multiple times in a session — keep it idempotent.
+  called multiple times in a session, keep it idempotent.
 - A `main` file with **no** `activate` export logs a warning but keeps your
   declarative contributions.
 - Omit `main` entirely for a **pure-declarative pack** (settings only).
@@ -203,14 +203,14 @@ CI builds the same bundle into the release zip — see
 <id>/
 ├── manifest.json        required, at the archive root
 ├── extension.js         optional ES module exporting activate(ctx) / deactivate()
-│                        (hand-written, OR generated from src/ — see Build pipeline)
+│                        (hand-written, OR generated from src/, see Build pipeline)
 ├── logo.png             optional icon shown on the Settings -> Extensions card
 ├── assets/              optional images, css, ...
 └── sidecar/             optional native binaries (made executable on install)
 ```
 
 Only the **built** artifacts above ship in the zip. Larger extensions keep their
-source in `src/` and generate `extension.js` with a bundler — that generated file
+source in `src/` and generate `extension.js` with a bundler, that generated file
 is git-ignored and rebuilt in CI, never committed. See
 [Build pipeline](#build-pipeline-src--extensionjs).
 
@@ -262,7 +262,7 @@ Each contribution array is independently parsed. Every per-item schema below is
 
 > **Wiring status (read this).** All five contribution categories are fully
 > consumed by built-in code: `settings`, `commands`, `keybindings`, `panels`,
-> and **`aiTools`** (contributed AI tools are surfaced to the agent — see
+> and **`aiTools`** (contributed AI tools are surfaced to the agent, see
 > Section 5). See [Section 5](#5-contribution-surfaces) for details.
 
 #### `contributes.settings[]`
@@ -277,7 +277,7 @@ namespaced `ext:<id>:<key>` settings keys via `ctx.settings`.
 | `label`       | yes      | Display label.                                                                                                                                                                             |
 | `description` | no       | Helper text.                                                                                                                                                                               |
 | `default`     | no       | `string \| number \| boolean \| null`.                                                                                                                                                     |
-| `options`     | no       | `{ value: string; label: string }[]`. Used by `select`. **Note:** the schema does _not_ enforce that a `select` has options — a select with no options parses fine, so always supply them. |
+| `options`     | no       | `{ value: string; label: string }[]`. Used by `select`. **Note:** the schema does _not_ enforce that a `select` has options, a select with no options parses fine, so always supply them. |
 | `section`     | no       | `string`. Parsed but **not currently used** by the card (flat list).                                                                                                                       |
 | `secret`      | no       | `boolean`. Renders a password input. The schema allows `secret` on any type, not just `string`.                                                                                            |
 
@@ -378,7 +378,7 @@ permission and open it via `ctx.tabs.openExtensionTab`.
 | ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`        | yes      | Tool name the model sees; bind a handler via `ctx.registerAiToolHandler(name, fn)`.                                                                                                                                                                                                                |
 | `description` | yes      | Tool description shown to the model.                                                                                                                                                                                                                                                               |
-| `parameters`  | yes      | `Record<string, unknown>` — a JSON Schema for the args (wrapped via the AI SDK `jsonSchema()` helper).                                                                                                                                                                                             |
+| `parameters`  | yes      | `Record<string, unknown>`, a JSON Schema for the args (wrapped via the AI SDK `jsonSchema()` helper).                                                                                                                                                                                             |
 | `approval`    | no       | `"auto" \| "needsApproval"`, defaults to `"auto"`. **Advisory in this version:** every extension tool call routes through the user's tool-approval flow regardless (it prompts in Ask mode, and is auto-approved only if the user enabled that), because the handler is unvetted third-party code. |
 
 **Wired.** Contributed AI tools are merged into the main agent's tool set each
@@ -410,7 +410,7 @@ type AppContextSnapshot = {
     | "ssh"
     | "editor"
     | "diff"
-    | "preview"
+    | "browser"
     | "ext"
     | null;
   workspaceCount: number; // >= 1
@@ -435,6 +435,12 @@ type ExtensionContext = {
     onContextChange(cb: (snap: AppContextSnapshot) => void): Disposer;
     setSidebarVisible(visible: boolean): void;
     setRightSidebarVisible(visible: boolean): void;
+    createWorkspace(
+      name: string,
+    ): Promise<{ ok: boolean; wsId?: string; error?: string }>; // workspaces:manage
+    setActiveWorkspace(
+      wsId: string,
+    ): Promise<{ ok: boolean; error?: string }>; // workspaces:manage
   };
 
   settings: {
@@ -447,10 +453,16 @@ type ExtensionContext = {
     command: string,
     args?: Record<string, unknown>,
   ): Promise<T>;
+  invokeChannel<E = unknown, T = unknown>(
+    command: string,
+    args: Record<string, unknown> | undefined,
+    onEvent: (ev: E) => void,
+  ): Promise<T>; // same invoke:<command> gate; streams events via a Tauri Channel
 
   secrets: {
     get(name: string): Promise<string | null>;
     set(name: string, value: string): Promise<void>;
+    delete(name: string): Promise<void>; // secrets:write
   };
 
   events: {
@@ -487,6 +499,11 @@ type ExtensionContext = {
     removeItem(itemId: string): void;
   };
 
+  sidebar: {
+    setSection(section: SidebarSection): void; // sidebar:write
+    removeSection(sectionId: string): void;
+  };
+
   editor: {
     getActive(): { path: string; content: string; dirty: boolean } | null;
     setActiveContent(content: string): boolean;
@@ -499,17 +516,32 @@ type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
+    // Same opts, but mounts the panel as a native split-pane leaf instead of a
+    // standalone tab. Also gated by tabs:open.
+    openExtensionPane(opts: {
+      panelId: string;
+      title: string;
+      icon?: string;
+      reuseKey?: string;
+    }): number | null;
     setExtensionTabState(opts: {
       panelId: string;
       reuseKey?: string;
       state: ExtensionTabState | null;
+      title?: string;
     }): void;
   };
 
   shell: {
     registerCommandTransformer(
       transformer: (command: string, kind: "bash" | "terminal") => string,
-    ): Disposer;
+    ): Disposer; // shell:transform
+  };
+
+  ssh: {
+    listConnections(): Promise<SafeSshConnection[]>; // ssh:connections
+    openConnection(id: string): Promise<{ ok: boolean; error?: string }>;
+    closeConnection(sessionId: number): boolean;
   };
 
   panel: {
@@ -546,49 +578,54 @@ type ExtensionContext = {
 The permission required by each member is listed below. Members marked **none**
 have no permission gate by design.
 
-### `ctx.id` / `ctx.installPath` / `ctx.os` — none
+### `ctx.id` / `ctx.installPath` / `ctx.os`: none
 
-- `ctx.id` — your extension id.
-- `ctx.installPath` — absolute path of your install folder. Join it with a
+- `ctx.id`: your extension id.
+- `ctx.installPath`: absolute path of your install folder. Join it with a
   sidecar binary path before passing to `shell_bg_spawn_direct`.
-- `ctx.os` — `{ platform, arch }`, resolved once at module load (cached;
+- `ctx.os`: `{ platform, arch }`, resolved once at module load (cached;
   falls back to `unknown`/`unknown` on any failure).
 
-### `ctx.storage` — none
+### `ctx.storage`: none
 
 A per-extension JSON store backed by a `tedi-ext-<id>.json` LazyStore
 (auto-saves). Not permission-gated (already isolated by file). For cached or
 large state that does not belong in app settings.
 
-- `get<T>(key): Promise<T | null>` — returns `null` (not `undefined`) when absent.
+- `get<T>(key): Promise<T | null>`: returns `null` (not `undefined`) when absent.
 - `set<T>(key, value): Promise<void>`
 - `delete(key): Promise<void>`
 
-### `ctx.app` — none
+### `ctx.app`: none (workspace methods need `workspaces:manage`)
 
-- `getContext(): AppContextSnapshot` — the current app state snapshot (6 fields,
-  see the type above).
-- `onContextChange(cb): Disposer` — fires **once immediately** with the current
+- `getContext(): AppContextSnapshot`: the current app state snapshot (6 fields,
+  see the type above). `activeTabKind` is `"browser"` for the browser/preview tab.
+- `onContextChange(cb): Disposer`: fires **once immediately** with the current
   snapshot, then on each shallow-different snapshot. Auto-disposed.
-- `setSidebarVisible(visible)` — show/hide the **left** sidebar (file explorer +
+- `setSidebarVisible(visible)`: show/hide the **left** sidebar (file explorer +
   SCM). The host remembers prior visibility and auto-restores it when the user
   switches off your tab.
-- `setRightSidebarVisible(visible)` — show/hide the **right** aux column. On
+- `setRightSidebarVisible(visible)`: show/hide the **right** aux column. On
   `false` it closes whichever surface is open (AI chat / ext panel / SCM); on
   `true` it is a no-op (the host can't infer which to reopen). Both are no-ops
   with a `console.warn` before the App has wired the setter.
+- `createWorkspace(name): Promise<{ ok, wsId?, error? }>`: _requires
+  `workspaces:manage`._ Creates a workspace and switches to it. The fresh
+  workspace auto-seeds a default terminal tab so a mirror can see it.
+- `setActiveWorkspace(wsId): Promise<{ ok, error? }>`: _requires
+  `workspaces:manage`._ Switches the active workspace by id.
 
-### `ctx.settings` — `settings:read` / `settings:write`
+### `ctx.settings`: `settings:read` / `settings:write`
 
 Reads/writes your own namespaced app settings under `ext:<id>:<key>`. Built-in
 TEDI prefs are off-limits. Use this for values you also declare in
 `contributes.settings[]` so they render on the card.
 
-- `get<T>(key): Promise<T | undefined>` — _requires `settings:read`._ `undefined` when absent.
-- `set<T>(key, value): Promise<void>` — _requires `settings:write`._
-- `onChange(key, cb): Disposer` — _requires `settings:read`_ (checked synchronously). Filters to your namespaced key. Auto-disposed.
+- `get<T>(key): Promise<T | undefined>`: _requires `settings:read`._ `undefined` when absent.
+- `set<T>(key, value): Promise<void>`: _requires `settings:write`._
+- `onChange(key, cb): Disposer`: _requires `settings:read`_ (checked synchronously). Filters to your namespaced key. Auto-disposed.
 
-### `ctx.invoke` — `invoke:<command>`
+### `ctx.invoke`: `invoke:<command>`
 
 ```ts
 ctx.invoke<T>(command, args?): Promise<T>
@@ -596,7 +633,7 @@ ctx.invoke<T>(command, args?): Promise<T>
 
 Calls a Rust Tauri command. Gated by an `invoke:<command>` permission match
 (exact, prefix `invoke:*`, glob `invoke:foo_*`, or `*`). Four keychain
-commands — `secrets_get_all`, `secrets_get`, `secrets_set`, `secrets_delete` —
+commands, `secrets_get_all`, `secrets_get`, `secrets_set`, `secrets_delete`, 
 are **hard-denied** even with `*`. Use `ctx.secrets` instead.
 
 ```js
@@ -610,23 +647,29 @@ const { pid } = await ctx.invoke("shell_bg_spawn_direct", {
 > The hard-deny applies only to `ctx.invoke`. A raw `import { invoke } from
 "@tauri-apps/api/core"` bypasses it entirely. See [Section 9](#9-security-model).
 
-### `ctx.secrets` — `secrets:read` / `secrets:write`
+For commands that stream events through a Tauri `Channel` (for example
+`pty_attach`, `ssh_attach`), use `ctx.invokeChannel(command, args, onEvent)`: the
+host creates the channel internally and passes it as the command's `onEvent`
+arg. Same `invoke:<command>` gate, returns the command's resolved value.
+
+### `ctx.secrets`: `secrets:read` / `secrets:write`
 
 OS keychain access namespaced to a per-extension service string
 (`tedi-ext:<id>`), so extensions can't read each other's or the app's keys via
 this facade.
 
-- `get(name): Promise<string | null>` — _requires `secrets:read`._
-- `set(name, value): Promise<void>` — _requires `secrets:write`._
+- `get(name): Promise<string | null>`: _requires `secrets:read`._
+- `set(name, value): Promise<void>`: _requires `secrets:write`._
+- `delete(name): Promise<void>`: _requires `secrets:write`._
 
-### `ctx.events` — `events:emit` / `events:listen`
+### `ctx.events`: `events:emit` / `events:listen`
 
 A Tauri event bus auto-namespaced to a per-extension channel `ext://<id>/<name>`.
 
-- `emit(name, payload?): Promise<void>` — _requires `events:emit`._
-- `on(name, cb): Promise<Disposer>` — _requires `events:listen`._ `cb` receives the unwrapped payload. Auto-disposed.
+- `emit(name, payload?): Promise<void>`: _requires `events:emit`._
+- `on(name, cb): Promise<Disposer>`: _requires `events:listen`._ `cb` receives the unwrapped payload. Auto-disposed.
 
-### `ctx.ui.toast` — `ui:toast`
+### `ctx.ui.toast`: `ui:toast`
 
 ```ts
 ctx.ui.toast(message, { variant?: "default" | "success" | "info" | "warning" | "error" })
@@ -634,7 +677,7 @@ ctx.ui.toast(message, { variant?: "default" | "success" | "info" | "warning" | "
 
 The other `ctx.ui.*` members are **ungated**.
 
-### `ctx.ui.mountFolderTree` — none
+### `ctx.ui.mountFolderTree`: none
 
 Mounts TEDI's built-in FileExplorer (visual parity with the left sidebar) into a
 container you own. Auto-disposed on deactivate. Returns `{ update(opts), dispose() }`.
@@ -650,7 +693,7 @@ type MountFolderTreeOptions = {
 };
 ```
 
-### `ctx.ui.codeEditor` — none
+### `ctx.ui.codeEditor`: none
 
 Mounts a CodeMirror 6 editor reusing the host bundle. Auto-disposed.
 
@@ -681,19 +724,21 @@ type CodeEditorHandle = {
 > Only the four SQL variants get a real syntax mode. `json` and `plain`
 > currently resolve to **no** language extension (plain text today).
 
-### `ctx.ui.icon` — none
+### `ctx.ui.icon`: none
 
-Returns an inline-flex `<span>` mounting a HugeIcon. Defaults: `size` 15,
-`strokeWidth` 1.75. An unknown name yields an empty span plus a
-`[ext:<id>] unknown HugeIcon: <name>` warning. All icon roots are unmounted on
-deactivate.
+Returns an inline-flex `<span>` mounting a Lucide icon. `name` is a Lucide icon
+name (for example `"Plus"`, `"Database"`); a bare name, a `lucide:<Name>`, or a
+legacy `hugeicon:<OldName>` ref all resolve. Defaults: `size` 15, `strokeWidth`
+1.75. An unknown name yields an empty span plus a warning. Each call mounts a
+fresh React root, so for high-frequency rendering cache one element and
+`.cloneNode(true)` it. All icon roots are unmounted on deactivate.
 
 ```js
-const el = ctx.ui.icon("Sun01Icon", { size: 16, className: "opacity-80" });
+const el = ctx.ui.icon("Sun", { size: 16, className: "opacity-80" });
 container.appendChild(el);
 ```
 
-### `ctx.statusBar` — `setItem` needs `statusbar:write`; `removeItem` is ungated
+### `ctx.statusBar`: `setItem` needs `statusbar:write`; `removeItem` is ungated
 
 Bottom-right runtime icons. Multiple items per extension (keyed by `item.id`).
 All items are removed automatically on deactivate. `removeItem` is intentionally
@@ -702,20 +747,20 @@ ungated so you can always remove your own item even after a permission revoke.
 ```ts
 type StatusItem = {
   id: string;
-  icon: string; // "hugeicon:<Name>", a "data:" URL, or "ext-asset:<relPath>"
+  icon: string; // a Lucide name or "lucide:<Name>", a "data:" URL, or "ext-asset:<relPath>" (legacy "hugeicon:<Name>" still resolves)
   tooltip: string;
   tone?: "default" | "success" | "warning" | "error"; // warning pulses, error adds a red dot
 };
 ```
 
-### `ctx.headerBar` — `setItem` needs `headerbar:write`; `removeItem` is ungated
+### `ctx.headerBar`: `setItem` needs `headerbar:write`; `removeItem` is ungated
 
 Top header-row runtime icons.
 
 ```ts
 type HeaderItem = {
   id: string;
-  icon: string; // "hugeicon:<Name>" (line-art parity) or a file/data: asset
+  icon: string; // a Lucide name or "lucide:<Name>", or a file/data: asset
   tooltip: string;
   tone?: "default" | "success" | "warning" | "error";
   placement?: "left" | "right"; // default "right" (near Extensions/Settings);
@@ -724,27 +769,48 @@ type HeaderItem = {
 };
 ```
 
-### `ctx.editor` — `editor:read` / `editor:write`
+### `ctx.sidebar`: `sidebar:write`
 
-- `getActive()` — _requires `editor:read`._ Returns `{ path, content, dirty }`
-  for the focused editor leaf, or `null` (terminal/preview/settings/ext tab, or
+Contribute a left-sidebar section rendered with the Workspaces-panel chrome (h-8
+header + icon + title + action buttons, then a scrollable row list). The section
+appears as a reorderable, collapsible `AppSidebar` entry (keyed
+`xsec:<extId>:<sectionId>`) only while your extension is active, so it shows and
+hides with enable/disable. Re-call `setSection` with the same `id` to update the
+row list (for example after a connection is added).
+
+- `setSection(section): void`: the descriptor carries `headerActions` and
+  `items` (each with optional `actions`, `tone`, `active`), plus
+  `onItemClick` / `onItemAction` / `onHeaderAction` callbacks.
+- `removeSection(sectionId): void`
+
+Backed by `sidebarSectionsRegistry`. The SQL Explorer uses it for its connection
+list.
+
+### `ctx.editor`: `editor:read` / `editor:write`
+
+- `getActive()`: _requires `editor:read`._ Returns `{ path, content, dirty }`
+  for the focused editor leaf, or `null` (terminal/browser/settings/ext tab, or
   bridge not wired). `content` is the **live, possibly dirty** buffer.
-- `setActiveContent(content): boolean` — _requires `editor:write`._ Replaces the
+- `setActiveContent(content): boolean`: _requires `editor:write`._ Replaces the
   whole buffer in one CodeMirror transaction. The user sees a dirty buffer
   (undoable, must Ctrl+S to persist). Returns `false` if the bridge is unset.
 
-### `ctx.tabs` — `tabs:open`
+### `ctx.tabs`: `tabs:open`
 
-- `openExtensionTab({ panelId, title, icon?, reuseKey? }): number | null` —
+- `openExtensionTab({ panelId, title, icon?, reuseKey? }): number | null`: 
   opens a full workspace tab that mounts the renderer registered for `panelId`
   (pair with a `panels[]` entry whose `surface` is `"tab"`). `reuseKey` dedupes
   (same key focuses the existing tab). Returns the tab index or `null`.
-- `setExtensionTabState({ panelId, reuseKey?, state })` — tints the tab title to
+- `openExtensionPane({ panelId, title, icon?, reuseKey? }): number | null`: 
+  same as `openExtensionTab`, but mounts the panel as a native split-pane leaf
+  (same frame as a terminal/editor/browser, splittable and joinable) instead of
+  a standalone tab.
+- `setExtensionTabState({ panelId, reuseKey?, state })`: tints the tab title to
   a lifecycle tone matched on `(panelId, reuseKey)`; `null` clears. Tones mirror
   the SSH palette: `connecting`/`reconnecting` pulse yellow, `connected` green,
   `disconnected`/`error` red.
 
-### `ctx.shell.registerCommandTransformer` — `shell:transform`
+### `ctx.shell.registerCommandTransformer`: `shell:transform`
 
 ```ts
 ctx.shell.registerCommandTransformer((command: string, kind: "bash" | "terminal") => string): Disposer
@@ -765,15 +831,29 @@ ctx.shell.registerCommandTransformer((cmd, kind) => {
 });
 ```
 
-### Right-panel renderer & control — `panels:register` (except `panel.close`)
+### `ctx.ssh`: `ssh:connections`
 
-- `registerPanelRenderer(panelId, renderer): Disposer` — _requires
+Read-only-ish access to the user's saved SSH hosts. The extension never sees a
+password or key: only the connection id crosses the boundary, and the app's own
+keychain-backed connect flow does the rest.
+
+- `listConnections(): Promise<SafeSshConnection[]>`: secret-free metadata
+  (`id`/`name`/`host`/`user` + a `pinned` flag) for each saved host.
+- `openConnection(id): Promise<{ ok, error? }>`: opens the connection by id as a
+  real SSH tab. Refuses a host with no pinned server key, so a remote caller can
+  never trigger a first-connect host-key prompt (which needs desktop verification).
+- `closeConnection(sessionId): boolean`: closes the SSH tab whose live session
+  id is `sessionId` (from `ssh_list_sessions`). Returns `true` if one closed.
+
+### Right-panel renderer & control: `panels:register` (except `panel.close`)
+
+- `registerPanelRenderer(panelId, renderer): Disposer`: _requires
   `panels:register`._ The host hands your `renderer` a fresh `<div>`; return a
   cleanup callback. Pair with a `panels[]` entry. Used for both `surface:"right"`
   and `surface:"tab"`.
-- `panel.open(panelId)` — _requires `panels:register`._
-- `panel.toggle(panelId)` — _requires `panels:register`._
-- `panel.close(panelId?)` — **ungated**, but only acts when the active right
+- `panel.open(panelId)`: _requires `panels:register`._
+- `panel.toggle(panelId)`: _requires `panels:register`._
+- `panel.close(panelId?)`: **ungated**, but only acts when the active right
   panel belongs to this extension (and matches `panelId` if given); otherwise a
   silent no-op.
 
@@ -790,7 +870,7 @@ ctx.registerCommandHandler("tedi.secondary-folder-tree.toggle", () =>
 );
 ```
 
-### `ctx.contribute.*` — ungated except `panels`
+### `ctx.contribute.*`: ungated except `panels`
 
 Imperatively (re)register a contribution slice at runtime. Each call **replaces**
 your prior slice for that category (pass `[]` to clear). These overwrite whatever
@@ -804,25 +884,25 @@ ctx.contribute.settings([
 ctx.contribute.commands([{ id: "acme.run", title: "Run" }]);
 ```
 
-### `ctx.registerCommandHandler` / `ctx.registerAiToolHandler` — none
+### `ctx.registerCommandHandler` / `ctx.registerAiToolHandler`: none
 
-- `registerCommandHandler(commandId, handler)` — bind a runtime handler to a
+- `registerCommandHandler(commandId, handler)`: bind a runtime handler to a
   contributed command id. The handler fires when the command runs (keybinding or
   Shortcuts UI).
-- `registerAiToolHandler(toolName, handler)` — binds the handler the agent calls
+- `registerAiToolHandler(toolName, handler)`: binds the handler the agent calls
   when it invokes your contributed `aiTools[]` tool. `handler(args)` receives the
   model's parsed arguments and returns a JSON-serialisable result (or `{ error }`
   / throws on failure). Pair it with a `contributes.aiTools[]` entry of the same
   `name`. See Section 5 for the full flow + approval behavior.
 
-### `ctx.logger` — none
+### `ctx.logger`: none
 
 `info` / `warn` / `error`, each prefixed `[ext:<id>]`.
 
-### `ctx.addDisposer(d)` — none
+### `ctx.addDisposer(d)`: none
 
 Pushes `d` onto the disposer stack (run in **reverse** order on deactivate, each
-wrapped in try/catch). Most `ctx` wrappers already register their own disposers —
+wrapped in try/catch). Most `ctx` wrappers already register their own disposers, 
 use this only for resources the host can't see (timers, third-party listeners).
 
 ---
@@ -836,7 +916,7 @@ How each contribution is rendered or consumed by the built-in app.
 The host mints a status-bar toggle button from the manifest panel (icon +
 tooltip + optional `toggleCommand` shortcut chip). Clicking it (or
 `ctx.panel.toggle`) opens a single right column **shared** with the AI chat and
-the SCM right panel — your panel takes precedence when active and they are
+the SCM right panel, your panel takes precedence when active and they are
 mutually exclusive. The host renders a title + close strip unless
 `hideHostHeader:true`. `defaultOpen:true` opens it once per session at launch.
 
@@ -849,9 +929,10 @@ the tab title with `ctx.tabs.setExtensionTabState` to reflect connection state.
 
 ### Status bar (`ctx.statusBar`)
 
-Items render bottom-right, sorted by `(extId, itemId)`. Icons resolve from
-`hugeicon:<Name>`, a `data:` URL, or an `ext-asset:<relPath>` (SVGs render as a
-theme-tinted CSS mask; raster as `<img>`).
+Items render bottom-right, sorted by `(extId, itemId)`. Icons resolve from a
+Lucide name (or `lucide:<Name>`, or a legacy `hugeicon:<Name>`), a `data:` URL,
+or an `ext-asset:<relPath>` (SVGs render as a theme-tinted CSS mask; raster as
+`<img>`).
 
 ### Header bar (`ctx.headerBar`)
 
@@ -877,7 +958,7 @@ Wired into the main agent. Each contributed tool is merged into the model's tool
 set every turn with its JSON-Schema args; when the model calls it, your
 `registerAiToolHandler` handler runs and its result goes back to the model.
 Every extension tool call is **gated by the user's tool-approval flow** (it
-prompts in Ask mode; auto-approved only if the user enabled that) — the handler
+prompts in Ask mode; auto-approved only if the user enabled that), the handler
 is unvetted third-party code, so it never auto-runs silently. Built-in tools win
 on a name collision (you can't shadow `bash_run`), disabled extensions' tools
 drop out automatically, and subagents (fixed read-only tool set) don't receive
@@ -907,9 +988,12 @@ checks the extension's declared `permissions[]` (recorded at install as
 | `panels:register`  | low     | `contribute.panels`, `ctx.registerPanelRenderer`, `ctx.panel.open`, `ctx.panel.toggle`. (`ctx.panel.close` is ungated.)                                                                                                                                                                                                                                                                                  |
 | `statusbar:write`  | low     | `ctx.statusBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
 | `headerbar:write`  | low     | `ctx.headerBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
-| `tabs:open`        | low     | `ctx.tabs.openExtensionTab`, `ctx.tabs.setExtensionTabState`.                                                                                                                                                                                                                                                                                                                                            |
+| `sidebar:write`    | low     | `ctx.sidebar.setSection`. (`removeSection` ungated.)                                                                                                                                                                                                                                                                                                                                                     |
+| `tabs:open`        | low     | `ctx.tabs.openExtensionTab`, `ctx.tabs.openExtensionPane`, `ctx.tabs.setExtensionTabState`.                                                                                                                                                                                                                                                                                                              |
 | `editor:read`      | medium  | `ctx.editor.getActive`.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `editor:write`     | medium  | `ctx.editor.setActiveContent`.                                                                                                                                                                                                                                                                                                                                                                           |
+| `workspaces:manage`| medium  | `ctx.app.createWorkspace`, `ctx.app.setActiveWorkspace`.                                                                                                                                                                                                                                                                                                                                                 |
+| `ssh:connections`  | high    | `ctx.ssh.*` (open/close saved SSH connections by id; the extension never sees a password or key).                                                                                                                                                                                                                                                                                                        |
 | `shell:transform`  | high    | `ctx.shell.registerCommandTransformer` (rewrites every AI shell command).                                                                                                                                                                                                                                                                                                                                |
 | `*`                | high    | Everything checkPermission-gated. Does **not** override the hard-deny set.                                                                                                                                                                                                                                                                                                                               |
 
@@ -921,13 +1005,13 @@ Members with **no** permission: `ctx.id`, `ctx.installPath`, `ctx.os`,
 
 ### Matching rules
 
-- **Exact** — `"editor:read"` matches `editor:read`.
-- **Category wildcard** — a declared `"settings:*"` matches `settings:read` and
+- **Exact**: `"editor:read"` matches `editor:read`.
+- **Category wildcard**: a declared `"settings:*"` matches `settings:read` and
   `settings:write` (the colon is kept).
-- **Glob** — any declared string containing `*` is compiled to a regex, e.g.
+- **Glob**: any declared string containing `*` is compiled to a regex, e.g.
   `"invoke:foo_*"` -> `/^invoke:foo_.*$/`. `*` is greedy and crosses underscores
   and colons.
-- **`*`** — grants everything checkPermission-gated.
+- **`*`**: grants everything checkPermission-gated.
 
 ### Hard-denied `invoke` commands
 
@@ -974,12 +1058,12 @@ user at update time (Section 9), so request only what you need from day one.
 
 Each activation reads your JS text, wraps it in a `Blob`, mints a new
 `URL.createObjectURL`, and `import()`s it. Because the URL is new every time, the
-browser treats it as a **fresh module instance** — module-level state resets
+browser treats it as a **fresh module instance**, module-level state resets
 cleanly between enable/disable cycles. The Blob URL is revoked on deactivate.
 
 ### No file-watch hot-reload
 
-"Dynamic" means no recompile and runtime load/unload — it does **not** mean a
+"Dynamic" means no recompile and runtime load/unload, it does **not** mean a
 disk edit is auto-picked-up. To see code changes, re-install (or trigger a
 reload). `bootAll` activates all enabled extensions once at app boot, sequentially
 (so contributions other extensions depend on are present).
@@ -987,7 +1071,7 @@ reload). `bootAll` activates all enabled extensions once at app boot, sequential
 ### Two-window sync
 
 The Settings window is a **separate webview** that lists/installs/seeds but never
-activates extensions — only the main window does. On any change the active window
+activates extensions, only the main window does. On any change the active window
 emits `tedi://ext-changed` (`{ kind: "installed" | "reloaded" | "removed", id }`);
 the main window reloads (or deactivates) accordingly and every window refreshes
 its list. The Settings window re-seeds manifest contributions so the Extensions
@@ -1013,7 +1097,7 @@ registry clear), `shell.registerCommandTransformer`, `registerPanelRenderer`, an
 
 If your extension builds from `src/` (see
 [Build pipeline](#build-pipeline-src--extensionjs)), generate the bundle first so
-`extension.js` exists — it is git-ignored, so a fresh checkout won't have it:
+`extension.js` exists, it is git-ignored, so a fresh checkout won't have it:
 
 ```bash
 npm install && npm run build
@@ -1057,7 +1141,7 @@ release `.zip` asset and install via _From GitHub_ with your `owner/repo` slug.
 GitHub resolution uses `releases/latest`; the version always comes from the
 manifest inside the zip (the tag is ignored). Set `TEDI_GITHUB_TOKEN` to raise
 the API rate limit. Re-installing the same `manifest.id` replaces on disk and
-reloads — that is also how updates work.
+reloads, that is also how updates work.
 
 ### CLI `tedi ext`
 
@@ -1077,7 +1161,7 @@ tedi ext                     # interactive menu on a TTY, help otherwise
 ```
 
 > The CLI and GUI write the same `state.json` with **no file lock** between
-> processes — the later writer wins. Avoid running both against the same install
+> processes, the later writer wins. Avoid running both against the same install
 > at once.
 
 ### Recommended release CI
@@ -1104,7 +1188,7 @@ up each new tag.
 
 TEDI extensions run **unsandboxed JavaScript in the main webview realm** with
 full app privileges. The runtime reads your `main` JS and executes it via a
-Blob-URL dynamic import — the same `window`, `document`, `fetch`, and module
+Blob-URL dynamic import, the same `window`, `document`, `fetch`, and module
 graph as the host. There is no iframe, Web Worker, or membrane. The `ctx` facade
 and its permission gate are a **convenience and an advisory layer, not a security
 boundary**.
@@ -1113,7 +1197,7 @@ What this means concretely:
 
 - **Raw `@tauri-apps/api` bypasses every `ctx.*` gate.** An extension can
   `import { invoke } from "@tauri-apps/api/core"` and call **any**
-  app-registered command directly — including `secrets_get` / `secrets_get_all`
+  app-registered command directly, including `secrets_get` / `secrets_get_all`
   (reading the user's AI provider keys and SSH credentials), `shell_*`, and
   `fs_*`. The `ctx.invoke` hard-deny and every `requirePermission` check only
   bind the `ctx` facade, not a direct import.
@@ -1126,26 +1210,26 @@ What this means concretely:
 - **Updates re-prompt on new permissions.** The GUI install/update review
   diffs the incoming manifest against the permissions you already approved and,
   when a version requests anything new, highlights it and makes you re-approve
-  before the update commits — an update can't silently widen its grant through
+  before the update commits, an update can't silently widen its grant through
   the UI. (Caveat: the headless `tedi ext update` CLI applies the install
   pipeline directly without that prompt, and the approved set recorded on
-  confirm is still the full manifest set, not a user-trimmed subset — see the
+  confirm is still the full manifest set, not a user-trimmed subset, see the
   roadmap below.) `*` still grants everything in one token.
 
 **The install-time review dialog is the real security boundary.** It renders the
 manifest permissions as color-coded risk badges and warns that extensions run
 JavaScript inside the app. Only install from sources you trust. Native-sidecar
-extensions ship arbitrary native code on top of JS — treat them as higher risk.
+extensions ship arbitrary native code on top of JS, treat them as higher risk.
 
 ### What IS protected
 
-- **Install pipeline hardening** — zip path-traversal rejected, duplicate-path
+- **Install pipeline hardening**: zip path-traversal rejected, duplicate-path
   (manifest-spoofing) zips rejected, size caps against actual decompressed bytes
   (zip-bomb defence), symlinks written as data.
 - **Asset reads** are confined to the install folder (`..`/absolute/escape
   rejected) with a 5 MiB cap.
 - **Engine-compat gate** at both install and activation.
-- **Namespace isolation against accidental collisions** — per-extension event
+- **Namespace isolation against accidental collisions**: per-extension event
   channel `ext://<id>/*`, settings namespace `ext:<id>:*`, storage file
   `tedi-ext-<id>.json`, and keychain service `tedi-ext:<id>`. This prevents
   _accidental_ cross-extension reads, not a _malicious_ direct invoke.
@@ -1156,7 +1240,7 @@ extensions ship arbitrary native code on top of JS — treat them as higher risk
 - **Request least privilege.** Declare only what you use; prefer
   `invoke:<exact_command>` over `invoke:*`; never request `*`.
 - **Use the namespaced facades** (`ctx.secrets`, `ctx.settings`, `ctx.events`)
-  rather than raw `ctx.invoke` into namespaced commands — it keeps you within
+  rather than raw `ctx.invoke` into namespaced commands, it keeps you within
   the documented model and survives future tightening.
 - **Be idempotent in `deactivate`** and tear down every resource the host can't
   see.
@@ -1197,7 +1281,7 @@ assume the protection exists:
   a non-semver `version`, or an `id` that violates the naming rules.
 - **Install fails with a version error.** `engines.tedi` is unsatisfied by the
   host. Loosen the constraint or update TEDI.
-- **`activate` threw but my settings card still shows.** Expected — declarative
+- **`activate` threw but my settings card still shows.** Expected: declarative
   contributions are seeded before `activate` runs.
 - **My panel/tab is blank.** Make sure you called `ctx.registerPanelRenderer`
   for the same `panelId` as the manifest `panels[]` entry, and that
@@ -1213,8 +1297,8 @@ assume the protection exists:
 - **My AI tool is never called.** Confirm the `aiTools[]` `name` matches the
   `ctx.registerAiToolHandler(name, …)` you bound, that the extension is enabled,
   and that you didn't reuse a built-in tool name (built-ins win). Also: subagents
-  don't get extension tools — only the main agent does.
-- **State resets on disable then enable.** By design — each activation is a fresh
+  don't get extension tools, only the main agent does.
+- **State resets on disable then enable.** By design: each activation is a fresh
   module instance.
 - **Module-level state leaked between activations.** It shouldn't (fresh Blob
   URL), but if you cached a `window`-level global yourself, clear it in

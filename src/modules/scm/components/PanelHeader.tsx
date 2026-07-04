@@ -1,21 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  ArrowDown01Icon,
-  ArrowTurnBackwardIcon,
-  ArrowUp01Icon,
-  Cancel01Icon,
-  GitBranchIcon,
-  LinkSquare02Icon,
-  Refresh01Icon,
-  SidebarLeft01Icon,
-  SidebarRight01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { setSourceControlInRightPanel } from "@/modules/settings/store";
 import { useScmRightPanelStore } from "../scmRightPanelStore";
 import type { GitStatus } from "../types";
+import {
+  ChevronDown,
+  ChevronUp,
+  CornerUpLeft,
+  ExternalLink,
+  GitBranch,
+  PanelLeft,
+  PanelRight,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 type PanelHeaderProps = {
   status: GitStatus | null;
@@ -41,50 +40,53 @@ export function PanelHeader({
   onClose,
   dragHandle,
 }: PanelHeaderProps) {
+  const label = (
+    <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
+      {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
+      {status?.isRepo && changeCount > 0 ? (
+        <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
+          ({changeCount})
+        </span>
+      ) : null}
+    </span>
+  );
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 px-2">
       {dragHandle}
-      <HugeiconsIcon
-        icon={GitBranchIcon}
-        size={13}
-        strokeWidth={2}
-        className="text-muted-foreground shrink-0"
-      />
+      <GitBranch size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
       {status?.branch ? (
         <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
-              {status.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
-              {status.isRepo && changeCount > 0 ? (
-                <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
-                  ({changeCount})
-                </span>
-              ) : null}
-            </span>
-          </TooltipTrigger>
+          <TooltipTrigger asChild>{label}</TooltipTrigger>
           <TooltipContent side="bottom">{status.branch}</TooltipContent>
         </Tooltip>
       ) : (
-        <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
-          {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
-          {status?.isRepo && changeCount > 0 ? (
-            <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
-              ({changeCount})
-            </span>
-          ) : null}
-        </span>
+        label
       )}
       {status?.isRepo && status.ahead > 0 ? (
-        <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
-          <HugeiconsIcon icon={ArrowUp01Icon} size={10} strokeWidth={2.25} />
-          {status.ahead}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+              <ChevronUp size={10} strokeWidth={2.25} />
+              {status.ahead}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {status.ahead} local commit{status.ahead === 1 ? "" : "s"} to push
+          </TooltipContent>
+        </Tooltip>
       ) : null}
       {status?.isRepo && status.behind > 0 ? (
-        <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
-          <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2.25} />
-          {status.behind}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+              <ChevronDown size={10} strokeWidth={2.25} />
+              {status.behind}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {status.behind} remote commit{status.behind === 1 ? "" : "s"} to pull
+          </TooltipContent>
+        </Tooltip>
       ) : null}
       <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
       {!historyOnly && status?.isRepo && changeCount > 0 ? (
@@ -96,7 +98,7 @@ export function PanelHeader({
             onClick={onDiscardAll}
             aria-label="Discard all changes"
           >
-            <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={13} strokeWidth={2} />
+            <CornerUpLeft size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}
@@ -109,7 +111,7 @@ export function PanelHeader({
           aria-label="Refresh"
           disabled={loading}
         >
-          <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
+          <RefreshCw size={12} strokeWidth={2} />
         </Button>
       </IconTooltip>
       {onOpenInTab ? (
@@ -121,7 +123,7 @@ export function PanelHeader({
             onClick={onOpenInTab}
             aria-label="Open Source Control in a tab"
           >
-            <HugeiconsIcon icon={LinkSquare02Icon} size={12} strokeWidth={2} />
+            <ExternalLink size={12} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}
@@ -138,7 +140,7 @@ export function PanelHeader({
             }}
             aria-label="Move Source Control to the right panel"
           >
-            <HugeiconsIcon icon={SidebarRight01Icon} size={13} strokeWidth={2} />
+            <PanelRight size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}
@@ -155,7 +157,7 @@ export function PanelHeader({
             }}
             aria-label="Move Source Control to the left sidebar"
           >
-            <HugeiconsIcon icon={SidebarLeft01Icon} size={13} strokeWidth={2} />
+            <PanelLeft size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}
@@ -168,7 +170,7 @@ export function PanelHeader({
             onClick={onClose}
             aria-label="Close Source Control panel"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            <X size={12} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}

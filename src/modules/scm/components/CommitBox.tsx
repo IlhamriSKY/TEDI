@@ -1,11 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
-import { CloudUploadIcon, GitCommitIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import type { GitStatus } from "../types";
+import { CloudUpload, GitCommitHorizontal, Sparkles } from "lucide-react";
 
 type CommitBoxProps = {
   status: GitStatus;
@@ -70,7 +69,7 @@ export function CommitBox({
             {busy === "ai" ? (
               <Spinner className="size-3" />
             ) : (
-              <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={2} />
+              <Sparkles size={12} strokeWidth={2} />
             )}
           </Button>
         </IconTooltip>
@@ -83,7 +82,7 @@ export function CommitBox({
           disabled={!message.trim() || changeCount === 0 || busy !== null}
           aria-label="Commit"
         >
-          <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={2} />
+          <GitCommitHorizontal size={13} strokeWidth={2} />
         </Button>
       </IconTooltip>
       <IconTooltip
@@ -105,7 +104,7 @@ export function CommitBox({
           disabled={busy !== null}
           aria-label="Push"
         >
-          <HugeiconsIcon icon={CloudUploadIcon} size={12} strokeWidth={2} />
+          <CloudUpload size={12} strokeWidth={2} />
           {status.ahead > 0 ? (
             <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
           ) : null}

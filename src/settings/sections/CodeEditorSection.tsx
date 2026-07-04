@@ -19,13 +19,12 @@ import {
   setVimMode,
   type EditorThemeId,
 } from "@/modules/settings/store";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { FormattersTable } from "./components/FormattersTable";
+import { ChevronDown } from "lucide-react";
 
 export function CodeEditorSection() {
   const editorTheme = usePreferencesStore((s) => s.editorTheme);
@@ -54,12 +53,7 @@ export function CodeEditorSection() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{EDITOR_THEME_LABELS[editorTheme]}</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[220px]">
@@ -83,12 +77,7 @@ export function CodeEditorSection() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{editorFontSize} px</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-25">

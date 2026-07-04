@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import type { LucideIcon } from "lucide-react";
 
 /** Trailing icon button styling. Only close lives here; rotate and move are in the right-click menu. */
 const TRAILING_BTN_BASE =
@@ -14,12 +14,12 @@ const TRAILING_BTN_VARIANT = {
 const TRAILING_ICON_SIZE = 9;
 
 export function TrailingIconButton({
-  icon,
+  icon: Icon,
   label,
   onClick,
   variant = "default",
 }: {
-  icon: IconSvgElement;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
   variant?: keyof typeof TRAILING_BTN_VARIANT;
@@ -38,7 +38,7 @@ export function TrailingIconButton({
           }}
           className={cn(TRAILING_BTN_BASE, TRAILING_BTN_VARIANT[variant])}
         >
-          <HugeiconsIcon icon={icon} size={TRAILING_ICON_SIZE} strokeWidth={2} />
+          <Icon size={TRAILING_ICON_SIZE} strokeWidth={2} />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>

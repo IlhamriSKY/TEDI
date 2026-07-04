@@ -210,7 +210,6 @@ pub fn handle_theme_command_and_exit() {
     cli::attach_parent_console();
     let sub = args.get(pos + 1).map(String::as_str).unwrap_or("help");
     let arg = args.get(pos + 2).cloned();
-    let arg2 = args.get(pos + 3).cloned();
 
     let result = match sub {
         "help" | "-h" | "--help" => {
@@ -223,7 +222,7 @@ pub fn handle_theme_command_and_exit() {
         "on" => set_enabled(true),
         "off" => set_enabled(false),
         "reset" => reset_to_default(),
-        "bg" => set_bg(arg.as_deref(), arg2.as_deref()),
+        "bg" => set_bg(arg.as_deref()),
         "blur" => set_number_field(
             &["customTheme", "background", "blur"],
             arg.as_deref(),
@@ -445,7 +444,7 @@ fn reset_to_default() -> Result<(), String> {
     Ok(())
 }
 
-fn set_bg(arg: Option<&str>, _arg2: Option<&str>) -> Result<(), String> {
+fn set_bg(arg: Option<&str>) -> Result<(), String> {
     let arg = arg.ok_or("missing argument: `tedi theme bg <url|file|off>`")?;
     if arg.eq_ignore_ascii_case("off") {
         update_store(|store| {

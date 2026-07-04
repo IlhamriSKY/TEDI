@@ -7,18 +7,10 @@ import {
   setTerminalEnvPath,
   type TerminalPathEntry,
 } from "@/modules/settings/store";
-import {
-  Add01Icon,
-  AlertCircleIcon,
-  CancelCircleIcon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Loading03Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
+import { CircleAlert, CircleCheck, CircleX, LoaderCircle, Plus, Trash2 } from "lucide-react";
 
 /**
  * Editor for the terminal's "Additional PATH" list. Each row is an explicit
@@ -154,7 +146,7 @@ export function AdditionalPathEditor() {
             disabled={!draft.trim()}
             onClick={addEntry}
           >
-            <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
+            <Plus size={14} strokeWidth={2} />
             Add
           </Button>
         </div>
@@ -179,7 +171,7 @@ export function AdditionalPathEditor() {
                   onClick={() => removeEntry(index)}
                   aria-label="Remove this folder"
                 >
-                  <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} />
+                  <Trash2 size={14} strokeWidth={2} />
                 </Button>
               </div>
             ))}
@@ -203,7 +195,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
   if (!state || (state.loading && !state.result)) {
     return (
       <span className="text-muted-foreground/70 flex items-center gap-1 text-[10px]">
-        <HugeiconsIcon icon={Loading03Icon} size={11} strokeWidth={2} className="animate-spin" />
+        <LoaderCircle size={11} strokeWidth={2} className="animate-spin" />
         Checking folder…
       </span>
     );
@@ -219,7 +211,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
   if (!result.isDir) {
     return (
       <span className="text-destructive/90 flex items-center gap-1 text-[10px]">
-        <HugeiconsIcon icon={CancelCircleIcon} size={11} strokeWidth={2} className="shrink-0" />
+        <CircleX size={11} strokeWidth={2} className="shrink-0" />
         Folder not found
       </span>
     );
@@ -228,7 +220,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
   if (result.tools.length === 0) {
     return (
       <span className="text-icon-working flex items-center gap-1 text-[10px]">
-        <HugeiconsIcon icon={AlertCircleIcon} size={11} strokeWidth={2} className="shrink-0" />
+        <CircleAlert size={11} strokeWidth={2} className="shrink-0" />
         Folder exists, no known tools detected
       </span>
     );
@@ -236,12 +228,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
 
   return (
     <span className="flex flex-wrap items-center gap-1 text-[10px]">
-      <HugeiconsIcon
-        icon={CheckmarkCircle02Icon}
-        size={11}
-        strokeWidth={2}
-        className="text-diff-added shrink-0"
-      />
+      <CircleCheck size={11} strokeWidth={2} className="text-diff-added shrink-0" />
       {result.tools.map((t) => (
         <span key={t.tool} className="bg-muted/60 rounded px-1 py-px font-mono text-[9.5px]">
           {t.tool}

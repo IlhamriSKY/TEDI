@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FS_REFRESH_EVENT } from "./fsRefresh";
 
 export type DirEntry = {
   name: string;
@@ -55,9 +56,9 @@ function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
  *  Picks up external file changes without a backend FS watcher. */
 const AUTO_REFRESH_MS = 4000;
 
-/** Event for cross-module refresh requests. Detail `{ path }` refreshes one
- *  directory; omitting `path` refreshes every loaded directory. */
-export const FS_REFRESH_EVENT = "tedi:refresh-fs";
+/** Re-exported for existing importers (e.g. gitDecorations). Owned by
+ *  fsRefresh.ts, which also dispatches it. */
+export { FS_REFRESH_EVENT };
 
 function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
   if (a.length !== b.length) return false;

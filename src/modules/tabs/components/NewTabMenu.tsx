@@ -10,16 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import {
-  ComputerTerminal02Icon,
-  Globe02Icon,
-  LayoutTwoColumnIcon,
-  LayoutTwoRowIcon,
-  LockedIcon,
-  PencilEdit02Icon,
-  PlusSignIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { Columns2, Globe, Lock, Plus, Rows2, SquarePen, SquareTerminal } from "lucide-react";
 
 type NewTabMenuProps = {
   onNewTerminal: () => void;
@@ -54,7 +45,7 @@ export function NewTabMenu({
               className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
               aria-label="New"
             >
-              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
+              <Plus size={14} strokeWidth={2} />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -62,7 +53,7 @@ export function NewTabMenu({
       </Tooltip>
       <DropdownMenuContent align="start" className="w-auto min-w-64">
         <DropdownMenuItem onSelect={() => onNewTerminal()}>
-          <HugeiconsIcon icon={ComputerTerminal02Icon} size={14} strokeWidth={1.75} />
+          <SquareTerminal size={14} strokeWidth={1.75} />
           <span className="flex-1 whitespace-nowrap">Terminal</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "T")}
@@ -70,12 +61,7 @@ export function NewTabMenu({
         </DropdownMenuItem>
         {onNewPrivateTerminal ? (
           <DropdownMenuItem onSelect={() => onNewPrivateTerminal()}>
-            <HugeiconsIcon
-              icon={LockedIcon}
-              size={14}
-              strokeWidth={1.75}
-              className="text-destructive"
-            />
+            <Lock size={14} strokeWidth={1.75} className="text-destructive" />
             <span className="flex-1 whitespace-nowrap">Private Terminal</span>
             <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
               {fmtShortcut(MOD_KEY, "Shift", "T")}
@@ -83,14 +69,14 @@ export function NewTabMenu({
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem onSelect={() => onNewEditor()}>
-          <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.75} />
+          <SquarePen size={14} strokeWidth={1.75} />
           <span className="flex-1 whitespace-nowrap">Editor</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "E")}
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNewPreview()}>
-          <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
+          <Globe size={14} strokeWidth={1.75} />
           <span className="flex-1 whitespace-nowrap">Browser</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "Alt", "P")}
@@ -100,21 +86,21 @@ export function NewTabMenu({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row")}>
-              <HugeiconsIcon icon={LayoutTwoColumnIcon} size={14} strokeWidth={1.75} />
+              <Columns2 size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split right</span>
               <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
                 {fmtShortcut(MOD_KEY, "D")}
               </span>
             </DropdownMenuItem>
             <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("col")}>
-              <HugeiconsIcon icon={LayoutTwoRowIcon} size={14} strokeWidth={1.75} />
+              <Rows2 size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split down</span>
               <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
                 {fmtShortcut(MOD_KEY, "Shift", "D")}
               </span>
             </DropdownMenuItem>
             <DropdownMenuItem disabled={!canSplit} onSelect={() => onSplit("row", "browser")}>
-              <HugeiconsIcon icon={Globe02Icon} size={14} strokeWidth={1.75} />
+              <Globe size={14} strokeWidth={1.75} />
               <span className="flex-1 whitespace-nowrap">Split with browser</span>
               <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
                 {fmtShortcut(MOD_KEY, "Shift", "B")}

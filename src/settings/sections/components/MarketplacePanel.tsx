@@ -118,7 +118,7 @@ function MarketplaceCard({ item, onInstall }: { item: MarketplaceItem; onInstall
   const showImg = !!iconSrc && !iconBroken;
   const letter = item.name.trim().charAt(0).toUpperCase() || "?";
   return (
-    <div className="border-border/60 bg-card/60 flex items-start gap-3 rounded-md border px-2.5 py-2">
+    <div className="border-border/60 bg-card flex items-start gap-3 rounded-md border px-2.5 py-2">
       {showImg ? (
         <img
           src={iconSrc}

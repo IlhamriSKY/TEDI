@@ -115,82 +115,60 @@ export function PaneStack({
   }, []);
 
   // Stable refs for per-leaf callbacks. Re-creating bundles would tear down PTY/editor state.
-  const registerTerminalRef = useRef(registerTerminalHandle);
-  const searchReadyRef = useRef(onSearchReady);
-  const cwdRef = useRef(onCwd);
-  const detectedUrlRef = useRef(onDetectedLocalUrl);
-  const exitRef = useRef(onExit);
-  const tediOpenRef = useRef(onTediOpen);
-  const tediSpawnTabRef = useRef(onTediSpawnTab);
-  const sshStatusRef = useRef(onSshStatus);
-  const aiCliStatusRef = useRef(onAiCliStatus);
-  const ptyIdRef = useRef(onPtyId);
-  const registerEditorRef = useRef(registerEditorHandle);
-  const dirtyChangeRef = useRef(onDirtyChange);
-  const closeLeafRef = useRef(onCloseLeaf);
-  const browserUrlRef = useRef(onBrowserUrlChange);
-  useEffect(() => {
-    registerTerminalRef.current = registerTerminalHandle;
-  }, [registerTerminalHandle]);
-  useEffect(() => {
-    searchReadyRef.current = onSearchReady;
-  }, [onSearchReady]);
-  useEffect(() => {
-    cwdRef.current = onCwd;
-  }, [onCwd]);
-  useEffect(() => {
-    detectedUrlRef.current = onDetectedLocalUrl;
-  }, [onDetectedLocalUrl]);
-  useEffect(() => {
-    exitRef.current = onExit;
-  }, [onExit]);
-  useEffect(() => {
-    tediOpenRef.current = onTediOpen;
-  }, [onTediOpen]);
-  useEffect(() => {
-    tediSpawnTabRef.current = onTediSpawnTab;
-  }, [onTediSpawnTab]);
-  useEffect(() => {
-    sshStatusRef.current = onSshStatus;
-  }, [onSshStatus]);
-  useEffect(() => {
-    aiCliStatusRef.current = onAiCliStatus;
-  }, [onAiCliStatus]);
-  useEffect(() => {
-    ptyIdRef.current = onPtyId;
-  }, [onPtyId]);
-  useEffect(() => {
-    registerEditorRef.current = registerEditorHandle;
-  }, [registerEditorHandle]);
-  useEffect(() => {
-    dirtyChangeRef.current = onDirtyChange;
-  }, [onDirtyChange]);
-  useEffect(() => {
-    closeLeafRef.current = onCloseLeaf;
-  }, [onCloseLeaf]);
-  useEffect(() => {
-    browserUrlRef.current = onBrowserUrlChange;
-  }, [onBrowserUrlChange]);
+  // Bundles are only invoked from post-commit PTY/editor/async callbacks, so a render-time ref
+  // write is behavior-equivalent (mirrors useTerminalSession.ts).
+  const cbRef = useRef({
+    registerTerminalHandle,
+    onSearchReady,
+    onCwd,
+    onDetectedLocalUrl,
+    onExit,
+    onTediOpen,
+    onTediSpawnTab,
+    onSshStatus,
+    onAiCliStatus,
+    onPtyId,
+    registerEditorHandle,
+    onDirtyChange,
+    onCloseLeaf,
+    onBrowserUrlChange,
+  });
+  cbRef.current = {
+    registerTerminalHandle,
+    onSearchReady,
+    onCwd,
+    onDetectedLocalUrl,
+    onExit,
+    onTediOpen,
+    onTediSpawnTab,
+    onSshStatus,
+    onAiCliStatus,
+    onPtyId,
+    registerEditorHandle,
+    onDirtyChange,
+    onCloseLeaf,
+    onBrowserUrlChange,
+  };
 
   const bundles = useRef(new Map<number, LeafBundle>());
   const getBundle = (leafId: number): LeafBundle => {
     let b = bundles.current.get(leafId);
     if (!b) {
       b = {
-        setTerminalRef: (h) => registerTerminalRef.current(leafId, h),
-        onSearchReady: (addon) => searchReadyRef.current(leafId, addon),
-        onCwd: (cwd) => cwdRef.current(leafId, cwd),
-        onDetectedLocalUrl: (url) => detectedUrlRef.current(leafId, url),
-        onExit: (code) => exitRef.current(leafId, code),
-        onTediOpen: (input) => tediOpenRef.current?.(leafId, input),
-        onTediSpawnTab: (input) => tediSpawnTabRef.current?.(leafId, input),
-        onSshStatus: (status) => sshStatusRef.current?.(leafId, status),
-        onAiCliStatus: (status) => aiCliStatusRef.current?.(leafId, status),
-        onPtyId: (ptyId) => ptyIdRef.current?.(leafId, ptyId),
-        setEditorRef: (h) => registerEditorRef.current(leafId, h),
-        onDirtyChange: (dirty) => dirtyChangeRef.current(leafId, dirty),
-        onCloseLeaf: () => closeLeafRef.current(leafId),
-        onBrowserUrlChange: (url) => browserUrlRef.current(leafId, url),
+        setTerminalRef: (h) => cbRef.current.registerTerminalHandle(leafId, h),
+        onSearchReady: (addon) => cbRef.current.onSearchReady(leafId, addon),
+        onCwd: (cwd) => cbRef.current.onCwd(leafId, cwd),
+        onDetectedLocalUrl: (url) => cbRef.current.onDetectedLocalUrl(leafId, url),
+        onExit: (code) => cbRef.current.onExit(leafId, code),
+        onTediOpen: (input) => cbRef.current.onTediOpen?.(leafId, input),
+        onTediSpawnTab: (input) => cbRef.current.onTediSpawnTab?.(leafId, input),
+        onSshStatus: (status) => cbRef.current.onSshStatus?.(leafId, status),
+        onAiCliStatus: (status) => cbRef.current.onAiCliStatus?.(leafId, status),
+        onPtyId: (ptyId) => cbRef.current.onPtyId?.(leafId, ptyId),
+        setEditorRef: (h) => cbRef.current.registerEditorHandle(leafId, h),
+        onDirtyChange: (dirty) => cbRef.current.onDirtyChange(leafId, dirty),
+        onCloseLeaf: () => cbRef.current.onCloseLeaf(leafId),
+        onBrowserUrlChange: (url) => cbRef.current.onBrowserUrlChange(leafId, url),
       };
       bundles.current.set(leafId, b);
     }

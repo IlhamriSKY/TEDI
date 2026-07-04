@@ -10,10 +10,8 @@ import {
 } from "@/modules/ssh/connections";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import { useHugeIconsReady } from "@/lib/hugeIconsBarrel";
+import { useIconsReady } from "@/lib/iconRegistry";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
-import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   closestCenter,
   DndContext,
@@ -34,6 +32,7 @@ import { type Entry, type PaneEntry, buildEntries } from "./lib/entries";
 import { EntryIcon } from "./components/EntryIcon";
 import { NewTabMenu } from "./components/NewTabMenu";
 import { SortableTabGroup } from "./components/SortableTabGroup";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -136,11 +135,11 @@ export function TabBar({
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Re-render once the HugeIcons barrel and catppuccin file-icon set finish
+  // Re-render once the lazy icon chunk and catppuccin file-icon set finish
   // loading so extension tab icons + editor-tab file icons swap from the
   // fallback glyph to the real one. Both hooks return true immediately when
   // already cached and flip on load completion.
-  useHugeIconsReady();
+  useIconsReady();
   useExplorerIconsReady();
   // dnd-kit drag id. `tab:<n>` for whole-group, `leaf:<n>` for in-group reorder. Prefix routes `handleDragEnd`.
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -353,7 +352,7 @@ export function TabBar({
                 // h-7 (28px) to match the tab triggers.
                 className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80 flex size-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <HugeiconsIcon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
+                <ChevronLeft size={14} strokeWidth={2} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Scroll tabs left</TooltipContent>
@@ -367,7 +366,7 @@ export function TabBar({
                 disabled={!canScrollRight}
                 className="border-border/70 bg-muted/30 text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground/80 disabled:hover:bg-muted/30 disabled:hover:text-muted-foreground/80 flex size-7 shrink-0 items-center justify-center rounded-md border transition-[background-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={2} />
+                <ChevronRight size={14} strokeWidth={2} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Scroll tabs right</TooltipContent>

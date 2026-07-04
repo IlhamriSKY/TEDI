@@ -8,8 +8,6 @@ import { Message, MessageContent, MessageResponse } from "@/components/ai-elemen
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowUp01Icon, CodeIcon, HashtagIcon, TerminalIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
   extractUserMessage,
@@ -31,6 +29,7 @@ import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePar
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
+import { ChevronUp, Code, Hash, Terminal } from "lucide-react";
 
 function CommandSnippet({ name }: { name: string }) {
   // Built-in command first, then an installed skill (`/ponytail-gain` etc.) so
@@ -43,14 +42,10 @@ function CommandSnippet({ name }: { name: string }) {
       </div>
     );
   }
+  const Icon = meta.icon;
   return (
     <div className="border-border/50 bg-muted/40 inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1">
-      <HugeiconsIcon
-        icon={meta.icon}
-        size={12}
-        strokeWidth={1.75}
-        className="text-foreground shrink-0"
-      />
+      <Icon size={12} strokeWidth={1.75} className="text-foreground shrink-0" />
       <span className="text-foreground font-mono text-[11px]">{meta.invocation}</span>
       {meta.label && meta.label !== name ? (
         <span className="text-muted-foreground truncate text-[11px]">{meta.label}</span>
@@ -75,7 +70,7 @@ function UserAttachmentChips({
         <Tooltip key={`s-${i}-${handle}`}>
           <TooltipTrigger asChild>
             <span className="border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
-              <HugeiconsIcon icon={HashtagIcon} size={11} strokeWidth={2} className="opacity-80" />
+              <Hash size={11} strokeWidth={2} className="opacity-80" />
               <span className="font-medium">{handle}</span>
             </span>
           </TooltipTrigger>
@@ -86,12 +81,11 @@ function UserAttachmentChips({
         <Tooltip key={`sel-${i}`}>
           <TooltipTrigger asChild>
             <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
-              <HugeiconsIcon
-                icon={sel.source === "editor" ? CodeIcon : TerminalIcon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground"
-              />
+              {sel.source === "editor" ? (
+                <Code size={11} strokeWidth={1.75} className="text-muted-foreground" />
+              ) : (
+                <Terminal size={11} strokeWidth={1.75} className="text-muted-foreground" />
+              )}
               <span>
                 {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
                 {sel.lines > 0 ? (
@@ -411,12 +405,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
             "text-foreground/85 hover:bg-accent hover:text-accent-foreground transition-colors",
           )}
         >
-          <HugeiconsIcon
-            icon={ArrowUp01Icon}
-            size={11}
-            strokeWidth={2}
-            className="shrink-0 opacity-70"
-          />
+          <ChevronUp size={11} strokeWidth={2} className="shrink-0 opacity-70" />
           <span className="min-w-0 flex-1 truncate">{oneLine}</span>
         </motion.button>
       </TooltipTrigger>

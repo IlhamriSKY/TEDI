@@ -22,10 +22,7 @@ export const HIGHLIGHT_CLASS = "bg-icon-working/30 text-foreground rounded-[2px]
 
 export const MAX_LINE_CHARS = 240;
 
-/** Escapes user input so it matches as a literal substring, not regex. */
-export function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+export { escapeRegex } from "@/lib/utils";
 
 /**
  * Tries to compile the user's regex client-side so we can show a "bad regex"

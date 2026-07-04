@@ -18,13 +18,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Add01Icon,
-  CloudServerIcon,
-  Delete02Icon,
-  PencilEdit01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -34,6 +27,7 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "./connections";
+import { Pencil, Plus, Server, Trash2, type LucideIcon } from "lucide-react";
 
 // Heavy module. Lazy-load until the user opens the add/edit modal.
 const SshConnectionDialog = lazy(() =>
@@ -106,7 +100,7 @@ export function SshMenu({ onConnect }: Props) {
               )}
               aria-label="SSH connections"
             >
-              <HugeiconsIcon icon={CloudServerIcon} size={15} strokeWidth={1.75} />
+              <Server size={15} strokeWidth={1.75} />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
@@ -145,12 +139,12 @@ export function SshMenu({ onConnect }: Props) {
                   <RowIconButton
                     label={`Edit ${c.name}`}
                     onClick={() => openEdit(c)}
-                    icon={PencilEdit01Icon}
+                    icon={Pencil}
                   />
                   <RowIconButton
                     label={`Delete ${c.name}`}
                     onClick={() => askDelete(c)}
-                    icon={Delete02Icon}
+                    icon={Trash2}
                     danger
                   />
                 </span>
@@ -159,7 +153,7 @@ export function SshMenu({ onConnect }: Props) {
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={openAdd} className="gap-2 text-[12px]">
-            <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
+            <Plus size={13} strokeWidth={1.75} />
             <span>Add new connection…</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -213,9 +207,10 @@ function RowIconButton({
 }: {
   label: string;
   onClick: () => void;
-  icon: typeof PencilEdit01Icon;
+  icon: LucideIcon;
   danger?: boolean;
 }) {
+  const Icon = icon;
   return (
     <IconTooltip label={label} side="top">
       <button
@@ -243,7 +238,7 @@ function RowIconButton({
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
       >
-        <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />
+        <Icon size={12} strokeWidth={1.75} />
       </button>
     </IconTooltip>
   );

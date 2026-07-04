@@ -19,9 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { Add01Icon, Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useChatStore } from "../store/chatStore";
+import { Plus, Search, X } from "lucide-react";
 
 /**
  * Modal session-history picker. Triggered by `/history`, the slash picker,
@@ -63,8 +62,7 @@ export function SessionHistoryDialog() {
             Switch to a past session, or start a fresh one.
           </DialogDescription>
           <div className="relative mt-1">
-            <HugeiconsIcon
-              icon={Search01Icon}
+            <Search
               size={13}
               strokeWidth={1.75}
               className="text-muted-foreground absolute top-1/2 left-2 -translate-y-1/2"
@@ -132,7 +130,7 @@ export function SessionHistoryDialog() {
                         aria-label={`Delete ${s.title || "session"}`}
                         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100"
                       >
-                        <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                        <X size={11} strokeWidth={2} />
                       </button>
                     </div>
                   </li>
@@ -155,7 +153,7 @@ export function SessionHistoryDialog() {
             }}
             className="h-7 gap-1.5 text-[11.5px]"
           >
-            <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
+            <Plus size={12} strokeWidth={2} />
             New chat
           </Button>
         </div>

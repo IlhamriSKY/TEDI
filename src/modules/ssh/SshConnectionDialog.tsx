@@ -33,11 +33,10 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -79,9 +78,7 @@ type TestState =
   | { kind: "fail"; message: string };
 
 type ImportState =
-  | { kind: "idle" }
-  | { kind: "loaded"; path: string }
-  | { kind: "error"; message: string };
+  { kind: "idle" } | { kind: "loaded"; path: string } | { kind: "error"; message: string };
 
 export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Props) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -506,12 +503,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                       ? `${selectedJump.name} (${selectedJump.user}@${selectedJump.host}:${selectedJump.port})`
                       : "None (direct connection)"}
                   </span>
-                  <HugeiconsIcon
-                    icon={ArrowDown01Icon}
-                    size={13}
-                    strokeWidth={2}
-                    className="ml-2 shrink-0 opacity-60"
-                  />
+                  <ChevronDown size={13} strokeWidth={2} className="ml-2 shrink-0 opacity-60" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent

@@ -1,445 +1,342 @@
 # TEDI.md
 
-The living architecture reference for TEDI, for humans and agents alike (also loaded as workspace-root agent memory, like `AGENTS.md` / `CLAUDE.md`). Read before changing code; update when architecture shifts. **New here? Start with [ARCHITECTURE.md](ARCHITECTURE.md)** for a one-page map with a diagram and end-to-end data-flow walkthroughs, then use this file for the exhaustive detail.
+Dense map of the TEDI codebase for AI assistants and contributors: what the
+project is, where everything lives, the conventions, and the patterns. This
+file is also preloaded as workspace-root agent memory, so the most important
+facts are front-loaded. For the design rationale and the core/extension
+contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project
 
-**TEDI** - Terminal Environment & Development Infrastructure. Lightweight cross-platform terminal with split panes, tab groups, workspaces, and a BYOK AI agent. Forked from [Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai/releases/tag/v0.5.9).
+**TEDI** (Terminal Environment and Development Infrastructure): a lightweight,
+cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
+editor, and a bring-your-own-key AI agent. Forked from
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.3.75.
 
-|                  |                                                                                          |
-| ---------------- | ---------------------------------------------------------------------------------------- |
-| Stack            | Tauri 2 + Rust (`portable-pty`) ⇄ React 19 + TS + xterm.js (webgl)                       |
-| Bundle id        | `id.ilhamrisky.tedi`                                                                     |
-| Keychain service | `tedi`                                                                                   |
-| Package manager  | **pnpm**                                                                                 |
-| Platforms        | macOS, Linux, Windows                                                                    |
-| Frontend check   | `pnpm exec tsc --noEmit`                                                                 |
-| Rust check       | `cd src-tauri && cargo check && cargo clippy`                                            |
-| Build            | `pnpm tauri build`                                                                       |
-| Dev              | `pnpm tauri:dev` (recommended, isolated data dir) or `pnpm tauri dev` (shares prod data) |
-| Auto-updater     | **Enabled** - signed updates via GitHub Releases (6h poll)                               |
+|                  |                                                                    |
+| ---------------- | ------------------------------------------------------------------ |
+| Stack            | Tauri 2 + Rust (`portable-pty`) <-> React 19 + TS + xterm.js (WebGL) |
+| Editor / UI      | CodeMirror 6, shadcn/ui (`radix-luma` / `mist`, lucide icons), Tailwind v4 |
+| AI               | `@ai-sdk/*` v6, multi-provider, BYOK                               |
+| Bundle id        | `id.ilhamrisky.tedi` (dev profile: `id.ilhamrisky.tedi.dev`)      |
+| Keychain service | `tedi`                                                             |
+| Package manager  | pnpm                                                               |
+| Platforms        | macOS, Linux, Windows                                             |
+| Frontend check   | `pnpm exec tsc --noEmit`                                          |
+| Rust check       | `cd src-tauri && cargo check && cargo clippy`                     |
+| Build            | `pnpm tauri build`                                               |
+| Dev              | `pnpm tauri:dev` (isolated data dir) or `pnpm tauri dev` (shares prod data) |
+| Extension dev    | `pnpm tauri:dev:ext` (symlinks local `extensions/*` into the dev profile) |
+| Auto-updater     | Enabled: signed updates via GitHub Releases, 6 h poll             |
 
-## Architecture: two-process model
+## Mental model
 
-The webview never touches OS resources directly. Everything goes through `invoke()` → Tauri commands registered in [src-tauri/src/lib.rs](src-tauri/src/lib.rs).
+Six invariants (rationale in [ARCHITECTURE.md](ARCHITECTURE.md#2-design-principles)):
 
-### Rust (`src-tauri/src/modules/`)
+1. **Two processes.** Frontend (`src/`, React webview) owns UI; backend
+   (`src-tauri/`, Rust) owns every OS resource. The webview reaches the OS only
+   via `invoke("cmd", args)`; streaming output returns over a Tauri `Channel`.
+   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 52
+   commands) which is the whole backend API index.
+2. **Two webviews.** The main window and a separate Settings window
+   (`src/settings/`). They share state via `tauri-plugin-store`, not React.
+   `src/settings/` is the Settings UI; `src/modules/settings/` is the state layer.
+3. **Modules are self-contained.** Import only through the `@/*` alias, never a
+   relative path across modules (enforced by `scripts/check-imports.mjs`).
+4. **Tabs never unmount.** Inactive tabs are hidden with `invisible
+   pointer-events-none` so PTYs and dev servers keep streaming.
+5. **Secrets live only in the OS keychain** (`secrets_*` commands, service
+   `tedi`). Never disk, settings store, or `localStorage`.
+6. **App.tsx coordinates, it does not implement.** It owns cross-module wiring;
+   feature logic lives in `src/modules/<area>/`.
 
-| Module        | Files                                                            | Commands                                                                                                                                                                                       | Purpose                                                                                                                                                                                                                                     |
-| ------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`        | `session.rs`, `shell_init.rs`, `job.rs`, `scripts/`              | `pty_open/attach/write/resize/close/list_sessions/kill_all`                                                                                                                                    | Interactive PTYs (xterm ↔ portable-pty). Two-backend: daemon (default, survives window close) → falls back to in-process `HashMap<id, Session>` if the daemon won't spawn. Streams via Tauri `Channel<PtyEvent>`. See **PTY daemon** below. |
-| `pty_daemon/` | `protocol`, `transport`, `paths`, `server`, `client`, `spawn`    | `--pty-daemon` CLI flag (no Tauri commands)                                                                                                                                                    | Sidecar process that owns every PTY across GUI restarts. Same binary, daemon mode short-circuits before Tauri boots. IPC over Unix domain socket / Windows named pipe.                                                                      |
-| `fs/`         | `tree.rs`, `file.rs`, `mutate.rs`, `search.rs`, `grep.rs`        | `fs_read_dir`, `list_subdirs`, `fs_read_file`, `fs_read_file_portion`, `fs_write_file`, `fs_create_file`, `fs_create_dir`, `fs_rename`, `fs_delete`, `fs_search`, `fs_grep`, `fs_glob`         | Explorer + editor IO; fuzzy finder + content search (powered by `ignore` + `grep-*` crates). `fs_read_file_portion` streams only the requested line range through a `BufReader` so the IPC payload for AI reads stays bounded.              |
-| `shell/`      | `session.rs`, `background.rs`, `ringbuffer.rs`                   | `shell_run_command`, `shell_session_open/run/close`, `shell_bg_spawn/logs/kill/list`                                                                                                           | One-shot exec for AI tools (Windows: `pwsh -NoProfile -Command`; Unix: `$SHELL -lc`), persistent agent shell with state, and long-running background processes with bounded ring-buffer logs. **Distinct from interactive PTYs.**           |
-| `format.rs`   | -                                                                | `fmt_run_external`                                                                                                                                                                             | Direct-spawn (no shell wrapper) external formatter executor. Pipes stdin in / captures stdout / enforces a 15s default timeout. Backs the editor's user-defined formatter type — `rustfmt`, `gofmt`, `php-cs-fixer`, etc.                   |
-| `git/`        | `mod.rs` (+ submodules)                                          | `git_status`, `git_diff_full`, `git_commit`, `git_push`, `git_discard_*`                                                                                                                       | Backend for the `scm/` frontend panel - runs `git` against the workspace cwd and parses status/diff into structured payloads.                                                                                                               |
-| `ssh/`        | `mod.rs` (+ submodules)                                          | `ssh_connect`, `ssh_run`, `ssh_disconnect`, `sftp_*` (`list_dir`, `read_file`, `write_file`, …)                                                                                                | SSH/SFTP sessions backing the `ssh/` frontend module. Uses `russh` for connections, `russh-sftp` for filesystem ops.                                                                                                                        |
-| `extensions/` | `commands.rs`, `install.rs`, `manifest.rs`, `state.rs`, `mod.rs` | `ext_install_from_zip`, `ext_install_from_github`, `ext_check_update`, `ext_list`, `ext_enable`, `ext_disable`, `ext_uninstall`, `ext_read_manifest`, `ext_read_asset`, `ext_read_asset_bytes` | Install pipeline + state store for third-party extensions. Guards: `enclosed_name()`, 50 MiB total + 10 MiB per-file caps, stream-mode running-total check. State at `<app_data_dir>/extensions/state.json`.                                |
-| `preview.rs`  | -                                                                | `preview_*`                                                                                                                                                                                    | Auto-detected dev-server preview backend for the frontend `preview/` module.                                                                                                                                                                |
-| `cli.rs`      | -                                                                | `cli_initial_target`, `cli_install_path_shim`, `cli_take_initial_update_request`                                                                                                               | CLI entry point - `tedi .`, `tedi --update`, version/help printing, single-instance forwarding. See "`tedi` CLI entry point" section below.                                                                                                 |
-| `secrets.rs`  | -                                                                | `secrets_get/set/delete/get_all`                                                                                                                                                               | OS keychain (`keyring` crate). Service = `tedi`. Linux falls back to a file store gated by `#[cfg(target_os = "linux")]`.                                                                                                                   |
-| `net.rs`      | -                                                                | `http_ping`                                                                                                                                                                                    | Minimal HTTP probe (dev-server detection etc.).                                                                                                                                                                                             |
-| `lib.rs`      | -                                                                | `open_settings_window`                                                                                                                                                                         | Spawns the Settings webview. Also where all `#[tauri::command]` registrations land in `invoke_handler`.                                                                                                                                     |
+## Project structure
+
+```
+src-tauri/                      Backend (Rust)
+  src/lib.rs                    invoke_handler (all 52 commands) + boot + CLI dispatch
+  src/main.rs                   thin shim
+  src/modules/
+    pty/{mod,session,shell_init,job,path_probe}.rs + scripts/   interactive PTYs
+    pty_daemon/{mod,protocol,transport,paths,server,client,spawn}.rs   sidecar
+    fs/{mod,tree,file,mutate,search,grep,atomic}.rs
+    shell/{mod,session,background,ringbuffer}.rs
+    git/{mod,commands,...}.rs   scm backend
+    ssh/{mod,session,sftp}.rs   ssh + sftp + ProxyJump
+    extensions/{mod,commands,install,github,manifest,state,version}.rs
+    cli_ext/{mod,commands,registry,install,helpers,types}.rs    headless `tedi ext`
+    preview/{mod,embed,proxy,util}.rs   native-webview preview backend
+    format.rs secrets.rs net.rs mcp.rs
+    cli.rs cli_theme.rs cli_update.rs cli_paint.rs events.rs ids.rs lockext.rs
+  tedi-cli/                     Windows console-subsystem `tedi` launcher (separate crate)
+  capabilities/                 plugin API allowlist for the webview
+
+src/                            Frontend (React webview), alias @/* -> src/*
+  main.tsx                      main-window entry -> app/App
+  app/App.tsx                   top-level coordinator (~1000 lines; wiring, not features)
+  settings/                     Settings UI (SEPARATE webview, entry settings/main.tsx)
+  components/ui/                shadcn (generated; don't hand-edit)
+  components/ai-elements/       Vercel AI Elements (generated; don't hand-edit)
+  components/BrandIcon.tsx      provider/brand marks without a Lucide equivalent
+  lib/                          shared helpers (cn, path, format, iconRegistry, ...)
+  styles/                       global CSS / theme tokens
+  modules/
+    ai/        browser/    editor/     explorer/   extensions/  header/
+    panes/     scheduler/  scm/        settings/   shortcuts/   ssh/
+    statusbar/ tabs/       terminal/   theme/      updater/     workspaces/
+```
+
+## Backend (`src-tauri/src/modules/`)
+
+| Module        | Key commands / role                                                                   |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `pty/`        | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process. |
+| `pty_daemon/` | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).     |
+| `fs/`         | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`. |
+| `shell/`      | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs. |
+| `git/`        | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                   |
+| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining. |
+| `extensions/` | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`. |
+| `preview/`    | `preview_embed_*` native-webview compositing; `tedi-frame://` proxy for remote marketplace icons. |
+| `format.rs`   | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).          |
+| `secrets.rs`  | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions. |
+| `net.rs`      | `http_ping` dev-server probe.                                                          |
+| `mcp.rs`      | Model Context Protocol support for the AI subsystem.                                   |
+| `cli*.rs`     | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).         |
+
+Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
+`autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
+`store`, `updater`, `window-state`.
 
 ### PTY shell integration
 
-Init scripts in [src-tauri/src/modules/pty/scripts/](src-tauri/src/modules/pty/scripts/) bootstrap shells to emit:
-
-- **OSC 7** - cwd updates.
-- **OSC 133 A/B/C/D** - prompt/command/output/exit-code boundaries (no prompt re-parsing needed).
-
-| Platform | Shells                                                                         | How injected                                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unix     | zsh (`zshenv/zprofile/zlogin/zshrc`), bash (`bashrc.bash`), fish (`init.fish`) | `ZDOTDIR` (zsh), `--rcfile` (bash)                                                                                                                  |
-| Windows  | pwsh 7+ → powershell 5.1 → cmd (no integration)                                | `pwsh -NoLogo -NoExit -ExecutionPolicy Bypass -File profile.ps1`. Wraps the user's `prompt` fn **after** `$PROFILE` runs to emit OSC 7 + 133 A/B/D. |
-
-[pty/shell_init.rs](src-tauri/src/modules/pty/shell_init.rs) is split into `#[cfg(unix)]` / `#[cfg(windows)]` modules - keep new platform code in the right arm.
-
-#### Windows-specific gotchas
-
-- **`SPAWN_LOCK`** ([session.rs](src-tauri/src/modules/pty/session.rs)) - `Mutex` gating ConPTY lifecycle: held by `spawn()` across `openpty + spawn_command`, and by `drop_session()` across the `Arc<Session>` drop (so `ClosePseudoConsole` on the master can't run concurrently with a sibling's openpty). Overlapping ConPTY create + close corrupts the freshly-spawned console so its shell never pumps output - the pane stays blank. Workspace restore triggered this when the default tab's PTY closed while the saved tabs' PTYs were spawning. `mod::pty_close` drops via `session::drop_session` (not bare `drop`) so the lock applies; the drop still runs on a detached thread so the Tauri worker isn't blocked. Reader/flusher threads keep reading from already-live PTYs while the lock is held - it only gates lifecycle, not IO. Don't remove without verifying first-tab stability under fast tab spam AND a "restore workspace with 3+ panes after a default-tab PTY" scenario.
-- **Job Objects** ([job.rs](src-tauri/src/modules/pty/job.rs)) - each ConPTY child is assigned to a per-session Job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. When the Job HANDLE drops (clean shutdown, panic, even SIGKILL'd TEDI), the kernel kills every descendant (e.g. `npm run dev` inside pwsh). Without it Windows orphans the whole subtree because `TerminateProcess` only kills the immediate child. `portable-pty::killer.kill()` only kills the immediate child too - the Job catches the rest.
-- **Cwd normalization** - `CreateProcessW` misbehaves with forward-slash cwd. Normalize to backslashes before passing to ConPTY (`apply_common` handles PTY spawn; other call sites must normalize themselves).
-
-macOS/Linux rely on `Drop for Session → killer.kill()`. Dev-time `Ctrl-C` on `cargo run` skips destructors → orphans possible there too. Acceptable for dev.
-
-### PTY daemon (sidecar persistence)
-
-Goal: PTYs outlive a GUI window close (so `cargo watch` / dev servers resume on next launch). Out of scope by design: surviving PC restart or daemon crash - both clear sessions, GUI falls back to fresh spawn.
-
-| Event                     | Daemon                                                          | Sessions                                 |
-| ------------------------- | --------------------------------------------------------------- | ---------------------------------------- |
-| First GUI launch          | Spawned detached, 5 s connect budget                            | —                                        |
-| Window close              | Survives (Unix `process_group(0)` / Windows `DETACHED_PROCESS`) | Kept alive                               |
-| GUI reopens               | Reconnects, `pty_attach(uuid)` per saved leaf                   | **Restored** with replayed scrollback    |
-| PC restart / daemon crash | Process dies; no autostart                                      | **Lost** (intended); GUI re-spawns fresh |
-| Idle 24 h, no clients     | Self-shuts down (`TEDI_PTYD_IDLE_SECS` overrides)               | Discarded                                |
-
-**Protocol** ([protocol.rs](src-tauri/src/modules/pty_daemon/protocol.rs)): length-prefixed JSON, version-gated via `Hello`. Push events (`Data`/`Exit`) carry no `req_id` so they're distinguishable from responses. GUI splits reader (events + responses) from a write-locked sender.
-
-**Socket** ([paths.rs](src-tauri/src/modules/pty_daemon/paths.rs)): Unix `$XDG_RUNTIME_DIR/tedi-ptyd.sock` (or `$TMPDIR/tedi-ptyd-$USER.sock` mode 0600); Windows `\\.\pipe\tedi-ptyd-<fnv1a(USERNAME)>`.
-
-**Scrollback** ([server.rs](src-tauri/src/modules/pty_daemon/server.rs)): per-session `VecDeque<u8>` ring capped at 1 MiB. On attach the daemon emits the ring as one `AttachOk { scrollback_b64 }` before live events resume - xterm reconstructs screen state from the ANSI in the replay. `close_session` detaches the Arc drop onto a thread (routed through `pty::session::drop_session` for `SPAWN_LOCK`) so Windows ClosePseudoConsole can't stall a tokio worker.
-
-**Restore flow**: each terminal leaf carries `ptyId?` ([panes.ts](src/modules/terminal/lib/panes.ts)), set by `useTerminalSession` after `pty_open` / `pty_attach` returns a non-empty `sessionId`. `serializeTabs` ([workspaces/serialize.ts](src/modules/workspaces/serialize.ts)) persists it for local terminals (SSH skipped). On next launch the leaf gets `savedPtyId`; `attachSession` calls `reattachPty` first and transparently falls back to `openPty` at the saved cwd on daemon-unknown-uuid.
-
-**Blank-reattach repaint watchdog** ([pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts) `armReattachRepaintWatchdog`): a live (`alive === true`) reattach relies on the daemon replaying a **raw byte stream**, not a screen snapshot, to reconstruct the viewport. That replay can net to a **blank** screen (the saved tail ended on a `clear`/`cls`, the 1 MiB ring was front-trimmed mid-escape, or ConPTY re-rendered at a new size) while the idle shell emits nothing more — and there is no recovery, because the replay byte disarms the no-data watchdog and a set `s.pty` makes Enter-to-retry **and** stuck-recovery no-ops (the "blank pane, cursor at home, no placeholder, never recovers" symptom). So after every alive reattach we arm a one-shot check (`REATTACH_REPAINT_CHECK_MS`): if the normal-screen viewport is still empty, toggle the PTY row count (two `pty_resize` calls `REATTACH_REPAINT_NUDGE_GAP_MS` apart) to provoke a SIGWINCH the shell's line editor (PSReadLine/readline/zle/fish) repaints its prompt on. It injects no input, the alt-screen guard skips TUIs, and a healthy reattach (prompt already painted) never trips the blank check — inert except in the broken case.
-
-**Fallback**: `PtyClient::connect_or_spawn` failure (binary missing, socket unwritable) → `pty/mod.rs` switches to the in-process backend; `pty_open` returns `sessionId: ""`, frontend skips persistence. Same behaviour as pre-daemon releases.
-
-**Logging**: daemon stderr is redirected at spawn ([spawn.rs](src-tauri/src/modules/pty_daemon/spawn.rs)) to `<data_dir>/id.ilhamrisky.tedi/logs/tedi-ptyd.log`; `server::init_logging` installs a minimal `log::Log` so existing `log::*!` macros land in the file. Override level with `TEDI_PTYD_LOG=debug`.
-
-**CLI dispatch** in [lib.rs](src-tauri/src/lib.rs): `--pty-daemon` short-circuits between `cli_update` and `cli::capture_startup`; `server::run_forever` blocks until idle-timeout or `Shutdown`.
-
-**Dev / packaging gotchas**:
-
-- `pnpm tauri:dev` vs `pnpm tauri dev`: the colon variant loads [`tauri.dev.conf.json`](src-tauri/tauri.dev.conf.json), which flips the bundle identifier to `id.ilhamrisky.tedi.dev`. Workspaces, extensions, PTY socket, daemon log path all read from `<data_dir>/id.ilhamrisky.tedi.dev/` instead of the prod dir, so dev runs start fresh and cannot stomp on the installed release's state. Plain `pnpm tauri dev` still works for the cases where sharing prod data is intentional. The Rust constants in `pty_daemon/paths.rs`, `cli_ext.rs`, and `cli_theme.rs` mirror this split via `cfg(debug_assertions)`.
-- `pnpm tauri dev`: daemon outlives the dev GUI - set `TEDI_PTYD_IDLE_SECS=60` for fast iteration or kill `TEDIApp --pty-daemon` manually when editing daemon code.
-- AppImage: daemon spawned from `current_exe()` (the mount path), so an old daemon keeps an old AppImage mount alive until idle. Prefer `$APPIMAGE` in a follow-up.
-
-### Frontend (`src/`)
-
-Single-window React app, path alias `@/*` → `src/*`. Tabs are a tagged union (`{ kind: "terminal" | "editor" | "preview" | "ai-diff", … }`) and **not** unmounted on switch - hidden via `invisible pointer-events-none` so PTYs and dev servers keep streaming in the background.
-
-[App.tsx](src/app/App.tsx) is the top-level coordinator (~800 lines): it owns cross-module wiring (extension bridges, the right-panel mutual-exclusion, workspace switch/close orchestration), the global shortcut-handler map, and the AI live-context bridge. **Feature internals live in `src/modules/<area>/`, not here** - App.tsx coordinates them, it does not implement them.
-
-**`AiComposerProvider` is mounted unconditionally at the App root.** A conditional wrapper would change parent element type when keys load, remounting the entire tree (re-spawning every PTY) the moment `getAllKeys()` resolves. Prod dodges this because keychain reads sometimes land in the same paint frame; dev didn't. Keep the unconditional wrap.
-
-### Module layout (`src/modules/`)
-
-Each module is self-contained, imported through the `@/*` alias only (enforced by [`scripts/check-imports.mjs`](scripts/check-imports.mjs) - never a relative path across modules), exports a thin barrel via `index.ts`, and owns its hooks under `lib/`. **18 modules:**
-
-| Module          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **terminal/**   | `TerminalPane` keeps one mounted xterm per tab via `lib/useTerminalSession` + `lib/pty-bridge`. `lib/osc-handlers.ts` parses OSC 7 (with Windows drive-letter normalization: `/C:/Users/foo` → `C:/Users/foo`) and OSC 133. Themes in `lib/themes.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **editor/**     | CodeMirror 6 stack (`EditorPane` mirrors `TerminalPane`). `lib/extensions.ts` configures language modes; `lib/autocomplete/` provides AI inline completion; `lib/formatters/` is the format-on-save pipeline (built-in Prettier + user external commands). Vim mode + prebuilt themes (Tokyo Night, Nord, GitHub, Atom One, Aura, Copilot, Xcode).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **explorer/**   | File tree with Material/Catppuccin icons (`lib/iconResolver.ts`), fuzzy search, keyboard nav, inline rename, context actions. Backslash-aware `basename`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **panes/**      | Split-pane orchestration. `PaneStack` + `PaneTreeView` manage horizontal/vertical splits using `react-resizable-panels`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **workspaces/** | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **preview/**    | Preview tab rendered by a **real native browser webview** (WebView2/WebKit) docked over the pane via the `preview_embed_*` commands (Tauri `unstable` multi-webview) - not an iframe, so YouTube, logged-in apps, DRM video, WebSockets, and HMR dev servers all work. The native webview floats above the DOM: `PreviewPane` measures the content rect every frame and pushes physical-px bounds to Rust, hides it when the tab is inactive / the Ports menu is open / it would load TEDI, and tracks navigation via the `tedi:preview-nav` event for the address bar + back/forward history. `preview_open_external` pops the current page into a standalone window. The legacy `tedi-frame://` strip-XFO proxy (`register`) is no longer used for the preview itself - it now only backs remote marketplace-icon loads (`buildProxyUrl`). Status-bar pill suggests opening when a `localhost` URL is detected.                                                            |
-| **tabs/**       | `lib/useTabs` is source of truth for tab list + active id. `lib/useWorkspaceCwd` derives explorer root + inherited cwd for new tabs. `basename` splits on **both** `/` and `\`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **header/**     | Top bar + inline search (`SearchInline` adapts to terminal vs editor via `SearchTarget`). `WindowControls` rendered when `USE_CUSTOM_WINDOW_CONTROLS` is true (Linux + Windows; macOS uses native traffic lights).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **statusbar/**  | Bottom bar, `CwdBreadcrumb` (Unix paths + Windows drive letters + `~` home via `lib/pathUtils.segmentsFromCwd`), AI tools indicator.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **shortcuts/**  | Keymap registry (`shortcuts.ts`) + `lib/useGlobalShortcuts`. Handlers live in `App.tsx`, passed in by id (`tab.new`, `ai.toggle`, …). Use `metaKey \|\| ctrlKey` for cross-platform Cmd/Ctrl.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **settings/**   | Settings store (`store.ts` via `tauri-plugin-store`), preferences hook (`preferences.ts`), settings window opener.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **theme/**      | `next-themes` provider.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **ai/**         | See AI subsystem below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **scm/**        | Source control panel (`SourceControlPanel`) + side-by-side `GitDiffPane`/`GitDiffStack`. `api.ts` wraps the Rust `git_*` commands; `commitAi.ts` drives the "AI write commit message" affordance through the active provider.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **ssh/**        | SSH connection manager (`SshConnectionDialog`, `SshMenu`) + remote `SshFileExplorer` backed by `bridge.ts`/`sftp.ts`. `connections.ts` persists hosts (passwords in keychain), `status.ts` tracks live session state, `useSshFileTree.ts` mirrors the local explorer hook for remote roots. **Host chaining (ProxyJump, Termius-style):** a connection's optional `proxyJumpId` points at another saved host to tunnel through; `connections.ts:resolveJumpHops` walks the chain (cycle-checked, secrets read per hop) into ordered hops the backend dials in sequence. In `session.rs::connect` the entry host is a normal TCP connect, then each later hop + the target ride a `channel_open_direct_tcpip` -> `connect_stream` tunnel over the previous handle (all jump handles retained on the session so a dropped hop can't collapse the tunnels above it). Each hop's host key is TOFU-verified and pinned on its own saved connection via the `JumpConnected` event. |
-| **scheduler/**  | Lightweight in-conversation task/timer surface used by the AI agent (`store.ts` + `types.ts`); components render scheduled-item chips. Distinct from background shell jobs in the Rust `shell` module.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **updater/**    | In-app updater UI on top of `tauri-plugin-updater` - status-bar pill + dialog flow. Listens for the `tedi:trigger-update` event from the `--update` CLI shim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **extensions/** | Third-party extension system. Each extension is a `.zip` of `manifest.json` + `extension.js` + assets. Installs from a local file or `owner/repo` GitHub release (generic HTTPS-URL install was removed deliberately - see Extensions subsystem). `loader.ts` boot-scans `<app_data_dir>/extensions/`, dynamic-imports each enabled one, calls `activate(ctx)`. The `host.ts` factory produces the permission-gated `ExtensionContext` (`settings`, `secrets`, `invoke`, `events`, `app`, `contribute.*`, `registerCommandHandler`). Built-in TEDI surfaces read from contribution `registries.ts` so an extension can add a setting/theme/slash command/AI tool. Reference extensions are NOT bundled into the release binary - see Extensions subsystem below for the in-repo `extensions/` working-copy convention.                                                                                                                                                       |
-
-> **Note:** OSC event handling lives inside `terminal/lib/`, not a separate `shell-integration/` module. Contribution registries in `extensions/registries.ts` that are wired to actual TEDI surfaces today: `settingsRegistry` (rendered in the Extensions card), `statusItemsRegistry` (icons in the status bar's right cluster, via `ExtensionStatusItems`), `shellTransformersRegistry` (rewrites AI shell tool commands), `panelsRegistry` for `surface: "right"` entries (auto-toggle button in status bar via `RightPanelToggleButtons` + slot via `RightPanelHost`), `commandsRegistry` + `keybindingsRegistry` (dispatched by `useExtensionShortcuts`, rebindable in _Settings → Shortcuts → Extensions_), `panelRenderersRegistry` (runtime renderer for right-surface **and** split-pane / workspace-tab panels), `headerItemsRegistry` (icons in the header row via `ExtensionHeaderItems`), and `sidebarSectionsRegistry` (Workspaces-styled left-sidebar sections via `ExtensionSidebarSection`, rendered as dynamic `AppSidebar` entries while the extension is active). `aiToolsRegistry` is consumed by the AI tool layer (`ai/tools/extensions.ts`). The `slashCommands` / `themes` / `editorThemes` contribution categories were **removed** (no consumer ever shipped); the manifest still tolerates leftover keys via `.passthrough()` so old packs still install. Only the panel surfaces `sidebar-bottom`/`statusbar-right` remain reserved enum values that install but render nothing.
-
-### AI subsystem (`src/modules/ai/`)
-
-BYOK, multi-provider via `@ai-sdk/*`: **OpenAI, Anthropic, Google, Groq, xAI, Cerebras, DeepSeek, SumoPod, OpenAI-compatible, LM Studio** (the last two cover arbitrary gateways + local/offline). The `ProviderId` union + `PROVIDERS` array in [config.ts](src/modules/ai/config.ts) are the source of truth; the `MODELS` registry includes `DEFAULT_MODEL_ID` + `DEFAULT_AUTOCOMPLETE_MODEL`.
-
-#### Keys
-
-Stored only in the OS keychain via Rust `secrets_*` commands. `KEYRING_SERVICE = "tedi"`. **Never** persist keys to disk, settings store, or `localStorage`.
-
-#### Core pieces (`lib/`)
-
-| File                                                         | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.ts`                                                   | `Experimental_Agent` with `stopWhen: stepCountIs(MAX_AGENT_STEPS)` + system prompt from `config.ts`. Provider branching lives here. Keep the `Agent` / `DirectChatTransport` shape - the rest depends on AI SDK v6 chat semantics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `agents.ts` / `agents/registry.ts` / `agents/runSubagent.ts` | Named read-only sub-agents (fresh history + own tool subset, per-call `maxSteps` budget, live `onStep` progress). Invoked by the main agent via `run_subagent` (one) or `run_subagents` (orchestrated batch). `run_subagents` is a bounded-concurrency **DAG scheduler** (`runSubagentDag` in [tools/subagent.ts](src/modules/ai/tools/subagent.ts)): independent tasks run in parallel, a task with `depends_on` waits for its upstream tasks and gets their summaries injected (`buildDepPrompt`), a task is **skipped** if any dependency fails (cascade) and dependency cycles / invalid indices are detected. Settings are **a single on/off** (Settings → Agents → Sub-agents); turning it on exposes the tools **and** activates orchestration. The **AI decides every number** per call (`max_concurrency`, per-task `max_steps`, `summary_kb`, task count), each defaulting to a `SUBAGENT_*_DEFAULT` and clamped to a `SUBAGENT_*_MAX` hard backstop it can't exceed (constants in [settings/store.ts](src/modules/settings/store.ts), consumed by `subagentConfig`). Whenever sub-agents are enabled, `depends_on` (scatter → gather) is honored and `buildSystemPrompt` appends an **auto-orchestration appendix** (`ORCHESTRATION_PROMPT_BODY`, editable as prompt id `orchestration`) that tells the main agent to decompose broad explore/review/audit tasks into parallel sub-agents + a synthesis step instead of reading inline. Hard backstops guard against corrupt prefs. Recursion stays blocked - neither spawn tool is in a sub-agent's own toolset. |
-| `sessions.ts` + `store/chatStore.ts`                         | Conversations organized into named sessions, persisted via `tauri-plugin-store` at `tedi-sessions.json` (list + `activeId` + per-session `messages:<id>` keys). Module-scoped `Map<sessionId, Chat<UIMessage>>`; `getOrCreateChat(apiKey, sessionId)` lazily constructs a `Chat`, seeded from `hydrateSessions()` (called once from App.tsx). `AgentRunBridge` mirrors active-session messages to disk on every change and derives titles from the first user message. Switching the API key wipes the chat map; sessions persist.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `composer.tsx`                                               | React context: shared input state (text, attachments, voice) for both the docked `AiInputBar` and any other surface. Attachments: image, text-file, and `selection`. Selections come from `useChatStore.attachSelection(text, source)` (drained into chips, not pasted into the textarea) and wrap as `<selection source="terminal\|editor">…</selection>` blocks at submit. Composer derives `isBusy` from `agentMeta.status` so it mounts safely before sessions hydrate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `transport.ts`                                               | `DirectChatTransport` bridging AI SDK Chat ↔ Agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `security.ts`                                                | **Deny-list** refusing obvious secret paths (`.env*`, `.ssh/`, credentials, keychain dirs). Applied on **both** read and write paths. Don't bypass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `errors.ts`                                                  | Structured error codes (`TediErrorCode` enum: NO_API_KEY, AUTH_FAILED, RATE_LIMITED, PROVIDER_UNAVAILABLE, ABORTED, etc.) + `classifyError()` / `toChatError()`. Correlation IDs (8-char hex) per session for tracing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `keyring.ts`, `native.ts`                                    | Tauri command wrappers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `slashCommands.ts`, `snippets.ts`, `todos.ts`                | Composer affordances (slash commands, reusable prompt fragments, in-conversation todos).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-
-Engine internals not in the table above (each opens with a self-describing doc comment - `agent.ts` imports the first four directly): `prompts.ts` (system-prompt assembly) + `osTag.ts` (host-OS/shell tag, module-scoped for prompt-cache stability) feed the system prompt; `cache.ts` (provider-aware prompt-cache adapter), `compact.ts` (history compaction), `checkpoint.ts` (per-session undo/restore), `messageBody.ts` (message-part assembly). Provider-specific `openaiCompatible.ts` + `sumopod.ts` back the OpenAI-compatible / SumoPod providers.
-
-#### Tools (`tools/`)
-
-| File          | Tools                                                                                                                                                                              | Approval          |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `fs.ts`       | `read_file` (auto), `list_directory` (auto), `write_file` (needsApproval), `create_directory` (needsApproval)                                                                      | mixed             |
-| `edit.ts`     | `edit`, `multi_edit` - both need a prior `read_file` on the path                                                                                                                   | **needsApproval** |
-| `search.ts`   | `grep`, `glob`                                                                                                                                                                     | auto              |
-| `shell.ts`    | `bash_run` (needsApproval), `bash_background` (needsApproval), `bash_logs` (auto), `bash_list` (auto), `bash_kill` (auto)                                                          | mixed             |
-| `terminal.ts` | `suggest_command` (auto), `read_terminal` (auto), `open_preview` (auto), `open_terminal` / `run_in_terminal` / `consolidate_terminals` / `close_terminal` (needsApproval)          | mixed             |
-| `schedule.ts` | `list_terminals` (auto), `send_to_terminal` (auto), `list_schedules` (auto), `cancel_schedule` (auto), `run_in_terminal_by_id` (needsApproval), `schedule_command` (needsApproval) | mixed             |
-| `subagent.ts` | `run_subagent` (single), `run_subagents` (orchestrated batch: parallel + `depends_on` DAG, bounded concurrency, cascade-skip)                                                      | auto              |
-| `todo.ts`     | `todo_write`                                                                                                                                                                       | auto              |
-| `context.ts`  | `ToolContext` + `resolvePath` helpers (not a tool)                                                                                                                                 | -                 |
-| `tools.ts`    | Orchestrator/aggregator (`buildTools(ctx)`); its doc-comment states the approval model                                                                                             | -                 |
-
-> Keep this table in sync with the `(\w+): tool(` definitions and their co-located `needsApproval` flags across [tools/](src/modules/ai/tools/) - it is the agent's real capability surface.
-
-Approval-gated tools pause via `lastAssistantMessageIsCompleteWithApprovalResponses`; auto-send after user confirms in the in-UI card.
-
-**AI-proposed edits** open in a side-by-side diff tab (`ai-diff` kind, [src/modules/editor/AiDiffPane.tsx](src/modules/editor/AiDiffPane.tsx)); user accepts/rejects per hunk **before** the write tool actually runs.
-
-#### Live context bridge
-
-`App.tsx` calls `setLive({ getCwd, getTerminalContext, openTerminal, runInActiveTerminal, … })` so tools can read the _currently active_ terminal's cwd + scrollback (default 300 lines, up to 2000), spawn a new terminal tab, or submit a command into the focused tab. **Lazy by design** - don't pre-snapshot. Per-turn `<env>` block also carries `os` / `default_shell` (detected once at module load via `@tauri-apps/plugin-os`) so the agent picks PowerShell vs POSIX syntax without asking.
-
-#### Voice input
-
-Streamed transcription pipeline. Toggled from the composer.
-
-## UI conventions
-
-- **shadcn/ui** ([components.json](components.json) - style `radix-luma`, base `mist`, icons **hugeicons**). Primitives in [src/components/ui/](src/components/ui/) - don't hand-edit; re-run `pnpm dlx shadcn add` to upgrade.
-- **AI Elements** (Vercel) in [src/components/ai-elements/](src/components/ai-elements/) via the `@ai-elements` registry. Same rule: regenerate, don't hand-patch - composition wrappers belong in `modules/ai/components/`.
-- **Tailwind v4** - no `tailwind.config.*`; config is in [src/App.css](src/App.css) via `@theme`. Use `cn()` from [@/lib/utils](src/lib/utils.ts).
-- Animation: `motion` (Framer Motion successor). Resizable layout: `react-resizable-panels`.
-- Imports: always `@/…`, never relative across modules.
-- **Path separators** - anywhere a path may originate from OSC 7, the explorer, or the OS, split with `.split(/[\\/]/)` not `.split("/")`.
-- **Canonical path form on the frontend is forward-slash.** `homeDir()` returns backslashes on Windows; convert at the boundary (App.tsx `setHome`). OSC 7 already arrives as forward-slash. Equal canonical strings keep `useFileTree` from wiping its tree and flashing the explorer when `tab.cwd` first arrives.
-
-## Window styling
-
-| Platform | Source                    | Behavior                                                                                  |
-| -------- | ------------------------- | ----------------------------------------------------------------------------------------- |
-| macOS    | `tauri.conf.json`         | `titleBarStyle: Overlay` + `hiddenTitle: true` (native traffic lights via overlay)        |
-| Linux    | `tauri.linux.conf.json`   | `decorations: false` + `transparent: true`; re-asserted post-realize for GNOME/Mutter CSD |
-| Windows  | `tauri.windows.conf.json` | Same as Linux; React renders custom `WindowControls`                                      |
-
-**Windows borderless-frame fixes** ([lib.rs](src-tauri/src/lib.rs) `apply_windows_frame_fixes`, main window only): `decorations: false` drops the native frame, which costs two OS behaviors. (1) A maximized borderless window fills the whole monitor and covers the taskbar (Windows only auto-clamps to the work area for framed windows) - a `WM_GETMINMAXINFO` window-proc subclass overrides `ptMaxPosition`/`ptMaxSize` to the monitor `rcWork`. The original proc is chained first so TAO's `min_inner_size` (delivered via the same message) survives. (2) Without `WS_MINIMIZEBOX`, the taskbar button can't toggle minimize - re-added alongside `WS_MAXIMIZEBOX` (no chrome painted; `WS_CAPTION`/`WS_SYSMENU` stay off). The prev-proc pointer lives in a single `static AtomicIsize`, so this is **main-window-only** - don't reuse it for the settings window (also borderless) without a per-HWND map.
-
-## Tauri capabilities
-
-[src-tauri/capabilities/default.json](src-tauri/capabilities/default.json) is the allowlist for plugin APIs exposed to the webview. Adding a plugin requires **3 steps**:
-
-1. `Cargo.toml` dependency.
-2. `.plugin(...)` call in `lib.rs` `run()`.
-3. Capability entry in `default.json` (and `desktop.json` if desktop-only).
-
-Already wired: `dialog`, `autostart`, `window-state`, `store`, `opener`, `os`, `log`, `process`. Updater plugins are **removed**.
-
-## Cross-platform conventions
-
-- **HOME / cache dirs** - `dirs` crate (`dirs::home_dir()`, `dirs::cache_dir()`). Never raw `$HOME` / `%USERPROFILE%`.
-- **Shell init scripts** - gate Unix-only logic behind `#[cfg(unix)]`; Windows arm in `pty::shell_init::windows`.
-- **Terminal input** - send `\r` (CR) for Enter, not `\n` (LF). PowerShell on Windows requires CR.
-
-## Bundle config
-
-- `bundle.targets: "all"` plus per-platform sections in `tauri.conf.json`:
-  - **macOS** - `minimumSystemVersion: 10.15`.
-  - **Linux** - deb depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`; rpm `webkit2gtk4.1`, `gtk3`; AppImage bundles its media framework.
-  - **Windows** - NSIS installer in `currentUser` mode (no admin), WebView2 via `embedBootstrapper` (offline install).
-- Auto-updater **enabled**: `tauri-plugin-updater` (Rust, desktop-only) + `@tauri-apps/plugin-updater` (JS). Endpoint is GitHub Releases `latest.json`; signature verified against `plugins.updater.pubkey` in `tauri.conf.json`. Private key + password injected as `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub secrets during release builds (see `.github/workflows/release.yml`).
-
-## `tedi` CLI entry point
-
-`tedi .` / `tedi <path>` opens the target folder (or the file's parent folder + the file in an editor tab) in the running window. `tedi --version` and `tedi --help` print to stdout and exit without touching the GUI. `tedi --update` / `-u` runs the **headless updater** ([src-tauri/src/modules/cli_update.rs](src-tauri/src/modules/cli_update.rs)) - see "`tedi --update` headless updater" below; the in-app status-bar updater pill keeps its own 6h poll for users who never type the CLI flag. A second invocation with a path is forwarded to the existing window via [tauri-plugin-single-instance] and arrives as the `tedi:open-cli-target` event. Logic lives in [src-tauri/src/modules/cli.rs](src-tauri/src/modules/cli.rs):
-
-- `handle_version_help_and_exit()` runs first. Detects `--version`/`-V` and `--help`/`-h` anywhere in argv, `println!`s, then `process::exit(0)` before Tauri ever builds. On Windows release the GUI binary's stdout is detached from the parent console (`windows_subsystem = "windows"`), so this in-process path is the fallback if the user invokes `TEDIApp.exe --help` directly. The user-facing `tedi` command resolves to the console-subsystem launcher [src-tauri/tedi-cli/](src-tauri/tedi-cli/) (shipped as `tedi.exe` by the NSIS hook) - that binary parses `--help` / `--version` natively against `tedi_lib::cli::help_text` and prints from a process PowerShell synchronously waits for, so output never lands after the next prompt.
-- `cli_ext::handle_extension_command_and_exit()` runs **between** version/help and `cli_update`. Claims `tedi ext <subcmd>` (and the `tedi --extension <subcmd>` alias) for the headless extension CLI - see "`tedi ext` extension CLI" below - and `process::exit`s so GUI boot is skipped.
-- `cli_update::handle_update_command_and_exit()` runs after `cli_ext`. Claims `--update` / `-u` for the headless updater (see "`tedi --update` headless updater" below) and exits before Tauri boot. The status-bar pill's in-app 6h poll continues to operate independently - only the explicit CLI flag is intercepted here.
-- `capture_startup()` parses `argv` against `current_dir()` **before** anything else in `lib::run` so a later `set_current_dir` can't shift resolution.
-- `cli_initial_target` drains the captured target once (clears on read so a webview reload doesn't replay it).
-- `cli_install_path_shim` writes `~/.local/bin/tedi` on macOS/Linux pointing at `$APPIMAGE` (if set) or `current_exe()`. Triggered from Settings → General → "Install `tedi` command in PATH".
-- `refresh_shim_if_present` runs from the `setup` hook on every launch. If the shim exists **and** carries the `# tedi-cli-shim v1` marker, it's rewritten to point at the current binary. Heals macOS `.app` relocations and Linux AppImage filename changes after an update. User-authored scripts at the same path are left alone (no marker, no touch).
-
-| Platform        | How `tedi` lands on PATH                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Update behavior                                                                                                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | NSIS installer hook ([src-tauri/installer.nsh](src-tauri/installer.nsh)) `File`s the console-subsystem `tedi.exe` (built from the [src-tauri/tedi-cli/](src-tauri/tedi-cli/) workspace member) next to the GUI `TEDIApp.exe` and appends the install dir to `HKCU\Environment\Path`. PATHEXT resolves the user's `tedi` to `tedi.exe` (the GUI is renamed via `mainBinaryName` so it stays off the `tedi.exe` lookup). Uninstall removes the launcher but leaves the PATH entry (stripping a `;`-delimited value cleanly from NSIS is fragile; a stale entry to a missing dir is harmless). | `tauri-plugin-updater` re-runs the NSIS installer in `passive` mode → postinstall hook fires → launcher + PATH are re-validated. No user action.                             |
-| Linux .deb/.rpm | Tauri installs the GUI as `/usr/bin/TEDIApp`; the post-install maintainer script ([src-tauri/scripts/linux-postinstall.sh](src-tauri/scripts/linux-postinstall.sh), wired via `bundle.linux.deb.postInstallScript` + `rpm.postInstallScript`) drops a `/usr/bin/tedi` → `TEDIApp` symlink so users can type `tedi` from any shell. `linux-preremove.sh` cleans up the symlink on uninstall - but only when it actually points at `TEDIApp`, never touches a user-authored `/usr/bin/tedi`.                                                                                                  | apt/dnf replace the binary in place; the post-install script reruns on upgrade and re-validates the symlink. No user action.                                                 |
-| Linux AppImage  | Run Settings → "Install `tedi` command in PATH". Shim resolves to `$APPIMAGE` (the .AppImage file the user keeps around), not the temp squashfs mount path.                                                                                                                                                                                                                                                                                                                                                                                                                                 | `refresh_shim_if_present` on next launch rewrites the shim to the new `$APPIMAGE` if the user renamed/replaced the .AppImage.                                                |
-| macOS .app/.dmg | Run Settings → "Install `tedi` command in PATH". Shim resolves to the binary inside `TEDI.app/Contents/MacOS/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Shim target is the absolute path inside `.app`; in-place updates keep working. If the user moves the `.app` between folders, `refresh_shim_if_present` heals on next launch. |
-
-### `tedi ext` extension CLI
-
-Headless companion to the Settings → Extensions UI. Lives in [src-tauri/src/modules/cli_ext.rs](src-tauri/src/modules/cli_ext.rs). Short-circuits before Tauri boots (no window opens), runs against the same `<app_data_dir>/extensions/` directory and `state.json` the GUI manages, then `process::exit`s. Both forms are accepted:
-
-```
-tedi ext <subcommand> [args]
-tedi --extension <subcommand> [args]    # alias, same dispatcher
-```
-
-| Subcommand                     | Behavior                                                                                                                                                                                                                                                                                                                |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `install <REF>`                | Three classifiers, in order: existing file → install via `install_from_bytes` (source: `local:<path>`); matches `owner/repo` / GitHub URL via `looks_like_github_ref` → fetch `releases/latest`, pick the `.zip` asset (or `zipball_url` fallback), install (source: `github:<o/r>`); otherwise treat as a registry id. |
-| `list`                         | GETs `https://tedi.ilhamriski.com/extensions/`, prints OFFICIAL / UNOFFICIAL groups, then opens a `dialoguer::Select` arrow-key picker. When stdout/stdin isn't a TTY (CI / pipes), the picker is skipped and the user re-runs with the chosen id.                                                                      |
-| `list --installed`             | Walks the extensions root + `state.json` and prints `[on]/[off] <name> (id) v<X>` plus an "→ vY available" hint when `latest_version` is newer than `version`. Alias: `tedi ext installed`.                                                                                                                             |
-| `update [<ID>]`                | For each `github:`-sourced install (filtered to `<ID>` when given), hits `releases/latest`, updates `latest_version` + `last_checked_at_ms` in `state.json`, then prompts `(y/N)` before applying. Non-github sources only get the timestamp bumped.                                                                    |
-| `uninstall <ID>`               | `validate_id` → `remove_dir_all` → drop the `state.json` entry. Mirrors `ext_uninstall`.                                                                                                                                                                                                                                |
-| `enable <ID>` / `disable <ID>` | Flip the `enabled` flag on the existing `state.json` entry. Errors out if the id isn't installed (unlike the GUI's `ext_enable` which silently creates a stub entry - the CLI is stricter so a typo doesn't leave orphan rows behind).                                                                                  |
-| `help` / `-h` / `--help`       | Print the subcommand cheatsheet.                                                                                                                                                                                                                                                                                        |
-
-Important behavioral choices:
-
-- **Headless by design.** A running GUI instance is _not_ contacted - no single-instance forwarding, no `tedi:ext-changed` event. The GUI keeps its pre-CLI view until the user reloads or restarts. State on disk is consistent; the worst case is a "later write wins" race when the user installs from CLI and the GUI mutates state at the same instant. Two GUI windows already accept the same race, so we don't file-lock.
-- **`app_data_dir` resolved without `AppHandle`.** `<dirs::data_dir()>/<BUNDLE_ID>/extensions` matches what Tauri 2 returns; the `BUNDLE_ID` constant in `cli_ext.rs` must stay in sync with `tauri.conf.json`'s `identifier`.
-- **Helpers reused from the Tauri command layer** (`extensions::commands::{normalize_owner_repo, pick_release_zip, pick_release_tag, compare_versions, strip_v_prefix, http_get_bytes, http_get_text}`) are promoted to `pub(crate)` so the CLI doesn't fork the install pipeline. Don't re-privatize them without finding the CLI a new home for the same logic.
-- **Tokio runtime per CLI invocation.** A `new_current_thread` runtime is built once per command that needs networking. Cheap, no global state to leak.
-
-### `tedi --update` headless updater
-
-Lives in [src-tauri/src/modules/cli_update.rs](src-tauri/src/modules/cli_update.rs). Short-circuits `--update` / `-u` before Tauri boots on all three desktop OSes - the GUI never opens, the user sees stdout in their shell. Pipeline:
-
-1. **Fetch** `latest.json` from `plugins.updater.endpoints[0]` (the constant `ENDPOINT` mirrors this - keep them in sync).
-2. **Compare** versions via `extensions::commands::compare_versions` (tolerant of `v` prefixes; `strip_v_prefix` runs first).
-3. **Prompt** `(y/N)` on a TTY; non-interactive shells auto-proceed (CI/script friendly).
-4. **Download** the platform-matching bundle via the shared `http_get_bytes_with_progress` (cap + chunked stream + connect/total timeouts), rendering an in-place download bar on a TTY via `cli_paint::print_download_progress` (the same bar `tedi ext install` uses; shared progress vocabulary lives in [cli_paint.rs](src-tauri/src/modules/cli_paint.rs)).
-5. **Verify** with [`minisign-verify`](https://crates.io/crates/minisign-verify). Tauri wraps both the pubkey (in `tauri.conf.json`) and the per-platform signature (in `latest.json`) in an extra base64 layer over the standard minisign file format - `verify_signature` unwraps that outer base64 on each side before calling `PublicKey::decode` / `Signature::decode`.
-6. **Install** per platform:
-
-| Platform | Method                                                                                                                                                                                                                                                                                               |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows  | Spawn the NSIS installer with `/PASSIVE /UPDATE`. The Tauri NSIS template recognises both flags; NSIS holds no handles on the running EXE so it replaces `TEDI.exe` cleanly.                                                                                                                         |
-| Linux    | AppImage in-place swap via `$APPIMAGE`. New file written to `<appimage>.new`, chmod 0755, current rename'd to `<appimage>.old`, new renamed into place, backup removed. Rollback restores the old AppImage on rename failure. `.deb`/`.rpm` users get a clear `apt`/`dnf` hint and a non-zero exit.  |
-| macOS    | System `tar -xzf` the `.app.tar.gz`, walk up from `current_exe()` to find the running `.app` root, `mv` current to `<name>.app.old`, `mv` extracted into place. `mv` (not `std::fs::rename`) handles cross-filesystem moves between `/var/folders` staging and `/Applications`. Rollback on failure. |
-
-The pubkey/endpoint constants are duplicated between `tauri.conf.json` and `cli_update.rs` because Tauri's `generate_context!` only exposes them inside the running app, and we short-circuit before that. The `pubkey_constant_decodes` unit test enforces the embedded constant still parses as minisign - a future edit that breaks the format fails CI instead of silently breaking every release.
-
-Live verification: `cargo test live_updater_manifest_and_signature_verify -- --ignored --nocapture` fetches the current `latest.json`, downloads the bundle for the running platform, and verifies the real signature against the real pubkey. Excluded from the default test run because it hits the network and downloads several MB.
-
-## Extensions subsystem
-
-Extensions live at `<app_data_dir>/extensions/<id>/` and are loaded by the
-frontend via dynamic ES-module import. Each extension ships:
-
-```
-my-ext/
-├── manifest.json   (id, name, version, permissions, contributes.*)
-├── extension.js    (optional - exports activate(ctx) / deactivate())
-└── assets/         (themes, icons, css, ...)
-```
-
-**Install pipeline** (`src-tauri/src/modules/extensions/`):
-
-| Command (`#[tauri::command]`)                                                                                     | Source path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ext_install_from_zip`                                                                                            | Local `.zip` picked via dialog plugin (also handles upgrades - same id replaces). Optional `approved_permissions` (the set the review dialog showed) is enforced - see consent gate below.                                                                                                                                                                                                                                                                                                                                                   |
-| `ext_install_from_github`                                                                                         | `owner/repo` → `releases/latest` → `.zip` asset (falls back to zipball). Same `approved_permissions` consent gate as the zip path.                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `ext_peek_zip / ext_peek_github`                                                                                  | Read-only manifest + icon preview for the install-review dialog. **GitHub peek is lightweight**: it resolves only the release _tag_, then reads `manifest.json` + icon straight from `raw.githubusercontent.com/<o/r>/<tag>/…` (a few KB) instead of downloading the whole release zip (which bundles per-platform sidecar binaries and is routinely tens of MB). Falls back to a full-zip download when the manifest is not at the repo root or raw content is unreachable. The preview is advisory; the install re-validates the real zip. |
-| `ext_check_update`                                                                                                | Hits GitHub `releases/latest`, semver-compares against installed `manifest.version`, persists `latest_version` + `last_checked_at_ms` in `state.json`. No-op (timestamp-only) for `source: local:*` entries.                                                                                                                                                                                                                                                                                                                                 |
-| `ext_list / ext_enable / ext_disable / ext_uninstall / ext_read_manifest / ext_read_asset / ext_read_asset_bytes` | state + asset ops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-
-> Generic HTTPS-URL installs were removed deliberately. The two officially
-> supported channels are **GitHub releases** (for update tracking) and
-> **packaged `.zip` files** (for offline / private distribution). Authors
-> can still host a zip anywhere - users download it manually and feed the
-> file picker, which preserves the trust-on-first-install boundary.
-
-Security guards in [install.rs](src-tauri/src/modules/extensions/install.rs): zip entries that fail `ZipFile::enclosed_name()` are rejected; total uncompressed size capped at 50 MiB; per-file 10 MiB; HTTPS-only downloads. State persisted at `<app_data_dir>/extensions/state.json` (enabled flag, install source, approved permissions, SHA-256 fingerprint of folder).
-
-**Consent gate** (`install_and_return` in [commands.rs](src-tauri/src/modules/extensions/commands.rs)): because the GitHub peek reads the manifest from `raw.githubusercontent.com` (advisory) while the install reads the actual release zip (authoritative), the install re-reads the zip's manifest and **refuses** if it requests any permission outside the `approved_permissions` set the caller passed (the exact list the review dialog showed). Fresh installs and dialog-driven updates pass the dialog-approved set; a one-click update with no newly-requested permissions passes the extension's already-approved set, so a release zip can never silently widen an extension's grant. `None` (e.g. the `tedi ext` CLI, which has its own confirm) skips the check.
-
-**Host API surface** (`window.tedi`-equivalent passed to `activate(ctx)`):
-
-- `ctx.settings.get/set/onChange(key)` - auto-namespaced as `ext:<id>:<key>` via `_writeAny`/`_readAny` in [settings/store.ts](src/modules/settings/store.ts).
-- `ctx.secrets.get/set(name)` - OS keychain, namespaced.
-- `ctx.invoke(cmd, args)` - permission-gated against `invoke:<cmd>` declarations. `secrets_get_all` is hard-denied even with `*`.
-- `ctx.events.emit/on(name)` - tunneled through Tauri events as `ext://<id>/<name>`.
-- `ctx.app.getContext / onContextChange` - read-only view of `{workspaceCwd, activeFileName, terminalCount}` pushed by `App.tsx` via `setAppContext` (`extensions/appBridge.ts`).
-- `ctx.contribute.{settings,commands,keybindings,slashCommands,themes,editorThemes,panels,aiTools}` - declarative contributions; built-in code reads via `registries.ts`. Settings auto-render under each extension's card in Settings -> Extensions.
-- `ctx.registerCommandHandler / registerAiToolHandler / registerPanelRenderer` - runtime side-channel for handlers that can't live in the JSON contribution. Returned disposers auto-fire on deactivate.
-- `ctx.shell.registerCommandTransformer(fn)` - rewrite every shell command TEDI's AI tools issue (RTK pattern). Requires `shell:transform`.
-- `ctx.panel.{open,close,toggle}(panelId)` - imperative right-panel controls scoped to this extension's own panels. Wire a `keybindings`-bound command to this for a rebindable "toggle my panel" shortcut.
-- `ctx.ui.toast(message, opts?)` - status toast. Requires `ui:toast`.
-- `ctx.ui.mountFolderTree(container, options)` - mount TEDI's built-in `FileExplorer` React component into a vanilla-DOM container an extension owns. Useful for right-panel extensions that want a folder tree visually identical to the left sidebar (icons, indentation, expand/collapse, click-to-open routed through the workspace bridge). Options: `rootPath`, `onOpenFile?`, `showOpenFolder?`, `onClose?`. Returns `{ update, dispose }`.
-- `ctx.statusBar.setItem(item) / removeItem(id)` - runtime status-bar icons. Requires `statusbar:write`.
-- `ctx.sidebar.setSection(section) / removeSection(id)` - contribute a left-sidebar section the host renders with the **Workspaces-panel chrome** (h-8 header + icon + title + action buttons, then a scrollable row list with hover row-actions + lifecycle-tone labels). Sections become dynamic, reorderable / collapsible [AppSidebar](src/app/components/AppSidebar.tsx) entries (keyed `xsec:<extId>:<sectionId>`) **only while the extension is active**, so they show/hide with enable/disable. The descriptor carries `headerActions` / `items` (each with optional `actions`, `tone`, `active`) plus `onItemClick` / `onItemAction` / `onHeaderAction` callbacks (callbacks live in the registry, like `HeaderItem.onClick`). Backed by `sidebarSectionsRegistry` + [`ExtensionSidebarSection`](src/modules/extensions/components/ExtensionSidebarSection.tsx). Requires `sidebar:write`. The SQL Explorer uses it for its connection list.
-
-**Permission strings** (`permissions.ts`): `settings:read|write`, `secrets:read|write`, `invoke:<cmd>` (globs allowed, e.g. `invoke:my_plugin_*`), `events:emit|listen`, `ui:toast`, `panels:register`, `statusbar:write`, `headerbar:write`, `sidebar:write`, or `*` for power-user installs. The set declared in the manifest is recorded in `state.json` as `approved_permissions` on every install (re-install/update replaces it). The host API uses `approved_permissions` to gate every call; raw `@tauri-apps/api invoke` bypasses the gate by design (v1 trust model is install-time review - see `extensions/README.md`).
-
-`secrets_get_all` is **hard-denied** even with `*` so an extension can never enumerate the full keychain.
-
-**Reference extensions live in their own repos.** None ship in the TEDI binary. The [`extensions/`](extensions/) folder in this workspace is gitignored (`/extensions/*/` rule in `.gitignore` with `!/extensions/README.md` re-include) - author/maintainer can keep working copies on disk under `extensions/<id>/` for local iteration, then `git init` each one as its own repo and push to GitHub. The release CI in that separate repo produces the `.zip` asset TEDI's installer consumes.
-
-**Local extension dev loop (no zip/publish):** `pnpm tauri:dev:ext` runs [`scripts/link-dev-extensions.mjs`](scripts/link-dev-extensions.mjs) to junction/symlink each `extensions/<id>/` working copy into the **dev** profile's app-data extensions dir (`<data_dir>/id.ilhamrisky.tedi.dev/extensions/`), then launches `pnpm tauri:dev`. `ext_list` follows the link and (no `state.json` entry) loads it enabled with all manifest permissions auto-approved; `ext_read_asset` + `ctx.installPath` resolve the live files, so editing `extension.js` + reloading the window (or toggling in Settings → Extensions) picks up changes with no re-install. `pnpm link:ext` / `relink:ext` (`--force`, replaces a previously-installed dev copy) / `unlink:ext` manage the links; they only touch the dev profile, never a real install.
-
-| Reference extension   | Repo                                                                                              | Install string                          |
-| --------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Discord Rich Presence | [IlhamriSKY/TEDI.discord-rich-presence](https://github.com/IlhamriSKY/TEDI.discord-rich-presence) | `IlhamriSKY/TEDI.discord-rich-presence` |
-| Secondary Folder Tree | [IlhamriSKY/TEDI.secondary-folder-tree](https://github.com/IlhamriSKY/TEDI.secondary-folder-tree) | `IlhamriSKY/TEDI.secondary-folder-tree` |
-
-The Discord example demonstrates every host-API pattern an integration needs: `contribute.settings` (the "Publish presence" toggle), `settings.onChange`, `app.onContextChange`, permission-gated `invoke()`, idempotent `deactivate()`. **The codebase ships zero Discord code** (no Rust module, no crate dep, no toggle in core settings). The example handles a missing host backend gracefully - first `invoke()` returns "not found", a single warning toast fires, the retry loop short-circuits, and disable/uninstall still tear down cleanly.
-
-The Secondary Folder Tree example covers the right-panel surface: `contributes.panels[]` with `surface: "right"` + `hideHostHeader`, `contributes.commands` + `contributes.keybindings` for the `Mod+Shift+E` toggle (rebindable), `ctx.registerCommandHandler` wiring the command to `ctx.panel.toggle()`, and `ctx.ui.mountFolderTree` to embed the built-in file explorer instead of reimplementing the tree. **The codebase ships zero secondary-folder-tree code** - the right-panel slot, status-bar toggle button, shortcut dispatcher, and folder-tree mount API are all generic facilities that any extension can use.
-
-See [extensions/README.md](extensions/README.md) (the only file in `extensions/` that _is_ committed) for the manifest schema, host-API reference, and a copy-pasteable release workflow.
+Init scripts in `pty/scripts/` bootstrap shells to emit **OSC 7** (cwd) and
+**OSC 133 A/B/C/D** (prompt/command/output/exit boundaries), parsed in
+`terminal/lib/osc-handlers.ts` (no prompt re-parsing). Unix: zsh (`ZDOTDIR`),
+bash (`--rcfile`), fish. Windows: pwsh 7+ (falls back to powershell 5.1, then cmd
+with no integration). `pty/shell_init.rs` is split into `#[cfg(unix)]` /
+`#[cfg(windows)]` arms; keep new platform code in the right arm.
+
+### PTY daemon (persistence)
+
+PTYs survive a window close; a PC restart or daemon crash clears sessions and the
+GUI respawns fresh (out of scope by design). Protocol: length-prefixed JSON,
+version-gated via `Hello`; push events (`Data`/`Exit`) carry no `req_id`. Socket:
+Unix `$XDG_RUNTIME_DIR/tedi-ptyd.sock` (mode 0600), Windows
+`\\.\pipe\tedi-ptyd-<fnv1a(USERNAME)>`. Scrollback: per-session ring capped at
+1 MiB, replayed as one `AttachOk { scrollback_b64 }` on attach. Restore: each
+terminal leaf carries `ptyId?`, persisted by `workspaces/serialize.ts`;
+`attachSession` calls `reattachPty` and falls back to `openPty` at the saved cwd
+on unknown uuid. A blank-reattach repaint watchdog
+(`pty-lifecycle.ts`) nudges a SIGWINCH-style resize if an alive reattach nets to
+a blank viewport. Idle 24 h self-shutdown (`TEDI_PTYD_IDLE_SECS` overrides).
+Logs at `<data_dir>/id.ilhamrisky.tedi/logs/tedi-ptyd.log` (`TEDI_PTYD_LOG=debug`).
+
+### Windows PTY gotchas
+
+- **`SPAWN_LOCK`** (`pty/session.rs`): a `Mutex` gating ConPTY lifecycle. Held by
+  `spawn()` across `openpty + spawn_command` and by `drop_session()` across the
+  `Arc<Session>` drop, so `ClosePseudoConsole` cannot race a sibling's openpty
+  (which corrupts the fresh console and leaves the pane blank). It gates lifecycle,
+  not IO. Do not remove without testing fast tab spam and workspace restore with
+  3+ panes.
+- **Job Objects** (`pty/job.rs`): each ConPTY child joins a per-session Job with
+  `KILL_ON_JOB_CLOSE`, so the kernel kills the whole subtree (e.g. `npm run dev`
+  inside pwsh) when the Job handle drops. `portable-pty::killer.kill()` only kills
+  the immediate child.
+- **Cwd normalization**: `CreateProcessW` misbehaves with forward-slash cwd;
+  normalize to backslashes before ConPTY.
+
+macOS/Linux rely on `Drop for Session -> killer.kill()`.
+
+## Frontend (`src/modules/`, 18 modules)
+
+| Module        | Role                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `terminal/`   | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes. |
+| `editor/`     | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. |
+| `explorer/`   | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`. |
+| `browser/`    | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL. |
+| `panes/`      | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`). |
+| `tabs/`       | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization. |
+| `workspaces/` | Workspace persistence + switching (`store.ts`, `serialize.ts`).                       |
+| `header/`     | Top bar, inline search (`SearchInline` adapts terminal vs editor), custom `WindowControls` (Linux/Windows). |
+| `statusbar/`  | Bottom bar, cwd breadcrumb, AI tools indicator.                                        |
+| `shortcuts/`  | Keymap registry + `useGlobalShortcuts`; handlers wired in App.tsx by id. Use `metaKey \|\| ctrlKey`. |
+| `settings/`   | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.     |
+| `theme/`      | `next-themes` provider.                                                                |
+| `ai/`         | AI agent subsystem (below).                                                            |
+| `scm/`        | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance. |
+| `ssh/`        | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (passwords in keychain); ProxyJump chain resolution. |
+| `scheduler/`  | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs). |
+| `updater/`    | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.       |
+| `extensions/` | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions). |
+
+**Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
+ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
+are `terminal` / `editor` / `browser` / `ssh` / `extension-panel`.
+
+## AI subsystem (`src/modules/ai/`)
+
+BYOK, multi-provider via `@ai-sdk/*`: OpenAI, Anthropic, Google, Groq, xAI,
+Cerebras, DeepSeek, SumoPod, OpenAI-compatible, LM Studio. `config.ts`
+(`PROVIDERS`, `MODELS`, `DEFAULT_MODEL_ID`) is the source of truth; add providers
+there. Keys stored only in the keychain via `secrets_*`.
+
+Engine (`lib/`): `agent.ts` (`Experimental_Agent`, `stopWhen:
+stepCountIs(MAX_AGENT_STEPS)`), `transport.ts` (`DirectChatTransport`),
+`composer.tsx` (shared input state: text, attachments, selections),
+`sessions.ts` + `store/chatStore.ts` (sessions persisted at `tedi-sessions.json`),
+`security.ts` (secret-path deny-list on read and write), `cache.ts` /
+`compact.ts` / `checkpoint.ts` / `errors.ts`.
+
+**Tools** (`tools/`, the real capability surface; keep in sync with the
+`needsApproval` flags):
+
+| File          | Tools                                                                             | Approval |
+| ------------- | -------------------------------------------------------------------------------- | -------- |
+| `fs.ts`       | `read_file`, `list_directory` (auto); `write_file`, `create_directory` (approval) | mixed    |
+| `edit.ts`     | `edit`, `multi_edit` (need a prior `read_file`)                                   | approval |
+| `search.ts`   | `grep`, `glob`                                                                    | auto     |
+| `shell.ts`    | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto) | mixed |
+| `terminal.ts` | `suggest_command`, `read_terminal`, `open_preview` (auto); `open_terminal`, `run_in_terminal`, `consolidate_terminals`, `close_terminal` (approval) | mixed |
+| `schedule.ts` | terminal/schedule listing + send (auto); `run_in_terminal_by_id`, `schedule_command` (approval) | mixed |
+| `subagent.ts` | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip) | auto |
+| `todo.ts`     | `todo_write`                                                                      | auto     |
+
+Approval-gated tools pause and render an in-UI card; AI-proposed edits open in a
+side-by-side `ai-diff` tab accepted/rejected per hunk before any write.
+**Sub-agents** are read-only, single on/off (Settings -> Agents); the AI picks
+concurrency/steps/task-count per call, each clamped to a `SUBAGENT_*_MAX`
+backstop; recursion is blocked. **Live-context bridge**: App.tsx `setLive({...})`
+lets tools read the active terminal's cwd + scrollback lazily and drive terminals;
+a per-turn `<env>` block carries `os` / `default_shell`.
+
+## Extension ecosystem
+
+Extensions are runtime-installed JS packages: `manifest.json` + optional
+`extension.js` (`activate(ctx)` / `deactivate()`) + assets, at
+`<app_data_dir>/extensions/<id>/`. Two install channels only (generic HTTPS-URL
+installs were removed): a local `.zip` (`ext_install_from_zip`) or a GitHub
+`owner/repo` release (`ext_install_from_github`). `loader.ts` boot-scans, mints a
+fresh Blob-URL module per activation, and calls `activate(ctx)`. Full author
+guide and manifest schema: [extensions/README.md](extensions/README.md).
+
+**Host `ctx` surface** (`host.ts`, every gated method checks its permission):
+`storage`, `os`, `logger` (no gate); `app.getContext/onContextChange/
+setSidebarVisible` (no gate) and `app.createWorkspace/setActiveWorkspace`
+(`workspaces:manage`); `settings` (`settings:read|write`); `invoke` /
+`invokeChannel` (`invoke:<cmd>`, globs ok); `secrets.get/set/delete`
+(`secrets:read|write`); `events.emit/on` (`events:emit|listen`); `ui.toast`
+(`ui:toast`) and `ui.mountFolderTree` / `ui.icon` / `ui.codeEditor` (no gate);
+`statusBar` / `headerBar` / `sidebar` (`statusbar|headerbar|sidebar:write`);
+`editor.getActive/setActiveContent` (`editor:read|write`);
+`tabs.openExtensionTab/openExtensionPane` (`tabs:open`); `ssh.*`
+(`ssh:connections`); `shell.registerCommandTransformer` (`shell:transform`);
+`panel.*` + `registerPanelRenderer` + `contribute.panels` (`panels:register`).
+Plus `*` for power-user installs. Per-id namespacing: settings `ext:<id>:<key>`,
+events `ext://<id>/<name>`, storage `tedi-ext-<id>.json`, keychain
+`tedi-ext:<id>`. `secrets_get_all` is hard-denied even with `*`. Raw
+`@tauri-apps/api` imports bypass the gate: the trust boundary is install-time
+review, backed by a consent gate that refuses any permission the review dialog
+did not show.
+
+**Contribution registries** (`registries.ts`, `KeyedRegistry<T>` base):
+`settingsRegistry`, `statusItemsRegistry`, `headerItemsRegistry`,
+`sidebarSectionsRegistry`, `panelsRegistry` (+ `panelRenderersRegistry`),
+`commandsRegistry` + `keybindingsRegistry` (rebindable in Settings -> Shortcuts),
+`shellTransformersRegistry`, `aiToolsRegistry`. Removed categories
+(`slashCommands`, `themes`, `editorThemes`) still install via `.passthrough()`
+but render nothing.
+
+**Reference extensions** live in their own repos and ship in no binary. The
+`extensions/` folder here is gitignored (only `extensions/README.md` is
+committed) and holds working copies for local iteration:
+
+| Extension            | Demonstrates                                                    |
+| -------------------- | -------------------------------------------------------------- |
+| `tedi.beautify`      | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting. |
+| `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`. |
+| `tedi.sql-explorer`  | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list. |
+| `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`. |
+| `tedi.screenshot`    | Status-bar toggle + capture-phase click interception, native sidecar. |
+| `tedi.rtk-bridge`    | `shell:transform` rewriting every AI shell command.            |
+| `tedi.remote-access` | Browser mirrors of live TEDI terminals via a self-hosted relay. |
+
+**Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
+the dev profile's app-data dir (`link:ext` / `relink:ext` / `unlink:ext` manage
+links; dev profile only). Edits to `extension.js` picked up on window reload, no
+re-install.
 
 ## Formatters (format on save)
 
-VSCode-parity feature surface. Two pipelines under one prefs schema. Source
-lives in [src/modules/editor/lib/formatters/](src/modules/editor/lib/formatters/).
+Two pipelines under one prefs schema (`editor/lib/formatters/`). `builtin`
+(`prettier.ts`): lazy-imports Prettier 3 standalone + only needed plugins;
+supported parsers in `lang.ts` (JS/TS/JSX/TSX, JSON/JSONC, CSS/SCSS/LESS,
+HTML/Vue, YAML, Markdown, GraphQL); project config from `.editorconfig` +
+`.prettierrc(.json|.json5)` / `package.json#prettier` walked up from the file.
+`external` (`external.ts` -> `fmt_run_external`): direct-spawn, `${file}`
+temp-file mode or stdin mode, `cwd = dir(file)`, 15 s timeout, presets for 30+
+tools. Resolution: `languageFromPath` -> `formatters[lang]` (per-language
+`formatOnSave` overrides global) -> dispatch. Failures toast and fall through to
+a plain save; formatting never blocks persistence. Not supported in builtin mode:
+`.prettierrc.{js,cjs,mjs,yaml,yml}` (use `external` + `prettier --stdin-filepath
+${file}`).
 
-| Type       | Path                               | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `builtin`  | `prettier.ts`                      | Lazy-imports Prettier 3 standalone + only the plugins the file's parser needs. Cached per-session. Supported parsers: `BUILTIN_LANGUAGES` in [lang.ts](src/modules/editor/lib/formatters/lang.ts) (JS/TS/JSX/TSX, JSON/JSONC, CSS/SCSS/LESS, HTML/Vue, YAML, Markdown, GraphQL). Project config resolved from `.editorconfig` + `.prettierrc(.json                                                                                                                                                                                                                                                         | .json5)`/`package.json#prettier` walked up from the file's directory — see "Built-in config resolution" below. |
-| `external` | `external.ts` → `fmt_run_external` | Direct-spawned (no shell wrapper). Two modes auto-selected by the args list: any arg containing `${file}` switches to temp-file mode (TEDI writes the buffer to a temp file in the document's dir, substitutes the path into args, reads it back); otherwise stdin mode (pipes the buffer in, treats stdout as the result). Defaults: `cwd = dir(file)` so the formatter resolves its own project config (`rustfmt.toml`, `.scalafmt.conf`, `pyproject.toml`, `.clang-format`, `mix format`, etc.) from the file's location. 15s timeout, 8 MiB output cap. Presets ship for 30+ tools — see `presets.ts`. |
-| `none`     | -                                  | Disabled for this language. Save skips formatting.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+## Conventions and patterns
 
-**Resolution order** for save / Format Document (Shift+Alt+F):
+- **Icons**: `lucide-react` imported by name (`import { Search } from
+  "lucide-react"`). Brand marks: `components/BrandIcon.tsx`. Dynamic/extension
+  icons: `lib/iconRegistry.ts` `resolveExtIcon` (accepts `lucide:<Name>` and
+  legacy `hugeicon:<Name>`).
+- **Styling**: Tailwind v4 (`src/App.css` `@theme`, no `tailwind.config.*`);
+  `cn()` from `@/lib/utils`. shadcn/ui + AI Elements are generated, not hand-edited.
+- **Imports**: always `@/...`, never relative across modules.
+- **Paths**: split with `.split(/[\\/]/)`; canonical frontend form is
+  forward-slash (convert `homeDir()` backslashes at the boundary). OSC 7 arrives
+  forward-slash after `parseOsc7` strips the `/C:` drive prefix.
+- **Terminal input**: send `\r` (CR) for Enter, not `\n` (PowerShell needs CR).
+- **Cross-platform**: HOME/cache via the `dirs` crate, never raw env vars.
+- **`AiComposerProvider` is mounted unconditionally** at the App root: a
+  conditional wrapper would change the parent element type when keys load and
+  remount the tree (respawning every PTY).
+- **Window styling**: macOS native traffic lights via Overlay title bar; Linux +
+  Windows are borderless with React `WindowControls`. Windows adds
+  `apply_windows_frame_fixes` (main window only) for maximize-clamp and minimize.
+- **Docs and prose**: avoid em-dashes; use commas, colons, or parentheses.
 
-1. `languageFromPath(path)` → language id from extension or basename overrides ([lang.ts](src/modules/editor/lib/formatters/lang.ts)).
-2. `formatters[lang]` from preferences picks the config. Per-language `formatOnSave: true|false|undefined` overrides the global `formatOnSave` boolean.
-3. Dispatch to prettier or external. Failures toast and fall through to a plain save — formatting is never allowed to block persistence.
+## Development workflow
 
-**EditorPane wiring** ([EditorPane.tsx](src/modules/editor/EditorPane.tsx)): `formatAndSaveRef` wraps the Mod+S keymap and the vim `:w` handler. It formats first, replaces the CM buffer in a single transaction (clamping the selection to the new length so a shrinking format doesn't crash the editor), then calls `useDocument.save(formatted)` — passing the override skips the stale-`dirty`-closure issue between dispatch and save. Shift+Alt+F runs the same pipeline but skips the save (matches VSCode's Format Document).
+- **Checks before commit**: `pnpm exec tsc --noEmit` and, in `src-tauri`,
+  `cargo check && cargo clippy` (clippy is `-D warnings` in CI). Rust tests:
+  `cargo test`.
+- **Dev**: `pnpm tauri:dev` uses `tauri.dev.conf.json` (bundle id
+  `id.ilhamrisky.tedi.dev`), so workspaces/extensions/PTY socket/logs all read
+  from the `.dev` data dir and cannot stomp the installed release. `pnpm tauri
+  dev` shares prod data. The daemon outlives the dev GUI; set
+  `TEDI_PTYD_IDLE_SECS=60` when iterating on daemon code.
+- **`tedi` CLI** (`cli.rs`): `tedi .` / `tedi <path>` opens a folder or file in
+  the running window (single-instance forward, `tedi:open-cli-target` event).
+  `--version` / `--help` print and exit before Tauri boots. `tedi ext <sub>`
+  (`cli_ext`), `tedi theme <sub>` (`cli_theme`), and `tedi --update` (`cli_update`,
+  headless updater) each short-circuit GUI boot. On Windows the user-facing `tedi`
+  is the console-subsystem launcher in `tedi-cli/`. A PATH shim
+  (`~/.local/bin/tedi` on macOS/Linux) is installed from Settings and self-heals
+  on launch.
+- **Release**: tag push triggers `.github/workflows/release.yml`, which builds
+  signed updates (`TAURI_SIGNING_PRIVATE_KEY*` secrets) and a draft GitHub Release.
 
-**Settings UI** lives in [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx) → "Formatters" card, backed by [FormattersTable.tsx](src/settings/sections/components/FormattersTable.tsx). Adding a language pre-fills `builtin` if Prettier supports it, otherwise the preset external command (e.g. Rust → `rustfmt --emit stdout`) if one's registered, otherwise an empty external row. A "Use suggested" link re-snaps the row to the preset after the user has edited it.
+## Recent capabilities
 
-### Built-in config resolution
-
-[projectConfig.ts](src/modules/editor/lib/formatters/projectConfig.ts) walks parents of the file looking for the first hit, in priority order:
-
-1. `.prettierrc` / `.prettierrc.json` / `.prettierrc.json5` — relaxed JSON (line comments + trailing commas stripped).
-2. `package.json` with a top-level `"prettier"` field.
-
-[editorConfig.ts](src/modules/editor/lib/formatters/editorConfig.ts) walks for `.editorconfig` (stops at `root = true`). Maps `indent_style`/`indent_size`/`end_of_line`/`max_line_length` to Prettier `useTabs`/`tabWidth`/`endOfLine`/`printWidth`. Section globs follow the EditorConfig spec subset that matters in practice (`*.ext`, `**/*.ext`, `[abc]`, `{a,b,c}`).
-
-Merge order (last wins): bundled defaults → `.editorconfig` → `.prettierrc`. Per-directory results are cached for the session.
-
-**What's deliberately not supported in built-in mode**: `.prettierrc.{js,cjs,mjs}` and `.prettierrc.{yaml,yml}`. JS configs need a runtime sandbox we don't ship; YAML would require dragging in a parser for one config file. Both flavours work flawlessly when the user switches the language's type to `external` with `prettier --stdin-filepath ${file}` — that CLI invocation respects every config format natively. The FormattersTable help text spells this out.
-
-## Known gotchas
-
-- **React 19 strict-mode double-mount** - `useEffect` runs twice in dev → terminals spawn twice on first render. The first PTY is cleaned up almost immediately. `SPAWN_LOCK` serializes this. Don't panic at `pty opened id=1` → `pty closed id=1` in dev logs.
-- **Windows PowerShell process lifecycle** - `portable-pty::killer.kill()` only kills the immediate child. Descendants (e.g. `npm run dev` inside pwsh) survive unless something else kills them. The Job Object in [pty/job.rs](src-tauri/src/modules/pty/job.rs) handles the TEDI-process-death case; an explicit `pty_close` from JS also relies on the Job to kill descendants. Don't disable the Job without a replacement.
-- **Tab `cwd` storage** - comes from OSC 7 with forward slashes (after `parseOsc7` strips `/C:` → `C:`). Anything that consumes `tab.cwd` and passes it to a Rust fs command on Windows must normalize separators or accept both. `apply_common` in `pty::shell_init` handles this for PTY spawn; other call sites must do their own.
-- **Don't mount `AiComposerProvider` conditionally** - see frontend section above.
-
-## File map quick-reference
-
-```
-src-tauri/
-  src/
-    lib.rs                ← all invoke_handler registrations + app boot / CLI dispatch
-    main.rs
-    modules/
-      pty/{mod,session,shell_init,job}.rs + scripts/
-      pty_daemon/{mod,protocol,transport,paths,server,client,spawn}.rs  ← sidecar daemon
-      fs/{mod,tree,file,mutate,search,grep}.rs
-      shell/{mod,session,background,ringbuffer}.rs
-      git/                ← scm backend (status/diff/commit/push)
-      ssh/                ← ssh + sftp backend
-      extensions/{mod,commands,install,manifest,state}.rs
-      cli.rs              ← `tedi` CLI entry / single-instance forwarding
-      cli_ext.rs          ← headless `tedi ext` extension CLI
-      cli_theme.rs        ← headless `tedi theme` CLI
-      cli_update.rs       ← headless `tedi --update` updater
-      format.rs           ← external formatter executor (fmt_run_external)
-      preview.rs          ← dev-server preview backend
-      secrets.rs
-      net.rs
-  tedi-cli/               ← Windows console-subsystem `tedi` launcher (separate crate)
-
-src/
-  main.tsx                ← main-window entry -> app/App
-  app/App.tsx             ← top-level coordinator (cross-module wiring, not feature logic)
-  settings/               ← Settings UI (SEPARATE webview; not src/modules/settings/)
-  lib/                    ← shared helpers (cn(), path utils, ...)
-  styles/                 ← global CSS / theme tokens
-  modules/
-    ai/        editor/    explorer/   extensions/  header/
-    panes/     preview/   scheduler/  scm/         settings/  ← state layer (not src/settings/)
-    shortcuts/ ssh/       statusbar/  tabs/        terminal/
-    theme/     updater/   workspaces/
-  components/
-    ui/                   ← shadcn (don't hand-edit)
-    ai-elements/          ← Vercel AI Elements (don't hand-edit)
-```
+- **PTY daemon** persistence across window close, with scrollback replay.
+- **Native-webview `browser/` preview** (renamed from `preview/`): real WebView2/
+  WebKit, not an iframe, so logged-in apps, DRM video, WebSockets, and HMR work.
+- **Extension system maturity**: `ctx.ssh`, `ctx.editor`, `ctx.tabs`,
+  `ctx.ui.codeEditor` / `mountFolderTree`, `workspaces:manage`, left-sidebar
+  sections, and 7 reference extensions.
+- **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`).
+- **Format-on-save** with built-in Prettier and 30+ external presets.
+- **SSH ProxyJump** host chaining (Termius-style).
+- **MCP support** (`mcp.rs`) for the AI subsystem.
+- **Icon system migrated** from HugeIcons to Lucide (`hugeicon:` refs still resolve).

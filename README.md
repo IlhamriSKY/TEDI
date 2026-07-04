@@ -28,9 +28,9 @@
 | 5   | **AI-native agent**             | Bring-your-own-key agent (OpenAI, Anthropic, Google, Groq, xAI, Cerebras, DeepSeek, any OpenAI-compatible endpoint, or **local** LM Studio). Sub-agents, voice input, project memory via `TEDI.md`, and tools gated by approval. |
 | 6   | **AI browser control**          | A real in-app browser (native webview) the agent drives end to end: navigate, read, type, click, scroll, and screenshot the tab to _see_ it.                                                                                     |
 | 7   | **Workspaces**                  | Each workspace keeps its own project session (tab layout + working dirs) and switches instantly. The header folder picker spawns a terminal rooted there.                                                                        |
-| 8   | **Source control + extensions** | Inline Git diff / SCM pane, and a first-class **extension** system: install from a `.zip` or GitHub release to add settings, themes, slash commands, AI tools, commands, keybindings, and panels.                                |
+| 8   | **Source control + extensions** | Inline Git diff / SCM pane, and a first-class **extension** system: install from a `.zip` or GitHub release to add settings, AI tools, commands, keybindings, panels, and status / header / sidebar items.                       |
 
-Everything is **fully themeable** (presets, custom colors, transparency, extension themes) while staying lightweight.
+Everything is **fully themeable** (presets, custom colors, transparency) while staying lightweight.
 
 ## Install
 

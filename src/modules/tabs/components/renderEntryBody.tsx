@@ -15,7 +15,7 @@ import { MAX_PANES_PER_TAB } from "../lib/useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { statusLabel, statusLabelClass } from "@/modules/ssh/status";
 import { aiCliLabel } from "@/modules/terminal/lib/aiCliStatus";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { X } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
@@ -175,7 +175,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {e.dirty ? (
           <span
             aria-label="Unsaved changes"
-            className="bg-icon-working size-1.5 shrink-0 rounded-full"
+            className="bg-foreground/60 size-1.5 shrink-0 rounded-full"
           />
         ) : null}
       </span>
@@ -183,7 +183,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
         {canClose && (
           <TrailingIconButton
-            icon={Cancel01Icon}
+            icon={X}
             label="Close"
             variant="danger"
             onClick={() => onCloseEntry(e.tabId, e.kind === "pane-leaf" ? e.leafId : null)}

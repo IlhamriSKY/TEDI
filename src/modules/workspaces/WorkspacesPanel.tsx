@@ -20,17 +20,6 @@ import { aiCliIconClass, aiCliLabel, type AiCliStatus } from "@/modules/terminal
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Cancel01Icon,
-  ComputerTerminal02Icon,
-  DashboardSquare02Icon,
-  Folder01Icon,
-  PencilEdit02Icon,
-  PlusSignIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
   closestCenter,
   DndContext,
   DragOverlay,
@@ -44,6 +33,16 @@ import { CSS } from "@dnd-kit/utilities";
 import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { countSavedTabEntries } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  LayoutDashboard,
+  Plus,
+  SquarePen,
+  SquareTerminal,
+  X,
+} from "lucide-react";
 
 type Props = {
   /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
@@ -231,12 +230,7 @@ function WorkspacesPanelInner({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         {dragHandle}
-        <HugeiconsIcon
-          icon={DashboardSquare02Icon}
-          size={13}
-          strokeWidth={2}
-          className="text-muted-foreground shrink-0"
-        />
+        <LayoutDashboard size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
         <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
         <IconTooltip label="New workspace" side="bottom">
@@ -247,7 +241,7 @@ function WorkspacesPanelInner({
             size="icon"
             className="text-muted-foreground hover:text-foreground size-6"
           >
-            <HugeiconsIcon icon={PlusSignIcon} size={13} strokeWidth={2} />
+            <Plus size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       </div>
@@ -290,12 +284,7 @@ function WorkspacesPanelInner({
           <DragOverlay dropAnimation={null}>
             {draggedWorkspace && (
               <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded px-1.5 text-xs shadow-lg ring-1 backdrop-blur-sm">
-                <HugeiconsIcon
-                  icon={Folder01Icon}
-                  size={13}
-                  strokeWidth={1.75}
-                  className="shrink-0"
-                />
+                <Folder size={13} strokeWidth={1.75} className="shrink-0" />
                 <span className="truncate">{draggedWorkspace.name}</span>
               </div>
             )}
@@ -398,13 +387,13 @@ function SortableWorkspaceRow({
             hasTerminals ? "hover:bg-foreground/10" : "opacity-0",
           )}
         >
-          <HugeiconsIcon
-            icon={isExpanded ? ArrowDown01Icon : ArrowRight01Icon}
-            size={11}
-            strokeWidth={2.25}
-          />
+          {isExpanded ? (
+            <ChevronDown size={11} strokeWidth={2.25} />
+          ) : (
+            <ChevronRight size={11} strokeWidth={2.25} />
+          )}
         </button>
-        <HugeiconsIcon icon={Folder01Icon} size={13} strokeWidth={1.75} className="shrink-0" />
+        <Folder size={13} strokeWidth={1.75} className="shrink-0" />
         {isEditing ? (
           <input
             autoFocus
@@ -458,7 +447,7 @@ function SortableWorkspaceRow({
               size="icon-sm"
               className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
             >
-              <HugeiconsIcon icon={PencilEdit02Icon} size={11} strokeWidth={1.75} />
+              <SquarePen size={11} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
           {canClose && (
@@ -471,7 +460,7 @@ function SortableWorkspaceRow({
                 size="icon-sm"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-5 rounded"
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                <X size={11} strokeWidth={2} />
               </Button>
             </IconTooltip>
           )}
@@ -518,8 +507,7 @@ function SortableWorkspaceRow({
                       : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
                   )}
                 >
-                  <HugeiconsIcon
-                    icon={ComputerTerminal02Icon}
+                  <SquareTerminal
                     size={11}
                     strokeWidth={1.75}
                     className={cn("shrink-0", t.status ? aiCliIconClass(t.status) : "opacity-70")}
@@ -529,7 +517,7 @@ function SortableWorkspaceRow({
                       className={cn(
                         "inline-flex shrink-0 items-center rounded px-1 py-[2px] font-mono text-[9px] leading-none font-semibold tabular-nums",
                         t.private
-                          ? "bg-icon-blocked text-background"
+                          ? "bg-destructive text-background"
                           : "bg-muted text-muted-foreground",
                       )}
                     >

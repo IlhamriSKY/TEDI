@@ -7,8 +7,6 @@ import { KEY_SEP } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { getBindingTokens, SHORTCUTS } from "@/modules/shortcuts/shortcuts";
-import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { SearchAddon } from "@xterm/addon-search";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -20,6 +18,7 @@ import {
   useState,
   type Ref,
 } from "react";
+import { Search, X } from "lucide-react";
 
 /**
  * Resolves xterm search decoration colours from the active theme. xterm's
@@ -93,7 +92,7 @@ export function SearchInline({ target, compact, ref }: Props) {
     return tokens.join(KEY_SEP);
   }, [userShortcuts]);
 
-  const placeholder = shortcutText ? `Search (${shortcutText})` : "Search";
+  const placeholder = "Search";
   const tooltipTitle = shortcutText ? `Search (${shortcutText})` : "Search";
 
   const expanded = !compact || openInCompact;
@@ -153,7 +152,7 @@ export function SearchInline({ target, compact, ref }: Props) {
     <motion.div
       layout
       initial={false}
-      animate={{ width: expanded ? 192 : 28 }}
+      animate={{ width: expanded ? 168 : 28 }}
       transition={{ type: "spring", stiffness: 380, damping: 34 }}
       className="relative h-7 shrink-0"
     >
@@ -167,8 +166,7 @@ export function SearchInline({ target, compact, ref }: Props) {
             transition={{ duration: 0.12 }}
             className="absolute inset-0"
           >
-            <HugeiconsIcon
-              icon={Search01Icon}
+            <Search
               size={13}
               strokeWidth={1.75}
               className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
@@ -177,7 +175,7 @@ export function SearchInline({ target, compact, ref }: Props) {
               ref={setInputRef}
               value={q}
               placeholder={placeholder}
-              className="bg-muted/80 placeholder:text-muted-foreground/70 h-7 w-full pr-7 pl-7 text-[13px]! focus-visible:ring-0"
+              className="bg-muted/80 border-border placeholder:text-muted-foreground/70 h-7 w-full pr-12 pl-7 text-[12.5px]! focus-visible:ring-0"
               onChange={(e) => {
                 const next = e.target.value;
                 setQ(next);
@@ -201,7 +199,7 @@ export function SearchInline({ target, compact, ref }: Props) {
                 }
               }}
             />
-            {q && (
+            {q ? (
               <button
                 type="button"
                 onClick={() => {
@@ -212,9 +210,15 @@ export function SearchInline({ target, compact, ref }: Props) {
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer rounded p-0.5"
                 aria-label="Clear search"
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                <X size={11} strokeWidth={2} />
               </button>
-            )}
+            ) : shortcutText ? (
+              // Shortcut hint as a kbd badge pinned to the far right (hidden once
+              // the user starts typing, where the clear button takes its place).
+              <kbd className="border-border/70 bg-background/50 text-muted-foreground/70 pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 rounded border px-1 py-px font-mono text-[9.5px] leading-none font-medium">
+                {shortcutText}
+              </kbd>
+            ) : null}
           </motion.div>
         ) : (
           <motion.div
@@ -233,7 +237,7 @@ export function SearchInline({ target, compact, ref }: Props) {
                 onClick={focus}
                 aria-label={tooltipTitle}
               >
-                <HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={1.75} />
+                <Search size={15} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           </motion.div>

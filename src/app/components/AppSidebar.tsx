@@ -10,12 +10,6 @@ import {
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  DragDropVerticalIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
   closestCenter,
   DndContext,
   DragOverlay,
@@ -38,6 +32,7 @@ import {
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
+import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 
 type Props = {
   sidebarRef: RefObject<PanelImperativeHandle | null>;
@@ -371,7 +366,7 @@ export function AppSidebar({
       collapsible
       collapsedSize={0}
     >
-      <div className="border-border/60 bg-card flex h-full flex-col border-r">
+      <div className="border-sidebar-border bg-sidebar flex h-full flex-col border-r">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -428,7 +423,7 @@ export function AppSidebar({
           <DragOverlay dropAnimation={null}>
             {dragKey && (
               <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium shadow-lg ring-1 backdrop-blur-sm">
-                <HugeiconsIcon icon={DragDropVerticalIcon} size={12} strokeWidth={2} />
+                <GripVertical size={12} strokeWidth={2} />
                 <span className="truncate">{titleFor(dragKey)}</span>
               </div>
             )}
@@ -475,7 +470,7 @@ function SortableSection({
         aria-label={`Reorder ${title} section`}
         className="text-muted-foreground/40 hover:text-foreground flex size-4 cursor-grab items-center justify-center rounded active:cursor-grabbing"
       >
-        <HugeiconsIcon icon={DragDropVerticalIcon} size={12} strokeWidth={2} />
+        <GripVertical size={12} strokeWidth={2} />
       </button>
       <button
         type="button"
@@ -484,11 +479,11 @@ function SortableSection({
         aria-expanded={!collapsed}
         className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded"
       >
-        <HugeiconsIcon
-          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
-          size={11}
-          strokeWidth={2.25}
-        />
+        {collapsed ? (
+          <ChevronRight size={11} strokeWidth={2.25} />
+        ) : (
+          <ChevronDown size={11} strokeWidth={2.25} />
+        )}
       </button>
     </span>
   );

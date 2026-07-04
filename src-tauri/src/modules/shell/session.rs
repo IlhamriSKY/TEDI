@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::run_blocking_inner;
+use super::run_blocking;
 
 /// Persistent agent shell session. Each `run` executes through the user's
 /// login shell with the session's tracked cwd. Cwd persists across calls;
@@ -71,12 +71,12 @@ impl ShellSession {
         let (tx, rx) = mpsc::channel::<Result<super::CommandOutput, String>>();
         let cwd_for_thread = cwd.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_blocking_inner(wrapped, Some(cwd_for_thread), timeout));
+            let _ = tx.send(run_blocking(wrapped, Some(cwd_for_thread), timeout));
         });
         let raw = rx.recv().map_err(|e| e.to_string())??;
         self.pristine.store(false, Ordering::Release);
 
-        let (stdout_clean, cwd_after) = strip_cwd_sentinel(&raw.stdout, &cwd);
+        let (stdout_clean, cwd_after) = strip_cwd_sentinel(&raw.stdout);
         if let Some(ref new_cwd) = cwd_after {
             let p = PathBuf::from(new_cwd);
             if p.is_dir() {
@@ -110,7 +110,7 @@ fn wrap_with_sentinel(command: &str) -> String {
     )
 }
 
-fn strip_cwd_sentinel(stdout: &str, _fallback: &PathBuf) -> (String, Option<String>) {
+fn strip_cwd_sentinel(stdout: &str) -> (String, Option<String>) {
     if let Some(idx) = stdout.rfind(CWD_SENTINEL) {
         let before = &stdout[..idx];
         let after = &stdout[idx + CWD_SENTINEL.len()..];

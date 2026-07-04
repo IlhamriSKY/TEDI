@@ -8,7 +8,7 @@ import { type TediOpenInput, type TediSpawnTabInput } from "./osc-handlers";
 import type { SshStatus } from "@/modules/ssh/status";
 import { cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
-import { sessions, type Callbacks } from "./sessionState";
+import { sessions, type Callbacks, type Session } from "./sessionState";
 import { STUCK_RECOVERY_MS, effectiveTerminalFontSize, describeError } from "./session-helpers";
 import { respawnSession, retryPty, syncPtySize, writePtyError } from "./pty-lifecycle";
 import { disconnectSsh, reconnectSsh, retrySsh } from "./ssh-session";
@@ -18,6 +18,22 @@ import { ensureSession, attachSession, detachSession, canFit } from "./session-l
 export type { TediOpenInput, TediSpawnTabInput };
 export { disconnectSsh, reconnectSsh, respawnSession };
 export { writeToLeaf, findLeafIdFromPoint, disposeSession } from "./session-lifecycle";
+
+/**
+ * A font-size or font-family change invalidates the WebGL glyph atlas (glyphs
+ * are cached keyed by font metrics). Dispose + recreate the renderer, then
+ * refit since the new glyph metrics change the cell size.
+ */
+function reloadWebglAndRefit(s: Session): void {
+  if (s.webglAddon && s.term.element) {
+    disposeWebglRenderer(s);
+    if (s.webglEnabled) loadWebglRenderer(s);
+  }
+  if (canFit(s.term.element?.parentElement)) {
+    s.fitAddon.fit();
+    syncPtySize(s);
+  }
+}
 
 type Options = {
   leafId: number;
@@ -219,15 +235,7 @@ export function useTerminalSession({
     if (!s) return;
     if (s.term.options.fontSize === fontSize) return;
     s.term.options.fontSize = fontSize;
-    // WebGL caches glyphs keyed by old font metrics. Dispose and recreate after a font-size change.
-    if (s.webglAddon && s.term.element) {
-      disposeWebglRenderer(s);
-      if (s.webglEnabled) loadWebglRenderer(s);
-    }
-    if (canFit(s.term.element?.parentElement)) {
-      s.fitAddon.fit();
-      syncPtySize(s);
-    }
+    reloadWebglAndRefit(s);
   }, [leafId, fontSize]);
 
   const fontFamilyPref = usePreferencesStore((p) => p.fontFamily);
@@ -237,17 +245,7 @@ export function useTerminalSession({
     const family = buildContentFontFamily(fontFamilyPref);
     if (s.term.options.fontFamily === family) return;
     s.term.options.fontFamily = family;
-    // WebGL caches glyphs keyed by the old font. Dispose + recreate so the new
-    // family renders instead of stale atlas tiles, then refit (glyph metrics
-    // change the cell size).
-    if (s.webglAddon && s.term.element) {
-      disposeWebglRenderer(s);
-      if (s.webglEnabled) loadWebglRenderer(s);
-    }
-    if (canFit(s.term.element?.parentElement)) {
-      s.fitAddon.fit();
-      syncPtySize(s);
-    }
+    reloadWebglAndRefit(s);
   }, [leafId, fontFamilyPref]);
 
   const scrollback = usePreferencesStore((p) => p.terminalScrollback);

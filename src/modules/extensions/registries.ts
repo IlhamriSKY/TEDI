@@ -20,7 +20,8 @@ type Listener = () => void;
  * per category), status items are runtime-only; extensions set/remove them
  * as their state changes. Rendered in the bottom-right of the StatusBar.
  * Icon resolution:
- *   `hugeicon:<Name>` renders a host HugeIcon (e.g. `hugeicon:Globe02Icon`).
+ *   `lucide:<Name>` renders a Lucide icon (e.g. `lucide:Globe`); legacy
+ *   `hugeicon:<Name>` refs still resolve to their nearest Lucide equivalent.
  *   `ext-asset:<relPath>` reads `<ext-root>/<relPath>` via `ext_read_asset_bytes`.
  *   `data:image/...;base64,...` renders as a data URL.
  */
@@ -110,16 +111,20 @@ export const panelsRegistry = new Registry<ContributedPanel>();
 export const aiToolsRegistry = new Registry<ContributedAiTool>();
 
 /**
- * Runtime-only status item registry. Extensions push items via
- * `ctx.statusBar.setItem(id, item)`; StatusBar subscribes via `useRegistry`.
- * Stored as Map<itemId, StatusItem> per extension since mutations are by id.
+ * Runtime, id-keyed registry. Stores one `Map<itemId, T>` per extension;
+ * extensions mutate by item id (set / remove) and the host reads via `list()`.
+ * Backs the status-bar, header-bar and sidebar-section slots — each a
+ * byte-identical emitter differing only in the item type and the emit log
+ * label. `label` preserves each registry's original error wording.
  */
-class StatusItemRegistry {
-  private readonly byExt = new Map<string, Map<string, StatusItem>>();
+class KeyedRegistry<T extends { id: string }> {
+  private readonly byExt = new Map<string, Map<string, T>>();
   private readonly listeners = new Set<Listener>();
-  private cachedList: { extensionId: string; item: StatusItem }[] | null = null;
+  private cachedList: { extensionId: string; item: T }[] | null = null;
 
-  setItem(extensionId: string, item: StatusItem): void {
+  constructor(private readonly label = "keyed") {}
+
+  set(extensionId: string, item: T): void {
     let map = this.byExt.get(extensionId);
     if (!map) {
       map = new Map();
@@ -130,10 +135,10 @@ class StatusItemRegistry {
     this.emit();
   }
 
-  removeItem(extensionId: string, itemId: string): void {
+  remove(extensionId: string, id: string): void {
     const map = this.byExt.get(extensionId);
     if (!map) return;
-    if (map.delete(itemId)) {
+    if (map.delete(id)) {
       if (map.size === 0) this.byExt.delete(extensionId);
       this.cachedList = null;
       this.emit();
@@ -147,9 +152,9 @@ class StatusItemRegistry {
     this.emit();
   }
 
-  list(): { extensionId: string; item: StatusItem }[] {
+  list(): { extensionId: string; item: T }[] {
     if (this.cachedList !== null) return this.cachedList;
-    const out: { extensionId: string; item: StatusItem }[] = [];
+    const out: { extensionId: string; item: T }[] = [];
     for (const [extId, items] of this.byExt) {
       for (const item of items.values()) out.push({ extensionId: extId, item });
     }
@@ -169,13 +174,13 @@ class StatusItemRegistry {
       try {
         l();
       } catch (err) {
-        console.error("[extensions] status-item listener threw", err);
+        console.error(`[extensions] ${this.label} listener threw`, err);
       }
     }
   }
 }
 
-export const statusItemsRegistry = new StatusItemRegistry();
+export const statusItemsRegistry = new KeyedRegistry<StatusItem>("status-item");
 
 /**
  * Header-bar item shape. Identical fields to `StatusItem` but the slot
@@ -204,73 +209,12 @@ export type HeaderItem = {
  * Header-bar item registry. Mirrors `statusItemsRegistry` but the
  * rendered slot is in the top header row.
  */
-class HeaderItemRegistry {
-  private readonly byExt = new Map<string, Map<string, HeaderItem>>();
-  private readonly listeners = new Set<Listener>();
-  private cachedList: { extensionId: string; item: HeaderItem }[] | null = null;
-
-  setItem(extensionId: string, item: HeaderItem): void {
-    let map = this.byExt.get(extensionId);
-    if (!map) {
-      map = new Map();
-      this.byExt.set(extensionId, map);
-    }
-    map.set(item.id, item);
-    this.cachedList = null;
-    this.emit();
-  }
-
-  removeItem(extensionId: string, itemId: string): void {
-    const map = this.byExt.get(extensionId);
-    if (!map) return;
-    if (map.delete(itemId)) {
-      if (map.size === 0) this.byExt.delete(extensionId);
-      this.cachedList = null;
-      this.emit();
-    }
-  }
-
-  clear(extensionId: string): void {
-    if (!this.byExt.has(extensionId)) return;
-    this.byExt.delete(extensionId);
-    this.cachedList = null;
-    this.emit();
-  }
-
-  list(): { extensionId: string; item: HeaderItem }[] {
-    if (this.cachedList !== null) return this.cachedList;
-    const out: { extensionId: string; item: HeaderItem }[] = [];
-    for (const [extId, items] of this.byExt) {
-      for (const item of items.values()) out.push({ extensionId: extId, item });
-    }
-    this.cachedList = out;
-    return out;
-  }
-
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private emit(): void {
-    for (const l of this.listeners) {
-      try {
-        l();
-      } catch (err) {
-        console.error("[extensions] header-item listener threw", err);
-      }
-    }
-  }
-}
-
-export const headerItemsRegistry = new HeaderItemRegistry();
+export const headerItemsRegistry = new KeyedRegistry<HeaderItem>("header-item");
 
 /**
  * A button shown either in a sidebar section's header (e.g. add / refresh)
  * or revealed on a row's hover (e.g. edit / delete). `icon` accepts the same
- * forms as `HeaderItem.icon`: `hugeicon:<Name>` (host-native HugeIcon),
+ * forms as `HeaderItem.icon`: `lucide:<Name>` (or legacy `hugeicon:<Name>`),
  * `data:` URL, or `ext-asset:<relPath>`.
  */
 export type SidebarSectionAction = {
@@ -329,7 +273,7 @@ export type SidebarSectionItem = {
 export type SidebarSection = {
   id: string;
   title: string;
-  /** Section-header icon. `hugeicon:<Name>` recommended for host parity. */
+  /** Section-header icon. `lucide:<Name>` recommended for host parity. */
   icon?: string;
   /** Buttons in the section header (e.g. add / refresh). */
   headerActions?: SidebarSectionAction[];
@@ -364,68 +308,7 @@ export type SidebarSection = {
  * Per-extension Map<sectionId, SidebarSection>; `clearExtensionContributions`
  * drops the slice on deactivate so the section vanishes when disabled.
  */
-class SidebarSectionRegistry {
-  private readonly byExt = new Map<string, Map<string, SidebarSection>>();
-  private readonly listeners = new Set<Listener>();
-  private cachedList: { extensionId: string; item: SidebarSection }[] | null = null;
-
-  setSection(extensionId: string, section: SidebarSection): void {
-    let map = this.byExt.get(extensionId);
-    if (!map) {
-      map = new Map();
-      this.byExt.set(extensionId, map);
-    }
-    map.set(section.id, section);
-    this.cachedList = null;
-    this.emit();
-  }
-
-  removeSection(extensionId: string, sectionId: string): void {
-    const map = this.byExt.get(extensionId);
-    if (!map) return;
-    if (map.delete(sectionId)) {
-      if (map.size === 0) this.byExt.delete(extensionId);
-      this.cachedList = null;
-      this.emit();
-    }
-  }
-
-  clear(extensionId: string): void {
-    if (!this.byExt.has(extensionId)) return;
-    this.byExt.delete(extensionId);
-    this.cachedList = null;
-    this.emit();
-  }
-
-  list(): { extensionId: string; item: SidebarSection }[] {
-    if (this.cachedList !== null) return this.cachedList;
-    const out: { extensionId: string; item: SidebarSection }[] = [];
-    for (const [extId, items] of this.byExt) {
-      for (const item of items.values()) out.push({ extensionId: extId, item });
-    }
-    this.cachedList = out;
-    return out;
-  }
-
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private emit(): void {
-    for (const l of this.listeners) {
-      try {
-        l();
-      } catch (err) {
-        console.error("[extensions] sidebar-section listener threw", err);
-      }
-    }
-  }
-}
-
-export const sidebarSectionsRegistry = new SidebarSectionRegistry();
+export const sidebarSectionsRegistry = new KeyedRegistry<SidebarSection>("sidebar-section");
 
 /**
  * Shell-command transformer registry. Lets extensions rewrite shell commands

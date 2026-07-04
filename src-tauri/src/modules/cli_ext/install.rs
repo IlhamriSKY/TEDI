@@ -119,10 +119,7 @@ pub(super) fn install_github(
     root: &std::path::Path,
     state_path: &std::path::Path,
 ) -> Result<(), String> {
-    let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-    let json = runtime.block_on(github::http_get_text(&api))?;
-    let zip_url = github::pick_release_zip(&json)
-        .ok_or_else(|| format!("no .zip asset in latest release of {owner_repo}"))?;
+    let (_tag, zip_url) = runtime.block_on(github::resolve_latest_release(owner_repo))?;
     println!("{} {}", paint_dim("Downloading"), paint_dim(&zip_url));
     let progress: Box<dyn InstallProgress> = if interactive() {
         Box::new(CliProgress::new())

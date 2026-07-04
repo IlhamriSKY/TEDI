@@ -9,20 +9,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn, matchesQuery } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
-import {
-  ArrowDown01Icon,
-  ChatGptIcon,
-  ClaudeIcon,
-  CloudServerIcon,
-  ComputerIcon,
-  CpuIcon,
-  DeepseekIcon,
-  FlashIcon,
-  GlobalIcon,
-  GoogleGeminiIcon,
-  Grok02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useMemo, useState } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setPinnedModelIds } from "@/modules/settings/store";
@@ -43,19 +29,7 @@ import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 import { pinKey } from "./modelPinUtils";
 import { ModelSection } from "./ModelSection";
-
-const PROVIDER_ICON = {
-  openai: ChatGptIcon,
-  anthropic: ClaudeIcon,
-  google: GoogleGeminiIcon,
-  xai: Grok02Icon,
-  cerebras: CpuIcon,
-  groq: FlashIcon,
-  deepseek: DeepseekIcon,
-  sumopod: CloudServerIcon,
-  "openai-compatible": GlobalIcon,
-  lmstudio: ComputerIcon,
-} as const satisfies Record<ProviderId, typeof ChatGptIcon>;
+import { ChevronDown } from "lucide-react";
 
 export function ModelDropdown() {
   const selected = useChatStore((s) => s.selectedModelId);
@@ -210,12 +184,7 @@ export function ModelDropdown() {
                   · {current.hint}
                 </span>
               ) : null}
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={11}
-                strokeWidth={2}
-                className="shrink-0 opacity-70"
-              />
+              <ChevronDown size={11} strokeWidth={2} className="shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -296,7 +265,7 @@ export function ModelDropdown() {
                 key={s.sectionKey}
                 sectionKey={s.sectionKey}
                 title={s.title}
-                providerIcon={PROVIDER_ICON[p.id]}
+                providerId={p.id}
                 missingKey={!hasKey}
                 onSetKey={() => void openSettingsWindow("models")}
                 note={note}

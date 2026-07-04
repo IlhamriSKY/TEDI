@@ -7,16 +7,6 @@ import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { getBindingTokens, SHORTCUTS, type ShortcutId } from "@/modules/shortcuts/shortcuts";
-import {
-  BookOpenIcon,
-  DocumentCodeIcon,
-  FolderOpenIcon,
-  PuzzleIcon,
-  Settings01Icon,
-  SidebarLeftIcon,
-  TextWrapIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
@@ -26,6 +16,15 @@ import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionH
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import {
+  BookOpen,
+  FileCode,
+  FolderOpen,
+  PanelLeft,
+  Puzzle,
+  Settings,
+  WrapText,
+} from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -164,7 +163,7 @@ function HeaderImpl({
         onClick={onOpenExtensions}
         aria-label="Extensions"
       >
-        <HugeiconsIcon icon={PuzzleIcon} size={16} strokeWidth={1.75} />
+        <Puzzle size={16} strokeWidth={1.75} />
       </Button>
     </IconTooltip>
   );
@@ -178,7 +177,7 @@ function HeaderImpl({
         onClick={onOpenSettings}
         aria-label="Settings"
       >
-        <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
+        <Settings size={15} strokeWidth={1.75} />
       </Button>
     </IconTooltip>
   );
@@ -204,7 +203,7 @@ function HeaderImpl({
               size="icon-sm"
               className={cn("text-muted-foreground", TOOLBAR_HOVER, "shrink-0 rounded-md")}
             >
-              <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
+              <PanelLeft size={18} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
 
@@ -216,7 +215,7 @@ function HeaderImpl({
               size="icon-sm"
               className={cn("text-muted-foreground", TOOLBAR_HOVER, "shrink-0 rounded-md")}
             >
-              <HugeiconsIcon icon={FolderOpenIcon} size={16} strokeWidth={1.75} />
+              <FolderOpen size={16} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         </div>
@@ -243,11 +242,11 @@ function HeaderImpl({
                 mdPreviewToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
               )}
             >
-              <HugeiconsIcon
-                icon={mdPreviewToggle.active ? DocumentCodeIcon : BookOpenIcon}
-                size={15}
-                strokeWidth={1.75}
-              />
+              {mdPreviewToggle.active ? (
+                <FileCode size={15} strokeWidth={1.75} />
+              ) : (
+                <BookOpen size={15} strokeWidth={1.75} />
+              )}
             </Button>
           </IconTooltip>
         )}
@@ -270,7 +269,7 @@ function HeaderImpl({
                 lineWrapToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
               )}
             >
-              <HugeiconsIcon icon={TextWrapIcon} size={15} strokeWidth={1.75} />
+              <WrapText size={15} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         )}
@@ -293,11 +292,13 @@ function HeaderImpl({
         )}
       </div>
 
-      {/* Row 2: tab strip across full width. h-10 (40px) fits the 28px triggers + 10px scrollbar. */}
+      {/* Row 2: tab strip across full width. h-10 (40px) fits the 28px triggers + 10px scrollbar.
+          Painted with the canvas (`bg-background`) so the strip recesses below the toolbar's
+          `bg-card`, and the active tab (accent) reads as lifted out of the strip. */}
       <div
         data-tauri-drag-region
         onMouseDown={onHeaderMouseDown}
-        className="border-border/60 flex h-10 shrink-0 items-center border-t pl-2"
+        className="border-border/60 bg-background flex h-10 shrink-0 items-center border-t pl-2"
       >
         <TabBar
           tabs={tabs}

@@ -1,12 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { FolderUploadIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { FolderUp, type LucideIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
 type Props = ComponentProps<typeof Button> & {
   /** Override the leading glyph. Defaults to the upload-folder icon. */
-  icon?: typeof FolderUploadIcon;
+  icon?: LucideIcon;
 };
 
 /**
@@ -16,7 +15,7 @@ type Props = ComponentProps<typeof Button> & {
  * forwards every Button prop (`onClick`, `disabled`, …). Add `className` to
  * extend, never to change the height/variant.
  */
-export function UploadButton({ icon = FolderUploadIcon, className, children, ...props }: Props) {
+export function UploadButton({ icon: Icon = FolderUp, className, children, ...props }: Props) {
   return (
     <Button
       type="button"
@@ -25,7 +24,7 @@ export function UploadButton({ icon = FolderUploadIcon, className, children, ...
       className={cn("h-8 px-2 text-[11px]", className)}
       {...props}
     >
-      <HugeiconsIcon icon={icon} size={12} strokeWidth={1.75} />
+      <Icon size={12} strokeWidth={1.75} />
       {children}
     </Button>
   );

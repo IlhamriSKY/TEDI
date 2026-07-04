@@ -107,19 +107,7 @@ export async function listInstalled(): Promise<InstalledExtension[]> {
       console.warn(`[extensions] skipping ${entry.id}: ${parsed.error}`);
       continue;
     }
-    out.push({
-      id: entry.id,
-      manifest: parsed.manifest,
-      enabled: entry.enabled,
-      source: entry.source,
-      installed_at_ms: entry.installed_at_ms,
-      version: entry.version,
-      fingerprint: entry.fingerprint,
-      approved_permissions: entry.approved_permissions,
-      root: entry.root,
-      latest_version: entry.latest_version,
-      last_checked_at_ms: entry.last_checked_at_ms,
-    });
+    out.push({ ...entry, manifest: parsed.manifest });
   }
   return out;
 }

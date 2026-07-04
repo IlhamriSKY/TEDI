@@ -1,10 +1,10 @@
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ArrowDown01Icon, ChatGptIcon, PinIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { ProviderIcon } from "@/settings/components/ProviderIcon";
 import { type DynamicModelId, type ModelInfo, type ProviderId, type ProviderInfo } from "../config";
 import { isPinnedFor } from "./modelPinUtils";
+import { ChevronDown, Pin } from "lucide-react";
 
 export type ModelSectionRow = {
   model: ModelInfo;
@@ -15,7 +15,7 @@ export type ModelSectionRow = {
 export function ModelSection({
   sectionKey,
   title,
-  providerIcon,
+  providerId,
   missingKey,
   onSetKey,
   note,
@@ -31,7 +31,7 @@ export function ModelSection({
 }: {
   sectionKey: string;
   title: string;
-  providerIcon?: typeof ChatGptIcon;
+  providerId?: ProviderId;
   missingKey?: boolean;
   onSetKey?: () => void;
   note?: string | null;
@@ -65,8 +65,7 @@ export function ModelSection({
             "text-muted-foreground text-[10px] font-medium tracking-wide uppercase",
           )}
         >
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
+          <ChevronDown
             size={10}
             strokeWidth={2}
             className={cn(
@@ -74,15 +73,10 @@ export function ModelSection({
               showItems ? "rotate-0" : "-rotate-90",
             )}
           />
-          {providerIcon ? (
-            <HugeiconsIcon icon={providerIcon} size={11} strokeWidth={1.75} className="shrink-0" />
+          {providerId ? (
+            <ProviderIcon provider={providerId} size={11} className="shrink-0" />
           ) : (
-            <HugeiconsIcon
-              icon={PinIcon}
-              size={11}
-              strokeWidth={1.75}
-              className="fill-foreground/70 shrink-0"
-            />
+            <Pin size={11} strokeWidth={1.75} className="fill-foreground/70 shrink-0" />
           )}
           <span className="truncate">{title}</span>
           <span className="text-muted-foreground/60 tracking-normal normal-case">
@@ -143,8 +137,7 @@ export function ModelSection({
                           : "text-muted-foreground/60 hover:bg-accent hover:text-accent-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
                       )}
                     >
-                      <HugeiconsIcon
-                        icon={PinIcon}
+                      <Pin
                         size={11}
                         strokeWidth={pinned ? 2 : 1.5}
                         className={cn(pinned && "fill-foreground")}

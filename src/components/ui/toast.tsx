@@ -1,14 +1,7 @@
-import {
-  Alert01Icon,
-  AlertCircleIcon,
-  Cancel01Icon,
-  CheckmarkCircle02Icon,
-  InformationCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 
 export type ToastVariant = "default" | "success" | "info" | "warning" | "error";
 
@@ -33,10 +26,10 @@ export function toast(message: string, options?: { variant?: ToastVariant; durat
 }
 
 const VARIANT_ICONS = {
-  success: CheckmarkCircle02Icon,
-  info: InformationCircleIcon,
-  warning: Alert01Icon,
-  error: AlertCircleIcon,
+  success: CircleCheck,
+  info: Info,
+  warning: TriangleAlert,
+  error: CircleAlert,
   default: null,
 } as const;
 
@@ -78,8 +71,7 @@ export function Toaster() {
               t.variant === "default" && "bg-popover text-popover-foreground border-border",
               t.variant === "success" &&
                 "border-diff-added/60 border-l-diff-added bg-diff-added/10 text-foreground",
-              t.variant === "info" &&
-                "border-info/60 border-l-info bg-info/10 text-foreground",
+              t.variant === "info" && "border-info/60 border-l-info bg-info/10 text-foreground",
               t.variant === "warning" &&
                 "border-icon-working/60 border-l-icon-working bg-icon-working/10 text-foreground",
               t.variant === "error" &&
@@ -87,8 +79,7 @@ export function Toaster() {
             )}
           >
             {Icon && (
-              <HugeiconsIcon
-                icon={Icon}
+              <Icon
                 size={14}
                 strokeWidth={2}
                 className={cn(
@@ -109,7 +100,7 @@ export function Toaster() {
                 "-mt-0.5 -mr-1 shrink-0 cursor-pointer rounded p-0.5 opacity-60 transition-opacity hover:opacity-100",
               )}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              <X size={11} strokeWidth={2} />
             </button>
           </div>
         );

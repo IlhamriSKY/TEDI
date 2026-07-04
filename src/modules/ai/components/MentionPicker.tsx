@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { CodeIcon, TerminalIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { Code, Terminal } from "lucide-react";
 
 export type MentionItem =
   | {
@@ -132,13 +131,10 @@ export function MentionPickerContent({
 
 function ItemIcon({ item }: { item: MentionItem }) {
   if (item.kind === "selection") {
-    return (
-      <HugeiconsIcon
-        icon={item.source === "editor" ? CodeIcon : TerminalIcon}
-        size={13}
-        strokeWidth={1.75}
-        className="text-muted-foreground shrink-0"
-      />
+    return item.source === "editor" ? (
+      <Code size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+    ) : (
+      <Terminal size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
     );
   }
   if (item.kind === "folder") {

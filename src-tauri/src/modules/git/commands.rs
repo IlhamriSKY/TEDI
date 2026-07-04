@@ -105,14 +105,27 @@ fn classify(code: u8) -> &'static str {
     }
 }
 
+fn require_root(repo_path: &str) -> Result<PathBuf, String> {
+    find_repo_root(&PathBuf::from(repo_path)).ok_or_else(|| "not a git repository".into())
+}
+
+fn parse_parents(raw: &str) -> Vec<String> {
+    raw.split_whitespace().map(|s| s.to_string()).collect()
+}
+
+fn parse_refs(raw: &str) -> Vec<String> {
+    if raw.is_empty() {
+        Vec::new()
+    } else {
+        raw.split(", ")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+}
+
 fn find_repo_root(start: &Path) -> Option<PathBuf> {
-    let mut cmd = Command::new("git");
-    cmd.arg("rev-parse")
-        .arg("--show-toplevel")
-        .current_dir(start);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = cmd.output().ok()?;
+    let out = git(start).args(["rev-parse", "--show-toplevel"]).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -498,10 +511,7 @@ pub async fn git_file_head(repo_path: String, relative: String) -> Result<ReadRe
 }
 
 fn git_file_head_inner(repo_path: String, relative: String) -> Result<ReadResult, String> {
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     Ok(show_blob(&root, "HEAD", &relative))
 }
 
@@ -527,10 +537,7 @@ fn git_file_at_inner(
     if !is_valid_rev(&rev) {
         return Err("invalid revision".into());
     }
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     Ok(show_blob(&root, &rev, &relative))
 }
 
@@ -544,10 +551,7 @@ pub async fn git_discard_file(repo_path: String, relative: String) -> Result<(),
 }
 
 fn git_discard_file_inner(repo_path: String, relative: String) -> Result<(), String> {
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
 
     // Probe: is this path tracked at HEAD?
     let mut probe = git(&root);
@@ -591,10 +595,7 @@ pub async fn git_discard_all(repo_path: String) -> Result<(), String> {
 }
 
 fn git_discard_all_inner(repo_path: String) -> Result<(), String> {
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
 
     let mut reset = git(&root);
     reset.args(["reset", "--hard", "HEAD"]);
@@ -616,10 +617,7 @@ pub async fn git_commit(repo_path: String, message: String) -> Result<(), String
 }
 
 fn git_commit_inner(repo_path: String, message: String) -> Result<(), String> {
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     let msg = message.trim();
     if msg.is_empty() {
         return Err("commit message is empty".into());
@@ -646,10 +644,7 @@ pub async fn git_diff_full(repo_path: String, max_bytes: Option<usize>) -> Resul
 
 fn git_diff_full_inner(repo_path: String, max_bytes: Option<usize>) -> Result<String, String> {
     let cap = max_bytes.unwrap_or(80_000);
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     let mut out = String::new();
 
     let mut staged = git(&root);
@@ -735,10 +730,7 @@ pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCom
 
 fn git_log_inner(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
     let max = limit.unwrap_or(500).clamp(1, 5000);
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     // Tab-separated fields; subject is last so embedded tabs in the message
     // can't desync the parse. `%D` emits decorations without surrounding
     // parens (no `%d`), which keeps refs easy to split.
@@ -785,19 +777,8 @@ fn git_log_inner(repo_path: String, limit: Option<u32>) -> Result<Vec<GitCommit>
         if sha.is_empty() {
             continue;
         }
-        let parents: Vec<String> = parents_raw
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        let refs: Vec<String> = if refs_raw.is_empty() {
-            Vec::new()
-        } else {
-            refs_raw
-                .split(", ")
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        };
+        let parents = parse_parents(parents_raw);
+        let refs = parse_refs(refs_raw);
         out.push(GitCommit {
             sha,
             short_sha,
@@ -933,10 +914,7 @@ fn git_commit_detail_inner(repo_path: String, sha: String) -> Result<CommitDetai
     if !is_valid_rev(&sha) {
         return Err("invalid commit id".into());
     }
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
 
     // NUL-separated so embedded tabs/newlines in the message can't desync the
     // parse; body (%b) is last and may contain anything.
@@ -962,19 +940,8 @@ fn git_commit_detail_inner(repo_path: String, sha: String) -> Result<CommitDetai
         return Err("commit not found".into());
     }
 
-    let parents: Vec<String> = parents_raw
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
-    let refs: Vec<String> = if refs_raw.is_empty() {
-        Vec::new()
-    } else {
-        refs_raw
-            .split(", ")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    };
+    let parents = parse_parents(parents_raw);
+    let refs = parse_refs(refs_raw);
 
     // Diff against the first parent; the root commit has none, so use the
     // empty tree (every file then reads as added).
@@ -1047,10 +1014,7 @@ pub async fn git_push(repo_path: String) -> Result<String, String> {
 }
 
 fn git_push_inner(repo_path: String) -> Result<String, String> {
-    let start = PathBuf::from(&repo_path);
-    let Some(root) = find_repo_root(&start) else {
-        return Err("not a git repository".into());
-    };
+    let root = require_root(&repo_path)?;
     let mut up = git(&root);
     up.arg("rev-parse").arg("--abbrev-ref").arg("@{u}");
     let has_upstream = up.output().map(|o| o.status.success()).unwrap_or(false);

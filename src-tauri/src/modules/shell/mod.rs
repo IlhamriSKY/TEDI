@@ -76,15 +76,7 @@ pub async fn shell_run_command(
         .map_err(|e| format!("join error: {e}"))?
 }
 
-pub(crate) fn run_blocking_inner(
-    command: String,
-    cwd: Option<PathBuf>,
-    dur: Duration,
-) -> Result<CommandOutput, String> {
-    run_blocking(command, cwd, dur)
-}
-
-fn run_blocking(
+pub(crate) fn run_blocking(
     command: String,
     cwd: Option<PathBuf>,
     dur: Duration,

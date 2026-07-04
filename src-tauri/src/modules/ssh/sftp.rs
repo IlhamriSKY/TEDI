@@ -36,15 +36,6 @@ pub struct SftpEntry {
     pub permissions: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpStat {
-    pub kind: String,
-    pub size: u64,
-    pub mtime: u64,
-    pub permissions: String,
-}
-
 /// Look up an SSH session by id and clone its `Arc<SshSession>`. Every
 /// command starts with this prelude.
 async fn get_session(
@@ -61,6 +52,28 @@ async fn get_session(
             log::warn!("ssh_sftp: unknown session id={id}");
             "no ssh session".to_string()
         })
+}
+
+/// Shared SFTP command scaffolding: resolve the session, open the sftp
+/// subsystem, and run `f` on the daemon runtime, mapping the join error.
+async fn on_sftp<F, Fut, T>(
+    state: &tauri::State<'_, SshState>,
+    id: u32,
+    f: F,
+) -> Result<T, String>
+where
+    F: FnOnce(Arc<SftpSession>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<T, String>> + Send,
+    T: Send + 'static,
+{
+    let session = get_session(state, id).await?;
+    ssh_runtime()
+        .spawn(async move {
+            let sftp = session.ensure_sftp().await?;
+            f(sftp).await
+        })
+        .await
+        .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 /// Translate an SFTP error to a short user-facing string while preserving
@@ -97,15 +110,10 @@ fn map_file_type(ft: FileType) -> &'static str {
 
 #[tauri::command]
 pub async fn ssh_sftp_home(state: tauri::State<'_, SshState>, id: u32) -> Result<String, String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    let session_clone = session.clone();
-    rt.spawn(async move {
-        let sftp = session_clone.ensure_sftp().await?;
+    on_sftp(&state, id, |sftp| async move {
         sftp.canonicalize(".").await.map_err(humanize)
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -115,10 +123,7 @@ pub async fn ssh_sftp_read_dir(
     path: String,
     include_hidden: bool,
 ) -> Result<Vec<SftpEntry>, String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         let read = sftp.read_dir(path.clone()).await.map_err(humanize)?;
         let mut entries: Vec<SftpEntry> = read
             .filter(|e| include_hidden || !e.file_name().starts_with('.'))
@@ -150,30 +155,6 @@ pub async fn ssh_sftp_read_dir(
         Ok(entries)
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
-}
-
-#[tauri::command]
-pub async fn ssh_sftp_stat(
-    state: tauri::State<'_, SshState>,
-    id: u32,
-    path: String,
-) -> Result<SftpStat, String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
-        let metadata = sftp.metadata(path).await.map_err(humanize)?;
-        let ft = metadata.file_type();
-        Ok(SftpStat {
-            kind: map_file_type(ft).to_string(),
-            size: metadata.len(),
-            mtime: metadata.mtime.map(u64::from).unwrap_or(0),
-            permissions: format_permissions(&metadata),
-        })
-    })
-    .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -182,10 +163,7 @@ pub async fn ssh_sftp_read_file(
     id: u32,
     path: String,
 ) -> Result<String, String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         // Cap the read so a huge (or maliciously oversized) remote file can't
         // OOM the app by being slurped whole into memory + an IPC string.
         // Mirrors the local fs_read_file size guard.
@@ -206,7 +184,6 @@ pub async fn ssh_sftp_read_file(
         String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8".to_string())
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -216,10 +193,7 @@ pub async fn ssh_sftp_write_file(
     path: String,
     contents: String,
 ) -> Result<(), String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         // CREATE | TRUNCATE | WRITE matches local fs_write_file's "rewrite
         // in place" contract. The file is replaced atomically from the
         // editor's view even when the server lacks atomic rename-into-place.
@@ -240,7 +214,6 @@ pub async fn ssh_sftp_write_file(
         Ok(())
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -249,10 +222,7 @@ pub async fn ssh_sftp_create_file(
     id: u32,
     path: String,
 ) -> Result<(), String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         // EXCL so we do not silently clobber a file the user did not see
         // (e.g. created moments ago by another process).
         let mut file = sftp
@@ -269,7 +239,6 @@ pub async fn ssh_sftp_create_file(
         Ok(())
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -278,14 +247,10 @@ pub async fn ssh_sftp_create_dir(
     id: u32,
     path: String,
 ) -> Result<(), String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         sftp.create_dir(path).await.map_err(humanize)
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -295,14 +260,10 @@ pub async fn ssh_sftp_rename(
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         sftp.rename(from, to).await.map_err(humanize)
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -311,10 +272,7 @@ pub async fn ssh_sftp_delete(
     id: u32,
     path: String,
 ) -> Result<(), String> {
-    let session = get_session(&state, id).await?;
-    let rt = ssh_runtime();
-    rt.spawn(async move {
-        let sftp = session.ensure_sftp().await?;
+    on_sftp(&state, id, move |sftp| async move {
         // SFTP needs separate calls for files vs dirs. `rmdir` only
         // succeeds on empty dirs on most servers. Stat once to pick the
         // right call. Server permission errors surface through humanize()
@@ -327,7 +285,6 @@ pub async fn ssh_sftp_delete(
         }
     })
     .await
-    .map_err(|e| format!("ssh task join failed: {e}"))?
 }
 
 /// Render `rwxr-xr-x` permissions from the SFTP metadata's mode bits.

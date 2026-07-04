@@ -1,11 +1,10 @@
-"use client";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+("use client");
 
 import { Button } from "@/components/ui/button";
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { UIMessage } from "ai";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, use, useCallback, useEffect, useMemo, useState } from "react";
@@ -226,7 +225,7 @@ export const MessageBranchPrevious = ({ children, ...props }: MessageBranchPrevi
       variant="ghost"
       {...props}
     >
-      {children ?? <HugeiconsIcon icon={ArrowLeft01Icon} size={14} />}
+      {children ?? <ChevronLeft size={14} />}
     </Button>
   );
 };
@@ -246,7 +245,7 @@ export const MessageBranchNext = ({ children, ...props }: MessageBranchNextProps
       variant="ghost"
       {...props}
     >
-      {children ?? <HugeiconsIcon icon={ArrowRight01Icon} size={14} />}
+      {children ?? <ChevronRight size={14} />}
     </Button>
   );
 };
@@ -276,6 +275,7 @@ export const MessageResponse = memo(
       <Streamdown
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
         components={markdownComponents}
+        controls={{ table: false }}
         urlTransform={safeUrlTransform}
         {...props}
       />

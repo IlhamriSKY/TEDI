@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { scheduler } from "./lib/engine";
 import type { Schedule } from "./types";
 
@@ -9,10 +9,4 @@ export function useSchedules(): Schedule[] {
     () => scheduler.getAll(),
     () => scheduler.getAll(),
   );
-}
-
-/** Pending-only selector. Memoized so the filter result stays stable for `useSyncExternalStore`. */
-export function usePendingSchedules(): Schedule[] {
-  const all = useSchedules();
-  return useMemo(() => all.filter((s) => s.status === "pending"), [all]);
 }

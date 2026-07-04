@@ -1,10 +1,9 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { UndoIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { getCheckpoint, getCheckpointsVersion, subscribeCheckpoints } from "../lib/checkpoint";
 import { restoreToLastCheckpoint, useChatStore } from "../store/chatStore";
+import { Undo2 } from "lucide-react";
 
 /**
  * Inline action next to the most recent user message. Visible only while a
@@ -50,7 +49,7 @@ export function RestoreCheckpointButton() {
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >
-        <HugeiconsIcon icon={UndoIcon} size={11} strokeWidth={1.75} />
+        <Undo2 size={11} strokeWidth={1.75} />
         <span>Restore</span>
         {fileCount > 0 ? (
           <span className="text-muted-foreground/70 font-mono">· {fileCount}</span>

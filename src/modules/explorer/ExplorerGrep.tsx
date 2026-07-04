@@ -2,8 +2,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { UnfoldLessIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { requestReveal } from "@/modules/editor/lib/reveal";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
@@ -337,11 +336,11 @@ export function ExplorerGrep({
                     className="hover:bg-accent hover:text-accent-foreground flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5"
                     aria-label={allCollapsed ? "Expand all" : "Collapse all"}
                   >
-                    <HugeiconsIcon
-                      icon={allCollapsed ? UnfoldMoreIcon : UnfoldLessIcon}
-                      size={11}
-                      strokeWidth={2}
-                    />
+                    {allCollapsed ? (
+                      <ChevronsUpDown size={11} strokeWidth={2} />
+                    ) : (
+                      <ChevronsDownUp size={11} strokeWidth={2} />
+                    )}
                     <span className="hidden @[180px]:inline">
                       {allCollapsed ? "Expand all" : "Collapse all"}
                     </span>

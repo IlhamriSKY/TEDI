@@ -172,10 +172,6 @@ const IDLE_META: AgentMeta = {
   lastCompact: null,
 };
 
-export type MiniState = {
-  open: boolean;
-};
-
 export type PendingSelection = {
   id: string;
   text: string;
@@ -220,10 +216,7 @@ type StoreState = {
   selectedProvider: ProviderId;
   setSelectedModelId: (id: DynamicModelId, provider?: ProviderId) => void;
 
-  mini: MiniState;
   openMini: () => void;
-  closeMini: () => void;
-  toggleMini: () => void;
 
   panelOpen: boolean;
   openPanel: () => void;
@@ -639,17 +632,13 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set({ selectedModelId: id, selectedProvider: resolved });
   },
 
-  // `mini` was the floating window state. The sidebar replaced it; these
-  // alias the sidebar's open/close, kept under the old names for callers.
-  mini: { open: false },
-  openMini: () => set({ panelOpen: true, mini: { open: true } }),
-  closeMini: () => set({ panelOpen: false, mini: { open: false } }),
-  toggleMini: () => set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
+  // `openMini` kept under its old name for callers; aliases the sidebar open.
+  openMini: () => set({ panelOpen: true }),
 
   panelOpen: false,
-  openPanel: () => set({ panelOpen: true, mini: { open: true } }),
-  closePanel: () => set({ panelOpen: false, mini: { open: false } }),
-  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen, mini: { open: !s.panelOpen } })),
+  openPanel: () => set({ panelOpen: true }),
+  closePanel: () => set({ panelOpen: false }),
+  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
 
   focusSignal: 0,
   pendingPrefill: null,

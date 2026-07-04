@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { SlashCommandMeta } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
 
@@ -38,6 +37,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
   const renderCommand = (it: PickerItem, i: number) => {
     if (it.kind !== "command") return null;
     const c = it.command;
+    const Icon = c.icon;
     return (
       <li key={`cmd-${c.name}`}>
         <button
@@ -53,12 +53,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
           )}
         >
           <span className="flex w-full items-center gap-1.5">
-            <HugeiconsIcon
-              icon={c.icon}
-              size={13}
-              strokeWidth={1.75}
-              className="text-muted-foreground shrink-0"
-            />
+            <Icon size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
             <span className="text-primary font-mono font-medium">{c.invocation}</span>
             {c.argHint ? (
               <span className="text-icon-working font-mono text-[10.5px]">{c.argHint}</span>

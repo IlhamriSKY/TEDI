@@ -1,5 +1,3 @@
-import { AlertCircleIcon, Globe02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
@@ -17,6 +15,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { anyOverlayIntersects, useAnyOverlayOpen, usePaneDragActive } from "./lib/overlaySuppress";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
+import { CircleAlert, Globe } from "lucide-react";
 
 // Resolving an arbitrary CSS color (hex / hsl / oklch / var) to "r, g, b" needs
 // a DOM probe + style recalc, so cache it keyed by the raw value: the canvas
@@ -412,7 +411,7 @@ function EmptyState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
       <div className="border-border/60 bg-card text-muted-foreground flex size-12 items-center justify-center rounded-2xl border">
-        <HugeiconsIcon icon={Globe02Icon} size={20} strokeWidth={1.5} />
+        <Globe size={20} strokeWidth={1.5} />
       </div>
       <div className="space-y-1.5">
         <p className="text-foreground text-sm font-medium">Nothing to preview yet</p>
@@ -429,7 +428,7 @@ function SelfBlockedState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
       <div className="border-icon-working/30 bg-icon-working/10 text-icon-working flex size-12 items-center justify-center rounded-2xl border">
-        <HugeiconsIcon icon={AlertCircleIcon} size={20} strokeWidth={1.5} />
+        <CircleAlert size={20} strokeWidth={1.5} />
       </div>
       <div className="space-y-1.5">
         <p className="text-foreground text-sm font-medium">Browser blocked</p>

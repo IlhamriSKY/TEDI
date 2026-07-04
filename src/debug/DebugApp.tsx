@@ -5,14 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { cn } from "@/lib/utils";
 import { toast, Toaster } from "@/components/ui/toast";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { useDebugStore, type DebugCapture } from "@/modules/ai/store/debugStore";
 import { startDebugClient, clearDebugRemote } from "@/modules/ai/store/debugBridge";
+import { X } from "lucide-react";
 
 const dl = (f: string, d: unknown) => {
   const u = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)]));
@@ -90,7 +89,7 @@ function Chip({
         "rounded-md border px-2 py-1 text-[10.5px] transition-colors",
         active
           ? "border-accent bg-accent font-medium"
-          : "border-border/50 text-muted-foreground hover:bg-accent/40",
+          : "border-border/60 text-muted-foreground hover:bg-accent/40",
       )}
     >
       <span className="mr-1">{children}</span>
@@ -107,7 +106,7 @@ function Row({ c, active, onClick }: { c: DebugCapture; active: boolean; onClick
       onClick={onClick}
       className={cn(
         "flex w-full flex-col gap-1 rounded-md border px-2.5 py-2 text-left transition-colors",
-        active ? "border-accent bg-accent" : "border-border/50 hover:bg-accent/40",
+        active ? "border-accent bg-accent" : "border-border/60 hover:bg-accent/40",
       )}
     >
       <div className="flex items-center gap-1.5">
@@ -135,7 +134,7 @@ function Row({ c, active, onClick }: { c: DebugCapture; active: boolean; onClick
 
 const TABS = ["summary", "system", "messages", "raw"] as const;
 const InfoCard = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="border-border/50 bg-muted/20 rounded-md border p-2.5">
+  <div className="border-border/60 bg-card rounded-md border p-2.5">
     <div className="text-muted-foreground text-[9px] tracking-wider uppercase">{label}</div>
     <div className="mt-0.5">{children}</div>
   </div>
@@ -188,7 +187,7 @@ function Detail({ c }: { c: DebugCapture }) {
             <InfoCard label="Tools">{toolC(c)}</InfoCard>
             <InfoCard label="Timestamp">{new Date(c.at).toLocaleString()}</InfoCard>
             <InfoCard label="Session">{c.sessionId ?? "(none)"}</InfoCard>
-            <div className="border-border/50 bg-muted/20 col-span-2 rounded-md border p-2.5">
+            <div className="border-border/60 bg-card col-span-2 rounded-md border p-2.5">
               <div className="text-muted-foreground text-[9px] tracking-wider uppercase">
                 Parameters
               </div>
@@ -197,7 +196,7 @@ function Detail({ c }: { c: DebugCapture }) {
               </pre>
             </div>
             {c.tools.length > 0 && (
-              <div className="border-border/50 bg-muted/20 col-span-2 rounded-md border p-2.5">
+              <div className="border-border/60 bg-card col-span-2 rounded-md border p-2.5">
                 <div className="text-muted-foreground text-[9px] tracking-wider uppercase">
                   Tools
                 </div>
@@ -214,7 +213,7 @@ function Detail({ c }: { c: DebugCapture }) {
         </TabsContent>
         {["system", "messages", "raw"].map((t) => (
           <TabsContent key={t} value={t} className="mt-2 min-h-0 flex-1">
-            <ScrollArea className="border-border/50 bg-muted/20 h-full rounded-md border p-3">
+            <ScrollArea className="border-border/60 bg-card h-full rounded-md border p-3">
               <pre className="font-mono text-[11px] break-all whitespace-pre-wrap">
                 {t === "system"
                   ? c.system
@@ -270,7 +269,7 @@ export function DebugApp() {
       <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden select-none">
         <header
           data-tauri-drag-region
-          className={`border-border/60 bg-card/60 flex h-11 shrink-0 items-center gap-2 border-b ${
+          className={`border-border/60 bg-card flex h-11 shrink-0 items-center gap-2 border-b ${
             IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
           }`}
         >
@@ -289,7 +288,7 @@ export function DebugApp() {
                 aria-label="Close"
                 onClick={() => void getCurrentWebviewWindow().close()}
               >
-                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+                <X strokeWidth={2} />
                 <span className="sr-only">Close</span>
               </Button>
             </div>
@@ -349,7 +348,7 @@ export function DebugApp() {
                 </TabsContent>
               </Tabs>
               <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto">
-                <ScrollArea className="border-border/60 w-60 shrink-0 rounded-md border">
+                <ScrollArea className="bg-sidebar border-border/60 w-60 shrink-0 rounded-md border">
                   <div className="space-y-1 p-1">
                     {list.length ? (
                       list.map((c) => (
@@ -379,7 +378,7 @@ export function DebugApp() {
           )}
         </main>
 
-        <div className="border-border/50 grid shrink-0 grid-cols-3 gap-2 border-t p-3">
+        <div className="border-border/60 bg-card grid shrink-0 grid-cols-3 gap-2 border-t p-3">
           <Button
             variant="outline"
             size="sm"

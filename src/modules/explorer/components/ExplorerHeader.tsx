@@ -10,22 +10,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  FileAddIcon,
-  FileSearchIcon,
-  FolderAddIcon,
-  Refresh01Icon,
-  Search01Icon,
-  Sorting02Icon,
-  UnfoldLessIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { folderIconUrl } from "../lib/iconResolver";
 import { type SortMode } from "../lib/useFileTree";
 import { basename } from "@/lib/path";
 import { SORT_LABELS, SORT_MODES } from "../lib/sortModes";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  FilePlus,
+  FileSearch,
+  FolderPlus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 
 type Props = {
   rootPath: string;
@@ -71,12 +70,19 @@ export function ExplorerHeader({
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center truncate text-xs font-medium">
       {accordion ? (
-        <HugeiconsIcon
-          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
-          size={10}
-          strokeWidth={2.25}
-          className="text-muted-foreground mr-1 shrink-0"
-        />
+        collapsed ? (
+          <ChevronRight
+            size={10}
+            strokeWidth={2.25}
+            className="text-muted-foreground mr-1 shrink-0"
+          />
+        ) : (
+          <ChevronDown
+            size={10}
+            strokeWidth={2.25}
+            className="text-muted-foreground mr-1 shrink-0"
+          />
+        )
       ) : null}
       <img
         src={folderIconUrl(basename(rootPath), false)}
@@ -122,7 +128,7 @@ export function ExplorerHeader({
               onClick={onToggleSearch}
               aria-label="Search files"
             >
-              <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
+              <Search size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
 
@@ -135,7 +141,7 @@ export function ExplorerHeader({
                 onClick={onToggleGrep}
                 aria-label="Search in files"
               >
-                <HugeiconsIcon icon={FileSearchIcon} size={13} strokeWidth={2} />
+                <FileSearch size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
           )}
@@ -150,7 +156,7 @@ export function ExplorerHeader({
                   onClick={onNewFile}
                   aria-label="New file"
                 >
-                  <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
+                  <FilePlus size={13} strokeWidth={2} />
                 </Button>
               </IconTooltip>
               <IconTooltip label="New folder" side="bottom">
@@ -161,7 +167,7 @@ export function ExplorerHeader({
                   onClick={onNewFolder}
                   aria-label="New folder"
                 >
-                  <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
+                  <FolderPlus size={13} strokeWidth={2} />
                 </Button>
               </IconTooltip>
             </>
@@ -174,7 +180,7 @@ export function ExplorerHeader({
               onClick={onRefresh}
               aria-label="Refresh"
             >
-              <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
+              <RefreshCw size={12} strokeWidth={2} />
             </Button>
           </IconTooltip>
           <IconTooltip label="Collapse folders" side="bottom">
@@ -186,7 +192,7 @@ export function ExplorerHeader({
               onClick={onCollapseAll}
               aria-label="Collapse folders"
             >
-              <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
+              <ChevronsDownUp size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
           {!hideSort && (
@@ -203,7 +209,7 @@ export function ExplorerHeader({
                         : "text-foreground hover:text-foreground size-6"
                     }
                   >
-                    <HugeiconsIcon icon={Sorting02Icon} size={13} strokeWidth={2} />
+                    <ArrowUpDown size={13} strokeWidth={2} />
                   </Button>
                 </DropdownMenuTrigger>
               </IconTooltip>

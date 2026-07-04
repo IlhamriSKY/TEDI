@@ -1,16 +1,9 @@
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn } from "@/lib/utils";
-import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 
 export type MarkdownFindBarHandle = {
   /** Open the in-pane overlay. `initialQuery` seeds the find input. */
@@ -292,63 +285,27 @@ export function MarkdownFindBar({ getContainer, content, ref }: Props) {
           className={cn("h-7 pr-22 pl-2 text-xs", noMatches && "border-destructive/60")}
         />
         <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setCaseSensitive((v) => !v)}
-                aria-label="Match case"
-                aria-pressed={caseSensitive}
-                className={cn(
-                  "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
-                  caseSensitive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                Aa
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Match case</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setWholeWord((v) => !v)}
-                aria-label="Whole word"
-                aria-pressed={wholeWord}
-                className={cn(
-                  "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
-                  wholeWord
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                ab
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Whole word</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setUseRegex((v) => !v)}
-                aria-label="Use regular expression"
-                aria-pressed={useRegex}
-                className={cn(
-                  "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
-                  useRegex
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                .*
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Use regular expression</TooltipContent>
-          </Tooltip>
+          <SearchOptionToggle
+            label="Aa"
+            pressed={caseSensitive}
+            onToggle={() => setCaseSensitive((v) => !v)}
+            tooltip="Match case"
+            ariaLabel="Match case"
+          />
+          <SearchOptionToggle
+            label="ab"
+            pressed={wholeWord}
+            onToggle={() => setWholeWord((v) => !v)}
+            tooltip="Whole word"
+            ariaLabel="Whole word"
+          />
+          <SearchOptionToggle
+            label=".*"
+            pressed={useRegex}
+            onToggle={() => setUseRegex((v) => !v)}
+            tooltip="Use regular expression"
+            ariaLabel="Use regular expression"
+          />
         </div>
       </div>
 
@@ -379,7 +336,7 @@ export function MarkdownFindBar({ getContainer, content, ref }: Props) {
               "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
             )}
           >
-            <HugeiconsIcon icon={ArrowUp01Icon} size={11} strokeWidth={2} />
+            <ChevronUp size={11} strokeWidth={2} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">Previous match (Shift+Enter)</TooltipContent>
@@ -398,7 +355,7 @@ export function MarkdownFindBar({ getContainer, content, ref }: Props) {
               "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
             )}
           >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={11} strokeWidth={2} />
+            <ChevronDown size={11} strokeWidth={2} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">Next match (Enter)</TooltipContent>
@@ -412,7 +369,7 @@ export function MarkdownFindBar({ getContainer, content, ref }: Props) {
             aria-label="Close"
             className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+            <X size={11} strokeWidth={2} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">Close (Esc)</TooltipContent>

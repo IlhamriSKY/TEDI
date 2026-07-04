@@ -1,18 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { basename } from "@/lib/path";
 import { cn } from "@/lib/utils";
-import {
-  ArrowDown01Icon,
-  Cancel01Icon,
-  FileEditIcon,
-  FilePlusIcon,
-  FolderAddIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { useChatStore } from "../store/chatStore";
 import { usePlanStore, type QueuedEdit } from "../store/planStore";
+import { Check, ChevronDown, FilePen, FilePlus, FolderPlus, X } from "lucide-react";
 
 function diffStats(original: string, proposed: string): { added: number; removed: number } {
   const a = original.split("\n");
@@ -67,7 +59,7 @@ export function PlanDiffReview() {
             onClick={() => clear()}
             disabled={busy}
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            <X size={12} strokeWidth={2} />
             Discard all
           </Button>
           <Button
@@ -77,7 +69,7 @@ export function PlanDiffReview() {
             onClick={onApply}
             disabled={busy}
           >
-            <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2} />
+            <Check size={12} strokeWidth={2} />
             Apply {queue.length}
           </Button>
         </div>
@@ -96,7 +88,7 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
   const isDir = item.kind === "create_directory";
   const isNew = item.isNewFile && !isDir;
   const stats = isDir ? null : diffStats(item.originalContent, item.proposedContent);
-  const Icon = isDir ? FolderAddIcon : isNew ? FilePlusIcon : FileEditIcon;
+  const Icon = isDir ? FolderPlus : isNew ? FilePlus : FilePen;
 
   return (
     <li className="group/row border-border/50 bg-card overflow-hidden rounded-md border">
@@ -112,14 +104,9 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
           )}
           aria-label="Toggle diff"
         >
-          <HugeiconsIcon icon={ArrowDown01Icon} size={11} strokeWidth={1.75} />
+          <ChevronDown size={11} strokeWidth={1.75} />
         </button>
-        <HugeiconsIcon
-          icon={Icon}
-          size={13}
-          strokeWidth={1.75}
-          className="text-muted-foreground mt-0.5 shrink-0"
-        />
+        <Icon size={13} strokeWidth={1.75} className="text-muted-foreground mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 font-mono text-[11.5px]">
             <span className="text-foreground truncate">{basename(item.path)}</span>
@@ -148,7 +135,7 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
           onClick={onReject}
           aria-label="Reject"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
+          <X size={11} strokeWidth={1.75} />
         </Button>
       </div>
       {open && !isDir ? (

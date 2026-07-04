@@ -30,7 +30,7 @@ export function SettingsCard({
   return (
     <section
       className={cn(
-        "border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5",
+        "border-border/60 bg-card flex flex-col gap-2.5 rounded-lg border px-3 py-2.5",
         className,
       )}
     >

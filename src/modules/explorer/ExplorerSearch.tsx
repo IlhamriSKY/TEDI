@@ -3,12 +3,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { Cancel01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "motion/react";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { fileIconUrl } from "./lib/iconResolver";
+import { Folder, Search, X } from "lucide-react";
 
 type SearchHit = {
   path: string;
@@ -102,7 +101,14 @@ function Highlighted({
   );
 }
 
-export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onActiveChange, ref }: Props) {
+export function ExplorerSearch({
+  rootPath,
+  onOpenFile,
+  open,
+  onRequestClose,
+  onActiveChange,
+  ref,
+}: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -209,8 +215,7 @@ export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onA
           initial={{ opacity: 0, transform: "translateY(-15px)" }}
           animate={{ opacity: 1, transform: "translateY(0px)" }}
         >
-          <HugeiconsIcon
-            icon={Search01Icon}
+          <Search
             size={13}
             strokeWidth={2}
             className="text-muted-foreground absolute top-1/2 left-4 -translate-y-1/2"
@@ -254,7 +259,7 @@ export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onA
               className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded p-0.5"
               aria-label="Clear search"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              <X size={11} strokeWidth={2} />
             </button>
           ) : null}
         </motion.div>
@@ -281,16 +286,13 @@ export function ExplorerSearch({ rootPath, onOpenFile, open, onRequestClose, onA
                         onClick={() => openHit(hit)}
                         className={cn(
                           "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
-                          isActive
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-accent/60",
+                          isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
                         )}
                       >
                         {url ? (
                           <img src={url} alt="" className="size-3.5 shrink-0" />
                         ) : (
-                          <HugeiconsIcon
-                            icon={Folder01Icon}
+                          <Folder
                             size={13}
                             strokeWidth={1.75}
                             className="text-muted-foreground shrink-0"

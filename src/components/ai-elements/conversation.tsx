@@ -1,10 +1,9 @@
-"use client";
+import { ChevronDown, Download } from "lucide-react";
+("use client");
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
-import { ArrowDown01Icon, Download01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ComponentProps } from "react";
 import { useCallback } from "react";
@@ -110,7 +109,7 @@ export const ConversationScrollButton = ({
             variant="outline"
             {...props}
           >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={13} strokeWidth={2.25} />
+            <ChevronDown size={13} strokeWidth={2.25} />
             <span>Scroll to bottom</span>
           </Button>
         </motion.div>
@@ -168,7 +167,7 @@ export const ConversationDownload = ({
       variant="outline"
       {...props}
     >
-      {children ?? <HugeiconsIcon icon={Download01Icon} size={16} />}
+      {children ?? <Download size={16} />}
     </Button>
   );
 };

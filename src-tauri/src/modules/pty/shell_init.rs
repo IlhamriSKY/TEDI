@@ -1,6 +1,26 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
+
+/// Shared shell-integration helpers (platform-neutral; used by both submodules).
+fn integration_root() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "could not resolve home dir".to_string())?;
+    let root = home.join(".cache").join("tedi").join("shell-integration");
+    fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
+    Ok(root)
+}
+
+fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
+    if let Ok(existing) = fs::read_to_string(path) {
+        if existing == content {
+            return Ok(());
+        }
+    }
+    // Atomic replace so a parallel shell startup never sources a half-written file.
+    crate::modules::fs::atomic::atomic_write(path, content.as_bytes())
+        .map_err(|e| format!("write {}: {e}", path.display()))
+}
 
 pub fn build_command(cwd: Option<String>) -> Result<CommandBuilder, String> {
     #[cfg(unix)]
@@ -353,55 +373,38 @@ mod unix {
         format!("'{}'", s.replace('\'', "'\\''"))
     }
 
-    fn integration_root() -> Result<PathBuf, String> {
-        let home = dirs::home_dir().ok_or_else(|| "could not resolve home dir".to_string())?;
-        let root = home.join(".cache").join("tedi").join("shell-integration");
-        fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
-        Ok(root)
-    }
-
     fn prepare_zdotdir() -> Result<PathBuf, String> {
-        let dir = integration_root()?.join("zsh");
+        let dir = super::integration_root()?.join("zsh");
         fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-        write_if_changed(&dir.join(".zshenv"), ZSHENV)?;
-        write_if_changed(&dir.join(".zprofile"), ZPROFILE)?;
-        write_if_changed(&dir.join(".zshrc"), ZSHRC)?;
-        write_if_changed(&dir.join(".zlogin"), ZLOGIN)?;
+        super::write_if_changed(&dir.join(".zshenv"), ZSHENV)?;
+        super::write_if_changed(&dir.join(".zprofile"), ZPROFILE)?;
+        super::write_if_changed(&dir.join(".zshrc"), ZSHRC)?;
+        super::write_if_changed(&dir.join(".zlogin"), ZLOGIN)?;
         Ok(dir)
     }
 
     fn prepare_bash_rcfile() -> Result<PathBuf, String> {
-        let dir = integration_root()?.join("bash");
+        let dir = super::integration_root()?.join("bash");
         fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let rc = dir.join("bashrc");
-        write_if_changed(&rc, BASHRC)?;
+        super::write_if_changed(&rc, BASHRC)?;
         Ok(rc)
     }
 
     fn prepare_fish_init() -> Result<PathBuf, String> {
-        let dir = integration_root()?.join("fish");
+        let dir = super::integration_root()?.join("fish");
         fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let init = dir.join("init.fish");
-        write_if_changed(&init, FISH_INIT)?;
+        super::write_if_changed(&init, FISH_INIT)?;
         Ok(init)
     }
 
-    fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
-        if let Ok(existing) = fs::read_to_string(path) {
-            if existing == content {
-                return Ok(());
-            }
-        }
-        // Atomic replace so a parallel shell startup never sources a half-written file.
-        crate::modules::fs::atomic::atomic_write(path, content.as_bytes())
-            .map_err(|e| format!("write {}: {e}", path.display()))
-    }
 }
 
 #[cfg(windows)]
 mod windows {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use portable_pty::CommandBuilder;
 
@@ -441,30 +444,14 @@ mod windows {
         Ok(cmd)
     }
 
-    fn integration_root() -> Result<PathBuf, String> {
-        let home = dirs::home_dir().ok_or_else(|| "could not resolve home dir".to_string())?;
-        let root = home.join(".cache").join("tedi").join("shell-integration");
-        fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
-        Ok(root)
-    }
-
     fn prepare_ps_profile() -> Result<PathBuf, String> {
-        let dir = integration_root()?.join("powershell");
+        let dir = super::integration_root()?.join("powershell");
         fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let file = dir.join("profile.ps1");
-        write_if_changed(&file, PROFILE_PS1)?;
+        super::write_if_changed(&file, PROFILE_PS1)?;
         Ok(file)
     }
 
-    fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
-        if let Ok(existing) = fs::read_to_string(path) {
-            if existing == content {
-                return Ok(());
-            }
-        }
-        crate::modules::fs::atomic::atomic_write(path, content.as_bytes())
-            .map_err(|e| format!("write {}: {e}", path.display()))
-    }
 }
 
 #[cfg(windows)]

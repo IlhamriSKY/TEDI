@@ -103,9 +103,20 @@ pub struct PtyOpenResult {
     pub alive: bool,
 }
 
+/// Open a fresh PTY. Async + `spawn_blocking` (not a plain sync command)
+/// because the backend spawn blocks: the daemon round-trip waits for the
+/// sidecar to create a ConPTY and start pwsh, and the in-process path does
+/// that inline. A sync
+/// Tauri command runs on the WebView2 UI thread on Windows, so a spawn that
+/// takes seconds would freeze the UI AND serialize every other pending
+/// `pty_open` behind it on that one thread - which is exactly how several
+/// tabs opening at once (or a workspace restore) pile up past the frontend's
+/// 15s spawn timeout and surface "shell did not start within 15s". Offloading
+/// to the blocking pool lets opens run concurrently and keeps the UI thread
+/// pumping. Mirrors `pty_list_sessions`.
 #[tauri::command]
-pub fn pty_open(
-    state: tauri::State<PtyState>,
+pub async fn pty_open(
+    state: tauri::State<'_, PtyState>,
     cols: u16,
     rows: u16,
     cwd: Option<String>,
@@ -116,46 +127,62 @@ pub fn pty_open(
         "pty_open invoke cols={cols} rows={rows} cwd={}",
         cwd.as_deref().unwrap_or("-")
     );
-    match &state.backend {
-        PtyBackend::Daemon { client, sessions } => {
-            let uuid = client.open(cols, rows, cwd, on_event).map_err(|e| {
+    // Clone the daemon client (or note in-process) so the `&state.backend`
+    // borrow is released before the `.await` - a borrow into `state` may not
+    // be held across the suspend point.
+    let client = match &state.backend {
+        PtyBackend::Daemon { client, .. } => Some(client.clone()),
+        PtyBackend::InProcess(_) => None,
+    };
+    if let Some(client) = client {
+        let uuid = tauri::async_runtime::spawn_blocking(move || client.open(cols, rows, cwd, on_event))
+            .await
+            .map_err(|e| format!("pty_open join error: {e}"))?
+            .map_err(|e| {
                 log::error!(
                     "pty_open daemon failed after {}ms: {e}",
                     t0.elapsed().as_millis()
                 );
                 e
             })?;
-            let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        if let PtyBackend::Daemon { sessions, .. } = &state.backend {
             sessions.write().unwrap().insert(id, uuid);
-            log::info!(
-                "pty opened id={id} uuid={uuid} cols={cols} rows={rows} setup={}ms",
-                t0.elapsed().as_millis()
-            );
-            Ok(PtyOpenResult {
-                id,
-                session_id: uuid.to_string(),
-                alive: true,
-            })
         }
-        PtyBackend::InProcess(map) => {
-            let (session, _) = session::spawn(cols, rows, cwd, on_event).map_err(|e| {
-                log::error!("pty_open failed after {}ms: {e}", t0.elapsed().as_millis());
-                e
-            })?;
-            let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        log::info!(
+            "pty opened id={id} uuid={uuid} cols={cols} rows={rows} setup={}ms",
+            t0.elapsed().as_millis()
+        );
+        Ok(PtyOpenResult {
+            id,
+            session_id: uuid.to_string(),
+            alive: true,
+        })
+    } else {
+        let (session, _) = tauri::async_runtime::spawn_blocking(move || {
+            session::spawn(cols, rows, cwd, on_event)
+        })
+        .await
+        .map_err(|e| format!("pty_open join error: {e}"))?
+        .map_err(|e| {
+            log::error!("pty_open failed after {}ms: {e}", t0.elapsed().as_millis());
+            e
+        })?;
+        let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        if let PtyBackend::InProcess(map) = &state.backend {
             map.write().unwrap().insert(id, session);
-            log::info!(
-                "pty opened id={id} cols={cols} rows={rows} setup={}ms (in-process)",
-                t0.elapsed().as_millis()
-            );
-            // Empty sessionId signals to the frontend that this session
-            // is non-persistable (will respawn fresh on next launch).
-            Ok(PtyOpenResult {
-                id,
-                session_id: String::new(),
-                alive: true,
-            })
         }
+        log::info!(
+            "pty opened id={id} cols={cols} rows={rows} setup={}ms (in-process)",
+            t0.elapsed().as_millis()
+        );
+        // Empty sessionId signals to the frontend that this session
+        // is non-persistable (will respawn fresh on next launch).
+        Ok(PtyOpenResult {
+            id,
+            session_id: String::new(),
+            alive: true,
+        })
     }
 }
 
@@ -164,23 +191,33 @@ pub fn pty_open(
 /// Returns an error when the backend is in-process (no sessions to attach
 /// to) or when the daemon does not know the requested UUID (e.g. lost to
 /// a daemon crash since the workspace was saved).
+/// Async + `spawn_blocking` for the same reason as `pty_open`: the daemon
+/// attach round-trip (replaying up to ~1.25 MiB of scrollback) must not block
+/// the WebView2 UI thread, or a multi-tab workspace restore serializes every
+/// reattach on that one thread and trips the frontend's 15s spawn timeout.
 #[tauri::command]
-pub fn pty_attach(
-    state: tauri::State<PtyState>,
+pub async fn pty_attach(
+    state: tauri::State<'_, PtyState>,
     session_id: String,
     cols: u16,
     rows: u16,
     on_event: Channel<PtyEvent>,
 ) -> Result<PtyOpenResult, String> {
-    let PtyBackend::Daemon { client, sessions } = &state.backend else {
-        return Err("pty_attach requires daemon backend".into());
+    // Clone the client so the `&state.backend` borrow ends before the `.await`.
+    let client = match &state.backend {
+        PtyBackend::Daemon { client, .. } => client.clone(),
+        PtyBackend::InProcess(_) => return Err("pty_attach requires daemon backend".into()),
     };
     let uuid: Uuid = session_id
         .parse()
         .map_err(|e| format!("invalid session_id: {e}"))?;
-    let alive = client.attach(uuid, cols, rows, on_event)?;
+    let alive = tauri::async_runtime::spawn_blocking(move || client.attach(uuid, cols, rows, on_event))
+        .await
+        .map_err(|e| format!("pty_attach join error: {e}"))??;
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
-    sessions.write().unwrap().insert(id, uuid);
+    if let PtyBackend::Daemon { sessions, .. } = &state.backend {
+        sessions.write().unwrap().insert(id, uuid);
+    }
     log::info!("pty attached id={id} uuid={uuid} alive={alive}");
     Ok(PtyOpenResult {
         id,

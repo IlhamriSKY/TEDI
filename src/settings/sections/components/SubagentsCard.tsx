@@ -24,14 +24,13 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { Add01Icon, Delete02Icon, Edit02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { cn, slugify } from "@/lib/utils";
 import { READ_ONLY_TOOLS } from "@/modules/ai/agents/registry";
 import { useSubagentsStore, type CustomSubagentDef } from "@/modules/ai/store/subagentsStore";
 import { PromptModelDropdown } from "@/settings/sections/components/SystemPromptsCard";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setSubagentsEnabled } from "@/modules/settings/store";
+import { Plus, SquarePen, Trash2 } from "lucide-react";
 
 /**
  * Sub-agents: a single on/off toggle, plus user-defined custom workers.
@@ -103,7 +102,7 @@ function CustomSubagentsSection() {
             })
           }
         >
-          <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+          <Plus size={12} strokeWidth={1.75} />
           New
         </Button>
       }
@@ -119,7 +118,7 @@ function CustomSubagentsSection() {
             return (
               <li
                 key={a.id}
-                className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2"
+                className="border-border/60 bg-card flex items-center gap-2 rounded-lg border px-3 py-2"
               >
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-[12px] font-medium">{a.name || "(unnamed)"}</span>
@@ -138,7 +137,7 @@ function CustomSubagentsSection() {
                     onClick={() => setEditing(a)}
                     aria-label="Edit"
                   >
-                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                    <SquarePen size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Delete" side="top">
@@ -149,7 +148,7 @@ function CustomSubagentsSection() {
                     onClick={() => setPendingDelete(a)}
                     aria-label="Delete"
                   >
-                    <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                    <Trash2 size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
               </li>
@@ -166,7 +165,12 @@ function CustomSubagentsSection() {
           // New agents get a readable, stable type id (slug of the name) so the
           // AI can echo it reliably when auto-delegating; edits keep their id.
           const isNew = !draft.id;
-          const id = draft.id || uniqueCustomId(draft.name, custom.map((a) => a.id));
+          const id =
+            draft.id ||
+            uniqueCustomId(
+              draft.name,
+              custom.map((a) => a.id),
+            );
           const wasEnabled = enabledIds.includes(id);
           void upsert({ ...draft, id, enabled: isNew || wasEnabled });
           if (isNew && !wasEnabled) void toggle(id);
@@ -174,10 +178,7 @@ function CustomSubagentsSection() {
         }}
       />
 
-      <AlertDialog
-        open={pendingDelete !== null}
-        onOpenChange={(o) => !o && setPendingDelete(null)}
-      >
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete sub-agent?</AlertDialogTitle>
@@ -228,26 +229,17 @@ function CustomSubagentDialog({
   if (!draft) return null;
 
   const canSave =
-    draft.name.trim().length > 0 &&
-    draft.systemPrompt.trim().length > 0 &&
-    draft.tools.length > 0;
+    draft.name.trim().length > 0 && draft.systemPrompt.trim().length > 0 && draft.tools.length > 0;
 
   const toggleTool = (t: string) =>
     setDraft({
       ...draft,
-      tools: draft.tools.includes(t)
-        ? draft.tools.filter((x) => x !== t)
-        : [...draft.tools, t],
+      tools: draft.tools.includes(t) ? draft.tools.filter((x) => x !== t) : [...draft.tools, t],
     });
 
   return (
     <Dialog open={!!agent} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        className={cn(
-          "flex max-h-[90vh] flex-col gap-4",
-          WIDE_DIALOG_WIDTH,
-        )}
-      >
+      <DialogContent className={cn("flex max-h-[90vh] flex-col gap-4", WIDE_DIALOG_WIDTH)}>
         <DialogHeader>
           <DialogTitle className="text-[14px]">
             {isNew ? "New sub-agent" : "Edit sub-agent"}
@@ -321,7 +313,7 @@ function CustomSubagentDialog({
             </span>
           </div>
         </div>
-        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+        <DialogFooter className="border-border/50 grid grid-cols-1 gap-2 border-t pt-4 sm:grid-cols-2">
           <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
@@ -345,21 +337,9 @@ function CustomSubagentDialog({
   );
 }
 
-/** Slugify a name into a readable type-id fragment the AI can echo reliably. */
-function slugify(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 32) || "agent"
-  );
-}
-
 /** Build a unique `sa-custom-<slug>` id, suffixing on collision. */
 function uniqueCustomId(name: string, existing: string[]): string {
-  const base = `sa-custom-${slugify(name)}`;
+  const base = `sa-custom-${slugify(name, "agent").slice(0, 32)}`;
   if (!existing.includes(base)) return base;
   let n = 2;
   while (existing.includes(`${base}-${n}`)) n++;

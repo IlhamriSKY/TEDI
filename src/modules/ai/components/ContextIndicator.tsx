@@ -9,11 +9,10 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "@ai-sdk/react";
-import { Minimize02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 import { getModel, getModelContextLimit } from "../config";
 import { useChatStore } from "../store/chatStore";
+import { Minimize2 } from "lucide-react";
 
 /** Extracted from AiMiniWindow so both the composer toolbar and the mini window
  *  can mount it without an import cycle (AiMiniWindow imports AiInputBar). */
@@ -84,7 +83,7 @@ function CompactPulseBadge() {
         )}
       >
         {!isTidy && <span className="size-1.5 animate-pulse rounded-full bg-current/80" />}
-        <HugeiconsIcon icon={Minimize02Icon} size={10} strokeWidth={2} />
+        <Minimize2 size={10} strokeWidth={2} />
         {detail ? <span>{detail}</span> : null}
       </span>
     </IconTooltip>

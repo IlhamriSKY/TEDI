@@ -1025,8 +1025,12 @@ export async function _readAny<T = unknown>(key: string): Promise<T | undefined>
   return v ?? undefined;
 }
 
-/** Subscribe to changes of any key, typed or namespaced. Used by the extension host's `tedi.settings.onChange`. */
-export async function _onAnyChange(cb: (key: string, value: unknown) => void): Promise<UnlistenFn> {
+// Subscribe to raw store-key changes from both same-process writes (store.onChange)
+// and cross-window writes (the Tauri event from writePref), with the self-delivered
+// event deduped via SELF_LABEL. Shared by _onAnyChange and onPreferencesChange.
+async function subscribeRawChanges(
+  cb: (key: string, value: unknown) => void,
+): Promise<UnlistenFn> {
   const [unsubLocal, unsubEvent] = await Promise.all([
     store.onChange<unknown>((key, value) => cb(key, value)),
     listen<{ key: string; value: unknown; source?: string }>(PREFS_CHANGED_EVENT, (e) => {
@@ -1040,6 +1044,11 @@ export async function _onAnyChange(cb: (key: string, value: unknown) => void): P
     unsubLocal();
     unsubEvent();
   };
+}
+
+/** Subscribe to changes of any key, typed or namespaced. Used by the extension host's `tedi.settings.onChange`. */
+export function _onAnyChange(cb: (key: string, value: unknown) => void): Promise<UnlistenFn> {
+  return subscribeRawChanges(cb);
 }
 
 export const APPROVAL_MODE_META: Record<ApprovalMode, { label: string; description: string }> = {
@@ -1124,23 +1133,10 @@ export async function onPreferencesChange(
     Object.entries(prefToStoreKey).map(([pref, storeKey]) => [storeKey, pref as PrefKey]),
   ) as Record<string, PrefKey>;
   // Same-process writes fire onChange directly. Cross-window writes arrive via the Tauri event from writePref().
-  const [unsubLocal, unsubEvent] = await Promise.all([
-    store.onChange<unknown>((key, value) => {
-      const mapped = map[key];
-      if (mapped) cb(mapped, value);
-    }),
-    listen<{ key: string; value: unknown; source?: string }>(PREFS_CHANGED_EVENT, (e) => {
-      // Same-window write: store.onChange already delivered it here, so skip
-      // the self-delivered event to avoid firing the callback twice.
-      if (e.payload.source === SELF_LABEL) return;
-      const mapped = map[e.payload.key];
-      if (mapped) cb(mapped, e.payload.value);
-    }),
-  ]);
-  return () => {
-    unsubLocal();
-    unsubEvent();
-  };
+  return subscribeRawChanges((key, value) => {
+    const mapped = map[key];
+    if (mapped) cb(mapped, value);
+  });
 }
 
 // API keys live in the OS keychain, not the prefs store. Broadcast via Tauri event for cross-window listeners.

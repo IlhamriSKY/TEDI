@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/format";
 import {
   Dialog,
   DialogContent,
@@ -253,12 +254,6 @@ function titleFor(state: UpdaterState): string {
     default:
       return "Update";
   }
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const RELEASE_DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {

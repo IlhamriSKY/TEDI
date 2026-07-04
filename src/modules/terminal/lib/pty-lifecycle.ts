@@ -328,6 +328,29 @@ export function armNoDataWatchdog(s: Session, epoch: number): void {
  * Guarded by `blankRepaintEpoch` so it arms at most once per spawn even when
  * both the reattach and first-byte call sites fire for the same epoch.
  */
+/**
+ * Toggle the PTY row count off by one then restore it after a gap, floored to
+ * MIN_PTY_DIM. The two spaced resizes defeat ConPTY's same-size coalescing so
+ * the foreground program redraws at the correct current size. Shared by the
+ * blank-viewport and alt-exit repaint watchdogs; callers guarantee `s.pty` is
+ * live for the current `epoch`.
+ */
+function nudgeResizeRoundTrip(s: Session, epoch: number): void {
+  if (!s.pty) return;
+  const cols = Math.max(MIN_PTY_DIM, s.term.cols);
+  const rows = Math.max(MIN_PTY_DIM, s.term.rows);
+  const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
+  void s.pty.resize(cols, nudgeRows);
+  s.lastSentCols = cols;
+  s.lastSentRows = nudgeRows;
+  setTimeout(() => {
+    if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
+    void s.pty.resize(cols, rows);
+    s.lastSentCols = cols;
+    s.lastSentRows = rows;
+  }, REATTACH_REPAINT_NUDGE_GAP_MS);
+}
+
 function armBlankViewportRepaint(s: Session, epoch: number): void {
   if (s.blankRepaintEpoch === epoch) return; // already armed for this spawn
   s.blankRepaintEpoch = epoch;
@@ -346,21 +369,10 @@ function armBlankViewportRepaint(s: Session, epoch: number): void {
     // Blank viewport + live shell: toggle the PTY row count so the shell's line
     // editor (PSReadLine / readline / zle / fish) repaints its prompt. Two
     // spaced resizes so ConPTY can't coalesce them into a net no-op.
-    const cols = Math.max(MIN_PTY_DIM, s.term.cols);
-    const rows = Math.max(MIN_PTY_DIM, s.term.rows);
-    const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
     if (isDebugPty()) {
       console.info("[tedi-pty] blank-viewport repaint nudge: viewport empty after first paint, forcing redraw");
     }
-    void s.pty.resize(cols, nudgeRows);
-    s.lastSentCols = cols;
-    s.lastSentRows = nudgeRows;
-    setTimeout(() => {
-      if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
-      void s.pty.resize(cols, rows);
-      s.lastSentCols = cols;
-      s.lastSentRows = rows;
-    }, REATTACH_REPAINT_NUDGE_GAP_MS);
+    nudgeResizeRoundTrip(s, epoch);
   }, REATTACH_REPAINT_CHECK_MS);
 }
 
@@ -477,18 +489,7 @@ export function armAltExitRepaintWatchdog(s: Session): void {
     } catch {
       return;
     }
-    const cols = Math.max(MIN_PTY_DIM, s.term.cols);
-    const rows = Math.max(MIN_PTY_DIM, s.term.rows);
-    const nudgeRows = rows > MIN_PTY_DIM ? rows - 1 : rows + 1;
-    void s.pty.resize(cols, nudgeRows);
-    s.lastSentCols = cols;
-    s.lastSentRows = nudgeRows;
-    setTimeout(() => {
-      if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
-      void s.pty.resize(cols, rows);
-      s.lastSentCols = cols;
-      s.lastSentRows = rows;
-    }, REATTACH_REPAINT_NUDGE_GAP_MS);
+    nudgeResizeRoundTrip(s, epoch);
   }, ALT_EXIT_REPAINT_DELAY_MS);
 }
 

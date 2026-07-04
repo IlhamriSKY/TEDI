@@ -6,8 +6,8 @@ use std::fs;
 use crate::modules::cli_paint::{
     paint_dim, paint_installed, paint_official, paint_unofficial, paint_update_hint,
 };
+use crate::modules::extensions::commands::read_installed_manifest;
 use crate::modules::extensions::github;
-use crate::modules::extensions::manifest::Manifest;
 use crate::modules::extensions::state::load as load_state;
 
 use super::helpers::extensions_root;
@@ -37,22 +37,7 @@ pub(super) fn load_installed_rows() -> Result<Vec<InstalledRow>, String> {
     for entry in dir_iter {
         let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name.starts_with(".staging-") || name.starts_with(".trash-") {
-            continue;
-        }
-        let manifest_path = path.join("manifest.json");
-        if !manifest_path.exists() {
-            continue;
-        }
-        let text = match fs::read_to_string(&manifest_path) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let Ok(manifest) = Manifest::parse(&text) else {
+        let Some(manifest) = read_installed_manifest(&path) else {
             continue;
         };
         let st = state.entries.get(&manifest.id);

@@ -11,20 +11,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import {
-  Add01Icon,
-  Mic01Icon,
-  SentIcon,
-  SparklesIcon,
-  StopCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useRef } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { APPROVAL_MODE_SEND } from "../lib/approvalModeStyle";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useChatStore } from "../store/chatStore";
 import { ModelDropdown } from "./ModelDropdown";
+import { CircleStop, Mic, Plus, Send, Sparkles } from "lucide-react";
 
 export function AiOpenButton({ onToggle, active }: { onToggle: () => void; active: boolean }) {
   const tooltipLabel = (
@@ -45,7 +38,7 @@ export function AiOpenButton({ onToggle, active }: { onToggle: () => void; activ
           active ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <HugeiconsIcon icon={SparklesIcon} size={16} strokeWidth={1.75} className="shrink-0" />
+        <Sparkles size={16} strokeWidth={1.75} className="shrink-0" />
       </button>
     </IconTooltip>
   );
@@ -90,11 +83,8 @@ export function AiStatusBarControls() {
         }}
       />
 
-      <IconBtn
-        title="Attach file or image"
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
+      <IconBtn title="Attach file or image" onClick={() => fileInputRef.current?.click()}>
+        <Plus size={13} strokeWidth={2} />
       </IconBtn>
 
       {c.voice.supported && (
@@ -119,7 +109,7 @@ export function AiStatusBarControls() {
           ) : c.voice.transcribing ? (
             <Spinner className="size-3" />
           ) : (
-            <HugeiconsIcon icon={Mic01Icon} size={13} strokeWidth={1.75} />
+            <Mic size={13} strokeWidth={1.75} />
           )}
         </IconBtn>
       )}
@@ -136,7 +126,7 @@ export function AiStatusBarControls() {
             }
             onClick={c.stop}
           >
-            <HugeiconsIcon icon={StopCircleIcon} size={13} strokeWidth={1.75} />
+            <CircleStop size={13} strokeWidth={1.75} />
           </IconBtn>
           <DropdownMenu>
             <Tooltip>
@@ -149,7 +139,7 @@ export function AiStatusBarControls() {
                     className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
                     aria-label="Send options"
                   >
-                    <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />
+                    <Send size={12} strokeWidth={1.75} />
                     Send
                   </Button>
                 </DropdownMenuTrigger>
@@ -195,7 +185,7 @@ export function AiStatusBarControls() {
             className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
             aria-label="Send (Enter)"
           >
-            <HugeiconsIcon icon={SentIcon} size={12} strokeWidth={1.75} />
+            <Send size={12} strokeWidth={1.75} />
             Send
           </Button>
         </IconTooltip>

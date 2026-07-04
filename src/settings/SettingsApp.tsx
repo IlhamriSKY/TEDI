@@ -6,18 +6,6 @@ import { IPC_EVENTS } from "@/lib/ipc";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  AiScanIcon,
-  Cancel01Icon,
-  CodeIcon,
-  InformationCircleIcon,
-  PaintBoardIcon,
-  PuzzleIcon,
-  Settings01Icon,
-  UserMultiple02Icon,
-  KeyboardIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   Component,
@@ -29,6 +17,18 @@ import {
   useEffect,
   useState,
 } from "react";
+import {
+  Code,
+  Info,
+  Keyboard,
+  Palette,
+  Puzzle,
+  ScanSearch,
+  Settings,
+  Users,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 const GeneralSection = lazy(() =>
   import("./sections/GeneralSection").then((m) => ({ default: m.GeneralSection })),
@@ -58,29 +58,20 @@ const AboutSection = lazy(() =>
 const TABS: {
   id: SettingsTab;
   label: string;
-  icon: typeof Settings01Icon;
+  icon: LucideIcon;
   component: ComponentType;
 }[] = [
-  { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
-  { id: "code-editor", label: "Code Editor", icon: CodeIcon, component: CodeEditorSection },
-  { id: "theme", label: "Theme", icon: PaintBoardIcon, component: ThemeSection },
-  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
-  { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
-  { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
-  { id: "extensions", label: "Extensions", icon: PuzzleIcon, component: ExtensionsSection },
-  { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
+  { id: "general", label: "General", icon: Settings, component: GeneralSection },
+  { id: "code-editor", label: "Code Editor", icon: Code, component: CodeEditorSection },
+  { id: "theme", label: "Theme", icon: Palette, component: ThemeSection },
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard, component: ShortcutsSection },
+  { id: "models", label: "Models", icon: ScanSearch, component: ModelsSection },
+  { id: "agents", label: "Agents", icon: Users, component: AgentsSection },
+  { id: "extensions", label: "Extensions", icon: Puzzle, component: ExtensionsSection },
+  { id: "about", label: "About", icon: Info, component: AboutSection },
 ];
 
-const VALID_TABS: SettingsTab[] = [
-  "general",
-  "code-editor",
-  "theme",
-  "shortcuts",
-  "models",
-  "agents",
-  "extensions",
-  "about",
-];
+const VALID_TABS: SettingsTab[] = TABS.map((t) => t.id);
 
 function readInitialTab(): SettingsTab {
   if (typeof window === "undefined") return "general";
@@ -184,7 +175,7 @@ export function SettingsApp() {
             lives in the body below (not the header), also like Debug. */}
         <header
           data-tauri-drag-region
-          className={`border-border/60 bg-card/60 flex h-11 shrink-0 items-center gap-2 border-b ${
+          className={`border-border/60 bg-card flex h-11 shrink-0 items-center gap-2 border-b ${
             IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
           }`}
         >
@@ -200,7 +191,7 @@ export function SettingsApp() {
                 aria-label="Close"
                 onClick={() => void getCurrentWebviewWindow().close()}
               >
-                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+                <X strokeWidth={2} />
                 <span className="sr-only">Close</span>
               </Button>
             </div>
@@ -219,12 +210,15 @@ export function SettingsApp() {
                 it (items-center would push the start tab past the unreachable
                 negative-scroll edge). */}
             <TabsList className="bg-muted/40 mx-auto h-7 px-2">
-              {TABS.map((t) => (
-                <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
-                  <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />
-                  <span>{t.label}</span>
-                </TabsTrigger>
-              ))}
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <TabsTrigger key={t.id} value={t.id} className="h-6 gap-1.5 px-2.5 text-[11.5px]">
+                    <Icon size={12} strokeWidth={1.75} />
+                    <span>{t.label}</span>
+                  </TabsTrigger>
+                );
+              })}
             </TabsList>
           </Tabs>
           <div className="themed-scroll min-h-0 flex-1 overflow-auto px-8 pt-4 pb-7">

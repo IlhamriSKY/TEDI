@@ -54,6 +54,15 @@ export interface LiveContextDeps {
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
 }
 
+/** A browser pane the AI is allowed to see: exists as a public (non-private) browser leaf. */
+function isPublicBrowserLeaf(ctx: LiveContext, leafId: number): boolean {
+  return (
+    ctx.tabs.some(
+      (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
+    ) && !isLeafPrivate(ctx, leafId)
+  );
+}
+
 export function buildLiveContext(deps: LiveContextDeps) {
   const { liveContextRef, terminalRefs } = deps;
   return {
@@ -128,31 +137,18 @@ export function buildLiveContext(deps: LiveContextDeps) {
     // just sets the leaf url - BrowserPane navigates the live webview and syncs
     // the address bar, and a not-yet-shown pane loads the new url when opened.
     navigateBrowser: (leafId: number, url: string): boolean => {
-      const { tabs, setBrowserLeafUrl } = liveContextRef.current;
-      const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-      );
-      // Private browser panes are hidden from the AI, like private terminals.
-      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
+      const { setBrowserLeafUrl } = liveContextRef.current;
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
       setBrowserLeafUrl(leafId, url);
       return true;
     },
     dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload"): boolean => {
-      const { tabs } = liveContextRef.current;
-      const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-      );
-      // Private browser panes are hidden from the AI, like private terminals.
-      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return false;
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
       void previewEmbedDispatch(leafId, action).catch(() => {});
       return true;
     },
     readBrowser: async (leafId: number, fields = false): Promise<string | null> => {
-      const { tabs } = liveContextRef.current;
-      const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-      );
-      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
       try {
         return await previewEmbedRead(leafId, fields);
       } catch {
@@ -166,11 +162,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       text: string,
       submit: boolean,
     ): Promise<string | null> => {
-      const { tabs } = liveContextRef.current;
-      const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-      );
-      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
       try {
         return await previewEmbedAct(leafId, index, action, text, submit);
       } catch (e) {
@@ -178,11 +170,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       }
     },
     screenshotBrowser: async (leafId: number): Promise<string | null> => {
-      const { tabs } = liveContextRef.current;
-      const isPreview = tabs.some(
-        (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-      );
-      if (!isPreview || isLeafPrivate(liveContextRef.current, leafId)) return null;
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
       try {
         return await previewEmbedScreenshot(leafId);
       } catch {

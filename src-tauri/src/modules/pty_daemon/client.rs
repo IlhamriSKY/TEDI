@@ -23,7 +23,6 @@
 //     can fall back to in-process spawn (see `pty/mod.rs` settings flag).
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -404,7 +403,8 @@ impl PtyClient {
 
 fn reader_loop(state: Arc<ClientState>) {
     loop {
-        let frame = match read_frame_ref(&state.stream) {
+        let mut s = &*state.stream;
+        let frame = match transport::read_frame(&mut s) {
             Ok(f) => f,
             Err(e) => {
                 log::warn!("client reader exit: {e}");
@@ -493,23 +493,6 @@ fn reader_loop(state: Arc<ClientState>) {
     state.routing.lock().unwrap().early.clear();
 }
 
-/// Manual frame read against `&Stream` (which impls `Read`).
-fn read_frame_ref(stream: &interprocess::local_socket::Stream) -> std::io::Result<Vec<u8>> {
-    let mut s = stream;
-    let mut prefix = [0u8; 4];
-    s.read_exact(&mut prefix)?;
-    let len = u32::from_be_bytes(prefix) as usize;
-    if len > transport::MAX_FRAME_SIZE {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "frame too large",
-        ));
-    }
-    let mut buf = vec![0u8; len];
-    s.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
 fn response_req_id(msg: &DaemonMsg) -> Option<ReqId> {
     match msg {
         DaemonMsg::Welcome { req_id, .. }
@@ -520,13 +503,4 @@ fn response_req_id(msg: &DaemonMsg) -> Option<ReqId> {
         | DaemonMsg::Sessions { req_id, .. } => Some(*req_id),
         DaemonMsg::Data { .. } | DaemonMsg::Exit { .. } => None,
     }
-}
-
-// Suppress unused-import lint for the platform-specific Write trait when
-// the daemon spawn arm is not active (placeholder for future use). The
-// trait is actually used via `transport::write_msg`.
-#[allow(dead_code)]
-fn _ensure_write_trait_in_scope() {
-    let _: fn(&mut &interprocess::local_socket::Stream, &[u8]) -> std::io::Result<()> =
-        |s, b| Write::write_all(s, b);
 }

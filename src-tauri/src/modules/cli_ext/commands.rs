@@ -328,9 +328,8 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
             }
             continue;
         };
-        let api = format!("https://api.github.com/repos/{owner_repo}/releases/latest");
-        let json = match runtime.block_on(github::http_get_text(&api)) {
-            Ok(j) => j,
+        let tag = match runtime.block_on(github::resolve_latest_tag(owner_repo)) {
+            Ok(t) => t,
             Err(e) => {
                 println!(
                     "{} {} {e}",
@@ -339,14 +338,6 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
                 );
                 continue;
             }
-        };
-        let Some(tag) = github::pick_release_tag(&json) else {
-            println!(
-                "{} {}",
-                paint_dim(&format!("[{id}]")),
-                paint_err("no tag_name in release JSON"),
-            );
-            continue;
         };
         let latest = version::strip_v_prefix(&tag);
         let has_update =

@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.75] - 04-07-2026
+
+### Changed
+
+- **Icon system migrated from HugeIcons to `lucide-react`.** The whole UI now draws its glyphs from [lucide-react](https://lucide.dev), imported by name so each icon tree-shakes into the main chunk (no runtime barrel for the static call sites). Dynamic, name-based lookups (extension tab icons, contributed header/status items, `ctx.ui.icon()`) route through the new [iconRegistry.ts](src/lib/iconRegistry.ts) `resolveExtIcon`, which accepts `lucide:<Name>` refs and still resolves legacy `hugeicon:<Name>` refs from already-installed extensions by mapping each to its nearest Lucide equivalent (`HUGEICON_ALIAS`). Lucide ships no brand marks, so the AI-provider and GitHub logos moved to inline `currentColor` SVGs in the new [BrandIcon.tsx](src/components/BrandIcon.tsx) (same `size`/`className` API as a Lucide icon). Docs updated to match ([TEDI.md](TEDI.md), [ARCHITECTURE.md](ARCHITECTURE.md), [extensions/README.md](extensions/README.md)).
+- **Codebase-wide dedup / simplification pass (net −1147 lines across 172 files).** Repeated inline logic was pulled into shared helpers and reused at every call site: byte-size formatting into [format.ts](src/lib/format.ts) (`formatBytes`), the SCM change status letter/tone maps into [statusMeta.ts](src/modules/scm/statusMeta.ts), and the editor/explorer search-option toggle into a shared [search-option-toggle.tsx](src/components/ui/search-option-toggle.tsx). A matching simplification pass over the Rust side (net −128 lines) trimmed duplicated glue with no behavior change. Verified with `tsc --noEmit`, `cargo check`, and `cargo clippy --all-targets -- -D warnings`, all green.
+
+### Removed
+
+- **`@hugeicons/core-free-icons`, `@hugeicons/react`, and `src/lib/hugeIconsBarrel.ts`.** Superseded by `lucide-react` + [iconRegistry.ts](src/lib/iconRegistry.ts); no source references remained.
+
+### Fixed
+
+- **Editor find/replace: the "Replace all" button shows its own glyph again.** After the Lucide migration both the "Replace next" and "Replace all" buttons rendered the identical `Replace` icon (the old distinct `ReplaceAllIcon` had no automatic Lucide mapping), so the two adjacent buttons were visually indistinguishable. "Replace all" now uses Lucide's dedicated `ReplaceAll` glyph, restoring the single-vs-all distinction (matching the VSCode convention). Handlers, tooltips, and shortcuts were unaffected. See [EditorFindReplace.tsx](src/modules/editor/EditorFindReplace.tsx).
+- **Consistent hover tooltips on the markdown/chat block controls.** The three icon buttons that appear over rendered markdown (in both the AI chat and the editor's markdown preview) - copy-table, run-in-terminal, and copy-code - now all use the host `Tooltip` with the same `side="top"` styling. The copy-code button previously carried only a bare `aria-label`, so it showed the browser's plain title bubble (or nothing) while the sibling controls showed the styled app tooltip. See [chat-code.tsx](src/components/ai-elements/chat-code.tsx).
+
 ## [0.3.74] - 03-07-2026
 
 ### Fixed

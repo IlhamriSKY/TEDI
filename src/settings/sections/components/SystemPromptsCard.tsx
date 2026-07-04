@@ -71,13 +71,8 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
 import { COMPLETION_SYSTEM_PROMPT } from "@/modules/editor/lib/autocomplete/prompt";
 import { COMMIT_SYSTEM_PROMPT } from "@/modules/scm/commitAi";
-import {
-  ArrowDown01Icon,
-  ArrowReloadHorizontalIcon,
-  Edit02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, RefreshCw, SquarePen } from "lucide-react";
 
 /** Built-in default text per prompt id. Sourced from the real call-site
  *  constants so the "reset to default" baseline can never drift from runtime. */
@@ -145,7 +140,10 @@ export function SystemPromptsCard({
       ),
     [visibleGroups, visiblePromptIds],
   );
-  const hasAnyEdit = useMemo(() => visibleMeta.some((m) => overrides[m.id]), [overrides, visibleMeta]);
+  const hasAnyEdit = useMemo(
+    () => visibleMeta.some((m) => overrides[m.id]),
+    [overrides, visibleMeta],
+  );
   const editedCount = useMemo(
     () => visibleMeta.filter((m) => overrides[m.id]).length,
     [overrides, visibleMeta],
@@ -292,7 +290,7 @@ function PromptRow({
   onReset: (() => void) | null;
 }) {
   return (
-    <div className="group border-border/60 bg-card/60 hover:border-border flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors">
+    <div className="group border-border/60 bg-card hover:border-border flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors">
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-1.5 text-[12px] font-medium">
           {meta.label}
@@ -315,7 +313,7 @@ function PromptRow({
             onClick={onEdit}
             aria-label={`Edit ${meta.label}`}
           >
-            <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+            <SquarePen size={12} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
         {onReset ? (
@@ -327,7 +325,7 @@ function PromptRow({
               onClick={onReset}
               aria-label={`Reset ${meta.label}`}
             >
-              <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={12} strokeWidth={1.75} />
+              <RefreshCw size={12} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         ) : null}
@@ -436,7 +434,7 @@ function PromptEditorDialog({
             </div>
           ) : null}
         </div>
-        <DialogFooter className="grid grid-cols-1 gap-2 border-t border-border/50 pt-4 sm:grid-cols-2">
+        <DialogFooter className="border-border/50 grid grid-cols-1 gap-2 border-t pt-4 sm:grid-cols-2">
           <Button variant="outline" className="h-9 w-full" onClick={onClose}>
             Cancel
           </Button>
@@ -528,8 +526,7 @@ export function PromptModelDropdown({
     };
 
     for (const provider of PROVIDERS) {
-      const hasAccess =
-        providerNeedsKey(provider.id) ? !!keys[provider.id] : false;
+      const hasAccess = providerNeedsKey(provider.id) ? !!keys[provider.id] : false;
       if (!hasAccess) continue;
       if (provider.id === "sumopod") {
         add(sumopodModels.models);
@@ -570,12 +567,7 @@ export function PromptModelDropdown({
               <span className="text-muted-foreground truncate">· {triggerHint}</span>
             ) : null}
           </span>
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={12}
-            strokeWidth={2}
-            className="shrink-0 opacity-70"
-          />
+          <ChevronDown size={12} strokeWidth={2} className="shrink-0 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

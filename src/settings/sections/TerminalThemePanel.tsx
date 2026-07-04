@@ -123,7 +123,7 @@ export function TerminalThemePanel() {
                   onClick={() => onPickPreset(id, p)}
                   aria-pressed={active}
                   className={cn(
-                    "bg-card/60 focus-visible:ring-ring/40 flex w-full items-center gap-2.5 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                    "bg-card focus-visible:ring-ring/40 flex w-full items-center gap-2.5 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
                     active
                       ? "border-primary ring-primary/40 ring-1"
                       : "border-border/60 hover:border-border",
@@ -163,7 +163,7 @@ export function TerminalThemePanel() {
 
           {showPalette ? (
             <div className="flex flex-col gap-2">
-              <div className="border-border/60 bg-card/60 grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
+              <div className="border-border/60 bg-card grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
                 {BASE_FIELDS.map((f) => (
                   <ColorRow
                     key={f.key}
@@ -209,7 +209,7 @@ function AnsiGroup({
   return (
     <div className="flex flex-col gap-1.5">
       <Label>{label}</Label>
-      <div className="border-border/60 bg-card/60 flex flex-col gap-1 border p-2">
+      <div className="border-border/60 bg-card flex flex-col gap-1 border p-2">
         {keys.map((k) => (
           <ColorRow
             key={k}

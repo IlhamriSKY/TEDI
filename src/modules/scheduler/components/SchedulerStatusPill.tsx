@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { Cancel01Icon, Clock04Icon, ComputerTerminal02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -8,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { scheduler } from "../lib/engine";
 import { useSchedules } from "../store";
 import type { Schedule } from "../types";
+import { Clock, SquareTerminal, X } from "lucide-react";
 
 export function SchedulerStatusPill() {
   const schedules = useSchedules();
@@ -25,7 +24,7 @@ export function SchedulerStatusPill() {
             "hover:bg-icon-working/15 flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors",
           )}
         >
-          <HugeiconsIcon icon={Clock04Icon} size={11} strokeWidth={1.75} />
+          <Clock size={11} strokeWidth={1.75} />
           <span className="tabular-nums">{pending.length} scheduled</span>
         </button>
       </PopoverTrigger>
@@ -39,7 +38,7 @@ export function SchedulerStatusPill() {
         className="border-border/60 bg-popover/95 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden rounded-lg border p-0 shadow-xl backdrop-blur-xl"
       >
         <div className="border-border/60 bg-muted/30 flex shrink-0 items-center gap-2 border-b px-3 py-2 text-[12px] font-medium">
-          <HugeiconsIcon icon={Clock04Icon} size={12} strokeWidth={1.75} />
+          <Clock size={12} strokeWidth={1.75} />
           <span>Scheduled commands</span>
           <span className="text-muted-foreground ml-auto text-[11px] tabular-nums">
             {pending.length} pending
@@ -75,8 +74,7 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 
   return (
     <li className="hover:bg-accent/40 group relative flex items-start gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors">
-      <HugeiconsIcon
-        icon={ComputerTerminal02Icon}
+      <SquareTerminal
         size={12}
         strokeWidth={1.75}
         className="text-muted-foreground mt-0.5 shrink-0"
@@ -104,7 +102,7 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
           // opacity on row-hover or button-focus for keyboard users.
           className="hover:bg-destructive/10 hover:text-destructive focus-visible:ring-ring/40 text-muted-foreground inline-flex size-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+          <X size={10} strokeWidth={2} />
         </button>
       </IconTooltip>
     </li>

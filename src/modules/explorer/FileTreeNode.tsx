@@ -16,8 +16,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useState } from "react";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, relativePath, revealInFinder } from "./lib/contextActions";
@@ -25,6 +23,7 @@ import { useGitDecoration } from "./lib/gitDecorations";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import type { DirEntry, useFileTree } from "./lib/useFileTree";
+import { ChevronRight } from "lucide-react";
 
 type Tree = ReturnType<typeof useFileTree>;
 
@@ -138,8 +137,7 @@ function FileTreeNodeImpl({
             >
               <span className="text-muted-foreground flex size-3.5 shrink-0 items-center justify-center">
                 {isDir ? (
-                  <HugeiconsIcon
-                    icon={ArrowRight01Icon}
+                  <ChevronRight
                     size={12}
                     strokeWidth={2.25}
                     className={cn("transition-transform", isExpanded && "rotate-90")}
@@ -147,11 +145,7 @@ function FileTreeNodeImpl({
                 ) : null}
               </span>
               {iconUrl ? (
-                <img
-                  src={iconUrl}
-                  alt=""
-                  className={cn("size-4 shrink-0", dim && "opacity-50")}
-                />
+                <img src={iconUrl} alt="" className={cn("size-4 shrink-0", dim && "opacity-50")} />
               ) : (
                 <span className="size-4 shrink-0" />
               )}

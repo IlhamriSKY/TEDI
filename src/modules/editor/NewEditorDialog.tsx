@@ -8,10 +8,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { File02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { File } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -75,7 +74,7 @@ export function NewEditorDialog({ open, onOpenChange, rootPath, onCreated }: Pro
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex gap-1.75">
-            <HugeiconsIcon icon={File02Icon} size={16} strokeWidth={1.75} />
+            <File size={16} strokeWidth={1.75} />
             New file
           </DialogTitle>
           <DialogDescription>

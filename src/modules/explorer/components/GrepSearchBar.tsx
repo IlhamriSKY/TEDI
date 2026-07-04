@@ -1,16 +1,11 @@
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-  FileSearchIcon,
-  ReplaceAllIcon,
-  ReplaceIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
 import { type Dispatch, type Ref, type SetStateAction } from "react";
 import { type GrepHit, type Row } from "./grepUtils";
+import { FileSearch, Replace, X } from "lucide-react";
 
 type GrepSearchBarProps = {
   inputRef: Ref<HTMLInputElement>;
@@ -73,8 +68,7 @@ export function GrepSearchBar({
     >
       <div className="flex items-center gap-1">
         <div className="relative flex-1">
-          <HugeiconsIcon
-            icon={FileSearchIcon}
+          <FileSearch
             size={13}
             strokeWidth={2}
             className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
@@ -135,50 +129,26 @@ export function GrepSearchBar({
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5"
                     aria-label="Clear search"
                   >
-                    <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                    <X size={11} strokeWidth={2} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Clear</TooltipContent>
               </Tooltip>
             ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setCaseSensitive((v) => !v)}
-                  aria-label="Match case"
-                  aria-pressed={caseSensitive}
-                  className={cn(
-                    "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
-                    caseSensitive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )}
-                >
-                  Aa
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Match case</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setUseRegex((v) => !v)}
-                  aria-label="Use regular expression"
-                  aria-pressed={useRegex}
-                  className={cn(
-                    "cursor-pointer rounded px-1 py-0.5 font-mono text-[10px] transition-colors",
-                    useRegex
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )}
-                >
-                  .*
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Use regular expression</TooltipContent>
-            </Tooltip>
+            <SearchOptionToggle
+              label="Aa"
+              pressed={caseSensitive}
+              onToggle={() => setCaseSensitive((v) => !v)}
+              tooltip="Match case"
+              ariaLabel="Match case"
+            />
+            <SearchOptionToggle
+              label=".*"
+              pressed={useRegex}
+              onToggle={() => setUseRegex((v) => !v)}
+              tooltip="Use regular expression"
+              ariaLabel="Use regular expression"
+            />
           </div>
         </div>
       </div>
@@ -190,8 +160,7 @@ export function GrepSearchBar({
           prevents accidental folder-wide writes. */}
       <div className="mt-1.5 flex items-center gap-1">
         <div className="relative flex-1">
-          <HugeiconsIcon
-            icon={ReplaceIcon}
+          <Replace
             size={13}
             strokeWidth={2}
             className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
@@ -238,7 +207,7 @@ export function GrepSearchBar({
                   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                 )}
               >
-                <HugeiconsIcon icon={ReplaceAllIcon} size={11} strokeWidth={2} />
+                <Replace size={11} strokeWidth={2} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">

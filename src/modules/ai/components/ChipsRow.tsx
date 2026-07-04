@@ -1,10 +1,9 @@
-import { Cancel01Icon, CodeIcon, HashtagIcon, TerminalIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { FileAttachment } from "../lib/composer";
 import type { Snippet } from "../lib/snippets";
+import { Code, Hash, Terminal, X, type LucideIcon } from "lucide-react";
 
 export function ChipsRow({
   files,
@@ -18,44 +17,42 @@ export function ChipsRow({
   onRemoveFile: (id: string) => void;
   snippets: Snippet[];
   onRemoveSnippet: (id: string) => void;
-  commands: { name: string; label: string; icon: typeof HashtagIcon }[];
+  commands: { name: string; label: string; icon: LucideIcon }[];
   onRemoveCommand: (name: string) => void;
 }) {
   if (files.length === 0 && snippets.length === 0 && commands.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1">
       <AnimatePresence initial={false}>
-        {commands.map((cmd) => (
-          <Tooltip key={`cmd-${cmd.name}`}>
-            <TooltipTrigger asChild>
-              <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ duration: 0.12 }}
-                className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-              >
-                <HugeiconsIcon
-                  icon={cmd.icon}
-                  size={11}
-                  strokeWidth={1.75}
-                  className="text-muted-foreground"
-                />
-                <span className="font-medium">#{cmd.name}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemoveCommand(cmd.name)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Remove command"
+        {commands.map((cmd) => {
+          const CmdIcon = cmd.icon;
+          return (
+            <Tooltip key={`cmd-${cmd.name}`}>
+              <TooltipTrigger asChild>
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={{ duration: 0.12 }}
+                  className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-                </button>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side="top">{cmd.label}</TooltipContent>
-          </Tooltip>
-        ))}
+                  <CmdIcon size={11} strokeWidth={1.75} className="text-muted-foreground" />
+                  <span className="font-medium">#{cmd.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveCommand(cmd.name)}
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="Remove command"
+                  >
+                    <X size={10} strokeWidth={2} />
+                  </button>
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent side="top">{cmd.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
         {snippets.map((s) => (
           <Tooltip key={`snip-${s.id}`}>
             <TooltipTrigger asChild>
@@ -67,12 +64,7 @@ export function ChipsRow({
                 transition={{ duration: 0.12 }}
                 className="group border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
               >
-                <HugeiconsIcon
-                  icon={HashtagIcon}
-                  size={11}
-                  strokeWidth={2}
-                  className="opacity-80"
-                />
+                <Hash size={11} strokeWidth={2} className="opacity-80" />
                 <span className="font-medium">{s.handle}</span>
                 <button
                   type="button"
@@ -80,7 +72,7 @@ export function ChipsRow({
                   className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   aria-label="Remove snippet"
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                  <X size={10} strokeWidth={2} />
                 </button>
               </motion.div>
             </TooltipTrigger>
@@ -101,12 +93,19 @@ export function ChipsRow({
                   className="group border-border/60 bg-card flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
                 >
                   {f.kind === "selection" ? (
-                    <HugeiconsIcon
-                      icon={f.source === "editor" ? CodeIcon : TerminalIcon}
-                      size={11}
-                      strokeWidth={1.75}
-                      className="text-muted-foreground shrink-0"
-                    />
+                    f.source === "editor" ? (
+                      <Code
+                        size={11}
+                        strokeWidth={1.75}
+                        className="text-muted-foreground shrink-0"
+                      />
+                    ) : (
+                      <Terminal
+                        size={11}
+                        strokeWidth={1.75}
+                        className="text-muted-foreground shrink-0"
+                      />
+                    )
                   ) : (
                     <img
                       src={fileIconUrl(f.name)}
@@ -127,7 +126,7 @@ export function ChipsRow({
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                     aria-label="Remove"
                   >
-                    <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                    <X size={10} strokeWidth={2} />
                   </button>
                 </motion.div>
               </TooltipTrigger>

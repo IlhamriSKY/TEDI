@@ -21,19 +21,18 @@ import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemCl
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  CloudServerIcon,
-  FileAddIcon,
-  FolderAddIcon,
-  Refresh01Icon,
-  UnfoldLessIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  FilePlus,
+  FolderPlus,
+  RefreshCw,
+  Server,
+} from "lucide-react";
 
 // SSH explorer panel. Shown only when at least one SSH leaf is connected.
 // Swaps to whichever SSH session was last connected, so switching tabs
@@ -120,22 +119,16 @@ export function SshFileExplorer({
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-medium">
       {accordion ? (
-        <HugeiconsIcon
-          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
-          size={10}
-          strokeWidth={2.25}
-          className="text-muted-foreground shrink-0"
-        />
+        collapsed ? (
+          <ChevronRight size={10} strokeWidth={2.25} className="text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronDown size={10} strokeWidth={2.25} className="text-muted-foreground shrink-0" />
+        )
       ) : null}
       {/* Mirrors the local FileExplorer header: one server icon plus the
           cwd basename. Full path and host go in the tooltip so the header
           stays a compact h-8 strip. */}
-      <HugeiconsIcon
-        icon={CloudServerIcon}
-        size={13}
-        strokeWidth={2}
-        className="text-muted-foreground shrink-0"
-      />
+      <Server size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
       <span className="truncate">{headerLabel}</span>
     </span>
   );
@@ -178,7 +171,7 @@ export function SshFileExplorer({
                 onClick={() => tree.beginCreate(rootPath, "file")}
                 aria-label="New file"
               >
-                <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
+                <FilePlus size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
             <IconTooltip label="New folder" side="bottom">
@@ -189,7 +182,7 @@ export function SshFileExplorer({
                 onClick={() => tree.beginCreate(rootPath, "dir")}
                 aria-label="New folder"
               >
-                <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
+                <FolderPlus size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
             <IconTooltip label="Refresh" side="bottom">
@@ -200,7 +193,7 @@ export function SshFileExplorer({
                 onClick={() => tree.refresh(rootPath)}
                 aria-label="Refresh"
               >
-                <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
+                <RefreshCw size={12} strokeWidth={2} />
               </Button>
             </IconTooltip>
             <IconTooltip label="Collapse folders" side="bottom">
@@ -212,7 +205,7 @@ export function SshFileExplorer({
                 onClick={() => tree.collapseAll()}
                 aria-label="Collapse folders"
               >
-                <HugeiconsIcon icon={UnfoldLessIcon} size={13} strokeWidth={2} />
+                <ChevronsDownUp size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
           </>
@@ -221,12 +214,7 @@ export function SshFileExplorer({
 
       {collapsed ? null : sessionId === null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-          <HugeiconsIcon
-            icon={CloudServerIcon}
-            size={24}
-            strokeWidth={1.5}
-            className="text-muted-foreground"
-          />
+          <Server size={24} strokeWidth={1.5} className="text-muted-foreground" />
           <div className="text-muted-foreground text-xs">
             No active SSH session.
             <br />

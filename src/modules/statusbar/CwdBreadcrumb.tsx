@@ -14,9 +14,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { basename, toForwardSlash } from "@/lib/path";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { segmentsFromCwd, type Segment } from "./lib/pathUtils";
+import { ChevronRight, Folder, Search } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -104,7 +103,7 @@ function BreadcrumbSegment({ segment, onCd }: { segment: Segment; onCd: (path: s
           aria-label={`Browse subfolders of ${segment.label}`}
           className="text-muted-foreground/70 hover:bg-accent/60 hover:text-accent-foreground inline-flex size-4 cursor-pointer items-center justify-center rounded"
         >
-          <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
+          <ChevronRight size={12} strokeWidth={2} />
         </button>
       </SubfolderDropdown>
     </span>
@@ -228,12 +227,7 @@ function SubfolderDropdown({
                   setOpen(false);
                 }}
               >
-                <HugeiconsIcon
-                  icon={Folder01Icon}
-                  size={14}
-                  strokeWidth={1.75}
-                  className="text-muted-foreground shrink-0"
-                />
+                <Folder size={14} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
                 <span className="truncate">{name}</span>
               </DropdownMenuItem>
             ))
@@ -242,12 +236,7 @@ function SubfolderDropdown({
         {showSearch ? (
           <div className="border-border/60 bg-popover shrink-0 border-t p-1.5">
             <div className="border-border/60 bg-muted/40 flex items-center gap-1.5 rounded-md border px-2 py-1">
-              <HugeiconsIcon
-                icon={Search01Icon}
-                size={12}
-                strokeWidth={1.75}
-                className="text-muted-foreground shrink-0"
-              />
+              <Search size={12} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
               <input
                 ref={searchInputRef}
                 type="text"

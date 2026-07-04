@@ -269,7 +269,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
     updating.add(id);
     set({ updatingIds: updating });
     try {
-      const entry = list_find(get().list, id);
+      const entry = get().list.find((e) => e.id === id);
       if (!entry) throw new Error(`extension not installed: ${id}`);
       const repo = entry.source.startsWith("github:")
         ? entry.source.slice("github:".length)
@@ -312,9 +312,5 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
     }
   },
 }));
-
-function list_find(list: InstalledExtension[], id: string): InstalledExtension | undefined {
-  return list.find((e) => e.id === id);
-}
 
 export type { InstalledExtension };

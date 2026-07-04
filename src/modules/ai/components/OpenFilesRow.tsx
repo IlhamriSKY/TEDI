@@ -1,9 +1,8 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { PlusSignIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { OpenEditorFile } from "../store/chatStore";
+import { Plus } from "lucide-react";
 
 export function OpenFilesRow({
   files,
@@ -33,8 +32,7 @@ export function OpenFilesRow({
                   "hover:border-foreground/40 hover:bg-card hover:text-foreground transition-colors",
                 )}
               >
-                <HugeiconsIcon
-                  icon={PlusSignIcon}
+                <Plus
                   size={10}
                   strokeWidth={2}
                   className="opacity-70 transition-opacity group-hover:opacity-100"

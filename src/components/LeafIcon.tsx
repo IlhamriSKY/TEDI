@@ -2,14 +2,7 @@ import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { BrowserFavicon } from "@/modules/browser/BrowserFavicon";
 import { aiCliIconClass, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import {
-  CloudServerIcon,
-  ComputerTerminal02Icon,
-  Database01Icon,
-  LockedIcon,
-  PencilEdit02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { Database, Lock, Server, SquarePen, SquareTerminal } from "lucide-react";
 
 /** Normalized description of one pane leaf, enough to pick its icon. Built from
  *  a tab-strip `Entry` or a `PaneLeaf` so both feed the same renderer. */
@@ -53,14 +46,7 @@ export function LeafIcon({
   const aiTint = info.aiCliStatus ? aiCliIconClass(info.aiCliStatus) : null;
 
   if (info.isPrivate) {
-    return (
-      <HugeiconsIcon
-        icon={LockedIcon}
-        size={size}
-        strokeWidth={2}
-        className={cn("shrink-0", className, aiTint)}
-      />
-    );
+    return <Lock size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />;
   }
 
   if (info.leafKind === "editor") {
@@ -68,14 +54,7 @@ export function LeafIcon({
     // Empty while the catppuccin set is still loading, or for an unknown file
     // type: fall back to the pencil so an editor leaf is never icon-less.
     if (!url) {
-      return (
-        <HugeiconsIcon
-          icon={PencilEdit02Icon}
-          size={size}
-          strokeWidth={2}
-          className={cn("shrink-0", className)}
-        />
-      );
+      return <SquarePen size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
     }
     if (info.editorRemote) {
       // Remote (SFTP) files reuse the file-type shape recolored sky-blue via a
@@ -112,23 +91,13 @@ export function LeafIcon({
   if (info.leafKind === "extension-panel") {
     // Generic glyph for an extension panel hosted in a pane. (The only one
     // that ships today is the SQL Explorer; the database glyph fits it.)
-    return (
-      <HugeiconsIcon
-        icon={Database01Icon}
-        size={size}
-        strokeWidth={2}
-        className={cn("shrink-0", className)}
-      />
-    );
+    return <Database size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
   }
 
   // Terminal: cloud for SSH, local terminal otherwise; tinted by AI CLI status.
-  return (
-    <HugeiconsIcon
-      icon={info.isSsh ? CloudServerIcon : ComputerTerminal02Icon}
-      size={size}
-      strokeWidth={2}
-      className={cn("shrink-0", className, aiTint)}
-    />
+  return info.isSsh ? (
+    <Server size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />
+  ) : (
+    <SquareTerminal size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />
   );
 }

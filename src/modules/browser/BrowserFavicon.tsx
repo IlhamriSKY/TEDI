@@ -1,8 +1,7 @@
 import { cn } from "@/lib/utils";
-import { Globe02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { previewResolveFavicon } from "./lib/native";
+import { Globe } from "lucide-react";
 
 // Resolved favicon URL per origin (null = the site declares no icon -> globe).
 // Cached so a site is parsed once per session no matter how many tabs/panes
@@ -89,14 +88,7 @@ export function BrowserFavicon({
   };
 
   if (!src) {
-    return (
-      <HugeiconsIcon
-        icon={Globe02Icon}
-        size={size}
-        strokeWidth={2}
-        className={cn("shrink-0", className)}
-      />
-    );
+    return <Globe size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
   }
   return (
     <img

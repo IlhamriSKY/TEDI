@@ -286,10 +286,7 @@ export function getLoadedSkills(): SkillMeta[] {
 export function skillSlug(s: SkillMeta): string {
   if (s.slugOverride) return s.slugOverride;
   const last = s.dir.split("/").pop() ?? s.name;
-  return last
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return sanitizeSlug(last);
 }
 
 /** Directory of a skill's group (deletable as a unit), or null if ungrouped. */
@@ -498,11 +495,7 @@ export async function previewSkillsFromGithub(ref: string): Promise<SkillPreview
   }
 
   const skills = resolveSkillSlugs(skillFiles, repo);
-  const group =
-    repo
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "skills";
+  const group = sanitizeSlug(repo) || "skills";
 
   return { owner, repo, branch, skills, count: skills.size, group };
 }
@@ -585,11 +578,7 @@ export async function installSkillsFromGithub(
   const bySlug = resolveSkillSlugs(skillFiles, repo);
 
   // Group every skill from this repo under one folder.
-  const group =
-    repo
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "skills";
+  const group = sanitizeSlug(repo) || "skills";
   const groupDir = `${base}/${group}`;
 
   const installed: string[] = [];

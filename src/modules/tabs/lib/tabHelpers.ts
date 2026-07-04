@@ -16,7 +16,7 @@ function titleFromLeaf(leaf: PaneLeaf): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
-  // SSH leaves get a real title via updateTab after newSshTab. This is the interim fallback.
+  // SSH leaves get a real title via syncPaneMirror/newSshTab. This is the interim fallback.
   if (leaf.sshConnectionId) return "ssh";
   // Terminal: cwd basename, falling back to "shell".
   if (leaf.cwd) {
@@ -75,8 +75,4 @@ export function isTerminalLikeTab(tab: Tab): boolean {
 
 export function isEditorLikeTab(tab: Tab): boolean {
   return tab.kind === "pane" && activeLeafKind(tab) === "editor";
-}
-
-export function isPreviewLikeTab(tab: Tab): boolean {
-  return tab.kind === "pane" && activeLeafKind(tab) === "browser";
 }

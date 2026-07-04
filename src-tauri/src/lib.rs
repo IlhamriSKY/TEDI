@@ -191,31 +191,76 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         _ => "settings.html".to_string(),
     };
 
-    if let Some(window) = app.get_webview_window("settings") {
+    // Freshly built windows carry the tab in `url_path`; a revealed existing
+    // window won't re-read the URL, so it gets the tab pushed via event.
+    if open_or_reveal_child(&app, "settings", url_path, "Settings", (880.0, 620.0), (600.0, 480.0))?
+        .is_none()
+    {
+        if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
+            if let Some(window) = app.get_webview_window("settings") {
+                // emit() serializes via JSON, so no string-escape footgun.
+                let _ = window.emit(crate::modules::events::SETTINGS_TAB, t);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Center a child window over the main window (so it follows the user across
+/// monitors instead of landing on the primary display). No-op if either
+/// window's geometry can't be read. Shared by the Settings and Debug windows.
+fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(main_pos), Ok(main_size), Ok(win_size)) =
+            (main.outer_position(), main.outer_size(), window.outer_size())
+        {
+            let x = main_pos.x + (main_size.width as i32 - win_size.width as i32) / 2;
+            let y = main_pos.y + (main_size.height as i32 - win_size.height as i32) / 2;
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+}
+
+/// Open (or reveal) the Debug-requests window. A separate native window that
+/// mirrors the main window's in-memory debug captures over Tauri events (see
+/// src/modules/ai/store/debugBridge.ts). Same owner-window chrome as Settings.
+#[tauri::command]
+async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
+    open_or_reveal_child(&app, "debug", "debug.html".to_string(), "Debug", (980.0, 680.0), (460.0, 360.0))?;
+    Ok(())
+}
+
+/// Open (or reveal) an owner-parented child window with our custom chrome.
+/// Returns `Ok(None)` when an existing window was revealed, `Ok(Some(window))`
+/// when a new one was built. Shared by the Settings and Debug windows.
+fn open_or_reveal_child(
+    app: &tauri::AppHandle,
+    label: &str,
+    url: String,
+    title: &str,
+    size: (f64, f64),
+    min_size: (f64, f64),
+) -> Result<Option<tauri::WebviewWindow>, String> {
+    if let Some(window) = app.get_webview_window(label) {
         // Re-center over the main window so reopening follows the user
         // across displays.
-        recenter_over_main(&app, &window);
+        recenter_over_main(app, &window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-        if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
-            // emit() serializes via JSON, so no string-escape footgun.
-            // Frontend listens via Tauri event API.
-            let _ = window.emit(crate::modules::events::SETTINGS_TAB, t);
-        }
-        return Ok(());
+        return Ok(None);
     }
 
-    let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
-        .title("Settings")
-        .inner_size(880.0, 620.0)
-        .min_inner_size(600.0, 480.0)
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(size.0, size.1)
+        .min_inner_size(min_size.0, min_size.1)
         .resizable(true)
         .visible(false);
 
-    // Owner-window relationship: keeps settings z-ordered above main without
+    // Owner-window relationship: keeps the child z-ordered above main without
     // pinning it above other apps (#33). On Windows the OS auto-hides owned
-    // windows when the owner minimizes, so settings follows main into the
+    // windows when the owner minimizes, so the child follows main into the
     // taskbar instead of floating on the desktop.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
@@ -242,72 +287,10 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     disable_windows_corner_rounding(&window);
 
     // Tauri's default placement lands at the primary monitor's center even
-    // when main is on a secondary display, which makes settings jump screens.
-    // Re-center over main so it follows the user.
-    recenter_over_main(&app, &window);
-    let _ = window;
-    Ok(())
-}
-
-/// Center a child window over the main window (so it follows the user across
-/// monitors instead of landing on the primary display). No-op if either
-/// window's geometry can't be read. Shared by the Settings and Debug windows.
-fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
-    if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(main_pos), Ok(main_size), Ok(win_size)) =
-            (main.outer_position(), main.outer_size(), window.outer_size())
-        {
-            let x = main_pos.x + (main_size.width as i32 - win_size.width as i32) / 2;
-            let y = main_pos.y + (main_size.height as i32 - win_size.height as i32) / 2;
-            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-        }
-    }
-}
-
-/// Open (or reveal) the Debug-requests window. A separate native window that
-/// mirrors the main window's in-memory debug captures over Tauri events (see
-/// src/modules/ai/store/debugBridge.ts). Same owner-window chrome as Settings.
-#[tauri::command]
-async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("debug") {
-        recenter_over_main(&app, &window);
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-
-    let mut builder = WebviewWindowBuilder::new(&app, "debug", WebviewUrl::App("debug.html".into()))
-        .title("Debug")
-        .inner_size(980.0, 680.0)
-        .min_inner_size(460.0, 360.0)
-        .resizable(true)
-        .visible(false);
-
-    // Owner-window relationship, identical to Settings: stays above main without
-    // pinning above other apps, and the OS hides it when main minimizes.
-    if let Some(main) = app.get_webview_window("main") {
-        builder = builder.parent(&main).map_err(|e| e.to_string())?;
-    }
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
-
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let builder = builder.decorations(false).transparent(true);
-
-    let window = builder.build().map_err(|e| e.to_string())?;
-
-    #[cfg(target_os = "linux")]
-    {
-        let _ = window.set_decorations(false);
-    }
-    disable_windows_corner_rounding(&window);
-    recenter_over_main(&app, &window);
-    let _ = window;
-    Ok(())
+    // when main is on a secondary display; re-center over main so it follows
+    // the user.
+    recenter_over_main(app, &window);
+    Ok(Some(window))
 }
 
 // WebKitGTK's DMA-BUF renderer fails to create an EGL display on wlroots
@@ -624,7 +607,6 @@ pub fn run() {
             ssh::ssh_attach,
             ssh::sftp::ssh_sftp_home,
             ssh::sftp::ssh_sftp_read_dir,
-            ssh::sftp::ssh_sftp_stat,
             ssh::sftp::ssh_sftp_read_file,
             ssh::sftp::ssh_sftp_write_file,
             ssh::sftp::ssh_sftp_create_file,

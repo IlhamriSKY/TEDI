@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, slugify } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   APP_OPACITY_MAX,
@@ -22,15 +22,6 @@ import {
   type ThemeColors,
 } from "@/modules/settings/customTheme";
 import { DEFAULT_CUSTOM_THEME, THEME_PRESETS } from "@/modules/settings/themePresets";
-import {
-  BookmarkAdd02Icon,
-  Cancel01Icon,
-  Delete02Icon,
-  Download04Icon,
-  Image01Icon,
-  LinkSquare01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
@@ -45,6 +36,7 @@ import { PalettePreview } from "./theme/PalettePreview";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { UploadButton } from "../components/UploadButton";
 import type { FsReadResult } from "@/lib/ipc";
+import { BookmarkPlus, Download, ExternalLink, Image, Trash2, X } from "lucide-react";
 
 type ReadResult = FsReadResult;
 
@@ -258,7 +250,7 @@ export function ThemeSection() {
   const onExport = async () => {
     try {
       const target = await saveFileDialog({
-        defaultPath: `${slug(theme.name)}.tedi`,
+        defaultPath: `${slugify(theme.name, "theme")}.tedi`,
         filters: [{ name: "TEDI theme", extensions: ["tedi"] }],
       });
       if (!target) return;
@@ -323,7 +315,7 @@ export function ThemeSection() {
                     setSavePresetName(seed);
                   }}
                 >
-                  <HugeiconsIcon icon={BookmarkAdd02Icon} size={12} strokeWidth={1.75} />
+                  <BookmarkPlus size={12} strokeWidth={1.75} />
                   Save as preset
                 </Button>
               ) : (
@@ -390,7 +382,7 @@ export function ThemeSection() {
                     onClick={() => onPickPreset(p)}
                     aria-pressed={active}
                     className={cn(
-                      "bg-card/60 focus-visible:ring-ring/40 flex w-full items-center gap-2 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                      "bg-card focus-visible:ring-ring/40 flex w-full items-center gap-2 border px-2 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none",
                       active
                         ? "border-primary ring-primary/40 ring-1"
                         : "border-border/60 hover:border-border",
@@ -427,7 +419,7 @@ export function ThemeSection() {
                           className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex"
                           aria-label={`Delete preset ${p.name}`}
                         >
-                          <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                          <X size={10} strokeWidth={2} />
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="top">Delete &ldquo;{p.name}&rdquo;</TooltipContent>
@@ -484,7 +476,7 @@ export function ThemeSection() {
               </Button>
             ))}
           </div>
-          <div className="border-border/60 bg-card/60 grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
+          <div className="border-border/60 bg-card grid grid-cols-1 gap-1 border p-2 sm:grid-cols-2">
             {visibleFields.map((field) => (
               <div key={field.key} className="flex items-center justify-between gap-3 px-2 py-1.5">
                 <span className="text-[11.5px]">{field.label}</span>
@@ -508,7 +500,7 @@ export function ThemeSection() {
            *  (reveals the image below, or the desktop when none is set),
            *  100% = solid. Each step writes + broadcasts the value, so the main
            *  window fades live as you drag and the value sticks. */}
-          <div className="border-border/60 bg-card/60 flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
+          <div className="border-border/60 bg-card flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
             <CompactSliderRow
               label="Opacity"
               valueLabel={`${Math.round((opacityPreview ?? appOpacity) * 100)}%`}
@@ -535,7 +527,7 @@ export function ThemeSection() {
            *  time - picking a file replaces the URL; pasting a URL replaces
            *  the file. The Switch flips the layer on/off without losing the
            *  underlying source. */}
-          <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5">
+          <div className="border-border/60 bg-card flex flex-col gap-2 rounded-lg border px-3 py-2.5">
             <div className="flex items-center gap-2">
               <Input
                 value={bgUrlDraft}
@@ -556,7 +548,7 @@ export function ThemeSection() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <UploadButton
-                    icon={LinkSquare01Icon}
+                    icon={ExternalLink}
                     disabled={!bgUrlDraft.trim()}
                     onClick={onImportBackgroundUrl}
                     aria-label="Use URL"
@@ -571,7 +563,7 @@ export function ThemeSection() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <UploadButton icon={Image01Icon} onClick={() => void onPickBackground()}>
+                  <UploadButton icon={Image} onClick={() => void onPickBackground()}>
                     Browse
                   </UploadButton>
                 </TooltipTrigger>
@@ -590,7 +582,7 @@ export function ThemeSection() {
                       onClick={onClearBackground}
                       aria-label="Clear background"
                     >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                      <Trash2 size={12} strokeWidth={1.75} />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top">Clear wallpaper</TooltipContent>
@@ -621,7 +613,7 @@ export function ThemeSection() {
            *  rows so three sliders + their labels don't take up 3× the
            *  vertical space of separate `SettingRow`s. */}
           {theme.background.dataUrl ? (
-            <div className="border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-[11.5px]">
+            <div className="border-border/60 bg-card flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-[11.5px]">
               <CompactSliderRow
                 label="Blur"
                 valueLabel={`${theme.background.blur}px`}
@@ -699,7 +691,7 @@ export function ThemeSection() {
                 className="h-8 px-2 text-[11px]"
                 onClick={() => void onExport()}
               >
-                <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
+                <Download size={12} strokeWidth={1.75} />
                 Export
               </Button>
             </div>
@@ -713,14 +705,5 @@ export function ThemeSection() {
         </div>
       </SettingsAccordion>
     </div>
-  );
-}
-
-function slug(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "theme"
   );
 }

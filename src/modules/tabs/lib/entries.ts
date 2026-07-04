@@ -5,6 +5,7 @@ import { type SshConnection } from "@/modules/ssh/connections";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { Tab } from "./useTabs";
+import { titleFromUrl } from "./tabHelpers";
 
 /**
  * Tab strip entries: one per pane for pane tabs, one per tab for preview
@@ -56,8 +57,8 @@ type ExtensionEntry = EntryBase & {
   kind: "ext";
   extensionId: string;
   panelId: string;
-  /** Icon hint from the extension. Either `hugeicon:<Name>` for an
-   *  inline HugeIcon or a relative asset path. */
+  /** Icon hint from the extension. Either `lucide:<Name>` (or legacy
+   *  `hugeicon:<Name>`) for an inline icon, or a relative asset path. */
   icon?: string;
   /** Lifecycle tone set by the extension via
    *  `ctx.tabs.setExtensionTabState(...)`. Drives the title text colour. */
@@ -76,8 +77,10 @@ export type Entry = PaneEntry | StandaloneEntry | ExtensionEntry;
 export function tabAccentClass(e: Entry): string {
   if (e.kind === "pane-leaf") {
     // Private tabs win the accent regardless of leaf kind so the red stripe
-    // is the dominant signal. AI cannot see this tab.
-    if (e.isPrivate) return "bg-icon-blocked";
+    // is the dominant signal. AI cannot see this tab. Uses the `destructive`
+    // (danger) token, matching the private LABEL text elsewhere, rather than
+    // the AI-CLI `icon-blocked` status color.
+    if (e.isPrivate) return "bg-destructive";
     if (e.leafKind === "terminal") {
       return e.sshConnectionId
         ? "bg-[color:var(--tedi-tab-ssh)]"
@@ -117,21 +120,13 @@ export function extensionStateLabelClass(state: ExtensionTabState | undefined): 
   }
 }
 
-function browserHost(url: string): string {
-  try {
-    return new URL(url).host || url || "browser";
-  } catch {
-    return url || "browser";
-  }
-}
-
 function entryLabel(
   leaf: PaneLeaf,
   fallbackCwd: string | undefined,
   sshHosts: Map<string, SshConnection>,
 ): string {
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  if (leaf.leafKind === "browser") return leaf.title || browserHost(leaf.url);
+  if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
   // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {

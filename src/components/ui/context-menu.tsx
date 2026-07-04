@@ -2,8 +2,7 @@ import * as React from "react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Check, ChevronRight } from "lucide-react";
 
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
@@ -102,7 +101,7 @@ function ContextMenuSubTrigger({
       {...props}
     >
       {children}
-      <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="ml-auto" />
+      <ChevronRight strokeWidth={2} className="ml-auto" />
     </ContextMenuPrimitive.SubTrigger>
   );
 }
@@ -145,7 +144,7 @@ function ContextMenuCheckboxItem({
     >
       <span className="pointer-events-none absolute right-2">
         <ContextMenuPrimitive.ItemIndicator>
-          <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
+          <Check strokeWidth={2} />
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -173,7 +172,7 @@ function ContextMenuRadioItem({
     >
       <span className="pointer-events-none absolute right-2">
         <ContextMenuPrimitive.ItemIndicator>
-          <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
+          <Check strokeWidth={2} />
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -205,7 +204,7 @@ function ContextMenuSeparator({
   return (
     <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
-      className={cn("bg-border/50 -mx-1.5 my-1.5 h-px", className)}
+      className={cn("bg-muted-foreground/20 -mx-1.5 my-1.5 h-px", className)}
       {...props}
     />
   );

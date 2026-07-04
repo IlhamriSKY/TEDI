@@ -22,11 +22,10 @@ import {
 import { getOpenAICompatibleModelsState } from "@/modules/ai/lib/openaiCompatible";
 import type { useSumopodModels } from "@/modules/ai/lib/sumopod";
 import { setDefaultModel } from "@/modules/settings/store";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { KeysMap } from "./modelsTypes";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 /**
  * Default-model dropdown rendered in the AI defaults card. The card itself owns
@@ -120,12 +119,7 @@ export function DefaultModelDropdown({
             </span>
             <span className="text-muted-foreground truncate">· {defaultModelInfo.hint}</span>
           </span>
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={12}
-            strokeWidth={2}
-            className="shrink-0 opacity-70"
-          />
+          <ChevronDown size={12} strokeWidth={2} className="shrink-0 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -227,12 +221,19 @@ export function DefaultModelDropdown({
                       searching && "cursor-default hover:bg-transparent",
                     )}
                   >
-                    <HugeiconsIcon
-                      icon={isOpen ? ArrowDown01Icon : ArrowRight01Icon}
-                      size={10}
-                      strokeWidth={2}
-                      className={cn("opacity-60", searching && "invisible")}
-                    />
+                    {isOpen ? (
+                      <ChevronDown
+                        size={10}
+                        strokeWidth={2}
+                        className={cn("opacity-60", searching && "invisible")}
+                      />
+                    ) : (
+                      <ChevronRight
+                        size={10}
+                        strokeWidth={2}
+                        className={cn("opacity-60", searching && "invisible")}
+                      />
+                    )}
                     <ProviderIcon provider={p.id} size={11} />
                     <span>{s.title}</span>
                     <span className="text-muted-foreground/60 tracking-normal normal-case">

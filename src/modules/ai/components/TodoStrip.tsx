@@ -3,11 +3,10 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Cancel01Icon, CheckmarkSquare02Icon, SquareIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect } from "react";
 import type { Todo } from "../lib/todos";
 import { useTodosStore } from "../store/todoStore";
+import { Square, SquareCheckBig, X } from "lucide-react";
 
 type Props = { sessionId: string | null };
 
@@ -47,7 +46,7 @@ export function TodoStrip({ sessionId }: Props) {
               "hover:bg-destructive/10 hover:text-destructive transition-colors",
             )}
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+            <X size={10} strokeWidth={2} />
           </button>
         </IconTooltip>
       </div>
@@ -72,11 +71,10 @@ function TodoRow({ todo }: { todo: Todo }) {
       <span className="mt-[2px] inline-flex size-3.5 shrink-0 items-center justify-center">
         {isInProgress ? (
           <Spinner className="size-3" />
+        ) : todo.status === "completed" ? (
+          <SquareCheckBig strokeWidth={1.75} />
         ) : (
-          <HugeiconsIcon
-            icon={todo.status === "completed" ? CheckmarkSquare02Icon : SquareIcon}
-            strokeWidth={1.75}
-          />
+          <Square strokeWidth={1.75} />
         )}
       </span>
       <span

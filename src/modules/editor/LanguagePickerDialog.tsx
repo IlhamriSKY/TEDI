@@ -10,9 +10,8 @@ import {
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import { fileIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
-import { Cancel01Icon, SearchIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { LANGUAGES, languageIconFile, languageLabel } from "./lib/languages";
+import { Search, X } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -101,7 +100,7 @@ function LanguagePickerDialogImpl({
           aria-label="Close"
           className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+          <X size={14} strokeWidth={2} />
         </button>
       </div>
 
@@ -109,11 +108,7 @@ function LanguagePickerDialogImpl({
       <div className="p-1 pb-0">
         <InputGroup className="bg-input/50 h-9">
           <InputGroupAddon align="inline-start">
-            <HugeiconsIcon
-              icon={SearchIcon}
-              strokeWidth={2}
-              className="size-4 shrink-0 opacity-50"
-            />
+            <Search strokeWidth={2} className="size-4 shrink-0 opacity-50" />
           </InputGroupAddon>
           <CommandPrimitive.Input
             ref={inputRef}
@@ -131,7 +126,7 @@ function LanguagePickerDialogImpl({
                 aria-label="Clear search"
                 className="text-muted-foreground hover:text-foreground flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors"
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+                <X size={14} strokeWidth={2} />
               </button>
             </InputGroupAddon>
           ) : null}

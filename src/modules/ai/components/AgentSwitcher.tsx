@@ -12,31 +12,31 @@ import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { APPROVAL_MODE_META, setApprovalMode, type ApprovalMode } from "@/modules/settings/store";
-import {
-  AbsoluteIcon,
-  ArrowDown01Icon,
-  CodeIcon,
-  PaintBrush04Icon,
-  PencilEdit02Icon,
-  Settings01Icon,
-  ShieldUserIcon,
-  SparklesIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentIconId } from "../lib/agents";
 import { APPROVAL_MODE_TONE } from "../lib/approvalModeStyle";
 import { useAgentsStore } from "../store/agentsStore";
+import {
+  Check,
+  ChevronDown,
+  Code,
+  DraftingCompass,
+  Paintbrush,
+  Settings,
+  ShieldUser,
+  Sparkles,
+  SquarePen,
+  type LucideIcon,
+} from "lucide-react";
 
 const APPROVAL_MODE_ORDER: ApprovalMode[] = ["ask", "semi", "yolo"];
 
-const ICONS: Record<AgentIconId, typeof CodeIcon> = {
-  coder: CodeIcon,
-  architect: AbsoluteIcon,
-  reviewer: PencilEdit02Icon,
-  security: ShieldUserIcon,
-  designer: PaintBrush04Icon,
-  spark: SparklesIcon,
+const ICONS: Record<AgentIconId, LucideIcon> = {
+  coder: Code,
+  architect: DraftingCompass,
+  reviewer: SquarePen,
+  security: ShieldUser,
+  designer: Paintbrush,
+  spark: Sparkles,
 };
 
 export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
@@ -52,7 +52,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
   const active = list.find((a) => a.id === activeId) ?? list[0];
   const builtIn = list.filter((a) => a.builtIn);
   const custom = list.filter((a) => !a.builtIn);
-  const ActiveIcon = ICONS[active.icon] ?? SparklesIcon;
+  const ActiveIcon = ICONS[active.icon] ?? Sparkles;
 
   const agentTooltip = `Agent: ${active.name} · Approval: ${APPROVAL_MODE_META[approvalMode].label}`;
 
@@ -72,14 +72,9 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 !isMiniWindow && TOOLBAR_HOVER,
               )}
             >
-              <HugeiconsIcon icon={ActiveIcon} size={11} strokeWidth={1.75} className="shrink-0" />
+              <ActiveIcon size={11} strokeWidth={1.75} className="shrink-0" />
               <span className="truncate">{active.name}</span>
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={10}
-                strokeWidth={2}
-                className="shrink-0 opacity-70"
-              />
+              <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -90,7 +85,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           Built-in
         </div>
         {builtIn.map((a) => {
-          const Icon = ICONS[a.icon] ?? SparklesIcon;
+          const Icon = ICONS[a.icon] ?? Sparkles;
           return (
             <DropdownMenuItem
               key={a.id}
@@ -100,8 +95,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 a.id === activeId && "bg-accent/40",
               )}
             >
-              <HugeiconsIcon
-                icon={Icon}
+              <Icon
                 size={13}
                 strokeWidth={1.75}
                 className={cn(
@@ -116,12 +110,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 </span>
               </span>
               {a.id === activeId ? (
-                <HugeiconsIcon
-                  icon={Tick02Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="text-foreground mt-0.5 shrink-0"
-                />
+                <Check size={12} strokeWidth={2} className="text-foreground mt-0.5 shrink-0" />
               ) : null}
             </DropdownMenuItem>
           );
@@ -133,7 +122,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               Custom
             </div>
             {custom.map((a) => {
-              const Icon = ICONS[a.icon] ?? SparklesIcon;
+              const Icon = ICONS[a.icon] ?? Sparkles;
               return (
                 <DropdownMenuItem
                   key={a.id}
@@ -143,12 +132,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                     a.id === activeId && "bg-accent/40",
                   )}
                 >
-                  <HugeiconsIcon
-                    icon={Icon}
-                    size={13}
-                    strokeWidth={1.75}
-                    className="text-muted-foreground mt-0.5"
-                  />
+                  <Icon size={13} strokeWidth={1.75} className="text-muted-foreground mt-0.5" />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate">{a.name}</span>
                     {a.description ? (
@@ -158,12 +142,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                     ) : null}
                   </span>
                   {a.id === activeId ? (
-                    <HugeiconsIcon
-                      icon={Tick02Icon}
-                      size={12}
-                      strokeWidth={2}
-                      className="text-foreground mt-0.5 shrink-0"
-                    />
+                    <Check size={12} strokeWidth={2} className="text-foreground mt-0.5 shrink-0" />
                   ) : null}
                 </DropdownMenuItem>
               );
@@ -192,8 +171,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 </span>
               </span>
               {m === approvalMode ? (
-                <HugeiconsIcon
-                  icon={Tick02Icon}
+                <Check
                   size={12}
                   strokeWidth={2}
                   className={cn("mt-0.5 shrink-0", APPROVAL_MODE_TONE[m])}
@@ -207,7 +185,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           onSelect={() => void openSettingsWindow("agents")}
           className="text-muted-foreground gap-2 text-[12px]"
         >
-          <HugeiconsIcon icon={Settings01Icon} size={12} strokeWidth={1.75} />
+          <Settings size={12} strokeWidth={1.75} />
           Manage agents…
         </DropdownMenuItem>
       </DropdownMenuContent>

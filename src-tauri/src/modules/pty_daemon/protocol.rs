@@ -47,9 +47,6 @@ pub enum ClientMsg {
         cols: u16,
         rows: u16,
     },
-    /// Unsubscribe from push events but keep the session alive on the daemon.
-    /// Called when the GUI window closes - sessions persist for next launch.
-    Detach { req_id: ReqId, session_id: Uuid },
     /// Forward keyboard input to the PTY.
     Write {
         req_id: ReqId,
@@ -64,15 +61,12 @@ pub enum ClientMsg {
         rows: u16,
     },
     /// Permanently kill a session. Used by explicit "close tab" or "kill" UI.
-    /// Differs from `Detach` which keeps the shell running.
     Close { req_id: ReqId, session_id: Uuid },
     /// Enumerate every session the daemon currently owns. Used by the GUI on
     /// startup to discover sessions saved before the last window close.
     List { req_id: ReqId },
     /// Kill all sessions. Wired to the "Reset all sessions" settings button.
     KillAll { req_id: ReqId },
-    /// Ask the daemon to exit cleanly (used by uninstaller / settings).
-    Shutdown { req_id: ReqId },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,7 +90,7 @@ pub enum DaemonMsg {
         scrollback_b64: String,
         alive: bool,
     },
-    /// Generic ack for Write / Resize / Close / Detach / KillAll / Shutdown.
+    /// Generic ack for Write / Resize / Close / KillAll.
     Ok { req_id: ReqId },
     /// Generic error response. Recoverable - client can decide whether to
     /// retry or fall back (e.g. on "unknown session" → spawn fresh).
@@ -184,10 +178,6 @@ mod tests {
                 cols: 80,
                 rows: 24,
             },
-            ClientMsg::Detach {
-                req_id: 4,
-                session_id: id,
-            },
             ClientMsg::Write {
                 req_id: 5,
                 session_id: id,
@@ -205,7 +195,6 @@ mod tests {
             },
             ClientMsg::List { req_id: 8 },
             ClientMsg::KillAll { req_id: 9 },
-            ClientMsg::Shutdown { req_id: 10 },
         ];
         for c in cases {
             let s = serde_json::to_string(&c).unwrap();

@@ -11,6 +11,7 @@
  * Mode-agnostic by design: ONE palette regardless of light/dark, matching how
  * most terminals (iTerm, Windows Terminal, kitty) ship a single scheme.
  */
+import { slugify } from "@/lib/utils";
 import { THEME_PRESETS } from "./themePresets";
 import type { ThemeColors } from "./customTheme";
 
@@ -136,22 +137,13 @@ function paletteFromColors(name: string, c: ThemeColors): TerminalPalette {
 
 export type TerminalPreset = { id: string; palette: TerminalPalette };
 
-function slug(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "preset"
-  );
-}
-
 /**
  * Prebuilt terminal palettes. Derived from the app presets' DARK variants:
  * terminals are conventionally dark and the palette is mode-agnostic, so the
  * dark ANSI/bg/fg of "Tokyo Night", "Nord", etc. are the natural terminal set.
  */
 export const TERMINAL_PRESETS: TerminalPreset[] = THEME_PRESETS.map((p) => ({
-  id: slug(p.name),
+  id: slugify(p.name, "preset"),
   palette: paletteFromColors(p.name, p.dark),
 }));
 

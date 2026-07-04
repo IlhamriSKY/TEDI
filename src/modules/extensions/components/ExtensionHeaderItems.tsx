@@ -5,33 +5,22 @@
  * Visual baseline matches the host's own header icon buttons (SSH /
  * Extensions / Settings): size-7 ghost button, SVG mask tint, hover bg.
  */
-import { useEffect, useState } from "react";
-
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
-import { loadExtensionIcon } from "../icon";
+import { useResolvedExtensionIcon } from "../icon";
 import { headerItemsRegistry, type HeaderItem } from "../registries";
 import { useRegistry } from "../useRegistry";
 
-/** Strip the `hugeicon:` prefix and resolve against the lazy-loaded
- *  `@hugeicons/core-free-icons` barrel. Returns null for unknown names so
- *  the caller falls back to the empty-placeholder branch; also returns null
- *  while the barrel is still in flight on first paint. */
-function resolveHugeIcon(icon: string): IconSvgElement | null {
-  const m = icon.match(/^hugeicon:(.+)$/);
-  if (!m) return null;
-  return tryGetHugeIcon(m[1]);
-}
-
-export function ExtensionHeaderItems({ placement = "right" }: { placement?: "left" | "right" } = {}) {
+export function ExtensionHeaderItems({
+  placement = "right",
+}: { placement?: "left" | "right" } = {}) {
   const items = useRegistry(headerItemsRegistry);
-  // Subscribe so the icon row re-renders once the lazy barrel arrives.
-  useHugeIconsReady();
+  // Subscribe so the icon row re-renders once the lazy icon chunk arrives.
+  useIconsReady();
   const matching = items.filter(({ item }) => (item.placement ?? "right") === placement);
   if (matching.length === 0) return null;
   const sorted = [...matching].sort((a, b) => {
@@ -48,15 +37,14 @@ export function ExtensionHeaderItems({ placement = "right" }: { placement?: "lef
 }
 
 function HeaderItemView({ extensionId, item }: { extensionId: string; item: HeaderItem }) {
-  // `hugeicon:<Name>` short-circuits the asset loader and renders the host's
-  // own HugeIcon component (line-art, current-color, pixel-perfect parity
-  // with SSH / Extensions / Settings buttons). Falls back to file / data:
-  // URL loading via `loadExtensionIcon` otherwise.
-  const hugeIcon = resolveHugeIcon(item.icon);
-  const iconUrl = useResolvedIcon(extensionId, hugeIcon ? "" : item.icon);
+  // `lucide:<Name>` / legacy `hugeicon:<Name>` short-circuits the asset loader
+  // and renders a Lucide icon (line-art, current-color, parity with the host's
+  // SSH / Extensions / Settings buttons). Falls back to file / data: URL
+  // loading via `loadExtensionIcon` otherwise.
+  const Icon = resolveExtIcon(item.icon);
+  const iconUrl = useResolvedExtensionIcon(extensionId, Icon ? "" : item.icon);
   const isSvg =
-    iconUrl !== null &&
-    (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
+    iconUrl !== null && (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
   const tone = item.tone ?? "default";
   const toneColorClass =
     tone === "success"
@@ -81,12 +69,12 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
         className={cn(
           TOOLBAR_HOVER,
           "size-7 shrink-0 rounded-md",
-          hugeIcon && toneColorClass,
+          Icon && toneColorClass,
           tone === "warning" && "animate-pulse",
         )}
       >
-        {hugeIcon ? (
-          <HugeiconsIcon icon={hugeIcon} size={15} strokeWidth={1.75} />
+        {Icon ? (
+          <Icon size={15} strokeWidth={1.75} />
         ) : iconUrl ? (
           isSvg ? (
             <span
@@ -122,22 +110,4 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
       </Button>
     </IconTooltip>
   );
-}
-
-function useResolvedIcon(extensionId: string, icon: string): string | null {
-  const [url, setUrl] = useState<string | null>(() => (icon.startsWith("data:") ? icon : null));
-  useEffect(() => {
-    if (icon.startsWith("data:")) {
-      setUrl(icon);
-      return;
-    }
-    let alive = true;
-    void loadExtensionIcon(extensionId, icon).then((next) => {
-      if (alive) setUrl(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [extensionId, icon]);
-  return url;
 }

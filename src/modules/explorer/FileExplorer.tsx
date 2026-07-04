@@ -1,5 +1,3 @@
-import { Folder01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ExplorerGrepHandle } from "./ExplorerGrep";
 import { type ExplorerSearchHandle } from "./ExplorerSearch";
@@ -12,6 +10,7 @@ import { useFileTree, type SortMode } from "./lib/useFileTree";
 import { toForwardSlash } from "@/lib/path";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { Folder } from "lucide-react";
 
 const SORT_STORAGE_KEY = "tedi:explorer:sortMode";
 
@@ -268,12 +267,7 @@ export function FileExplorer({
   if (!rootPath) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-        <HugeiconsIcon
-          icon={Folder01Icon}
-          size={24}
-          strokeWidth={1.5}
-          className="text-muted-foreground"
-        />
+        <Folder size={24} strokeWidth={1.5} className="text-muted-foreground" />
         <div className="text-muted-foreground text-xs">No current directory</div>
       </div>
     );
@@ -380,27 +374,27 @@ export function FileExplorer({
 
       {collapsed ? null : (
         <GitDecorationsProvider data={gitData} rootPath={rootPath}>
-        <ExplorerTreeList
-          rootPath={rootPath}
-          tree={tree}
-          onOpenFile={onOpenFile}
-          onRevealInTerminal={onRevealInTerminal}
-          onAttachToAgent={onAttachToAgent}
-          onPreviewInBrowser={onPreviewInBrowser}
-          selectedPath={selectedPath}
-          onSelectPath={setSelectedPath}
-          searchRef={searchRef}
-          grepRef={grepRef}
-          listRef={listRef}
-          isSearchOpen={isSearchOpen}
-          isGrepOpen={isGrepOpen}
-          isSearchActive={isSearchActive}
-          isGrepActive={isGrepActive}
-          onSearchRequestClose={() => setIsSearchOpen(false)}
-          onGrepRequestClose={() => setIsGrepOpen(false)}
-          onSearchActiveChange={setIsSearchActive}
-          onGrepActiveChange={setIsGrepActive}
-        />
+          <ExplorerTreeList
+            rootPath={rootPath}
+            tree={tree}
+            onOpenFile={onOpenFile}
+            onRevealInTerminal={onRevealInTerminal}
+            onAttachToAgent={onAttachToAgent}
+            onPreviewInBrowser={onPreviewInBrowser}
+            selectedPath={selectedPath}
+            onSelectPath={setSelectedPath}
+            searchRef={searchRef}
+            grepRef={grepRef}
+            listRef={listRef}
+            isSearchOpen={isSearchOpen}
+            isGrepOpen={isGrepOpen}
+            isSearchActive={isSearchActive}
+            isGrepActive={isGrepActive}
+            onSearchRequestClose={() => setIsSearchOpen(false)}
+            onGrepRequestClose={() => setIsGrepOpen(false)}
+            onSearchActiveChange={setIsSearchActive}
+            onGrepActiveChange={setIsGrepActive}
+          />
         </GitDecorationsProvider>
       )}
     </div>

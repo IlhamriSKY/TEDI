@@ -29,15 +29,6 @@ import { newSnippetId, useSnippetsStore } from "@/modules/ai/store/snippetsStore
 import { Switch } from "@/components/ui/switch";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setCustomInstructions, setDebugEnabled } from "@/modules/settings/store";
-import {
-  Add01Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Edit02Icon,
-  ArrowReloadHorizontalIcon,
-  SparklesIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
@@ -47,6 +38,7 @@ import { SubagentsCard } from "./components/SubagentsCard";
 import { SkillsCard } from "./components/SkillsCard";
 import { McpServersCard } from "./components/McpServersCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
+import { CircleCheck, Plus, RefreshCw, Sparkles, SquarePen, Trash2 } from "lucide-react";
 
 const ICON_OPTIONS: AgentIconId[] = [
   "coder",
@@ -122,7 +114,7 @@ export function AgentsSection() {
               })
             }
           >
-            <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+            <Plus size={12} strokeWidth={1.75} />
             New agent
           </Button>
         </div>
@@ -189,7 +181,7 @@ export function AgentsSection() {
                 })
               }
             >
-              <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+              <Plus size={12} strokeWidth={1.75} />
               New snippet
             </Button>
           </div>
@@ -204,7 +196,7 @@ export function AgentsSection() {
               {snippets.map((s) => (
                 <li
                   key={s.id}
-                  className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2"
+                  className="border-border/60 bg-card flex items-center gap-2 rounded-lg border px-3 py-2"
                 >
                   <code className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">
                     #{s.handle}
@@ -225,7 +217,7 @@ export function AgentsSection() {
                       onClick={() => setEditingSnippet(s)}
                       aria-label="Edit"
                     >
-                      <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                      <SquarePen size={12} strokeWidth={1.75} />
                     </Button>
                   </IconTooltip>
                   <IconTooltip label="Delete" side="left">
@@ -242,7 +234,7 @@ export function AgentsSection() {
                       }
                       aria-label="Delete"
                     >
-                      <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                      <Trash2 size={12} strokeWidth={1.75} />
                     </Button>
                   </IconTooltip>
                 </li>
@@ -350,11 +342,11 @@ function AgentCard({
   onDelete: (() => void) | null;
   onReset: (() => void) | null;
 }) {
-  const Icon = AGENT_ICONS[agent.icon] ?? SparklesIcon;
+  const Icon = AGENT_ICONS[agent.icon] ?? Sparkles;
   return (
     <div
       className={cn(
-        "group bg-card/60 relative flex flex-col gap-1.5 rounded-lg border px-3 py-2.5 transition-colors",
+        "group bg-card relative flex flex-col gap-1.5 rounded-lg border px-3 py-2.5 transition-colors",
         active
           ? "border-foreground/30 ring-foreground/10 ring-1"
           : "border-border/60 hover:border-border",
@@ -362,7 +354,7 @@ function AgentCard({
     >
       <div className="flex items-start gap-2">
         <div className="bg-muted/40 flex size-7 shrink-0 items-center justify-center rounded-md">
-          <HugeiconsIcon icon={Icon} size={14} strokeWidth={1.5} />
+          <Icon size={14} strokeWidth={1.5} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-1.5 text-[12.5px] font-medium">
@@ -392,7 +384,7 @@ function AgentCard({
         >
           {active ? (
             <>
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={10} strokeWidth={2} />
+              <CircleCheck size={10} strokeWidth={2} />
               Active
             </>
           ) : (
@@ -409,7 +401,7 @@ function AgentCard({
                 onClick={onEdit}
                 aria-label="Edit"
               >
-                <HugeiconsIcon icon={Edit02Icon} size={11} strokeWidth={1.75} />
+                <SquarePen size={11} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           ) : null}
@@ -422,7 +414,7 @@ function AgentCard({
                 onClick={onReset}
                 aria-label="Reset"
               >
-                <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={11} strokeWidth={1.75} />
+                <RefreshCw size={11} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           ) : null}
@@ -435,7 +427,7 @@ function AgentCard({
                 onClick={onDelete}
                 aria-label="Delete"
               >
-                <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
+                <Trash2 size={11} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           ) : null}
@@ -479,7 +471,7 @@ function AgentEditorDialog({
               <Label>Icon</Label>
               <div className="flex flex-wrap gap-1">
                 {ICON_OPTIONS.map((id) => {
-                  const Icon = AGENT_ICONS[id] ?? SparklesIcon;
+                  const Icon = AGENT_ICONS[id] ?? Sparkles;
                   const active = draft.icon === id;
                   return (
                     <button
@@ -488,12 +480,10 @@ function AgentEditorDialog({
                       onClick={() => setDraft({ ...draft, icon: id })}
                       className={cn(
                         "flex size-7 cursor-pointer items-center justify-center rounded-md border transition-colors",
-                        active
-                          ? "border-accent bg-accent"
-                          : "border-border/60 hover:bg-accent/40",
+                        active ? "border-accent bg-accent" : "border-border/60 hover:bg-accent/40",
                       )}
                     >
-                      <HugeiconsIcon icon={Icon} size={13} strokeWidth={1.75} />
+                      <Icon size={13} strokeWidth={1.75} />
                     </button>
                   );
                 })}
@@ -673,7 +663,7 @@ function CustomInstructionsBlock({ value }: { value: string }) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder="e.g. Always reply in concise bullet points. Prefer pnpm over npm. My machine is an M-series Mac."
-        className="bg-card/60 border-border min-h-[112px] resize-y border font-sans text-[12px] leading-relaxed"
+        className="bg-background border-border min-h-[112px] resize-y border font-sans text-[12px] leading-relaxed"
       />
     </div>
   );

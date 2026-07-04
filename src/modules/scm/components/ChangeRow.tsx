@@ -1,36 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { ArrowTurnBackwardIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { basename } from "@/lib/path";
+import { basename, dirname } from "@/lib/path";
 import { cn } from "@/lib/utils";
-import type { GitChange, GitChangeStatus } from "../types";
-
-const STATUS_LETTER: Record<GitChangeStatus, string> = {
-  modified: "M",
-  added: "A",
-  deleted: "D",
-  renamed: "R",
-  copied: "C",
-  untracked: "U",
-  conflicted: "!",
-  ignored: "I",
-};
-
-const STATUS_TONE: Record<GitChangeStatus, string> = {
-  modified: "text-icon-working",
-  added: "text-diff-added",
-  deleted: "text-diff-removed",
-  renamed: "text-info",
-  copied: "text-info",
-  untracked: "text-diff-added",
-  conflicted: "text-destructive",
-  ignored: "text-muted-foreground",
-};
-
-function dirname(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i <= 0 ? "" : p.slice(0, i);
-}
+import type { GitChange } from "../types";
+import { STATUS_LETTER, STATUS_TONE } from "../statusMeta";
+import { CornerUpLeft } from "lucide-react";
 
 type RowProps = {
   change: GitChange;
@@ -87,7 +60,7 @@ export function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
             }}
             aria-label="Discard file"
           >
-            <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={11} strokeWidth={2} />
+            <CornerUpLeft size={11} strokeWidth={2} />
           </Button>
         </span>
       </div>

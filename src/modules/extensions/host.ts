@@ -5,8 +5,7 @@
 
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { onHugeIconsReady, tryGetHugeIcon } from "@/lib/hugeIconsBarrel";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { onIconsReady, resolveExtIcon } from "@/lib/iconRegistry";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@/components/ui/toast";
@@ -216,10 +215,10 @@ export type ExtensionContext = {
      *  owns. No permission required: read-only render, click-to-open routes
      *  through the same workspace bridge as the built-in explorer. */
     mountFolderTree(container: HTMLElement, options: MountFolderTreeOptions): MountedFolderTree;
-    /** Returns a `<span>` with a HugeIcon mounted inside via React. `name`
-     *  is the `@hugeicons/core-free-icons` export id (for example
-     *  `"Add01Icon"`, `"Database01Icon"`). Unknown names render an empty
-     *  span and log a warning. No permission required.
+    /** Returns a `<span>` with a Lucide icon mounted inside via React. `name`
+     *  is a Lucide icon name (for example `"Plus"`, `"Database"`); a bare name
+     *  or a `lucide:`/legacy `hugeicon:` prefixed ref both resolve. Unknown
+     *  names render an empty span and log a warning. No permission required.
      *
      *  Each call spawns a fresh React root; for high-frequency rendering,
      *  cache one element and `.cloneNode(true)` it. All roots created
@@ -415,7 +414,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   };
 
   // React roots minted by `ctx.ui.icon`. Unmounted en masse on deactivate
-  // so HugeIcon mounts do not leak across enable/disable cycles. Pushed
+  // so icon mounts do not leak across enable/disable cycles. Pushed
   // here, which lands the disposer near the start of `disposers`; reverse
   // iteration during teardown then runs it last, after panel-renderer
   // cleanups whose own DOM trees may hold the icon spans.
@@ -603,30 +602,31 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         span.style.display = "inline-flex";
         span.style.alignItems = "center";
         span.style.justifyContent = "center";
-        // The HugeIcons barrel is lazy-loaded so it doesn't bloat the main
-        // chunk. If an extension calls `icon()` before the barrel lands,
-        // we return the empty span now and mount the icon once the chunk
-        // arrives; if it's already cached, the mount runs synchronously.
+        // Lucide is lazy-loaded (its own chunk) so it doesn't bloat the main
+        // bundle. If an extension calls `icon()` before the chunk lands, we
+        // return the empty span now and mount the icon once it arrives; if it's
+        // already cached, the mount runs synchronously. Bare names are treated
+        // as legacy `hugeicon:` refs for backward compatibility.
+        const ref = name.includes(":") ? name : `hugeicon:${name}`;
         const mount = () => {
-          const iconValue = tryGetHugeIcon(name);
-          if (!iconValue) {
-            console.warn(`[ext:${ext.id}] unknown HugeIcon: ${name}`);
+          const IconCmp = resolveExtIcon(ref);
+          if (!IconCmp) {
+            console.warn(`[ext:${ext.id}] unknown icon: ${name}`);
             return;
           }
           const root = createRoot(span);
           iconRoots.add(root);
           root.render(
-            createElement(HugeiconsIcon, {
-              icon: iconValue,
+            createElement(IconCmp, {
               size: opts?.size ?? 15,
               strokeWidth: opts?.strokeWidth ?? 1.75,
             }),
           );
         };
-        if (tryGetHugeIcon(name)) {
+        if (resolveExtIcon(ref)) {
           mount();
         } else {
-          const unsub = onHugeIconsReady(() => {
+          const unsub = onIconsReady(() => {
             mount();
             unsub();
           });
@@ -638,32 +638,32 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     statusBar: {
       setItem(item: StatusItem) {
         requirePermission(ext.id, declared, "statusbar:write");
-        statusItemsRegistry.setItem(ext.id, item);
+        statusItemsRegistry.set(ext.id, item);
       },
       removeItem(itemId: string) {
         // No permission check: an extension can always remove its own item,
         // even after a revoke.
-        statusItemsRegistry.removeItem(ext.id, itemId);
+        statusItemsRegistry.remove(ext.id, itemId);
       },
     },
     headerBar: {
       setItem(item: HeaderItem) {
         requirePermission(ext.id, declared, "headerbar:write");
-        headerItemsRegistry.setItem(ext.id, item);
+        headerItemsRegistry.set(ext.id, item);
       },
       removeItem(itemId: string) {
-        headerItemsRegistry.removeItem(ext.id, itemId);
+        headerItemsRegistry.remove(ext.id, itemId);
       },
     },
     sidebar: {
       setSection(section: SidebarSection) {
         requirePermission(ext.id, declared, "sidebar:write");
-        sidebarSectionsRegistry.setSection(ext.id, section);
+        sidebarSectionsRegistry.set(ext.id, section);
       },
       removeSection(sectionId: string) {
         // No permission check: an extension can always remove its own section,
         // even after a revoke (mirrors statusBar/headerBar removeItem).
-        sidebarSectionsRegistry.removeSection(ext.id, sectionId);
+        sidebarSectionsRegistry.remove(ext.id, sectionId);
       },
     },
     editor: {

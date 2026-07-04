@@ -6,14 +6,13 @@ import type { AiDiffStatus } from "@/modules/tabs";
 import { presentableDiff, unifiedMergeView } from "@codemirror/merge";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Extension } from "@codemirror/state";
 import { buildSharedExtensions, languageCompartment } from "./lib/extensions";
 import { resolveLanguage } from "./lib/languageResolver";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
+import { Check, X } from "lucide-react";
 
 type Props = {
   path: string;
@@ -179,7 +178,7 @@ export function AiDiffPane({
         {status === "pending" ? (
           <div className="flex shrink-0 items-center gap-1.5">
             <Button size="sm" variant="default" onClick={onAccept} className="h-7 gap-1.5">
-              <HugeiconsIcon icon={Tick02Icon} size={13} strokeWidth={2} />
+              <Check size={13} strokeWidth={2} />
               Accept
             </Button>
             <Button
@@ -188,7 +187,7 @@ export function AiDiffPane({
               onClick={onReject}
               className="hover:bg-destructive/10 hover:text-destructive h-7 gap-1.5"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+              <X size={13} strokeWidth={2} />
               Reject
             </Button>
           </div>

@@ -1,10 +1,9 @@
 import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 
 function AlertDialog({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
@@ -67,7 +66,7 @@ function AlertDialogContent({
               className="bg-secondary hover:bg-destructive/10 hover:text-destructive absolute top-4 right-4 z-10"
               size="icon-sm"
             >
-              <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+              <X strokeWidth={2} />
               <span className="sr-only">Close</span>
             </Button>
           </AlertDialogPrimitive.Cancel>

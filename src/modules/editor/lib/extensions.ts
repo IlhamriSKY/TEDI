@@ -15,14 +15,9 @@ import { colorDecorations, colorLinesField } from "./colorDecorations";
 
 // Compartments for runtime reconfigure without rebuilding state.
 export const languageCompartment = new Compartment();
-export const readOnlyCompartment = new Compartment();
 export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
 export const minimapCompartment = new Compartment();
-
-export function buildMinimapExtension(): Extension {
-  return minimapExtension();
-}
 
 // VS Code-style fold gutter. Chevrons hide until hover; folded markers
 // stay visible so collapsed sections are obvious.
@@ -35,7 +30,7 @@ function makeFoldMarker(open: boolean): HTMLElement {
   return span;
 }
 
-function minimapExtension(): Extension {
+export function minimapExtension(): Extension {
   // Deps: "doc" re-parses on edits; "language" recomputes after async
   // `resolveLanguage` reconfigures the compartment, so the first paint
   // isn't stuck uncolored until the next keystroke.

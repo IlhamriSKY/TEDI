@@ -595,10 +595,6 @@ async fn dispatch(
                 let _ = tx.send(DaemonMsg::Err { req_id, message: e }).await;
             }
         },
-        ClientMsg::Detach { req_id, session_id } => {
-            detach_session(state, client_id, session_id);
-            let _ = tx.send(DaemonMsg::Ok { req_id }).await;
-        }
         ClientMsg::Write {
             req_id,
             session_id,
@@ -644,12 +640,6 @@ async fn dispatch(
                 close_session(state, id);
             }
             let _ = tx.send(DaemonMsg::Ok { req_id }).await;
-        }
-        ClientMsg::Shutdown { req_id } => {
-            let _ = tx.send(DaemonMsg::Ok { req_id }).await;
-            state.shutdown_requested.store(true, Ordering::Release);
-            // Connect once to wake accept().
-            let _ = super::transport::connect_to_daemon();
         }
     }
 }
@@ -787,14 +777,6 @@ fn attach_session(
     subs.retain(|(cid, _)| *cid != client_id);
     subs.push((client_id, client_tx));
     Ok((scrollback_b64, alive))
-}
-
-fn detach_session(state: &Arc<DaemonState>, client_id: Uuid, session_id: Uuid) {
-    let Some(shell) = state.sessions.read().unwrap().get(&session_id).cloned() else {
-        return;
-    };
-    let mut subs = shell.subscribers.lock_or_recover();
-    subs.retain(|(cid, _)| *cid != client_id);
 }
 
 fn write_session(state: &Arc<DaemonState>, session_id: Uuid, data_b64: &str) -> Result<(), String> {

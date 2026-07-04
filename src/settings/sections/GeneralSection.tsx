@@ -39,14 +39,6 @@ import { CONTENT_FONT_OPTIONS } from "@/lib/fonts";
 import { previewNotificationSound } from "@/lib/blockingBeep";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
-import {
-  ArrowDown01Icon,
-  ComputerIcon,
-  Download04Icon,
-  Moon02Icon,
-  Sun03Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "react";
@@ -56,6 +48,7 @@ import { SettingRow } from "../components/SettingRow";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
 import { UploadButton } from "../components/UploadButton";
+import { ChevronDown, Download, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 
 type ShimInstallResult =
   | { status: "installed"; path: string; target: string; on_path: boolean }
@@ -64,11 +57,11 @@ type ShimInstallResult =
 const APPEARANCE: {
   id: ThemePref;
   label: string;
-  icon: typeof ComputerIcon;
+  icon: LucideIcon;
 }[] = [
-  { id: "system", label: "System", icon: ComputerIcon },
-  { id: "light", label: "Light", icon: Sun03Icon },
-  { id: "dark", label: "Dark", icon: Moon02Icon },
+  { id: "system", label: "System", icon: Monitor },
+  { id: "light", label: "Light", icon: Sun },
+  { id: "dark", label: "Dark", icon: Moon },
 ];
 
 export function GeneralSection() {
@@ -159,22 +152,25 @@ export function GeneralSection() {
       <div className="flex flex-col gap-2">
         <Label>Appearance</Label>
         <div className="grid grid-cols-3 gap-2">
-          {APPEARANCE.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => setTheme(o.id)}
-              className={cn(
-                "group bg-card flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border transition-all",
-                theme === o.id
-                  ? "border-foreground/60 ring-foreground/20 ring-1"
-                  : "border-border/60 hover:border-border",
-              )}
-            >
-              <HugeiconsIcon icon={o.icon} size={18} strokeWidth={1.5} />
-              <span className="text-[11.5px]">{o.label}</span>
-            </button>
-          ))}
+          {APPEARANCE.map((o) => {
+            const Icon = o.icon;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setTheme(o.id)}
+                className={cn(
+                  "group bg-card flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border transition-all",
+                  theme === o.id
+                    ? "border-foreground/60 ring-foreground/20 ring-1"
+                    : "border-border/60 hover:border-border",
+                )}
+              >
+                <Icon size={18} strokeWidth={1.5} />
+                <span className="text-[11.5px]">{o.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -236,12 +232,7 @@ export function GeneralSection() {
                 <span>
                   {CONTENT_FONT_OPTIONS.find((o) => o.id === fontFamily)?.label ?? "System default"}
                 </span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-52">
@@ -293,12 +284,7 @@ export function GeneralSection() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{terminalFontSize} px</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-25">
@@ -322,12 +308,7 @@ export function GeneralSection() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{terminalScrollback.toLocaleString()} lines</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-25">
@@ -366,12 +347,7 @@ export function GeneralSection() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
                 <span>{searchEngineById(searchEngine).label}</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-40">
@@ -446,7 +422,7 @@ export function GeneralSection() {
                 disabled={shimBusy}
                 onClick={() => void onInstallShim()}
               >
-                <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
+                <Download size={12} strokeWidth={1.75} />
                 {shimBusy ? "Installing…" : "Install"}
               </Button>
             </SettingRow>

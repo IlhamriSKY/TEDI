@@ -1,7 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Cancel01Icon, Clock01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
+import { Clock, X } from "lucide-react";
 
 export function QueueRow({
   queue,
@@ -13,12 +12,7 @@ export function QueueRow({
   if (queue.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <HugeiconsIcon
-        icon={Clock01Icon}
-        size={10}
-        strokeWidth={2}
-        className="text-muted-foreground shrink-0"
-      />
+      <Clock size={10} strokeWidth={2} className="text-muted-foreground shrink-0" />
       <AnimatePresence initial={false}>
         {queue.map((q) => (
           <Tooltip key={q.id}>
@@ -38,7 +32,7 @@ export function QueueRow({
                   className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   aria-label="Remove from queue"
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                  <X size={10} strokeWidth={2} />
                 </button>
               </motion.div>
             </TooltipTrigger>

@@ -300,6 +300,24 @@ pub fn install_from_bytes_with_progress(
 /// `<segment>/manifest.json` exists (e.g. GitHub release archives), that
 /// prefix is stripped on extract.
 ///
+/// Fold a relative path the way case-insensitive / trailing-dot-and-space
+/// stripping filesystems (Windows, default macOS) resolve names, so
+/// `manifest.json`, `Manifest.json`, and `manifest.json.` collapse to one key.
+/// Applied on every platform so the duplicate-entry anti-spoofing guard stays
+/// fail-closed regardless of the host filesystem's case behavior.
+fn fold_zip_path(rel: &Path) -> String {
+    rel.components()
+        .map(|c| {
+            c.as_os_str()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .trim_end_matches(['.', ' '])
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// `progress.file(i, total, path)` is called for every successfully-written
 /// file (not directories). `total` is `archive.len()` so callers can derive
 /// a percentage even though directories don't tick the counter.
@@ -323,7 +341,11 @@ fn extract_into(
     // crafted zip with two `manifest.json` (or two `main` scripts) could
     // therefore show a benign manifest in the review dialog yet install a
     // different, malicious one. Refusing duplicate paths closes that gap.
-    let mut seen_files: HashSet<PathBuf> = HashSet::new();
+    // Reject entries that fold to a path already seen (see `fold_zip_path`):
+    // the duplicate-entry guard must survive case-insensitive / dot-stripping
+    // filesystems, else a `Manifest.json` beside `manifest.json` spoofs the
+    // review dialog and collides on disk.
+    let mut seen_files: HashSet<String> = HashSet::new();
     for i in 0..total_entries {
         let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
         let Some(raw_path) = entry.enclosed_name() else {
@@ -363,7 +385,7 @@ fn extract_into(
 
         // Duplicate file paths are a manifest-spoofing vector (see note above
         // the loop). Reject before writing anything.
-        if !seen_files.insert(rel.clone()) {
+        if !seen_files.insert(fold_zip_path(&rel)) {
             return Err(format!("duplicate zip entry: {}", rel.display()));
         }
 
@@ -671,4 +693,34 @@ fn read_entry(
         return Ok(Some(buf));
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fold_zip_path;
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    #[test]
+    fn fold_collapses_manifest_spoofing_variants() {
+        // Case, trailing dot, and trailing space all fold to the same key, so
+        // a zip pairing a benign `manifest.json` with any of these is caught
+        // by the duplicate-entry guard on case-folding filesystems.
+        let base = fold_zip_path(Path::new("manifest.json"));
+        for spoof in ["Manifest.json", "MANIFEST.JSON", "manifest.json.", "manifest.json "] {
+            assert_eq!(base, fold_zip_path(Path::new(spoof)), "{spoof} must fold to manifest.json");
+        }
+        // Distinct files stay distinct; nested paths fold per component.
+        assert_ne!(base, fold_zip_path(Path::new("main.js")));
+        assert_eq!(
+            fold_zip_path(Path::new("Src/Index.JS")),
+            fold_zip_path(Path::new("src/index.js"))
+        );
+
+        // The guard as used in extract_into: a HashSet keyed on the fold rejects
+        // the spoofing pair.
+        let mut seen: HashSet<String> = HashSet::new();
+        assert!(seen.insert(fold_zip_path(Path::new("manifest.json"))));
+        assert!(!seen.insert(fold_zip_path(Path::new("Manifest.json"))));
+    }
 }

@@ -4,6 +4,7 @@
  * widening the Tauri asset-protocol scope. 5 MiB cap enforced in Rust.
  * Cached by `${extId}:${relPath}` at module scope; cleared on page reload.
  */
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 const cache = new Map<string, string>();
@@ -56,4 +57,39 @@ export function evictExtensionIcon(extId: string): void {
   for (const key of [...cache.keys()]) {
     if (key.startsWith(`${extId}:`)) cache.delete(key);
   }
+}
+
+/**
+ * Resolves an extension `icon` string to a renderable URL. `null`/`undefined`
+ * (and empty string) short-circuit to `null`; a `data:` URL passes through;
+ * anything else is loaded via `loadExtensionIcon` relative to the extension's
+ * install root, with an `alive` guard so a resolved-after-unmount promise is
+ * ignored. Shared by the header, status-bar, sidebar-section, and right-panel
+ * icon renderers.
+ */
+export function useResolvedExtensionIcon(
+  extensionId: string,
+  icon: string | null | undefined,
+): string | null {
+  const [url, setUrl] = useState<string | null>(() =>
+    icon && icon.startsWith("data:") ? icon : null,
+  );
+  useEffect(() => {
+    if (!icon) {
+      setUrl(null);
+      return;
+    }
+    if (icon.startsWith("data:")) {
+      setUrl(icon);
+      return;
+    }
+    let alive = true;
+    void loadExtensionIcon(extensionId, icon).then((next) => {
+      if (alive) setUrl(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [extensionId, icon]);
+  return url;
 }

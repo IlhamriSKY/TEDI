@@ -14,8 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { basename } from "@/lib/path";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
@@ -25,6 +23,7 @@ import { ChangeRow } from "./components/ChangeRow";
 import { CommitBox } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
 import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
+import { X } from "lucide-react";
 
 type Props = {
   rootPath: string | null;
@@ -419,7 +418,7 @@ export function SourceControlPanel({
                 onClick={onClose}
                 aria-label="Close Source Control panel"
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+                <X size={12} strokeWidth={2} />
               </Button>
             </IconTooltip>
           </div>
@@ -446,84 +445,84 @@ export function SourceControlPanel({
       />
 
       {collapsed ? null : (
-      <>
-      {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
+        <>
+          {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
-      <Separator className="bg-border" />
+          <Separator className="bg-border" />
 
-      {!status?.isRepo ? (
-        <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-          Not a git repository.
-        </div>
-      ) : historyOnly ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <GitGraphView
-            rootPath={status.root}
-            isRepo={status.isRepo}
-            refreshToken={graphRefreshToken}
-            anchorMode="mouse"
-            onOpenDiff={onOpenDiff}
-          />
-        </div>
-      ) : (
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as "changes" | "graph")}
-          className="flex min-h-0 flex-1 flex-col gap-0"
-        >
-          <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
-            <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-              Changes
-            </TabsTrigger>
-            <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-              History
-            </TabsTrigger>
-          </TabsList>
+          {!status?.isRepo ? (
+            <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
+              Not a git repository.
+            </div>
+          ) : historyOnly ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <GitGraphView
+                rootPath={status.root}
+                isRepo={status.isRepo}
+                refreshToken={graphRefreshToken}
+                anchorMode="mouse"
+                onOpenDiff={onOpenDiff}
+              />
+            </div>
+          ) : (
+            <Tabs
+              value={tab}
+              onValueChange={(v) => setTab(v as "changes" | "graph")}
+              className="flex min-h-0 flex-1 flex-col gap-0"
+            >
+              <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
+                <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  Changes
+                </TabsTrigger>
+                <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  History
+                </TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
-            <CommitBox
-              status={status}
-              message={message}
-              setMessage={setMessage}
-              changeCount={sorted.length}
-              busy={busy}
-              doCommit={doCommit}
-              doGenerate={doGenerate}
-              doPush={doPush}
-            />
+              <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
+                <CommitBox
+                  status={status}
+                  message={message}
+                  setMessage={setMessage}
+                  changeCount={sorted.length}
+                  busy={busy}
+                  doCommit={doCommit}
+                  doGenerate={doGenerate}
+                  doPush={doPush}
+                />
 
-            {sorted.length === 0 ? (
-              <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-                No changes.
-              </div>
-            ) : (
-              <ScrollArea className="min-h-0 flex-1">
-                <ul className="py-0.5">
-                  {sorted.map((c) => (
-                    <ChangeRow
-                      key={c.relative + ":" + c.status}
-                      change={c}
-                      onClickDiff={() => openDiff(c)}
-                      onDiscard={() => setConfirmOne(c)}
-                    />
-                  ))}
-                </ul>
-              </ScrollArea>
-            )}
-          </TabsContent>
+                {sorted.length === 0 ? (
+                  <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
+                    No changes.
+                  </div>
+                ) : (
+                  <ScrollArea className="min-h-0 flex-1">
+                    <ul className="py-0.5">
+                      {sorted.map((c) => (
+                        <ChangeRow
+                          key={c.relative + ":" + c.status}
+                          change={c}
+                          onClickDiff={() => openDiff(c)}
+                          onDiscard={() => setConfirmOne(c)}
+                        />
+                      ))}
+                    </ul>
+                  </ScrollArea>
+                )}
+              </TabsContent>
 
-          <TabsContent value="graph" className="flex min-h-0 flex-1 flex-col">
-            <GitGraphView
-              rootPath={status.root}
-              isRepo={status.isRepo}
-              refreshToken={graphRefreshToken}
-              anchorMode="row"
-              onOpenDiff={onOpenDiff}
-            />
-          </TabsContent>
-        </Tabs>
-      )}
-      </>
+              <TabsContent value="graph" className="flex min-h-0 flex-1 flex-col">
+                <GitGraphView
+                  rootPath={status.root}
+                  isRepo={status.isRepo}
+                  refreshToken={graphRefreshToken}
+                  anchorMode="row"
+                  onOpenDiff={onOpenDiff}
+                />
+              </TabsContent>
+            </Tabs>
+          )}
+        </>
       )}
 
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>

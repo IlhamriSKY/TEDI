@@ -1,26 +1,26 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-  Copy01Icon,
-  Delete02Icon,
-  Edit02Icon,
-  EyeIcon,
-  FileEditIcon,
-  FilePlusIcon,
-  Folder01Icon,
-  FolderAddIcon,
-  GlobalSearchIcon,
-  Move01Icon,
-  SearchReplaceIcon,
-  TerminalIcon,
-  Tick02Icon,
-  ToolsIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { ToolUIPart } from "ai";
 import { memo } from "react";
 import { applyShellTransformers } from "../tools/shell";
+import {
+  Check,
+  Copy,
+  Eye,
+  FilePen,
+  FilePlus,
+  Folder,
+  FolderPlus,
+  Move,
+  Replace,
+  Search,
+  SquarePen,
+  Terminal,
+  Trash2,
+  Wrench,
+  X,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 type Props = {
   part: Extract<ToolUIPart, { state: "approval-requested" }>;
@@ -28,39 +28,34 @@ type Props = {
   onRespond: (approved: boolean) => void;
 };
 
-const TOOL_META: Record<string, { label: string; icon: typeof FilePlusIcon }> = {
-  write_file: { label: "Write file", icon: FilePlusIcon },
-  edit: { label: "Edit file", icon: FileEditIcon },
-  multi_edit: { label: "Edit file (batch)", icon: Edit02Icon },
-  create_directory: { label: "Create directory", icon: FolderAddIcon },
-  move_file: { label: "Move / rename", icon: Move01Icon },
-  copy_file: { label: "Copy", icon: Copy01Icon },
-  delete_file: { label: "Delete", icon: Delete02Icon },
-  bash_run: { label: "Run shell command", icon: TerminalIcon },
-  bash_background: { label: "Spawn background process", icon: TerminalIcon },
-  replace_in_files: { label: "Replace across files", icon: SearchReplaceIcon },
-  read_file: { label: "Read file (outside workspace)", icon: EyeIcon },
-  list_directory: { label: "List directory (outside workspace)", icon: Folder01Icon },
-  grep: { label: "Search (outside workspace)", icon: GlobalSearchIcon },
-  glob: { label: "Find files (outside workspace)", icon: GlobalSearchIcon },
+const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
+  write_file: { label: "Write file", icon: FilePlus },
+  edit: { label: "Edit file", icon: FilePen },
+  multi_edit: { label: "Edit file (batch)", icon: SquarePen },
+  create_directory: { label: "Create directory", icon: FolderPlus },
+  move_file: { label: "Move / rename", icon: Move },
+  copy_file: { label: "Copy", icon: Copy },
+  delete_file: { label: "Delete", icon: Trash2 },
+  bash_run: { label: "Run shell command", icon: Terminal },
+  bash_background: { label: "Spawn background process", icon: Terminal },
+  replace_in_files: { label: "Replace across files", icon: Replace },
+  read_file: { label: "Read file (outside workspace)", icon: Eye },
+  list_directory: { label: "List directory (outside workspace)", icon: Folder },
+  grep: { label: "Search (outside workspace)", icon: Search },
+  glob: { label: "Find files (outside workspace)", icon: Search },
 };
 
 function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   const meta = TOOL_META[toolName];
   const label = meta?.label ?? toolName;
-  const Icon = meta?.icon ?? ToolsIcon;
+  const Icon = meta?.icon ?? Wrench;
   const input = part.input as Record<string, unknown>;
 
   return (
     <div className="border-border bg-card rounded-lg border shadow-sm">
       <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
         <span className="bg-icon-working size-1.5 shrink-0 animate-pulse rounded-full" />
-        <HugeiconsIcon
-          icon={Icon}
-          size={13}
-          strokeWidth={1.75}
-          className="text-muted-foreground shrink-0"
-        />
+        <Icon size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
         <span className="text-foreground text-[12px] font-medium">{label}</span>
         <span className="text-muted-foreground ml-auto text-[10px]">needs approval</span>
       </div>
@@ -76,7 +71,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
           onClick={() => onRespond(false)}
           className="hover:bg-destructive/10 hover:text-destructive h-7 gap-1.5 text-[11px]"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+          <X size={12} strokeWidth={2} />
           Deny
         </Button>
         <Button
@@ -85,7 +80,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
           onClick={() => onRespond(true)}
           className="h-7 gap-1.5 text-[11px]"
         >
-          <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2} />
+          <Check size={12} strokeWidth={2} />
           Approve
         </Button>
       </div>

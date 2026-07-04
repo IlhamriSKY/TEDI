@@ -1,6 +1,6 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { AlertCircleIcon, Download04Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { formatBytes } from "@/lib/format";
+import { CircleAlert, Download, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useUpdater } from "../lib/useUpdater";
 import { UpdaterDialog } from "./UpdaterDialog";
@@ -41,10 +41,10 @@ export function UpdaterPill() {
 
   const Icon =
     updater.state.kind === "ready"
-      ? RefreshIcon
+      ? RefreshCw
       : updater.state.kind === "error"
-        ? AlertCircleIcon
-        : Download04Icon;
+        ? CircleAlert
+        : Download;
 
   const isError = updater.state.kind === "error";
   const pillClass = isError
@@ -78,7 +78,7 @@ export function UpdaterPill() {
             aria-label={label}
             className={`inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
           >
-            <HugeiconsIcon icon={Icon} size={11} strokeWidth={1.75} className="shrink-0" />
+            <Icon size={11} strokeWidth={1.75} className="shrink-0" />
             <span className="truncate">{pillLabel}</span>
           </button>
         </IconTooltip>
@@ -99,10 +99,4 @@ function formatProgress(received: number, total: number | null): string {
   if (!total || total <= 0) return formatBytes(received);
   const pct = Math.min(100, Math.floor((received / total) * 100));
   return `${pct}%`;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

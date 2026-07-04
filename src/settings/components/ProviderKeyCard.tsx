@@ -5,17 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn, maskKey } from "@/lib/utils";
 import type { ProviderInfo } from "@/modules/ai/config";
-import {
-  Cancel01Icon,
-  CheckmarkCircle02Icon,
-  Edit02Icon,
-  ViewIcon,
-  ViewOffSlashIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "./ProviderIcon";
+import { CircleCheck, Eye, EyeOff, SquarePen, X } from "lucide-react";
 
 type Props = {
   provider: ProviderInfo;
@@ -67,9 +60,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
 
   return (
     <div
-      className={cn(
-        "border-border/60 bg-card/60 flex flex-col gap-2 rounded-lg border px-3 py-2.5",
-      )}
+      className={cn("border-border/60 bg-card flex flex-col gap-2 rounded-lg border px-3 py-2.5")}
     >
       <div className="flex items-center gap-2">
         <ProviderIcon provider={provider.id} size={16} />
@@ -79,7 +70,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
             variant="outline"
             className="border-diff-added/40 bg-diff-added/10 text-diff-added ml-1 h-4 gap-1 px-1.5 text-[10px]"
           >
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
+            <CircleCheck size={9} strokeWidth={2} />
             Configured
           </Badge>
         ) : null}
@@ -121,11 +112,11 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
               aria-label={reveal ? "Hide key" : "Show key"}
             >
-              <HugeiconsIcon
-                icon={reveal ? ViewOffSlashIcon : ViewIcon}
-                size={12}
-                strokeWidth={1.75}
-              />
+              {reveal ? (
+                <EyeOff size={12} strokeWidth={1.75} />
+              ) : (
+                <Eye size={12} strokeWidth={1.75} />
+              )}
             </button>
           </div>
           {error ? <p className="text-destructive text-[10.5px]">{error}</p> : null}
@@ -165,7 +156,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               aria-label="Replace"
               className="size-7"
             >
-              <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+              <SquarePen size={12} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
           <IconTooltip label="Remove" side="top">
@@ -176,7 +167,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               aria-label="Remove"
               className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+              <X size={12} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         </div>

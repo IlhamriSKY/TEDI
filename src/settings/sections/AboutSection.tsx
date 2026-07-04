@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { formatBytes } from "@/lib/format";
 import { IS_LINUX } from "@/lib/platform";
 import { fetchLinuxRelease } from "@/modules/updater/lib/useUpdater";
-import { Download04Icon, GithubIcon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { BrandIcon } from "@/components/BrandIcon";
 import { getName, getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { arch, platform } from "@tauri-apps/plugin-os";
@@ -13,6 +13,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingsCard } from "../components/SettingsCard";
+import { Download, RefreshCw } from "lucide-react";
 
 const REPO_URL = "https://github.com/IlhamriSKY/TEDI";
 const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
@@ -84,7 +85,7 @@ export function AboutSection() {
         description="Version, build details, updates, and project links."
       />
 
-      <div className="border-border/60 bg-card/60 flex items-center gap-4 rounded-xl border p-5">
+      <div className="border-border/60 bg-card flex items-center gap-4 rounded-xl border p-5">
         <img src="/icon.png" alt="" className="size-12" draggable={false} />
         <div className="flex min-w-0 flex-col">
           <span className="text-[15px] font-semibold tracking-tight">{name}</span>
@@ -120,7 +121,7 @@ export function AboutSection() {
               onClick={() => void openUrl(REPO_URL)}
               className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
             >
-              <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+              <BrandIcon brand="github" size={12} />
               IlhamriSKY/TEDI
             </button>
           </dd>
@@ -132,7 +133,7 @@ export function AboutSection() {
               onClick={() => void openUrl(UPSTREAM_URL)}
               className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
             >
-              <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+              <BrandIcon brand="github" size={12} />
               crynta/terax-ai
             </button>
           </dd>
@@ -169,14 +170,14 @@ export function AboutSection() {
             {checkState.kind === "checking" ? (
               <Spinner className="size-3" />
             ) : (
-              <HugeiconsIcon icon={RefreshIcon} size={12} strokeWidth={1.75} />
+              <RefreshCw size={12} strokeWidth={1.75} />
             )}
             Check for updates
           </Button>
 
           {checkState.kind === "available" ? (
             <Button size="sm" onClick={onInstall} className="gap-1.5">
-              <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
+              <Download size={12} strokeWidth={1.75} />
               Download & install v{checkState.version}
             </Button>
           ) : null}
@@ -187,14 +188,14 @@ export function AboutSection() {
               onClick={() => void openUrl(checkState.releaseUrl)}
               className="gap-1.5"
             >
-              <HugeiconsIcon icon={Download04Icon} size={12} strokeWidth={1.75} />
+              <Download size={12} strokeWidth={1.75} />
               Download v{checkState.version}
             </Button>
           ) : null}
 
           {checkState.kind === "ready" ? (
             <Button size="sm" onClick={onRestart} className="gap-1.5">
-              <HugeiconsIcon icon={RefreshIcon} size={12} strokeWidth={1.75} />
+              <RefreshCw size={12} strokeWidth={1.75} />
               Restart to apply v{checkState.version}
             </Button>
           ) : null}
@@ -205,7 +206,7 @@ export function AboutSection() {
             onClick={() => void openUrl(REPO_URL)}
             className="gap-1.5"
           >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+            <BrandIcon brand="github" size={12} />
             View on GitHub
           </Button>
           <Button variant="ghost" size="sm" onClick={() => void openUrl(`${REPO_URL}/issues/new`)}>
@@ -288,10 +289,4 @@ function updaterMessage(state: CheckState): string {
     default:
       return "Auto-update checks GitHub Releases every 6 hours.";
   }
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

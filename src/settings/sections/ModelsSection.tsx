@@ -35,8 +35,6 @@ import {
 } from "@/modules/ai/lib/sumopod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { emitKeysChanged, setOpenAICompatibleInstances } from "@/modules/settings/store";
-import { Add01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ProviderKeyCard } from "../components/ProviderKeyCard";
@@ -46,6 +44,7 @@ import { AutocompleteBlock } from "./components/AutocompleteBlock";
 import { DefaultModelDropdown } from "./components/DefaultModelDropdown";
 import type { KeysMap } from "./components/modelsTypes";
 import { OpenAICompatibleBlock } from "./components/OpenAICompatibleBlock";
+import { Plus } from "lucide-react";
 
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
@@ -281,12 +280,7 @@ export function ModelsSection() {
                   size="sm"
                   className="h-8 gap-1.5 rounded-full px-3 text-[11px]"
                 >
-                  <HugeiconsIcon
-                    icon={Add01Icon}
-                    size={12}
-                    strokeWidth={1.75}
-                    className="opacity-80"
-                  />
+                  <Plus size={12} strokeWidth={1.75} className="opacity-80" />
                   Add provider
                 </Button>
               </DropdownMenuTrigger>

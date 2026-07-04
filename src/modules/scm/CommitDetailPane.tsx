@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { basename } from "@/lib/path";
+import { basename, dirname } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { gitCommitDetail } from "./api";
-import type { CommitDetail, CommitFile, GitChangeStatus, OpenDiffInput } from "./types";
+import { STATUS_LETTER, STATUS_TONE } from "./statusMeta";
+import type { CommitDetail, CommitFile, OpenDiffInput } from "./types";
 
 type Props = {
   repoPath: string;
@@ -13,33 +14,6 @@ type Props = {
    *  list is shown read-only (no diff). */
   onOpenDiff?: (input: OpenDiffInput) => void;
 };
-
-const STATUS_LETTER: Record<GitChangeStatus, string> = {
-  modified: "M",
-  added: "A",
-  deleted: "D",
-  renamed: "R",
-  copied: "C",
-  untracked: "U",
-  conflicted: "!",
-  ignored: "I",
-};
-
-const STATUS_TONE: Record<GitChangeStatus, string> = {
-  modified: "text-icon-working",
-  added: "text-diff-added",
-  deleted: "text-diff-removed",
-  renamed: "text-info",
-  copied: "text-info",
-  untracked: "text-diff-added",
-  conflicted: "text-destructive",
-  ignored: "text-muted-foreground",
-};
-
-function dirname(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i <= 0 ? "" : p.slice(0, i);
-}
 
 function formatTime(unix: number): string {
   try {

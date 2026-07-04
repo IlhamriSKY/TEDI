@@ -7,11 +7,11 @@
  * while the owning extension is active, so it appears / disappears with
  * enable / disable.
  *
- * Icon resolution mirrors `ExtensionHeaderItems`: `hugeicon:<Name>` renders a
- * host-native HugeIcon; otherwise the string is treated as a `data:` URL or an
- * `ext-asset:<relPath>` resolved via `loadExtensionIcon`.
+ * Icon resolution mirrors `ExtensionHeaderItems`: `lucide:<Name>` (or legacy
+ * `hugeicon:<Name>`) renders a Lucide icon; otherwise the string is treated as a
+ * `data:` URL or an `ext-asset:<relPath>` resolved via `loadExtensionIcon`.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,22 +20,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Cancel01Icon,
-  DashboardSquare02Icon,
-  Loading03Icon,
-  Search01Icon,
-  SidebarLeft01Icon,
-  SidebarRight01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
 import { explorerIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 
-import { loadExtensionIcon } from "../icon";
+import { useResolvedExtensionIcon } from "../icon";
 import type { SidebarSection, SidebarSectionItem } from "../registries";
 import { useRightPanelStore } from "../rightPanelStore";
 import {
@@ -43,6 +32,16 @@ import {
   sidebarSectionKey,
   useSidebarPlacementStore,
 } from "../sidebarPlacementStore";
+import {
+  ChevronDown,
+  ChevronRight,
+  LayoutDashboard,
+  LoaderCircle,
+  PanelLeft,
+  PanelRight,
+  Search,
+  X,
+} from "lucide-react";
 
 /**
  * Client-side tree filter for a `searchable` section. A node is kept when its
@@ -66,41 +65,9 @@ function filterSidebarItems(list: SidebarSectionItem[], q: string): SidebarSecti
   return out;
 }
 
-/** Strip the `hugeicon:` prefix and resolve against the lazy barrel. Null for
- *  a non-`hugeicon:` string or while the barrel is still loading. */
-function resolveHugeIcon(icon: string | undefined): IconSvgElement | null {
-  if (!icon) return null;
-  const m = icon.match(/^hugeicon:(.+)$/);
-  if (!m) return null;
-  return tryGetHugeIcon(m[1]);
-}
-
-/** Async-resolve a non-`hugeicon:` icon string to a URL (data: passthrough,
- *  else ext asset). */
-function useResolvedIcon(extensionId: string, icon: string): string | null {
-  const [url, setUrl] = useState<string | null>(() => (icon.startsWith("data:") ? icon : null));
-  useEffect(() => {
-    if (!icon) {
-      setUrl(null);
-      return;
-    }
-    if (icon.startsWith("data:")) {
-      setUrl(icon);
-      return;
-    }
-    let alive = true;
-    void loadExtensionIcon(extensionId, icon).then((next) => {
-      if (alive) setUrl(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [extensionId, icon]);
-  return url;
-}
-
-/** One icon, resolving `hugeicon:` first then asset/data URLs. Sized to the
- *  caller's `size`; tints with `currentColor` (HugeIcon) or a mask (SVG asset). */
+/** One icon, resolving a `lucide:`/`hugeicon:` named icon first, then asset/data
+ *  URLs. Sized to the caller's `size`; tints with `currentColor` (Lucide) or a
+ *  mask (SVG asset). */
 function SectionIcon({
   extensionId,
   icon,
@@ -112,19 +79,19 @@ function SectionIcon({
   size: number;
   className?: string;
 }) {
-  // Subscribe so this re-renders once the lazy HugeIcons barrel loads and
-  // resolveHugeIcon() starts returning a value (the boolean isn't needed here).
-  useHugeIconsReady();
+  // Subscribe so this re-renders once the lazy icon chunk loads and
+  // resolveExtIcon() starts returning a component (the boolean isn't needed here).
+  useIconsReady();
   // `fileicon:<name>` resolves against the Catppuccin pack the file tree uses,
   // so SQL Explorer's database/table rows match the folder tree's glyphs.
   const fileIconName = icon?.startsWith("fileicon:") ? icon.slice("fileicon:".length) : null;
   const iconsReady = useExplorerIconsReady();
-  const hugeIcon = fileIconName ? null : resolveHugeIcon(icon);
+  const Icon = fileIconName ? null : resolveExtIcon(icon);
   // Resolve the asset/data URL only when we won't be using a fileicon or
-  // hugeicon (and an `icon` was actually provided). Kept as an unconditional
+  // named icon (and an `icon` was actually provided). Kept as an unconditional
   // hook call (empty string when unused) to preserve hook order.
-  const assetIcon = !fileIconName && !hugeIcon && icon ? icon : "";
-  const iconUrl = useResolvedIcon(extensionId, assetIcon);
+  const assetIcon = !fileIconName && !Icon && icon ? icon : "";
+  const iconUrl = useResolvedExtensionIcon(extensionId, assetIcon);
   if (fileIconName) {
     const url = iconsReady ? explorerIconUrl(fileIconName) : "";
     return url ? (
@@ -137,13 +104,17 @@ function SectionIcon({
         draggable={false}
       />
     ) : (
-      <span className={cn("shrink-0", className)} style={{ width: size, height: size }} aria-hidden />
+      <span
+        className={cn("shrink-0", className)}
+        style={{ width: size, height: size }}
+        aria-hidden
+      />
     );
   }
-  if (hugeIcon) {
+  if (Icon) {
     return (
       <span className={cn("flex shrink-0 items-center justify-center", className)}>
-        <HugeiconsIcon icon={hugeIcon} size={size} strokeWidth={1.75} />
+        <Icon size={size} strokeWidth={1.75} />
       </span>
     );
   }
@@ -159,7 +130,7 @@ function SectionIcon({
           mask: `url("${iconUrl}") center / contain no-repeat`,
           WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
         }}
-        className={cn("bg-current shrink-0", className)}
+        className={cn("shrink-0 bg-current", className)}
       />
     ) : (
       // eslint-disable-next-line react/forbid-dom-props
@@ -176,7 +147,7 @@ function SectionIcon({
   // Fallback: a generic dashboard glyph so the header is never empty.
   return (
     <span className={cn("flex shrink-0 items-center justify-center", className)}>
-      <HugeiconsIcon icon={DashboardSquare02Icon} size={size} strokeWidth={1.75} />
+      <LayoutDashboard size={size} strokeWidth={1.75} />
     </span>
   );
 }
@@ -261,13 +232,13 @@ export function ExtensionSidebarSection({
                 console.error(`[extensions] sidebar toggle "${item.id}" threw`, err);
               }
             }}
-            className="flex size-4 shrink-0 items-center justify-center rounded hover:bg-foreground/10"
+            className="hover:bg-foreground/10 flex size-4 shrink-0 items-center justify-center rounded"
           >
-            <HugeiconsIcon
-              icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon}
-              size={11}
-              strokeWidth={2.25}
-            />
+            {item.expanded ? (
+              <ChevronDown size={11} strokeWidth={2.25} />
+            ) : (
+              <ChevronRight size={11} strokeWidth={2.25} />
+            )}
           </button>
         ) : (
           <span className="size-4 shrink-0" aria-hidden />
@@ -283,10 +254,13 @@ export function ExtensionSidebarSection({
           }}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          <SectionIcon extensionId={extensionId} icon={item.icon} size={13} className="opacity-90" />
-          <span
-            className={cn("min-w-0 truncate", !item.active && toneLabelClass(item.tone))}
-          >
+          <SectionIcon
+            extensionId={extensionId}
+            icon={item.icon}
+            size={13}
+            className="opacity-90"
+          />
+          <span className={cn("min-w-0 truncate", !item.active && toneLabelClass(item.tone))}>
             {item.label}
           </span>
           {item.badge ? (
@@ -304,8 +278,7 @@ export function ExtensionSidebarSection({
             // Animated spinner while the node loads its children. On rows that
             // also have hover actions it fades out on hover so it never sits
             // under the edit/delete buttons.
-            <HugeiconsIcon
-              icon={Loading03Icon}
+            <LoaderCircle
               size={12}
               strokeWidth={2}
               aria-label="Loading"
@@ -417,7 +390,7 @@ export function ExtensionSidebarSection({
                   size="icon"
                   className="text-muted-foreground hover:text-foreground size-6"
                 >
-                  <HugeiconsIcon icon={SidebarRight01Icon} size={13} strokeWidth={2} />
+                  <PanelRight size={13} strokeWidth={2} />
                 </Button>
               </IconTooltip>
             ) : null}
@@ -431,7 +404,7 @@ export function ExtensionSidebarSection({
                     size="icon"
                     className="text-muted-foreground hover:text-foreground size-6"
                   >
-                    <HugeiconsIcon icon={SidebarLeft01Icon} size={13} strokeWidth={2} />
+                    <PanelLeft size={13} strokeWidth={2} />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Close panel" side="bottom">
@@ -442,7 +415,7 @@ export function ExtensionSidebarSection({
                     size="icon"
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
                   >
-                    <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+                    <X size={13} strokeWidth={2} />
                   </Button>
                 </IconTooltip>
               </>
@@ -455,12 +428,7 @@ export function ExtensionSidebarSection({
           {/* Filled rounded box mirroring the Source Control commit input:
               bg-input/50, transparent border that turns ring-colored on focus. */}
           <div className="bg-input/50 focus-within:border-ring flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 transition-[color,background-color]">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              size={12}
-              strokeWidth={2}
-              className="text-muted-foreground/70 shrink-0"
-            />
+            <Search size={12} strokeWidth={2} className="text-muted-foreground/70 shrink-0" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -477,7 +445,7 @@ export function ExtensionSidebarSection({
                 onClick={() => setQuery("")}
                 className="text-muted-foreground/70 hover:text-foreground flex size-4 shrink-0 items-center justify-center rounded"
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                <X size={11} strokeWidth={2} />
               </button>
             ) : null}
           </div>

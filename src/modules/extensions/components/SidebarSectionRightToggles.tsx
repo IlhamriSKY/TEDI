@@ -6,9 +6,8 @@
  */
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
-import { DashboardSquare02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
+import { LayoutDashboard } from "lucide-react";
 
 import { sidebarSectionsRegistry } from "../registries";
 import { useRegistry } from "../useRegistry";
@@ -39,7 +38,9 @@ export function SidebarSectionRightToggles() {
           sectionId={item.id}
           title={item.title}
           icon={item.icon}
-          isOpen={active?.extensionId === extensionId && active?.panelId === sectionPanelId(item.id)}
+          isOpen={
+            active?.extensionId === extensionId && active?.panelId === sectionPanelId(item.id)
+          }
         />
       ))}
     </div>
@@ -59,14 +60,13 @@ function SectionToggle({
   icon?: string;
   isOpen: boolean;
 }) {
-  // Subscribe so this re-renders once the lazy HugeIcons barrel loads and
-  // tryGetHugeIcon() starts resolving (the boolean itself isn't needed here).
-  useHugeIconsReady();
+  // Subscribe so this re-renders once the lazy icon chunk loads and
+  // resolveExtIcon() starts resolving (the boolean itself isn't needed here).
+  useIconsReady();
   // Always visible (never removed from the row, so the status bar never
   // reflows); clicking toggles the panel, and the open state shows as active.
   const toggle = useRightPanelStore((s) => s.toggle);
-  const m = icon?.match(/^hugeicon:(.+)$/);
-  const hugeIcon = m ? tryGetHugeIcon(m[1]) : null;
+  const Icon = resolveExtIcon(icon) ?? LayoutDashboard;
   return (
     <IconTooltip label={`${isOpen ? "Close" : "Open"} ${title}`} side="top">
       <button
@@ -79,12 +79,7 @@ function SectionToggle({
           isOpen ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <HugeiconsIcon
-          icon={hugeIcon ?? DashboardSquare02Icon}
-          size={16}
-          strokeWidth={1.75}
-          className="shrink-0"
-        />
+        <Icon size={16} strokeWidth={1.75} className="shrink-0" />
       </button>
     </IconTooltip>
   );

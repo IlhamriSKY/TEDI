@@ -10,10 +10,9 @@ import {
 } from "@/modules/ai/config";
 import { refreshOpenAICompatibleInstance } from "@/modules/ai/lib/openaiCompatible";
 import { invoke } from "@tauri-apps/api/core";
-import { Cancel01Icon, Edit02Icon, ViewIcon, ViewOffSlashIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import { Eye, EyeOff, SquarePen, X } from "lucide-react";
 
 /**
  * One OpenAI-compatible endpoint card: label + base URL + API key + presets +
@@ -133,7 +132,7 @@ export function OpenAICompatibleBlock({
     !!instance && (labelDraft.trim() !== instance.label || urlDraft.trim() !== instance.baseURL);
 
   return (
-    <div className="border-border/60 bg-card/60 flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
+    <div className="border-border/60 bg-card flex flex-col gap-2.5 rounded-lg border px-3 py-2.5">
       <div className="flex items-center gap-2">
         <ProviderIcon provider="openai-compatible" size={14} />
         <span className="text-[12px] font-medium">{instance?.label || "OpenAI Compatible"}</span>
@@ -155,7 +154,7 @@ export function OpenAICompatibleBlock({
               onClick={() => void onRemove()}
               aria-label={instance ? "Remove endpoint" : "Cancel"}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+              <X size={12} strokeWidth={1.75} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">{instance ? "Remove endpoint" : "Cancel"}</TooltipContent>
@@ -235,7 +234,7 @@ export function OpenAICompatibleBlock({
                     onClick={() => setEditingKey(true)}
                     aria-label="Replace key"
                   >
-                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                    <SquarePen size={12} strokeWidth={1.75} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">Replace key</TooltipContent>
@@ -269,11 +268,11 @@ export function OpenAICompatibleBlock({
                 className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
                 aria-label={revealKey ? "Hide key" : "Show key"}
               >
-                <HugeiconsIcon
-                  icon={revealKey ? ViewOffSlashIcon : ViewIcon}
-                  size={12}
-                  strokeWidth={1.75}
-                />
+                {revealKey ? (
+                  <EyeOff size={12} strokeWidth={1.75} />
+                ) : (
+                  <Eye size={12} strokeWidth={1.75} />
+                )}
               </button>
             </div>
           )}

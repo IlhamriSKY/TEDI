@@ -4,23 +4,13 @@
  * Icons are 16 px (size-4), no frame. Bytes cached via `loadExtensionIcon`.
  * Tone: `success` full opacity, `warning` pulses, `error` adds a red corner dot.
  */
-import { useEffect, useState } from "react";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { tryGetHugeIcon, useHugeIconsReady } from "@/lib/hugeIconsBarrel";
+import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
-import { loadExtensionIcon } from "../icon";
+import { useResolvedExtensionIcon } from "../icon";
 import { statusItemsRegistry, type StatusItem } from "../registries";
 import { useRegistry } from "../useRegistry";
-
-/** `hugeicon:<Name>` -> the host HugeIcon (line-art, current-color); null otherwise. */
-function resolveHugeIcon(icon: string): IconSvgElement | null {
-  const m = icon.match(/^hugeicon:(.+)$/);
-  if (!m) return null;
-  return tryGetHugeIcon(m[1]);
-}
 
 export function ExtensionStatusItems() {
   const items = useRegistry(statusItemsRegistry);
@@ -40,19 +30,18 @@ export function ExtensionStatusItems() {
 }
 
 function StatusItemView({ extensionId, item }: { extensionId: string; item: StatusItem }) {
-  useHugeIconsReady(); // re-render once the icon barrel lands
-  // `hugeicon:<Name>` renders the host HugeIcon (parity with the header bar);
-  // otherwise the value is a `data:` URL or an `ext-asset:` path.
-  const hugeIcon = resolveHugeIcon(item.icon);
-  const iconUrl = useResolvedIcon(extensionId, hugeIcon ? "" : item.icon);
+  useIconsReady(); // re-render once the lazy icon chunk lands
+  // `lucide:<Name>` / legacy `hugeicon:<Name>` renders a Lucide icon (parity
+  // with the header bar); otherwise the value is a `data:` URL or `ext-asset:`.
+  const Icon = resolveExtIcon(item.icon);
+  const iconUrl = useResolvedExtensionIcon(extensionId, Icon ? "" : item.icon);
   // `<img>` ignores parent CSS `color`, so render SVGs as a CSS mask
   // for theme-aware tinting. Detection: data: SVG URL or `.svg` path.
   // Raster formats fall back to `<img>` with opacity + grayscale.
   const isLive = item.tone === "success";
   const isPulsing = item.tone === "warning";
   const isSvg =
-    iconUrl !== null &&
-    (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
+    iconUrl !== null && (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
   // Only `error` gets a corner dot. `warning` pulses instead.
   const dot = item.tone === "error" ? "bg-icon-blocked" : null;
   return (
@@ -62,9 +51,8 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
         aria-label={item.tooltip}
         className="relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
-        {hugeIcon ? (
-          <HugeiconsIcon
-            icon={hugeIcon}
+        {Icon ? (
+          <Icon
             size={16}
             strokeWidth={1.8}
             className={cn(
@@ -117,27 +105,4 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       </span>
     </IconTooltip>
   );
-}
-
-/**
- * Resolves a StatusItem `icon` field to a renderable URL. `data:` URLs
- * pass through; other values are loaded via `loadExtensionIcon` relative
- * to the extension's install root.
- */
-function useResolvedIcon(extensionId: string, icon: string): string | null {
-  const [url, setUrl] = useState<string | null>(() => (icon.startsWith("data:") ? icon : null));
-  useEffect(() => {
-    if (icon.startsWith("data:")) {
-      setUrl(icon);
-      return;
-    }
-    let alive = true;
-    void loadExtensionIcon(extensionId, icon).then((next) => {
-      if (alive) setUrl(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [extensionId, icon]);
-  return url;
 }

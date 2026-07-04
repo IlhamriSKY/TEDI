@@ -2,11 +2,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import {
-  commandsRegistry,
-  keybindingsRegistry,
-  useExtensionsStore,
-} from "@/modules/extensions";
+import { commandsRegistry, keybindingsRegistry, useExtensionsStore } from "@/modules/extensions";
 import { useRegistry } from "@/modules/extensions/useRegistry";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setExtensionShortcuts, setShortcuts } from "@/modules/settings/store";
@@ -20,8 +16,6 @@ import {
   type Shortcut,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
-import { ArrowTurnBackwardIcon, Search01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import {
@@ -34,6 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CornerUpLeft, Search, Trash2 } from "lucide-react";
 
 export function ShortcutsSection() {
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
@@ -83,14 +78,13 @@ export function ShortcutsSection() {
           className="h-8 gap-1.5 px-2.5 text-[11px]"
           onClick={() => setResetDialogOpen(true)}
         >
-          <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} strokeWidth={2} />
+          <CornerUpLeft size={12} strokeWidth={2} />
           Reset All
         </Button>
       </div>
 
       <div className="relative">
-        <HugeiconsIcon
-          icon={Search01Icon}
+        <Search
           size={14}
           strokeWidth={2}
           className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
@@ -247,7 +241,7 @@ function ShortcutRow({
                       onClick={onReset}
                       aria-label="Reset to default"
                     >
-                      <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={12} />
+                      <CornerUpLeft size={12} />
                     </Button>
                   </IconTooltip>
                 )}
@@ -259,7 +253,7 @@ function ShortcutRow({
                     onClick={onClear}
                     aria-label="Clear shortcut"
                   >
-                    <HugeiconsIcon icon={Delete02Icon} size={12} />
+                    <Trash2 size={12} />
                   </Button>
                 </IconTooltip>
               </div>
@@ -387,9 +381,7 @@ function ExtensionShortcutsGroup({ search }: { search: string }) {
       <div className="divide-border/40 border-border/60 bg-card/40 flex flex-col divide-y overflow-hidden rounded-lg border">
         {rows.map((row) => {
           const userBindings = userOverrides[row.commandId];
-          const effective =
-            userBindings ??
-            (row.defaultBinding ? [row.defaultBinding] : []);
+          const effective = userBindings ?? (row.defaultBinding ? [row.defaultBinding] : []);
           const isModified = userBindings !== undefined;
           const isRecording = recordingId === row.rowId;
           // Reuse ShortcutRow with a synthetic Shortcut. The row only reads label, defaultBindings, and readOnly.
@@ -410,9 +402,7 @@ function ExtensionShortcutsGroup({ search }: { search: string }) {
                 writeOverrides({ ...userOverrides, [row.commandId]: [b] });
                 setRecordingId(null);
               }}
-              onClear={() =>
-                writeOverrides({ ...userOverrides, [row.commandId]: [] })
-              }
+              onClear={() => writeOverrides({ ...userOverrides, [row.commandId]: [] })}
               onReset={() => {
                 const next = { ...userOverrides };
                 delete next[row.commandId];

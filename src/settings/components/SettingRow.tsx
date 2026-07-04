@@ -12,7 +12,7 @@ export function SettingRow({ title, description, children, className }: Props) {
   return (
     <div
       className={cn(
-        "border-border/60 bg-card/60 flex items-start justify-between gap-4 rounded-lg border px-3 py-2.5",
+        "border-border/60 bg-card flex items-start justify-between gap-4 rounded-lg border px-3 py-2.5",
         className,
       )}
     >

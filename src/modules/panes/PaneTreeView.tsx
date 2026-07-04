@@ -12,8 +12,6 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Cancel01Icon, DragDropVerticalIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import {
   ContextMenu,
@@ -46,6 +44,7 @@ import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
+import { GripVertical, X } from "lucide-react";
 
 export type LeafBundle = {
   // terminal-only
@@ -381,7 +380,7 @@ function PaneLeafFrame({
           terminal / editor body keeps its own. */}
       {(() => {
         const headerBar = (
-          <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
+          <div className="border-border/60 bg-card flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
             {(() => {
               const dragHandle = (
                 <button
@@ -398,18 +397,18 @@ function PaneLeafFrame({
                       : "text-muted-foreground/40 cursor-default",
                   )}
                 >
-                  <HugeiconsIcon icon={DragDropVerticalIcon} size={14} strokeWidth={2} />
+                  <GripVertical size={14} strokeWidth={2} />
                 </button>
               );
-              // Only the draggable state earns a tooltip; a disabled button can't
-              // receive the pointer events Radix needs to open one anyway.
+              // The grip only earns its place (and a tooltip) when the pane can
+              // actually move - i.e. it shares the tab with another pane. A lone
+              // pane has nothing to reorder, so hide the grip entirely instead of
+              // showing a dead disabled button.
               return draggable ? (
                 <IconTooltip label="Drag to move pane" side="bottom">
                   {dragHandle}
                 </IconTooltip>
-              ) : (
-                dragHandle
-              );
+              ) : null;
             })()}
             {/* Same glyph the tab strip + drag overlay show for this leaf. The
             muted default tint is overridden by the AI CLI status when active. */}
@@ -436,7 +435,7 @@ function PaneLeafFrame({
               {showTitle ? <span className="opacity-60"> · {termTitle}</span> : null}
             </span>
             {node.leafKind === "editor" && node.dirty && (
-              <span className="bg-icon-working size-1.5 shrink-0 rounded-full" />
+              <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
             )}
             {onCloseLeaf && (
               <IconTooltip label="Close pane" side="bottom">
@@ -449,7 +448,7 @@ function PaneLeafFrame({
                   }}
                   className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
+                  <X size={13} strokeWidth={2} />
                 </button>
               </IconTooltip>
             )}

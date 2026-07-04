@@ -1,13 +1,12 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { type SshConnection } from "@/modules/ssh/connections";
-import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMemo } from "react";
 import { type Entry, type PaneEntry } from "../lib/entries";
 import { type PaneGroupForMove, type RenderEntryArgs, renderEntryBody } from "./renderEntryBody";
+import { EllipsisVertical } from "lucide-react";
 
 type SortableTabGroupProps = {
   tabId: number;
@@ -183,7 +182,7 @@ export function SortableTabGroup({
                 isThisDragging && "cursor-grabbing",
               )}
             >
-              <HugeiconsIcon icon={MoreVerticalIcon} size={12} strokeWidth={2} />
+              <EllipsisVertical size={12} strokeWidth={2} />
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom">Drag group</TooltipContent>

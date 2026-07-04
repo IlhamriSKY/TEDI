@@ -41,7 +41,7 @@ export function ExtensionCard({
   return (
     <div
       className={cn(
-        "border-border/60 bg-card/60 relative flex flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2.5 transition-opacity",
+        "border-border/60 bg-card relative flex flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2.5 transition-opacity",
         updating && "opacity-70",
       )}
       aria-busy={updating || undefined}

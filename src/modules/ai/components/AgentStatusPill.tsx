@@ -1,10 +1,9 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { AlertCircleIcon, ShieldUserIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { useChatStore, type AgentRunStatus } from "../store/chatStore";
+import { CircleAlert, ShieldUser } from "lucide-react";
 
 type Props = {
   onClick: () => void;
@@ -63,7 +62,7 @@ function describe(meta: {
   if (meta.status === "awaiting-approval") {
     return {
       tone: "border-icon-working/40 bg-icon-working/10 text-icon-working hover:bg-icon-working/15",
-      icon: <HugeiconsIcon icon={ShieldUserIcon} size={12} strokeWidth={1.75} />,
+      icon: <ShieldUser size={12} strokeWidth={1.75} />,
       label:
         meta.approvalsPending > 1 ? `${meta.approvalsPending} approvals needed` : "Approval needed",
     };
@@ -71,7 +70,7 @@ function describe(meta: {
   // Only "error" reaches here; caller filters out thinking/streaming/idle.
   return {
     tone: "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
-    icon: <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={1.75} />,
+    icon: <CircleAlert size={12} strokeWidth={1.75} />,
     label: meta.error ?? "Error",
   };
 }

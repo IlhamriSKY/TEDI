@@ -19,7 +19,6 @@ import {
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
-  updateBrowserLeaf as updateBrowserLeafInTree,
   type EditorLeafState,
   type LeafState,
   type PaneEdge,
@@ -30,7 +29,7 @@ import {
   type SplitDir,
   type TerminalLeafState,
 } from "@/modules/terminal/lib/panes";
-import { type ExtensionTab, type PaneTab, type Tab, type TabPatch } from "./tabTypes";
+import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
 import { syncPaneMirror } from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
 
@@ -46,7 +45,6 @@ export type {
   ExtensionTabState,
   ExtensionTab,
   Tab,
-  TabPatch,
 } from "./tabTypes";
 
 // Re-export the active-leaf discriminators from their new home so callers that
@@ -56,7 +54,6 @@ export {
   activeLeafKind,
   isTerminalLikeTab,
   isEditorLikeTab,
-  isPreviewLikeTab,
 } from "./tabHelpers";
 
 // Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
@@ -422,69 +419,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     });
   }, []);
 
-  const updateTab = useCallback((id: number, patch: TabPatch) => {
-    setTabs((t) =>
-      t.map((x) => {
-        if (x.id !== id) return x;
-        if (x.kind === "ai-diff") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.path !== undefined && { path: patch.path }),
-          };
-        }
-        if (x.kind === "git-diff") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.path !== undefined && { path: patch.path }),
-          };
-        }
-        if (x.kind === "ext") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-          };
-        }
-        if (x.kind === "scm") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-          };
-        }
-
-        // pane tab: patches apply to the active leaf.
-        const leaf = findLeaf(x.paneTree, x.activeLeafId);
-        if (!leaf) return x;
-        let tree = x.paneTree;
-        if (leaf.leafKind === "editor") {
-          const leafPatch: Partial<Pick<EditorLeafState, "path" | "dirty" | "preview">> = {};
-          if (patch.dirty !== undefined) {
-            leafPatch.dirty = patch.dirty;
-            if (patch.dirty === true && leaf.preview) leafPatch.preview = false;
-          }
-          if (patch.path !== undefined) leafPatch.path = patch.path;
-          if (Object.keys(leafPatch).length > 0) {
-            tree = updateEditorLeaf(tree, leaf.id, leafPatch);
-          }
-        } else if (leaf.leafKind === "terminal") {
-          if (patch.cwd !== undefined) {
-            tree = setLeafCwdInTree(tree, leaf.id, patch.cwd);
-          }
-        } else if (leaf.leafKind === "browser") {
-          if (patch.url !== undefined) {
-            tree = updateBrowserLeafInTree(tree, leaf.id, patch.url);
-          }
-        }
-        return syncPaneMirror({
-          ...x,
-          paneTree: tree,
-          ...(patch.title !== undefined && { title: patch.title }),
-        });
-      }),
-    );
-  }, []);
-
   const selectByIndex = useCallback(
     (idx: number) => {
       const t = tabs[idx];
@@ -694,36 +628,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         });
       });
     });
-  }, []);
-
-  const closeActivePane = useCallback((tabId: number): boolean => {
-    let closedTab = false;
-    setTabs((curr) => {
-      const t = curr.find((x) => x.id === tabId);
-      if (!t || t.kind !== "pane") return curr;
-      const target = t.activeLeafId;
-      const newTree = removeLeaf(t.paneTree, target);
-      if (newTree === null) {
-        if (curr.length <= 1) return curr;
-        const idx = curr.findIndex((x) => x.id === tabId);
-        const next = curr.filter((x) => x.id !== tabId);
-        setActiveId((active) => (active === tabId ? next[Math.max(0, idx - 1)].id : active));
-        closedTab = true;
-        return next;
-      }
-      const remaining = leafIds(newTree);
-      const sib = siblingLeafOf(t.paneTree, target);
-      const newActive = sib && remaining.includes(sib) ? sib : remaining[0];
-      return curr.map((x) => {
-        if (x.id !== tabId || x.kind !== "pane") return x;
-        return syncPaneMirror({
-          ...x,
-          paneTree: newTree,
-          activeLeafId: newActive,
-        });
-      });
-    });
-    return closedTab;
   }, []);
 
   /**
@@ -1079,7 +983,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     openGitDiffTab,
     openScmTab,
     closeTab,
-    updateTab,
     selectByIndex,
     setLeafCwd,
     setLeafTerminalTheme,
@@ -1092,7 +995,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     focusNextPaneInTab,
     splitActivePane,
     moveExtTabToPane,
-    closeActivePane,
     closePaneByLeaf,
     moveLeafToTab,
     moveLeafToNewTab,

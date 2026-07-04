@@ -59,10 +59,6 @@ class SchedulerEngine {
     return this.snapshot();
   }
 
-  getPending(): Schedule[] {
-    return this.schedules.filter((s) => s.status === "pending");
-  }
-
   private snapshot(): Schedule[] {
     if (this.snapshotFor !== this.schedules) {
       this.snapshotCache = this.schedules.slice();

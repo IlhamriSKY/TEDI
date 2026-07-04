@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { slugify } from "@/lib/utils";
 import { normalizeCustomTheme } from "./customTheme";
 import {
   consumePendingPresetRequest,
@@ -19,14 +20,6 @@ type State = Preferences & {
 
 let initialized = false;
 
-/** Slugify a preset name to match what the `tedi theme` CLI writes. */
-function presetSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 /**
  * Honour a `customThemePresetRequest` written by `tedi theme set <id>`.
  * Looks up the preset, swaps it in, enables custom theme, and clears the
@@ -37,7 +30,7 @@ async function applyPendingPresetRequest(): Promise<void> {
   try {
     const id = await consumePendingPresetRequest();
     if (!id) return;
-    const preset = THEME_PRESETS.find((p) => presetSlug(p.name) === id);
+    const preset = THEME_PRESETS.find((p) => slugify(p.name) === id);
     if (!preset) {
       console.warn(`Pending theme preset "${id}" is not in the preset list; ignoring.`);
       return;

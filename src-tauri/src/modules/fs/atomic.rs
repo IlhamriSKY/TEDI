@@ -26,6 +26,32 @@ use std::path::Path;
 /// `path`. Removes the temp on any failure. Returns the underlying
 /// [`io::Error`] so callers can map it to their own error type.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_staged(path, bytes, |tmp| fs::File::create(tmp))
+}
+
+/// Unix-only [`atomic_write`] variant that creates the staging temp with the
+/// given permission `mode` BEFORE any bytes are written, so the contents are
+/// never briefly world-readable. Used for the Linux secrets file (mode
+/// `0o600`) where the plaintext must never touch disk with loose perms.
+#[cfg(unix)]
+pub fn atomic_write_mode(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    write_staged(path, bytes, move |tmp| {
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(mode)
+            .open(tmp)
+    })
+}
+
+/// Stage `bytes` into `<dir>/.<filename>.tedi.tmp` (opened via `open_tmp`),
+/// fsync, then rename over `path`. Removes the temp on any failure.
+fn write_staged<F>(path: &Path, bytes: &[u8], open_tmp: F) -> io::Result<()>
+where
+    F: FnOnce(&Path) -> io::Result<fs::File>,
+{
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
     })?;
@@ -40,52 +66,13 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = parent.join(tmp_name);
 
     // Wrap the body so a single `?` short-circuit funnels through the cleanup
-    // closure below; we must not leave the staged temp behind on failure.
+    // below; we must not leave the staged temp behind on failure.
     let result = (|| -> io::Result<()> {
-        let mut f = fs::File::create(&tmp)?;
+        let mut f = open_tmp(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         // Drop the handle before renaming: Windows refuses to rename a file
         // with an open handle in some configurations.
-        drop(f);
-        fs::rename(&tmp, path)
-    })();
-
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
-/// Unix-only [`atomic_write`] variant that creates the staging temp with the
-/// given permission `mode` BEFORE any bytes are written, so the contents are
-/// never briefly world-readable. Used for the Linux secrets file (mode
-/// `0o600`) where the plaintext must never touch disk with loose perms.
-#[cfg(unix)]
-pub fn atomic_write_mode(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let parent = path.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
-    })?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-
-    let mut tmp_name = std::ffi::OsString::from(".");
-    tmp_name.push(file_name);
-    tmp_name.push(".tedi.tmp");
-    let tmp = parent.join(tmp_name);
-
-    let result = (|| -> io::Result<()> {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(mode)
-            .open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
         drop(f);
         fs::rename(&tmp, path)
     })();

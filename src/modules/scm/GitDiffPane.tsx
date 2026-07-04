@@ -5,6 +5,7 @@ import { MergeView, type DiffConfig } from "@codemirror/merge";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
+import { formatBytes } from "@/lib/format";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
@@ -509,12 +510,6 @@ function DiffRuler({ width, marks }: { width: number; marks: RulerMark[] }) {
       })}
     </div>
   );
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**

@@ -1,13 +1,14 @@
 import {
-  Add01Icon,
-  CalendarAdd01Icon,
-  CheckListIcon,
-  Clock01Icon,
-  EraserIcon,
-  HelpCircleIcon,
-  Minimize02Icon,
-  SparklesIcon,
-} from "@hugeicons/core-free-icons";
+  CalendarPlus,
+  CircleHelp,
+  Clock,
+  Eraser,
+  ListChecks,
+  Minimize2,
+  Plus,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
 import { getModelContextLimit } from "../config";
 import { flushPersist, getChat, useChatStore } from "../store/chatStore";
 import { showInfoModal, type InfoRow } from "../store/infoModalStore";
@@ -43,7 +44,7 @@ export type SlashCommandMeta = {
   invocation: string;
   label: string;
   description: string;
-  icon: typeof SparklesIcon;
+  icon: LucideIcon;
   /** Optional argument hint, e.g. `[off]` for `#plan`. */
   argHint?: string;
   /** Show in the `#` picker only, not the `/` picker. For tag-like commands
@@ -60,56 +61,56 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     invocation: "/help",
     label: "Show help",
     description: "List every slash command.",
-    icon: HelpCircleIcon,
+    icon: CircleHelp,
   },
   new: {
     name: "new",
     invocation: "/new",
     label: "New chat",
     description: "Start a fresh chat session.",
-    icon: Add01Icon,
+    icon: Plus,
   },
   clear: {
     name: "clear",
     invocation: "/clear",
     label: "Clear messages",
     description: "Wipe the current chat history (keeps the session).",
-    icon: EraserIcon,
+    icon: Eraser,
   },
   history: {
     name: "history",
     invocation: "/history",
     label: "Chat history",
     description: "Open the session history picker.",
-    icon: Clock01Icon,
+    icon: Clock,
   },
   compact: {
     name: "compact",
     invocation: "/compact",
     label: "Compact history",
     description: "Trim older messages to reclaim context (keeps the most recent turns).",
-    icon: Minimize02Icon,
+    icon: Minimize2,
   },
   skills: {
     name: "skills",
     invocation: "/skills",
     label: "List skills",
     description: "Show installed skills (invoke one with /<name>).",
-    icon: SparklesIcon,
+    icon: Sparkles,
   },
   mcp: {
     name: "mcp",
     invocation: "/mcp",
     label: "List MCP servers",
     description: "Show configured MCP servers and their status.",
-    icon: CheckListIcon,
+    icon: ListChecks,
   },
   init: {
     name: "init",
     invocation: "#init",
     label: "Initialize workspace",
     description: "Scan the workspace and write TEDI.md project memory.",
-    icon: SparklesIcon,
+    icon: Sparkles,
     hashOnly: true,
   },
   plan: {
@@ -117,7 +118,7 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     invocation: "#plan",
     label: "Plan mode",
     description: "Queue mutations for batch review. `#plan off` to disable.",
-    icon: CheckListIcon,
+    icon: ListChecks,
     argHint: "[off]",
     hashOnly: true,
   },
@@ -126,7 +127,7 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     invocation: "/schedule",
     label: "Schedule command",
     description: "Schedule a terminal command to run at a specific time.",
-    icon: CalendarAdd01Icon,
+    icon: CalendarPlus,
     argHint: "[time] [command]",
   },
 };
@@ -151,14 +152,14 @@ export function skillSlashCommands(): SlashCommandMeta[] {
   return getLoadedSkills()
     .filter((s) => !(skillSlug(s) in SLASH_COMMANDS))
     .map((s) => ({
-    name: skillSlug(s),
-    invocation: `/${skillSlug(s)}`,
-    label: s.name,
-    description: s.description || "Skill",
-    icon: SparklesIcon,
-    isSkill: true,
-    argHint: s.argHint,
-  }));
+      name: skillSlug(s),
+      invocation: `/${skillSlug(s)}`,
+      label: s.name,
+      description: s.description || "Skill",
+      icon: Sparkles,
+      isSkill: true,
+      argHint: s.argHint,
+    }));
 }
 
 export const TEDI_CMD_RE =

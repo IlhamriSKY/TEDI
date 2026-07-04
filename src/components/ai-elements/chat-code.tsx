@@ -4,13 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
-import {
-  ArrowRight01Icon,
-  CheckmarkCircle01Icon,
-  CopyIcon,
-  TerminalIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronRight, CircleCheck, Copy, Terminal } from "lucide-react";
 import { createContext, memo, use, useEffect, useRef, useState } from "react";
 
 import { Shimmer } from "./shimmer";
@@ -200,12 +194,7 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
         </div>
       </div>
       <div className="border-border/40 bg-background/40 border-t">
-        <HighlightedShellCode
-          code={code}
-          nodes={nodes}
-          prompt={prompt}
-          isMultiline={isMultiline}
-        />
+        <HighlightedShellCode code={code} nodes={nodes} prompt={prompt} isMultiline={isMultiline} />
       </div>
     </div>
   );
@@ -249,7 +238,10 @@ const HighlightedShellCode = memo(function HighlightedShellCode({
       lines.push([]);
     } else {
       lines[lines.length - 1].push(
-        <span key={lines.length - 1 + "-" + lines[lines.length - 1].length} className={node.cls || undefined}>
+        <span
+          key={lines.length - 1 + "-" + lines[lines.length - 1].length}
+          className={node.cls || undefined}
+        >
           {node.value}
         </span>,
       );
@@ -295,11 +287,11 @@ function RunInTerminalButton({ command }: { command: string }) {
           className="text-muted-foreground hover:text-foreground h-5 gap-1 px-1.5 text-[10px] font-medium"
           aria-label="Run in active terminal"
         >
-          <HugeiconsIcon
-            icon={sent ? TerminalIcon : ArrowRight01Icon}
-            size={11}
-            strokeWidth={1.75}
-          />
+          {sent ? (
+            <Terminal size={11} strokeWidth={1.75} />
+          ) : (
+            <ChevronRight size={11} strokeWidth={1.75} />
+          )}
           <span>{sent ? "Sent" : "Run"}</span>
         </Button>
       </TooltipTrigger>
@@ -326,19 +318,24 @@ function CopyButton({ text }: { text: string }) {
   };
 
   return (
-    <Button
-      type="button"
-      size="icon"
-      variant="ghost"
-      onClick={onCopy}
-      className="text-muted-foreground hover:text-foreground size-5 shrink-0"
-      aria-label="Copy code"
-    >
-      <HugeiconsIcon
-        icon={copied ? CheckmarkCircle01Icon : CopyIcon}
-        size={11}
-        strokeWidth={1.75}
-      />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onCopy}
+          className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+          aria-label="Copy code"
+        >
+          {copied ? (
+            <CircleCheck size={11} strokeWidth={1.75} />
+          ) : (
+            <Copy size={11} strokeWidth={1.75} />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{copied ? "Copied" : "Copy code"}</TooltipContent>
+    </Tooltip>
   );
 }

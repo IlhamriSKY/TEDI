@@ -24,11 +24,10 @@ import {
   setLmstudioBaseURL,
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { KeysMap } from "./modelsTypes";
+import { ChevronDown } from "lucide-react";
 
 export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
   const enabled = usePreferencesStore((s) => s.autocompleteEnabled);
@@ -100,12 +99,7 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
                   <span className="truncate font-medium">{currentDisplay.label}</span>
                   <span className="text-muted-foreground truncate">· {currentDisplay.hint}</span>
                 </span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={12}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

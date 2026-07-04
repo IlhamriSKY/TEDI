@@ -62,13 +62,7 @@ export async function requestCompletion(
     ...(providerOptions ? { providerOptions } : {}),
   });
 
-  return cleanCompletion(text);
-}
-
-function cleanCompletion(raw: string): string {
-  let t = raw;
-  const fence = t.match(/^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n```\s*$/);
-  if (fence) t = fence[1];
-  t = t.replace(/^<\|cursor\|>/, "");
-  return t;
+  // trimSuggestion (inlineExtension.ts) strips the same markdown fence +
+  // <|cursor|> on the only call path, so normalize there and return raw here.
+  return text;
 }

@@ -2,16 +2,10 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-  CloudServerIcon,
-  PencilEdit02Icon,
-  RefreshIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import type { SshConnection } from "../connections";
 import { statusDotClass, statusLabel, type SshStatus } from "../status";
+import { RefreshCw, Server, SquarePen, X } from "lucide-react";
 
 type Props = {
   status: SshStatus;
@@ -49,12 +43,7 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
             className="border-border/70 bg-card text-foreground/90 hover:bg-accent hover:text-accent-foreground focus-visible:ring-primary/35 inline-flex h-6 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
             <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
-            <HugeiconsIcon
-              icon={CloudServerIcon}
-              size={11}
-              strokeWidth={1.75}
-              className="text-info shrink-0"
-            />
+            <Server size={11} strokeWidth={1.75} className="text-info shrink-0" />
             <span className="truncate font-medium">SSH</span>
             <span className="text-muted-foreground truncate">
               {connection.user}@{connection.host}
@@ -119,7 +108,7 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
                 onReconnect();
               }}
             >
-              <HugeiconsIcon icon={RefreshIcon} size={12} strokeWidth={2} />
+              <RefreshCw size={12} strokeWidth={2} />
               {status.kind === "connected" ? "Reconnect" : "Reconnect now"}
             </Button>
           ) : null}
@@ -133,7 +122,7 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
                 onDisconnect();
               }}
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+              <X size={12} strokeWidth={2} />
               Disconnect
             </Button>
           ) : null}
@@ -146,7 +135,7 @@ export function SshStatusPill({ status, connection, onReconnect, onDisconnect, o
               onEdit();
             }}
           >
-            <HugeiconsIcon icon={PencilEdit02Icon} size={12} strokeWidth={2} />
+            <SquarePen size={12} strokeWidth={2} />
             Edit connection
           </Button>
         </div>

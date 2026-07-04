@@ -11,16 +11,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import {
-  Add01Icon,
-  AlertCircleIcon,
-  ArrowDown01Icon,
-  Cancel01Icon,
-  Delete02Icon,
-  FilterIcon,
-  TerminalIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useMemo } from "react";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
@@ -29,24 +19,25 @@ import { AiChatView } from "./AiChat";
 import { AiInputBar } from "./AiInputBar";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
+import { ChevronDown, CircleAlert, ListFilter, Plus, Terminal, Trash2, X } from "lucide-react";
 
 const SUGGESTIONS = [
   {
     label: "Explain the last error",
     hint: "Read the terminal buffer",
-    icon: AlertCircleIcon,
+    icon: CircleAlert,
     text: "Explain the last error in the terminal.",
   },
   {
     label: "Generate a command",
     hint: "Tell me what you want to do",
-    icon: TerminalIcon,
+    icon: Terminal,
     text: "Give me a command to ",
   },
   {
     label: "Summarize buffer",
     hint: "Recap recent activity",
-    icon: FilterIcon,
+    icon: ListFilter,
     text: "Summarize what just happened in the terminal.",
   },
 ];
@@ -91,9 +82,6 @@ export const AiSidebarPanel = memo(function AiSidebarPanel() {
     </div>
   );
 });
-
-// Back-compat alias for older imports.
-export { AiSidebarPanel as AiMiniWindow };
 
 function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const focusInput = useChatStore((s) => s.focusInput);
@@ -198,7 +186,7 @@ function Header({
             className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
             aria-label="Close (Esc)"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
+            <X size={11} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
       </div>
@@ -233,12 +221,7 @@ function SessionPicker() {
               aria-label="Switch session"
             >
               <span className="truncate">{active.title || "New chat"}</span>
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={10}
-                strokeWidth={2}
-                className="opacity-70"
-              />
+              <ChevronDown size={10} strokeWidth={2} className="opacity-70" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -252,7 +235,7 @@ function SessionPicker() {
         className="max-w-[calc(var(--radix-popper-available-width)-8px)] min-w-56"
       >
         <DropdownMenuItem onSelect={() => newSession()} className="gap-2 text-xs">
-          <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+          <Plus size={12} strokeWidth={1.75} />
           New session
         </DropdownMenuItem>
         {sorted.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -309,7 +292,7 @@ function SessionRow({
           aria-label="Delete session"
           className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
         >
-          <HugeiconsIcon icon={Delete02Icon} size={11} strokeWidth={1.75} />
+          <Trash2 size={11} strokeWidth={1.75} />
         </button>
       </IconTooltip>
     </DropdownMenuItem>
@@ -327,25 +310,28 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         </p>
       </div>
       <div className="flex w-full flex-col gap-2.5">
-        {SUGGESTIONS.map((s) => (
-          <button
-            key={s.label}
-            type="button"
-            onClick={() => onPick(s.text)}
-            className={cn(
-              "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
-              "hover:bg-muted/50 hover:text-foreground transition-colors",
-            )}
-          >
-            <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
-              <HugeiconsIcon icon={s.icon} size={13} strokeWidth={1.75} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-foreground text-[12px] font-medium">{s.label}</div>
-              <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
-            </div>
-          </button>
-        ))}
+        {SUGGESTIONS.map((s) => {
+          const Icon = s.icon;
+          return (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => onPick(s.text)}
+              className={cn(
+                "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
+                "hover:bg-muted/50 hover:text-foreground transition-colors",
+              )}
+            >
+              <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
+                <Icon size={13} strokeWidth={1.75} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-foreground text-[12px] font-medium">{s.label}</div>
+                <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

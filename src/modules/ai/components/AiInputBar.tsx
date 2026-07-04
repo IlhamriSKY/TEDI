@@ -3,8 +3,6 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
-import { Cancel01Icon, Key01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UIMessage } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +32,7 @@ import { OpenFilesRow } from "./OpenFilesRow";
 import { QueueRow } from "./QueueRow";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
+import { KeyRound, X } from "lucide-react";
 
 /** Paint only the leading `/command` or `#tag` token in the theme accent; the
  *  rest of the message stays the normal text color. Only the color differs from
@@ -424,123 +423,123 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                   {renderInputHighlight(c.value)}
                 </div>
                 <textarea
-                ref={c.textareaRef}
-                value={c.value}
-                aria-label="Message to the agent"
-                onChange={(e) => {
-                  // Editing away from the historical text exits history-nav mode.
-                  const cur = histIndexRef.current;
-                  if (cur !== null && e.target.value !== history[cur].body) {
-                    histIndexRef.current = null;
-                  }
-                  c.setValue(e.target.value);
-                }}
-                onKeyUp={updateTrigger}
-                onClick={updateTrigger}
-                onSelect={updateTrigger}
-                onKeyDown={(e) => {
-                  if (pickerOpen) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setActiveIndex((i) => Math.min(i + 1, Math.max(0, navLength - 1)));
-                      return;
+                  ref={c.textareaRef}
+                  value={c.value}
+                  aria-label="Message to the agent"
+                  onChange={(e) => {
+                    // Editing away from the historical text exits history-nav mode.
+                    const cur = histIndexRef.current;
+                    if (cur !== null && e.target.value !== history[cur].body) {
+                      histIndexRef.current = null;
                     }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setActiveIndex((i) => Math.max(0, i - 1));
-                      return;
-                    }
-                    if (e.key === "Tab" || e.key === "Enter") {
-                      if (navLength > 0) {
+                    c.setValue(e.target.value);
+                  }}
+                  onKeyUp={updateTrigger}
+                  onClick={updateTrigger}
+                  onSelect={updateTrigger}
+                  onKeyDown={(e) => {
+                    if (pickerOpen) {
+                      if (e.key === "ArrowDown") {
                         e.preventDefault();
-                        pickActive();
+                        setActiveIndex((i) => Math.min(i + 1, Math.max(0, navLength - 1)));
                         return;
                       }
-                      // Picker open but empty/loading; swallow Enter so the
-                      // half-typed `@query` doesn't reach the LLM.
-                      if (isMention) {
+                      if (e.key === "ArrowUp") {
                         e.preventDefault();
+                        setActiveIndex((i) => Math.max(0, i - 1));
                         return;
                       }
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setTrigger(null);
-                      return;
-                    }
-                  }
-                  // Shell-style history nav. Fires only when the picker is
-                  // closed and the caret is on the matching edge so multi-line
-                  // editing still works.
-                  if (
-                    e.key === "ArrowUp" &&
-                    !e.shiftKey &&
-                    !e.metaKey &&
-                    !e.ctrlKey &&
-                    !e.altKey &&
-                    caretOnFirstLine()
-                  ) {
-                    if (navHistory("older")) {
-                      e.preventDefault();
-                      return;
-                    }
-                  }
-                  if (
-                    e.key === "ArrowDown" &&
-                    !e.shiftKey &&
-                    !e.metaKey &&
-                    !e.ctrlKey &&
-                    !e.altKey &&
-                    histIndexRef.current !== null &&
-                    caretOnLastLine()
-                  ) {
-                    if (navHistory("newer")) {
-                      e.preventDefault();
-                      return;
-                    }
-                  }
-                  if (e.key === "Escape" && histIndexRef.current !== null) {
-                    e.preventDefault();
-                    histIndexRef.current = null;
-                    applyEntry(null);
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    const isModEnter = e.ctrlKey || e.metaKey;
-                    e.preventDefault();
-                    histIndexRef.current = null;
-                    if (c.isBusy) {
-                      // Busy: only Ctrl/Cmd+Enter queues. Plain Enter is a
-                      // no-op so key-mashing during streaming doesn't drop the draft.
-                      if (isModEnter) {
-                        const text = c.value.trim();
-                        if (text) {
-                          enqueuePrompt(text);
-                          c.setValue("");
+                      if (e.key === "Tab" || e.key === "Enter") {
+                        if (navLength > 0) {
+                          e.preventDefault();
+                          pickActive();
+                          return;
+                        }
+                        // Picker open but empty/loading; swallow Enter so the
+                        // half-typed `@query` doesn't reach the LLM.
+                        if (isMention) {
+                          e.preventDefault();
+                          return;
                         }
                       }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setTrigger(null);
+                        return;
+                      }
+                    }
+                    // Shell-style history nav. Fires only when the picker is
+                    // closed and the caret is on the matching edge so multi-line
+                    // editing still works.
+                    if (
+                      e.key === "ArrowUp" &&
+                      !e.shiftKey &&
+                      !e.metaKey &&
+                      !e.ctrlKey &&
+                      !e.altKey &&
+                      caretOnFirstLine()
+                    ) {
+                      if (navHistory("older")) {
+                        e.preventDefault();
+                        return;
+                      }
+                    }
+                    if (
+                      e.key === "ArrowDown" &&
+                      !e.shiftKey &&
+                      !e.metaKey &&
+                      !e.ctrlKey &&
+                      !e.altKey &&
+                      histIndexRef.current !== null &&
+                      caretOnLastLine()
+                    ) {
+                      if (navHistory("newer")) {
+                        e.preventDefault();
+                        return;
+                      }
+                    }
+                    if (e.key === "Escape" && histIndexRef.current !== null) {
+                      e.preventDefault();
+                      histIndexRef.current = null;
+                      applyEntry(null);
                       return;
                     }
-                    // Idle: Enter and Ctrl/Cmd+Enter both send.
-                    c.submit();
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      const isModEnter = e.ctrlKey || e.metaKey;
+                      e.preventDefault();
+                      histIndexRef.current = null;
+                      if (c.isBusy) {
+                        // Busy: only Ctrl/Cmd+Enter queues. Plain Enter is a
+                        // no-op so key-mashing during streaming doesn't drop the draft.
+                        if (isModEnter) {
+                          const text = c.value.trim();
+                          if (text) {
+                            enqueuePrompt(text);
+                            c.setValue("");
+                          }
+                        }
+                        return;
+                      }
+                      // Idle: Enter and Ctrl/Cmd+Enter both send.
+                      c.submit();
+                    }
+                  }}
+                  placeholder={
+                    c.isBusy
+                      ? "AI is responding · Ctrl+Enter to queue"
+                      : // Short enough for the narrow panel. Full hint lives in /help.
+                        "Ask TEDI · / @ #"
                   }
-                }}
-                placeholder={
-                  c.isBusy
-                    ? "AI is responding · Ctrl+Enter to queue"
-                    : // Short enough for the narrow panel. Full hint lives in /help.
-                      "Ask TEDI · / @ #"
-                }
-                rows={1}
-                onScroll={(e) => {
-                  if (highlightRef.current)
-                    highlightRef.current.scrollTop = e.currentTarget.scrollTop;
-                }}
-                className={cn(
-                  "relative max-h-40 w-full resize-none bg-transparent px-1 text-[13px] leading-relaxed text-transparent caret-foreground outline-none",
-                  "placeholder:text-muted-foreground/60",
-                )}
-              />
+                  rows={1}
+                  onScroll={(e) => {
+                    if (highlightRef.current)
+                      highlightRef.current.scrollTop = e.currentTarget.scrollTop;
+                  }}
+                  className={cn(
+                    "caret-foreground relative max-h-40 w-full resize-none bg-transparent px-1 text-[13px] leading-relaxed text-transparent outline-none",
+                    "placeholder:text-muted-foreground/60",
+                  )}
+                />
               </div>
             </div>
           </PopoverAnchor>
@@ -628,7 +627,7 @@ export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
         </span>
         <div className="flex items-center gap-1">
           <Button size="xs" onClick={onAdd}>
-            <HugeiconsIcon icon={Key01Icon} />
+            <KeyRound />
             Add API key
           </Button>
           <IconTooltip label="Dismiss" side="top">
@@ -639,7 +638,7 @@ export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
               aria-label="Dismiss"
               className="hover:bg-destructive/10 hover:text-destructive"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+              <X size={12} strokeWidth={2} />
             </Button>
           </IconTooltip>
         </div>

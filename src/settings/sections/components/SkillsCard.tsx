@@ -17,17 +17,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "../../components/SettingsCard";
 import {
-  Add01Icon,
-  ArrowRight01Icon,
-  Delete02Icon,
-  Download04Icon,
-  Refresh01Icon,
-  SparklesIcon,
-  Link01Icon,
-  Calendar01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
   checkAllSkillUpdates,
   installSkillsFromGithub,
   loadInstalledSkills,
@@ -40,6 +29,16 @@ import {
   updateSkillGroup,
   type SkillMeta,
 } from "@/modules/ai/lib/skills";
+import {
+  Calendar,
+  ChevronRight,
+  Download,
+  Link,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 type PendingDelete = { label: string; dir: string; isGroup?: boolean };
 type UpdateInfo = {
@@ -100,7 +99,7 @@ function SkillRow({
   const requires = s.requires ?? s.state?.requires ?? [];
 
   return (
-    <li className="border-border/60 bg-card/60 flex items-center gap-2 rounded-lg border px-3 py-2">
+    <li className="border-border/60 bg-card flex items-center gap-2 rounded-lg border px-3 py-2">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[12px] font-medium">{s.name}</span>
@@ -116,7 +115,7 @@ function SkillRow({
               className="text-accent-foreground/70 hover:text-accent-foreground shrink-0 rounded p-0.5 transition-colors"
               title="Update this skill"
             >
-              <HugeiconsIcon icon={Refresh01Icon} size={10} strokeWidth={2} />
+              <RefreshCw size={10} strokeWidth={2} />
             </button>
           )}
         </div>
@@ -129,13 +128,13 @@ function SkillRow({
               className="flex items-center gap-0.5"
               title={`Installed ${relativeTime(installDate)}`}
             >
-              <HugeiconsIcon icon={Calendar01Icon} size={9} />
+              <Calendar size={9} />
               {relativeTime(installDate)}
             </span>
           )}
           {requires.length > 0 && (
             <span className="flex items-center gap-0.5">
-              <HugeiconsIcon icon={Link01Icon} size={9} />
+              <Link size={9} />
               deps: {requires.join(", ")}
             </span>
           )}
@@ -149,7 +148,7 @@ function SkillRow({
           onClick={onDelete}
           aria-label="Remove"
         >
-          <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+          <Trash2 size={12} strokeWidth={1.75} />
         </Button>
       </IconTooltip>
     </li>
@@ -384,8 +383,7 @@ export function SkillsCard() {
             >
               <div className="bg-card/40 flex items-center gap-1">
                 <CollapsibleTrigger className="group hover:bg-muted/40 flex flex-1 cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-[11.5px] transition-colors">
-                  <HugeiconsIcon
-                    icon={ArrowRight01Icon}
+                  <ChevronRight
                     size={12}
                     strokeWidth={2}
                     className="text-muted-foreground shrink-0 transition-transform group-data-[state=open]:rotate-90"
@@ -394,7 +392,7 @@ export function SkillsCard() {
                   <span className="text-muted-foreground text-[10px]">· {items.length}</span>
                   {hasUpdate && (
                     <span className="text-accent-foreground flex items-center gap-0.5 text-[9.5px] font-medium">
-                      <HugeiconsIcon icon={Download04Icon} size={10} />
+                      <Download size={10} />
                       Update available
                     </span>
                   )}
@@ -415,7 +413,7 @@ export function SkillsCard() {
                         <Spinner className="size-3" />
                       ) : (
                         <>
-                          <HugeiconsIcon icon={Refresh01Icon} size={9} />
+                          <RefreshCw size={9} />
                           Update
                         </>
                       )}
@@ -460,7 +458,7 @@ export function SkillsCard() {
       badge={
         pendingUpdatesCount > 0 ? (
           <span className="text-accent-foreground bg-accent/30 flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium">
-            <HugeiconsIcon icon={Download04Icon} size={9} />
+            <Download size={9} />
             {pendingUpdatesCount} update{pendingUpdatesCount > 1 ? "s" : ""} available
           </span>
         ) : null
@@ -498,7 +496,7 @@ export function SkillsCard() {
               {previewBusy ? (
                 <Spinner className="size-3.5" />
               ) : (
-                <HugeiconsIcon icon={SparklesIcon} size={12} strokeWidth={1.75} />
+                <Sparkles size={12} strokeWidth={1.75} />
               )}
               Preview
             </Button>
@@ -509,11 +507,7 @@ export function SkillsCard() {
               disabled={busy || !ref.trim()}
               onClick={() => void install()}
             >
-              {busy ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
-              )}
+              {busy ? <Spinner className="size-3.5" /> : <Plus size={12} strokeWidth={1.75} />}
               {busy ? "Installing…" : "Install"}
             </Button>
           )}
@@ -523,7 +517,7 @@ export function SkillsCard() {
         {preview && (
           <div className="border-border/40 bg-accent/10 flex flex-col gap-1 rounded-lg border px-3 py-2">
             <div className="flex items-center gap-1.5 text-[11px] font-medium">
-              <HugeiconsIcon icon={SparklesIcon} size={12} className="text-accent-foreground" />
+              <Sparkles size={12} className="text-accent-foreground" />
               {preview.count} skill{preview.count !== 1 ? "s" : ""} found in{" "}
               <span className="font-mono text-[10.5px]">{preview.repo}</span>
             </div>
@@ -610,11 +604,7 @@ export function SkillsCard() {
             disabled={updateBusy === "all"}
             onClick={() => void handleUpdateAll()}
           >
-            {updateBusy === "all" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <HugeiconsIcon icon={Refresh01Icon} size={11} />
-            )}
+            {updateBusy === "all" ? <Spinner className="size-3" /> : <RefreshCw size={11} />}
             Update all ({pendingUpdatesCount})
           </Button>
           <span className="text-muted-foreground text-[9.5px]">

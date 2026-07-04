@@ -94,7 +94,7 @@ export function applyBrandColor(hex: string): void {
     : mix({ r: 255, g: 255, b: 255 }, brand, 0.15);
   const accentHex = rgbToHex(accent);
   root.style.setProperty("--accent", accentHex);
-  root.style.setProperty("--sidebar-accent", isDark ? accentHex : accentHex);
+  root.style.setProperty("--sidebar-accent", accentHex);
 
   // Contrasting foreground for `--primary`. Black on light brands (pastel yellows etc.) to keep WCAG.
   const fg = luminance(brand) > 0.6 ? "#000000" : "#ffffff";

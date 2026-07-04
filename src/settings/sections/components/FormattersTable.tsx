@@ -28,9 +28,8 @@ import {
 } from "@/modules/editor/lib/formatters";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { patchFormatter, type FormatterConfig } from "@/modules/settings/store";
-import { Add01Icon, ArrowDown01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 type FormatterType = FormatterConfig["type"];
 
@@ -112,7 +111,7 @@ export function FormattersTable() {
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 w-fit gap-1.5 px-2 text-[11px]">
-              <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
+              <Plus size={12} strokeWidth={1.75} />
               Add language…
             </Button>
           </PopoverTrigger>
@@ -221,12 +220,7 @@ function FormatterRow({
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2 text-[11px]">
                 <span>{TYPE_LABEL[config.type]}</span>
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  size={11}
-                  strokeWidth={2}
-                  className="opacity-70"
-                />
+                <ChevronDown size={11} strokeWidth={2} className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[180px]">
@@ -264,7 +258,7 @@ function FormatterRow({
                 onClick={() => void patchFormatter(snapshot, language, null)}
                 aria-label="Remove formatter"
               >
-                <HugeiconsIcon icon={Delete02Icon} size={13} strokeWidth={1.75} />
+                <Trash2 size={13} strokeWidth={1.75} />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">Reset to default (no formatter)</TooltipContent>
@@ -337,12 +331,7 @@ function FormatterRow({
               {config.formatOnSave === true && "Always format on save"}
               {config.formatOnSave === false && "Never format on save"}
               {config.formatOnSave === undefined && "Follow global setting"}
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                size={10}
-                strokeWidth={2}
-                className="opacity-70"
-              />
+              <ChevronDown size={10} strokeWidth={2} className="opacity-70" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[180px]">

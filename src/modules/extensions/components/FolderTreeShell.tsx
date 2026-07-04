@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Cancel01Icon, FolderEditIcon, Home02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { FileExplorer } from "@/modules/explorer";
+import { FolderPen, House, X } from "lucide-react";
 
 /**
  * Owns the effective root: extension-provided `rootPath` or a user pick.
@@ -78,7 +77,7 @@ export function FolderTreeShell({
               aria-label="Open Folder"
               className="text-muted-foreground hover:text-foreground size-6"
             >
-              <HugeiconsIcon icon={FolderEditIcon} size={13} strokeWidth={2} />
+              <FolderPen size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}
@@ -92,7 +91,7 @@ export function FolderTreeShell({
               aria-label="Back to workspace folder"
               className="text-muted-foreground hover:text-foreground size-6"
             >
-              <HugeiconsIcon icon={Home02Icon} size={13} strokeWidth={2} />
+              <House size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}
@@ -106,7 +105,7 @@ export function FolderTreeShell({
               aria-label="Close panel"
               className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              <X size={11} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}

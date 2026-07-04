@@ -235,6 +235,32 @@ export function useAuxTabs({
    * sidebars before opening its tab) force React to defer the updater,
    * and the active-id then stays on the previous tab.
    */
+  // If a panel is already live as a split-pane leaf, focus that pane instead of
+  // mounting a duplicate — a second mount would race the panel's module
+  // singletons (the SQL Explorer keeps one sidecar + CodeMirror, so a duplicate
+  // mount blanks one of them). Returns the focused tab id, or null if not found.
+  const focusExistingExtPaneLeaf = (extensionId: string, panelId: string): number | null => {
+    for (const t of tabsRef.current) {
+      if (t.kind !== "pane") continue;
+      const leaf = leaves(t.paneTree).find(
+        (l) =>
+          l.leafKind === "extension-panel" &&
+          l.extensionId === extensionId &&
+          l.panelId === panelId,
+      );
+      if (leaf) {
+        setTabs((curr) =>
+          curr.map((x) =>
+            x.id === t.id && x.kind === "pane" ? { ...x, activeLeafId: leaf.id } : x,
+          ),
+        );
+        setActiveId(t.id);
+        return t.id;
+      }
+    }
+    return null;
+  };
+
   const openExtensionTab = useCallback(
     (opts: {
       extensionId: string;
@@ -243,28 +269,8 @@ export function useAuxTabs({
       icon?: string;
       reuseKey?: string;
     }) => {
-      // If this panel is already live as a split-pane leaf, focus that pane
-      // instead of opening a second tab — a second mount would race the
-      // panel's module singletons (the SQL Explorer keeps one sidecar +
-      // CodeMirror, so a duplicate mount blanks one of them).
-      for (const t of tabsRef.current) {
-        if (t.kind !== "pane") continue;
-        const leaf = leaves(t.paneTree).find(
-          (l) =>
-            l.leafKind === "extension-panel" &&
-            l.extensionId === opts.extensionId &&
-            l.panelId === opts.panelId,
-        );
-        if (leaf) {
-          setTabs((curr) =>
-            curr.map((x) =>
-              x.id === t.id && x.kind === "pane" ? { ...x, activeLeafId: leaf.id } : x,
-            ),
-          );
-          setActiveId(t.id);
-          return t.id;
-        }
-      }
+      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId);
+      if (hit !== null) return hit;
       const reuse = opts.reuseKey
         ? tabsRef.current.find(
             (t) =>
@@ -312,24 +318,8 @@ export function useAuxTabs({
       icon?: string;
       reuseKey?: string;
     }) => {
-      for (const t of tabsRef.current) {
-        if (t.kind !== "pane") continue;
-        const leaf = leaves(t.paneTree).find(
-          (l) =>
-            l.leafKind === "extension-panel" &&
-            l.extensionId === opts.extensionId &&
-            l.panelId === opts.panelId,
-        );
-        if (leaf) {
-          setTabs((curr) =>
-            curr.map((x) =>
-              x.id === t.id && x.kind === "pane" ? { ...x, activeLeafId: leaf.id } : x,
-            ),
-          );
-          setActiveId(t.id);
-          return t.id;
-        }
-      }
+      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId);
+      if (hit !== null) return hit;
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
       const leaf: PaneLeaf = {

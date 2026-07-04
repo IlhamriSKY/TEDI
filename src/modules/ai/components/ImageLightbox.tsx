@@ -1,7 +1,6 @@
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 /** Full-screen image preview. Click the backdrop or press Escape to close.
  *  Rendered into document.body so parent transforms/overflow can't clip it. */
@@ -34,7 +33,7 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
         className="bg-secondary text-foreground hover:bg-destructive/10 hover:text-destructive absolute top-4 right-4 cursor-pointer rounded-md p-1.5"
         aria-label="Close preview"
       >
-        <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
+        <X size={16} strokeWidth={2} />
       </button>
     </div>,
     document.body,

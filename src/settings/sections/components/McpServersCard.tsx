@@ -17,14 +17,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "../../components/SettingsCard";
 import {
-  Add01Icon,
-  Delete02Icon,
-  Edit02Icon,
-  PauseIcon,
-  PlayCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
   getMcpServers,
   removeMcpServer,
   saveMcpServer,
@@ -32,6 +24,7 @@ import {
   type McpServerConfig,
 } from "@/modules/ai/lib/mcpConfig";
 import { refreshMcpTools, validateMcpServer } from "@/modules/ai/lib/mcpClient";
+import { CirclePlay, Pause, Plus, SquarePen, Trash2 } from "lucide-react";
 
 /**
  * Derive a compact server name from a run command, so adding an MCP server
@@ -215,11 +208,7 @@ export function McpServersCard() {
           disabled={busy || !cmd.trim()}
           onClick={() => void handleAdd()}
         >
-          {busy ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={1.75} />
-          )}
+          {busy ? <Spinner className="size-3.5" /> : <Plus size={12} strokeWidth={1.75} />}
           Add
         </Button>
       </div>
@@ -248,7 +237,7 @@ export function McpServersCard() {
             <div
               key={s.name}
               className={cn(
-                "border-border/60 bg-card/60 flex items-start gap-2 rounded-lg border px-3 py-2",
+                "border-border/60 bg-card flex items-start gap-2 rounded-lg border px-3 py-2",
                 !s.enabled && "opacity-50",
               )}
             >
@@ -283,11 +272,11 @@ export function McpServersCard() {
                     )}
                     onClick={() => void handleToggle(s.name)}
                   >
-                    <HugeiconsIcon
-                      icon={s.enabled ? PauseIcon : PlayCircleIcon}
-                      size={12}
-                      strokeWidth={1.75}
-                    />
+                    {s.enabled ? (
+                      <Pause size={12} strokeWidth={1.75} />
+                    ) : (
+                      <CirclePlay size={12} strokeWidth={1.75} />
+                    )}
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Edit" side="top">
@@ -302,7 +291,7 @@ export function McpServersCard() {
                       setShowEnv(Object.keys(s.env ?? {}).length > 0);
                     }}
                   >
-                    <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={1.75} />
+                    <SquarePen size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Remove" side="top">
@@ -312,7 +301,7 @@ export function McpServersCard() {
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
                     onClick={() => setPendingDelete(s.name)}
                   >
-                    <HugeiconsIcon icon={Delete02Icon} size={12} strokeWidth={1.75} />
+                    <Trash2 size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
               </div>

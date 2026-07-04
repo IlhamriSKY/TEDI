@@ -1,8 +1,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 
 type Props = {
   title: ReactNode;
@@ -47,9 +46,9 @@ export function SettingsAccordion({
     <Collapsible
       open={isOpen}
       onOpenChange={setOpen}
-      className={cn("border-border/60 bg-card/60 overflow-hidden rounded-lg border", className)}
+      className={cn("border-border/60 bg-card overflow-hidden rounded-lg border", className)}
     >
-      <CollapsibleTrigger className="group hover:bg-card/80 flex w-full items-center justify-between gap-4 px-3 py-2.5 text-left transition-colors">
+      <CollapsibleTrigger className="group hover:bg-muted flex w-full items-center justify-between gap-4 px-3 py-2.5 text-left transition-colors">
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-[12.5px] font-medium">{title}</span>
           {description ? (
@@ -60,8 +59,7 @@ export function SettingsAccordion({
         </div>
         <div className="text-muted-foreground flex shrink-0 items-center gap-2 text-[10.5px]">
           {summary ? <span>{summary}</span> : null}
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
+          <ChevronDown
             size={14}
             strokeWidth={2}
             className="transition-transform duration-200 group-data-[state=open]:rotate-180"

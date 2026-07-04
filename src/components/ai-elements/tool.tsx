@@ -1,114 +1,113 @@
-"use client";
+import {
+  Bot,
+  Calendar,
+  Camera,
+  ChevronRight,
+  CircleAlert,
+  Compass,
+  Copy,
+  Download,
+  Eye,
+  File,
+  FilePen,
+  FilePlus,
+  FileSearch,
+  FolderOpen,
+  FolderPlus,
+  Globe,
+  Keyboard,
+  Layers,
+  List,
+  ListChecks,
+  Move,
+  MousePointer2,
+  MousePointerClick,
+  MoveVertical,
+  Replace,
+  RotateCw,
+  Search,
+  Send,
+  Sparkles,
+  SquareCheckBig,
+  SquareMousePointer,
+  SquarePen,
+  SquarePlay,
+  SquarePlus,
+  SquareX,
+  Terminal,
+  Trash2,
+  Wrench,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+("use client");
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MessageResponse } from "./message";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
-import {
-  useSubagentRunStore,
-  type SubagentRun,
-} from "@/modules/ai/store/subagentRunStore";
+import { useSubagentRunStore, type SubagentRun } from "@/modules/ai/store/subagentRunStore";
 import { resolveSubagentLabel } from "@/modules/ai/agents/resolveSubagent";
-import {
-  AddSquareIcon,
-  AlertCircleIcon,
-  ArrowRight01Icon,
-  Calendar01Icon,
-  CancelSquareIcon,
-  CheckListIcon,
-  CheckmarkSquare02Icon,
-  Copy01Icon,
-  Cursor01Icon,
-  CursorInWindowIcon,
-  Delete02Icon,
-  Edit02Icon,
-  EyeIcon,
-  File01Icon,
-  FileEditIcon,
-  FilePlusIcon,
-  Folder01Icon,
-  FolderAddIcon,
-  FolderOpenIcon,
-  GlobalSearchIcon,
-  InternetIcon,
-  KeyboardIcon,
-  Layers01Icon,
-  ListViewIcon,
-  MouseLeftClick01Icon,
-  Move01Icon,
-  Navigation03Icon,
-  PlaySquareIcon,
-  RobotIcon,
-  RotateClockwiseIcon,
-  ScrollVerticalIcon,
-  SearchReplaceIcon,
-  SentIcon,
-  SparklesIcon,
-  TerminalIcon,
-  ToolsIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
-const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
+const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   // Filesystem
-  read_file: { label: "Read", icon: File01Icon },
-  list_directory: { label: "List", icon: FolderOpenIcon },
-  write_file: { label: "Write", icon: FilePlusIcon },
-  create_directory: { label: "Create dir", icon: FolderAddIcon },
-  move_file: { label: "Move", icon: Move01Icon },
-  copy_file: { label: "Copy", icon: Copy01Icon },
-  delete_file: { label: "Delete", icon: Delete02Icon },
-  edit: { label: "Edit", icon: FileEditIcon },
-  multi_edit: { label: "Edit", icon: Edit02Icon },
+  read_file: { label: "Read", icon: File },
+  list_directory: { label: "List", icon: FolderOpen },
+  write_file: { label: "Write", icon: FilePlus },
+  create_directory: { label: "Create dir", icon: FolderPlus },
+  move_file: { label: "Move", icon: Move },
+  copy_file: { label: "Copy", icon: Copy },
+  delete_file: { label: "Delete", icon: Trash2 },
+  edit: { label: "Edit", icon: FilePen },
+  multi_edit: { label: "Edit", icon: SquarePen },
   // Search
-  grep: { label: "Search", icon: GlobalSearchIcon },
-  glob: { label: "Glob", icon: Folder01Icon },
-  replace_in_files: { label: "Replace", icon: SearchReplaceIcon },
+  grep: { label: "Search", icon: Search },
+  glob: { label: "Glob", icon: FileSearch },
+  replace_in_files: { label: "Replace", icon: Replace },
   // Shell
-  bash_run: { label: "Run", icon: TerminalIcon },
-  bash_background: { label: "Spawn", icon: TerminalIcon },
-  bash_logs: { label: "Logs", icon: TerminalIcon },
-  bash_list: { label: "Jobs", icon: TerminalIcon },
-  bash_kill: { label: "Kill", icon: TerminalIcon },
+  bash_run: { label: "Run", icon: Terminal },
+  bash_background: { label: "Spawn", icon: Terminal },
+  bash_logs: { label: "Logs", icon: Terminal },
+  bash_list: { label: "Jobs", icon: Terminal },
+  bash_kill: { label: "Kill", icon: Terminal },
   // Data / web
-  fetch: { label: "Fetch", icon: InternetIcon },
-  open_browser: { label: "Browser", icon: EyeIcon },
-  control_browser: { label: "Browser", icon: Navigation03Icon },
-  navigate_and_read: { label: "Navigate", icon: Navigation03Icon },
-  read_browser: { label: "Read page", icon: EyeIcon },
-  browser_type: { label: "Type", icon: KeyboardIcon },
-  browser_click: { label: "Click", icon: MouseLeftClick01Icon },
-  browser_click_at: { label: "Click at", icon: Cursor01Icon },
-  browser_hover: { label: "Hover", icon: CursorInWindowIcon },
-  browser_press_key: { label: "Press key", icon: KeyboardIcon },
-  browser_scroll: { label: "Scroll", icon: ScrollVerticalIcon },
-  browser_screenshot: { label: "Screenshot", icon: EyeIcon },
+  fetch: { label: "Fetch", icon: Download },
+  open_browser: { label: "Browser", icon: Globe },
+  control_browser: { label: "Browser", icon: Compass },
+  navigate_and_read: { label: "Navigate", icon: Compass },
+  read_browser: { label: "Read page", icon: Eye },
+  browser_type: { label: "Type", icon: Keyboard },
+  browser_click: { label: "Click", icon: MousePointerClick },
+  browser_click_at: { label: "Click at", icon: MousePointer2 },
+  browser_hover: { label: "Hover", icon: SquareMousePointer },
+  browser_press_key: { label: "Press key", icon: Keyboard },
+  browser_scroll: { label: "Scroll", icon: MoveVertical },
+  browser_screenshot: { label: "Screenshot", icon: Camera },
   // Terminal control
-  suggest_command: { label: "Suggest", icon: SparklesIcon },
-  open_terminal: { label: "Open terminal", icon: AddSquareIcon },
-  close_terminal: { label: "Close terminal", icon: CancelSquareIcon },
-  consolidate_terminals: { label: "Consolidate", icon: Layers01Icon },
-  group_tabs: { label: "Group tabs", icon: Layers01Icon },
-  rotate_pane: { label: "Rotate pane", icon: RotateClockwiseIcon },
-  run_in_terminal: { label: "Run in terminal", icon: PlaySquareIcon },
-  run_in_terminal_by_id: { label: "Run in terminal", icon: PlaySquareIcon },
-  send_to_terminal: { label: "Send to terminal", icon: SentIcon },
-  list_terminals: { label: "List terminals", icon: ListViewIcon },
+  suggest_command: { label: "Suggest", icon: Sparkles },
+  open_terminal: { label: "Open terminal", icon: SquarePlus },
+  close_terminal: { label: "Close terminal", icon: SquareX },
+  consolidate_terminals: { label: "Consolidate", icon: Layers },
+  group_tabs: { label: "Group tabs", icon: Layers },
+  rotate_pane: { label: "Rotate pane", icon: RotateCw },
+  run_in_terminal: { label: "Run in terminal", icon: SquarePlay },
+  run_in_terminal_by_id: { label: "Run in terminal", icon: SquarePlay },
+  send_to_terminal: { label: "Send to terminal", icon: Send },
+  list_terminals: { label: "List terminals", icon: List },
   // Scheduling
-  schedule_command: { label: "Schedule", icon: Calendar01Icon },
-  list_schedules: { label: "Schedules", icon: Calendar01Icon },
-  cancel_schedule: { label: "Cancel schedule", icon: Calendar01Icon },
+  schedule_command: { label: "Schedule", icon: Calendar },
+  list_schedules: { label: "Schedules", icon: Calendar },
+  cancel_schedule: { label: "Cancel schedule", icon: Calendar },
   // Delegation / planning
-  skill: { label: "Skill", icon: SparklesIcon },
-  run_subagent: { label: "Subagent", icon: RobotIcon },
-  run_subagents: { label: "Subagents", icon: RobotIcon },
-  todo_write: { label: "Todos", icon: CheckListIcon },
+  skill: { label: "Skill", icon: Sparkles },
+  run_subagent: { label: "Subagent", icon: Bot },
+  run_subagents: { label: "Subagents", icon: Bot },
+  todo_write: { label: "Todos", icon: ListChecks },
 };
 
 // Icon color per tool state: the color indicator lives on the icon itself,
@@ -124,7 +123,11 @@ const STATUS_ICON_COLOR: Record<ToolPart["state"], string> = {
 };
 
 // States where the tool is still executing — icon breathes/pulses to show activity.
-const ACTIVE_STATES: ReadonlySet<ToolPart["state"]> = new Set(["input-streaming", "input-available", "approval-requested"]);
+const ACTIVE_STATES: ReadonlySet<ToolPart["state"]> = new Set([
+  "input-streaming",
+  "input-available",
+  "approval-requested",
+]);
 
 const STATUS_LABEL: Record<ToolPart["state"], string> = {
   "approval-requested": "awaiting approval",
@@ -239,7 +242,7 @@ const ToolImpl = ({
   ...props
 }: ToolProps) => {
   const meta = TOOL_META[toolName];
-  const Icon = meta?.icon ?? ToolsIcon;
+  const Icon = meta?.icon ?? Wrench;
   const label = meta?.label ?? toTitleCase(toolName);
   const summary = deriveSummary(toolName, input);
   const isError = state === "output-error";
@@ -298,11 +301,14 @@ const ToolImpl = ({
           "focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
         )}
       >
-        <HugeiconsIcon
-          icon={Icon}
+        <Icon
           size={13}
           strokeWidth={1.75}
-          className={cn("shrink-0 transition-colors", ACTIVE_STATES.has(state) && "animate-ai-breathe", STATUS_ICON_COLOR[state])}
+          className={cn(
+            "shrink-0 transition-colors",
+            ACTIVE_STATES.has(state) && "animate-ai-breathe",
+            STATUS_ICON_COLOR[state],
+          )}
           aria-label={STATUS_LABEL[state]}
         />
         <span className="text-foreground shrink-0 font-medium">{label}</span>
@@ -406,13 +412,10 @@ const SubagentRunRow = memo(
       <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
         {isRunning ? (
           <Spinner className="size-3" />
+        ) : isError ? (
+          <CircleAlert size={12} strokeWidth={1.75} className="text-destructive" />
         ) : (
-          <HugeiconsIcon
-            icon={isError ? AlertCircleIcon : CheckmarkSquare02Icon}
-            size={12}
-            strokeWidth={1.75}
-            className={isError ? "text-destructive" : "text-diff-added"}
-          />
+          <SquareCheckBig size={12} strokeWidth={1.75} className="text-diff-added" />
         )}
       </span>
     );
@@ -429,7 +432,7 @@ const SubagentRunRow = memo(
             isError ? "text-destructive" : isRunning ? "text-foreground" : "text-muted-foreground",
           )}
         >
-          {isError ? (run.error?.trim() || "failed") : run.label || "working"}
+          {isError ? run.error?.trim() || "failed" : run.label || "working"}
         </span>
         {stats ? (
           <span className="text-muted-foreground shrink-0 font-mono text-[10px]">{stats}</span>
@@ -443,8 +446,7 @@ const SubagentRunRow = memo(
       return (
         <Collapsible defaultOpen className={containerClass}>
           <CollapsibleTrigger className="group/sar flex w-full cursor-pointer items-center gap-1.5 text-left">
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
+            <ChevronRight
               size={11}
               strokeWidth={2}
               className="text-muted-foreground shrink-0 transition-transform group-data-[state=open]/sar:rotate-90"
@@ -475,7 +477,7 @@ const SubagentRunRow = memo(
           </div>
         ) : null}
         {isError && run.error ? (
-          <div className="text-destructive/90 break-all pl-5 font-mono text-[10px] leading-relaxed">
+          <div className="text-destructive/90 pl-5 font-mono text-[10px] leading-relaxed break-all">
             {run.error}
           </div>
         ) : null}
@@ -522,13 +524,21 @@ function matchSubagentRuns(toolName: string, input: unknown, runs: SubagentRun[]
   return matched.reverse();
 }
 
-function expectedSubagentRuns(toolName: string, input: unknown): Array<{ type: string; label?: string }> {
+function expectedSubagentRuns(
+  toolName: string,
+  input: unknown,
+): Array<{ type: string; label?: string }> {
   if (!input || typeof input !== "object") return [];
   const data = input as Record<string, unknown>;
 
   if (toolName === "run_subagent") {
     return typeof data.type === "string"
-      ? [{ type: data.type, label: typeof data.description === "string" ? data.description : undefined }]
+      ? [
+          {
+            type: data.type,
+            label: typeof data.description === "string" ? data.description : undefined,
+          },
+        ]
       : [];
   }
 
@@ -722,23 +732,13 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px]">
         {dirs.map((e) => (
           <div key={`d-${e.name}`} className="flex items-center gap-1.5 truncate">
-            <HugeiconsIcon
-              icon={FolderOpenIcon}
-              size={11}
-              strokeWidth={1.75}
-              className="text-muted-foreground shrink-0"
-            />
+            <FolderOpen size={11} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
             <span className="text-foreground truncate">{e.name}/</span>
           </div>
         ))}
         {files.map((e) => (
           <div key={`f-${e.name}`} className="flex items-center gap-1.5 truncate">
-            <HugeiconsIcon
-              icon={File01Icon}
-              size={11}
-              strokeWidth={1.75}
-              className="text-muted-foreground shrink-0"
-            />
+            <File size={11} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
             <span className="text-muted-foreground truncate">{e.name}</span>
           </div>
         ))}
@@ -1105,8 +1105,7 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
         )}
       >
         {hasBody ? (
-          <HugeiconsIcon
-            icon={ArrowRight01Icon}
+          <ChevronRight
             size={11}
             strokeWidth={2}
             className="text-muted-foreground shrink-0 transition-transform group-data-[state=open]/sa:rotate-90"

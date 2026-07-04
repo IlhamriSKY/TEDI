@@ -14,7 +14,7 @@ use tauri::Manager;
 
 use super::github::{
     http_get_bytes, normalize_owner_repo, raw_content_bytes, resolve_latest_release,
-    resolve_latest_tag,
+    resolve_latest_tag, MAX_DOWNLOAD_BYTES,
 };
 use super::install::{install_from_bytes, resolve_asset, PeekResult};
 use super::manifest::Manifest;
@@ -111,6 +111,28 @@ fn state_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(extensions_root(app)?.join("state.json"))
 }
 
+/// Parse the manifest of an installed-extension subdirectory, or `None` if it
+/// should be skipped: not a directory, a `.staging-`/`.trash-` leftover, or a
+/// missing/unreadable/invalid `manifest.json`. Shared by the GUI `ext_list`
+/// and the CLI installed-extension scan.
+pub(crate) fn read_installed_manifest(path: &Path) -> Option<Manifest> {
+    if !path.is_dir() {
+        return None;
+    }
+    // Skip staging/trash dirs left behind on crash or replace. Swept by
+    // `sweep_stale_staging`; not real extensions.
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if name.starts_with(".staging-") || name.starts_with(".trash-") {
+        return None;
+    }
+    let manifest_path = path.join("manifest.json");
+    if !manifest_path.exists() {
+        return None;
+    }
+    let text = fs::read_to_string(&manifest_path).ok()?;
+    Manifest::parse(&text).ok()
+}
+
 #[tauri::command]
 pub async fn ext_list(app: tauri::AppHandle) -> Result<Vec<ListEntry>, String> {
     let root = extensions_root(&app)?;
@@ -119,28 +141,7 @@ pub async fn ext_list(app: tauri::AppHandle) -> Result<Vec<ListEntry>, String> {
     for entry in fs::read_dir(&root).map_err(|e| format!("read root: {e}"))? {
         let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        // Skip staging/trash dirs left behind on crash or replace. Swept by
-        // `sweep_stale_staging`; not real extensions.
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.starts_with(".staging-") || n.starts_with(".trash-"))
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let manifest_path = path.join("manifest.json");
-        if !manifest_path.exists() {
-            continue;
-        }
-        let manifest_text = match fs::read_to_string(&manifest_path) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let Ok(manifest) = Manifest::parse(&manifest_text) else {
+        let Some(manifest) = read_installed_manifest(&path) else {
             continue;
         };
         let st = state.entries.get(&manifest.id);
@@ -216,10 +217,6 @@ pub async fn ext_read_asset_bytes(
     let bytes = fs::read(&target).map_err(|e| format!("read asset {rel_path}: {e}"))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
-
-/// 50 MiB; mirrors `install::MAX_INSTALL_BYTES`. Duplicated so we can refuse
-/// a giant local file before allocating its contents into memory.
-const MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
 
 #[tauri::command]
 pub async fn ext_install_from_zip(

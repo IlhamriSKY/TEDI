@@ -13,12 +13,11 @@ import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { UpdaterPill } from "@/modules/updater";
-import { GitBranchIcon, Globe02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomIndicator } from "./ZoomIndicator";
+import { GitBranch, Globe } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -59,7 +58,7 @@ function StatusBarInner({
               aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
               className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80"
             >
-              <HugeiconsIcon icon={Globe02Icon} size={16} strokeWidth={1.75} className="shrink-0" />
+              <Globe size={16} strokeWidth={1.75} className="shrink-0" />
             </button>
           </IconTooltip>
         ) : null}
@@ -130,7 +129,7 @@ function ScmRightOpenButton() {
           open ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <HugeiconsIcon icon={GitBranchIcon} size={16} strokeWidth={1.75} className="shrink-0" />
+        <GitBranch size={16} strokeWidth={1.75} className="shrink-0" />
       </button>
     </IconTooltip>
   );

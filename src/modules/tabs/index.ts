@@ -13,7 +13,6 @@ export {
   type GitDiffTab,
   type GitChangeStatusTab,
   type ScmTab,
-  type TabPatch,
 } from "./lib/useTabs";
 export { useWorkspaceCwd } from "./lib/useWorkspaceCwd";
 export { countTabEntries } from "./lib/entries";

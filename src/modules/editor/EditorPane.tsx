@@ -3,6 +3,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
+import { formatBytes } from "@/lib/format";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { markdownComponents } from "@/components/ai-elements/markdown-code";
 import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
@@ -19,7 +20,7 @@ import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
 import {
-  buildMinimapExtension,
+  minimapExtension,
   buildSharedExtensions,
   minimapCompartment,
   languageCompartment,
@@ -96,12 +97,6 @@ type Props = {
   aiDisabled?: boolean;
   ref?: Ref<EditorPaneHandle>;
 };
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** Returns the y-coordinate of `pos` in the scroller's scrollable content
  *  space (same axis as `scrollTop`). Falls back to a geometric estimate
@@ -487,7 +482,7 @@ export function EditorPane({
     const view = cmRef.current?.view;
     if (!view) return;
     view.dispatch({
-      effects: minimapCompartment.reconfigure(showMinimap ? buildMinimapExtension() : []),
+      effects: minimapCompartment.reconfigure(showMinimap ? minimapExtension() : []),
     });
   }, [showMinimap]);
 
@@ -928,6 +923,7 @@ export function EditorPane({
               className="prose prose-sm dark:prose-invert max-w-3xl [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
               urlTransform={safeUrlTransform}
               components={markdownComponents}
+              controls={{ table: false }}
             >
               {liveContent}
             </Streamdown>

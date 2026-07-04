@@ -8,10 +8,10 @@
  * `panel.toggleCommand` against `keybindingsRegistry` plus user overrides
  * in `preferences.extensionShortcuts`.
  *
- * Icon source: well-known first-party extensions render a HugeIcon from
- * `HUGE_ICON_MAP` so the status bar stays visually homogeneous with core
- * buttons like `ScmRightOpenButton` (`GitBranchIcon`) and `AiOpenButton`
- * (`SparklesIcon`). Third-party extensions fall back to their manifest
+ * Icon source: well-known first-party extensions render a curated Lucide icon
+ * from `ICON_MAP` so the status bar stays visually homogeneous with core
+ * buttons like `ScmRightOpenButton` (`GitBranch`) and `AiOpenButton`
+ * (`Sparkles`). Third-party extensions fall back to their manifest
  * `icon` rendered as an `<img>`.
  *
  * The button stays in place while its panel is open (showing an active
@@ -21,7 +21,6 @@
  * default variant; the flag now only governs ordering (compact toggles
  * cluster with `ExtensionStatusItems` at the left of the right group).
  */
-import { useEffect, useState } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { KEY_SEP } from "@/lib/platform";
@@ -32,23 +31,21 @@ import {
   parseKeybindingString,
   type KeyBinding,
 } from "@/modules/shortcuts/shortcuts";
-import { Camera01Icon, Folder02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { Camera, Folder, type LucideIcon } from "lucide-react";
 
-import { loadExtensionIcon } from "../icon";
+import { useResolvedExtensionIcon } from "../icon";
 import { keybindingsRegistry, panelsRegistry } from "../registries";
 import { useRegistry } from "../useRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
 
 /**
- * Per-extension HugeIcon overrides for the status-bar toggle. Keeps the icon
- * choice in sync with the rest of the status bar (all HugeIcons line-art)
+ * Per-extension icon overrides for the status-bar toggle. Keeps the icon
+ * choice in sync with the rest of the status bar (all Lucide line-art)
  * without forcing each extension to bundle a matching SVG.
  */
-type HugeIconShape = typeof Camera01Icon;
-const HUGE_ICON_MAP: Record<string, HugeIconShape> = {
-  "tedi.screenshot": Camera01Icon,
-  "tedi.secondary-folder-tree": Folder02Icon,
+const ICON_MAP: Record<string, LucideIcon> = {
+  "tedi.screenshot": Camera,
+  "tedi.secondary-folder-tree": Folder,
 };
 
 function useSortedRightPanels(compactOnly: boolean) {
@@ -170,9 +167,9 @@ function ToggleButton({
 }
 
 /**
- * Renders the toggle icon. HugeIcons take priority via `HUGE_ICON_MAP` so
- * first-party extensions stay visually consistent with core's
- * `GitBranchIcon` / `SparklesIcon` line-art. Third-party extensions fall
+ * Renders the toggle icon. Curated Lucide icons take priority via `ICON_MAP`
+ * so first-party extensions stay visually consistent with core's
+ * `GitBranch` / `Sparkles` line-art. Third-party extensions fall
  * back to their manifest `icon` rendered as a raster `<img>`.
  */
 function PanelIcon({
@@ -186,11 +183,10 @@ function PanelIcon({
   alt: string;
   size: number;
 }) {
-  const hugeIcon = HUGE_ICON_MAP[extensionId];
-  if (hugeIcon) {
+  const Icon = ICON_MAP[extensionId];
+  if (Icon) {
     return (
-      <HugeiconsIcon
-        icon={hugeIcon}
+      <Icon
         size={size}
         strokeWidth={size >= 16 ? 1.75 : 2}
         className="shrink-0"
@@ -210,7 +206,7 @@ function PanelImageIcon({
   icon: string | null;
   size: number;
 }) {
-  const url = useResolvedPanelIcon(extensionId, icon);
+  const url = useResolvedExtensionIcon(extensionId, icon);
   const style = { width: `${size}px`, height: `${size}px` } as const;
   if (!url) {
     // Manifest didn't ship an icon (or it failed to load) - fall back to
@@ -230,28 +226,4 @@ function PanelImageIcon({
       aria-hidden
     />
   );
-}
-
-function useResolvedPanelIcon(extensionId: string, icon: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(() =>
-    icon && icon.startsWith("data:") ? icon : null,
-  );
-  useEffect(() => {
-    if (!icon) {
-      setUrl(null);
-      return;
-    }
-    if (icon.startsWith("data:")) {
-      setUrl(icon);
-      return;
-    }
-    let alive = true;
-    void loadExtensionIcon(extensionId, icon).then((next) => {
-      if (alive) setUrl(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [extensionId, icon]);
-  return url;
 }

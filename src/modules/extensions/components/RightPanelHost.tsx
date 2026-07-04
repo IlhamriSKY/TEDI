@@ -10,8 +10,6 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
   panelRenderersRegistry,
@@ -23,6 +21,7 @@ import { useRegistry } from "../useRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
 import { parseSectionPanelId } from "../sidebarPlacementStore";
 import { ExtensionSidebarSection } from "./ExtensionSidebarSection";
+import { X } from "lucide-react";
 
 export function RightPanelHost() {
   const active = useRightPanelStore((s) => s.active);
@@ -62,9 +61,7 @@ export function RightPanelHost() {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const meta = active
-    ? panels.find(
-        (p) => p.extensionId === active.extensionId && p.item.id === active.panelId,
-      )
+    ? panels.find((p) => p.extensionId === active.extensionId && p.item.id === active.panelId)
     : null;
   const title = meta?.item.title ?? "";
   const hideHostHeader = meta?.item.hideHostHeader === true;
@@ -151,7 +148,7 @@ export function RightPanelHost() {
               className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
               aria-label="Close panel"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
+              <X size={11} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         </div>

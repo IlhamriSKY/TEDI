@@ -1,6 +1,6 @@
 export { scheduler, setSchedulerBridge } from "./lib/engine";
 export type { SchedulerBridge } from "./lib/engine";
-export { useSchedules, usePendingSchedules } from "./store";
+export { useSchedules } from "./store";
 export type {
   Schedule,
   ScheduleAction,

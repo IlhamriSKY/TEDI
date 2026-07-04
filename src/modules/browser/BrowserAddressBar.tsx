@@ -4,22 +4,22 @@ import { Input } from "@/components/ui/input";
 import { pathToFileUrl } from "@/lib/path";
 import { fmtShortcut, MOD_KEY, ALT_KEY, SHIFT_KEY } from "@/lib/platform";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  File01Icon,
-  Globe02Icon,
-  InformationCircleIcon,
-  LinkSquare02Icon,
-  RefreshIcon,
-  SquareLock01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSearchUrl } from "@/modules/settings/searchEngines";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  File,
+  Globe,
+  Info,
+  Lock,
+  RefreshCw,
+  type LucideIcon,
+} from "lucide-react";
 
 export type BrowserAddressBarHandle = {
   focus: () => void;
@@ -29,7 +29,7 @@ export type BrowserAddressBarHandle = {
  *  padlock for https, a "not secure" info glyph (amber) for http, and a neutral
  *  globe for a blank or unparseable address. */
 function securityFor(url: string): {
-  icon: Parameters<typeof HugeiconsIcon>[0]["icon"];
+  icon: LucideIcon;
   label: string;
   className: string;
 } {
@@ -41,22 +41,22 @@ function securityFor(url: string): {
   }
   if (scheme === "https:") {
     return {
-      icon: SquareLock01Icon,
+      icon: Lock,
       label: "Connection is secure (HTTPS)",
       className: "text-muted-foreground/80",
     };
   }
   if (scheme === "http:") {
     return {
-      icon: InformationCircleIcon,
+      icon: Info,
       label: "Not secure (HTTP)",
       className: "text-icon-working",
     };
   }
   if (scheme === "file:") {
-    return { icon: File01Icon, label: "Local file", className: "text-muted-foreground/80" };
+    return { icon: File, label: "Local file", className: "text-muted-foreground/80" };
   }
-  return { icon: Globe02Icon, label: "Enter an address", className: "text-muted-foreground/60" };
+  return { icon: Globe, label: "Enter an address", className: "text-muted-foreground/60" };
 }
 
 type Props = {
@@ -106,6 +106,7 @@ export function BrowserAddressBar({
   );
 
   const security = securityFor(url);
+  const SecurityIcon = security.icon;
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
 
   const submit = () => {
@@ -136,7 +137,7 @@ export function BrowserAddressBar({
             aria-label="Back"
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md disabled:opacity-40`}
           >
-            <HugeiconsIcon icon={ArrowLeft01Icon} size={15} strokeWidth={1.75} />
+            <ChevronLeft size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
         <IconTooltip label={`Forward (${fmtShortcut(ALT_KEY, "→")})`} side="top">
@@ -149,7 +150,7 @@ export function BrowserAddressBar({
             aria-label="Forward"
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md disabled:opacity-40`}
           >
-            <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.75} />
+            <ChevronRight size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
         <IconTooltip
@@ -164,8 +165,7 @@ export function BrowserAddressBar({
             aria-label="Reload"
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
           >
-            <HugeiconsIcon
-              icon={RefreshIcon}
+            <RefreshCw
               size={14}
               strokeWidth={1.75}
               className={loading ? "animate-spin" : undefined}
@@ -180,12 +180,7 @@ export function BrowserAddressBar({
               className="flex size-4 shrink-0 cursor-default items-center justify-center"
               aria-label={security.label}
             >
-              <HugeiconsIcon
-                icon={security.icon}
-                size={14}
-                strokeWidth={1.75}
-                className={security.className}
-              />
+              <SecurityIcon size={14} strokeWidth={1.75} className={security.className} />
             </span>
           </IconTooltip>
           <Input
@@ -220,7 +215,7 @@ export function BrowserAddressBar({
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
             disabled={!url}
           >
-            <HugeiconsIcon icon={LinkSquare02Icon} size={14} strokeWidth={1.75} />
+            <ExternalLink size={14} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
       </div>

@@ -1,12 +1,9 @@
 import { cn } from "@/lib/utils";
-import { Loading03Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { LoaderCircle } from "lucide-react";
 
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
-    <HugeiconsIcon
-      icon={Loading03Icon}
-      // @ts-ignore
+    <LoaderCircle
       strokeWidth={2}
       role="status"
       aria-label="Loading"
