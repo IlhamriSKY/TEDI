@@ -96,6 +96,8 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     }
     totalBytes += bytes.length;
     s.term.write(bytes);
+    // Mirror the same bytes to a floating window, if one is open for this leaf.
+    s.onOutputTap?.(bytes);
     s.aiCliDetector?.pushOutput(bytes);
     maybeNudgeOnRendererSwitch(s, bytes);
     // Defense-in-depth for the "first byte heals everything" trap: the block

@@ -210,6 +210,8 @@ const HUGEICON_ALIAS: Record<string, string> = {
   ListViewIcon: "List",
   Loading03Icon: "LoaderCircle",
   LockedIcon: "Lock",
+  MagicWand01Icon: "WandSparkles",
+  MagicWand02Icon: "WandSparkles",
   Mic01Icon: "Mic",
   Minimize02Icon: "Minimize2",
   MinusSignIcon: "Minus",

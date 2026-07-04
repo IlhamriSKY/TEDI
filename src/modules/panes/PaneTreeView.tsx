@@ -44,7 +44,20 @@ import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
-import { GripVertical, X } from "lucide-react";
+import { closeFloat, floatPane } from "./floatHost";
+import { useFloatStore } from "./floatStore";
+import type { FloatLeafParams } from "./floatProtocol";
+import { GripVertical, SquareArrowOutUpRight, X } from "lucide-react";
+
+/** Leaf kinds that can be floated into their own window. Only terminals for now:
+ *  they mirror live over Tauri events (the primary "watch an agent while working"
+ *  case). Editor float needs the standalone window to bootstrap the workspace/tab
+ *  stores EditorPane reads, so it's gated out until that's wired. Browser panes
+ *  are native Tauri webview overlays that can't be mirrored at all. */
+function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
+  if (node.leafKind === "terminal") return { leafId: node.id, kind: "terminal", title };
+  return null;
+}
 
 export type LeafBundle = {
   // terminal-only
@@ -355,9 +368,23 @@ function PaneLeafFrame({
     termTitle !== baseLabel &&
     termTitle !== node.cwd;
 
+  // Float the pane into its own always-on-top window (terminals mirror live via
+  // Tauri events; editors open the file). Browser/extension panes can't float.
+  const floatParams = floatParamsFor(node, baseLabel);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const isFloating = useFloatStore((s) => s.floating.has(node.id));
+  const doFloat = () => {
+    if (!floatParams) return;
+    const r = frameRef.current?.getBoundingClientRect();
+    void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 });
+  };
+
   return (
     <div
-      ref={setDropRef}
+      ref={(el) => {
+        setDropRef(el);
+        frameRef.current = el;
+      }}
       onMouseDownCapture={() => {
         if (!focused) onFocusLeaf(node.id);
       }}
@@ -437,6 +464,29 @@ function PaneLeafFrame({
             {node.leafKind === "editor" && node.dirty && (
               <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
             )}
+            {floatParams && (
+              <IconTooltip
+                label={isFloating ? "Floating — click to focus its window" : "Float pane in its own window"}
+                side="bottom"
+              >
+                <button
+                  type="button"
+                  aria-label={isFloating ? "Focus the floating window" : "Float pane in its own window"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    doFloat();
+                  }}
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+                    isFloating
+                      ? "text-primary hover:bg-muted"
+                      : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  <SquareArrowOutUpRight size={12} strokeWidth={2} />
+                </button>
+              </IconTooltip>
+            )}
             {onCloseLeaf && (
               <IconTooltip label="Close pane" side="bottom">
                 <button
@@ -514,14 +564,41 @@ function PaneLeafFrame({
           </ContextMenu>
         );
       })()}
+      {/* While floating, an independent window mirrors this leaf, so the pane
+          hides its now-redundant terminal (kept mounted so the PTY + mirror tap
+          stay alive) and shows an indicator instead. */}
       <div className="relative min-h-0 flex-1">
         <LeafBody
           node={node}
-          tabVisible={tabVisible}
+          tabVisible={tabVisible && !isFloating}
           focused={focused}
           b={b}
           mdPreview={mdPreview}
         />
+        {isFloating && (
+          <div className="bg-background text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-[11px]">
+            <SquareArrowOutUpRight size={22} strokeWidth={1.5} className="opacity-50" />
+            <span className="max-w-56 leading-relaxed">
+              This pane is open in a floating window.
+            </span>
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={doFloat}
+                className="hover:bg-muted hover:text-foreground rounded-md border border-border px-2 py-1 transition-colors"
+              >
+                Focus window
+              </button>
+              <button
+                type="button"
+                onClick={() => closeFloat(node.id)}
+                className="hover:bg-muted hover:text-foreground rounded-md border border-border px-2 py-1 transition-colors"
+              >
+                Dock back
+              </button>
+            </span>
+          </div>
+        )}
       </div>
       {isOver && drag.edge && <DropIndicator edge={drag.edge} />}
     </div>

@@ -6744,7 +6744,7 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.3.75"
+version = "0.3.76"
 dependencies = [
  "base64 0.22.1",
  "dialoguer",

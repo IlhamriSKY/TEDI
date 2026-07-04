@@ -7,6 +7,13 @@ export {
 } from "./lib/useTerminalSession";
 export { useTerminalFileDrop, ensureFsDragListener } from "./lib/useTerminalFileDrop";
 export {
+  subscribeTerminalOutput,
+  terminalSize,
+  serializeTerminal,
+  writeTerminalInput,
+  hasTerminalSession,
+} from "./lib/floatTap";
+export {
   hasLeaf,
   leafIds,
   leaves,

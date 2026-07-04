@@ -208,10 +208,16 @@ const MIN_TAIL = Math.min(KEEP_TAIL, 8);
  *  3. Still over 85% after Stage 2: hard-drop oldest non-system messages
  *     until under 72%, preserving the last KEEP_TAIL. Only path that loses info.
  *
- *  Callers can pass a smaller contextLimit to trigger compaction sooner. */
+ *  Callers can pass a smaller contextLimit to trigger compaction sooner.
+ *  `skipHardDrop` disables Stage 3: used by between-step compaction inside a
+ *  live tool loop (see compactStepMessages), where dropping whole messages could
+ *  orphan a subagent's task brief or leave an assistant-first prompt some
+ *  providers reject. Stages 1-2 only rewrite tool-result OUTPUT (every message +
+ *  toolCallId preserved), so they are always pairing-safe. */
 export function compactModelMessagesDetailed(
   messages: ModelMessage[],
   contextLimit: number,
+  opts?: { skipHardDrop?: boolean },
 ): CompactResult {
   const stages: CompactStages = { lossless: 0, elided: 0, dropped: 0 };
   let working = messages;
@@ -251,7 +257,7 @@ export function compactModelMessagesDetailed(
 
   // Stage 3: conversation itself exceeds the window (huge pastes, runaway
   // streaming). Elision isn't enough; hard-drop oldest non-system messages.
-  if (approxTokens >= 0.85 * contextLimit) {
+  if (!opts?.skipHardDrop && approxTokens >= 0.85 * contextLimit) {
     const systemPrefix: ModelMessage[] = [];
     const rest: ModelMessage[] = [];
     for (const m of working) {
@@ -366,4 +372,26 @@ export function compactUiMessages<
     messages: messages.slice(cut),
     info: { kept: messages.length - cut, dropped: cut },
   };
+}
+
+/** Absolute token budget for BETWEEN-step compaction inside a single agent turn.
+ *  Deliberately decoupled from the model's context window: an unknown model
+ *  (e.g. glm-5.2) falls back to a 512K limit, so window-based compaction never
+ *  fires mid-loop and the growing tool-result pile is re-sent in full every step
+ *  - the dominant cost on gateways with no prompt cache (SumoPod). This bounds
+ *  the per-step payload to ~this budget instead. Tune down for cheaper (lossier)
+ *  runs, up for more fidelity. ponytail: one constant, not a per-model table. */
+export const RESEND_COMPACTION_BUDGET = 80_000;
+
+/** Compact the per-step message set handed to prepareStep. Elide-only (Stage 3
+ *  hard-drop disabled) so it can never orphan a tool_call/tool_result pair or the
+ *  task brief mid-loop, and idempotent: the AI SDK re-derives the full history
+ *  from its own accumulator each step, so this only shrinks what THIS step sends
+ *  to the provider - the loop's own state and result.steps stay complete.
+ *  Does NOT re-apply cache breakpoints (the turn-start marks already ride in the
+ *  accumulator; re-marking risks Anthropic's 4-breakpoint ceiling). */
+export function compactStepMessages(messages: ModelMessage[]): ModelMessage[] {
+  return compactModelMessagesDetailed(messages, RESEND_COMPACTION_BUDGET, {
+    skipHardDrop: true,
+  }).messages;
 }

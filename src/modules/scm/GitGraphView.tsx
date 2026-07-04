@@ -276,7 +276,9 @@ export function GitGraphView({
       }}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <ul className="py-0.5">
+        {/* @container: rows drop the author/sha columns as the sidebar narrows
+            (see GraphRow) so the history stays legible at any width. */}
+        <ul className="@container py-0.5">
           {rows.map((row) => (
             <GraphRow
               key={row.commit.sha}
@@ -445,7 +447,9 @@ function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps)
     <div
       data-scm-commit-row=""
       className={cn(
-        "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-3",
+        // pr-4 keeps the last column clear of the Radix ScrollArea's 10px
+        // overlay thumb (pr-3 left only ~2px and the time read as covered).
+        "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-4",
         selected && "bg-accent/60",
       )}
       role="button"
@@ -488,10 +492,13 @@ function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps)
         <span className="text-foreground/90 min-w-0 flex-1 truncate text-[11.5px]">
           {commit.subject}
         </span>
-        <span className="text-muted-foreground shrink-0 truncate text-[10px]">
+        {/* Author + sha are progressively dropped on narrow sidebars (both
+            still live in the row tooltip + detail card), so subject + time
+            always stay readable. */}
+        <span className="text-muted-foreground hidden min-w-0 max-w-24 shrink truncate text-[10px] @[15rem]:block">
           {commit.authorName}
         </span>
-        <span className="text-muted-foreground/70 shrink-0 font-mono text-[10px] tabular-nums">
+        <span className="text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] tabular-nums @[12rem]:block">
           {commit.shortSha}
         </span>
         <span className="text-muted-foreground/70 w-14 shrink-0 text-right text-[10px] tabular-nums">

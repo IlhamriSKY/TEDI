@@ -8,6 +8,7 @@ import {
 } from "../config";
 import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
+import { compactStepMessages } from "../lib/compact";
 import { classifyError, TediErrorCode } from "../lib/errors";
 import type { ProviderKeys } from "../lib/keyring";
 import {
@@ -29,9 +30,12 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 
 /** Sub-agents have no user-facing step cap so they can run a task to completion.
  *  Termination is driven by natural finish plus the same anti-loop guards the
- *  main agent uses (tool-repetition + no-progress); this high number is only a
- *  runaway backstop the guards almost always trip well before. */
-const SUBAGENT_STEP_BUDGET = 100;
+ *  main agent uses (tool-repetition + no-progress); this number is only a
+ *  runaway backstop the guards almost always trip well before. Kept modest
+ *  because a stuck loop re-sends its whole (now compacted) history every step -
+ *  on a cache-less gateway that is pure wasted spend, so the ceiling bounds the
+ *  worst case without truncating a normal deep exploration. */
+const SUBAGENT_STEP_BUDGET = 60;
 
 /** Subagents retry transient provider failures (429 / 5xx / network) themselves
  *  with JITTERED backoff (see withRateLimitRetry). 4 retries -> ~2/4/8/16s plus
@@ -208,15 +212,30 @@ export async function runSubagent({
         noToolRepetition<ToolSet>(3),
         noProgressStop<ToolSet>(2),
       ] as never,
-      // Force a tool call on the FIRST step. Handed an agentic brief, some models
-      // answer with a single text- or reasoning-only step and never touch a tool -
-      // the "one step, no work" failure the caller sees. Every sub-agent's job
-      // begins by reading or searching, so requiring a tool on step 0 is always
-      // correct here; it reverts to auto afterwards so the agent finishes
-      // naturally. Provider-agnostic: endpoints that ignore toolChoice simply skip
-      // the constraint, so this never hurts a model that already calls tools.
-      prepareStep: ({ stepNumber }: { stepNumber: number }) =>
-        stepNumber === 0 ? { toolChoice: "required" } : {},
+      // Two jobs per step:
+      //  1. Compact the accumulating read pile BETWEEN steps. A subagent runs up
+      //     to SUBAGENT_STEP_BUDGET steps and NEVER compacted before; on a
+      //     cache-less gateway (SumoPod) re-sending every file it has read on
+      //     every step is the single largest token cost of a "study" task.
+      //     compactStepMessages elides the old blocks (elide-only, idempotent,
+      //     pairing-safe) while KEEP_TAIL keeps the freshest reads intact.
+      //  2. Force a tool call on the FIRST step. Handed an agentic brief, some
+      //     models answer with a single text/reasoning-only step and never touch
+      //     a tool. Every sub-agent's job begins by reading or searching, so
+      //     requiring a tool on step 0 is always correct; it reverts to auto
+      //     afterwards. Endpoints that ignore toolChoice simply skip it.
+      prepareStep: ({
+        stepNumber,
+        messages: stepMessages,
+      }: {
+        stepNumber: number;
+        messages: ModelMessage[];
+      }) => {
+        const compacted = compactStepMessages(stepMessages);
+        return stepNumber === 0
+          ? { messages: compacted, toolChoice: "required" }
+          : { messages: compacted };
+      },
       ...(temperature !== undefined ? { temperature } : {}),
       // Own the retry (jittered) in withRateLimitRetry below. The SDK's default
       // retry is lockstep (no jitter), so a parallel fan-out that all trips a

@@ -37,7 +37,7 @@ import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import type { Tool } from "ai";
 import { applyCacheBreakpoints } from "./cache";
-import { compactModelMessagesDetailed, type CompactStages } from "./compact";
+import { compactModelMessagesDetailed, compactStepMessages, type CompactStages } from "./compact";
 import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
@@ -178,6 +178,10 @@ export async function buildLanguageModel(
         name: "deepseek",
         baseURL: "https://api.deepseek.com",
         apiKey: key,
+        // Ask for usage in the streaming response so the app can see input/
+        // cached-token counts (else the streamed final chunk carries none and
+        // the context/cache-hit UI is dead for this provider).
+        includeUsage: true,
       })(resolvedModelId);
       break;
     }
@@ -187,6 +191,10 @@ export async function buildLanguageModel(
         name: "sumopod",
         baseURL: SUMOPOD_BASE_URL,
         apiKey: key,
+        // Surface streaming usage so the context/cache-hit indicator reflects
+        // real spend on SumoPod (without this the endpoint isn't asked for usage
+        // and the app is blind to its own token cost).
+        includeUsage: true,
       })(resolvedModelId);
       break;
     }
@@ -214,6 +222,9 @@ export async function buildLanguageModel(
         // tunnelled endpoints (9Router, local routers) that don't send CORS
         // headers still stream, while cloud gateways keep the native path.
         fetch: corsFallbackFetch,
+        // Ask for streaming usage so token/cache accounting works for custom
+        // OpenAI-compatible endpoints too.
+        includeUsage: true,
       })(upstreamModelId);
       break;
     }
@@ -613,13 +624,27 @@ export async function runAgentStream(
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.
     stopWhen: trackingStopWhen as never,
-    // Pin the first step to a run_subagents call when the user explicitly asked
-    // for sub-agents (see forceSpawnStep0). No-op otherwise; later steps are
-    // always unconstrained. Cast for the same reason as stopWhen above.
-    prepareStep: (({ stepNumber }: { stepNumber: number }) =>
-      forceSpawnStep0 && stepNumber === 0
-        ? { activeTools: ["run_subagents"], toolChoice: "required" }
-        : {}) as never,
+    // Two jobs per step:
+    //  1. Compact the accumulating tool-result pile BETWEEN steps. The main agent
+    //     only compacts once, at turn start (baseMessages above); within the
+    //     15-step loop a fan-out summary bundle or verification reads pile up and
+    //     are re-sent in full every subsequent step. compactStepMessages elides
+    //     the old blocks (idempotent + pairing-safe, see its doc). This is the
+    //     lever that shrinks re-send cost on caches-less providers (SumoPod).
+    //  2. Pin the first step to a run_subagents call when the user explicitly
+    //     asked for sub-agents (see forceSpawnStep0). Cast as stopWhen above.
+    prepareStep: (({
+      stepNumber,
+      messages: stepMessages,
+    }: {
+      stepNumber: number;
+      messages: ModelMessage[];
+    }) => {
+      const messages = compactStepMessages(stepMessages);
+      return forceSpawnStep0 && stepNumber === 0
+        ? { messages, activeTools: ["run_subagents"], toolChoice: "required" }
+        : { messages };
+    }) as never,
     abortSignal: opts.abortSignal,
     // streamText errors surface during stream consumption — after this function
     // returns — so the transport's synchronous retry/recovery can't observe

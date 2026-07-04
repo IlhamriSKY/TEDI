@@ -378,11 +378,11 @@ function SubagentLiveDetails({ runs }: { runs: SubagentRun[] }) {
   );
 }
 
-// One live row. As soon as a run finishes with a summary, its result shows here
-// (rendered as markdown, expanded by default) - so a fan-out's results appear
-// one by one the moment each subagent lands, not all at once when the whole
-// run_subagents call returns. Memoized so finished rows don't re-render on the
-// 1s elapsed-time tick (their run object is referentially stable between ticks).
+// One live row. When a run finishes it becomes a collapsed collapsible (header
+// only) so a fan-out stays a compact list of one-liners instead of stacking
+// every summary; the user expands a row to read its markdown result. Memoized so
+// finished rows don't re-render on the 1s elapsed-time tick (their run object is
+// referentially stable between ticks).
 const SubagentRunRow = memo(
   function SubagentRunRow({ run, now }: { run: SubagentRun; now: number }) {
     // Friendly agent name (e.g. "Comet"), resolving caller synonyms like
@@ -440,11 +440,13 @@ const SubagentRunRow = memo(
       </>
     );
 
-    // Done with a summary -> collapsible result, open by default so it's visible
-    // immediately. Running/errored rows stay as a plain status line.
+    // Done with a summary -> collapsible result, COLLAPSED by default so a
+    // finished fan-out stays compact (one line per subagent) instead of stacking
+    // every summary into a wall of text. The header stays visible; the user
+    // expands a row to read it. Running/errored rows stay as a plain status line.
     if (summary) {
       return (
-        <Collapsible defaultOpen className={containerClass}>
+        <Collapsible className={containerClass}>
           <CollapsibleTrigger className="group/sar flex w-full cursor-pointer items-center gap-1.5 text-left">
             <ChevronRight
               size={11}
@@ -1089,11 +1091,11 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
 
   return (
     <Collapsible
-      // Open by default so a fan-out's results stay visible when the run
-      // finishes - matching the live rows (SubagentRunRow) and the single
-      // run_subagent output, instead of collapsing the summaries the user just
-      // watched stream in. Rows with nothing to show (skipped, no body) can't open.
-      defaultOpen={hasBody}
+      // COLLAPSED by default (even when done): a wide fan-out otherwise becomes a
+      // wall of text, one expanded summary per subagent. The one-line header per
+      // subagent stays visible; the user expands the ones they want to read. Rows
+      // with nothing to show (skipped, no body) can't open regardless.
+      defaultOpen={false}
       className="border-border/60 bg-muted/20 overflow-hidden rounded border"
     >
       <CollapsibleTrigger

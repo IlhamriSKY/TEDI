@@ -4,6 +4,21 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.76] - 04-07-2026
+
+### Added
+
+- **Float a terminal pane into its own always-on-top window.** Every terminal pane's header gains a pop-out button (next to close) that ejects the pane into a separate OS window floating above other apps (YouTube-PiP style), so you can keep watching a running agent while you work elsewhere. The window is a live mirror: it renders the shell's output and sends your keystrokes back to the real PTY over Tauri events (the same cross-window transport the Debug window uses), so the main pane is never disturbed. While a pane is floating, its main-window slot stops rendering the now-redundant terminal (kept mounted so the shell + mirror stay live) and shows a "floating" indicator with **Focus window** and **Dock back** actions; closing the float window or docking back restores the pane. Built on a new float-window entry ([float.html](float.html), [src/float/](src/float/)) + the mirror bridge ([floatHost.ts](src/modules/panes/floatHost.ts), [floatProtocol.ts](src/modules/panes/floatProtocol.ts), [floatStore.ts](src/modules/panes/floatStore.ts), [floatTap.ts](src/modules/terminal/lib/floatTap.ts)) and a Rust `open_float_window` command ([lib.rs](src-tauri/src/lib.rs)). Note: Document Picture-in-Picture is unavailable in WebView2 (`requestWindow` throws "Internal error: no window"), so this uses a native Tauri window instead. Terminal panes only for now.
+
+### Changed
+
+- **AI conversations compact between steps to cut token usage.** The agent loop and sub-agent loop now run an elide-only compaction pass over the message history before each model step (`compactStepMessages`, ~80k `RESEND_COMPACTION_BUDGET`) instead of only compacting when the context overflows. The pass is idempotent and never drops a message or orphans a tool-result - it elides large tool outputs in place while preserving tool-call/result pairing - so it is safe to feed into an active AI SDK tool loop every step, guarded by a self-check ([compact-step-verify.ts](scripts/compact-step-verify.ts)). See [compact.ts](src/modules/ai/lib/compact.ts), [agent.ts](src/modules/ai/lib/agent.ts), [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+
+### Fixed
+
+- **Git history in the sidebar: the scrollbar no longer overlaps the row, and the columns are responsive.** The Radix `ScrollArea`'s 10px overlay thumb sat on top of the rightmost column (the commit time read as covered), and every column stayed on even in a narrow sidebar, cramming the row. The commit list is now a container-query context: the author and short-SHA columns drop as the sidebar narrows (both still live in the row tooltip + detail card), subject and time always stay, and the row's right padding clears the overlay thumb. See [GitGraphView.tsx](src/modules/scm/GitGraphView.tsx).
+- **Beautify extension: the wand icon in the header shows again.** The bundled `tedi.beautify` extension registers its header button with the legacy `hugeicon:MagicWand01Icon` ref, which had no entry in the icon alias map after the Lucide migration, so it rendered a blank placeholder next to the markdown-preview toggle. Added `MagicWand01Icon` -> `WandSparkles` to `HUGEICON_ALIAS` (fixes the already-installed extension at runtime) and updated the extension source to the native `lucide:WandSparkles`. See [iconRegistry.ts](src/lib/iconRegistry.ts).
+
 ## [0.3.75] - 04-07-2026
 
 ### Changed

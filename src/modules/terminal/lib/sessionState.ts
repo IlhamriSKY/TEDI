@@ -52,6 +52,13 @@ export type Session = {
   webglAddon: WebglAddon | null;
   ready: Promise<void>;
   disposed: boolean;
+  /**
+   * Optional tap on raw PTY output bytes, set while this leaf is mirrored into
+   * a floating window (see modules/panes/floatHost). Called right after the
+   * bytes are written to the local xterm so the float sees identical output.
+   * Null when no float is open.
+   */
+  onOutputTap?: ((bytes: Uint8Array) => void) | null;
   initialCwd: string | undefined;
   /** Bound saved SSH connection id, if any. */
   sshConnectionId: string | undefined;

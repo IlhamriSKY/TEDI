@@ -230,6 +230,76 @@ async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open (or reveal) an always-on-top floating window that hosts a single pane
+/// (a live terminal mirror or a file editor). Labeled `float-<leafId>` so each
+/// leaf reveals its own window instead of duplicating. Unlike Settings/Debug it
+/// is NOT owner-parented - it floats above other apps (YouTube-PiP style) and
+/// carries the leaf params in its URL for the float-window React app.
+#[tauri::command]
+async fn open_float_window(
+    app: tauri::AppHandle,
+    leaf_id: i64,
+    params: String,
+    title: String,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let label = format!("float-{leaf_id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        // Bring an existing float back to the front. `set_focus` alone often
+        // does nothing visible on Windows for a window that's already
+        // always-on-top (it's already topmost) or is subject to the foreground
+        // lock; re-asserting TOPMOST forces a z-order raise, and unminimize
+        // restores it from the taskbar. Order matters: restore, show, raise, focus.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let url = format!("float.html?p={params}");
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(320.0, 200.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.decorations(false).transparent(true);
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    // Authoritative "float closed / docked back" signal for the main window: the
+    // float's own BYE event can be lost when its webview is torn down mid-emit,
+    // so notify from Rust on the window's Destroyed event instead. The main
+    // window's floatHost matches the label back to the leaf and restores it.
+    {
+        let app_for_event = app.clone();
+        let label_for_event = label.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = app_for_event.emit("tedi://float-destroyed", &label_for_event);
+            }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.set_decorations(false);
+    }
+    disable_windows_corner_rounding(&window);
+    recenter_over_main(&app, &window);
+    Ok(())
+}
+
 /// Open (or reveal) an owner-parented child window with our custom chrome.
 /// Returns `Ok(None)` when an existing window was revealed, `Ok(Some(window))`
 /// when a new one was built. Shared by the Settings and Debug windows.
@@ -576,6 +646,7 @@ pub fn run() {
             format::fmt_run_external,
             open_settings_window,
             open_debug_window,
+            open_float_window,
             preview::preview_embed_update,
             preview::preview_embed_navigate,
             preview::preview_embed_dispatch,

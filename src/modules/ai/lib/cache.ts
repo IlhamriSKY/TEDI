@@ -5,12 +5,17 @@ import type { ProviderId } from "../config";
 /**
  * Provider-aware prompt-cache adapter.
  *
- * Anthropic uses explicit `cacheControl` markers (up to 4). OpenAI, xAI,
- * DeepSeek, SumoPod, and OpenAI-compatible gateways use implicit prefix
- * caching at >= 1024 tokens; the system prompt and per-turn <env> placement
- * already keep the prefix byte-stable.
+ * Anthropic uses explicit `cacheControl` markers (up to 4). OpenAI, xAI, and
+ * DeepSeek do implicit prefix caching at >= 1024 tokens; the system prompt and
+ * per-turn <env> placement keep the prefix byte-stable so those hits land.
  * Google's Gemini 2.5+ also has implicit caching; explicit `cachedContent`
  * is skipped because it adds round-trip cost.
+ * Third-party gateways (SumoPod and other OpenAI-compatible endpoints): whether
+ * the upstream caches is UNVERIFIED and endpoint-specific - the SDK sends no
+ * cache hint, so any hit depends entirely on the gateway/model doing automatic
+ * prefix caching AND reporting it. Do not assume a discount here; the real
+ * defence against re-send cost on these is per-step compaction (see
+ * compactStepMessages), not caching.
  * Groq, Cerebras, and LM Studio have no prompt cache.
  *
  * Adding a provider only needs a new case in `applyCacheBreakpoints`.

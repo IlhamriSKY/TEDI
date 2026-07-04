@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "settings",
-    "debug"
+    "debug",
+    "float-*"
   ],
   "permissions": [
     "core:default",
