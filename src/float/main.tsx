@@ -11,6 +11,7 @@ import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
 import { applyTerminalThemeFastPath } from "@/modules/settings/terminalPalette";
 import { applyFontFastPath } from "@/lib/fonts";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { FloatApp } from "./FloatApp";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
@@ -21,6 +22,10 @@ applyBrandColorFastPath();
 applyCustomThemeFastPath();
 applyTerminalThemeFastPath();
 applyFontFastPath();
+// A floated editor reads vim/wrap/minimap/autocomplete from this store; hydrate
+// it so the float matches the main window instead of falling back to defaults.
+// Idempotent + multi-window-safe.
+void usePreferencesStore.getState().init();
 
 ReactDOM.createRoot(document.getElementById("float-root") as HTMLElement).render(
   <ThemeProvider>

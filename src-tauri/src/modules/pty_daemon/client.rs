@@ -418,7 +418,10 @@ fn reader_loop(state: Arc<ClientState>) {
                 continue;
             }
         };
-        match &msg {
+        // Match by value so the ~1.33·N base64 payload is MOVED into the
+        // PtyEvent instead of cloned on every Data frame (the hottest path
+        // under a log flood).
+        match msg {
             DaemonMsg::Data {
                 session_id,
                 data_b64,
@@ -427,59 +430,48 @@ fn reader_loop(state: Arc<ClientState>) {
                 // slow webview post can't stall routing for other sessions. If
                 // the session isn't registered yet (its OpenOk/AttachOk is
                 // still being processed), buffer the event so
-                // `register_and_replay` delivers it in order — never drop it
-                // (dropping the first frame loses a new shell's prompt → blank
-                // pane).
-                let chan = {
-                    let mut routing = state.routing.lock().unwrap();
-                    match routing.channels.get(session_id) {
-                        Some(chan) => Some(chan.clone()),
-                        None => {
-                            buffer_early(
-                                &mut routing,
-                                *session_id,
-                                PtyEvent::Data {
-                                    data: data_b64.clone(),
-                                },
-                            );
-                            None
-                        }
+                // `register_and_replay` delivers it in order, never dropping it
+                // (dropping the first frame loses a new shell's prompt and
+                // blanks the pane).
+                let mut routing = state.routing.lock().unwrap();
+                match routing.channels.get(&session_id).cloned() {
+                    Some(chan) => {
+                        drop(routing);
+                        let _ = chan.send(PtyEvent::Data { data: data_b64 });
                     }
-                };
-                if let Some(chan) = chan {
-                    let _ = chan.send(PtyEvent::Data {
-                        data: data_b64.clone(),
-                    });
+                    None => {
+                        buffer_early(&mut routing, session_id, PtyEvent::Data { data: data_b64 })
+                    }
                 }
             }
             DaemonMsg::Exit { session_id, code } => {
                 let chan = {
                     let mut routing = state.routing.lock().unwrap();
-                    match routing.channels.remove(session_id) {
+                    match routing.channels.remove(&session_id) {
                         Some(chan) => {
                             // Registered session exited: drop its route (and any
                             // stray early buffer) and deliver the Exit.
-                            routing.early.remove(session_id);
+                            routing.early.remove(&session_id);
                             Some(chan)
                         }
                         None => {
                             // Exit raced ahead of the open/attach reply: buffer
                             // it so the eventual register_and_replay still
                             // surfaces the exit after the session's output.
-                            buffer_early(&mut routing, *session_id, PtyEvent::Exit { code: *code });
+                            buffer_early(&mut routing, session_id, PtyEvent::Exit { code });
                             None
                         }
                     }
                 };
                 if let Some(c) = chan {
-                    let _ = c.send(PtyEvent::Exit { code: *code });
+                    let _ = c.send(PtyEvent::Exit { code });
                 }
             }
-            _ => {
-                let req_id = response_req_id(&msg);
+            other => {
+                let req_id = response_req_id(&other);
                 if let Some(rid) = req_id {
                     if let Some(tx) = state.pending.lock().unwrap().remove(&rid) {
-                        let _ = tx.send(msg);
+                        let _ = tx.send(other);
                     }
                 }
             }

@@ -68,7 +68,13 @@ fn sniff_image_mime(path: &Path, bytes: &[u8]) -> Option<&'static str> {
 }
 
 #[tauri::command]
-pub fn fs_read_file(path: String) -> Result<ReadResult, String> {
+pub async fn fs_read_file(path: String) -> Result<ReadResult, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_read_file_inner(path))
+        .await
+        .map_err(|e| format!("fs_read_file join error: {e}"))?
+}
+
+fn fs_read_file_inner(path: String) -> Result<ReadResult, String> {
     let p = PathBuf::from(&path);
     let meta = std::fs::metadata(&p).map_err(|e| {
         log::debug!("fs_read_file stat({}) failed: {e}", p.display());
@@ -191,7 +197,17 @@ pub enum ReadPortionResult {
 /// the requested `[offset, offset+limit)` range is allocated as `String`s;
 /// the rest is scanned byte-by-byte to count newlines.
 #[tauri::command]
-pub fn fs_read_file_portion(
+pub async fn fs_read_file_portion(
+    path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<ReadPortionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_read_file_portion_inner(path, offset, limit))
+        .await
+        .map_err(|e| format!("fs_read_file_portion join error: {e}"))?
+}
+
+fn fs_read_file_portion_inner(
     path: String,
     offset: Option<usize>,
     limit: Option<usize>,
@@ -278,7 +294,13 @@ pub fn fs_read_file_portion(
 /// Atomic write: stage into a sibling temp file, then rename over the target.
 /// Prevents a partial write from leaving a half-saved file on crash/power loss.
 #[tauri::command]
-pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
+pub async fn fs_write_file(path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_write_file_inner(path, content))
+        .await
+        .map_err(|e| format!("fs_write_file join error: {e}"))?
+}
+
+fn fs_write_file_inner(path: String, content: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     crate::modules::fs::atomic::atomic_write(&target, content.as_bytes()).map_err(|e| {
         log::warn!("fs_write_file({}) failed: {e}", target.display());

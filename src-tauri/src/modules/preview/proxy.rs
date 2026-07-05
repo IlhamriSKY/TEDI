@@ -62,7 +62,9 @@ pub(super) fn proxy_client() -> &'static reqwest::Client {
     PROXY_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::limited(10))
+            // Re-check every redirect hop for link-local and metadata hosts so a
+            // 3xx cannot bounce the proxy into the blocked range (ten-hop cap).
+            .redirect(crate::modules::net::ssrf_redirect_policy())
             .user_agent(USER_AGENT)
             .build()
             .expect("preview proxy client init")

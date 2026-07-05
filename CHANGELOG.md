@@ -4,6 +4,34 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.77] - 06-07-2026
+
+### Added
+
+- **Editor panes can now be floated into their own always-on-top window.** Any local (non-SSH) editor gains the same pop-out button terminals already have. The hand-off is loss-safe: the main pane saves and unmounts its editor while floating so two CodeMirror views cannot race and stomp the same file, and the float saves both on dock-back and on its title-bar close, so the edits flow back when the main pane remounts. Remote/SFTP editors stay gated out because they depend on the main window's SSH session. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [FloatApp.tsx](src/float/FloatApp.tsx), [EditorPane.tsx](src/modules/editor/EditorPane.tsx).
+- **Markdown tables gained a control toolbar with live search and pop-out.** Every table in the AI chat, the reasoning panel, and the editor's markdown preview now renders inside a card with a slim header bar offering three controls: search (filters rows in place by substring, with a shown/total counter and correctly recomputed zebra striping), copy-as-markdown (which honors an active search and copies only the visible rows), and Open in pane (pops the table into its own always-on-top float window, like a floated terminal). See [markdown-code.tsx](src/components/ai-elements/markdown-code.tsx).
+
+### Changed
+
+- **Markdown tables render as a compact, scannable grid.** Tables moved from the airy default spacing to a bordered rounded card with a sticky opaque header, dense cell padding, subtle column separators, and row hover with zebra striping, and an all-empty header row (common in AI key/value tables written as bare pipes) is now hidden instead of showing a blank sticky strip. See [markdown-code.tsx](src/components/ai-elements/markdown-code.tsx).
+- **AI reasoning blocks render markdown tables and code identically to the main chat.** The reasoning panel previously used a bare renderer, so a table or code fence inside it looked different and carried the default table controls. It now uses the shared component map (Lezer-highlighted code blocks, the app's table toolbar), matching the chat message, editor preview, and float window. See [reasoning.tsx](src/components/ai-elements/reasoning.tsx).
+- **File operations no longer freeze the window on large repositories.** Project-wide search, grep, glob, and find-replace, plus single-file read and write and recursive copy and delete, now run on a background thread instead of the UI thread, so a search over a big tree or opening a large file keeps the app responsive. See [grep.rs](src-tauri/src/modules/fs/grep.rs), [search.rs](src-tauri/src/modules/fs/search.rs), [file.rs](src-tauri/src/modules/fs/file.rs), [mutate.rs](src-tauri/src/modules/fs/mutate.rs).
+- **Faster startup and lighter memory under heavy terminal output.** The AI sidebar panel now loads on demand, trimming roughly 72 KB from the initial bundle, and the terminal daemon reader forwards each output chunk without an extra copy, cutting allocation churn during a log flood. See [index.ts](src/modules/ai/index.ts), [client.rs](src-tauri/src/modules/pty_daemon/client.rs).
+
+### Fixed
+
+- **Float windows no longer risk a blank screen or a tooltip crash.** Every float kind now renders inside one shared tooltip provider and an error boundary, so the tooltips in the editor find bar and the table controls have the provider they require, and a render error shows a fallback instead of blanking the frameless window. See [FloatApp.tsx](src/float/FloatApp.tsx).
+- **A floated editor matches the main window's editor settings.** The float process now hydrates the preferences store on startup, so vim mode, line wrap, minimap, and AI autocomplete follow your configuration instead of falling back to defaults. See [main.tsx](src/float/main.tsx).
+- **Sticky markdown-table headers no longer bleed through when scrolling under the glass theme.** With glass enabled the header's translucent background let the scrolling rows show through; the header is now pinned to the solid canvas colour, consistent with the existing SQL-grid and connection-form glass fixes. See [globals.css](src/styles/globals.css).
+
+### Security
+
+- **The SSRF guard now re-checks every HTTP redirect hop.** The block on the cloud instance metadata service and the link-local address ranges previously validated only the initial URL, so a public URL could redirect (3xx) into that space and slip past the check. The redirect policy on every outbound client (the dev-server probe, the AI streaming proxy, and the preview asset proxy) now rejects a redirect that lands on a blocked address, keeping the existing ten-hop limit. See [net.rs](src-tauri/src/modules/net.rs), [proxy.rs](src-tauri/src/modules/preview/proxy.rs).
+
+### Removed
+
+- **Dropped the runtime `shadcn` dependency and an unused component.** The `shadcn` CLI (a build-time code generator, pinned only for one static token CSS file) is no longer a runtime dependency; its stylesheet is vendored as [shadcn-tailwind.css](src/styles/shadcn-tailwind.css), so the shipped bundle is unchanged while the install size and its supply-chain surface shrink. The orphaned `SshStatusPill` component was also removed.
+
 ## [0.3.76] - 04-07-2026
 
 ### Added

@@ -14,12 +14,7 @@ import {
   terminalSize,
   writeTerminalInput,
 } from "@/modules/terminal";
-import {
-  bytesToB64,
-  encodeFloatParams,
-  floatEv,
-  type FloatLeafParams,
-} from "./floatProtocol";
+import { bytesToB64, encodeFloatParams, floatEv, type FloatLeafParams } from "./floatProtocol";
 
 const hosts = new Map<number, () => void>();
 
@@ -106,20 +101,43 @@ function startTerminalHost(leafId: number): void {
   hosts.set(leafId, teardown);
 }
 
+/** Register a minimal host for a leaf kind that has NO live mirror (editor): it
+ *  just flips the floating flag on so the main pane unmounts its now-handed-off
+ *  view, and registers the teardown that `ensureDestroyedListener` runs when the
+ *  window closes so the main pane comes back. No output/input bridge. */
+function startPassiveHost(leafId: number): void {
+  if (hosts.has(leafId)) return;
+  let torn = false;
+  const teardown = () => {
+    if (torn) return;
+    torn = true;
+    hosts.delete(leafId);
+    useFloatStore.getState().setFloating(leafId, false);
+  };
+  hosts.set(leafId, teardown);
+  useFloatStore.getState().setFloating(leafId, true);
+}
+
 /**
  * Float a pane into its own always-on-top window. For terminals this also wires
- * the live mirror. Safe to call again for an already-floated leaf (the Rust
- * side reveals + focuses the existing window).
+ * the live mirror; editors hand off (main pane unmounts while floating). Safe to
+ * call again for an already-floated leaf (the Rust side reveals the window).
  */
-export async function floatPane(params: FloatLeafParams, size: { w: number; h: number }): Promise<void> {
+export async function floatPane(
+  params: FloatLeafParams,
+  size: { w: number; h: number },
+): Promise<void> {
   ensureDestroyedListener();
+  // If not currently floating but a host is still registered, it's stale (the
+  // window closed and the poll/Destroyed hasn't caught it yet) - tear it down so
+  // a fresh window gets a clean host. When already floating, this is a "focus the
+  // window" click: keep the host (start*Host is a no-op).
   if (params.kind === "terminal") {
-    // If not currently floating but a host is still registered, it's stale (the
-    // window closed and the 300ms poll hasn't caught it yet) - tear it down so a
-    // fresh window gets a clean host + snapshot. When already floating, this is
-    // a "focus the window" click: keep the host (startTerminalHost is a no-op).
     if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
     startTerminalHost(params.leafId);
+  } else if (params.kind === "editor") {
+    if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
+    startPassiveHost(params.leafId);
   }
   await invoke("open_float_window", {
     leafId: params.leafId,

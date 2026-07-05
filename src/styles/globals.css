@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn-tailwind.css";
 @import "@fontsource-variable/inter";
 @import "./code-highlight.css";
 
@@ -548,6 +548,15 @@ html[data-tedi-glass="on"] .tsql-tree-head {
 }
 html[data-tedi-glass="on"] .tsql-grid thead th.tsql-grid-th:hover {
   background: color-mix(in srgb, var(--foreground) 6%, var(--tedi-canvas-bg)) !important;
+}
+/* The markdown-table sticky header (AI chat + editor preview, and the popped-out
+ * "open in pane" viewer that actually scrolls) paints `!bg-muted`. Same problem
+ * as the SQL grid above: under glass `--muted` is floored-translucent, so the
+ * scrolling tbody rows bleed through the sticky thead. Pin it to the SOLID
+ * canvas colour. Specificity (0,2,1)+!important beats the Tailwind
+ * `[&_[data-streamdown=table-header]]:!bg-muted` utility. */
+html[data-tedi-glass="on"] [data-streamdown="table-header"] {
+  background: var(--tedi-canvas-bg) !important;
 }
 /* The floating connection-form modal also hard-codes the `--background` canvas,
  * so under glass it went fully see-through while floating OVER the tree/grid,

@@ -43,8 +43,25 @@ fn build_globset(patterns: &[String]) -> Result<Option<GlobSet>, String> {
     Ok(Some(set))
 }
 
+// A sync `#[tauri::command]` runs on the WebView2 UI (main) thread on Windows,
+// so this recursive walk would freeze the whole app for the duration of a
+// project-wide search. Offload to the blocking pool (mirrors git_status).
 #[tauri::command]
-pub fn fs_grep(
+pub async fn fs_grep(
+    pattern: String,
+    root: String,
+    glob: Option<Vec<String>>,
+    case_insensitive: Option<bool>,
+    max_results: Option<usize>,
+) -> Result<GrepResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fs_grep_inner(pattern, root, glob, case_insensitive, max_results)
+    })
+    .await
+    .map_err(|e| format!("fs_grep join error: {e}"))?
+}
+
+fn fs_grep_inner(
     pattern: String,
     root: String,
     glob: Option<Vec<String>>,
@@ -211,7 +228,17 @@ pub struct GlobResponse {
 }
 
 #[tauri::command]
-pub fn fs_glob(
+pub async fn fs_glob(
+    pattern: String,
+    root: String,
+    max_results: Option<usize>,
+) -> Result<GlobResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_glob_inner(pattern, root, max_results))
+        .await
+        .map_err(|e| format!("fs_glob join error: {e}"))?
+}
+
+fn fs_glob_inner(
     pattern: String,
     root: String,
     max_results: Option<usize>,
@@ -295,7 +322,21 @@ pub struct GrepReplaceResponse {
 /// `files_changed` always reflect the full operation - only the edit list
 /// is truncated.
 #[tauri::command]
-pub fn fs_grep_replace(
+pub async fn fs_grep_replace(
+    pattern: String,
+    replacement: String,
+    root: String,
+    glob: Option<Vec<String>>,
+    case_insensitive: Option<bool>,
+) -> Result<GrepReplaceResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fs_grep_replace_inner(pattern, replacement, root, glob, case_insensitive)
+    })
+    .await
+    .map_err(|e| format!("fs_grep_replace join error: {e}"))?
+}
+
+fn fs_grep_replace_inner(
     pattern: String,
     replacement: String,
     root: String,

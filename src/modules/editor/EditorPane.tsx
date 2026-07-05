@@ -79,6 +79,10 @@ export type EditorPaneHandle = {
   /** Run the configured formatter against the current buffer and apply the
    *  result. Surfaces failures as a toast. Does not save. */
   formatDocument: () => Promise<void>;
+  /** Persist the current buffer to disk (plain save, no format-on-save). Used by
+   *  the float window to save before floating and on dock-back, so an editor can
+   *  hand off between the main pane and its float without losing edits. */
+  save: () => Promise<void>;
 };
 
 type Props = {
@@ -677,6 +681,10 @@ export function EditorPane({
         } catch (err) {
           toast(`Format failed: ${(err as Error).message}`, { variant: "error" });
         }
+      },
+      save: async () => {
+        await saveRef.current();
+        onSavedRef.current?.();
       },
     }),
     [path],

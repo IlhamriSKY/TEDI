@@ -1,7 +1,10 @@
 export { AgentRunBridge } from "./components/AgentRunBridge";
 export { AgentStatusPill } from "./components/AgentStatusPill";
 export { AiInputBar } from "./components/AiInputBar";
-export { AiSidebarPanel } from "./components/AiMiniWindow";
+// AiSidebarPanel is loaded lazily via app/components/lazyPanels.ts; re-exporting
+// it here put AiMiniWindow back in the eager static graph (Rollup
+// INEFFECTIVE_DYNAMIC_IMPORT), defeating the code-split. No one imports it from
+// this barrel, so drop the edge and let the lazy chunk hold it.
 export { SelectionAskAi } from "./components/SelectionAskAi";
 export {
   EMPTY_PROVIDER_KEYS,

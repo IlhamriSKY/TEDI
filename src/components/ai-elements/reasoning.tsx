@@ -9,6 +9,7 @@ import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useS
 import { Streamdown } from "streamdown";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 
+import { markdownComponents } from "./markdown-code";
 import { Shimmer } from "./shimmer";
 
 interface ReasoningContextValue {
@@ -186,7 +187,13 @@ export const ReasoningContent = memo(({ className, children, ...props }: Reasoni
     )}
     {...props}
   >
-    <Streamdown urlTransform={safeUrlTransform}>{children}</Streamdown>
+    <Streamdown
+      components={markdownComponents}
+      controls={{ table: false }}
+      urlTransform={safeUrlTransform}
+    >
+      {children}
+    </Streamdown>
   </CollapsibleContent>
 ));
 

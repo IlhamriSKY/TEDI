@@ -1,4 +1,14 @@
-import { createContext, Fragment, memo, use, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  Fragment,
+  memo,
+  use,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   DndContext,
   DragOverlay,
@@ -49,13 +59,27 @@ import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
 import { GripVertical, SquareArrowOutUpRight, X } from "lucide-react";
 
-/** Leaf kinds that can be floated into their own window. Only terminals for now:
- *  they mirror live over Tauri events (the primary "watch an agent while working"
- *  case). Editor float needs the standalone window to bootstrap the workspace/tab
- *  stores EditorPane reads, so it's gated out until that's wired. Browser panes
- *  are native Tauri webview overlays that can't be mirrored at all. */
+/** Leaf kinds that can be floated into their own window. Terminals mirror live
+ *  over Tauri events (the primary "watch an agent while working" case); an SSH
+ *  pane is a terminal leaf so it floats through the same path. Editor float is a
+ *  deliberate follow-up, not a bootstrap problem: EditorPane is self-contained
+ *  (file IO by path, cross-window-safe) and FloatApp already renders it, but
+ *  it hands off: the main pane unmounts its editor while floating (so two live
+ *  CodeMirror views can't race and save-stomp the same file) and saves before
+ *  float + on dock-back. Remote/SFTP editors depend on the main window's russh
+ *  session, so those are gated out. Browser panes are native Tauri webview
+ *  overlays that can't be mirrored at all. NOTE: float windows only run on a real
+ *  Tauri build, so this path is build-green but needs a manual smoke test. */
 function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
   if (node.leafKind === "terminal") return { leafId: node.id, kind: "terminal", title };
+  if (node.leafKind === "editor" && node.sshSessionId === undefined)
+    return {
+      leafId: node.id,
+      kind: "editor",
+      title,
+      path: node.path,
+      privateLeaf: node.private === true,
+    };
   return null;
 }
 
@@ -224,16 +248,32 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
 const LeafBody = memo(function LeafBody({
   node,
   tabVisible,
+  isFloating,
+  editorHandleRef,
   focused,
   b,
   mdPreview,
 }: {
   node: PaneLeaf;
   tabVisible: boolean;
+  /** True while this leaf is popped out into a float window. */
+  isFloating: boolean;
+  /** Captures the editor handle so the frame can save before floating. */
+  editorHandleRef: RefObject<EditorPaneHandle | null>;
   focused: boolean;
   b: LeafBundle;
   mdPreview: boolean;
 }) {
+  // Register the editor handle both with the parent bundle (find/replace etc.)
+  // and the frame's own ref (save-before-float). Stable so EditorPane doesn't
+  // re-register each render.
+  const setEditorRef = useCallback(
+    (h: EditorPaneHandle | null) => {
+      b.setEditorRef(h);
+      editorHandleRef.current = h;
+    },
+    [b, editorHandleRef],
+  );
   if (node.leafKind === "terminal") {
     return (
       <ErrorBoundary label="terminal pane" resetKeys={[node.id]}>
@@ -280,10 +320,14 @@ const LeafBody = memo(function LeafBody({
       </ErrorBoundary>
     );
   }
+  // Editor - while floating it's handed off to the float window; unmount here so
+  // two live CodeMirror views can't race and save-stomp the same file (the parent
+  // overlays a "floating" indicator in its place).
+  if (isFloating) return null;
   return (
     <ErrorBoundary label="editor pane" resetKeys={[node.id, node.path]}>
       <EditorPane
-        ref={b.setEditorRef}
+        ref={setEditorRef}
         path={node.path}
         onDirtyChange={b.onDirtyChange}
         onClose={b.onCloseLeaf}
@@ -372,10 +416,15 @@ function PaneLeafFrame({
   // Tauri events; editors open the file). Browser/extension panes can't float.
   const floatParams = floatParamsFor(node, baseLabel);
   const frameRef = useRef<HTMLDivElement>(null);
+  const editorHandleRef = useRef<EditorPaneHandle | null>(null);
   const isFloating = useFloatStore((s) => s.floating.has(node.id));
-  const doFloat = () => {
+  const doFloat = async () => {
     if (!floatParams) return;
     const r = frameRef.current?.getBoundingClientRect();
+    // Editor hand-off: persist the buffer first so the float (which reads the file
+    // by path) opens the live content and the main editor's unmount can't drop
+    // unsaved edits. No-op when clean; skipped when already floating (ref is null).
+    if (floatParams.kind === "editor") await editorHandleRef.current?.save();
     void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 });
   };
 
@@ -466,12 +515,18 @@ function PaneLeafFrame({
             )}
             {floatParams && (
               <IconTooltip
-                label={isFloating ? "Floating — click to focus its window" : "Float pane in its own window"}
+                label={
+                  isFloating
+                    ? "Floating — click to focus its window"
+                    : "Float pane in its own window"
+                }
                 side="bottom"
               >
                 <button
                   type="button"
-                  aria-label={isFloating ? "Focus the floating window" : "Float pane in its own window"}
+                  aria-label={
+                    isFloating ? "Focus the floating window" : "Float pane in its own window"
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
                     doFloat();
@@ -571,6 +626,8 @@ function PaneLeafFrame({
         <LeafBody
           node={node}
           tabVisible={tabVisible && !isFloating}
+          isFloating={isFloating}
+          editorHandleRef={editorHandleRef}
           focused={focused}
           b={b}
           mdPreview={mdPreview}
@@ -585,14 +642,14 @@ function PaneLeafFrame({
               <button
                 type="button"
                 onClick={doFloat}
-                className="hover:bg-muted hover:text-foreground rounded-md border border-border px-2 py-1 transition-colors"
+                className="hover:bg-muted hover:text-foreground border-border rounded-md border px-2 py-1 transition-colors"
               >
                 Focus window
               </button>
               <button
                 type="button"
                 onClick={() => closeFloat(node.id)}
-                className="hover:bg-muted hover:text-foreground rounded-md border border-border px-2 py-1 transition-colors"
+                className="hover:bg-muted hover:text-foreground border-border rounded-md border px-2 py-1 transition-colors"
               >
                 Dock back
               </button>

@@ -15,18 +15,54 @@ fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
+            .redirect(ssrf_redirect_policy())
             .build()
             .expect("http_ping client init")
     })
 }
 
-/// Block SSRF to cloud-metadata / link-local addresses (the 169.254.169.254
-/// AWS/GCP/Azure metadata endpoint and the IPv4/IPv6 link-local ranges).
-/// Resolves the URL's host first so a hostname pointing at link-local space is
-/// caught too. Loopback (localhost dev servers) and private LAN ranges stay
-/// ALLOWED - only the metadata/link-local class is refused, so the preview and
-/// local-AI features keep working. Reachable via raw IPC by the AI tools and
-/// extensions, so the guard lives in the backend, not the webview.
+/// Re-applies the metadata and link-local block on every redirect hop.
+/// `reject_metadata_ssrf` only vets the initial URL, but reqwest follows 3xx
+/// responses by default, so a public URL could otherwise redirect into the
+/// blocked address space and slip past the guard. The redirect callback is
+/// synchronous (no DNS), so it rejects blocked IP literals and the known
+/// metadata hostnames; a redirect to a hostname that later resolves into the
+/// range is still followed, which is strictly narrower than the previous
+/// behavior. Retains reqwest's default limit of ten hops.
+pub(crate) fn ssrf_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if redirect_host_blocked(attempt.url()) {
+            attempt.error("blocked: redirect to link-local / cloud-metadata address")
+        } else if attempt.previous().len() >= 10 {
+            attempt.error("too many redirects")
+        } else {
+            attempt.follow()
+        }
+    })
+}
+
+fn redirect_host_blocked(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(v4)) => v4.is_link_local(),
+        Some(url::Host::Ipv6(v6)) => {
+            (v6.segments()[0] & 0xffc0) == 0xfe80
+                || v6.to_ipv4().map(|m| m.is_link_local()).unwrap_or(false)
+        }
+        Some(url::Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            d == "metadata.google.internal" || d == "metadata"
+        }
+        None => false,
+    }
+}
+
+/// Rejects requests aimed at the cloud instance metadata service or the
+/// IPv4/IPv6 link-local ranges, the classic SSRF target used to steal cloud
+/// credentials. The URL host is resolved first so a hostname pointing into that
+/// space is caught as well. Loopback (localhost dev servers) and private LAN
+/// ranges stay allowed, so the preview and local-AI features keep working. The
+/// AI tools and extensions can reach this over raw IPC, so the guard lives in
+/// the backend rather than the webview.
 pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|_| "invalid url".to_string())?;
     let scheme = parsed.scheme();
@@ -38,7 +74,7 @@ pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
         .ok_or_else(|| "url has no host".to_string())?
         .to_string();
     let host_l = host.to_ascii_lowercase();
-    // Metadata hostnames resolve to 169.254.169.254; refuse by name too.
+    // These hostnames resolve into the metadata range; refuse them by name too.
     if host_l == "metadata.google.internal" || host_l == "metadata" {
         return Err("blocked: cloud metadata endpoint".to_string());
     }
@@ -102,6 +138,7 @@ fn stream_client() -> &'static reqwest::Client {
     STREAM_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(20))
+            .redirect(ssrf_redirect_policy())
             .build()
             .expect("http_stream client init")
     })

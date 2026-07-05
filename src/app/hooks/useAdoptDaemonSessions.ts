@@ -88,6 +88,14 @@ export function useAdoptDaemonSessions({
     };
 
     const tick = async () => {
+      // Skip the daemon round-trip while the window is hidden/minimized (every
+      // sibling poller does this). Adoption is only deferred, not lost: a
+      // still-alive session with created_at_ms > watermark is adopted on the
+      // next visible tick.
+      if (document.visibilityState !== "visible") {
+        if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+        return;
+      }
       try {
         const sessions = await listDaemonSessions();
         if (cancelled) return;

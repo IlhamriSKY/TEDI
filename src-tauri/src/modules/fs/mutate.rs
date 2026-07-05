@@ -52,7 +52,13 @@ pub fn fs_rename(from: String, to: String) -> Result<(), String> {
 /// Copy a file or directory (recursive for dirs). Refuses to overwrite an
 /// existing target. Non-destructive, but still user-confirmed by callers.
 #[tauri::command]
-pub fn fs_copy(from: String, to: String) -> Result<(), String> {
+pub async fn fs_copy(from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_copy_inner(from, to))
+        .await
+        .map_err(|e| format!("fs_copy join error: {e}"))?
+}
+
+fn fs_copy_inner(from: String, to: String) -> Result<(), String> {
     let from_p = PathBuf::from(&from);
     let to_p = PathBuf::from(&to);
     if !from_p.exists() {
@@ -98,7 +104,13 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
 /// Delete a file or directory (recursive for dirs). Callers confirm
 /// destructive operations with the user.
 #[tauri::command]
-pub fn fs_delete(path: String) -> Result<(), String> {
+pub async fn fs_delete(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_delete_inner(path))
+        .await
+        .map_err(|e| format!("fs_delete join error: {e}"))?
+}
+
+fn fs_delete_inner(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     let meta = std::fs::symlink_metadata(&p).map_err(|e| {
         log::debug!("fs_delete stat({}) failed: {e}", p.display());

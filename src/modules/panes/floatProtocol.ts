@@ -5,7 +5,7 @@
  * WebView2 windows). Leaf params travel in the float window's URL query.
  */
 
-export type FloatKind = "terminal" | "editor";
+export type FloatKind = "terminal" | "editor" | "table";
 
 export type FloatLeafParams = {
   leafId: number;
@@ -15,6 +15,9 @@ export type FloatLeafParams = {
   path?: string;
   /** editor leaf: private (AI disabled) */
   privateLeaf?: boolean;
+  /** table: the table serialized as markdown. Static content, so it rides in the
+   *  window URL and needs no live event mirror (unlike terminals). */
+  markdown?: string;
 };
 
 /** Encode leaf params for the float window URL (`float.html?p=...`). */

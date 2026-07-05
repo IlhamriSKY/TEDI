@@ -14,7 +14,7 @@ function isBlockedFetchHost(rawUrl: string): boolean {
     return true; // unparseable -> refuse
   }
   if (host === "metadata.google.internal" || host === "metadata") return true;
-  if (/^169\.254\./.test(host)) return true; // IPv4 link-local incl. 169.254.169.254
+  if (/^169\.254\./.test(host)) return true; // IPv4 link-local range
   if (host.startsWith("fe80:")) return true; // IPv6 link-local
   return false;
 }

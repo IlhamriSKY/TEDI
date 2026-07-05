@@ -27,8 +27,21 @@ pub struct SearchHit {
 /// dot-prefixed names are also considered. Matches ranked by a fuzzy
 /// subsequence score (filename hits, contiguity, word-boundary bonus, shorter
 /// path tiebreak). Empty query returns nothing.
+// Offload the recursive fuzzy walk to the blocking pool so a fuzzy file-open
+// over a large repo never freezes the WebView2 UI thread (mirrors git_status).
 #[tauri::command]
-pub fn fs_search(
+pub async fn fs_search(
+    root: String,
+    query: String,
+    limit: Option<usize>,
+    include_hidden: Option<bool>,
+) -> Result<Vec<SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_search_inner(root, query, limit, include_hidden))
+        .await
+        .map_err(|e| format!("fs_search join error: {e}"))?
+}
+
+fn fs_search_inner(
     root: String,
     query: String,
     limit: Option<usize>,

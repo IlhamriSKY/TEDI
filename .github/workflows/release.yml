@@ -7,7 +7,63 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Create the draft release ONCE, before the build matrix runs. The parallel
+  # matrix then uploads every platform's artifacts into this single release via
+  # `releaseId`, instead of each job racing to create its own. That race
+  # previously produced duplicate draft releases and a `latest.json` that was
+  # missing a platform (breaking auto-update for it). Doing it here also means
+  # the release body is composed in one place, so the release page and the
+  # in-app updater notes always match what shipped.
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create-release.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Build the release body from the CHANGELOG entry for this tag. Falls back
+      # to a changelog link if the version has no section, so it never blocks a
+      # release.
+      - name: Compose release notes from CHANGELOG
+        id: notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo 'body<<TEDI_NOTES_EOF'
+            node scripts/release-notes.mjs "$TAG"
+            echo 'TEDI_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        id: create-release
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ github.ref_name }}
+          RELEASE_BODY: ${{ steps.notes.outputs.body }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `TEDI ${tag}`,
+              body: process.env.RELEASE_BODY,
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
+
   publish-tauri:
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -68,6 +124,9 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
           key: ${{ matrix.platform }}-${{ matrix.rust-target }}
+          # Persist the dependency cache even when a build fails, so the next
+          # attempt reuses the compiled deps instead of starting cold.
+          cache-on-failure: true
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -91,6 +150,9 @@ jobs:
         # ready for the NSIS hook's `File` directive.
         run: cargo build --release -p tedi-cli
 
+      # Uploads this platform's signed installers + updater artifacts into the
+      # single draft release created above (`releaseId`). No release-creation
+      # inputs here, so the jobs cannot race to create competing releases.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -108,17 +170,5 @@ jobs:
           # here once a valid Developer ID cert is in the repo secrets.
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "TEDI ${{ github.ref_name }}"
-          releaseBody: |
-            Installed TEDI checks GitHub Releases every 6 hours and offers in-app updates.
-            First-time install: download the artifact for your platform from the assets below.
-
-            **macOS users:** if Gatekeeper says TEDI "can't be opened because Apple cannot check it for malicious software" or "is damaged and can't be opened", drag the app to `/Applications` and run this once in Terminal:
-
-            ```
-            xattr -cr /Applications/TEDI.app
-            ```
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
