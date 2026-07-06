@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.78] - 06-07-2026
+
+### Changed
+
+- **The in-app update prompt now shows a clean, scrollable changelog.** The "update available" dialog in the status bar and the updater in Settings > About previously printed the release notes as raw monospaced text, so headings, bold, and links read as literal markdown. They now render the changelog as structured, scrollable content (section headings, bullet lists, bold, inline code, and external links), so the "what's new" is easy to read. The generated notes also drop the boilerplate install and auto-update footer, so they open directly on the actual changes. See [ReleaseNotes.tsx](src/modules/updater/components/ReleaseNotes.tsx), [UpdaterDialog.tsx](src/modules/updater/components/UpdaterDialog.tsx), [AboutSection.tsx](src/settings/sections/AboutSection.tsx).
+
 ## [0.3.77] - 06-07-2026
 
 ### Added
