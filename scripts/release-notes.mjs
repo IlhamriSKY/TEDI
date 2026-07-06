@@ -43,8 +43,6 @@ const body = section || `Release ${version}. Full changelog: ${REPO}/blob/main/C
 const footer = [
   "---",
   "",
-  "Installed TEDI checks GitHub Releases every 6 hours and offers in-app updates. First-time install: download the artifact for your platform from the assets below.",
-  "",
   '**macOS users:** if Gatekeeper says TEDI "can\'t be opened because Apple cannot check it for malicious software" or "is damaged and can\'t be opened", drag the app to `/Applications` and run this once in Terminal:',
   "",
   "```",

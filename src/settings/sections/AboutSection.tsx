@@ -4,6 +4,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { formatBytes } from "@/lib/format";
 import { IS_LINUX } from "@/lib/platform";
 import { fetchLinuxRelease } from "@/modules/updater/lib/useUpdater";
+import { ReleaseNotes } from "@/modules/updater/components/ReleaseNotes";
 import { BrandIcon } from "@/components/BrandIcon";
 import { getName, getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -160,9 +161,9 @@ export function AboutSection() {
         ) : null}
 
         {checkState.kind === "available" && checkState.notes ? (
-          <pre className="border-border/60 bg-muted/40 max-h-32 overflow-auto rounded-md border p-2 font-mono text-[11px] whitespace-pre-wrap">
-            {checkState.notes}
-          </pre>
+          <div className="border-border/60 bg-muted/40 max-h-64 overflow-auto rounded-md border p-3 text-[12px] leading-relaxed">
+            <ReleaseNotes notes={checkState.notes} />
+          </div>
         ) : null}
 
         <div className="flex flex-wrap gap-2">

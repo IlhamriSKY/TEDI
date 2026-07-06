@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import type { UpdaterState } from "../lib/useUpdater";
+import { ReleaseNotes } from "./ReleaseNotes";
 
 type Props = {
   open: boolean;
@@ -87,9 +88,9 @@ export function UpdaterDialog({
                 ) : null}
               </p>
               {state.notes ? (
-                <pre className="border-border/60 bg-muted/40 max-h-48 overflow-auto rounded-md border p-2 font-mono text-[11px] whitespace-pre-wrap">
-                  {state.notes}
-                </pre>
+                <div className="border-border/60 bg-muted/40 max-h-64 overflow-auto rounded-md border p-3 text-[12px] leading-relaxed">
+                  <ReleaseNotes notes={state.notes} />
+                </div>
               ) : null}
             </>
           )}
@@ -130,9 +131,9 @@ export function UpdaterDialog({
                 </Button>
               </div>
               {state.notes ? (
-                <pre className="border-border/60 bg-muted/40 max-h-48 overflow-auto rounded-md border p-2 font-mono text-[11px] whitespace-pre-wrap">
-                  {state.notes}
-                </pre>
+                <div className="border-border/60 bg-muted/40 max-h-64 overflow-auto rounded-md border p-3 text-[12px] leading-relaxed">
+                  <ReleaseNotes notes={state.notes} />
+                </div>
               ) : null}
             </>
           )}
