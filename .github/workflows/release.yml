@@ -150,9 +150,25 @@ jobs:
         # ready for the NSIS hook's `File` directive.
         run: cargo build --release -p tedi-cli
 
+      # tauri-action fills latest.json's `notes` (the in-app updater changelog)
+      # from `releaseBody`; without it the updater shows no notes. Recompute the
+      # same CHANGELOG-derived notes create-release used for the release body.
+      - name: Compose release notes from CHANGELOG
+        id: notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo 'body<<TEDI_NOTES_EOF'
+            node scripts/release-notes.mjs "$TAG"
+            echo 'TEDI_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       # Uploads this platform's signed installers + updater artifacts into the
       # single draft release created above (`releaseId`). No release-creation
-      # inputs here, so the jobs cannot race to create competing releases.
+      # inputs here, so the jobs cannot race to create competing releases;
+      # `releaseBody` only populates the updater notes, it does not re-create.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -171,4 +187,5 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseBody: ${{ steps.notes.outputs.body }}
           args: ${{ matrix.args }}
