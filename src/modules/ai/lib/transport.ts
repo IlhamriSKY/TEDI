@@ -309,20 +309,19 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // (re-pinned each turn) rather than cloning, so buildTools' per-ctx cache
       // keeps hitting. The UI/<env> read live cwd directly, so they stay live.
       deps.toolContext.pinTurnCwd?.(live.cwd, live.workspaceRoot);
-      const [projectMemory, memory, skills] = await Promise.all([
+      // Memory reads and MCP loading are independent, so race them together in
+      // one batch rather than awaiting memory then MCP - shaves a round of
+      // pre-first-token latency off every turn. Pass the same cwd to both MCP
+      // calls so the deduped connect (mcpClient.getMcpClient) is cwd-deterministic.
+      const mcpCwd = deps.toolContext.getCwd?.() ?? undefined;
+      const [projectMemory, memory, skills, mcpTools, mcpSummary] = await Promise.all([
         readTediMd(live.workspaceRoot),
         readMemory(live.workspaceRoot),
         loadSkills(live.workspaceRoot),
-      ]);
-      const skillsPrompt = formatSkillsPrompt(skills);
-
-      // Load MCP tools and summary (async, parallel). Pass the same cwd to both
-      // so the deduped connect (mcpClient.getMcpClient) is cwd-deterministic.
-      const mcpCwd = deps.toolContext.getCwd?.() ?? undefined;
-      const [mcpTools, mcpSummary] = await Promise.all([
         buildMcpToolsAsync(deps.toolContext),
         getMcpToolsSummary(mcpCwd),
       ]);
+      const skillsPrompt = formatSkillsPrompt(skills);
 
       let requestMessages = messages;
 

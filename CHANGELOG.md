@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.79] - 06-07-2026
+
+### Fixed
+
+- **AI streams on SumoPod and cloud gateways no longer hang forever when the upstream stalls.** The Rust streaming proxy already aborted a wedged connection after an idle timeout, but that guard only covered the CORS-fallback path; SumoPod and other cloud OpenAI-compatible gateways use the WebView's native fetch, which had no idle timeout, so a gateway that accepted the request and then went silent mid-response left the turn spinning indefinitely. Provider fetches now run through an idle-timeout wrapper that aborts a stream after five minutes with no body bytes and surfaces a clear, retryable error instead of hanging, with the timer measuring only upstream wait so a slow-but-live stream and consumer backpressure never trip it. Guarded by a self-check ([stream-idle-timeout-verify.ts](scripts/stream-idle-timeout-verify.ts)). See [httpProxy.ts](src/modules/ai/lib/httpProxy.ts), [agent.ts](src/modules/ai/lib/agent.ts).
+- **Fewer mid-turn "context exceeded" errors on runtime-detected models.** Models absent from the context-limit table (most SumoPod and OpenAI-compatible ids) assumed a 512K window, so compaction fired too late and the request could overflow the gateway's real, smaller window mid-turn. The fallback is now a conservative 256K so compaction runs before the real limit is hit, while known large models (gpt-4.1, gemini-2.5-pro) are tabled explicitly so they are not over-compacted. See [config.ts](src/modules/ai/config.ts).
+- **A single-file "study" or "explain" request no longer forces a slow multi-subagent fan-out.** The trigger that pins the first agent step to a `run_subagents` fan-out fired on a study verb alone (e.g. "explain this function"), adding a full extra round of latency to plainly single-file work. It now requires an explicit sub-agent request, or a study verb paired with a breadth cue (project / codebase / architecture / ...), with the breadth keywords word-bounded so they no longer match inside unrelated words (report, projected, wholesale). The soft prompt mandate still nudges the model to delegate genuinely broad tasks. Guarded by a self-check ([orchestration-intent-verify.ts](scripts/orchestration-intent-verify.ts)). See [orchestrationIntent.ts](src/modules/ai/lib/orchestrationIntent.ts), [agent.ts](src/modules/ai/lib/agent.ts).
+
+### Changed
+
+- **Slightly faster first token on every AI turn.** Project-memory reads and MCP tool loading are independent but ran in two sequential batches before the request was sent; they now race together in one batch. See [transport.ts](src/modules/ai/lib/transport.ts).
+
 ## [0.3.78] - 06-07-2026
 
 ### Changed

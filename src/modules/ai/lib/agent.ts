@@ -32,12 +32,13 @@ import {
 } from "../config";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
-import { corsFallbackFetch } from "./httpProxy";
+import { corsFallbackFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import type { Tool } from "ai";
 import { applyCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed, compactStepMessages, type CompactStages } from "./compact";
+import { wantsForcedFanout } from "./orchestrationIntent";
 import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
@@ -178,6 +179,9 @@ export async function buildLanguageModel(
         name: "deepseek",
         baseURL: "https://api.deepseek.com",
         apiKey: key,
+        // Idle-timeout the native fetch so a gateway that stalls mid-SSE fails
+        // with a retryable error instead of hanging the turn forever.
+        fetch: withStreamIdleTimeout(globalThis.fetch),
         // Ask for usage in the streaming response so the app can see input/
         // cached-token counts (else the streamed final chunk carries none and
         // the context/cache-hit UI is dead for this provider).
@@ -191,6 +195,11 @@ export async function buildLanguageModel(
         name: "sumopod",
         baseURL: SUMOPOD_BASE_URL,
         apiKey: key,
+        // SumoPod uses the native fetch (it sends CORS headers, so the Rust
+        // proxy's idle guard never runs). Wrap it so a wedged mid-stream request
+        // aborts with a retryable error instead of hanging the turn forever -
+        // the single most common "berhenti di tengah" on this gateway.
+        fetch: withStreamIdleTimeout(globalThis.fetch),
         // Surface streaming usage so the context/cache-hit indicator reflects
         // real spend on SumoPod (without this the endpoint isn't asked for usage
         // and the app is blind to its own token cost).
@@ -221,7 +230,10 @@ export async function buildLanguageModel(
         // Route chat through the native-first CORS fallback so self-hosted /
         // tunnelled endpoints (9Router, local routers) that don't send CORS
         // headers still stream, while cloud gateways keep the native path.
-        fetch: corsFallbackFetch,
+        // Idle-timeout it so a CORS-friendly cloud gateway (which takes the
+        // native path, bypassing the Rust proxy's own guard) can't stall the
+        // turn forever.
+        fetch: withStreamIdleTimeout(corsFallbackFetch),
         // Ask for streaming usage so token/cache accounting works for custom
         // OpenAI-compatible endpoints too.
         includeUsage: true,
@@ -235,9 +247,11 @@ export async function buildLanguageModel(
     }
     case "lmstudio": {
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      built = createOpenAICompatible({ name: "lmstudio", baseURL, fetch: corsFallbackFetch })(
-        resolvedModelId,
-      );
+      built = createOpenAICompatible({
+        name: "lmstudio",
+        baseURL,
+        fetch: withStreamIdleTimeout(corsFallbackFetch),
+      })(resolvedModelId);
       break;
     }
     default: {
@@ -409,44 +423,6 @@ function buildSystemPrompt(opts: {
  *  directive rather than a per-provider thinking-budget knob). */
 const ULTRATHINK_DIRECTIVE = `\n\n## ULTRATHINK\nThe user asked you to think hard this turn. Before any tool call or final answer, reason step by step and exhaustively: restate the problem, weigh multiple approaches and their trade-offs, check edge cases and failure modes, and verify your plan against the actual code. Prioritize correctness over speed.`;
 
-/** Orchestration-intent cues that mechanically enforce the SUB-AGENT mandate.
- *  When a turn matches and sub-agents are on, step 0 is pinned to a
- *  `run_subagents` fan-out (see forceSpawnStep0). This is the model-agnostic way
- *  to get RELIABLE auto-delegation: a soft prompt mandate is followed by strong
- *  instruction-tuned models but ignored by many others, which reach for the
- *  easy inline tools (read/grep/list) instead. Restricting step 0 to the spawn
- *  tool removes that choice, so delegation happens regardless of the model - the
- *  same principle as opencode's orchestrator, which simply denies inline tools.
- *  Mirrors the mandate's own verb list; EN + ID because the user base writes
- *  both. Deliberately broad: over-delegating a borderline task still returns a
- *  correct answer, just via a sub-agent. ponytail: keyword heuristic, not intent
- *  parsing; add languages or tighten only if it misfires. */
-const ORCHESTRATION_INTENT = new RegExp(
-  [
-    "sub[-\\s]?agents?",
-    "orchestrat\\w*",
-    "stud(?:y|ies)",
-    "explor\\w*",
-    "understand",
-    "audit",
-    "trace",
-    "analy[sz]e\\w*",
-    "investigat\\w*",
-    "map\\s+out",
-    // Indonesian
-    "pelajari",
-    "eksplor\\w*",
-    "telusuri",
-    "pahami",
-    "tinjau",
-    "petakan",
-    "analis\\w*",
-    "selidiki",
-    "menyeluruh",
-  ].join("|"),
-  "i",
-);
-
 /** Text of the latest user message (concatenated text parts), for keyword
  *  detection like "ultrathink". Empty when there is no user message. */
 function lastUserText(messages: UIMessage[]): string {
@@ -593,7 +569,7 @@ export async function runAgentStream(
   const forceSpawnStep0 =
     usePreferencesStore.getState().subagentsEnabled &&
     "run_subagents" in tools &&
-    ORCHESTRATION_INTENT.test(latestUserText);
+    wantsForcedFanout(latestUserText);
 
   // Debug capture: snapshot the assembled request (no secrets) when the user
   // turned Debug on, so they can inspect / download exactly what TEDI sends.

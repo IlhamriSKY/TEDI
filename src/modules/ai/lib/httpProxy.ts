@@ -212,3 +212,121 @@ export const corsFallbackFetch = async (
     throw e;
   }
 };
+
+/** Idle a stream can go without a byte before we treat the upstream as dead.
+ *  Mirrors the Rust proxy's guard (net.rs IDLE_TIMEOUT); generous so a slow
+ *  reasoning model with long gaps between tokens is never falsely cut. */
+const STREAM_IDLE_TIMEOUT_MS = 300_000;
+
+/**
+ * Wrap a `fetch` so a request that connects but then produces no body bytes for
+ * `idleMs` is aborted, surfacing a clear retryable error instead of hanging the
+ * turn forever. The timer measures ONLY time spent waiting on the upstream (it
+ * is armed around each `reader.read()` and cleared once bytes arrive), so a slow
+ * consumer / backpressure never trips it, and a legitimately slow-but-live SSE
+ * stream is unaffected - only a truly wedged connection.
+ *
+ * The Rust proxy (`net.rs`) already guards its own path; this covers the NATIVE
+ * `fetch` path that SumoPod and cloud OpenAI-compatible gateways take (the Rust
+ * guard never runs for those because native fetch succeeds first). The error
+ * message carries "idle timeout" so `classifyError` maps it to
+ * PROVIDER_UNAVAILABLE (retryable) rather than a user abort.
+ */
+export function withStreamIdleTimeout(
+  baseFetch: typeof globalThis.fetch,
+  idleMs: number = STREAM_IDLE_TIMEOUT_MS,
+): typeof globalThis.fetch {
+  return async function idleGuardedFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const outer =
+      init?.signal ?? (input instanceof Request ? input.signal : undefined) ?? undefined;
+    const stalled = { hit: false };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const clear = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const arm = () => {
+      clear();
+      timer = setTimeout(() => {
+        stalled.hit = true;
+        // Release the socket; the awaiting read/connect below turns this into a
+        // clear "idle timeout" error.
+        controller.abort();
+      }, idleMs);
+    };
+
+    if (outer) {
+      if (outer.aborted) controller.abort((outer as { reason?: unknown }).reason);
+      else
+        outer.addEventListener(
+          "abort",
+          () => controller.abort((outer as { reason?: unknown }).reason),
+          { once: true },
+        );
+    }
+
+    // Guard connect + time-to-headers. Call via `.call(globalThis, ...)` so a
+    // bare `globalThis.fetch` reference keeps its required `this` binding (an
+    // arrow like corsFallbackFetch ignores it).
+    arm();
+    let res: Response;
+    try {
+      res = await baseFetch.call(globalThis, input, { ...init, signal: controller.signal });
+    } catch (e) {
+      clear();
+      if (stalled.hit) throw new Error("upstream stalled before response (idle timeout)");
+      throw e;
+    }
+    clear();
+    if (!res.body) return res;
+
+    const reader = res.body.getReader();
+    const guarded = new ReadableStream<Uint8Array>({
+      async pull(out) {
+        arm();
+        try {
+          const { done, value } = await reader.read();
+          clear();
+          if (done) {
+            out.close();
+            return;
+          }
+          out.enqueue(value);
+        } catch (e) {
+          clear();
+          out.error(stalled.hit ? new Error("upstream stalled mid-stream (idle timeout)") : e);
+        }
+      },
+      cancel(reason) {
+        clear();
+        void reader.cancel(reason).catch(() => {});
+      },
+    });
+    // Drop framing headers: the body is re-streamed, so the upstream
+    // content-length / encoding no longer describe it and would make the rebuilt
+    // Response inconsistent (mirrors the Rust proxy's header filter in net.rs).
+    const headers = new Headers();
+    res.headers.forEach((value, key) => {
+      const k = key.toLowerCase();
+      if (
+        k === "content-length" ||
+        k === "content-encoding" ||
+        k === "transfer-encoding" ||
+        k === "connection"
+      )
+        return;
+      headers.append(key, value);
+    });
+    return new Response(guarded, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  } as typeof globalThis.fetch;
+}

@@ -55,8 +55,18 @@ export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-5.4-mini": 1_000_000, "gpt-5.5": 2_000_000, "gpt-5.3-codex": 1_000_000, "claude-haiku-4-5": 400_000, "claude-sonnet-4-6": 400_000, "claude-opus-4-7": 400_000, "gemini-3.1-pro-preview": 2_000_000, "gemini-3-flash-preview": 2_000_000, "gemini-2.5-flash": 2_000_000, "gemma-4-31b-it": 512_000, "grok-4.20-reasoning": 4_000_000, "grok-4.20-non-reasoning": 4_000_000, "gpt-oss-120b": 256_000, "openai/gpt-oss-20b": 256_000, "deepseek-v4-flash": 2_000_000, "deepseek-v4-pro": 2_000_000, "lmstudio-local": 128_000,
+  // SumoPod curated defaults whose real window is comfortably large, so the
+  // lowered fallback below doesn't over-compact them.
+  "gpt-4.1": 1_000_000, "gpt-4.1-mini": 1_000_000, "gemini/gemini-2.5-pro": 1_000_000,
 };
-const FALLBACK_CONTEXT_LIMIT = 512_000;
+// Unknown ids (most runtime-detected SumoPod / OpenAI-compatible models: glm,
+// qwen, gpt-5.x, ...) fall back to this. Kept conservative on purpose: assume a
+// modest real window so pre-send compaction fires BEFORE the gateway's actual
+// limit is hit, instead of overflowing mid-turn into an OVER_CONTEXT error. A
+// genuinely large unknown model just compacts a little earlier (elide-first, so
+// nearly lossless); a small one stops erroring. Reliability > a few extra kept
+// tokens on an un-tabled model.
+const FALLBACK_CONTEXT_LIMIT = 256_000;
 export function getModelContextLimit(id: string | undefined): number { return id ? (MODEL_CONTEXT_LIMITS[id] ?? FALLBACK_CONTEXT_LIMIT) : FALLBACK_CONTEXT_LIMIT; }
 
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = ["lmstudio"] as const;
