@@ -167,6 +167,22 @@ export function TerminalPane({
       ref={containerRef}
       className="h-full w-full"
       data-terminal-leaf-id={leafId}
+      // Right-click pastes (PuTTY / Windows Terminal convention) so a snippet
+      // copied from anywhere on the PC drops straight into the shell, incl.
+      // over SSH. Reads the WebView clipboard (same API the editor uses) and
+      // routes through session.paste for bracketed paste, so multi-line text
+      // doesn't auto-execute line-by-line. Ctrl+Shift+V / Shift+Insert also work.
+      onContextMenu={(e) => {
+        e.preventDefault();
+        void navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) session.paste(text);
+          })
+          .catch((err) => {
+            console.warn("terminal right-click paste: clipboard read failed:", err);
+          });
+      }}
       // Internal drag-drops (file explorer rows → terminal) are
       // synthesized from mouse events by `ensureFsDragListener`
       // (HTML5 drag-drop is unreliable under Tauri's default

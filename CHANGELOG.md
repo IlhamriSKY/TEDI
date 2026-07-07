@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.80] - 07-07-2026
+
+### Fixed
+
+- **A focused terminal now keeps every Ctrl control code the shell needs, instead of the app stealing them.** On Windows and Linux the primary modifier is Ctrl, so the catalog's `Mod+letter` shortcuts (split, close tab, new editor, toggle sidebar, ask AI, show shortcuts, ...) were captured app-wide even inside a focused terminal, so `Ctrl+D` (EOF and the GNU screen / tmux detach `Ctrl+A Ctrl+D`), `Ctrl+L` (clear), `Ctrl+W` (kill-word), `Ctrl+E` (end-of-line), `Ctrl+K` (kill-line), `Ctrl+B` / `Ctrl+F`, `Ctrl+I` (Tab), `Ctrl+[` (Esc) and the rest never reached the shell. A single predicate now lets any bare-Ctrl control-code chord fall through to xterm when a terminal is focused, while app shortcuts that carry Shift/Alt/Meta (Ctrl+Shift+C copy, Ctrl+Shift+V paste, Ctrl+Shift+D split-down, Ctrl+Shift+X close, ...) stay active, and Ctrl+Tab / Ctrl+digit / zoom are untouched. Every app action that yields in a terminal keeps an alternative (go to file on Ctrl+Shift+P, split on Ctrl+Shift+D, find via the header search box, the rest via toolbar buttons). macOS is unaffected (its modifier is Cmd, so no bare-Ctrl chord was ever an app shortcut). Guarded by a self-check ([keybindings-terminal-verify.ts](scripts/keybindings-terminal-verify.ts)). See [shortcuts.ts](src/modules/shortcuts/shortcuts.ts), [App.tsx](src/app/App.tsx).
+
+### Added
+
+- **Right-click pastes into the terminal.** Following the PuTTY and Windows Terminal convention, right-clicking a terminal pane now pastes the clipboard, so a snippet copied from anywhere on the PC drops straight into the shell, including over SSH. It reads the WebView clipboard and routes through the bracketed-paste path, so a multi-line snippet does not auto-execute line by line; `Ctrl+Shift+V` and `Shift+Insert` continue to work. See [TerminalPane.tsx](src/modules/terminal/TerminalPane.tsx).
+
 ## [0.3.79] - 06-07-2026
 
 ### Fixed

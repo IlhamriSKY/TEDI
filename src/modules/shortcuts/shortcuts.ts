@@ -418,6 +418,26 @@ export function canonicalKeyFromEvent(e: KeyboardEvent): string {
 }
 
 /**
+ * True when `e` is a bare-Ctrl chord (Ctrl held, no Shift/Alt/Meta) whose key
+ * produces a C0 control code a shell needs: Ctrl+A..Z -> 0x01-0x1A, Ctrl+[ =
+ * Esc (0x1B), Ctrl+\ = FS/SIGQUIT (0x1C), Ctrl+] = GS (0x1D). On Windows/Linux
+ * `Mod` is Ctrl, so the catalog's Mod+letter defaults (Ctrl+E, Ctrl+W, Ctrl+K,
+ * Ctrl+L, Ctrl+B, …) otherwise steal readline editing keys and the GNU
+ * screen / tmux prefix from a focused terminal. App's `useGlobalShortcuts`
+ * `isDisabled` returns true for this while a terminal is focused, so the byte
+ * falls through to xterm instead of firing an app action. Uses `e.code` so it
+ * holds on non-US layouts (Ctrl+Shift+letter app chords keep Shift, so they are
+ * excluded here and stay active). No-op on macOS: Mod is Cmd there, so no bare-
+ * Ctrl chord matches an app shortcut in the first place.
+ */
+export function isTerminalControlChord(e: KeyboardEvent): boolean {
+  if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return false;
+  const code = e.code;
+  if (code.length === 4 && code.startsWith("Key")) return true; // KeyA..KeyZ
+  return code === "BracketLeft" || code === "BracketRight" || code === "Backslash";
+}
+
+/**
  * Parses an extension's `contributes.keybindings[].key` string
  * (e.g. "Mod+Shift+E", "Ctrl+K", "Alt+Shift+ArrowLeft") into a `KeyBinding`.
  * VS Code grammar:

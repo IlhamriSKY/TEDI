@@ -37,6 +37,7 @@ import { Header, type SearchInlineHandle } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import {
+  isTerminalControlChord,
   useExtensionShortcuts,
   useGlobalShortcuts,
   type ShortcutHandlers,
@@ -773,7 +774,17 @@ export default function App() {
   // focused. The options object is read fresh each keydown (see useGlobalShortcuts),
   // so closing over activeLeafKindCurrent without a dep array is fine.
   useGlobalShortcuts(shortcutHandlers, {
-    isDisabled: (id) => id.startsWith("browser.") && activeLeafKindCurrent !== "browser",
+    isDisabled: (id, e) =>
+      (id.startsWith("browser.") && activeLeafKindCurrent !== "browser") ||
+      // A focused terminal owns every bare-Ctrl control code (Ctrl+D EOF /
+      // screen detach, Ctrl+E, Ctrl+W, Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab,
+      // the tmux/screen prefix, …). On Win/Linux `Mod`=Ctrl, so those chords
+      // otherwise fire app actions (split, close tab, ask AI, …) and the byte
+      // never reaches the shell. Let them fall through. Terminal-safe app
+      // chords keep Shift/Alt/Meta (Ctrl+Shift+C copy, Ctrl+Shift+X close, …)
+      // and still work; Ctrl+Tab / Ctrl+digit / zoom are not control codes and
+      // stay active too.
+      (activeLeafKindCurrent === "terminal" && isTerminalControlChord(e)),
   });
 
   // Generic dispatcher for extension-contributed keybindings. Walks
