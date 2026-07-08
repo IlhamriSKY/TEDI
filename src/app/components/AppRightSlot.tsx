@@ -4,19 +4,28 @@ import { RightPanelHost } from "@/modules/extensions";
 import type { useRightPanelStore } from "@/modules/extensions";
 import { Suspense } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
-import { AiSidebarPanel, SourceControlPanel } from "./lazyPanels";
+import { AiSidebarPanel, SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 
 type RightPanelActive = ReturnType<typeof useRightPanelStore.getState>["active"];
 
 type Props = {
   rightPanelActive: RightPanelActive;
   scmRightOpen: boolean;
+  sshRightOpen: boolean;
   keysLoaded: boolean;
   panelOpen: boolean;
   hasComposer: boolean;
   explorerRoot: string | null;
   onPathDeleted: (path: string) => void;
   closeScmRight: () => void;
+  closeSshRight: () => void;
+  /** SSH context for the right-slot Remote explorer (same source the sidebar uses). */
+  activeSshContext: {
+    sessionId: number | null;
+    hostLabel: string | null;
+    cwd: string | null;
+  };
+  onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   onAddProviderKey: () => void;
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
 
@@ -33,17 +42,21 @@ type Props = {
 export function AppRightSlot({
   rightPanelActive,
   scmRightOpen,
+  sshRightOpen,
   keysLoaded,
   panelOpen,
   hasComposer,
   explorerRoot,
   onPathDeleted,
   closeScmRight,
+  closeSshRight,
+  activeSshContext,
+  onOpenRemoteFile,
   onAddProviderKey,
   openGitDiffTab,
   openScmTab,
 }: Props) {
-  if (!(rightPanelActive || scmRightOpen || (keysLoaded && panelOpen))) return null;
+  if (!(rightPanelActive || scmRightOpen || sshRightOpen || (keysLoaded && panelOpen))) return null;
   return (
     <>
       <ResizableHandle withHandle />
@@ -59,6 +72,18 @@ export function AppRightSlot({
                 onOpenDiff={openGitDiffTab}
                 onClose={closeScmRight}
                 onOpenInTab={openScmTab}
+              />
+            </Suspense>
+          </div>
+        ) : sshRightOpen ? (
+          <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
+            <Suspense fallback={null}>
+              <SshFileExplorer
+                sessionId={activeSshContext.sessionId}
+                hostLabel={activeSshContext.hostLabel}
+                currentCwd={activeSshContext.cwd}
+                onOpenFile={onOpenRemoteFile}
+                onClose={closeSshRight}
               />
             </Suspense>
           </div>

@@ -21,17 +21,22 @@ import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemCl
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setSshInRightPanel } from "@/modules/settings/store";
 import { useEffect, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
+import { useSshRightPanelStore } from "./sshRightPanelStore";
 import {
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   FilePlus,
   FolderPlus,
+  PanelLeft,
+  PanelRight,
   RefreshCw,
   Server,
+  X,
 } from "lucide-react";
 
 // SSH explorer panel. Shown only when at least one SSH leaf is connected.
@@ -55,6 +60,10 @@ type Props = {
   onToggleCollapsed?: () => void;
   /** Sidebar-section reorder grip, injected by the sidebar. Mirrors the local file tree. */
   dragHandle?: ReactNode;
+  /** Present only on the right-slot instance: closes the right-slot panel.
+   *  Its presence also swaps the "move to right" header button for the
+   *  "move back to left sidebar" + "close" pair. Mirrors SCM's PanelHeader. */
+  onClose?: () => void;
 };
 
 export function SshFileExplorer({
@@ -65,6 +74,7 @@ export function SshFileExplorer({
   collapsed = false,
   onToggleCollapsed,
   dragHandle,
+  onClose,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   // Re-render once the lazy-loaded catppuccin icon set arrives.
@@ -209,6 +219,56 @@ export function SshFileExplorer({
               </Button>
             </IconTooltip>
           </>
+        ) : null}
+
+        {/* Left-sidebar instance: move the Remote explorer to the right panel.
+            Shown whenever it's the sidebar instance (has a reorder grip) and
+            expanded, independent of session state - like SCM's move button. */}
+        {dragHandle && !collapsed ? (
+          <IconTooltip label="Move to right panel" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+              onClick={() => {
+                void setSshInRightPanel(true);
+                useSshRightPanelStore.getState().openPanel();
+              }}
+              aria-label="Move Remote to the right panel"
+            >
+              <PanelRight size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {/* Right-panel instance: dock the Remote explorer back into the left sidebar. */}
+        {onClose ? (
+          <IconTooltip label="Move to left sidebar" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+              onClick={() => {
+                void setSshInRightPanel(false);
+                useSshRightPanelStore.getState().closePanel();
+              }}
+              aria-label="Move Remote to the left sidebar"
+            >
+              <PanelLeft size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {onClose ? (
+          <IconTooltip label="Close panel" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+              onClick={onClose}
+              aria-label="Close Remote panel"
+            >
+              <X size={12} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
         ) : null}
       </div>
 

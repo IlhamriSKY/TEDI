@@ -175,6 +175,13 @@ export type Preferences = {
    * toggles the right-slot SCM panel.
    */
   sourceControlInRightPanel: boolean;
+  /**
+   * Mount the SSH (Remote) file explorer in the right slot instead of as a
+   * sidebar pane on the left. Default false. When true, the left sidebar drops
+   * the SSH pane and a status-bar button toggles the right-slot SSH panel.
+   * Mirrors `sourceControlInRightPanel`.
+   */
+  sshInRightPanel: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   /**
    * User overrides for extension keybindings. Keyed by command id from
@@ -356,6 +363,7 @@ const KEY_TERMINAL_ENV_PATH = "terminalEnvPath";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SOURCE_CONTROL_IN_RIGHT_PANEL = "sourceControlInRightPanel";
+const KEY_SSH_IN_RIGHT_PANEL = "sshInRightPanel";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
@@ -482,6 +490,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHiddenFiles: false,
   showSourceControl: true,
   sourceControlInRightPanel: false,
+  sshInRightPanel: false,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   extensionShortcuts: {} as Record<string, KeyBinding[]>,
   pinnedModelIds: [],
@@ -584,6 +593,7 @@ export async function loadPreferences(): Promise<Preferences> {
     sourceControlInRightPanel:
       get<boolean>(KEY_SOURCE_CONTROL_IN_RIGHT_PANEL) ??
       DEFAULT_PREFERENCES.sourceControlInRightPanel,
+    sshInRightPanel: get<boolean>(KEY_SSH_IN_RIGHT_PANEL) ?? DEFAULT_PREFERENCES.sshInRightPanel,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ?? DEFAULT_PREFERENCES.shortcuts,
     extensionShortcuts:
@@ -869,6 +879,10 @@ export async function setSourceControlInRightPanel(value: boolean): Promise<void
   await writePref(KEY_SOURCE_CONTROL_IN_RIGHT_PANEL, value);
 }
 
+export async function setSshInRightPanel(value: boolean): Promise<void> {
+  await writePref(KEY_SSH_IN_RIGHT_PANEL, value);
+}
+
 export async function setTerminalFontSize(value: number): Promise<void> {
   const clamped = Number.isFinite(value)
     ? Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(value)))
@@ -1028,9 +1042,7 @@ export async function _readAny<T = unknown>(key: string): Promise<T | undefined>
 // Subscribe to raw store-key changes from both same-process writes (store.onChange)
 // and cross-window writes (the Tauri event from writePref), with the self-delivered
 // event deduped via SELF_LABEL. Shared by _onAnyChange and onPreferencesChange.
-async function subscribeRawChanges(
-  cb: (key: string, value: unknown) => void,
-): Promise<UnlistenFn> {
+async function subscribeRawChanges(cb: (key: string, value: unknown) => void): Promise<UnlistenFn> {
   const [unsubLocal, unsubEvent] = await Promise.all([
     store.onChange<unknown>((key, value) => cb(key, value)),
     listen<{ key: string; value: unknown; source?: string }>(PREFS_CHANGED_EVENT, (e) => {
@@ -1108,6 +1120,7 @@ export async function onPreferencesChange(
     showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
     showSourceControl: KEY_SHOW_SOURCE_CONTROL,
     sourceControlInRightPanel: KEY_SOURCE_CONTROL_IN_RIGHT_PANEL,
+    sshInRightPanel: KEY_SSH_IN_RIGHT_PANEL,
     shortcuts: KEY_SHORTCUTS,
     extensionShortcuts: KEY_EXTENSION_SHORTCUTS,
     pinnedModelIds: KEY_PINNED_MODELS,

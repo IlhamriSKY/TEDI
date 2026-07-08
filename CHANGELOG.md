@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.81] - 08-07-2026
+
+### Added
+
+- **The Remote (SSH) file explorer can now dock in the right panel.** It previously lived only as a left-sidebar section; a "move to right panel" button in its header (plus a status-bar toggle) now hosts it in the shared right slot, mirroring the Source Control panel. The right-slot instance gains "move back to left" and "close" buttons, the left sidebar drops its SSH pane while docked, and the panel joins the mutual-exclusion set with the AI sidebar, Source Control, and extension panels (opening one closes the others). A new `sshInRightPanel` preference (default off) persists the choice, and the panel auto-closes when the last SSH session disconnects. See [sshRightPanelStore.ts](src/modules/ssh/sshRightPanelStore.ts), [SshFileExplorer.tsx](src/modules/ssh/SshFileExplorer.tsx), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx), [useRightPanelExclusion.ts](src/app/hooks/useRightPanelExclusion.ts).
+- **Select-to-copy in the terminal.** Following the PuTTY convention, releasing a left-button selection (drag, double-click word, or triple-click line) copies it to the clipboard, so copying out of the terminal is just "highlight it". Right-click still pastes and Ctrl+Shift+C still copies. See [TerminalPane.tsx](src/modules/terminal/TerminalPane.tsx).
+
+### Fixed
+
+- **A focused terminal now also keeps bare-Alt readline meta sequences.** After v0.3.80 freed the Ctrl control codes, a shortcut-collision audit found `Alt+Z` (toggle word wrap) still shadowed the terminal's meta-z. A focused terminal now lets every bare-Alt chord on a letter or digit fall through to xterm (readline M-b / M-f / M-d word ops, M-1..M-9 digit-argument), while app chords that add Ctrl or Shift (Ctrl+Alt+P, Shift+Alt+F) stay active. A whole-catalog audit ([keybindings-collision-verify.ts](scripts/keybindings-collision-verify.ts)) confirms no two actions share a chord and every shell control code reaches the terminal. See [shortcuts.ts](src/modules/shortcuts/shortcuts.ts), [App.tsx](src/app/App.tsx).
+
 ## [0.3.80] - 07-07-2026
 
 ### Fixed

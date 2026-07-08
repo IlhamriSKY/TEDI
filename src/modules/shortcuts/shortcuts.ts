@@ -438,6 +438,24 @@ export function isTerminalControlChord(e: KeyboardEvent): boolean {
 }
 
 /**
+ * True when `e` is a bare-Alt chord (Alt held, no Ctrl/Shift/Meta) on a
+ * letter or digit. xterm sends these to the shell as ESC-prefixed meta
+ * sequences that readline uses: M-b / M-f word movement, M-d kill-word,
+ * M-. last-arg, M-1..M-9 digit-argument, etc. Like [[isTerminalControlChord]]
+ * this is gated on in App's `isDisabled` so a focused terminal owns them
+ * instead of an app Alt+letter shortcut (only Alt+Z = word-wrap today, which
+ * is an editor action with no meaning in a terminal anyway). Uses `e.code` for
+ * layout independence; app chords that add Ctrl/Shift/Meta (Ctrl+Alt+P,
+ * Shift+Alt+F) keep those modifiers and are excluded, so they stay active.
+ */
+export function isTerminalMetaChord(e: KeyboardEvent): boolean {
+  if (!e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return false;
+  const code = e.code;
+  if (code.length === 4 && code.startsWith("Key")) return true; // KeyA..KeyZ
+  return code.length === 6 && code.startsWith("Digit"); // Digit0..Digit9
+}
+
+/**
  * Parses an extension's `contributes.keybindings[].key` string
  * (e.g. "Mod+Shift+E", "Ctrl+K", "Alt+Shift+ArrowLeft") into a `KeyBinding`.
  * VS Code grammar:

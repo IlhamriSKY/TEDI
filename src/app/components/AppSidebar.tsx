@@ -56,6 +56,9 @@ type Props = {
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   showSourceControl: boolean;
   sourceControlInRightPanel: boolean;
+  /** When true, the Remote/SSH section is docked in the right slot, so the
+   *  sidebar drops its pane (mirrors `sourceControlInRightPanel`). */
+  sshInRightPanel: boolean;
   onSwitchWorkspace: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
   onCloseWorkspace: (workspaceId: string) => void;
@@ -167,6 +170,7 @@ export function AppSidebar({
   onOpenRemoteFile,
   showSourceControl,
   sourceControlInRightPanel,
+  sshInRightPanel,
   onSwitchWorkspace,
   onCreateWorkspace,
   onCloseWorkspace,
@@ -237,9 +241,9 @@ export function AppSidebar({
   // Built-in scm/ssh are conditional; extension sections are always shown when
   // present (the registry only holds them while the extension is active) unless
   // the user has moved them to the right slot.
+  const sshVisible = hasAnySshLeaf && !sshInRightPanel;
   const visible = effectiveOrder.filter(
-    (k) =>
-      (k !== "scm" || scmVisible) && (k !== "ssh" || hasAnySshLeaf) && placement[k] !== "right",
+    (k) => (k !== "scm" || scmVisible) && (k !== "ssh" || sshVisible) && placement[k] !== "right",
   );
 
   const syncCollapsed = (key: SectionKey) => {

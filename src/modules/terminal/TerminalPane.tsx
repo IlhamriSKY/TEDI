@@ -183,6 +183,18 @@ export function TerminalPane({
             console.warn("terminal right-click paste: clipboard read failed:", err);
           });
       }}
+      // Select-to-copy (PuTTY convention): releasing a left-button drag/word/line
+      // selection copies it to the clipboard, so copy out of the terminal is
+      // just "highlight it". Left button only, so right-click paste isn't caught;
+      // a plain click leaves no selection and is skipped. Ctrl+Shift+C also works.
+      onMouseUp={(e) => {
+        if (e.button !== 0) return;
+        const sel = session.getSelection();
+        if (!sel) return;
+        void navigator.clipboard.writeText(sel).catch((err) => {
+          console.warn("terminal select-to-copy: clipboard write failed:", err);
+        });
+      }}
       // Internal drag-drops (file explorer rows → terminal) are
       // synthesized from mouse events by `ensureFsDragListener`
       // (HTML5 drag-drop is unreliable under Tauri's default

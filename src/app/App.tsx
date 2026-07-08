@@ -36,8 +36,10 @@ import { type EditorPaneHandle } from "@/modules/editor";
 import { Header, type SearchInlineHandle } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
+import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import {
   isTerminalControlChord,
+  isTerminalMetaChord,
   useExtensionShortcuts,
   useGlobalShortcuts,
   type ShortcutHandlers,
@@ -367,6 +369,7 @@ export default function App() {
   // Preferences used by the chrome / layout.
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
+  const sshInRightPanel = usePreferencesStore((s) => s.sshInRightPanel);
   const contentZoom = usePreferencesStore((s) => s.contentZoom);
   // UI zoom scales the chrome only (header / tabs, sidebar, side panels, status
   // bar) plus portaled overlays, which mount on `document.body` outside `#root`.
@@ -378,18 +381,14 @@ export default function App() {
 
   const scmRightOpen = useScmRightPanelStore((s) => s.open);
   const closeScmRight = useScmRightPanelStore((s) => s.closePanel);
+  const sshRightOpen = useSshRightPanelStore((s) => s.open);
+  const closeSshRight = useSshRightPanelStore((s) => s.closePanel);
 
-  // Right-panel, SCM right panel, and AI sidebar are mutually exclusive
-  // (all three want the same ~22% slot). Opening one closes the others.
+  // Extension right-panel, SCM/SSH right panels, and AI sidebar are mutually
+  // exclusive (all want the same ~22% slot). Opening one closes the others.
+  // The exclusion call itself lives after useSshLeafState below, so it can read
+  // hasAnySshLeaf (the SSH panel closes when the last leaf disconnects).
   const rightPanelActive = useRightPanelStore((s) => s.active);
-  useRightPanelExclusion(
-    rightPanelActive,
-    panelOpen,
-    scmRightOpen,
-    sourceControlInRightPanel,
-    showSourceControl,
-    closeScmRight,
-  );
   // Re-open a sidebar section docked to the right slot on boot (else it would
   // vanish: gone from the left sidebar, closed in the right).
   useDockedSectionAutoOpen();
@@ -483,6 +482,21 @@ export default function App() {
     activeSshContext,
     hasAnySshLeaf,
   } = useSshLeafState({ activePaneTab, tabs });
+
+  // Mutual exclusion for the shared right slot. Declared here (not up with the
+  // other store reads) because it needs hasAnySshLeaf from useSshLeafState.
+  useRightPanelExclusion(
+    rightPanelActive,
+    panelOpen,
+    scmRightOpen,
+    sourceControlInRightPanel,
+    showSourceControl,
+    closeScmRight,
+    sshRightOpen,
+    sshInRightPanel,
+    hasAnySshLeaf,
+    closeSshRight,
+  );
 
   // Publish the live-state snapshot to extensions. Placed AFTER useSshLeafState
   // so it can include SSH tab numbers (keyed by the live SSH session id), which
@@ -778,13 +792,15 @@ export default function App() {
       (id.startsWith("browser.") && activeLeafKindCurrent !== "browser") ||
       // A focused terminal owns every bare-Ctrl control code (Ctrl+D EOF /
       // screen detach, Ctrl+E, Ctrl+W, Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab,
-      // the tmux/screen prefix, …). On Win/Linux `Mod`=Ctrl, so those chords
-      // otherwise fire app actions (split, close tab, ask AI, …) and the byte
-      // never reaches the shell. Let them fall through. Terminal-safe app
-      // chords keep Shift/Alt/Meta (Ctrl+Shift+C copy, Ctrl+Shift+X close, …)
-      // and still work; Ctrl+Tab / Ctrl+digit / zoom are not control codes and
-      // stay active too.
-      (activeLeafKindCurrent === "terminal" && isTerminalControlChord(e)),
+      // the tmux/screen prefix, …) and every bare-Alt meta sequence (readline
+      // M-b / M-f / M-d / M-1..9). On Win/Linux `Mod`=Ctrl, so those chords
+      // otherwise fire app actions (split, close tab, ask AI, word-wrap, …) and
+      // the byte never reaches the shell. Let them fall through. Terminal-safe
+      // app chords keep Shift/Meta or add a second modifier (Ctrl+Shift+C copy,
+      // Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay active; Ctrl+Tab /
+      // Ctrl+digit / zoom are not control codes and stay active too.
+      (activeLeafKindCurrent === "terminal" &&
+        (isTerminalControlChord(e) || isTerminalMetaChord(e))),
   });
 
   // Generic dispatcher for extension-contributed keybindings. Walks
@@ -917,6 +933,7 @@ export default function App() {
                 onOpenRemoteFile={handleOpenRemoteFile}
                 showSourceControl={showSourceControl}
                 sourceControlInRightPanel={sourceControlInRightPanel}
+                sshInRightPanel={sshInRightPanel}
                 onSwitchWorkspace={switchToWorkspace}
                 onCreateWorkspace={createNewWorkspace}
                 onCloseWorkspace={closeWorkspace}
@@ -959,12 +976,16 @@ export default function App() {
               <AppRightSlot
                 rightPanelActive={rightPanelActive}
                 scmRightOpen={scmRightOpen}
+                sshRightOpen={sshRightOpen}
                 keysLoaded={keysLoaded}
                 panelOpen={panelOpen}
                 hasComposer={hasComposer}
                 explorerRoot={explorerRoot}
                 onPathDeleted={handlePathDeleted}
                 closeScmRight={closeScmRight}
+                closeSshRight={closeSshRight}
+                activeSshContext={activeSshContext}
+                onOpenRemoteFile={handleOpenRemoteFile}
                 onAddProviderKey={handleAddProviderKey}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
@@ -980,6 +1001,7 @@ export default function App() {
             onOpenMini={openMini}
             detectedBrowserUrl={detectedBrowserUrl}
             onOpenPreview={handleOpenDetectedPreview}
+            hasAnySshLeaf={hasAnySshLeaf}
           />
 
           {hasComposer ? (

@@ -1,5 +1,6 @@
 export {
   isTerminalControlChord,
+  isTerminalMetaChord,
   parseKeybindingString,
   SHORTCUTS,
   SHORTCUT_GROUPS,

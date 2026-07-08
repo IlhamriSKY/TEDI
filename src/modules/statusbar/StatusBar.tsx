@@ -11,13 +11,14 @@ import {
 } from "@/modules/extensions";
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
+import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { UpdaterPill } from "@/modules/updater";
 import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomIndicator } from "./ZoomIndicator";
-import { GitBranch, Globe } from "lucide-react";
+import { GitBranch, Globe, Server } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -28,6 +29,9 @@ type Props = {
   /** When set, shows a one-click "Open preview" chip pointing at this URL. */
   detectedBrowserUrl?: string | null;
   onOpenPreview?: () => void;
+  /** Whether any SSH leaf is connected. Gates the right-slot Remote toggle so
+   *  it appears only alongside a live session, mirroring the left sidebar. */
+  hasAnySshLeaf: boolean;
 };
 
 // Memoized. Callbacks are stable and props are primitives, so shallow equality
@@ -40,6 +44,7 @@ function StatusBarInner({
   onOpenMini,
   detectedBrowserUrl,
   onOpenPreview,
+  hasAnySshLeaf,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -86,6 +91,7 @@ function StatusBarInner({
             "open X" buttons so the icon row reads consistently. */}
         <RightPanelDefaultToggles />
         <ScmRightOpenButton />
+        <SshRightOpenButton hasAnySshLeaf={hasAnySshLeaf} />
         <AiOpenButton onToggle={togglePanel} active={panelOpen} />
       </div>
     </footer>
@@ -130,6 +136,35 @@ function ScmRightOpenButton() {
         )}
       >
         <GitBranch size={16} strokeWidth={1.75} className="shrink-0" />
+      </button>
+    </IconTooltip>
+  );
+}
+
+/**
+ * SSH (Remote) status-bar toggle. Mirrors `ScmRightOpenButton`: shown whenever
+ * the user has docked the Remote explorer to the right AND a session is live
+ * (the left sidebar hides SSH the same way when no leaf is connected). Clicking
+ * toggles the right-slot panel; the open state shows as active.
+ */
+function SshRightOpenButton({ hasAnySshLeaf }: { hasAnySshLeaf: boolean }) {
+  const sshInRightPanel = usePreferencesStore((s) => s.sshInRightPanel);
+  const open = useSshRightPanelStore((s) => s.open);
+  const toggle = useSshRightPanelStore((s) => s.toggle);
+  if (!sshInRightPanel || !hasAnySshLeaf) return null;
+  return (
+    <IconTooltip label={`${open ? "Close" : "Open"} Remote`} side="top">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={`${open ? "Close" : "Open"} Remote`}
+        aria-pressed={open}
+        className={cn(
+          "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+          open ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <Server size={16} strokeWidth={1.75} className="shrink-0" />
       </button>
     </IconTooltip>
   );
