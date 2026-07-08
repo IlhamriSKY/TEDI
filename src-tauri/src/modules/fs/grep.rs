@@ -440,3 +440,164 @@ fn fs_grep_replace_inner(
         truncated,
     })
 }
+
+/// Surgical find-and-replace inside a single file, backing the explorer Search
+/// panel's per-hit ("replace this one match") and per-file ("replace all in
+/// file") actions (VS Code parity). `line` scopes the replace to that single
+/// 1-indexed line; `None` rewrites every match in the file. Returns the number
+/// of replacements written. A no-op (0 matches, or replacement identical to the
+/// original) never touches disk.
+#[tauri::command]
+pub async fn fs_replace_in_file(
+    path: String,
+    pattern: String,
+    replacement: String,
+    line: Option<u64>,
+    case_insensitive: Option<bool>,
+) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fs_replace_in_file_inner(path, pattern, replacement, line, case_insensitive)
+    })
+    .await
+    .map_err(|e| format!("fs_replace_in_file join error: {e}"))?
+}
+
+fn fs_replace_in_file_inner(
+    path: String,
+    pattern: String,
+    replacement: String,
+    line: Option<u64>,
+    case_insensitive: Option<bool>,
+) -> Result<usize, String> {
+    use std::fs;
+
+    if pattern.is_empty() {
+        return Err("empty pattern".into());
+    }
+    let file_path = PathBuf::from(&path);
+    if !file_path.is_file() {
+        return Err(format!("not a file: {path}"));
+    }
+    if let Ok(meta) = fs::metadata(&file_path) {
+        if meta.len() > FILE_SIZE_CAP {
+            return Err("file too large".into());
+        }
+    }
+
+    let re = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(case_insensitive.unwrap_or(false))
+        .multi_line(true)
+        .build()
+        .map_err(|e| format!("bad regex: {e}"))?;
+
+    let original = fs::read_to_string(&file_path).map_err(|e| format!("read {path}: {e}"))?;
+
+    let mut count = 0usize;
+    let apply = |content: &str, count: &mut usize| -> String {
+        re.replace_all(content, |caps: &regex::Captures| {
+            *count += 1;
+            let mut buf = String::new();
+            caps.expand(&replacement, &mut buf);
+            buf
+        })
+        .into_owned()
+    };
+
+    let replaced = match line {
+        None => apply(&original, &mut count),
+        Some(0) => return Err("line must be >= 1".into()),
+        Some(ln) => {
+            let mut out = String::with_capacity(original.len());
+            for (i, seg) in original.split_inclusive('\n').enumerate() {
+                if (i as u64) + 1 == ln {
+                    // Feed the regex only the line's own text so a match can
+                    // never swallow the line terminator (\n or \r\n).
+                    let (content, term) = match seg.strip_suffix('\n') {
+                        Some(rest) => match rest.strip_suffix('\r') {
+                            Some(r2) => (r2, "\r\n"),
+                            None => (rest, "\n"),
+                        },
+                        None => (seg, ""),
+                    };
+                    out.push_str(&apply(content, &mut count));
+                    out.push_str(term);
+                } else {
+                    out.push_str(seg);
+                }
+            }
+            out
+        }
+    };
+
+    if count == 0 || replaced == original {
+        return Ok(0);
+    }
+    crate::modules::fs::atomic::atomic_write(&file_path, replaced.as_bytes())
+        .map_err(|e| format!("write {path}: {e}"))?;
+    Ok(count)
+}
+
+#[cfg(test)]
+mod replace_in_file_tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    fn tmp(content: &str) -> std::path::PathBuf {
+        // Unique-per-call name without pulling in a tempfile dep: mix the
+        // content length and address of a stack local into the file name.
+        let marker = &content as *const _ as usize;
+        let p = std::env::temp_dir().join(format!("tedi_rif_{}_{}.txt", content.len(), marker));
+        let mut f = fs::File::create(&p).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        p
+    }
+
+    #[test]
+    fn line_scoped_replace_only_touches_that_line() {
+        let p = tmp("foo\nfoo bar foo\nfoo\n");
+        let n = fs_replace_in_file_inner(
+            p.to_string_lossy().into_owned(),
+            "foo".into(),
+            "X".into(),
+            Some(2),
+            Some(false),
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "foo\nX bar X\nfoo\n");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn whole_file_replace_and_crlf_preserved() {
+        let p = tmp("a\r\nb a\r\n");
+        let n = fs_replace_in_file_inner(
+            p.to_string_lossy().into_owned(),
+            "a".into(),
+            "Z".into(),
+            None,
+            Some(false),
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "Z\r\nb Z\r\n");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn no_match_is_noop() {
+        let p = tmp("hello\n");
+        let n = fs_replace_in_file_inner(
+            p.to_string_lossy().into_owned(),
+            "zzz".into(),
+            "Q".into(),
+            None,
+            Some(false),
+        )
+        .unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "hello\n");
+        let _ = std::fs::remove_file(&p);
+    }
+}

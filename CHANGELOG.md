@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.82] - 08-07-2026
+
+### Added
+
+- **Search and replace reaches VS Code parity, in both a single file and across a folder.** The in-editor find bar now shows the live "{current} of {total}" match position instead of only a total count, and seeks the first match as you type, so Enter / Shift+Enter walk the results with the counter tracking along. The folder-wide Search panel gains the same "{current} of {total}" readout plus explicit up/down navigation buttons, and, most importantly, per-result replace: hovering a match row reveals a "Replace" button that rewrites just that line, and hovering a file row reveals "Replace all in file", so you can replace one occurrence at a time or a whole file without triggering the folder-wide "Replace All" (which keeps its two-step confirm). See [EditorFindReplace.tsx](src/modules/editor/EditorFindReplace.tsx), [ExplorerGrep.tsx](src/modules/explorer/ExplorerGrep.tsx), [GrepHitRow.tsx](src/modules/explorer/components/GrepHitRow.tsx), [GrepFileRow.tsx](src/modules/explorer/components/GrepFileRow.tsx).
+
+### Changed
+
+- **A new `fs_replace_in_file` backend command powers the targeted replaces.** It rewrites either every match in one file or only the match(es) on a single 1-indexed line, feeding the regex just the line's own text so a replacement can never swallow the line terminator (`\n` or `\r\n`), and it never writes to disk on a no-op. Guarded by unit tests in [grep.rs](src-tauri/src/modules/fs/grep.rs).
+
 ## [0.3.81] - 08-07-2026
 
 ### Added

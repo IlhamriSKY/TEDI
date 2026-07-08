@@ -32,20 +32,55 @@ type Props = {
 // Cap match counting so a query like "a" on a huge file doesn't freeze the UI.
 const MAX_MATCH_COUNT = 999;
 
-function countMatches(view: EditorView, query: SearchQuery): number {
-  if (!query.valid) return 0;
+type MatchPos = { current: number; total: number };
+
+// VS Code-style "{current} of {total}". `current` is the 1-indexed match that
+// the editor's selection currently sits on (0 when the selection isn't on a
+// match). Counting stops at MAX_MATCH_COUNT so a huge file never freezes the UI.
+function matchState(view: EditorView, query: SearchQuery): MatchPos {
+  if (!query.valid) return { current: 0, total: 0 };
   try {
     const cursor = query.getCursor(view.state, 0, view.state.doc.length);
-    let n = 0;
+    const sel = view.state.selection.main;
+    let total = 0;
+    let current = 0;
     while (true) {
       const r = cursor.next();
       if (r.done) break;
-      n += 1;
-      if (n >= MAX_MATCH_COUNT) break;
+      total += 1;
+      if (current === 0 && r.value.from === sel.from && r.value.to === sel.to) {
+        current = total;
+      }
+      if (total >= MAX_MATCH_COUNT) break;
     }
-    return n;
+    return { current, total };
   } catch {
-    return 0;
+    return { current: 0, total: 0 };
+  }
+}
+
+// Move the selection onto the first match at/after `anchor`, wrapping to the
+// top if none follows. Lets the position indicator read "1 of N" the moment
+// the user types, matching VS Code's incremental find.
+function seedFirstMatch(view: EditorView, query: SearchQuery, anchor: number): void {
+  if (!query.valid) return;
+  try {
+    const len = view.state.doc.length;
+    const a = Math.min(Math.max(0, anchor), len);
+    let cursor = query.getCursor(view.state, a, len);
+    let r = cursor.next();
+    if (r.done) {
+      cursor = query.getCursor(view.state, 0, a);
+      r = cursor.next();
+    }
+    if (!r.done) {
+      view.dispatch({
+        selection: { anchor: r.value.from, head: r.value.to },
+        scrollIntoView: true,
+      });
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -56,9 +91,13 @@ export function EditorFindReplace({ getView, ref }: Props) {
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
-  const [matchCount, setMatchCount] = useState(0);
+  const [pos, setPos] = useState<MatchPos>({ current: 0, total: 0 });
   const findInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  // Doc position captured when the bar opens; incremental find always anchors
+  // its first-match seed here so typing more characters doesn't drift the
+  // starting point around the document.
+  const anchorRef = useRef(0);
 
   // Push the current query to CodeMirror's search state whenever any field
   // changes. CM highlights matches automatically once `setSearchQuery` is
@@ -70,7 +109,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
       view.dispatch({
         effects: setSearchQuery.of(new SearchQuery({ search: "" })),
       });
-      setMatchCount(0);
+      setPos({ current: 0, total: 0 });
       return;
     }
     const sq = new SearchQuery({
@@ -81,14 +120,37 @@ export function EditorFindReplace({ getView, ref }: Props) {
       replace,
     });
     view.dispatch({ effects: setSearchQuery.of(sq) });
-    setMatchCount(countMatches(view, sq));
+    let st = matchState(view, sq);
+    // Selection not on a match yet (fresh query / edited term) but matches
+    // exist -> jump to the first one so the indicator shows "1 of N". Guarding
+    // on current===0 means a mere Replace-text edit won't re-seed the caret.
+    if (st.current === 0 && st.total > 0) {
+      seedFirstMatch(view, sq, anchorRef.current);
+      st = matchState(view, sq);
+    }
+    setPos(st);
   }, [visible, query, replace, caseSensitive, useRegex, wholeWord, getView]);
+
+  const refreshPos = () => {
+    const view = getView();
+    if (!view) return;
+    const sq = new SearchQuery({
+      search: query,
+      caseSensitive,
+      regexp: useRegex,
+      wholeWord,
+      replace,
+    });
+    setPos(matchState(view, sq));
+  };
 
   useImperativeHandle(
     ref,
     () => ({
       open: (opts) => {
         setVisible(true);
+        // Anchor incremental find at wherever the caret was when the bar opened.
+        anchorRef.current = getView()?.state.selection.main.head ?? 0;
         if (typeof opts?.initialQuery === "string") setQuery(opts.initialQuery);
         // Focus on next frame so the input is mounted.
         requestAnimationFrame(() => {
@@ -124,36 +186,32 @@ export function EditorFindReplace({ getView, ref }: Props) {
 
   const runFindNext = () => {
     const view = getView();
-    if (view) findNext(view);
+    if (!view) return;
+    findNext(view);
+    refreshPos();
   };
   const runFindPrev = () => {
     const view = getView();
-    if (view) findPrevious(view);
+    if (!view) return;
+    findPrevious(view);
+    refreshPos();
   };
   const runReplaceNext = () => {
     const view = getView();
     if (!view) return;
     replaceNext(view);
-    // Re-count after replacement.
-    const sq = new SearchQuery({
-      search: query,
-      caseSensitive,
-      regexp: useRegex,
-      wholeWord,
-      replace,
-    });
-    setMatchCount(countMatches(view, sq));
+    refreshPos();
   };
   const runReplaceAll = () => {
     const view = getView();
     if (!view) return;
     replaceAll(view);
-    setMatchCount(0);
+    setPos({ current: 0, total: 0 });
   };
 
   // Position: top-right overlay, VSCode-style. Stays inside the editor
   // pane via the relative container in EditorPane.
-  const noMatches = useMemo(() => query.length > 0 && matchCount === 0, [query, matchCount]);
+  const noMatches = useMemo(() => query.length > 0 && pos.total === 0, [query, pos.total]);
 
   if (!visible) return null;
 
@@ -222,7 +280,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
             <button
               type="button"
               onClick={runFindPrev}
-              disabled={matchCount === 0}
+              disabled={pos.total === 0}
               aria-label="Previous match"
               className={cn(
                 "shrink-0 cursor-pointer rounded p-1 transition-colors",
@@ -241,7 +299,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
             <button
               type="button"
               onClick={runFindNext}
-              disabled={matchCount === 0}
+              disabled={pos.total === 0}
               aria-label="Next match"
               className={cn(
                 "shrink-0 cursor-pointer rounded p-1 transition-colors",
@@ -296,7 +354,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
             <button
               type="button"
               onClick={runReplaceNext}
-              disabled={matchCount === 0}
+              disabled={pos.total === 0}
               aria-label="Replace"
               className={cn(
                 "shrink-0 cursor-pointer rounded p-1 transition-colors",
@@ -314,7 +372,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
             <button
               type="button"
               onClick={runReplaceAll}
-              disabled={matchCount === 0}
+              disabled={pos.total === 0}
               aria-label="Replace all"
               className={cn(
                 "shrink-0 cursor-pointer rounded p-1 transition-colors",
@@ -345,11 +403,11 @@ export function EditorFindReplace({ getView, ref }: Props) {
           )}
           aria-live="polite"
         >
-          {matchCount >= MAX_MATCH_COUNT
-            ? `${MAX_MATCH_COUNT}+ matches`
-            : matchCount === 0
-              ? "No matches"
-              : `${matchCount} match${matchCount === 1 ? "" : "es"}`}
+          {pos.total === 0
+            ? "No results"
+            : `${pos.current > 0 ? pos.current : 1} of ${
+                pos.total >= MAX_MATCH_COUNT ? `${MAX_MATCH_COUNT}+` : pos.total
+              }`}
         </div>
       ) : null}
     </div>

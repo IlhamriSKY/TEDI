@@ -2,7 +2,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { requestReveal } from "@/modules/editor/lib/reveal";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
@@ -286,6 +286,69 @@ export function ExplorerGrep({
     }
   };
 
+  const patternForBackend = () => {
+    const q = query.trim();
+    return useRegex ? q : escapeRegex(q);
+  };
+
+  // Replace every match on a single hit's line (VS Code's per-match "Replace").
+  // Grep hits are per-line, so this rewrites that one line only. Optimistically
+  // drops the row; ponytail: if the replacement itself still matches the
+  // pattern the row would re-surface on the next search, rare enough to accept
+  // over a full re-grep after every single replace.
+  const replaceHit = async (hit: GrepHit) => {
+    const q = query.trim();
+    if (!q || replacing) return;
+    if (useRegex && regexError) return;
+    try {
+      const n = await invoke<number>("fs_replace_in_file", {
+        path: hit.path,
+        pattern: patternForBackend(),
+        replacement: replaceText,
+        line: hit.line,
+        caseInsensitive: !caseSensitive,
+      });
+      if (n > 0) {
+        setHits((prev) => prev.filter((h) => !(h.path === hit.path && h.line === hit.line)));
+      }
+    } catch (e) {
+      console.error("fs_replace_in_file (hit) failed:", e);
+      toast(`Replace failed: ${e instanceof Error ? e.message : String(e)}`, { variant: "error" });
+    }
+  };
+
+  // Replace all matches within one file (VS Code's per-file "Replace All").
+  const replaceFile = async (path: string) => {
+    const q = query.trim();
+    if (!q || replacing) return;
+    if (useRegex && regexError) return;
+    try {
+      const n = await invoke<number>("fs_replace_in_file", {
+        path,
+        pattern: patternForBackend(),
+        replacement: replaceText,
+        line: null,
+        caseInsensitive: !caseSensitive,
+      });
+      if (n > 0) {
+        setHits((prev) => prev.filter((h) => h.path !== path));
+      }
+    } catch (e) {
+      console.error("fs_replace_in_file (file) failed:", e);
+      toast(`Replace failed: ${e instanceof Error ? e.message : String(e)}`, { variant: "error" });
+    }
+  };
+
+  const gotoHit = (delta: 1 | -1) => {
+    if (hitCount === 0) return;
+    setActiveHitIdx((i) => {
+      const next = i + delta;
+      if (next >= hitCount) return 0;
+      if (next < 0) return hitCount - 1;
+      return next;
+    });
+  };
+
   return (
     // When results are showing, fill the remaining height of the explorer
     // column so the inner `min-h-0 flex-1` ScrollArea has a bounded box to
@@ -325,31 +388,67 @@ export function ExplorerGrep({
           {fileCount > 0 ? (
             <div className="border-border/40 text-muted-foreground flex h-6 shrink-0 items-center justify-between gap-2 border-b px-2 text-[10px]">
               <span className="min-w-0 truncate">
+                {hitCount > 0 ? (
+                  <span className="text-foreground/80 tabular-nums">
+                    {clampedActive + 1} of {hitCount}
+                    <span className="opacity-50"> · </span>
+                  </span>
+                ) : null}
                 {hits.length} {hits.length === 1 ? "result" : "results"} in {fileCount}{" "}
                 {fileCount === 1 ? "file" : "files"}
               </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={toggleAllGroups}
-                    className="hover:bg-accent hover:text-accent-foreground flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5"
-                    aria-label={allCollapsed ? "Expand all" : "Collapse all"}
-                  >
-                    {allCollapsed ? (
-                      <ChevronsUpDown size={11} strokeWidth={2} />
-                    ) : (
-                      <ChevronsDownUp size={11} strokeWidth={2} />
-                    )}
-                    <span className="hidden @[180px]:inline">
-                      {allCollapsed ? "Expand all" : "Collapse all"}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {allCollapsed ? "Expand all" : "Collapse all"}
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => gotoHit(-1)}
+                      disabled={hitCount === 0}
+                      aria-label="Previous match"
+                      className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                      <ChevronUp size={11} strokeWidth={2} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Previous match (↑)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => gotoHit(1)}
+                      disabled={hitCount === 0}
+                      aria-label="Next match"
+                      className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                      <ChevronDown size={11} strokeWidth={2} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Next match (↓)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleAllGroups}
+                      className="hover:bg-accent hover:text-accent-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5"
+                      aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                    >
+                      {allCollapsed ? (
+                        <ChevronsUpDown size={11} strokeWidth={2} />
+                      ) : (
+                        <ChevronsDownUp size={11} strokeWidth={2} />
+                      )}
+                      <span className="hidden @[220px]:inline">
+                        {allCollapsed ? "Expand all" : "Collapse all"}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {allCollapsed ? "Expand all" : "Collapse all"}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           ) : null}
           <ScrollArea className="min-h-0 flex-1">
@@ -361,6 +460,10 @@ export function ExplorerGrep({
               ) : (
                 <>
                   {rows.map((r, idx) => {
+                    // Replace actions are offered only while the query is
+                    // replaceable (no pending regex error). Passing `undefined`
+                    // hides the per-row button rather than showing a dead one.
+                    const canReplace = !(useRegex && !!regexError);
                     if (r.kind === "file") {
                       const isCollapsed = collapsed.has(r.rel);
                       return (
@@ -370,6 +473,7 @@ export function ExplorerGrep({
                           count={r.count}
                           isCollapsed={isCollapsed}
                           onToggle={() => toggleGroup(r.rel)}
+                          onReplaceFile={canReplace ? () => replaceFile(r.path) : undefined}
                         />
                       );
                     }
@@ -385,6 +489,7 @@ export function ExplorerGrep({
                         caseInsensitive={!caseSensitive}
                         onMouseEnter={() => setActiveHitIdx(r.hitIdx)}
                         onClick={() => openHit(r.hit)}
+                        onReplace={canReplace ? () => replaceHit(r.hit) : undefined}
                       />
                     );
                   })}
