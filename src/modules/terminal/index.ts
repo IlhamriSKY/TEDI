@@ -11,7 +11,6 @@ export {
   terminalSize,
   serializeTerminal,
   writeTerminalInput,
-  hasTerminalSession,
 } from "./lib/floatTap";
 export {
   hasLeaf,

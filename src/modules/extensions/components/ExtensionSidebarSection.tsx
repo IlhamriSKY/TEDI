@@ -453,7 +453,9 @@ export function ExtensionSidebarSection({
       )}
       {!collapsed && (
         <ScrollArea className="min-h-0 flex-1">
-          <ul className="p-1">
+          {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
+              row hover-action cluster never sits under the scrollbar. */}
+          <ul className="p-1 pr-2.5">
             {items.length === 0 ? (
               <li className="text-muted-foreground px-2 py-1.5 text-[11px]">
                 {section.emptyText ?? "Nothing here yet."}

@@ -55,6 +55,8 @@ import {
 } from "./lib/formatters";
 import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
 import { toast } from "@/components/ui/toast";
+import { escapeRegex } from "@/lib/utils";
+import { COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -170,7 +172,7 @@ function matchColumn(lineText: string, t: RevealTarget): [number, number] | null
   const needle = t.needle?.trim();
   if (!needle) return null;
   try {
-    const src = t.useRegex ? needle : needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const src = t.useRegex ? needle : escapeRegex(needle);
     const m = new RegExp(src, t.caseInsensitive ? "i" : "").exec(lineText);
     if (m && m[0].length > 0) return [m.index, m.index + m[0].length];
   } catch {
@@ -193,9 +195,6 @@ function revealInView(view: EditorView, t: RevealTarget): void {
   });
   view.focus();
 }
-
-// Compact context-menu item sizing, matching the explorer's menu density.
-const CTX_ITEM = "rounded-xl px-2.5 py-1.5 text-xs gap-2";
 
 export function EditorPane({
   path,
@@ -844,30 +843,38 @@ export function EditorPane({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-52 rounded-2xl p-1">
-          <ContextMenuItem className={CTX_ITEM} disabled={!menuHasSelection} onSelect={handleCopy}>
+          <ContextMenuItem
+            className={COMPACT_ITEM}
+            disabled={!menuHasSelection}
+            onSelect={handleCopy}
+          >
             Copy
             <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
           </ContextMenuItem>
-          <ContextMenuItem className={CTX_ITEM} disabled={!menuHasSelection} onSelect={handleCut}>
+          <ContextMenuItem
+            className={COMPACT_ITEM}
+            disabled={!menuHasSelection}
+            onSelect={handleCut}
+          >
             Cut
             <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
           </ContextMenuItem>
-          <ContextMenuItem className={CTX_ITEM} onSelect={handlePaste}>
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={handlePaste}>
             Paste
             <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
           </ContextMenuItem>
-          <ContextMenuItem className={CTX_ITEM} onSelect={handleSelectAll}>
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={handleSelectAll}>
             Select All
             <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem className={CTX_ITEM} onSelect={handleFormat}>
+          <ContextMenuItem className={COMPACT_ITEM} onSelect={handleFormat}>
             Format Document
             <ContextMenuShortcut>Shift+Alt+F</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
-            className={CTX_ITEM}
+            className={COMPACT_ITEM}
             // Defer past the menu's close/focus-restore so the dialog opens cleanly.
             onSelect={() => requestAnimationFrame(() => setLangPickerOpen(true))}
           >

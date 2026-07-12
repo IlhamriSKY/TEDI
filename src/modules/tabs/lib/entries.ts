@@ -128,10 +128,12 @@ function entryLabel(
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
-  // SSH leaves: show "ssh:<host>". Falls back to bare "ssh" if the connection was deleted.
+  // SSH leaves: show "ssh:<name>" when the saved connection has a name, else
+  // fall back to the host/IP. Bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
-    const host = sshHosts.get(leaf.sshConnectionId);
-    return host ? `ssh:${host.host}` : "ssh";
+    const conn = sshHosts.get(leaf.sshConnectionId);
+    if (!conn) return "ssh";
+    return `ssh:${conn.name.trim() || conn.host}`;
   }
   if (leaf.cwd) {
     const b = basename(leaf.cwd);

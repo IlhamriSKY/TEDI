@@ -29,8 +29,7 @@
  * before the prettierrc layer (prettierrc wins).
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import type { FsReadResult } from "@/lib/ipc";
+import { joinPath, parentDir, tryReadText } from "./configWalk";
 
 export type PartialPrettierOptions = Partial<{
   semi: boolean;
@@ -60,29 +59,6 @@ const CONFIG_FILENAMES = [".prettierrc", ".prettierrc.json", ".prettierrc.json5"
 
 /** Cache by directory so repeated formats inside a folder don't re-walk. */
 const cache = new Map<string, Promise<PrettierConfigFile | null>>();
-
-function parentDir(path: string): string | null {
-  const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const idx = norm.lastIndexOf("/");
-  if (idx <= 0) return null;
-  // Don't ascend above a drive root on Windows ("C:" or "C:/").
-  if (/^[a-zA-Z]:$/.test(norm.slice(0, idx))) return null;
-  return norm.slice(0, idx);
-}
-
-function joinPath(dir: string, child: string): string {
-  return dir.endsWith("/") ? `${dir}${child}` : `${dir}/${child}`;
-}
-
-async function tryReadText(path: string): Promise<string | null> {
-  try {
-    const res = await invoke<FsReadResult>("fs_read_file", { path });
-    if (res.kind !== "text") return null;
-    return res.content;
-  } catch {
-    return null;
-  }
-}
 
 /** Strips // line comments and trailing commas. Just enough JSON5 to read
  *  the common prettier config flavours; not a full JSON5 implementation. */

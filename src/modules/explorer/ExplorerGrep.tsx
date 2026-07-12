@@ -452,7 +452,9 @@ export function ExplorerGrep({
             </div>
           ) : null}
           <ScrollArea className="min-h-0 flex-1">
-            <div className="w-full py-1" ref={listRef}>
+            {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
+                per-row Replace buttons and file match-count badge clear the scrollbar. */}
+            <div className="w-full py-1 pr-2.5" ref={listRef}>
               {searching && hits.length === 0 ? (
                 <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching…</div>
               ) : hits.length === 0 ? (

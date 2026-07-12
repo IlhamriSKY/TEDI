@@ -3,10 +3,9 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { KEY_SEP } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { getBindingTokens, SHORTCUTS } from "@/modules/shortcuts/shortcuts";
+import { shortcutHint } from "@/modules/shortcuts/shortcuts";
 import type { SearchAddon } from "@xterm/addon-search";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -83,14 +82,7 @@ export function SearchInline({ target, compact, ref }: Props) {
 
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
-  const shortcutText = useMemo(() => {
-    const s = SHORTCUTS.find((s) => s.id === "search.focus");
-    if (!s) return "";
-    const bindings = userShortcuts["search.focus"] || s.defaultBindings;
-    if (!bindings || bindings.length === 0) return "";
-    const tokens = getBindingTokens(bindings[0]);
-    return tokens.join(KEY_SEP);
-  }, [userShortcuts]);
+  const shortcutText = useMemo(() => shortcutHint("search.focus", userShortcuts), [userShortcuts]);
 
   const placeholder = "Search";
   const tooltipTitle = shortcutText ? `Search (${shortcutText})` : "Search";

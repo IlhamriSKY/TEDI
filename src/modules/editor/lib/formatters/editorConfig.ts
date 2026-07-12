@@ -27,9 +27,8 @@
  *   `{1..N}`             numeric range (not implemented — uncommon)
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import type { FsReadResult } from "@/lib/ipc";
 import type { PartialPrettierOptions } from "./projectConfig";
+import { joinPath, parentDir, tryReadText } from "./configWalk";
 
 type Section = {
   pattern: string;
@@ -44,28 +43,6 @@ type Parsed = {
 };
 
 const cache = new Map<string, Promise<Parsed | null>>();
-
-function parentDir(path: string): string | null {
-  const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const idx = norm.lastIndexOf("/");
-  if (idx <= 0) return null;
-  if (/^[a-zA-Z]:$/.test(norm.slice(0, idx))) return null;
-  return norm.slice(0, idx);
-}
-
-function joinPath(dir: string, child: string): string {
-  return dir.endsWith("/") ? `${dir}${child}` : `${dir}/${child}`;
-}
-
-async function tryReadText(path: string): Promise<string | null> {
-  try {
-    const res = await invoke<FsReadResult>("fs_read_file", { path });
-    if (res.kind !== "text") return null;
-    return res.content;
-  } catch {
-    return null;
-  }
-}
 
 function mapKeyValue(key: string, value: string, into: PartialPrettierOptions): void {
   const v = value.trim().toLowerCase();

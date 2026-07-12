@@ -92,6 +92,23 @@ function ellipsize(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
+/** Human label for an agent step from its latest tool call (or free text),
+ *  using the shared TOOL_LABELS map. Shared by the main agent's onStepFinish
+ *  and the subagent loop so the two label the same way. */
+export function describeStep(step: {
+  toolCalls?: Array<{ toolName: string; input?: unknown }>;
+  text?: string;
+}): string {
+  const last = step.toolCalls?.[step.toolCalls.length - 1];
+  if (last) {
+    const label = TOOL_LABELS[last.toolName];
+    return label
+      ? label((last.input ?? {}) as Record<string, unknown>)
+      : `Calling ${last.toolName}`;
+  }
+  return step.text ? "Writing" : "Thinking";
+}
+
 export type BuildModelOptions = {
   /** Override the model id (used by autocomplete with custom LM Studio model). */
   modelIdOverride?: string;
@@ -631,18 +648,8 @@ export async function runAgentStream(
     },
     onStepFinish: (step) => {
       stepsSeen++;
-      if (opts.onStep) {
-        const last = step.toolCalls?.[step.toolCalls.length - 1];
-        if (last) {
-          const label = TOOL_LABELS[last.toolName];
-          opts.onStep(
-            label
-              ? label((last.input ?? {}) as Record<string, unknown>)
-              : `Calling ${last.toolName}`,
-          );
-        } else if (step.text) {
-          opts.onStep("Writing");
-        }
+      if (opts.onStep && (step.toolCalls?.length || step.text)) {
+        opts.onStep(describeStep(step));
       }
       if (opts.onUsage && step.usage) {
         const u = step.usage;

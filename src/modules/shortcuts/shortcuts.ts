@@ -1,4 +1,4 @@
-import { IS_MAC, MOD_PROP } from "@/lib/platform";
+import { IS_MAC, KEY_SEP, MOD_PROP } from "@/lib/platform";
 
 /** Keyboard shortcut catalog. */
 
@@ -547,4 +547,19 @@ export function getBindingTokens(binding?: KeyBinding): string[] {
 
   tokens.push(keyLabel);
   return tokens;
+}
+
+/** Display string for a shortcut's first binding: the user override if set, else
+ *  the default, rendered as glyph tokens joined by KEY_SEP. Returns "" when the
+ *  id is unknown or has no binding. Shared by the header search hint and the
+ *  toolbar tooltip labels. */
+export function shortcutHint(
+  id: ShortcutId,
+  userShortcuts: Record<ShortcutId, KeyBinding[]>,
+): string {
+  const s = SHORTCUTS.find((s) => s.id === id);
+  if (!s) return "";
+  const bindings = userShortcuts[id] || s.defaultBindings;
+  if (!bindings || bindings.length === 0) return "";
+  return getBindingTokens(bindings[0]).join(KEY_SEP);
 }

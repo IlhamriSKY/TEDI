@@ -41,20 +41,6 @@ export function statusTone(s: SshStatus): SshStatusDotTone {
   }
 }
 
-/** Tailwind class for the status dot. Used by TabBar and StatusBar. */
-export function statusDotClass(s: SshStatus): string {
-  switch (statusTone(s)) {
-    case "neutral":
-      return "bg-muted-foreground/60";
-    case "warn":
-      return "bg-icon-working";
-    case "ok":
-      return "bg-icon-idle";
-    case "bad":
-      return "bg-icon-blocked";
-  }
-}
-
 /** Tailwind `text-*` class for the SSH tab title text. Carries the status
  *  on the label. `connecting` / `reconnecting` pulse for visibility.
  *  Returns "" for idle/unknown so the label inherits the tab's default

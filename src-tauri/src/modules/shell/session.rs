@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::Mutex;
-use std::thread;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -68,12 +66,10 @@ impl ShellSession {
         let cwd = self.current_cwd();
         let wrapped = wrap_with_sentinel(&trimmed);
 
-        let (tx, rx) = mpsc::channel::<Result<super::CommandOutput, String>>();
-        let cwd_for_thread = cwd.clone();
-        thread::spawn(move || {
-            let _ = tx.send(run_blocking(wrapped, Some(cwd_for_thread), timeout));
-        });
-        let raw = rx.recv().map_err(|e| e.to_string())??;
+        // Already on Tauri's blocking pool (see the single caller in mod.rs), and
+        // run_blocking is a self-contained sync fn, so call it directly instead of
+        // hopping to a throwaway thread and blocking on a channel.
+        let raw = run_blocking(wrapped, Some(cwd), timeout)?;
         self.pristine.store(false, Ordering::Release);
 
         let (stdout_clean, cwd_after) = strip_cwd_sentinel(&raw.stdout);

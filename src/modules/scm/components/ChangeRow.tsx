@@ -14,11 +14,13 @@ type RowProps = {
 export function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   const name = basename(change.relative);
   const dir = dirname(change.relative);
-  // pr-3 clears the Radix ScrollArea's 10px scrollbar overlay.
+  // pr-4 keeps the diff-stats / discard indicators clear of the Radix
+  // ScrollArea's 10px overlay thumb. pr-3 left only ~2px, which rounds to a
+  // visible overlap at some DPIs (matches the GraphRow fix).
   return (
     <li className="contents">
       <div
-        className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-3 pl-2"
+        className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-4 pl-2"
         role="button"
         tabIndex={0}
         onClick={onClickDiff}

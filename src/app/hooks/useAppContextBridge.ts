@@ -5,6 +5,7 @@ import { leaves } from "@/modules/terminal";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import type { SshStatus } from "@/modules/ssh/status";
 import { countSavedTerminalLeaves, useWorkspacesStore } from "@/modules/workspaces";
+import { basename } from "@/lib/path";
 import { useEffect, useMemo, type RefObject } from "react";
 
 type Workspace = ReturnType<typeof useWorkspacesStore.getState>["workspaces"][number];
@@ -48,8 +49,7 @@ export function useAppContextBridge({
     if (!activePaneTab) return null;
     const leaf = activeLeaf(activePaneTab);
     if (!leaf || leaf.leafKind !== "editor") return null;
-    const parts = leaf.path.split(/[\\/]/);
-    return parts[parts.length - 1] || null;
+    return basename(leaf.path) || null;
   }, [activePaneTab]);
   const terminalCount = useMemo(() => {
     let n = 0;

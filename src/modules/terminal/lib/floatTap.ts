@@ -47,8 +47,3 @@ export function serializeTerminal(leafId: number, scrollback = 2000): string | n
 export function writeTerminalInput(leafId: number, data: string): void {
   void sessions.get(leafId)?.pty?.write(data);
 }
-
-/** Whether a live terminal session exists for this leaf. */
-export function hasTerminalSession(leafId: number): boolean {
-  return sessions.has(leafId);
-}

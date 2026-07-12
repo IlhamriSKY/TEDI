@@ -3,10 +3,10 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_ACTIVE, TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { IS_MAC, KEY_SEP, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
+import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { getBindingTokens, SHORTCUTS, type ShortcutId } from "@/modules/shortcuts/shortcuts";
+import { shortcutHint, type ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
@@ -133,13 +133,7 @@ function HeaderImpl({
   const [compact, setCompact] = useState(false);
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
-  const tokensFor = (id: ShortcutId): string => {
-    const s = SHORTCUTS.find((s) => s.id === id);
-    if (!s) return "";
-    const bindings = userShortcuts[id] || s.defaultBindings;
-    if (!bindings || bindings.length === 0) return "";
-    return getBindingTokens(bindings[0]).join(KEY_SEP);
-  };
+  const tokensFor = (id: ShortcutId): string => shortcutHint(id, userShortcuts);
 
   const wordWrapTokens = tokensFor("editor.toggleWordWrap");
 

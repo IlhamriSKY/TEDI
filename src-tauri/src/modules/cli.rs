@@ -43,11 +43,9 @@ pub fn is_update_flag(s: &str) -> bool {
 }
 
 pub fn help_text() -> String {
-    use crate::modules::cli_paint::ansi;
-    let dim = |s: &str| ansi("2", s);
-    let header = |s: &str| ansi("36;1", s);
-    let cmd = |s: &str| ansi("33;1", s);
-    let brand = |s: &str| ansi("34;1", s);
+    use crate::modules::cli_paint::{
+        paint_brand as brand, paint_dim as dim, paint_header as header, paint_id as cmd,
+    };
 
     format!(
         "{title}  {tag}\n\

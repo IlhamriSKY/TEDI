@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
-import { cn } from "@/lib/utils";
+import { cn, escapeRegex } from "@/lib/utils";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
@@ -76,16 +76,12 @@ function collectText(root: HTMLElement): TextMap {
   return { text, nodes, starts };
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function buildMatcher(
   query: string,
   opts: { caseSensitive: boolean; useRegex: boolean; wholeWord: boolean },
 ): RegExp | null {
   if (!query) return null;
-  let source = opts.useRegex ? query : escapeRegExp(query);
+  let source = opts.useRegex ? query : escapeRegex(query);
   if (opts.wholeWord) source = `\\b(?:${source})\\b`;
   try {
     return new RegExp(source, opts.caseSensitive ? "g" : "gi");

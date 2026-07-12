@@ -28,6 +28,18 @@ const ROW_H = 26;
 const LANE_W = 14;
 const DOT_R = 3.5;
 const LANE_PAD_X = 8;
+// Beyond this many concurrent lanes the graph would eat the subject/time
+// columns (there's no horizontal scrollbar), so lanes compress toward
+// MIN_LANE_W. Keeps a busy history readable instead of shoving text off-screen.
+const COMFORTABLE_LANES = 6;
+const MIN_LANE_W = 9;
+
+/** Lane pixel width for a given lane count: full width until it gets crowded,
+ *  then squeezed so the graph column stays compact. */
+function laneWidthFor(laneCount: number): number {
+  if (laneCount <= COMFORTABLE_LANES) return LANE_W;
+  return Math.max(MIN_LANE_W, Math.round((COMFORTABLE_LANES * LANE_W) / laneCount));
+}
 
 /** Stable color per lane index. Pulls from the themed ANSI palette so each
  * preset (Solarized, Monokai, etc.) tints branches in its own palette while
@@ -121,8 +133,8 @@ function layoutCommits(commits: GitCommit[]): { rows: LaidOut[]; laneCount: numb
   return { rows, laneCount };
 }
 
-function laneX(lane: number): number {
-  return LANE_PAD_X + lane * LANE_W;
+function laneX(lane: number, laneW: number): number {
+  return LANE_PAD_X + lane * laneW;
 }
 
 function formatRelTime(unix: number): string {
@@ -266,7 +278,10 @@ export function GitGraphView({
     );
   }
 
-  const graphWidth = LANE_PAD_X * 2 + Math.max(1, laneCount) * LANE_W;
+  const laneW = laneWidthFor(laneCount);
+  // Shrink the dot alongside the lane so compressed lanes don't overlap.
+  const dotR = Math.min(DOT_R, laneW / 2 - 1);
+  const graphWidth = LANE_PAD_X * 2 + Math.max(1, laneCount) * laneW;
 
   return (
     <Popover
@@ -284,6 +299,8 @@ export function GitGraphView({
               key={row.commit.sha}
               row={row}
               graphWidth={graphWidth}
+              laneW={laneW}
+              dotR={dotR}
               selected={openSha === row.commit.sha}
               anchorMode={anchorMode}
               onSelect={(point) => toggle(row.commit.sha, point)}
@@ -336,16 +353,20 @@ export function GitGraphView({
 type RowProps = {
   row: LaidOut;
   graphWidth: number;
+  /** Pixel width per lane for this render (compressed when many lanes). */
+  laneW: number;
+  /** Dot radius for this render (shrinks with laneW). */
+  dotR: number;
   selected: boolean;
   anchorMode: "row" | "mouse";
   /** Receives the viewport point of the activating event (used in mouse mode). */
   onSelect: (point: { x: number; y: number }) => void;
 };
 
-function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps) {
+function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect }: RowProps) {
   const { commit, lane, laneIn, laneOut, mergedLanes, branchedLanes } = row;
   const midY = ROW_H / 2;
-  const myX = laneX(lane);
+  const myX = laneX(lane, laneW);
   const refChips = useMemo(() => parseRefs(commit.refs), [commit.refs]);
 
   // Build SVG segments. Top half = incoming lines (above the dot), bottom
@@ -356,7 +377,7 @@ function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps)
   const branchedLanesSet = new Set(branchedLanes);
 
   for (let i = 0; i < maxLanes; i++) {
-    const x = laneX(i);
+    const x = laneX(i, laneW);
     const inSha = laneIn[i] ?? null;
     const outSha = laneOut[i] ?? null;
 
@@ -474,7 +495,7 @@ function GraphRow({ row, graphWidth, selected, anchorMode, onSelect }: RowProps)
           <circle
             cx={myX}
             cy={midY}
-            r={DOT_R}
+            r={dotR}
             fill={laneColor(lane)}
             stroke="var(--background)"
             strokeWidth={1.5}

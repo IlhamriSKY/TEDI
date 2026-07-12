@@ -254,7 +254,9 @@ function WorkspacesPanelInner({
           onDragCancel={() => setDragId(null)}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            <ul className="p-1">
+            {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
+                row's rename/close buttons and tab-count pill clear the scrollbar. */}
+            <ul className="p-1 pr-2.5">
               {workspaces.map((w) => (
                 <SortableWorkspaceRow
                   key={w.id}

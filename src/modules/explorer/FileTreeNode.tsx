@@ -162,7 +162,9 @@ function FileTreeNodeImpl({
               {deco && !isDir && (
                 <span
                   className={cn(
-                    "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
+                    // mr-2 keeps the M/A/U git letter clear of the 10px Radix
+                    // ScrollArea overlay thumb without insetting the full-bleed row.
+                    "mr-2 w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
                     deco.tone,
                   )}
                 >

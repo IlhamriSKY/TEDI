@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.83] - 12-07-2026
+
+### Fixed
+
+- **The scrollbar no longer overlaps content in the scrolling panels.** The file explorer, the folder-wide Search results, extension sidebar sections, and the Workspaces panel draw a custom overlay scrollbar that floats over the content, so right-edge items could sit under the 10px thumb: the git M / A / U status letter in the file tree, the per-row "Replace" buttons in Search, and the hover actions plus tab-count pills in the sidebar panels. Each scrolling list now reserves the thumb's width so those items always clear the scrollbar, matching the clearance the Source Control panel already used. See [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx), [ExplorerGrep.tsx](src/modules/explorer/ExplorerGrep.tsx), [ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx), [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx).
+- **The commit graph stays readable on a busy history.** Once a repository shows more than a handful of concurrent branch lanes, the graph column would push the commit subject and time off-screen (there is no horizontal scrollbar). Lanes now compress toward a minimum width as they get crowded, and the commit dot shrinks with them, so a wide history keeps its text visible instead of overflowing. See [GitGraphView.tsx](src/modules/scm/GitGraphView.tsx).
+- **The Remote (SSH) connection menu no longer opens a stray tab.** Clicking an inline action button in a connection row (for example, edit) could trip Radix's menu-item click synthesis and also fire the row's connect action, opening an unwanted SSH tab. The action buttons now stop both the pointer-down and the pointer-up, so only the button fires. See [SshMenu.tsx](src/modules/ssh/SshMenu.tsx).
+- **SSH tabs and panes show the connection's name.** A remote terminal's label now reads `ssh:<name>` when the saved connection has a name, falling back to the host or IP, so several connections to the same host stay distinguishable. See [entries.ts](src/modules/tabs/lib/entries.ts).
+
+### Changed
+
+- **Dependencies refreshed to their latest compatible releases.** About twenty npm packages (the CodeMirror themes, Tailwind, Vite, Radix, Motion, Prettier, Lucide, react-resizable-panels, the Tauri CLI, and the Node type definitions) and the Rust crate graph were updated within their existing version ranges, so no public API changed and the full `tsc` / build / clippy / test suite stays green. The AI SDK (`ai` v6, `@ai-sdk/*` v3) and the TypeScript compiler are deliberately held back, since their next majors are breaking and warrant a dedicated migration.
+- **Internal cleanup: dead code removed and duplicated helpers unified.** Removed several unused exports and two never-imported barrel modules, and folded hand-rolled copies of the shared path helpers (`basename` / `pathSegments`), the regex-escape helper, the format-config file walk, and the path-change event bus back onto single implementations, so display and security logic can no longer drift apart. On the backend, the SSRF link-local / cloud-metadata block is now defined once and reused by both the request guard and the redirect guard, a redundant worker-thread hop in the agent shell session was removed, and duplicate process-creation flags and ANSI-paint closures were dropped. Behavior is unchanged and the codebase is a net ~160 lines lighter. See [pathChangeBus.ts](src/modules/ai/lib/pathChangeBus.ts), [configWalk.ts](src/modules/editor/lib/formatters/configWalk.ts), [net.rs](src-tauri/src/modules/net.rs), [session.rs](src-tauri/src/modules/shell/session.rs).
+
 ## [0.3.82] - 08-07-2026
 
 ### Added

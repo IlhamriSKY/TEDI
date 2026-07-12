@@ -23,6 +23,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { basename } from "@/lib/path";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -204,14 +205,8 @@ function computeEdge(
   return ny < 0 ? "top" : "bottom";
 }
 
-function baseName(p: string): string {
-  const trimmed = p.replace(/[\\/]+$/, "");
-  const parts = trimmed.split(/[\\/]/);
-  return parts[parts.length - 1] || p;
-}
-
 function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): string {
-  if (node.leafKind === "editor") return baseName(node.path);
+  if (node.leafKind === "editor") return basename(node.path);
   if (node.leafKind === "browser") {
     if (node.title) return node.title;
     try {
@@ -227,7 +222,7 @@ function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): strin
     const host = sshHosts?.get(node.sshConnectionId);
     return host ? `ssh:${host.host}` : "ssh";
   }
-  return node.cwd ? baseName(node.cwd) : "shell";
+  return node.cwd ? basename(node.cwd) : "shell";
 }
 
 /** Build the shared {@link LeafIconInfo} for a pane leaf so the header and the
@@ -237,7 +232,7 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
     leafKind: node.leafKind,
     isPrivate: node.private === true,
     isSsh: node.leafKind === "terminal" && !!node.sshConnectionId,
-    editorFileName: node.leafKind === "editor" ? baseName(node.path) : undefined,
+    editorFileName: node.leafKind === "editor" ? basename(node.path) : undefined,
     editorRemote: node.leafKind === "editor" && node.sshSessionId !== undefined,
     browserUrl: node.leafKind === "browser" ? node.url : undefined,
     aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,

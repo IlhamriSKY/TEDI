@@ -1,6 +1,7 @@
 import { findLeaf, leaves, type PaneLeaf } from "@/modules/terminal";
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { useTabs } from "@/modules/tabs";
+import { pathSegments } from "@/lib/path";
 
 /** Narrow context for live-terminal helpers. Subset of `liveContextRef.current`. */
 export type LiveTerminalCtx = {
@@ -19,8 +20,7 @@ function leafTitleForSnapshot(l: PaneLeaf): string {
   if (l.leafKind !== "terminal") return "";
   if (l.sshConnectionId) return "ssh";
   if (l.cwd) {
-    const parts = l.cwd.split(/[\\/]/).filter(Boolean);
-    const b = parts.length ? parts[parts.length - 1] : "";
+    const b = pathSegments(l.cwd).at(-1);
     if (b) return b;
   }
   return "shell";

@@ -556,8 +556,7 @@ fn git_discard_file_inner(repo_path: String, relative: String) -> Result<(), Str
     // Probe: is this path tracked at HEAD?
     let mut probe = git(&root);
     probe.args(["ls-files", "--error-unmatch", "--", relative.as_str()]);
-    #[cfg(windows)]
-    probe.creation_flags(CREATE_NO_WINDOW);
+    // git() already applies CREATE_NO_WINDOW to every Command it returns.
     let tracked = probe.output().map(|o| o.status.success()).unwrap_or(false);
 
     if tracked {

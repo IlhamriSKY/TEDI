@@ -6,7 +6,7 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../config";
-import { buildLanguageModel, noProgressStop, noToolRepetition, TOOL_LABELS } from "../lib/agent";
+import { buildLanguageModel, describeStep, noProgressStop, noToolRepetition } from "../lib/agent";
 import { applyCacheBreakpoints } from "../lib/cache";
 import { compactStepMessages } from "../lib/compact";
 import { classifyError, TediErrorCode } from "../lib/errors";
@@ -64,22 +64,6 @@ type Args = {
    *  can show live progress for an otherwise-blocking generateText loop. */
   onStep?: (label: string, stepCount: number) => void;
 };
-
-/** Human label for the subagent's latest step, mirroring the main agent's
- *  per-step label derivation (reuses the shared TOOL_LABELS map). */
-function describeStep(step: {
-  toolCalls?: Array<{ toolName: string; input?: unknown }>;
-  text?: string;
-}): string {
-  const last = step.toolCalls?.[step.toolCalls.length - 1];
-  if (last) {
-    const label = TOOL_LABELS[last.toolName];
-    return label
-      ? label((last.input ?? {}) as Record<string, unknown>)
-      : `Calling ${last.toolName}`;
-  }
-  return step.text ? "Writing" : "Thinking";
-}
 
 type RunResult = {
   summary: string;

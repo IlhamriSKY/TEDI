@@ -225,8 +225,13 @@ function RowIconButton({
           onClick();
         }}
         // Block propagation so the parent DropdownMenuItem never fires its
-        // onSelect (the row's connect action).
+        // onSelect (the row's connect action). Both pointer events must be
+        // stopped: Radix's menu item records isPointerDownRef on its own
+        // pointerdown, and if it never sees one (because we swallowed it) it
+        // synthesizes a click() on itself at pointerup - which would connect
+        // and open a tab. Stopping pointerup blocks that synthetic select.
         onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();

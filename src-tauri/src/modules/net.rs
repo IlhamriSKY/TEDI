@@ -41,17 +41,31 @@ pub(crate) fn ssrf_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-fn redirect_host_blocked(url: &url::Url) -> bool {
-    match url.host() {
-        Some(url::Host::Ipv4(v4)) => v4.is_link_local(),
-        Some(url::Host::Ipv6(v6)) => {
+/// True for the IPv4/IPv6 link-local ranges (169.254.0.0/16 and fe80::/10,
+/// including IPv4-mapped IPv6). This is the SSRF-sensitive range that fronts the
+/// cloud instance metadata service. Defined once so the redirect guard and the
+/// initial-URL guard cannot drift.
+fn ip_is_link_local(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => {
             (v6.segments()[0] & 0xffc0) == 0xfe80
                 || v6.to_ipv4().map(|m| m.is_link_local()).unwrap_or(false)
         }
-        Some(url::Host::Domain(d)) => {
-            let d = d.to_ascii_lowercase();
-            d == "metadata.google.internal" || d == "metadata"
-        }
+    }
+}
+
+/// True for the cloud-metadata hostnames that resolve into the link-local range.
+/// Expects an already-lowercased host.
+fn is_metadata_hostname(host: &str) -> bool {
+    host == "metadata.google.internal" || host == "metadata"
+}
+
+fn redirect_host_blocked(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(v4)) => ip_is_link_local(std::net::IpAddr::V4(v4)),
+        Some(url::Host::Ipv6(v6)) => ip_is_link_local(std::net::IpAddr::V6(v6)),
+        Some(url::Host::Domain(d)) => is_metadata_hostname(&d.to_ascii_lowercase()),
         None => false,
     }
 }
@@ -75,7 +89,7 @@ pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
         .to_string();
     let host_l = host.to_ascii_lowercase();
     // These hostnames resolve into the metadata range; refuse them by name too.
-    if host_l == "metadata.google.internal" || host_l == "metadata" {
+    if is_metadata_hostname(&host_l) {
         return Err("blocked: cloud metadata endpoint".to_string());
     }
     let port = parsed.port_or_known_default().unwrap_or(443);
@@ -91,14 +105,7 @@ pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
     .map_err(|e| format!("dns task failed: {e}"))?
     .map_err(|e| format!("dns resolve failed: {e}"))?;
     for ip in ips {
-        let blocked = match ip {
-            std::net::IpAddr::V4(v4) => v4.is_link_local(),
-            std::net::IpAddr::V6(v6) => {
-                (v6.segments()[0] & 0xffc0) == 0xfe80
-                    || v6.to_ipv4().map(|m| m.is_link_local()).unwrap_or(false)
-            }
-        };
-        if blocked {
+        if ip_is_link_local(ip) {
             return Err("blocked: link-local / cloud-metadata address".to_string());
         }
     }

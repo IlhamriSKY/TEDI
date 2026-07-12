@@ -3,6 +3,7 @@ import { useChatStore } from "@/modules/ai";
 import { countTabEntries, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import { useWorkspacesStore } from "@/modules/workspaces";
+import { basename } from "@/lib/path";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 type Params = {
@@ -70,10 +71,9 @@ export function useTabSideEffects({ tabs, editorRefs, wsActiveId }: Params): {
         if (l.private) continue;
         if (seenPaths.has(l.path)) continue;
         seenPaths.add(l.path);
-        const parts = l.path.split(/[\\/]/).filter(Boolean);
         openFiles.push({
           path: l.path,
-          name: parts.length ? parts[parts.length - 1] : l.path,
+          name: basename(l.path),
         });
       }
     }
