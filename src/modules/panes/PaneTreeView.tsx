@@ -216,11 +216,12 @@ function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): strin
     }
   }
   if (node.leafKind === "extension-panel") return node.title || "panel";
-  // SSH terminal: mirror the tab strip's `ssh:<host>` (bare "ssh" if the
-  // connection was deleted), so tab and pane read identically.
+  // SSH terminal: mirror the tab strip's `ssh:<name>` (falling back to the
+  // host/IP when the connection is unnamed, bare "ssh" if it was deleted), so
+  // tab and pane read identically.
   if (node.sshConnectionId) {
-    const host = sshHosts?.get(node.sshConnectionId);
-    return host ? `ssh:${host.host}` : "ssh";
+    const conn = sshHosts?.get(node.sshConnectionId);
+    return conn ? `ssh:${conn.name.trim() || conn.host}` : "ssh";
   }
   return node.cwd ? basename(node.cwd) : "shell";
 }

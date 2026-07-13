@@ -126,6 +126,7 @@ function FileTreeNodeImpl({
               // tests the source against `[data-fs-path]` and the target
               // against `[data-terminal-leaf-id]`. See that file for the
               // full rationale.
+              data-fs-kind={entry.kind}
               onClick={handleNodeSelect}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(
@@ -159,6 +160,14 @@ function FileTreeNodeImpl({
               >
                 {entry.name}
               </span>
+              {/* Remote (SFTP) rows carry a Unix mode summary; local rows leave
+                  it undefined. Muted mono so it reads as metadata, not content.
+                  mr-2 clears the ScrollArea overlay thumb like the git letter. */}
+              {entry.permissions && (
+                <span className="text-muted-foreground/60 mr-2 shrink-0 font-mono text-[10px] tracking-tight tabular-nums">
+                  {entry.permissions}
+                </span>
+              )}
               {deco && !isDir && (
                 <span
                   className={cn(

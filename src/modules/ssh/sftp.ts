@@ -14,6 +14,13 @@ export type SftpDirEntry = {
   permissions: string;
 };
 
+/** Basename of a local OS path, tolerating both `/` and `\\` separators so a
+ *  Windows drop path (`C:\\Users\\me\\file.txt`) resolves correctly. */
+export function localBasename(p: string): string {
+  const parts = p.split(/[\\/]/);
+  return parts[parts.length - 1] || p;
+}
+
 export function sftpHome(sessionId: number): Promise<string> {
   return invoke<string>("ssh_sftp_home", { id: sessionId });
 }
@@ -36,6 +43,17 @@ export function sftpReadFile(sessionId: number, path: string): Promise<string> {
 
 export function sftpWriteFile(sessionId: number, path: string, contents: string): Promise<void> {
   return invoke("ssh_sftp_write_file", { id: sessionId, path, contents });
+}
+
+/** Upload a local file (by absolute path) to a remote path over SFTP. Bytes are
+ *  read on the Rust side so binary files upload intact (never round-tripped as a
+ *  JS string). Folders are rejected; write permission is enforced by the remote. */
+export function sftpUpload(
+  sessionId: number,
+  localPath: string,
+  remotePath: string,
+): Promise<void> {
+  return invoke("ssh_sftp_upload", { id: sessionId, localPath, remotePath });
 }
 
 export function sftpCreateFile(sessionId: number, path: string): Promise<void> {

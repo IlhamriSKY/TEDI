@@ -21,6 +21,10 @@ type Params = {
   mdPreviewLeafIds: ReadonlySet<number>;
   toggleMdPreviewForLeaf: (leafId: number) => void;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
+  /** Local workspace root. The StatusBar breadcrumb falls back to it for local
+   *  terminals before OSC 7 lands, but never for an SSH leaf (a local path
+   *  under a remote shell would be misleading). */
+  explorerRoot: string | null;
 };
 
 /**
@@ -40,6 +44,7 @@ export function useChromeDerivations({
   mdPreviewLeafIds,
   toggleMdPreviewForLeaf,
   terminalRefs,
+  explorerRoot,
 }: Params): {
   searchTarget: SearchTarget;
   mdPreviewToggle: HeaderToggle;
@@ -96,10 +101,19 @@ export function useChromeDerivations({
   }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, lineWrap]);
 
   const activeCwd = useMemo(() => {
-    if (!activePaneTab) return null;
+    if (!activePaneTab) return explorerRoot;
     const leaf = activeLeaf(activePaneTab);
-    return leaf?.leafKind === "terminal" ? (leaf.cwd ?? null) : null;
-  }, [activePaneTab]);
+    if (leaf?.leafKind !== "terminal") return explorerRoot;
+    // SSH terminal: follow the remote shell's cwd (reported via OSC 7). Never
+    // fall back to the local explorer root - a Windows path under a remote
+    // shell is wrong. Null (-> "no directory") until the remote reports one.
+    // ponytail: keys off the saved-profile id; a rare ad-hoc SSH leaf (no
+    // profile) would still show the local root. Widen to live session state if
+    // that case matters.
+    if (leaf.sshConnectionId) return leaf.cwd ?? null;
+    // Local terminal: its own cwd, or the workspace root before OSC 7 lands.
+    return leaf.cwd ?? explorerRoot;
+  }, [activePaneTab, explorerRoot]);
 
   // Absolute local path of the file currently being viewed. Drives the
   // status-bar breadcrumb and the file-explorer "reveal" behavior, so it

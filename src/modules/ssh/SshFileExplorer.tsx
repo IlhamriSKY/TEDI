@@ -22,9 +22,10 @@ import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setSshInRightPanel } from "@/modules/settings/store";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
+import { useSshFileDrop } from "./useSshFileDrop";
 import { useSshRightPanelStore } from "./sshRightPanelStore";
 import {
   ChevronDown,
@@ -116,6 +117,18 @@ export function SshFileExplorer({
   const rootPath = currentCwd && currentCwd.length > 0 ? currentCwd : homePath;
   const tree = useSshFileTree(sessionId, rootPath, { includeHidden: showHiddenFiles });
 
+  // Drag-and-drop upload: drop OS files onto this panel to SFTP them to the
+  // remote folder under the cursor. Refresh (and reveal) the target dir after.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const onUploaded = useCallback(
+    (dir: string) => {
+      tree.refresh(dir);
+      if (dir !== rootPath) tree.expand(dir);
+    },
+    [tree, rootPath],
+  );
+  useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded });
+
   const accordion = !!onToggleCollapsed;
   const headerLabel = rootPath ? basename(rootPath) : (hostLabel ?? "SSH");
 
@@ -146,7 +159,7 @@ export function SshFileExplorer({
   const headerActionsVisible = !collapsed && sessionId !== null && rootPath !== null;
 
   return (
-    <div className="flex h-full flex-col outline-none">
+    <div ref={containerRef} className="flex h-full flex-col outline-none">
       <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
         {dragHandle}
         <Tooltip>

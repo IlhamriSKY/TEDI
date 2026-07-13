@@ -16,6 +16,9 @@ export type SshDirEntry = {
   kind: "file" | "dir" | "symlink";
   size: number;
   mtime: number;
+  /** Unix `"rwxr-xr-x"` mode summary from the SFTP metadata. Empty when the
+   *  server did not report a mode. Shown in the tree row. */
+  permissions?: string;
 };
 
 type ChildrenState =

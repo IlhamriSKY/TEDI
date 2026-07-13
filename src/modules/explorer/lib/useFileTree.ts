@@ -7,6 +7,9 @@ export type DirEntry = {
   kind: "file" | "dir" | "symlink";
   size: number;
   mtime: number;
+  /** Unix `"rwxr-xr-x"` mode summary. Only set for remote (SFTP) entries; the
+   *  local explorer leaves it undefined. Shown by the shared FileTreeNode. */
+  permissions?: string;
 };
 
 export type SortMode = "default" | "name-asc" | "name-desc" | "modified-desc" | "modified-asc";

@@ -734,6 +734,7 @@ export default function App() {
       mdPreviewLeafIds,
       toggleMdPreviewForLeaf,
       terminalRefs,
+      explorerRoot: explorerRoot ?? null,
     });
 
   const shortcutHandlers = useMemo<ShortcutHandlers>(
@@ -994,7 +995,7 @@ export default function App() {
           </main>
 
           <StatusBar
-            cwd={activeCwd ?? explorerRoot}
+            cwd={activeCwd}
             filePath={activeFilePath}
             home={home}
             onCd={sendCd}

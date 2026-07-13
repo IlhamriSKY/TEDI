@@ -216,6 +216,59 @@ pub async fn ssh_sftp_write_file(
     .await
 }
 
+/// Upload a local file to the remote over SFTP. Reads `local_path` off the
+/// async runtime (a big file must not block it) and streams the bytes into
+/// `remote_path`, replacing it in place. Directories are rejected up front -
+/// recursive upload is a separate feature. The remote kernel enforces write
+/// permission on the target dir; a denial surfaces as `permission denied`.
+#[tauri::command]
+pub async fn ssh_sftp_upload(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    local_path: String,
+    remote_path: String,
+) -> Result<(), String> {
+    // Cap the whole-file read so a huge drop can't OOM the app. Matches the
+    // read-file guard's intent; uploads get a larger ceiling.
+    const MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
+    let read_path = local_path.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        let meta = std::fs::metadata(&read_path).map_err(|e| format!("read local file: {e}"))?;
+        if meta.is_dir() {
+            return Err("cannot upload a folder (files only)".to_string());
+        }
+        if meta.len() > MAX_UPLOAD_BYTES {
+            return Err(format!(
+                "file too large to upload: {} bytes (cap {} bytes)",
+                meta.len(),
+                MAX_UPLOAD_BYTES
+            ));
+        }
+        std::fs::read(&read_path).map_err(|e| format!("read local file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("read task join failed: {e}"))??;
+
+    on_sftp(&state, id, move |sftp| async move {
+        let mut file = sftp
+            .open_with_flags(
+                remote_path,
+                OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+            )
+            .await
+            .map_err(humanize)?;
+        use tokio::io::AsyncWriteExt;
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| format!("sftp write: {e}"))?;
+        file.shutdown()
+            .await
+            .map_err(|e| format!("sftp close: {e}"))?;
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn ssh_sftp_create_file(
     state: tauri::State<'_, SshState>,

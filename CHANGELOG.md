@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.84] - 13-07-2026
+
+### Added
+
+- **The Remote (SSH) file tree shows Unix permissions.** Each remote file and folder now displays its `rwxr-xr-x` mode summary at the end of the row (muted, monospace), so you can see an entry's access rights, and why a directory is read-only, before you try to write. The mode already came back from the SFTP listing; it is now surfaced. Local (non-remote) rows are unaffected. See [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx), [sftp.rs](src-tauri/src/modules/ssh/sftp.rs).
+- **Drag and drop local files onto the SSH file tree to upload them.** Drop one or more files from your file manager anywhere on the Remote panel and they upload over SFTP to the remote folder under the cursor: a folder row uploads into it, a file row into its parent, and empty tree space into the current root. The target directory refreshes and reveals the new files, with a toast on success or failure. A new backend `ssh_sftp_upload` reads the local file's bytes on the Rust side, so binary files transfer intact; folders are rejected (files only) and each file is capped at 256 MB. Write permission is enforced by the remote kernel, so a denied upload surfaces `permission denied`. See [useSshFileDrop.ts](src/modules/ssh/useSshFileDrop.ts), [SshFileExplorer.tsx](src/modules/ssh/SshFileExplorer.tsx), [sftp.rs](src-tauri/src/modules/ssh/sftp.rs).
+
+### Fixed
+
+- **An SSH pane header shows the connection's name, matching the tab.** A split pane's header read `ssh:<host>` (the raw IP) while the tab strip already read `ssh:<name>`; the two now use the identical label, so several connections to the same host stay distinguishable in the pane header too. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx).
+- **The status-bar breadcrumb no longer shows a local Windows path under an SSH shell.** When the active terminal is a remote SSH session, the folder breadcrumb followed the remote shell's directory (reported via OSC 7) but fell back to the local workspace root when the remote had not reported one, so it could show a misleading local path. It now follows the remote directory only, showing "no directory" until the remote reports one, and never the local root. Local terminals are unchanged. See [useChromeDerivations.ts](src/app/hooks/useChromeDerivations.ts).
+
 ## [0.3.83] - 12-07-2026
 
 ### Fixed

@@ -681,6 +681,7 @@ pub fn run() {
             ssh::sftp::ssh_sftp_read_dir,
             ssh::sftp::ssh_sftp_read_file,
             ssh::sftp::ssh_sftp_write_file,
+            ssh::sftp::ssh_sftp_upload,
             ssh::sftp::ssh_sftp_create_file,
             ssh::sftp::ssh_sftp_create_dir,
             ssh::sftp::ssh_sftp_rename,
