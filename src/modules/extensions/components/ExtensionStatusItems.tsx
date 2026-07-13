@@ -29,6 +29,84 @@ export function ExtensionStatusItems() {
   );
 }
 
+// Progress-bar fill colour per tone. Usage meters read best when a low bar is
+// calm and a full one is alarming, so the extension drives `tone` by severity
+// and the fill follows it.
+const BAR_FILL: Record<NonNullable<StatusItem["tone"]>, string> = {
+  error: "bg-red-500",
+  warning: "bg-amber-500",
+  success: "bg-emerald-500",
+  default: "bg-foreground/70",
+};
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+// Text colour for the percent readout. Normal states stay muted; only the
+// "about to run out" (amber) and "spent" (red) states pop, so the colour is an
+// at-a-glance indicator alongside the bar.
+function valueColor(tone: StatusItem["tone"]): string {
+  if (tone === "error") return "text-red-500";
+  if (tone === "warning") return "text-amber-500";
+  return "text-muted-foreground";
+}
+
+// A blocky "pixel" progress bar: `cells` square segments, the leading
+// `round(progress * cells)` filled in the tone colour, the rest muted. Sharp
+// corners (no rounding) for the pixel look.
+function PixelBar({
+  progress,
+  tone,
+  cells,
+  cellClass,
+  className,
+}: {
+  progress: number;
+  tone?: StatusItem["tone"];
+  cells: number;
+  cellClass: string;
+  className?: string;
+}) {
+  const filled = Math.round(clamp01(progress) * cells);
+  const fill = BAR_FILL[tone ?? "default"];
+  return (
+    <span className={cn("inline-flex shrink-0 items-center", className)} aria-hidden>
+      {Array.from({ length: cells }).map((_, i) => (
+        <span key={i} className={cn(cellClass, i < filled ? fill : "bg-muted-foreground/25")} />
+      ))}
+    </span>
+  );
+}
+
+// Tooltip body. With `detail` set it renders a small panel with a pixel
+// progress bar per row; otherwise the plain `tooltip` string (newlines kept).
+function TooltipBody({ item }: { item: StatusItem }) {
+  if (!item.detail) return <span className="whitespace-pre-line">{item.tooltip}</span>;
+  const { title, rows } = item.detail;
+  return (
+    <div className="flex min-w-[196px] flex-col gap-1.5">
+      {title ? <div className="text-foreground text-xs font-medium">{title}</div> : null}
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-2 text-[11px] leading-none">
+          {r.label ? <span className="text-muted-foreground w-14 shrink-0">{r.label}</span> : null}
+          {r.progress != null ? (
+            <PixelBar
+              progress={r.progress}
+              tone={r.tone}
+              cells={10}
+              cellClass="h-2.5 w-1"
+              className="gap-[2px]"
+            />
+          ) : null}
+          {r.value ? (
+            <span className={cn("shrink-0 tabular-nums", valueColor(r.tone))}>{r.value}</span>
+          ) : null}
+          {r.note ? <span className="text-muted-foreground shrink-0">{r.note}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StatusItemView({ extensionId, item }: { extensionId: string; item: StatusItem }) {
   useIconsReady(); // re-render once the lazy icon chunk lands
   // `lucide:<Name>` / legacy `hugeicon:<Name>` renders a Lucide icon (parity
@@ -44,55 +122,96 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
     iconUrl !== null && (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
   // Only `error` gets a corner dot. `warning` pulses instead.
   const dot = item.tone === "error" ? "bg-icon-blocked" : null;
+  // Icon-only items keep the plain-icon tint. A metered item (has `label`
+  // or `progress`) tints its icon by tone too so it never sits at 40% muted
+  // beside a live bar.
+  const hasMeter = item.progress != null || item.label != null;
+  const iconLive = isLive || hasMeter;
+
+  const iconEl = Icon ? (
+    <Icon
+      size={16}
+      strokeWidth={1.8}
+      className={cn(
+        "transition-colors duration-200",
+        iconLive ? "text-foreground" : "text-muted-foreground/40",
+        isPulsing && "animate-pulse",
+      )}
+    />
+  ) : iconUrl ? (
+    isSvg ? (
+      <span
+        aria-hidden
+        // CSS mask paints `background-color` where the SVG is opaque.
+        // Connected uses `--foreground`, off uses muted at 40%.
+        style={{
+          mask: `url("${iconUrl}") center / contain no-repeat`,
+          WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
+        }}
+        className={cn(
+          "size-4 transition-colors duration-200",
+          iconLive ? "bg-foreground" : "bg-muted-foreground/40",
+          isPulsing && "animate-pulse",
+        )}
+      />
+    ) : (
+      <img
+        src={iconUrl}
+        alt=""
+        className={cn(
+          "size-4 object-contain transition-opacity duration-200",
+          iconLive ? "opacity-100" : "opacity-40 grayscale",
+          isPulsing && "animate-pulse",
+        )}
+        loading="lazy"
+        draggable={false}
+      />
+    )
+  ) : (
+    <span className="bg-muted size-4 rounded-sm" aria-hidden />
+  );
+
+  if (hasMeter) {
+    return (
+      <IconTooltip label={<TooltipBody item={item} />} side="top">
+        <span
+          role="img"
+          aria-label={item.tooltip}
+          className="relative inline-flex h-6 shrink-0 items-center gap-1 px-0.5 transition-opacity hover:opacity-80"
+        >
+          <span className="inline-flex size-4 items-center justify-center">{iconEl}</span>
+          {item.label != null ? (
+            <span
+              className={cn(
+                "text-[10px] leading-none font-medium tabular-nums",
+                valueColor(item.tone),
+              )}
+            >
+              {item.label}
+            </span>
+          ) : null}
+          {item.progress != null ? (
+            <PixelBar
+              progress={item.progress}
+              tone={item.tone}
+              cells={8}
+              cellClass="h-2 w-[3px]"
+              className="gap-px"
+            />
+          ) : null}
+        </span>
+      </IconTooltip>
+    );
+  }
+
   return (
-    <IconTooltip label={item.tooltip} side="top">
+    <IconTooltip label={<TooltipBody item={item} />} side="top">
       <span
         role="img"
         aria-label={item.tooltip}
         className="relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
       >
-        {Icon ? (
-          <Icon
-            size={16}
-            strokeWidth={1.8}
-            className={cn(
-              "transition-colors duration-200",
-              isLive ? "text-foreground" : "text-muted-foreground/40",
-              isPulsing && "animate-pulse",
-            )}
-          />
-        ) : iconUrl ? (
-          isSvg ? (
-            <span
-              aria-hidden
-              // CSS mask paints `background-color` where the SVG is opaque.
-              // Connected uses `--foreground`, off uses muted at 40%.
-              style={{
-                mask: `url("${iconUrl}") center / contain no-repeat`,
-                WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
-              }}
-              className={cn(
-                "size-4 transition-colors duration-200",
-                isLive ? "bg-foreground" : "bg-muted-foreground/40",
-                isPulsing && "animate-pulse",
-              )}
-            />
-          ) : (
-            <img
-              src={iconUrl}
-              alt=""
-              className={cn(
-                "size-4 object-contain transition-opacity duration-200",
-                isLive ? "opacity-100" : "opacity-40 grayscale",
-                isPulsing && "animate-pulse",
-              )}
-              loading="lazy"
-              draggable={false}
-            />
-          )
-        ) : (
-          <span className="bg-muted size-4 rounded-sm" aria-hidden />
-        )}
+        {iconEl}
         {dot ? (
           <span
             aria-hidden

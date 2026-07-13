@@ -20,6 +20,7 @@ import {
   BookOpen,
   FileCode,
   FolderOpen,
+  Globe,
   PanelLeft,
   Puzzle,
   Settings,
@@ -73,6 +74,9 @@ type Props = {
   mdPreviewToggle: { active: boolean; toggle: () => void } | null;
   /** Word-wrap toggle. `null` hides the button when not an editor, or when previewing markdown. */
   lineWrapToggle: { active: boolean; toggle: () => void } | null;
+  /** Detected local URL for the "open preview" globe. `null` hides the button. */
+  detectedBrowserUrl?: string | null;
+  onOpenPreview?: () => void;
 };
 
 const COMPACT_WIDTH = 720;
@@ -128,6 +132,8 @@ function HeaderImpl({
   searchRef,
   mdPreviewToggle,
   lineWrapToggle,
+  detectedBrowserUrl,
+  onOpenPreview,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -216,6 +222,23 @@ function HeaderImpl({
 
         {/* Drag spacer between the left and right icon clusters. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
+
+        {/* "Open preview" for a detected local URL, pinned just left of the
+            beautify wand / view toggles as an icon-only button (URL in the
+            tooltip + aria-label). */}
+        {detectedBrowserUrl && onOpenPreview && (
+          <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenPreview}
+              aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
+              className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
+            >
+              <Globe size={16} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+        )}
 
         {/* Extension buttons that opt-in to `placement: "left"`. Sits in the
             file-view-mode cluster, before the markdown-preview toggle, so

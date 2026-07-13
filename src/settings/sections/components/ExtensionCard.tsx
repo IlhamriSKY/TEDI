@@ -247,6 +247,18 @@ function ContributedSettingRow({ extId, setting }: { extId: string; setting: Con
         }}
       />
     );
+  } else if (setting.type === "note") {
+    // Read-only info row: the extension drives the value at runtime (e.g. the
+    // signed-in account); it syncs here through the same store key. No control.
+    const text = typeof value === "string" ? value : "";
+    control = (
+      <span
+        className="text-muted-foreground max-w-[240px] truncate text-right text-[11px] tabular-nums"
+        title={text}
+      >
+        {text}
+      </span>
+    );
   } else if (setting.type === "select" && setting.options) {
     control = (
       <select

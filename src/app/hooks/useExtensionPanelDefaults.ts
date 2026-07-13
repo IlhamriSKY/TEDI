@@ -1,4 +1,6 @@
 import {
+  BUILTIN_SECTION_EXT,
+  MOVABLE_BUILTIN_SECTIONS,
   parseSectionPanelId,
   sidebarSectionsRegistry,
   useExtensionsStore,
@@ -59,6 +61,16 @@ export function useExtensionPanelDefaults(): void {
     // sidebar-section registry instead — keep it open while still contributed.
     const sectionId = parseSectionPanelId(rightPanelActive.panelId);
     if (sectionId !== null) {
+      // Built-in sections (Files/Workspaces) share the `__section__:` sentinel
+      // but live under `BUILTIN_SECTION_EXT`, not the extension registry - so
+      // validate them against the movable-built-ins list instead. Without this
+      // they'd never match `sidebarSections` and get closed the instant they
+      // dock right (the built-in right-dock was dead on arrival otherwise).
+      if (rightPanelActive.extensionId === BUILTIN_SECTION_EXT) {
+        const known = MOVABLE_BUILTIN_SECTIONS.some((b) => b.id === sectionId);
+        if (!known) useRightPanelStore.getState().close();
+        return;
+      }
       const stillThere = sidebarSections.some(
         (s) => s.extensionId === rightPanelActive.extensionId && s.item.id === sectionId,
       );

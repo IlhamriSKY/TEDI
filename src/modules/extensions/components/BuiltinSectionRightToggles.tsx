@@ -7,7 +7,7 @@
  */
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { Folder, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, type LucideIcon } from "lucide-react";
 
 import { useRightPanelStore } from "../rightPanelStore";
 import {
@@ -19,7 +19,6 @@ import {
 } from "../sidebarPlacementStore";
 
 const ICONS: Record<BuiltinSectionId, LucideIcon> = {
-  files: Folder,
   workspaces: LayoutDashboard,
 };
 

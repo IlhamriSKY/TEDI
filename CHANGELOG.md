@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.86] - 13-07-2026
+
+### Added
+
+- **Extension status-bar items can show a progress bar, a percentage, and a rich detail tooltip.** A status item may now carry a short `label` (for example `62%`), a `progress` value (`0..1`) that renders a compact pixel-style bar tinted by tone (green when there is headroom, amber when close, red when spent), and a structured `detail` tooltip that draws a real progress bar per row. A new read-only `note` setting type lets an extension surface live text, such as the signed-in account, in its Settings card. Together these back the new [AI Usage Meter](https://github.com/IlhamriSKY/TEDI.ai-usage) extension, which shows Claude Code and Codex (ChatGPT) 5-hour and weekly usage in the status bar. See [registries.ts](src/modules/extensions/registries.ts), [ExtensionStatusItems.tsx](src/modules/extensions/components/ExtensionStatusItems.tsx), [manifest.ts](src/modules/extensions/manifest.ts), [ExtensionCard.tsx](src/settings/sections/components/ExtensionCard.tsx).
+
+### Fixed
+
+- **Moving the built-in Files or Workspaces section to the right panel now works.** The right-dock shipped in 0.3.85 was dead on arrival: the shared placement guard validated the built-in `__section__:` sentinels against the extension registry, where they never matched, so a docked built-in section closed the moment it opened. It now validates built-in sections against the movable-built-ins list, so Workspaces docks to the right and back (Files stays left-only), verified in-app. See [useExtensionPanelDefaults.ts](src/app/hooks/useExtensionPanelDefaults.ts), [App.tsx](src/app/App.tsx), [Header.tsx](src/modules/header/Header.tsx), [StatusBar.tsx](src/modules/statusbar/StatusBar.tsx).
+
 ## [0.3.85] - 13-07-2026
 
 ### Added

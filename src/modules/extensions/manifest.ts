@@ -14,7 +14,7 @@ const SemverIshSchema = z.string().regex(/^\d+\.\d+\.\d+([\-+].*)?$/);
 const SettingSchema = z
   .object({
     id: z.string().min(1),
-    type: z.enum(["string", "number", "boolean", "select"]),
+    type: z.enum(["string", "number", "boolean", "select", "note"]),
     label: z.string().min(1),
     description: z.string().optional(),
     default: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),

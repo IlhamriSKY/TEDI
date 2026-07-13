@@ -327,7 +327,6 @@ export function AppSidebar({
             dragHandle={controls}
             collapsed={isCollapsed}
             activeFilePath={activeFilePath}
-            onMoveToRight={() => moveSectionRight("files")}
             hideSort
           />
         );

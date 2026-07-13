@@ -748,8 +748,10 @@ ungated so you can always remove your own item even after a permission revoke.
 type StatusItem = {
   id: string;
   icon: string; // a Lucide name or "lucide:<Name>", a "data:" URL, or "ext-asset:<relPath>" (legacy "hugeicon:<Name>" still resolves)
-  tooltip: string;
+  tooltip: string; // "\n" in the string renders as line breaks in the tooltip
   tone?: "default" | "success" | "warning" | "error"; // warning pulses, error adds a red dot
+  label?: string; // optional tiny text after the icon (e.g. "62%")
+  progress?: number; // optional 0..1 fill: renders a compact progress bar coloured by tone (error red, warning amber, success green, else accent)
 };
 ```
 

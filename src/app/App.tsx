@@ -261,6 +261,12 @@ export default function App() {
   // pauses tracking across the minimize->restore window so the corrupt 0px-era
   // sizes never overwrite the good value.
   const lastSidebarPxRef = useRef<number | null>(null);
+  // Whether the sidebar was closed (collapsed to 0) the last time it resized
+  // while the window was live - regardless of HOW it was closed (toggle button,
+  // extension hide, or a drag-to-collapse). The minimize->restore guard reads
+  // this so a sidebar the user had closed is not spuriously reopened; the
+  // toggle-only `userCollapsedSidebarRef` missed the drag-to-collapse case.
+  const lastSidebarCollapsedRef = useRef(false);
   const sidebarTrackingFrozenRef = useRef(false);
   const handleSidebarResize = useCallback((size: PanelSize) => {
     if (sidebarTrackingFrozenRef.current) return;
@@ -271,7 +277,14 @@ export default function App() {
     // below it is a 0px-container transition artifact, not a real user width.
     // Belt-and-suspenders for the same race. Keep in sync with AppSidebar's
     // `minSize="130px"`.
-    if (size.inPixels >= 130) lastSidebarPxRef.current = size.inPixels;
+    if (size.inPixels >= 130) {
+      lastSidebarPxRef.current = size.inPixels;
+      lastSidebarCollapsedRef.current = false;
+    } else if (size.inPixels <= 1) {
+      // Fully collapsed while live (the guards above exclude the minimized
+      // 0px-container case) - a genuine user close, by drag or toggle.
+      lastSidebarCollapsedRef.current = true;
+    }
   }, []);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
@@ -287,12 +300,12 @@ export default function App() {
   }, []);
 
   // Minimizing the window reports a 0px container to react-resizable-panels,
-  // which recomputes its layout and leaves the sidebar either collapsed or just
-  // shrunk to an arbitrary smaller width once the window is restored/maximized.
-  // On the minimize->restore transition, re-open and re-size the sidebar back to
-  // the user's last width - but only undo a spurious change, never one the user
-  // made (userCollapsedSidebarRef) or an extension made by hiding it
-  // (sidebarHiderRef).
+  // which recomputes its layout and leaves the sidebar collapsed, shrunk, OR
+  // spuriously re-expanded once the window is restored/maximized. On the
+  // minimize->restore transition, put the sidebar back the way the user left it:
+  // if it was open, re-open and re-size to their last width; if it was closed
+  // (by the toggle, an extension hide, or a drag-to-collapse), keep it closed so
+  // it never reopens on its own.
   useEffect(() => {
     const w = getCurrentWindow();
     let unlisten: (() => void) | undefined;
@@ -310,14 +323,23 @@ export default function App() {
         if (!wasMinimized) return;
         wasMinimized = false;
         // Defer past the panel library's own post-restore layout pass so our
-        // expand()/resize() is the final word, then resume tracking.
+        // expand()/collapse()/resize() is the final word, then resume tracking.
         setTimeout(() => {
           const p = sidebarRef.current;
-          if (p && !userCollapsedSidebarRef.current && !sidebarHiderRef.current) {
-            if (p.isCollapsed()) p.expand();
-            const want = lastSidebarPxRef.current;
-            if (want != null && Math.abs(p.getSize().inPixels - want) > 1) {
-              p.resize(`${want}px`);
+          if (p) {
+            const wantClosed =
+              userCollapsedSidebarRef.current ||
+              !!sidebarHiderRef.current ||
+              lastSidebarCollapsedRef.current;
+            if (wantClosed) {
+              // Undo a spurious re-expand so a closed sidebar stays closed.
+              if (!p.isCollapsed()) p.collapse();
+            } else {
+              if (p.isCollapsed()) p.expand();
+              const want = lastSidebarPxRef.current;
+              if (want != null && Math.abs(p.getSize().inPixels - want) > 1) {
+                p.resize(`${want}px`);
+              }
             }
           }
           sidebarTrackingFrozenRef.current = false;
@@ -922,6 +944,8 @@ export default function App() {
             searchRef={searchInlineRef}
             mdPreviewToggle={mdPreviewToggle}
             lineWrapToggle={lineWrapToggle}
+            detectedBrowserUrl={detectedBrowserUrl}
+            onOpenPreview={handleOpenDetectedPreview}
           />
 
           {/* Bento tray: the deep `bg-sidebar` well holds the three body columns
@@ -1000,14 +1024,6 @@ export default function App() {
                 activeSshContext={activeSshContext}
                 onOpenRemoteFile={handleOpenRemoteFile}
                 onAddProviderKey={handleAddProviderKey}
-                filesSection={{
-                  onOpenFile: handleOpenFile,
-                  onPathRenamed: handlePathRenamed,
-                  onRevealInTerminal: cdInNewTab,
-                  onAttachToAgent: handleAttachFileToAgent,
-                  onPreviewInBrowser: handlePreviewFileInBrowser,
-                  activeFilePath,
-                }}
                 workspacesSection={{
                   onSwitch: switchToWorkspace,
                   onCreate: createNewWorkspace,
@@ -1030,8 +1046,6 @@ export default function App() {
             home={home}
             onCd={sendCd}
             onOpenMini={openMini}
-            detectedBrowserUrl={detectedBrowserUrl}
-            onOpenPreview={handleOpenDetectedPreview}
             hasAnySshLeaf={hasAnySshLeaf}
             activeIsSsh={activeLeafIsSsh}
           />

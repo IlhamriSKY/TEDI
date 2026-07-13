@@ -8,7 +8,6 @@ import {
   useSidebarPlacementStore,
   type BuiltinSectionId,
 } from "@/modules/extensions";
-import { FileExplorer } from "@/modules/explorer";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { type Tab } from "@/modules/tabs";
 import { Suspense, type RefObject } from "react";
@@ -36,16 +35,6 @@ type Props = {
   };
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   onAddProviderKey: () => void;
-  /** Files-section props, so a right-docked Files section renders in the slot
-   *  (same values App passes to AppSidebar). */
-  filesSection: {
-    onOpenFile: (path: string, pin?: boolean) => void;
-    onPathRenamed: (from: string, to: string) => void;
-    onRevealInTerminal: (path: string) => void;
-    onAttachToAgent: (path: string) => void;
-    onPreviewInBrowser: (path: string) => void;
-    activeFilePath: string | null;
-  };
   /** Workspaces-section props, for a right-docked Workspaces section. */
   workspacesSection: {
     onSwitch: (id: string) => void;
@@ -83,7 +72,6 @@ export function AppRightSlot({
   activeSshContext,
   onOpenRemoteFile,
   onAddProviderKey,
-  filesSection,
   workspacesSection,
   openGitDiffTab,
   openScmTab,
@@ -107,23 +95,7 @@ export function AppRightSlot({
     <>
       <ResizableHandle withHandle />
       <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
-        {builtinDocked === "files" ? (
-          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
-            <FileExplorer
-              rootPath={explorerRoot}
-              onOpenFile={filesSection.onOpenFile}
-              onPathRenamed={filesSection.onPathRenamed}
-              onPathDeleted={onPathDeleted}
-              onRevealInTerminal={filesSection.onRevealInTerminal}
-              onAttachToAgent={filesSection.onAttachToAgent}
-              onPreviewInBrowser={filesSection.onPreviewInBrowser}
-              activeFilePath={filesSection.activeFilePath}
-              onMoveToLeft={() => dockLeft("files")}
-              onClose={closeDock}
-              hideSort
-            />
-          </div>
-        ) : builtinDocked === "workspaces" ? (
+        {builtinDocked === "workspaces" ? (
           <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
             <WorkspacesPanel
               onSwitch={workspacesSection.onSwitch}

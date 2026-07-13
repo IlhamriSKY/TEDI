@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomIndicator } from "./ZoomIndicator";
-import { GitBranch, Globe, Server } from "lucide-react";
+import { GitBranch, Server } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -27,9 +27,6 @@ type Props = {
   home: string | null;
   onCd: (path: string) => void;
   onOpenMini: () => void;
-  /** When set, shows a one-click "Open preview" chip pointing at this URL. */
-  detectedBrowserUrl?: string | null;
-  onOpenPreview?: () => void;
   /** Whether any SSH leaf is connected. Gates the right-slot Remote toggle so
    *  it appears only alongside a live session, mirroring the left sidebar. */
   hasAnySshLeaf: boolean;
@@ -46,8 +43,6 @@ function StatusBarInner({
   home,
   onCd,
   onOpenMini,
-  detectedBrowserUrl,
-  onOpenPreview,
   hasAnySshLeaf,
   activeIsSsh,
 }: Props) {
@@ -57,21 +52,6 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-        {/* "Open preview" detected-URL action, pinned leftmost as an icon-only
-            button (the URL lives in the tooltip + aria-label) so it reads the
-            same as the other status-bar icon buttons. */}
-        {detectedBrowserUrl && onOpenPreview ? (
-          <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`} side="top">
-            <button
-              type="button"
-              onClick={onOpenPreview}
-              aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
-              className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-80"
-            >
-              <Globe size={16} strokeWidth={1.75} className="shrink-0" />
-            </button>
-          </IconTooltip>
-        ) : null}
         {/* Hidden while the active pane is a live SSH session: the breadcrumb
             already shows the remote path, so the local-OS badge would mislead. */}
         {activeIsSsh ? null : <OsBadge />}

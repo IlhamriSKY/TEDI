@@ -25,12 +25,39 @@ type Listener = () => void;
  *   `ext-asset:<relPath>` reads `<ext-root>/<relPath>` via `ext_read_asset_bytes`.
  *   `data:image/...;base64,...` renders as a data URL.
  */
+/** One row of a `StatusItem.detail` tooltip. Renders as: label, an optional
+ *  real progress bar, an optional value, and muted trailing note. A row with an
+ *  empty `label` and no `progress` is a plain footer line. */
+export type StatusItemDetailRow = {
+  label: string;
+  /** 0..1 fill; when set the row draws a real themed progress bar. */
+  progress?: number;
+  /** Bar colour, same palette as `StatusItem.tone`. */
+  tone?: "default" | "success" | "warning" | "error";
+  /** Value shown after the bar, e.g. `"62%"`. */
+  value?: string;
+  /** Muted trailing text, e.g. `"resets in 3h 9m"`. */
+  note?: string;
+};
+
 export type StatusItem = {
   id: string;
   icon: string;
   tooltip: string;
   /** Tone for active / warning / error tinting. */
   tone?: "default" | "success" | "warning" | "error";
+  /** Optional short text rendered after the icon (e.g. `"62%"`). Kept tiny;
+   *  put the full detail in `tooltip`. */
+  label?: string;
+  /** Optional 0..1 fill. When set, the item renders a compact themed progress
+   *  bar after the icon/label (clamped to [0,1]); the fill colour follows
+   *  `tone` (error red, warning amber, else accent). Omit for an icon-only
+   *  item (the default; existing items are unaffected). */
+  progress?: number;
+  /** Optional structured tooltip. When set, the tooltip renders a small panel
+   *  with a real progress bar per row instead of the plain `tooltip` string
+   *  (which stays the aria-label and the fallback on hosts that ignore this). */
+  detail?: { title?: string; rows: StatusItemDetailRow[] };
 };
 
 class Registry<T> {
