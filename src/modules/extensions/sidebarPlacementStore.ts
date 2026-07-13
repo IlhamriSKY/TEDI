@@ -37,6 +37,22 @@ export function sidebarSectionKey(extensionId: string, sectionId: string): strin
   return `xsec:${extensionId}:${sectionId}`;
 }
 
+/** Sentinel `extensionId` used in `useRightPanelStore` to host a BUILT-IN sidebar
+ *  section (Files / Workspaces) in the shared right slot, so it flows through the
+ *  same mutual-exclusion + status-bar-toggle machinery as an extension's movable
+ *  sections without being a real extension. Its placement key is the plain
+ *  built-in key ("files" / "workspaces"), matching AppSidebar's `BUILTIN_KEYS`. */
+export const BUILTIN_SECTION_EXT = "__builtin__";
+
+/** Built-in sidebar sections the user can dock to the right slot, mirroring the
+ *  extension sections that opt in via `movableToRight`. `id` is both the
+ *  AppSidebar section key and the placement key. */
+export const MOVABLE_BUILTIN_SECTIONS = [
+  { id: "files", title: "Files" },
+  { id: "workspaces", title: "Workspaces" },
+] as const;
+export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
+
 type Placement = "left" | "right";
 
 type State = {

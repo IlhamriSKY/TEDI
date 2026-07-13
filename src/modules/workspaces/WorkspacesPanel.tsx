@@ -38,6 +38,8 @@ import {
   ChevronRight,
   Folder,
   LayoutDashboard,
+  PanelLeft,
+  PanelRight,
   Plus,
   SquarePen,
   SquareTerminal,
@@ -79,6 +81,13 @@ type Props = {
   activeLeafId?: number | null;
   /** Drag handle for sidebar-section reordering, injected by the sidebar. */
   dragHandle?: ReactNode;
+  /** Left-sidebar instance: move Workspaces to the shared right panel. */
+  onMoveToRight?: () => void;
+  /** Right-panel instance: dock Workspaces back into the left sidebar. */
+  onMoveToLeft?: () => void;
+  /** Right-panel instance: close the docked panel (distinct from `onClose`,
+   *  which closes a workspace). */
+  onClosePanel?: () => void;
 };
 
 /** One terminal entry shown under an expanded workspace row. */
@@ -163,6 +172,9 @@ function WorkspacesPanelInner({
   onFocusLeaf,
   activeLeafId,
   dragHandle,
+  onMoveToRight,
+  onMoveToLeft,
+  onClosePanel,
 }: Props) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
@@ -244,6 +256,45 @@ function WorkspacesPanelInner({
             <Plus size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        {onMoveToRight ? (
+          <IconTooltip label="Move to right panel" side="bottom">
+            <Button
+              onClick={onMoveToRight}
+              aria-label="Move Workspaces to the right panel"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+            >
+              <PanelRight size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {onMoveToLeft ? (
+          <IconTooltip label="Move to left sidebar" side="bottom">
+            <Button
+              onClick={onMoveToLeft}
+              aria-label="Move Workspaces to the left sidebar"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+            >
+              <PanelLeft size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {onClosePanel ? (
+          <IconTooltip label="Close panel" side="bottom">
+            <Button
+              onClick={onClosePanel}
+              aria-label="Close Workspaces panel"
+              variant="ghost"
+              size="icon"
+              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+            >
+              <X size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <DndContext

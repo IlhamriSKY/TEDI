@@ -65,7 +65,7 @@ export const AiSidebarPanel = memo(function AiSidebarPanel() {
     <div
       data-ai-sidebar
       className={cn(
-        "border-border/60 bg-card/60 tedi-glass-panel relative flex h-full min-h-0 flex-col overflow-hidden border-l",
+        "border-border/60 bg-background tedi-glass-panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-md border",
         "text-[12px]",
       )}
     >

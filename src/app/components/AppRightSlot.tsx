@@ -1,8 +1,17 @@
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import { AiInputBarConnect } from "@/modules/ai/components/AiInputBar";
-import { RightPanelHost } from "@/modules/extensions";
-import type { useRightPanelStore } from "@/modules/extensions";
-import { Suspense } from "react";
+import {
+  BUILTIN_SECTION_EXT,
+  parseSectionPanelId,
+  RightPanelHost,
+  useRightPanelStore,
+  useSidebarPlacementStore,
+  type BuiltinSectionId,
+} from "@/modules/extensions";
+import { FileExplorer } from "@/modules/explorer";
+import { WorkspacesPanel } from "@/modules/workspaces";
+import { type Tab } from "@/modules/tabs";
+import { Suspense, type RefObject } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
 import { AiSidebarPanel, SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 
@@ -27,6 +36,27 @@ type Props = {
   };
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   onAddProviderKey: () => void;
+  /** Files-section props, so a right-docked Files section renders in the slot
+   *  (same values App passes to AppSidebar). */
+  filesSection: {
+    onOpenFile: (path: string, pin?: boolean) => void;
+    onPathRenamed: (from: string, to: string) => void;
+    onRevealInTerminal: (path: string) => void;
+    onAttachToAgent: (path: string) => void;
+    onPreviewInBrowser: (path: string) => void;
+    activeFilePath: string | null;
+  };
+  /** Workspaces-section props, for a right-docked Workspaces section. */
+  workspacesSection: {
+    onSwitch: (id: string) => void;
+    onCreate: () => void;
+    onCloseWorkspace: (id: string) => void;
+    tabCounts: Record<string, number>;
+    liveTabs: Tab[];
+    cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
+    onFocusLeaf: (tabId: number, leafId: number) => void;
+    activeLeafId: number | null;
+  };
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
 
 /**
@@ -53,18 +83,65 @@ export function AppRightSlot({
   activeSshContext,
   onOpenRemoteFile,
   onAddProviderKey,
+  filesSection,
+  workspacesSection,
   openGitDiffTab,
   openScmTab,
 }: Props) {
   if (!(rightPanelActive || scmRightOpen || sshRightOpen || (keysLoaded && panelOpen))) return null;
+  // A built-in section (Files / Workspaces) docked into the slot is flagged by
+  // the sentinel extensionId in the shared right-panel store; render it here
+  // instead of the extension `RightPanelHost` (which only knows extension panels).
+  const builtinDocked =
+    rightPanelActive?.extensionId === BUILTIN_SECTION_EXT
+      ? (parseSectionPanelId(rightPanelActive.panelId) as BuiltinSectionId | null)
+      : null;
+  // Move a docked section back to the left sidebar (undocks) vs just close the
+  // slot (keeps the dock; the status-bar toggle reopens it) — mirrors SCM/SSH.
+  const dockLeft = (key: BuiltinSectionId) => {
+    useSidebarPlacementStore.getState().moveLeft(key);
+    useRightPanelStore.getState().close();
+  };
+  const closeDock = () => useRightPanelStore.getState().close();
   return (
     <>
       <ResizableHandle withHandle />
       <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
-        {rightPanelActive ? (
+        {builtinDocked === "files" ? (
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
+            <FileExplorer
+              rootPath={explorerRoot}
+              onOpenFile={filesSection.onOpenFile}
+              onPathRenamed={filesSection.onPathRenamed}
+              onPathDeleted={onPathDeleted}
+              onRevealInTerminal={filesSection.onRevealInTerminal}
+              onAttachToAgent={filesSection.onAttachToAgent}
+              onPreviewInBrowser={filesSection.onPreviewInBrowser}
+              activeFilePath={filesSection.activeFilePath}
+              onMoveToLeft={() => dockLeft("files")}
+              onClose={closeDock}
+              hideSort
+            />
+          </div>
+        ) : builtinDocked === "workspaces" ? (
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
+            <WorkspacesPanel
+              onSwitch={workspacesSection.onSwitch}
+              onCreate={workspacesSection.onCreate}
+              onClose={workspacesSection.onCloseWorkspace}
+              tabCounts={workspacesSection.tabCounts}
+              liveTabs={workspacesSection.liveTabs}
+              cachedTabsByWorkspace={workspacesSection.cachedTabsByWorkspace}
+              onFocusLeaf={workspacesSection.onFocusLeaf}
+              activeLeafId={workspacesSection.activeLeafId}
+              onMoveToLeft={() => dockLeft("workspaces")}
+              onClosePanel={closeDock}
+            />
+          </div>
+        ) : rightPanelActive ? (
           <RightPanelHost />
         ) : scmRightOpen ? (
-          <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
             <Suspense fallback={null}>
               <SourceControlPanel
                 rootPath={explorerRoot}
@@ -76,7 +153,7 @@ export function AppRightSlot({
             </Suspense>
           </div>
         ) : sshRightOpen ? (
-          <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
             <Suspense fallback={null}>
               <SshFileExplorer
                 sessionId={activeSshContext.sessionId}
@@ -92,7 +169,7 @@ export function AppRightSlot({
             <AiSidebarPanel />
           </Suspense>
         ) : (
-          <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full flex-col border-l">
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full flex-col overflow-hidden rounded-md border">
             <AiInputBarConnect onAdd={onAddProviderKey} />
           </div>
         )}

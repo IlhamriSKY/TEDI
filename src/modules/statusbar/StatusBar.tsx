@@ -4,6 +4,7 @@ import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import { useChatStore } from "@/modules/ai";
 import {
+  BuiltinSectionRightToggles,
   ExtensionStatusItems,
   RightPanelCompactToggles,
   RightPanelDefaultToggles,
@@ -32,6 +33,9 @@ type Props = {
   /** Whether any SSH leaf is connected. Gates the right-slot Remote toggle so
    *  it appears only alongside a live session, mirroring the left sidebar. */
   hasAnySshLeaf: boolean;
+  /** True when the ACTIVE pane is a live SSH session. Hides the local-OS badge,
+   *  which would otherwise misrepresent the remote shell the breadcrumb points at. */
+  activeIsSsh?: boolean;
 };
 
 // Memoized. Callbacks are stable and props are primitives, so shallow equality
@@ -45,6 +49,7 @@ function StatusBarInner({
   detectedBrowserUrl,
   onOpenPreview,
   hasAnySshLeaf,
+  activeIsSsh,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -67,7 +72,9 @@ function StatusBarInner({
             </button>
           </IconTooltip>
         ) : null}
-        <OsBadge />
+        {/* Hidden while the active pane is a live SSH session: the breadcrumb
+            already shows the remote path, so the local-OS badge would mislead. */}
+        {activeIsSsh ? null : <OsBadge />}
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
@@ -85,6 +92,7 @@ function StatusBarInner({
         <ExtensionStatusItems />
         <RightPanelCompactToggles />
         <SidebarSectionRightToggles />
+        <BuiltinSectionRightToggles />
         <ZoomIndicator />
         <SchedulerStatusPill />
         {/* Default (non-compact) right-panel toggles sit with the other

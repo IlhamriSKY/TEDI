@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { useChatStore } from "@/modules/ai";
 import {
+  BUILTIN_SECTION_EXT,
+  MOVABLE_BUILTIN_SECTIONS,
   sectionPanelId,
   sidebarSectionKey,
   sidebarSectionsRegistry,
@@ -36,25 +38,32 @@ export function useDockedSectionAutoOpen(): void {
   const active = useRightPanelStore((s) => s.active);
   const decided = useRef(false);
 
-  const docked = useMemo(
-    () =>
-      sections.find(
-        (s) =>
-          s.item.movableToRight &&
-          placement[sidebarSectionKey(s.extensionId, s.item.id)] === "right",
-      ),
-    [sections, placement],
-  );
-  const dockedKey = docked ? sidebarSectionKey(docked.extensionId, docked.item.id) : null;
-  const dockedPanelId = docked ? sectionPanelId(docked.item.id) : null;
+  // The single right-docked candidate to restore: built-in sections (Files /
+  // Workspaces) first, then extension sections that opt in via movableToRight.
+  // Only one section can occupy the shared slot, so the first docked one wins;
+  // the others stay reachable via their status-bar toggle.
+  const docked = useMemo<{ key: string; extensionId: string; panelId: string } | null>(() => {
+    for (const b of MOVABLE_BUILTIN_SECTIONS) {
+      if (placement[b.id] === "right") {
+        return { key: b.id, extensionId: BUILTIN_SECTION_EXT, panelId: sectionPanelId(b.id) };
+      }
+    }
+    for (const s of sections) {
+      const key = sidebarSectionKey(s.extensionId, s.item.id);
+      if (s.item.movableToRight && placement[key] === "right") {
+        return { key, extensionId: s.extensionId, panelId: sectionPanelId(s.item.id) };
+      }
+    }
+    return null;
+  }, [sections, placement]);
 
   // One-shot restore on the first mount where a docked section exists.
   useEffect(() => {
     if (decided.current) return;
-    if (!docked || !dockedKey || !dockedPanelId) return; // none docked yet (still loading)
+    if (!docked) return; // none docked yet (extensions may still be loading)
     decided.current = true;
     // Respect the persisted last state: a section the user closed stays closed.
-    if (useSidebarPlacementStore.getState().rightOpen[dockedKey] === false) return;
+    if (useSidebarPlacementStore.getState().rightOpen[docked.key] === false) return;
     if (
       useRightPanelStore.getState().active ||
       useChatStore.getState().panelOpen ||
@@ -62,15 +71,15 @@ export function useDockedSectionAutoOpen(): void {
     ) {
       return; // slot is busy — leave it; the status-bar icon still reopens.
     }
-    useRightPanelStore.getState().open(docked.extensionId, dockedPanelId);
-  }, [docked, dockedKey, dockedPanelId]);
+    useRightPanelStore.getState().open(docked.extensionId, docked.panelId);
+  }, [docked]);
 
   // After the restore decision, mirror the docked section's live open/closed
   // state into the persisted intent so the next launch comes back the same way.
   useEffect(() => {
     if (!decided.current) return;
-    if (!docked || !dockedKey || !dockedPanelId) return;
-    const isOpen = active?.extensionId === docked.extensionId && active?.panelId === dockedPanelId;
-    useSidebarPlacementStore.getState().setRightOpen(dockedKey, isOpen);
-  }, [active, docked, dockedKey, dockedPanelId]);
+    if (!docked) return;
+    const isOpen = active?.extensionId === docked.extensionId && active?.panelId === docked.panelId;
+    useSidebarPlacementStore.getState().setRightOpen(docked.key, isOpen);
+  }, [active, docked]);
 }

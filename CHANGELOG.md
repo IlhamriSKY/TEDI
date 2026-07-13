@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.85] - 13-07-2026
+
+### Added
+
+- **The Files and Workspaces sidebar sections can now move to the right panel.** A "move to right panel" button in each section's header docks it into the shared right slot, the same way Source Control and the Remote (SSH) explorer already do. The right-slot instance gains "move back to left" and "close" buttons, a status-bar toggle reopens it once closed, the left sidebar drops the section while it is docked, and it joins the mutual-exclusion set with the AI sidebar and the other right panels (opening one closes the others). The placement persists, and a docked section restores its open/closed state on the next launch. See [AppSidebar.tsx](src/app/components/AppSidebar.tsx), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx), [sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts), [BuiltinSectionRightToggles.tsx](src/modules/extensions/components/BuiltinSectionRightToggles.tsx), [useDockedSectionAutoOpen.ts](src/app/hooks/useDockedSectionAutoOpen.ts).
+
+### Changed
+
+- **The workspace shell now reads as a "bento" of framed, floating panels.** The left sidebar sections (Files, Remote, Source Control, Workspaces), the center panes, and the right panel are each a distinct single-pixel-bordered card, separated by consistent gaps over a deep tray, so the sections stand out clearly; under a translucent app opacity the gaps reveal the wallpaper. The styling stays pure TEDI (square corners, one-pixel border lines) and the layout arrangement is unchanged. To keep every card visible against the tray in every theme, cards paint the canvas colour, which is distinct from the sidebar tray in all built-in themes, while still dimming to a legible floor under glass. See [App.tsx](src/app/App.tsx), [AppSidebar.tsx](src/app/components/AppSidebar.tsx), [WorkspaceArea.tsx](src/app/components/WorkspaceArea.tsx), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx).
+- **A pane's terminal-theme picker moved from the right-click menu to a header gear button.** The gear icon sits between the float and close buttons in a terminal pane's header and opens the same theme list (follow-global plus every preset). The pane's right-click menu no longer carries the theme submenu; it keeps the "Split with &lt;extension&gt;" actions. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx).
+- **Right-click in the terminal now copies your selection, or pastes when there is none.** Following the Windows Terminal / VS Code "copyPaste" convention, right-clicking a terminal that has an active selection copies it and clears the highlight (so the next right-click pastes); with no selection it pastes as before. This works identically for local and SSH terminals, routing paste through the bracketed-paste path so a multi-line snippet does not auto-execute. Select-to-copy on selection release, and `Ctrl+Shift+C` / `Ctrl+Shift+V` / `Shift+Insert`, continue to work. See [TerminalPane.tsx](src/modules/terminal/TerminalPane.tsx), [useTerminalSession.ts](src/modules/terminal/lib/useTerminalSession.ts).
+
+### Fixed
+
+- **The status bar hides the local-OS badge while the active pane is an SSH session.** The bottom-left "Windows / macOS / Linux" badge reflects the local machine, which is misleading when you are working in a remote shell (the breadcrumb already shows the remote path). It is now hidden whenever the focused pane is a connected SSH terminal, and shown again the moment you switch back to a local pane. See [StatusBar.tsx](src/modules/statusbar/StatusBar.tsx), [App.tsx](src/app/App.tsx).
+
 ## [0.3.84] - 13-07-2026
 
 ### Added

@@ -28,14 +28,16 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TERMINAL_PRESETS, type TerminalPalette } from "@/modules/settings/terminalPalette";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -58,7 +60,7 @@ import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import { closeFloat, floatPane } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
-import { GripVertical, SquareArrowOutUpRight, X } from "lucide-react";
+import { GripVertical, Settings, SquareArrowOutUpRight, X } from "lucide-react";
 
 /** Leaf kinds that can be floated into their own window. Terminals mirror live
  *  over Tauri events (the primary "watch an agent while working" case); an SSH
@@ -443,13 +445,12 @@ function PaneLeafFrame({
         isSource && "opacity-60",
       )}
     >
-      {/* Per-pane navigation header (drag handle + label + close). A terminal
-          leaf carries a right-click menu for its per-pane terminal theme; any
-          leaf also offers "Split with <extension>" while an extension panel tab
-          is open. The menu is dropped entirely when there is nothing to show
-          (e.g. an editor pane with no extension tab open), so the header never
-          opens an empty box. Only the header bar carries the menu so the
-          terminal / editor body keeps its own. */}
+      {/* Per-pane navigation header (drag handle + label + float + terminal-theme
+          gear + close). A terminal leaf's per-pane theme is a gear-icon dropdown
+          placed between the float + close buttons (no longer a right-click menu);
+          any leaf also offers a right-click "Split with <extension>" while an
+          extension panel tab is open. That right-click menu is dropped entirely
+          when there is nothing to show, so the header never opens an empty box. */}
       {(() => {
         const headerBar = (
           <div className="border-border/60 bg-card flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
@@ -538,6 +539,46 @@ function PaneLeafFrame({
                 </button>
               </IconTooltip>
             )}
+            {/* Per-pane terminal theme, moved out of the right-click menu into a
+                gear dropdown that sits between the float + close buttons. */}
+            {node.leafKind === "terminal" && onSetTerminalTheme && (
+              <DropdownMenu>
+                <IconTooltip label="Terminal theme" side="bottom">
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Terminal theme"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+                    >
+                      <Settings size={12} strokeWidth={2} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </IconTooltip>
+                <DropdownMenuContent
+                  align="end"
+                  className="max-h-[60vh] overflow-x-hidden overflow-y-auto"
+                >
+                  <DropdownMenuRadioGroup
+                    value={node.terminalThemeId ?? FOLLOW_GLOBAL_THEME}
+                    onValueChange={(v) =>
+                      onSetTerminalTheme(node.id, v === FOLLOW_GLOBAL_THEME ? null : v)
+                    }
+                  >
+                    <DropdownMenuRadioItem value={FOLLOW_GLOBAL_THEME}>
+                      Default (follow global)
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuSeparator />
+                    {TERMINAL_PRESETS.map((p) => (
+                      <DropdownMenuRadioItem key={p.id} value={p.id}>
+                        <ThemeSwatch palette={p.palette} />
+                        <span className="truncate">{p.palette.name}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {onCloseLeaf && (
               <IconTooltip label="Close pane" side="bottom">
                 <button
@@ -556,61 +597,35 @@ function PaneLeafFrame({
           </div>
         );
 
-        const showThemeMenu = node.leafKind === "terminal" && !!onSetTerminalTheme;
         // Split-with-extension only applies while an extension panel is open as
-        // a tab; without one there is nothing to relocate into the split.
+        // a tab; without one there is nothing to relocate into the split. The
+        // per-pane terminal theme moved to the header gear button (between float +
+        // close), so the right-click menu now only offers the split actions.
         const hasSplit = !!onSplitWithExtTab && !!extTabs && extTabs.length > 0;
         // Nothing to offer -> render the bare header (no empty right-click box).
-        if (!showThemeMenu && !hasSplit) return headerBar;
+        if (!hasSplit) return headerBar;
 
         return (
           <ContextMenu>
             <ContextMenuTrigger asChild>{headerBar}</ContextMenuTrigger>
             <ContextMenuContent>
-              {/* Per-pane terminal theme. Only terminal leaves carry a palette. */}
-              {node.leafKind === "terminal" && onSetTerminalTheme ? (
-                <>
-                  <ContextMenuSub>
-                    <ContextMenuSubTrigger>Terminal theme</ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="max-h-[60vh] overflow-x-hidden overflow-y-auto">
-                      <ContextMenuRadioGroup
-                        value={node.terminalThemeId ?? FOLLOW_GLOBAL_THEME}
-                        onValueChange={(v) =>
-                          onSetTerminalTheme(node.id, v === FOLLOW_GLOBAL_THEME ? null : v)
-                        }
-                      >
-                        <ContextMenuRadioItem value={FOLLOW_GLOBAL_THEME}>
-                          Default (follow global)
-                        </ContextMenuRadioItem>
-                        <ContextMenuSeparator />
-                        {TERMINAL_PRESETS.map((p) => (
-                          <ContextMenuRadioItem key={p.id} value={p.id}>
-                            <ThemeSwatch palette={p.palette} />
-                            <span className="truncate">{p.palette.name}</span>
-                          </ContextMenuRadioItem>
-                        ))}
-                      </ContextMenuRadioGroup>
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                  {hasSplit ? <ContextMenuSeparator /> : null}
-                </>
-              ) : null}
-              {onSplitWithExtTab && extTabs && extTabs.length > 0
-                ? extTabs.flatMap((et) => [
-                    <ContextMenuItem
-                      key={`${et.id}-row`}
-                      onSelect={() => onSplitWithExtTab(et.id, node.id, "row")}
-                    >
-                      Split right with {et.title || "panel"}
-                    </ContextMenuItem>,
-                    <ContextMenuItem
-                      key={`${et.id}-col`}
-                      onSelect={() => onSplitWithExtTab(et.id, node.id, "col")}
-                    >
-                      Split down with {et.title || "panel"}
-                    </ContextMenuItem>,
-                  ])
-                : null}
+              {/* hasSplit (checked above) guarantees onSplitWithExtTab + extTabs
+                  are present and extTabs is non-empty; optional chaining keeps it
+                  type-safe without a redundant always-true guard. */}
+              {extTabs?.flatMap((et) => [
+                <ContextMenuItem
+                  key={`${et.id}-row`}
+                  onSelect={() => onSplitWithExtTab?.(et.id, node.id, "row")}
+                >
+                  Split right with {et.title || "panel"}
+                </ContextMenuItem>,
+                <ContextMenuItem
+                  key={`${et.id}-col`}
+                  onSelect={() => onSplitWithExtTab?.(et.id, node.id, "col")}
+                >
+                  Split down with {et.title || "panel"}
+                </ContextMenuItem>,
+              ])}
             </ContextMenuContent>
           </ContextMenu>
         );

@@ -57,6 +57,12 @@ type Props = {
   activeFilePath?: string | null;
   /** Sidebar-section reorder controls (grip), forwarded to the header. */
   dragHandle?: React.ReactNode;
+  /** Left-sidebar instance: move Files to the shared right panel. */
+  onMoveToRight?: () => void;
+  /** Right-panel instance: dock Files back into the left sidebar. */
+  onMoveToLeft?: () => void;
+  /** Right-panel instance: close the docked panel. */
+  onClose?: () => void;
 };
 
 /**
@@ -97,6 +103,9 @@ export function FileExplorer({
   headerExtras,
   activeFilePath,
   dragHandle,
+  onMoveToRight,
+  onMoveToLeft,
+  onClose,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   // Re-render once the lazy-loaded catppuccin icon set arrives so file +
@@ -370,6 +379,9 @@ export function FileExplorer({
         onNewFolder={() => tree.beginCreate(rootPath, "dir")}
         onRefresh={() => tree.refresh(rootPath)}
         onCollapseAll={() => tree.collapseAll()}
+        onMoveToRight={onMoveToRight}
+        onMoveToLeft={onMoveToLeft}
+        onClose={onClose}
       />
 
       {collapsed ? null : (

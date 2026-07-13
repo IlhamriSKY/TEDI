@@ -87,15 +87,12 @@ export function WorkspaceArea({
         className="flex h-full min-h-0 flex-col"
         style={uiZoom === 1 ? undefined : { zoom: 1 / uiZoom }}
       >
-        {/* Deep shell base (`bg-sidebar`) behind the panes so each pane — its
-            own `bg-background` content + border + shadow — floats on a surface
-            distinct from its own well instead of blending into it. */}
-        <div className="bg-sidebar relative min-h-0 flex-1">
+        {/* Transparent to the bento tray (`bg-sidebar`, owned by App's <main>):
+            each pane is its own `bg-background` bordered card that floats on the
+            tray, butting the uniform tray gutter like the sidebar / right cards. */}
+        <div className="relative min-h-0 flex-1">
           <div
-            className={cn(
-              "absolute inset-0 px-3 pt-2 pb-2",
-              !activePaneTab && "pointer-events-none invisible",
-            )}
+            className={cn("absolute inset-0", !activePaneTab && "pointer-events-none invisible")}
             aria-hidden={activePaneTab ? "false" : "true"}
           >
             <PaneStack
@@ -127,7 +124,7 @@ export function WorkspaceArea({
           </div>
           <div
             className={cn(
-              "absolute inset-0 px-3 pt-2 pb-2",
+              "absolute inset-0",
               activeTab?.kind !== "ai-diff" && "pointer-events-none invisible",
             )}
             aria-hidden={activeTab?.kind === "ai-diff" ? "false" : "true"}
@@ -145,7 +142,7 @@ export function WorkspaceArea({
           </div>
           <div
             className={cn(
-              "absolute inset-0 px-3 pt-2 pb-2",
+              "absolute inset-0",
               activeTab?.kind !== "git-diff" && "pointer-events-none invisible",
             )}
             aria-hidden={activeTab?.kind === "git-diff" ? "false" : "true"}
@@ -158,7 +155,7 @@ export function WorkspaceArea({
           </div>
           <div
             className={cn(
-              "absolute inset-0 px-3 pt-2 pb-2",
+              "absolute inset-0",
               activeTab?.kind !== "scm" && "pointer-events-none invisible",
             )}
             aria-hidden={activeTab?.kind === "scm" ? "false" : "true"}

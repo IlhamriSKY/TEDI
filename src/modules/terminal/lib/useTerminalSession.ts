@@ -331,6 +331,13 @@ export function useTerminalSession({
     return sel.length > 0 ? sel : null;
   }, [leafId]);
 
+  /** Drop the xterm selection. Used after a right-click copy so the next
+   *  right-click pastes (Windows Terminal convention) instead of re-copying the
+   *  same range while the highlight lingers. */
+  const clearSelection = useCallback((): void => {
+    sessions.get(leafId)?.term.clearSelection();
+  }, [leafId]);
+
   /**
    * Paste via xterm so bracketed paste mode (zsh/bash/fish/pwsh) wraps the
    * payload in `\e[200~ ... \e[201~`. Raw `pty.write` would skip the wrapper
@@ -387,6 +394,7 @@ export function useTerminalSession({
     focus,
     getBuffer,
     getSelection,
+    clearSelection,
     paste,
     isAtPrompt,
     isProcessRunning,

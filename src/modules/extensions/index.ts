@@ -40,8 +40,12 @@ export {
   sidebarSectionKey,
   sectionPanelId,
   parseSectionPanelId,
+  BUILTIN_SECTION_EXT,
+  MOVABLE_BUILTIN_SECTIONS,
+  type BuiltinSectionId,
 } from "./sidebarPlacementStore";
 export { SidebarSectionRightToggles } from "./components/SidebarSectionRightToggles";
+export { BuiltinSectionRightToggles } from "./components/BuiltinSectionRightToggles";
 export {
   setExtensionWorkspaceBridge,
   getExtensionWorkspaceBridge,

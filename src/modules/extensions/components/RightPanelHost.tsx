@@ -110,7 +110,7 @@ export function RightPanelHost() {
     );
     if (!entry) return null;
     return (
-      <div className="border-border/60 bg-card/60 tedi-glass-panel flex h-full min-h-0 flex-col border-l">
+      <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
         <ExtensionSidebarSection
           extensionId={entry.extensionId}
           section={entry.item}
@@ -126,7 +126,7 @@ export function RightPanelHost() {
       data-ext-id={active.extensionId}
       data-panel-id={active.panelId}
       className={cn(
-        "border-border/60 bg-card/60 relative flex h-full min-h-0 flex-col overflow-hidden border-l",
+        "border-border/60 bg-background tedi-glass-panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-md border",
         "text-[12px]",
       )}
     >

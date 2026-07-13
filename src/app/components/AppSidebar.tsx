@@ -2,10 +2,14 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { cn } from "@/lib/utils";
 import { FileExplorer } from "@/modules/explorer";
 import {
+  BUILTIN_SECTION_EXT,
   ExtensionSidebarSection,
+  sectionPanelId,
   sidebarSectionsRegistry,
   useRegistry,
+  useRightPanelStore,
   useSidebarPlacementStore,
+  type BuiltinSectionId,
 } from "@/modules/extensions";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
@@ -103,10 +107,10 @@ const extSectionKey = (extensionId: string, sectionId: string): SectionKey =>
 const isBuiltinKey = (k: SectionKey): k is BuiltinKey =>
   (BUILTIN_KEYS as readonly string[]).includes(k);
 
-// Collapsed (minimized) panel size: exactly the h-8 header (border-box), so a
-// minimized section shows only its header. Min size while expanded keeps a few
-// rows of content visible and tidy.
-const SECTION_COLLAPSED_SIZE = "32px";
+// Collapsed (minimized) panel size: the h-8 header (32px) plus the section
+// card's 1px top+bottom border, so a minimized bento card shows its full header
+// without clipping. Min size while expanded keeps a few rows visible and tidy.
+const SECTION_COLLAPSED_SIZE = "34px";
 const SECTION_MIN_SIZE = "100px";
 
 // Persisted in localStorage (sidebar lives in the main window only).
@@ -284,6 +288,16 @@ export function AppSidebar({
     }
   };
 
+  // Dock a built-in section (Files / Workspaces) into the shared right slot,
+  // mirroring how Source Control / SSH / extension sections move right: persist
+  // the placement (so AppSidebar drops it from the left) and open it in the slot
+  // via the shared right-panel store (which gives mutual exclusion + the
+  // status-bar toggle + boot auto-restore for free).
+  const moveSectionRight = (key: BuiltinSectionId) => {
+    useSidebarPlacementStore.getState().moveRight(key);
+    useRightPanelStore.getState().open(BUILTIN_SECTION_EXT, sectionPanelId(key));
+  };
+
   const renderSection = (key: SectionKey, controls: ReactNode): ReactNode => {
     const ext = extByKey.get(key);
     if (ext) {
@@ -313,6 +327,7 @@ export function AppSidebar({
             dragHandle={controls}
             collapsed={isCollapsed}
             activeFilePath={activeFilePath}
+            onMoveToRight={() => moveSectionRight("files")}
             hideSort
           />
         );
@@ -354,6 +369,7 @@ export function AppSidebar({
             onFocusLeaf={onFocusLeaf}
             activeLeafId={activeLeafId}
             dragHandle={controls}
+            onMoveToRight={() => moveSectionRight("workspaces")}
           />
         );
     }
@@ -370,7 +386,10 @@ export function AppSidebar({
       collapsible
       collapsedSize={0}
     >
-      <div className="border-sidebar-border bg-sidebar flex h-full flex-col border-r">
+      {/* Transparent to the bento tray: each section renders as its own
+          1px-bordered `bg-sidebar` card, stacked with a gap (the vertical group's
+          `gap-1.5`), so the tray shows between them like the reference layout. */}
+      <div className="flex h-full flex-col">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -383,7 +402,7 @@ export function AppSidebar({
           }}
         >
           <SortableContext items={visible} strategy={verticalListSortingStrategy}>
-            <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+            <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 gap-1.5">
               {(() => {
                 // Insertion preview: the dragged section keeps its slot (no
                 // reflow, so the resizable layout is untouched); instead a thin
@@ -494,7 +513,10 @@ function SortableSection({
   return (
     <div
       ref={setNodeRef}
-      className={cn("relative h-full overflow-hidden", isDragging && "opacity-40")}
+      className={cn(
+        "bg-background tedi-glass-panel relative h-full overflow-hidden rounded-md border",
+        isDragging && "opacity-40",
+      )}
     >
       {dropEdge && (
         // Insertion line: a thin primary bar pinned to the target edge. Purely

@@ -483,6 +483,14 @@ export default function App() {
     hasAnySshLeaf,
   } = useSshLeafState({ activePaneTab, tabs });
 
+  // Hide the local-OS status badge while the active pane IS a live SSH session:
+  // the status bar's cwd breadcrumb shows the REMOTE path, so "Windows" would
+  // misrepresent the shell the user is actually in. Keyed off the active leaf's
+  // own connected status (not hasAnySshLeaf), so a background SSH session while
+  // you're in a local tab still shows the correct local badge.
+  const activeLeafIsSsh =
+    activeLeafIdInTab != null && sshStatuses.get(activeLeafIdInTab)?.kind === "connected";
+
   // Mutual exclusion for the shared right slot. Declared here (not up with the
   // other store reads) because it needs hasAnySshLeaf from useSshLeafState.
   useRightPanelExclusion(
@@ -916,8 +924,12 @@ export default function App() {
             lineWrapToggle={lineWrapToggle}
           />
 
-          <main className="flex min-h-0 flex-1 flex-col">
-            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          {/* Bento tray: the deep `bg-sidebar` well holds the three body columns
+              as separate 1px-bordered cards, inset from the header/status bar and
+              gapped from each other (`p-1.5` + `gap-1.5`). Under glass the gaps
+              reveal the wallpaper, matching the floating-panels look. */}
+          <main className="bg-sidebar flex min-h-0 flex-1 flex-col">
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 gap-1.5 p-1.5">
               <AppSidebar
                 sidebarRef={sidebarRef}
                 onSidebarResize={handleSidebarResize}
@@ -988,6 +1000,24 @@ export default function App() {
                 activeSshContext={activeSshContext}
                 onOpenRemoteFile={handleOpenRemoteFile}
                 onAddProviderKey={handleAddProviderKey}
+                filesSection={{
+                  onOpenFile: handleOpenFile,
+                  onPathRenamed: handlePathRenamed,
+                  onRevealInTerminal: cdInNewTab,
+                  onAttachToAgent: handleAttachFileToAgent,
+                  onPreviewInBrowser: handlePreviewFileInBrowser,
+                  activeFilePath,
+                }}
+                workspacesSection={{
+                  onSwitch: switchToWorkspace,
+                  onCreate: createNewWorkspace,
+                  onCloseWorkspace: closeWorkspace,
+                  tabCounts: liveTabCounts,
+                  liveTabs: tabs,
+                  cachedTabsByWorkspace: liveTabsByWorkspace,
+                  onFocusLeaf: focusLeafInTab,
+                  activeLeafId: activePaneTab?.activeLeafId ?? null,
+                }}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
               />
@@ -1003,6 +1033,7 @@ export default function App() {
             detectedBrowserUrl={detectedBrowserUrl}
             onOpenPreview={handleOpenDetectedPreview}
             hasAnySshLeaf={hasAnySshLeaf}
+            activeIsSsh={activeLeafIsSsh}
           />
 
           {hasComposer ? (

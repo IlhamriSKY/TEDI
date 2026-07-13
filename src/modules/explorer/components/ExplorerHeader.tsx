@@ -22,8 +22,11 @@ import {
   FilePlus,
   FileSearch,
   FolderPlus,
+  PanelLeft,
+  PanelRight,
   RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 
 type Props = {
@@ -45,6 +48,12 @@ type Props = {
   onNewFolder: () => void;
   onRefresh: () => void;
   onCollapseAll: () => void;
+  /** Left-sidebar instance: move the Files section to the shared right panel. */
+  onMoveToRight?: () => void;
+  /** Right-panel instance: dock the Files section back into the left sidebar. */
+  onMoveToLeft?: () => void;
+  /** Right-panel instance: close the panel (keeps the dock; the status-bar icon reopens). */
+  onClose?: () => void;
 };
 
 export function ExplorerHeader({
@@ -65,6 +74,9 @@ export function ExplorerHeader({
   onNewFolder,
   onRefresh,
   onCollapseAll,
+  onMoveToRight,
+  onMoveToLeft,
+  onClose,
 }: Props) {
   const accordion = !!onToggleCollapsed;
   const titleNode = (
@@ -229,7 +241,46 @@ export function ExplorerHeader({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {onMoveToRight ? (
+            <IconTooltip label="Move to right panel" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground size-6"
+                onClick={onMoveToRight}
+                aria-label="Move Files to the right panel"
+              >
+                <PanelRight size={13} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          ) : null}
+          {onMoveToLeft ? (
+            <IconTooltip label="Move to left sidebar" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground size-6"
+                onClick={onMoveToLeft}
+                aria-label="Move Files to the left sidebar"
+              >
+                <PanelLeft size={13} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          ) : null}
           {headerExtras}
+          {onClose ? (
+            <IconTooltip label="Close panel" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+                onClick={onClose}
+                aria-label="Close Files panel"
+              >
+                <X size={12} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          ) : null}
         </>
       )}
     </div>

@@ -167,13 +167,23 @@ export function TerminalPane({
       ref={containerRef}
       className="h-full w-full"
       data-terminal-leaf-id={leafId}
-      // Right-click pastes (PuTTY / Windows Terminal convention) so a snippet
-      // copied from anywhere on the PC drops straight into the shell, incl.
-      // over SSH. Reads the WebView clipboard (same API the editor uses) and
-      // routes through session.paste for bracketed paste, so multi-line text
-      // doesn't auto-execute line-by-line. Ctrl+Shift+V / Shift+Insert also work.
+      // Right-click is context-aware (Windows Terminal / VSCode "copyPaste"):
+      // with a selection it COPIES it (block then right-click = copy) and clears
+      // the highlight so the next right-click PASTES; with no selection it pastes
+      // straight away. Identical for local + SSH terminals. Clipboard via the
+      // WebView API (same as the editor); paste routes through session.paste so
+      // bracketed paste keeps multi-line snippets from auto-executing. Keyboard
+      // Ctrl+Shift+C / Ctrl+Shift+V / Shift+Insert and select-to-copy still work.
       onContextMenu={(e) => {
         e.preventDefault();
+        const sel = session.getSelection();
+        if (sel) {
+          void navigator.clipboard.writeText(sel).catch((err) => {
+            console.warn("terminal right-click copy: clipboard write failed:", err);
+          });
+          session.clearSelection();
+          return;
+        }
         void navigator.clipboard
           .readText()
           .then((text) => {
@@ -184,9 +194,9 @@ export function TerminalPane({
           });
       }}
       // Select-to-copy (PuTTY convention): releasing a left-button drag/word/line
-      // selection copies it to the clipboard, so copy out of the terminal is
-      // just "highlight it". Left button only, so right-click paste isn't caught;
-      // a plain click leaves no selection and is skipped. Ctrl+Shift+C also works.
+      // selection also copies it to the clipboard, so copy out of the terminal is
+      // just "highlight it". Left button only, so the right-click copy/paste above
+      // isn't caught; a plain click leaves no selection and is skipped.
       onMouseUp={(e) => {
         if (e.button !== 0) return;
         const sel = session.getSelection();
