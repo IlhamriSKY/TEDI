@@ -251,6 +251,7 @@ const HUGEICON_ALIAS: Record<string, string> = {
   SparklesIcon: "Sparkles",
   SquareIcon: "Square",
   SquareLock01Icon: "Lock",
+  SquareLock02Icon: "Lock",
   StopCircleIcon: "CircleStop",
   Sun03Icon: "Sun",
   TerminalIcon: "Terminal",

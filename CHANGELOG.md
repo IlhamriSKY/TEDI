@@ -4,6 +4,14 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.89] - 14-07-2026
+
+### Fixed
+
+- **The SQL Explorer's "Read only" badge shows its lock icon again.** The connection read-only pill asked the host for the `SquareLock02Icon` glyph, but the legacy hugeicon→Lucide alias map only carried the `01` variant, so the icon resolved to nothing and the badge rendered as bare text. Added the `02` alias (mapped to Lucide `Lock`), which also covers any other extension that references it. See [iconRegistry.ts](src/lib/iconRegistry.ts).
+- **The AI composer's bottom toolbar no longer overlaps, and Send stays pinned to the bottom-right.** Every control inherited the button base's `shrink-0`, so a long model name (for example `qwen-2.5-72b-instruct · via OpenAI Compatible`) pushed the action row past the panel width and clipped the Send button. The model selector is now the one control that gives up width (its label and provider hint truncate as a single line), the action group shrinks and stays flush-right, and Send is always fully visible whether the toolbar sits on one row or wraps to two. See [ModelDropdown.tsx](src/modules/ai/components/ModelDropdown.tsx), [AiStatusBarControls.tsx](src/modules/ai/components/AiStatusBarControls.tsx).
+- **The left sidebar keeps its width after you minimize and then maximize the window.** It tracked and restored its width in pixels, but the minimize animation passes the container through shrinking widths that overwrote the saved value, so the folder tree came back narrower. It now tracks and restores the sidebar as a *percentage* of the window, which react-resizable-panels holds constant while only the pixel width changes, so it returns at exactly the size you left it. See [App.tsx](src/app/App.tsx).
+
 ## [0.3.88] - 14-07-2026
 
 ### Added

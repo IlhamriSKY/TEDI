@@ -69,7 +69,13 @@ export function AiStatusBarControls() {
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5">
+    // min-w-0 (not shrink-0) so the group can shrink to its row when the panel
+    // is narrow; only the ModelDropdown gives up width (see its `shrink`), the
+    // fixed buttons keep Send pinned at the right edge instead of clipping it.
+    // ml-auto keeps the group flush-right on BOTH the shared row and, once the
+    // toolbar wraps, its own row (justify-between would otherwise flush a lone
+    // wrapped item to the left, pulling Send off the bottom-right).
+    <div className="ml-auto flex min-w-0 items-center gap-0.5">
       <input
         ref={fileInputRef}
         type="file"

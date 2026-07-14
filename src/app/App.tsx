@@ -253,14 +253,16 @@ export default function App() {
     extensionId: string;
     prior: RightAuxSnapshot;
   } | null>(null);
-  // Last user-intended sidebar width in px, so a window minimize -> restore can
-  // put it back. react-resizable-panels recomputes its layout against the 0px
-  // container a minimized window reports, which leaves the sidebar shrunk (or
-  // collapsed) once the window comes back. We snapshot the good width on every
-  // resize *while the window is live*, then re-apply it on restore. `frozen`
-  // pauses tracking across the minimize->restore window so the corrupt 0px-era
-  // sizes never overwrite the good value.
-  const lastSidebarPxRef = useRef<number | null>(null);
+  // Last user-intended sidebar size as a *percentage* of the window, so a
+  // minimize -> restore (or maximize) can put it back. react-resizable-panels
+  // keeps a panel's percentage constant while the container resizes and
+  // recomputes only pixels, so the percentage is stable through the whole
+  // minimize animation - whereas the pixel width passes through shrunken
+  // mid-animation values that pixel tracking captured and then restored the
+  // sidebar to (the reported shrink). We snapshot it on every resize *while the
+  // window is live*; `frozen` pauses tracking across the minimize->restore
+  // window as a belt-and-suspenders guard.
+  const lastSidebarPctRef = useRef<number | null>(null);
   // Whether the sidebar was closed (collapsed to 0) the last time it resized
   // while the window was live - regardless of HOW it was closed (toggle button,
   // extension hide, or a drag-to-collapse). The minimize->restore guard reads
@@ -273,20 +275,15 @@ export default function App() {
     // A minimized/hidden window reports a degenerate layout; ignore it. Guards
     // the race where the DOM resize fires before our Tauri minimize listener.
     if (document.visibilityState !== "visible") return;
-    // While the window is live the panel enforces its `minSize`, so any width
-    // below it is a 0px-container transition artifact, not a real user width.
-    // Belt-and-suspenders for the same race. Keep in sync with AppSidebar's
-    // `minSize="130px"`.
-    if (size.inPixels >= 130) {
-      lastSidebarPxRef.current = size.inPixels;
+    // Percentage, not pixels: a minimized window drops the container to 0px so
+    // `inPixels` collapses to 0 while react-resizable-panels preserves the
+    // sidebar's percentage (it lays out in %). So a nonzero percentage is the
+    // live, correct size and a zero percentage is a genuine drag/toggle
+    // collapse - the minimize artifact never lands in the collapse branch.
+    if (size.asPercentage > 0) {
+      lastSidebarPctRef.current = size.asPercentage;
       lastSidebarCollapsedRef.current = false;
-    } else if (size.asPercentage <= 0) {
-      // Genuine collapse only. Detect it by *percentage*, not pixels: on
-      // minimize the container goes to 0px so `inPixels` drops to 0 while
-      // react-resizable-panels preserves the sidebar's percentage (it lays out
-      // in %), whereas a real drag/toggle-collapse sets the percentage to 0.
-      // Keying off pixels here mistook the minimize artifact for a user close
-      // and left an open sidebar shut after restore.
+    } else {
       lastSidebarCollapsedRef.current = true;
     }
   }, []);
@@ -340,9 +337,9 @@ export default function App() {
               if (!p.isCollapsed()) p.collapse();
             } else {
               if (p.isCollapsed()) p.expand();
-              const want = lastSidebarPxRef.current;
-              if (want != null && Math.abs(p.getSize().inPixels - want) > 1) {
-                p.resize(`${want}px`);
+              const want = lastSidebarPctRef.current;
+              if (want != null && Math.abs(p.getSize().asPercentage - want) > 0.5) {
+                p.resize(`${want}%`);
               }
             }
           }

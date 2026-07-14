@@ -39,12 +39,15 @@ Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/TEDI/releases/lat
 ## Screenshots
 
 <p align="center">
-  <img src="docs/tedi1.png" width="49%" alt="TEDI screenshot 1" />
-  <img src="docs/tedi2.png" width="49%" alt="TEDI screenshot 2" />
+  <img src="docs/1.png" width="49%" alt="TEDI screenshot 1" />
+  <img src="docs/2.png" width="49%" alt="TEDI screenshot 2" />
 </p>
 <p align="center">
-  <img src="docs/tedi3.png" width="49%" alt="TEDI screenshot 3" />
-  <img src="docs/tedi4.png" width="49%" alt="TEDI screenshot 4" />
+  <img src="docs/3.png" width="49%" alt="TEDI screenshot 3" />
+  <img src="docs/4.png" width="49%" alt="TEDI screenshot 4" />
+</p>
+<p align="center">
+  <img src="docs/5.png" width="49%" alt="TEDI screenshot 5" />
 </p>
 
 ## Configure AI

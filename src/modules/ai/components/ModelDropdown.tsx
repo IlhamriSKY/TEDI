@@ -172,18 +172,23 @@ export function ModelDropdown() {
               aria-label={modelTooltip}
               className={cn(
                 TOOLBAR_HOVER,
-                "my-1 h-5.5 max-w-52 min-w-0 gap-1.5 rounded-md px-1.5 text-xs",
+                // `shrink` overrides the Button base `shrink-0` so this trigger
+                // is the element that gives up width when the composer toolbar
+                // is narrow - the action buttons (incl. Send) stay full-size.
+                "my-1 h-5.5 max-w-52 min-w-0 shrink gap-1.5 rounded-md px-1.5 text-xs",
                 currentProviderHasKey ? "text-muted-foreground" : "text-icon-working",
               )}
             >
               {/* Provider icon intentionally omitted here - it lives only in the
-                  dropdown's section headers, keeping the composer trigger compact. */}
-              <span className="truncate font-medium">{current.label}</span>
-              {current.hint ? (
-                <span className="text-muted-foreground/70 shrink-0 truncate font-normal">
-                  · {current.hint}
-                </span>
-              ) : null}
+                  dropdown's section headers, keeping the composer trigger compact.
+                  Label + hint truncate as one line so the trigger can shrink to
+                  near-zero (ellipsis at the end) instead of clipping Send. */}
+              <span className="min-w-0 truncate text-left">
+                <span className="font-medium">{current.label}</span>
+                {current.hint ? (
+                  <span className="text-muted-foreground/70 font-normal"> · {current.hint}</span>
+                ) : null}
+              </span>
               <ChevronDown size={11} strokeWidth={2} className="shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
