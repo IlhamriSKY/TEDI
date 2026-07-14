@@ -33,6 +33,10 @@ type Props = {
   /** True when the ACTIVE pane is a live SSH session. Hides the local-OS badge,
    *  which would otherwise misrepresent the remote shell the breadcrumb points at. */
   activeIsSsh?: boolean;
+  /** SFTP session id of the active SSH leaf (set only when `activeIsSsh`). Lets
+   *  the breadcrumb browse subfolders remotely instead of hitting the local
+   *  filesystem with a remote path. */
+  sshSessionId?: number | null;
 };
 
 // Memoized. Callbacks are stable and props are primitives, so shallow equality
@@ -45,6 +49,7 @@ function StatusBarInner({
   onOpenMini,
   hasAnySshLeaf,
   activeIsSsh,
+  sshSessionId,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -55,7 +60,13 @@ function StatusBarInner({
         {/* Hidden while the active pane is a live SSH session: the breadcrumb
             already shows the remote path, so the local-OS badge would mislead. */}
         {activeIsSsh ? null : <OsBadge />}
-        <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
+        <CwdBreadcrumb
+          cwd={cwd}
+          filePath={filePath}
+          home={home}
+          onCd={onCd}
+          sshSessionId={sshSessionId}
+        />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {/* "Open AI log" pill leads the right cluster (leftmost, alongside the

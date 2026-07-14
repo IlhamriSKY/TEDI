@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { basename, toForwardSlash } from "@/lib/path";
+import { humanizeFsError } from "@/lib/fsError";
 import { segmentsFromCwd, type Segment } from "./lib/pathUtils";
 import { ChevronRight, Folder, Search } from "lucide-react";
 
@@ -22,6 +23,11 @@ type Props = {
   filePath?: string | null;
   home: string | null;
   onCd: (path: string) => void;
+  /** Set when the active leaf is a connected SSH session. Subfolder browsing
+   *  then goes over SFTP on this session instead of the local filesystem, so a
+   *  remote path never hits the local `list_subdirs` (which fails with "the
+   *  system cannot find the path"). Null for local terminals. */
+  sshSessionId?: number | null;
 };
 
 function dirname(path: string): string {
@@ -45,7 +51,7 @@ function joinPath(parent: string, name: string): string {
   return norm.endsWith("/") ? `${norm}${name}` : `${norm}/${name}`;
 }
 
-export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
+export function CwdBreadcrumb({ cwd, filePath, home, onCd, sshSessionId }: Props) {
   if (!cwd && !filePath) {
     return <span className="text-muted-foreground/70 text-xs">no directory</span>;
   }
@@ -63,11 +69,15 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
     <Breadcrumb>
       <BreadcrumbList className="gap-1 text-xs sm:gap-1.5">
         {linkSegments.map((s) => (
-          <BreadcrumbSegment key={s.fullPath} segment={s} onCd={onCd} />
+          <BreadcrumbSegment key={s.fullPath} segment={s} onCd={onCd} sshSessionId={sshSessionId} />
         ))}
         {currentDirSegment ? (
           <BreadcrumbItem>
-            <SubfolderDropdown path={currentDirSegment.fullPath} onCd={onCd}>
+            <SubfolderDropdown
+              path={currentDirSegment.fullPath}
+              onCd={onCd}
+              sshSessionId={sshSessionId}
+            >
               <BreadcrumbPage className={SEGMENT_BADGE_ACTIVE}>
                 {currentDirSegment.isHome ? "~" : leafLabel}
               </BreadcrumbPage>
@@ -83,7 +93,15 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
   );
 }
 
-function BreadcrumbSegment({ segment, onCd }: { segment: Segment; onCd: (path: string) => void }) {
+function BreadcrumbSegment({
+  segment,
+  onCd,
+  sshSessionId,
+}: {
+  segment: Segment;
+  onCd: (path: string) => void;
+  sshSessionId?: number | null;
+}) {
   return (
     <span className="contents">
       <BreadcrumbItem>
@@ -97,7 +115,7 @@ function BreadcrumbSegment({ segment, onCd }: { segment: Segment; onCd: (path: s
           </button>
         </BreadcrumbLink>
       </BreadcrumbItem>
-      <SubfolderDropdown path={segment.fullPath} onCd={onCd}>
+      <SubfolderDropdown path={segment.fullPath} onCd={onCd} sshSessionId={sshSessionId}>
         <button
           type="button"
           aria-label={`Browse subfolders of ${segment.label}`}
@@ -114,10 +132,12 @@ function SubfolderDropdown({
   path,
   onCd,
   children,
+  sshSessionId,
 }: {
   path: string;
   onCd: (path: string) => void;
   children: React.ReactNode;
+  sshSessionId?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<
@@ -146,19 +166,31 @@ function SubfolderDropdown({
     }
     let cancelled = false;
     setState({ status: "loading" });
-    invoke<string[]>("list_subdirs", { path })
+    // SSH leaf: list over SFTP on its session (keeping only directories) so a
+    // remote path is browsed remotely. Local leaf: the local `list_subdirs`
+    // command. The SFTP module is lazy-imported so the always-mounted status
+    // bar doesn't pull it into the main bundle.
+    const load: Promise<string[]> =
+      sshSessionId != null
+        ? import("@/modules/ssh/sftp").then(({ sftpReadDir }) =>
+            sftpReadDir(sshSessionId, path, false).then((entries) =>
+              entries.filter((e) => e.kind === "dir").map((e) => e.name),
+            ),
+          )
+        : invoke<string[]>("list_subdirs", { path });
+    load
       .then((dirs) => {
         if (cancelled) return;
         setState({ status: "loaded", dirs });
       })
       .catch((e) => {
         if (cancelled) return;
-        setState({ status: "error", message: String(e) });
+        setState({ status: "error", message: humanizeFsError(String(e)).message });
       });
     return () => {
       cancelled = true;
     };
-  }, [open, path]);
+  }, [open, path, sshSessionId]);
 
   // Arm items ~200ms after the list lands. Long enough to outlast any
   // pointer-up still in flight from the opening click; short enough that

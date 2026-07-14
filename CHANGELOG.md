@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.88] - 14-07-2026
+
+### Added
+
+- **The Remote (SSH) file explorer gains Back / Forward / Up plus a clickable breadcrumb.** The tree still follows the terminal's cwd, but you can now climb out of it: a navigation row above the tree steps Back and Forward through visited folders (browser-style, a forward branch is discarded when you go somewhere new), goes Up one level, and jumps to any ancestor from the breadcrumb. Once you navigate it pins to the chosen folder so terminal activity can't yank the tree out from under you; stepping Back past the start returns to following the shell, and a reconnect or a switch to a different remote resets the history so it never replays a stale path. See [useSshNav.ts](src/modules/ssh/useSshNav.ts), [SshFileExplorer.tsx](src/modules/ssh/SshFileExplorer.tsx).
+
+### Fixed
+
+- **Browsing a remote folder from the status-bar breadcrumb no longer fails with "the system cannot find the path".** Under an SSH session the breadcrumb path is remote, but its subfolder dropdown listed over the *local* `list_subdirs`, and clicking a segment repointed the *local* workspace root at that remote path (which then persisted across reloads and broke the local explorer). The breadcrumb now lists subfolders over SFTP on the active session, and a breadcrumb `cd` under SSH targets only the remote shell without touching the local root. See [CwdBreadcrumb.tsx](src/modules/statusbar/CwdBreadcrumb.tsx), [useTabActions.ts](src/app/hooks/useTabActions.ts), [StatusBar.tsx](src/modules/statusbar/StatusBar.tsx).
+- **Permission-denied and missing folders now read clearly instead of dumping a raw OS error.** A folder you can't open shows "You don't have permission to open this folder." with a lock glyph in a muted tone, and a folder that's gone shows "This folder no longer exists.", in both the local and Remote (SSH) trees and the breadcrumb dropdown; only genuinely unexpected errors keep the loud red text. The mapping covers the Windows, Unix, and SFTP phrasings so it works whether the tree is local or remote. See [fsError.ts](src/lib/fsError.ts), [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx).
+- **Ctrl+D now splits the pane even while a terminal is focused.** The split-right shortcut was previously swallowed by the terminal (a focused terminal owns Ctrl+D); it is now exempt from the terminal-chord gate so it fires the split like Ctrl+Shift+D (split-down) already did, winning over the shell's Ctrl+D EOF. See [App.tsx](src/app/App.tsx).
+
 ## [0.3.87] - 14-07-2026
 
 ### Added

@@ -16,6 +16,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { humanizeFsError } from "@/lib/fsError";
 import { memo, useCallback, useState } from "react";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, relativePath, revealInFinder } from "./lib/contextActions";
@@ -23,7 +24,7 @@ import { useGitDecoration } from "./lib/gitDecorations";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import type { DirEntry, useFileTree } from "./lib/useFileTree";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 
 type Tree = ReturnType<typeof useFileTree>;
 
@@ -299,14 +300,30 @@ function FileTreeNodeImpl({
           Loading…
         </div>
       )}
-      {isDir && isExpanded && children?.status === "error" && (
-        <div
-          className="text-destructive px-2 py-0.5 text-[11px]"
-          style={{ paddingLeft: 6 + (depth + 1) * 12 + 18 }}
-        >
-          {children.message}
-        </div>
-      )}
+      {isDir &&
+        isExpanded &&
+        children?.status === "error" &&
+        (() => {
+          // Permission-denied / missing folders are expected, not app faults:
+          // show a clear message (lock glyph for denied) in a muted tone, and
+          // keep the loud destructive tone only for genuinely unexpected errors.
+          const err = humanizeFsError(children.message);
+          return (
+            <div
+              className={cn(
+                "flex items-center gap-1 px-2 py-0.5 text-[11px]",
+                err.kind === "other" ? "text-destructive" : "text-muted-foreground",
+              )}
+              style={{ paddingLeft: 6 + (depth + 1) * 12 + 18 }}
+              title={err.raw}
+            >
+              {err.kind === "denied" ? (
+                <Lock size={11} strokeWidth={2} className="shrink-0" />
+              ) : null}
+              <span className="truncate">{err.message}</span>
+            </div>
+          );
+        })()}
       {isDir &&
         isExpanded &&
         children?.status === "loaded" &&

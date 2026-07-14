@@ -20,19 +20,27 @@ import {
 import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
+import { cn } from "@/lib/utils";
+import { humanizeFsError } from "@/lib/fsError";
+import { segmentsFromCwd } from "@/modules/statusbar/lib/pathUtils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setSshInRightPanel } from "@/modules/settings/store";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
 import { useSshFileDrop } from "./useSshFileDrop";
+import { useSshNav } from "./useSshNav";
 import { useSshRightPanelStore } from "./sshRightPanelStore";
 import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   FilePlus,
   FolderPlus,
+  Lock,
   PanelLeft,
   PanelRight,
   RefreshCw,
@@ -112,9 +120,14 @@ export function SshFileExplorer({
     };
   }, [sessionId]);
 
-  // Prefer the terminal cwd, else the SFTP home. Empty cwd means "unknown",
-  // not "null", to avoid blanking the tree mid-session.
-  const rootPath = currentCwd && currentCwd.length > 0 ? currentCwd : homePath;
+  // Base root follows the terminal cwd (OSC 7), else the SFTP home. Empty cwd
+  // means "unknown", not "null", to avoid blanking the tree mid-session.
+  const followRoot = currentCwd && currentCwd.length > 0 ? currentCwd : homePath;
+  // Root navigation (Back / Forward / Up / breadcrumb). Tracks `followRoot`
+  // until the user navigates, then pins to the chosen folder; resets when the
+  // session changes so a reconnect never replays a stale path.
+  const nav = useSshNav(followRoot, sessionId);
+  const rootPath = nav.root;
   const tree = useSshFileTree(sessionId, rootPath, { includeHidden: showHiddenFiles });
 
   // Drag-and-drop upload: drop OS files onto this panel to SFTP them to the
@@ -288,6 +301,77 @@ export function SshFileExplorer({
         ) : null}
       </div>
 
+      {/* Navigation row: Back / Forward / Up plus a clickable breadcrumb of the
+          current root. Lets the user climb out of the cwd (which the tree is
+          otherwise pinned to) and jump to any ancestor, instead of only being
+          able to expand downward. Reuses the status-bar path segmentation. */}
+      {!collapsed && sessionId !== null && rootPath ? (
+        <div className="border-border/60 flex h-7 shrink-0 items-center gap-0.5 border-b px-1.5">
+          <IconTooltip label="Back" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!nav.canBack}
+              className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-30"
+              onClick={nav.back}
+              aria-label="Back to previous folder"
+            >
+              <ArrowLeft size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+          <IconTooltip label="Forward" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!nav.canForward}
+              className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-30"
+              onClick={nav.forward}
+              aria-label="Forward"
+            >
+              <ArrowRight size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+          <IconTooltip label="Up one folder" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!nav.canUp}
+              className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-30"
+              onClick={nav.up}
+              aria-label="Up one folder"
+            >
+              <ArrowUp size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <div className="flex items-center gap-0.5 pr-1 whitespace-nowrap">
+              {segmentsFromCwd(rootPath, homePath).map((s, i, arr) => {
+                const isCurrent = i === arr.length - 1;
+                return (
+                  <span key={s.fullPath} className="flex items-center gap-0.5">
+                    {i > 0 ? <span className="text-muted-foreground/40 text-[10px]">/</span> : null}
+                    <button
+                      type="button"
+                      disabled={isCurrent}
+                      onClick={() => nav.navTo(s.fullPath)}
+                      title={s.fullPath}
+                      className={cn(
+                        "rounded px-1 py-0.5 text-[11px] transition-colors",
+                        isCurrent
+                          ? "text-foreground/80 font-medium"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer",
+                      )}
+                    >
+                      {s.isHome ? "~" : s.label}
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {upload && !collapsed ? (
         <div className="border-border/60 shrink-0 border-b px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
@@ -323,7 +407,7 @@ export function SshFileExplorer({
         <>
           {rootError !== null ? (
             <div className="text-destructive border-border/60 border-b px-3 py-1.5 text-[11px]">
-              {rootError}
+              {humanizeFsError(rootError).message}
             </div>
           ) : null}
 
@@ -357,9 +441,48 @@ export function SshFileExplorer({
                   {root?.status === "loading" && (
                     <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
                   )}
-                  {root?.status === "error" && (
-                    <div className="text-destructive px-3 py-2 text-[11px]">{root.message}</div>
-                  )}
+                  {root?.status === "error" &&
+                    (() => {
+                      // A folder the remote user can't read (or that vanished)
+                      // is an expected condition, not an app fault: show a clear
+                      // message with a way back instead of a raw error string.
+                      const err = humanizeFsError(root.message);
+                      return (
+                        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                          {err.kind === "denied" ? (
+                            <Lock
+                              size={20}
+                              strokeWidth={1.5}
+                              className="text-muted-foreground/80"
+                            />
+                          ) : null}
+                          <div className="text-muted-foreground text-[11px]" title={err.raw}>
+                            {err.message}
+                          </div>
+                          {nav.canBack ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 gap-1 text-[11px]"
+                              onClick={nav.back}
+                            >
+                              <ArrowLeft size={12} strokeWidth={2} />
+                              Go back
+                            </Button>
+                          ) : nav.canUp ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 gap-1 text-[11px]"
+                              onClick={nav.up}
+                            >
+                              <ArrowUp size={12} strokeWidth={2} />
+                              Go up
+                            </Button>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   {root?.status === "loaded" &&
                     root.entries.map((entry) => (
                       <FileTreeNode

@@ -12,6 +12,11 @@ type Params = {
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
   activeLeafIdInTab: number | null;
   activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
+  /** True when the active leaf is a connected SSH terminal. A breadcrumb `cd`
+   *  then targets the remote shell only; it must NOT repoint the local
+   *  workspace root at a remote path (which breaks the local explorer and
+   *  persists across reloads). */
+  activeLeafIsSsh: boolean;
   explorerRoot: string | null;
   inheritedCwdForNewTab: () => string | undefined;
   setPickedRoot: Dispatch<SetStateAction<string | null>>;
@@ -54,6 +59,7 @@ export function useTabActions({
   terminalRefs,
   activeLeafIdInTab,
   activeLeafKindCurrent,
+  activeLeafIsSsh,
   explorerRoot,
   inheritedCwdForNewTab,
   setPickedRoot,
@@ -185,11 +191,17 @@ export function useTabActions({
       // the explorer, AI workspace context, and inherited cwd follow.
       // Persisted across reloads.
       const normalized = path.replace(/\\/g, "/");
-      setPickedRoot(normalized);
-      try {
-        localStorage.setItem("tedi.workspaceRoot", normalized);
-      } catch {
-        // Storage unavailable. Skip persistence.
+      // Under SSH the breadcrumb path is REMOTE: pointing the local workspace
+      // root at it makes the local explorer read a non-existent local path
+      // ("the system cannot find the path") and persists that across reloads.
+      // Skip the local-root mutation entirely; only the remote `cd` below runs.
+      if (!activeLeafIsSsh) {
+        setPickedRoot(normalized);
+        try {
+          localStorage.setItem("tedi.workspaceRoot", normalized);
+        } catch {
+          // Storage unavailable. Skip persistence.
+        }
       }
       // If the active leaf is a terminal, cd it too so the shell tracks
       // the new workspace - but ONLY while it's sitting idle at a prompt.
@@ -215,7 +227,7 @@ export function useTabActions({
         }
       }
     },
-    [activeLeafIdInTab, activeLeafKindCurrent, setLeafCwd],
+    [activeLeafIdInTab, activeLeafKindCurrent, activeLeafIsSsh, setLeafCwd, setPickedRoot],
   );
 
   const cdInNewTab = useCallback(

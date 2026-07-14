@@ -693,6 +693,7 @@ export default function App() {
     terminalRefs,
     activeLeafIdInTab,
     activeLeafKindCurrent,
+    activeLeafIsSsh,
     explorerRoot,
     inheritedCwdForNewTab,
     setPickedRoot,
@@ -825,16 +826,20 @@ export default function App() {
   useGlobalShortcuts(shortcutHandlers, {
     isDisabled: (id, e) =>
       (id.startsWith("browser.") && activeLeafKindCurrent !== "browser") ||
-      // A focused terminal owns every bare-Ctrl control code (Ctrl+D EOF /
-      // screen detach, Ctrl+E, Ctrl+W, Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab,
-      // the tmux/screen prefix, …) and every bare-Alt meta sequence (readline
-      // M-b / M-f / M-d / M-1..9). On Win/Linux `Mod`=Ctrl, so those chords
-      // otherwise fire app actions (split, close tab, ask AI, word-wrap, …) and
-      // the byte never reaches the shell. Let them fall through. Terminal-safe
-      // app chords keep Shift/Meta or add a second modifier (Ctrl+Shift+C copy,
+      // A focused terminal owns every bare-Ctrl control code (Ctrl+E, Ctrl+W,
+      // Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab, the tmux/screen prefix, …) and
+      // every bare-Alt meta sequence (readline M-b / M-f / M-d / M-1..9). On
+      // Win/Linux `Mod`=Ctrl, so those chords otherwise fire app actions (close
+      // tab, ask AI, word-wrap, …) and the byte never reaches the shell. Let
+      // them fall through. Exception: pane.splitRight (Ctrl+D) is exempt so the
+      // split-pane shortcut fires inside a terminal too - it wins over the
+      // shell's Ctrl+D EOF, matching pane.splitDown (Ctrl+Shift+D), which the
+      // gate already lets through because it carries Shift. Terminal-safe app
+      // chords keep Shift/Meta or add a second modifier (Ctrl+Shift+C copy,
       // Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay active; Ctrl+Tab /
       // Ctrl+digit / zoom are not control codes and stay active too.
-      (activeLeafKindCurrent === "terminal" &&
+      (id !== "pane.splitRight" &&
+        activeLeafKindCurrent === "terminal" &&
         (isTerminalControlChord(e) || isTerminalMetaChord(e))),
   });
 
@@ -1052,6 +1057,7 @@ export default function App() {
             onOpenMini={openMini}
             hasAnySshLeaf={hasAnySshLeaf}
             activeIsSsh={activeLeafIsSsh}
+            sshSessionId={activeLeafIsSsh ? activeSshContext.sessionId : null}
           />
 
           {hasComposer ? (
