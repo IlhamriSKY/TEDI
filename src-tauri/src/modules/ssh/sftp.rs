@@ -13,6 +13,7 @@ use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileType, OpenFlags, StatusCode};
 use serde::Serialize;
+use tauri::ipc::Channel;
 
 use super::session::SshSession;
 use super::{ssh_runtime, SshState};
@@ -96,6 +97,15 @@ fn humanize(err: SftpError) -> String {
         },
         _ => format!("sftp: {err}"),
     }
+}
+
+/// Byte-level upload progress streamed to the frontend so the SSH explorer
+/// can show a moving percentage while a dropped file transfers.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadProgress {
+    pub written: u64,
+    pub total: u64,
 }
 
 fn map_file_type(ft: FileType) -> &'static str {
@@ -221,12 +231,15 @@ pub async fn ssh_sftp_write_file(
 /// `remote_path`, replacing it in place. Directories are rejected up front -
 /// recursive upload is a separate feature. The remote kernel enforces write
 /// permission on the target dir; a denial surfaces as `permission denied`.
+/// `on_progress` emits `{written, total}` as each chunk lands so the explorer
+/// can render a percentage instead of jumping 0% -> 100%.
 #[tauri::command]
 pub async fn ssh_sftp_upload(
     state: tauri::State<'_, SshState>,
     id: u32,
     local_path: String,
     remote_path: String,
+    on_progress: Channel<UploadProgress>,
 ) -> Result<(), String> {
     // Cap the whole-file read so a huge drop can't OOM the app. Matches the
     // read-file guard's intent; uploads get a larger ceiling.
@@ -250,6 +263,7 @@ pub async fn ssh_sftp_upload(
     .map_err(|e| format!("read task join failed: {e}"))??;
 
     on_sftp(&state, id, move |sftp| async move {
+        let total = bytes.len() as u64;
         let mut file = sftp
             .open_with_flags(
                 remote_path,
@@ -258,9 +272,19 @@ pub async fn ssh_sftp_upload(
             .await
             .map_err(humanize)?;
         use tokio::io::AsyncWriteExt;
-        file.write_all(&bytes)
-            .await
-            .map_err(|e| format!("sftp write: {e}"))?;
+        // Chunk the write so a large file reports a moving percentage. 256 KiB
+        // keeps the event count bounded (<=1024 for the 256 MiB cap) while
+        // still feeling live. Send an initial 0% so the bar appears at once.
+        const CHUNK: usize = 256 * 1024;
+        let _ = on_progress.send(UploadProgress { written: 0, total });
+        let mut written: u64 = 0;
+        for chunk in bytes.chunks(CHUNK) {
+            file.write_all(chunk)
+                .await
+                .map_err(|e| format!("sftp write: {e}"))?;
+            written += chunk.len() as u64;
+            let _ = on_progress.send(UploadProgress { written, total });
+        }
         file.shutdown()
             .await
             .map_err(|e| format!("sftp close: {e}"))?;

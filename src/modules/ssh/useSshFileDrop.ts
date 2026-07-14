@@ -1,7 +1,17 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "@/components/ui/toast";
 import { localBasename, sftpUpload } from "./sftp";
+
+/** In-flight upload progress, or null when idle. Drives the explorer's
+ *  progress strip. `index`/`count` are 1-based for display. */
+export type SshUploadState = {
+  name: string;
+  index: number;
+  count: number;
+  written: number;
+  total: number;
+};
 
 // Drag-and-drop upload: drop OS files onto the SSH file tree to SFTP them to the
 // remote. Rides Tauri's `tauri://drag-drop` (the same OS-level target the
@@ -28,12 +38,19 @@ type Params = {
   onUploaded: (remoteDir: string) => void;
 };
 
-export function useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded }: Params): void {
+export function useSshFileDrop({
+  sessionId,
+  rootPath,
+  containerRef,
+  onUploaded,
+}: Params): SshUploadState | null {
   // Latest callback kept in a ref so the Tauri listener subscribes once per
   // session/root instead of re-subscribing on every tree re-render (which
   // could drop an in-flight drag event).
   const onUploadedRef = useRef(onUploaded);
   onUploadedRef.current = onUploaded;
+
+  const [upload, setUpload] = useState<SshUploadState | null>(null);
 
   useEffect(() => {
     if (sessionId === null || !rootPath) return;
@@ -80,13 +97,19 @@ export function useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded }
         if (dir === null) return; // dropped elsewhere (e.g. a terminal)
 
         const failures: string[] = [];
-        for (const local of paths) {
+        for (let i = 0; i < paths.length; i++) {
+          const local = paths[i];
+          const name = localBasename(local);
+          setUpload({ name, index: i + 1, count: paths.length, written: 0, total: 0 });
           try {
-            await sftpUpload(sessionId, local, joinRemote(dir, localBasename(local)));
+            await sftpUpload(sessionId, local, joinRemote(dir, name), (p) =>
+              setUpload({ name, index: i + 1, count: paths.length, ...p }),
+            );
           } catch (e) {
-            failures.push(`${localBasename(local)}: ${String(e)}`);
+            failures.push(`${name}: ${String(e)}`);
           }
         }
+        setUpload(null);
         onUploadedRef.current(dir);
         const ok = paths.length - failures.length;
         if (failures.length === 0) {
@@ -110,4 +133,6 @@ export function useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded }
       unlisten?.();
     };
   }, [sessionId, rootPath, containerRef]);
+
+  return upload;
 }

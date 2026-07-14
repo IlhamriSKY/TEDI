@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 // SFTP IPC wrappers. Each call uses the russh-sftp client on the SSH session
 // returned by `ssh_open`. Permission errors come straight from the remote
@@ -45,15 +45,27 @@ export function sftpWriteFile(sessionId: number, path: string, contents: string)
   return invoke("ssh_sftp_write_file", { id: sessionId, path, contents });
 }
 
+/** Byte progress for one file's upload; `written === total` means done. */
+export type UploadProgress = { written: number; total: number };
+
 /** Upload a local file (by absolute path) to a remote path over SFTP. Bytes are
  *  read on the Rust side so binary files upload intact (never round-tripped as a
- *  JS string). Folders are rejected; write permission is enforced by the remote. */
+ *  JS string). Folders are rejected; write permission is enforced by the remote.
+ *  `onProgress` fires per chunk so callers can show a percentage. */
 export function sftpUpload(
   sessionId: number,
   localPath: string,
   remotePath: string,
+  onProgress?: (p: UploadProgress) => void,
 ): Promise<void> {
-  return invoke("ssh_sftp_upload", { id: sessionId, localPath, remotePath });
+  const onProgressChannel = new Channel<UploadProgress>();
+  if (onProgress) onProgressChannel.onmessage = onProgress;
+  return invoke("ssh_sftp_upload", {
+    id: sessionId,
+    localPath,
+    remotePath,
+    onProgress: onProgressChannel,
+  });
 }
 
 export function sftpCreateFile(sessionId: number, path: string): Promise<void> {

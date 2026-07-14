@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.87] - 14-07-2026
+
+### Added
+
+- **Dropping files onto the Remote (SSH) tree now shows a live upload progress bar.** The SFTP upload streamed a file in one write, so the explorer had no way to show more than 0% then 100%; a large drop looked frozen. The backend now writes each file in 256 KiB chunks and streams `{written, total}` byte progress over a Tauri channel, and the SSH explorer renders a strip above the tree with the file name, a `1/3`-style counter for a multi-file drop, a moving percentage, and a real progress bar. Behaviour is otherwise unchanged (folders still rejected, 256 MB per-file cap, remote kernel enforces write permission). See [sftp.rs](src-tauri/src/modules/ssh/sftp.rs), [sftp.ts](src/modules/ssh/sftp.ts), [useSshFileDrop.ts](src/modules/ssh/useSshFileDrop.ts), [SshFileExplorer.tsx](src/modules/ssh/SshFileExplorer.tsx).
+
+### Fixed
+
+- **An open sidebar stays open after you minimize and restore the window.** The collapse detector keyed off the sidebar's pixel width, but minimizing the window drops the container to 0px while react-resizable-panels preserves the sidebar's layout percentage, so the minimize artifact was mistaken for a user close and the sidebar came back shut. It now treats only a zero *percentage* as a genuine collapse (a real drag or toggle sets the percentage to 0), so minimize/restore leaves the sidebar as you had it. See [App.tsx](src/app/App.tsx).
+
 ## [0.3.86] - 13-07-2026
 
 ### Added

@@ -127,7 +127,10 @@ export function SshFileExplorer({
     },
     [tree, rootPath],
   );
-  useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded });
+  const upload = useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded });
+  // total 0 = size not known yet (first event) -> show indeterminate-ish 0%.
+  const uploadPct =
+    upload && upload.total > 0 ? Math.round((upload.written / upload.total) * 100) : 0;
 
   const accordion = !!onToggleCollapsed;
   const headerLabel = rootPath ? basename(rootPath) : (hostLabel ?? "SSH");
@@ -284,6 +287,24 @@ export function SshFileExplorer({
           </IconTooltip>
         ) : null}
       </div>
+
+      {upload && !collapsed ? (
+        <div className="border-border/60 shrink-0 border-b px-2 py-1.5">
+          <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-foreground/80 min-w-0 truncate">
+              Uploading {upload.name}
+              {upload.count > 1 ? ` (${upload.index}/${upload.count})` : ""}
+            </span>
+            <span className="text-muted-foreground shrink-0 tabular-nums">{uploadPct}%</span>
+          </div>
+          <div className="bg-muted h-1 w-full overflow-hidden rounded-full">
+            <div
+              className="bg-primary h-full rounded-full transition-[width] duration-150"
+              style={{ width: `${uploadPct}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {collapsed ? null : sessionId === null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">

@@ -280,9 +280,13 @@ export default function App() {
     if (size.inPixels >= 130) {
       lastSidebarPxRef.current = size.inPixels;
       lastSidebarCollapsedRef.current = false;
-    } else if (size.inPixels <= 1) {
-      // Fully collapsed while live (the guards above exclude the minimized
-      // 0px-container case) - a genuine user close, by drag or toggle.
+    } else if (size.asPercentage <= 0) {
+      // Genuine collapse only. Detect it by *percentage*, not pixels: on
+      // minimize the container goes to 0px so `inPixels` drops to 0 while
+      // react-resizable-panels preserves the sidebar's percentage (it lays out
+      // in %), whereas a real drag/toggle-collapse sets the percentage to 0.
+      // Keying off pixels here mistook the minimize artifact for a user close
+      // and left an open sidebar shut after restore.
       lastSidebarCollapsedRef.current = true;
     }
   }, []);
