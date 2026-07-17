@@ -41,10 +41,11 @@ export type ShortcutId =
   | "browser.focusAddressBar"
   | "browser.reload"
   | "browser.back"
-  | "browser.forward";
+  | "browser.forward"
+  | "commandPalette.open";
 
 export type ShortcutGroup =
-  "General" | "Tabs" | "Panes" | "Search" | "AI" | "View" | "Editor" | "Terminal" | "Browser";
+  "General" | "Tabs" | "Panes" | "Search" | "AI" | "View" | "Editor" | "Terminal" | "Browser" | "Command Palette";
 
 export type KeyBinding = {
   key: string;
@@ -181,14 +182,15 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "h" }],
   },
   {
+    // VS Code uses Ctrl+P for the fuzzy file picker; we ship Mod+P as an
+    // equivalent. Mod+Shift+P is claimed by the Command Palette (VS Code
+    // convention). Mod+G is an explicit alternative requested by Indonesian
+    // users who already bind Ctrl+G to "open file" in their muscle memory.
     id: "explorer.search",
     label: "Go to file",
     group: "Search",
     defaultBindings: [
-      { [MOD_PROP]: true, shift: true, key: "p" },
-      // VS Code uses Ctrl+P for the fuzzy file picker; we ship Ctrl+G as an
-      // explicit alternative requested by Indonesian users who already bind
-      // Ctrl+G to "open file" in their muscle memory.
+      { [MOD_PROP]: true, key: "p" },
       { [MOD_PROP]: true, key: "g" },
     ],
   },
@@ -230,6 +232,14 @@ export const SHORTCUTS: Shortcut[] = [
     group: "AI",
     defaultBindings: [{ shift: true, key: "Enter" }],
     readOnly: true,
+  },
+  {
+    // Opens the Command Palette — a searchable list of all commands. VS Code
+    // parity: Cmd+Shift+P on macOS, Ctrl+Shift+P on Win/Linux.
+    id: "commandPalette.open",
+    label: "Command Palette",
+    group: "Command Palette",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "p" }],
   },
   {
     id: "sidebar.toggle",
@@ -361,6 +371,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   "Browser",
   "Search",
   "AI",
+  "Command Palette",
 ];
 
 /**
