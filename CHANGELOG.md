@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.90] - 18-07-2026
+
+### Added
+
+- **Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).** A searchable overlay lists every command grouped by category, each with its keyboard shortcut shown as a key badge; picking one runs it through the normal shortcut system. Contributed by [@praneshnikhar](https://github.com/praneshnikhar) in [#7](https://github.com/IlhamriSKY/TEDI/pull/7), then reworked so the palette can run *every* command: commands owned by a component rather than the app shell (the file explorer's "Go to file", "Search in files" and "Replace in files") used to do nothing when picked, and now dispatch through a shared command registry. Non-runnable entries (documentation-only key hints, the palette itself) are hidden. See [CommandPalette.tsx](src/modules/commandPalette/CommandPalette.tsx), [commandRegistry.ts](src/modules/shortcuts/lib/commandRegistry.ts).
+- **The folder search panel has a close button.** The "Find text in files" panel could only be dismissed with Escape; it now has an X in the search row that closes it. See [GrepSearchBar.tsx](src/modules/explorer/components/GrepSearchBar.tsx).
+- **Remote Access mirrors the desktop's terminal title.** The browser previously re-derived each tab's window title from its own copy of the stream, so it went stale after a scrollback reset and was blank for a browser that joined a running full-screen agent late. The host's captured title now travels to the browser over the existing tab-metadata channel, so the web tab reads the same as the app. See [host.ts](src/modules/extensions/host.ts), [useAppContextBridge.ts](src/app/hooks/useAppContextBridge.ts).
+
+### Changed
+
+- **"Go to file" moved to `Ctrl+P` / `Cmd+P`.** `Ctrl+Shift+P` now opens the Command Palette (VS Code parity); "Go to file" keeps its `Ctrl+G` / `Cmd+G` alternative. See [shortcuts.ts](src/modules/shortcuts/shortcuts.ts).
+
+### Fixed
+
+- **A dropped PTY daemon now reconnects on its own instead of wedging every terminal until you restart the app.** The GUI opened a single daemon connection at startup and kept it for the whole session, so any daemon death (a crash, an idle shutdown, the pty startup race) made every new tab and every retry report "daemon connection dropped" forever. The daemon client now reconnects (respawning the daemon if needed) on the next terminal operation, and the startup race that could abort the daemon returns an error instead of taking the whole daemon down. See [pty/mod.rs](src-tauri/src/modules/pty/mod.rs), [pty_daemon/server.rs](src-tauri/src/modules/pty_daemon/server.rs).
+- **The left file explorer comes back exactly as you left it after a window minimize and restore.** The restore step read the window's own resize event to tell a minimize apart from a restore, but that check raced and sometimes never ran, and the open/closed decision combined several per-path flags that could disagree once the sidebar was closed one way and reopened another. Minimize is now read synchronously from the resize payload, and a single source of truth records the sidebar's intended state across drag, toggle, and extension hide/show. See [App.tsx](src/app/App.tsx), [useExtensionSidebarBridges.ts](src/app/hooks/useExtensionSidebarBridges.ts).
+- **A reconnected SSH session no longer inherits stray terminal modes from the dropped one.** When a remote program (vim, htop, tmux) dies with the connection it never sends its mode-reset teardown, so mouse tracking or the alternate screen stayed on and streamed garbage into the fresh shell. The terminal now runs that teardown itself on a drop. See [ssh-session.ts](src/modules/terminal/lib/ssh-session.ts).
+
 ## [0.3.89] - 14-07-2026
 
 ### Fixed
