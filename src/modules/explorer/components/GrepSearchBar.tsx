@@ -151,6 +151,19 @@ export function GrepSearchBar({
             />
           </div>
         </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onRequestClose}
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 cursor-pointer rounded p-1"
+              aria-label="Close search"
+            >
+              <X size={13} strokeWidth={2} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Close (Esc)</TooltipContent>
+        </Tooltip>
       </div>
       {useRegex && regexError ? (
         <div className="text-destructive mt-1 pl-7 text-[10px]">{regexError}</div>
