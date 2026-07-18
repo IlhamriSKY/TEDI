@@ -9,6 +9,14 @@ export function gitStatus(repoPath: string): Promise<GitStatus> {
   return invoke<GitStatus>("git_status", { repoPath });
 }
 
+/** `git status` for the repo an SSH terminal is sitting in, run over that
+ *  session. Read-only: `added`/`removed`/`binary` are always 0/false because
+ *  the line-count enrichment reads the local disk. `cwd` may be empty, which
+ *  runs in the remote login directory. */
+export function gitStatusSsh(sessionId: number, cwd: string): Promise<GitStatus> {
+  return invoke<GitStatus>("ssh_git_status", { id: sessionId, cwd });
+}
+
 /** Gitignored working-tree entries as forward-slash absolute paths (fully
  *  ignored directories collapsed to the directory). Drives explorer dimming. */
 export function gitIgnored(repoPath: string): Promise<string[]> {

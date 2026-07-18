@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.91] - 18-07-2026
+
+### Added
+
+- **Remote (SSH) Source Control.** With an SSH terminal focused, the Source Control panel now reports that remote machine's repository instead of the local workspace: branch, upstream, ahead/behind, and the changed-file list. This needed a new remote command primitive, since SSH sessions previously offered only an interactive shell and SFTP, and it reuses the existing porcelain parsers unchanged. It is deliberately **read only** - commit, push, discard, diff, and history all run local git, so those controls are omitted rather than shown against the wrong repository. It also follows only the *focused* terminal, so a backgrounded SSH session never quietly hides your local source control. Per-file line counts are not shown for remote entries (counting them reads the local disk). See [ssh/mod.rs](src-tauri/src/modules/ssh/mod.rs), [ssh/session.rs](src-tauri/src/modules/ssh/session.rs), [SourceControlPanel.tsx](src/modules/scm/SourceControlPanel.tsx).
+- **A zoom control in the status bar.** The zoom readout moved to the far left and became a real control: minus, the current percentage, and plus as one segmented pill, styled to match the badges beside it. Each segment runs the same command as its keyboard shortcut, and the readout resets to 100% when clicked. It is now always visible - the old readout hid itself at 100%, which is exactly the state you need a zoom-in button from. See [ZoomControl.tsx](src/modules/statusbar/ZoomControl.tsx).
+
+### Fixed
+
+- **The left sidebar no longer comes back shut after minimizing the window.** Reported repeatedly and mis-diagnosed three times, this was never about detecting the minimize. A minimize (and the restore after it) drives the window's client area through small but non-zero widths, and the panel library re-derives a pixel `minSize` against whatever the container currently measures - so at roughly 90px wide the sidebar's 130px minimum became 65% of the container, the panel was snapped shut, and a growing container never revisits that decision. The sidebar's minimum is now expressed as a percentage, which is invariant to container size, so the collapse is structurally impossible rather than detected and undone. The previous detect-and-undo machinery is deleted; it could never win, because the restore can re-collapse the panel after any fixed timer has already fired. See [AppSidebar.tsx](src/app/components/AppSidebar.tsx), [App.tsx](src/app/App.tsx).
+- **Refresh in the Remote (SSH) file tree now re-reads every open folder, not just the root.** Expanded subfolders kept whatever listing they had when first opened, and nothing else ever re-read them - collapsing and re-expanding served the cache - so from the outside the remote tree simply could not be refreshed. Refresh now re-pulls the root and every expanded folder without flashing them back to a loading state, and the tree also refreshes when the window regains focus and on a slow interval while visible. See [useSshFileTree.ts](src/modules/ssh/useSshFileTree.ts).
+- **A `cd` in an SSH terminal no longer collapses the remote folder tree you were browsing.** The remote shell reports its working directory on every prompt, and the tree followed it by resetting to the new root - throwing away the folders you had just expanded. Expanding a folder now hands the tree's root to you; the Back button returns it to following the terminal. Following still applies until you touch the tree, so opening a session still lands you where the shell is. See [SshFileExplorer.tsx](src/modules/ssh/SshFileExplorer.tsx), [useSshNav.ts](src/modules/ssh/useSshNav.ts).
+- **The Remote panel stops jumping to a different host when you click a local tab.** With two or more SSH sessions open, leaving the SSH tab handed the panel to whichever session came first in tab order, resetting the tree's navigation and expansion. It now stays on the session it was already showing. See [useSshLeafState.ts](src/app/hooks/useSshLeafState.ts).
+- **Remote file rows no longer offer actions that cannot work.** "Reveal in Finder" passed a remote path to the local file manager and always failed; it is hidden for remote entries, and "Attach to Agent" no longer renders where nothing is wired to it. See [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx).
+
+### Changed
+
+- **Typing in an SSH terminal no longer re-serializes the workspace on every prompt.** Because the remote shell reports its directory each time a prompt is drawn, every single Enter allocated a fresh tab array and wrote the workspace layout back to disk. The update is now skipped when the directory has not actually changed. See [useTabs.ts](src/modules/tabs/lib/useTabs.ts).
+
 ## [0.3.90] - 18-07-2026
 
 ### Added

@@ -22,7 +22,9 @@ type PanelHeaderProps = {
   historyOnly: boolean;
   loading: boolean;
   refresh: () => Promise<void> | void;
-  onDiscardAll: () => void;
+  /** Omitted for a read-only listing (a remote repo): discard runs local git,
+   *  so the button must not exist rather than act on the wrong working tree. */
+  onDiscardAll?: () => void;
   onOpenInTab?: () => void;
   onClose?: () => void;
   /** Sidebar-section reorder + collapse controls, injected by the sidebar. */
@@ -89,7 +91,7 @@ export function PanelHeader({
         </Tooltip>
       ) : null}
       <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
-      {!historyOnly && status?.isRepo && changeCount > 0 ? (
+      {onDiscardAll && !historyOnly && status?.isRepo && changeCount > 0 ? (
         <IconTooltip label="Discard all changes" side="bottom">
           <Button
             variant="ghost"

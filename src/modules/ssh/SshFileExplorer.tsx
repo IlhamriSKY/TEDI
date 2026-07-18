@@ -25,7 +25,7 @@ import { humanizeFsError } from "@/lib/fsError";
 import { segmentsFromCwd } from "@/modules/statusbar/lib/pathUtils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setSshInRightPanel } from "@/modules/settings/store";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
 import { useSshFileDrop } from "./useSshFileDrop";
@@ -153,7 +153,24 @@ export function SshFileExplorer({
     rootPath && tree.pendingCreate?.parentPath === rootPath ? tree.pendingCreate : null;
   // Local and SSH tree shapes match, so cast here to reuse the recursive
   // renderer without parameterising it.
-  const treeForNode = tree as unknown as ReturnType<typeof useFileTree>;
+  //
+  // `toggle` is wrapped to pin the root: expanding a folder is the user taking
+  // the tree over, and the remote shell emits OSC 7 on every prompt, so without
+  // this a plain `cd` in the SSH terminal moves `followRoot` and wipes the whole
+  // expansion state they just built up. Pinning only on expand (not on a file
+  // click) keeps auto-follow working while there is nothing open to lose.
+  // `navTo` is a no-op once pinned, and Back returns to follow-mode.
+  const treeForNode = useMemo(
+    () =>
+      ({
+        ...tree,
+        toggle: (path: string) => {
+          if (rootPath) nav.navTo(rootPath);
+          tree.toggle(path);
+        },
+      }) as unknown as ReturnType<typeof useFileTree>,
+    [tree, nav, rootPath],
+  );
 
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-medium">
@@ -229,7 +246,7 @@ export function SshFileExplorer({
                 variant="ghost"
                 size="icon"
                 className="text-muted-foreground hover:text-foreground size-6"
-                onClick={() => tree.refresh(rootPath)}
+                onClick={() => tree.refreshAllLoaded()}
                 aria-label="Refresh"
               >
                 <RefreshCw size={12} strokeWidth={2} />
@@ -499,6 +516,7 @@ export function SshFileExplorer({
                         }}
                         selectedPath={selectedPath}
                         onSelectPath={setSelectedPath}
+                        remote
                       />
                     ))}
                 </div>
@@ -529,7 +547,7 @@ export function SshFileExplorer({
               >
                 Copy Path
               </ContextMenuItem>
-              <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refresh(rootPath)}>
+              <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refreshAllLoaded()}>
                 Refresh
               </ContextMenuItem>
             </ContextMenuContent>

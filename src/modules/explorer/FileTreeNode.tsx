@@ -43,6 +43,9 @@ type Props = {
   onPreviewInBrowser?: (path: string) => void;
   selectedPath: string | null;
   onSelectPath: (path: string) => void;
+  /** Set by the SFTP tree. Hides actions that only make sense for a path on
+   *  this machine, so a remote row never offers something guaranteed to fail. */
+  remote?: boolean;
 };
 
 function FileTreeNodeImpl({
@@ -57,6 +60,7 @@ function FileTreeNodeImpl({
   onPreviewInBrowser,
   selectedPath,
   onSelectPath,
+  remote = false,
 }: Props) {
   const path = tree.joinPath(parentPath, entry.name);
   const isDir = entry.kind === "dir";
@@ -205,9 +209,13 @@ function FileTreeNodeImpl({
               Open in Terminal
             </ContextMenuItem>
           )}
-          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => void revealInFinder(path)}>
-            Reveal in Finder
-          </ContextMenuItem>
+          {/* Local-only: revealInFinder hands the path to the host OS file
+              manager, which cannot resolve a remote POSIX path. */}
+          {!remote && (
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => void revealInFinder(path)}>
+              Reveal in Finder
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             className={COMPACT_ITEM}
@@ -232,10 +240,14 @@ function FileTreeNodeImpl({
             Copy Relative Path
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onAttachToAgent?.(path)}>
-            Attach to Agent
-          </ContextMenuItem>
-          <ContextMenuSeparator />
+          {onAttachToAgent && (
+            <>
+              <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onAttachToAgent(path)}>
+                Attach to Agent
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
           <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.beginRename(path)}>
             Rename
           </ContextMenuItem>
@@ -341,6 +353,7 @@ function FileTreeNodeImpl({
             onPreviewInBrowser={onPreviewInBrowser}
             selectedPath={selectedPath}
             onSelectPath={onSelectPath}
+            remote={remote}
           />
         ))}
     </>

@@ -63,7 +63,10 @@ const AUTO_REFRESH_MS = 4000;
  *  fsRefresh.ts, which also dispatches it. */
 export { FS_REFRESH_EVENT };
 
-function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
+/** Shallow listing equality, used to skip a repaint when a silent re-read
+ *  returns the same directory. Exported for the SFTP tree, whose entry shape
+ *  is identical. */
+export function sameEntries(a: DirEntry[], b: DirEntry[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const x = a[i];

@@ -7,8 +7,11 @@ import { CornerUpLeft } from "lucide-react";
 
 type RowProps = {
   change: GitChange;
-  onClickDiff: () => void;
-  onDiscard: () => void;
+  /** Omitted for a read-only listing (a remote repo): the row then renders as
+   *  plain text with no diff click target and no discard button, because both
+   *  actions run local git. */
+  onClickDiff?: () => void;
+  onDiscard?: () => void;
 };
 
 export function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
@@ -20,12 +23,15 @@ export function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
   return (
     <li className="contents">
       <div
-        className="group hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-4 pl-2"
-        role="button"
-        tabIndex={0}
+        className={cn(
+          "group hover:bg-accent/40 flex items-center gap-1.5 py-1 pr-4 pl-2",
+          onClickDiff && "cursor-pointer",
+        )}
+        role={onClickDiff ? "button" : undefined}
+        tabIndex={onClickDiff ? 0 : undefined}
         onClick={onClickDiff}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if (onClickDiff && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             onClickDiff();
           }
@@ -51,20 +57,22 @@ export function ChangeRow({ change, onClickDiff, onDiscard }: RowProps) {
           {dir ? <span className="text-muted-foreground truncate text-[10px]">{dir}</span> : null}
         </span>
         <DiffStats change={change} />
-        <span className="ml-1 hidden shrink-0 items-center group-hover:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive size-5"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDiscard();
-            }}
-            aria-label="Discard file"
-          >
-            <CornerUpLeft size={11} strokeWidth={2} />
-          </Button>
-        </span>
+        {onDiscard ? (
+          <span className="ml-1 hidden shrink-0 items-center group-hover:flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive size-5"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDiscard();
+              }}
+              aria-label="Discard file"
+            >
+              <CornerUpLeft size={11} strokeWidth={2} />
+            </Button>
+          </span>
+        ) : null}
       </div>
     </li>
   );

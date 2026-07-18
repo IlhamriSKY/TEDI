@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { sameEntries } from "@/modules/explorer/lib/useFileTree";
 import { sftpCreateDir, sftpCreateFile, sftpDelete, sftpReadDir, sftpRename } from "./sftp";
 
 // SFTP-backed file tree. Same shape as `useFileTree` so `FileTreeNode` can
@@ -50,6 +51,10 @@ type Options = {
   includeHidden?: boolean;
 };
 
+/** Poll interval (ms) for silent re-reads while the window is visible. Slower
+ *  than the local tree's 4s: every pass is an SFTP round trip per open folder. */
+const SSH_AUTO_REFRESH_MS = 10000;
+
 export function useSshFileTree(
   sessionId: number | null,
   rootPath: string | null,
@@ -66,25 +71,46 @@ export function useSshFileTree(
   const fetchGen = useRef<Map<string, number>>(new Map());
 
   const fetchChildren = useCallback(
-    async (path: string) => {
+    async (path: string, opts: { silent?: boolean } = {}) => {
       if (sessionId === null) return;
       const gen = (fetchGen.current.get(path) ?? 0) + 1;
       fetchGen.current.set(path, gen);
-      setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+      // Silent refresh keeps previous entries visible until new ones land, so a
+      // background re-read never flashes the tree back to "Loading…".
+      if (!opts.silent) {
+        setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
+      }
       try {
         const entries = (await sftpReadDir(sessionId, path, includeHidden)) as SshDirEntry[];
         if (fetchGen.current.get(path) !== gen) return;
-        setNodes((s) => ({ ...s, [path]: { status: "loaded", entries } }));
+        setNodes((s) => {
+          // Skip the state update when the listing is unchanged, so a poll on an
+          // idle remote costs no repaint.
+          if (opts.silent) {
+            const prev = s[path];
+            if (prev?.status === "loaded" && sameEntries(prev.entries, entries)) return s;
+          }
+          return { ...s, [path]: { status: "loaded", entries } };
+        });
       } catch (e) {
         if (fetchGen.current.get(path) !== gen) return;
-        setNodes((s) => ({
-          ...s,
-          [path]: { status: "error", message: String(e) },
-        }));
+        // Silent failures keep cached entries; a transient network blip on a
+        // background poll must not replace the tree with an error.
+        if (!opts.silent) {
+          setNodes((s) => ({
+            ...s,
+            [path]: { status: "error", message: String(e) },
+          }));
+        }
       }
     },
     [sessionId, includeHidden],
   );
+
+  // Ref so the polling effect below doesn't re-subscribe on every fetch identity
+  // change (includeHidden / sessionId).
+  const fetchChildrenRef = useRef(fetchChildren);
+  fetchChildrenRef.current = fetchChildren;
 
   // Root or session change: reset state. A new sessionId from a reconnect
   // would otherwise replay stale tree state against a different handle.
@@ -153,6 +179,67 @@ export function useSshFileTree(
     },
     [fetchChildren],
   );
+
+  /** Silently re-reads every currently-visible directory (root plus each
+   *  expanded path), not just the root. This is what the Refresh button runs:
+   *  refreshing only the root left every open subfolder showing stale remote
+   *  data. Collapsed dirs stay cached but aren't re-fetched, so the SFTP round
+   *  trips don't grow with every folder opened this session. */
+  const refreshAllLoaded = useCallback(() => {
+    if (!rootPath || sessionId === null) return;
+    for (const p of new Set<string>([rootPath, ...expanded])) {
+      void fetchChildrenRef.current(p, { silent: true });
+    }
+  }, [rootPath, sessionId, expanded]);
+
+  const refreshAllLoadedRef = useRef(refreshAllLoaded);
+  refreshAllLoadedRef.current = refreshAllLoaded;
+
+  // Track remote-side changes without an SFTP watcher: poll while the window is
+  // visible, and re-read immediately on focus/visibility so alt-tabbing back
+  // shows current data. Mirrors the local tree, but at a slower cadence because
+  // each pass is a network round trip per open folder.
+  // ponytail: fixed interval; switch to an inotify-backed push if a busy remote
+  // ever makes the polling cost visible.
+  useEffect(() => {
+    if (!rootPath || sessionId === null) return;
+    let intervalId: number | null = null;
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") refreshAllLoadedRef.current();
+      }, SSH_AUTO_REFRESH_MS);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshAllLoadedRef.current();
+        start();
+      } else {
+        stop();
+      }
+    };
+    const onFocus = () => {
+      refreshAllLoadedRef.current();
+      start();
+    };
+
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", stop);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", stop);
+    };
+  }, [rootPath, sessionId]);
 
   const collapseAll = useCallback(() => {
     setExpanded((curr) => (curr.size === 0 ? curr : new Set()));
@@ -257,6 +344,7 @@ export function useSshFileTree(
       toggle,
       expand,
       refresh,
+      refreshAllLoaded,
       collapseAll,
       beginCreate,
       cancelCreate,
@@ -275,6 +363,7 @@ export function useSshFileTree(
       toggle,
       expand,
       refresh,
+      refreshAllLoaded,
       collapseAll,
       beginCreate,
       cancelCreate,

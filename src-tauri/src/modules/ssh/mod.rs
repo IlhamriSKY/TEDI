@@ -263,3 +263,81 @@ pub async fn ssh_attach(
         })?;
     Ok(session.add_mirror_sink(on_event))
 }
+
+/// Single-quote a value for a POSIX shell so a remote-supplied path can never
+/// break out of its argument. `cwd` reaches us from the remote shell's OSC 7
+/// escape, i.e. it is attacker-controlled if the host is compromised.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// `git status` for the repo the SSH terminal is sitting in, so Source Control
+/// follows the remote instead of the local workspace.
+///
+/// Read-only by design: it reuses the existing porcelain parsers but skips the
+/// numstat / line-count enrichment, which reads the LOCAL disk. `added`,
+/// `removed` and `binary` therefore stay at their defaults for remote entries.
+/// An empty `cwd` (no OSC 7 seen yet) runs in the login directory.
+#[tauri::command]
+pub async fn ssh_git_status(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    cwd: String,
+) -> Result<crate::modules::git::commands::GitStatus, String> {
+    use crate::modules::git::commands::{parse_branch_header, parse_porcelain_v1, GitStatus};
+
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "no session".to_string())?;
+
+    let not_a_repo = || GitStatus {
+        is_repo: false,
+        root: None,
+        branch: None,
+        upstream: None,
+        ahead: 0,
+        behind: 0,
+        changes: Vec::new(),
+    };
+
+    let cd = if cwd.is_empty() {
+        String::new()
+    } else {
+        format!("-C {} ", shell_quote(&cwd))
+    };
+    let root = session
+        .exec_capture(&format!("git {cd}rev-parse --show-toplevel 2>/dev/null"))
+        .await?;
+    let root = root.trim();
+    if root.is_empty() {
+        return Ok(not_a_repo());
+    }
+
+    let raw = session
+        .exec_capture(&format!(
+            "git -C {} status --porcelain=v1 --branch -z --untracked-files=all 2>/dev/null",
+            shell_quote(root)
+        ))
+        .await?;
+    if raw.is_empty() {
+        return Ok(not_a_repo());
+    }
+    // The `--branch` header is the first -z record; the rest are file entries.
+    let (header, entries) = raw.split_once('\0').unwrap_or((raw.as_str(), ""));
+    let (branch, upstream, ahead, behind) = parse_branch_header(header);
+    Ok(GitStatus {
+        is_repo: true,
+        root: Some(root.to_string()),
+        branch,
+        upstream,
+        ahead,
+        behind,
+        // `root.join(rel)` on a Windows host yields a mixed separator, which
+        // the parser's `to_forward` normalizes back to a POSIX path.
+        changes: parse_porcelain_v1(std::path::Path::new(root), entries),
+    })
+}

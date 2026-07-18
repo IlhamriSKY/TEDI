@@ -32,6 +32,7 @@ type Props = {
     sessionId: number | null;
     hostLabel: string | null;
     cwd: string | null;
+    fromActiveLeaf: boolean;
   };
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   onAddProviderKey: () => void;
@@ -121,6 +122,8 @@ export function AppRightSlot({
                 onOpenDiff={openGitDiffTab}
                 onClose={closeScmRight}
                 onOpenInTab={openScmTab}
+                sshSessionId={activeSshContext.fromActiveLeaf ? activeSshContext.sessionId : null}
+                sshCwd={activeSshContext.cwd}
               />
             </Suspense>
           </div>

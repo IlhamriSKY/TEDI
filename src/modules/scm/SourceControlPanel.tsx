@@ -16,7 +16,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { basename } from "@/lib/path";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { gitCommit, gitDiffFull, gitDiscardAll, gitDiscardFile, gitPush, gitStatus } from "./api";
+import {
+  gitCommit,
+  gitDiffFull,
+  gitDiscardAll,
+  gitDiscardFile,
+  gitPush,
+  gitStatus,
+  gitStatusSsh,
+} from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
 import { ChangeRow } from "./components/ChangeRow";
@@ -51,6 +59,19 @@ type Props = {
   dragHandle?: React.ReactNode;
   /** When the sidebar section is minimized to its header, the body is skipped. */
   collapsed?: boolean;
+  /**
+   * Set only while the FOCUSED terminal leaf is a connected SSH session. The
+   * panel then reports that remote's repo instead of the local workspace, so
+   * source control follows the terminal you are actually working in.
+   *
+   * Deliberately keyed to the focused leaf, not "any live session": silently
+   * swapping a user's local repo for a remote one while they edit locally
+   * would hide their real changes.
+   */
+  sshSessionId?: number | null;
+  /** The SSH leaf's cwd (OSC 7). Empty until the first remote prompt, which
+   *  the backend reads as "the login directory". */
+  sshCwd?: string | null;
 };
 
 const STATUS_ORDER: Record<GitChangeStatus, number> = {
@@ -118,6 +139,8 @@ export function SourceControlPanel({
   historyOnly = false,
   dragHandle,
   collapsed = false,
+  sshSessionId = null,
+  sshCwd = null,
 }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -132,8 +155,21 @@ export function SourceControlPanel({
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
   const bumpGraph = useCallback(() => setGraphRefreshToken((n) => n + 1), []);
 
+  // Remote mode: read the SSH session's repo. Every write path (commit, push,
+  // discard, diff, history) stays local-only and is hidden below, because those
+  // all run local git and would silently act on the WRONG repository.
+  const remote = sshSessionId != null;
   const inFlightRef = useRef(false);
   const rootRef = useRef(rootPath);
+  const sshRef = useRef<{ sessionId: number | null; cwd: string | null }>({
+    sessionId: sshSessionId,
+    cwd: sshCwd,
+  });
+  sshRef.current = { sessionId: sshSessionId, cwd: sshCwd };
+  // What the in-flight fetch was for, so a slow response that lands after the
+  // user switched repo or session is dropped. Two remotes both have a null
+  // rootPath, so the session id has to be part of the key.
+  const targetRef = useRef("");
   // Last branch seen for the current repo. Lets us toast on external HEAD
   // switches. Reset on rootPath change to avoid false-firing across folders.
   const prevBranchRef = useRef<string | null>(null);
@@ -167,22 +203,29 @@ export function SourceControlPanel({
 
   const fetchStatus = useCallback(async (silent = false) => {
     const cur = rootRef.current;
-    if (!cur) {
+    const { sessionId, cwd } = sshRef.current;
+    const isRemote = sessionId !== null;
+    if (!isRemote && !cur) {
       setStatus(null);
       return;
     }
+    const target = isRemote ? `ssh:${sessionId}` : `local:${cur}`;
+    targetRef.current = target;
     if (silent && inFlightRef.current) return;
     inFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
-      const s = await gitStatus(cur);
-      if (rootRef.current === cur) {
+      const s = isRemote ? await gitStatusSsh(sessionId, cwd ?? "") : await gitStatus(cur!);
+      if (targetRef.current === target) {
         setStatus(s);
         setError(null);
       }
     } catch (e) {
-      if (rootRef.current === cur) {
-        setError(String(e));
+      if (targetRef.current === target) {
+        // A session that dropped mid-poll is a normal disconnect, not a git
+        // failure: show the empty state instead of a red banner that flickers.
+        const msg = String(e);
+        setError(isRemote && /no session|session is closed/i.test(msg) ? null : msg);
         setStatus(null);
       }
     } finally {
@@ -199,12 +242,20 @@ export function SourceControlPanel({
   useEffect(() => {
     if (collapsed) return;
     void fetchStatus(false);
-  }, [fetchStatus, rootPath, collapsed]);
+  }, [fetchStatus, rootPath, collapsed, sshSessionId]);
+
+  // A `cd` in the remote terminal can land in a different repo. Refetch
+  // silently: OSC 7 fires on every prompt, so a spinner here would flash
+  // constantly while the user just types.
+  useEffect(() => {
+    if (collapsed || sshSessionId === null) return;
+    void fetchStatus(true);
+  }, [fetchStatus, collapsed, sshSessionId, sshCwd]);
 
   useEffect(() => {
     // Collapsed to its header: the change list / graph aren't rendered, so
     // don't poll git status (subprocess spawn every 2.5s) for an unseen view.
-    if (!rootPath || collapsed) return;
+    if ((!rootPath && !remote) || collapsed) return;
     let intervalId: number | null = null;
     const start = () => {
       if (intervalId !== null) return;
@@ -242,7 +293,7 @@ export function SourceControlPanel({
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [rootPath, fetchStatus, collapsed]);
+  }, [rootPath, fetchStatus, collapsed, remote]);
 
   const sorted = useMemo(() => {
     if (!status) return [] as GitChange[];
@@ -405,7 +456,7 @@ export function SourceControlPanel({
     }
   }, [busy, status, sorted]);
 
-  if (!rootPath) {
+  if (!rootPath && !remote) {
     return (
       <div className="relative flex h-full flex-col">
         {onClose ? (
@@ -438,7 +489,7 @@ export function SourceControlPanel({
         historyOnly={historyOnly}
         loading={loading}
         refresh={refresh}
-        onDiscardAll={() => setConfirmAll(true)}
+        onDiscardAll={remote ? undefined : () => setConfirmAll(true)}
         onOpenInTab={onOpenInTab}
         onClose={onClose}
         dragHandle={dragHandle}
@@ -452,7 +503,29 @@ export function SourceControlPanel({
 
           {!status?.isRepo ? (
             <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-              Not a git repository.
+              {remote ? "Not a git repository on the remote." : "Not a git repository."}
+            </div>
+          ) : remote ? (
+            /* Read-only remote view. Commit / push / discard / diff / history
+               all run LOCAL git, so offering them here would act on the wrong
+               repository - they are omitted rather than disabled. */
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="text-muted-foreground border-border/60 border-b px-3 py-1.5 text-[11px]">
+                Remote repository - read only
+              </div>
+              {sorted.length === 0 ? (
+                <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
+                  No changes.
+                </div>
+              ) : (
+                <ScrollArea className="min-h-0 flex-1">
+                  <ul className="py-0.5">
+                    {sorted.map((c) => (
+                      <ChangeRow key={c.relative + ":" + c.status} change={c} />
+                    ))}
+                  </ul>
+                </ScrollArea>
+              )}
             </div>
           ) : historyOnly ? (
             <div className="flex min-h-0 flex-1 flex-col">

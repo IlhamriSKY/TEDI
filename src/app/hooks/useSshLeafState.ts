@@ -5,7 +5,15 @@ import { leaves } from "@/modules/terminal";
 import type { SshStatus } from "@/modules/ssh/status";
 import { toolDisplayName, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
-import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 type Params = {
   activePaneTab: Tab | null;
@@ -30,6 +38,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     sessionId: number | null;
     hostLabel: string | null;
     cwd: string | null;
+    fromActiveLeaf: boolean;
   };
   hasAnySshLeaf: boolean;
 } {
@@ -41,6 +50,10 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
   // the tab dot and the toast/beep on transition to "blocking". Pruned
   // with `sshStatuses`.
   const [aiCliStatuses, setAiCliStatuses] = useState<Map<number, AiCliStatus>>(() => new Map());
+  // Last session `activeSshContext` resolved to, so the no-active-SSH-leaf
+  // fallback below can stay on it instead of flipping to whichever session
+  // happens to come first in tab order.
+  const lastSessionIdRef = useRef<number | null>(null);
 
   const handleSshStatus = useCallback((leafId: number, status: SshStatus) => {
     setSshStatuses((prev) => {
@@ -59,8 +72,20 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     hostLabel: string | null;
     /** Active SSH leaf's last-known cwd from OSC 7. If set, the SSH file tree roots here instead of $HOME. */
     cwd: string | null;
+    /** True only when the FOCUSED leaf is this SSH session, i.e. not the
+     *  "any backgrounded session" fallback. Source Control keys off this: the
+     *  file tree is happy to keep showing a background remote, but silently
+     *  swapping the user's local repo for a remote one is not acceptable. */
+    fromActiveLeaf: boolean;
   }>(() => {
-    if (sshStatuses.size === 0) return { sessionId: null, hostLabel: null, cwd: null };
+    type Ctx = {
+      sessionId: number | null;
+      hostLabel: string | null;
+      cwd: string | null;
+      fromActiveLeaf: boolean;
+    };
+    const none: Ctx = { sessionId: null, hostLabel: null, cwd: null, fromActiveLeaf: false };
+    if (sshStatuses.size === 0) return none;
     const lookupLeafSession = (leafId: number): number | null => {
       const status = sshStatuses.get(leafId);
       if (status && status.kind === "connected") return status.sessionId;
@@ -81,23 +106,43 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
             sessionId: sid,
             hostLabel: hostLabelForTab(activePaneTab),
             cwd: leaf.cwd ?? null,
+            fromActiveLeaf: true,
           };
         }
       }
     }
     // Else any connected SSH leaf. Walks all pane tabs so a backgrounded
     // SSH session still drives the panel when the user is in a local tab.
+    // Prefer the session we already served: with two or more SSH sessions,
+    // returning the first in tab order made the remote panel jump to a
+    // different host the moment the user clicked a local tab, which resets the
+    // file tree's navigation and expansion state. Stickiness applies only on
+    // this fallback path - a focused, connected SSH leaf still wins above.
+    let first: Ctx | null = null;
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind !== "terminal") continue;
         const sid = lookupLeafSession(l.id);
-        if (sid !== null)
-          return { sessionId: sid, hostLabel: hostLabelForTab(t), cwd: l.cwd ?? null };
+        if (sid === null) continue;
+        const cand = {
+          sessionId: sid,
+          hostLabel: hostLabelForTab(t),
+          cwd: l.cwd ?? null,
+          fromActiveLeaf: false,
+        };
+        if (sid === lastSessionIdRef.current) return cand;
+        first ??= cand;
       }
     }
-    return { sessionId: null, hostLabel: null, cwd: null };
+    return first ?? none;
   }, [sshStatuses, activePaneTab, tabs]);
+
+  // Written in an effect so the memo above stays pure. It only needs the value
+  // as of the next recompute, so the ref intentionally isn't a memo dep.
+  useEffect(() => {
+    lastSessionIdRef.current = activeSshContext.sessionId;
+  }, [activeSshContext.sessionId]);
 
   // Render the SFTP panel only after the session opens any SSH leaf. The
   // SshFileExplorer + sftp.ts chunk then loads once.

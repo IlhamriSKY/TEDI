@@ -21,9 +21,7 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
  *  auto-restored, so it gets closed alongside the others on hide but is
  *  never recorded for replay. */
 export type RightAuxSnapshot =
-  | { kind: "chat" }
-  | { kind: "rightPanel"; extensionId: string; panelId: string }
-  | null;
+  { kind: "chat" } | { kind: "rightPanel"; extensionId: string; panelId: string } | null;
 
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
@@ -34,7 +32,6 @@ type Params = {
   /** App's single source of truth for the sidebar's closed-by-intent state. This
    *  hook keeps it in sync when it programmatically shows/hides the sidebar, so
    *  App's minimize->restore guard never reads a stale collapse intent. */
-  lastSidebarCollapsedRef: RefObject<boolean>;
   rightSidebarHiderRef: RefObject<{
     extensionId: string;
     prior: RightAuxSnapshot;
@@ -50,15 +47,10 @@ type Params = {
  *  the sidebar could come back the wrong way after a restore. Guards the panel
  *  calls so a redundant show/hide is a no-op, but always writes the intended
  *  state. */
-function setSidebarVisibleImperative(
-  p: PanelImperativeHandle,
-  visible: boolean,
-  collapsedRef: RefObject<boolean>,
-): void {
+function setSidebarVisibleImperative(p: PanelImperativeHandle, visible: boolean): void {
   const visibleNow = p.getSize().asPercentage > 0;
   if (visible && !visibleNow) p.expand();
   else if (!visible && visibleNow) p.collapse();
-  collapsedRef.current = !visible;
 }
 
 /**
@@ -75,7 +67,6 @@ export function useExtensionSidebarBridges({
   setExtensionTabState,
   sidebarRef,
   sidebarHiderRef,
-  lastSidebarCollapsedRef,
   rightSidebarHiderRef,
   activeTab,
   tabs,
@@ -123,7 +114,7 @@ export function useExtensionSidebarBridges({
       } else {
         sidebarHiderRef.current = null;
       }
-      setSidebarVisibleImperative(p, visible, lastSidebarCollapsedRef);
+      setSidebarVisibleImperative(p, visible);
     });
     return () => setSidebarSetter(null);
   }, []);
@@ -219,13 +210,13 @@ export function useExtensionSidebarBridges({
     if (!p) return;
     const stillOpen = tabs.some((t) => t.kind === "ext" && t.extensionId === hider.extensionId);
     if (!stillOpen) {
-      setSidebarVisibleImperative(p, hider.prior, lastSidebarCollapsedRef);
+      setSidebarVisibleImperative(p, hider.prior);
       sidebarHiderRef.current = null;
       return;
     }
     const onHiderTab = activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
     // On the hider extension's own tab the sidebar stays hidden; anywhere else,
     // restore the visibility the user had when the extension hid it.
-    setSidebarVisibleImperative(p, onHiderTab ? false : hider.prior, lastSidebarCollapsedRef);
+    setSidebarVisibleImperative(p, onHiderTab ? false : hider.prior);
   }, [activeTab, tabs]);
 }

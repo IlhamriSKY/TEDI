@@ -18,7 +18,7 @@ import { UpdaterPill } from "@/modules/updater";
 import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
-import { ZoomIndicator } from "./ZoomIndicator";
+import { ZoomControl } from "./ZoomControl";
 import { GitBranch, Server } from "lucide-react";
 
 type Props = {
@@ -57,6 +57,11 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+        {/* Leads the status bar. Kept ahead of the OS badge rather than between
+            it and the breadcrumb because the badge disappears under SSH, which
+            would otherwise slide the zoom control sideways whenever focus
+            enters or leaves a remote pane. */}
+        <ZoomControl />
         {/* Hidden while the active pane is a live SSH session: the breadcrumb
             already shows the remote path, so the local-OS badge would mislead. */}
         {activeIsSsh ? null : <OsBadge />}
@@ -84,7 +89,6 @@ function StatusBarInner({
         <RightPanelCompactToggles />
         <SidebarSectionRightToggles />
         <BuiltinSectionRightToggles />
-        <ZoomIndicator />
         <SchedulerStatusPill />
         {/* Default (non-compact) right-panel toggles sit with the other
             "open X" buttons so the icon row reads consistently. */}

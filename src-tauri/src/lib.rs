@@ -677,6 +677,7 @@ pub fn run() {
             ssh::ssh_confirm_host_key,
             ssh::ssh_list_sessions,
             ssh::ssh_attach,
+            ssh::ssh_git_status,
             ssh::sftp::ssh_sftp_home,
             ssh::sftp::ssh_sftp_read_dir,
             ssh::sftp::ssh_sftp_read_file,

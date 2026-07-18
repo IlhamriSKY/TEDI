@@ -49,12 +49,7 @@ export type {
 
 // Re-export the active-leaf discriminators from their new home so callers that
 // import them from this module (or the barrel) are unaffected by the move.
-export {
-  activeLeaf,
-  activeLeafKind,
-  isTerminalLikeTab,
-  isEditorLikeTab,
-} from "./tabHelpers";
+export { activeLeaf, activeLeafKind, isTerminalLikeTab, isEditorLikeTab } from "./tabHelpers";
 
 // Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
 // 6 panes per tab leaves headroom for multiple tabs.
@@ -429,14 +424,23 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
 
   /** Update a terminal leaf's cwd. Mirrors to the tab when the leaf is active. */
   const setLeafCwd = useCallback((leafId: number, cwd: string) => {
-    setTabs((curr) =>
-      curr.map((t) => {
+    setTabs((curr) => {
+      // OSC 7 repeats on every prompt (and the SSH bootstrap makes that every
+      // remote Enter), so bail when the cwd is unchanged. Without this, `curr.map`
+      // allocates a fresh tabs array per prompt, which re-runs every tabs-keyed
+      // memo and re-serializes the workspace to disk.
+      const owner = curr.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
+      if (owner?.kind === "pane") {
+        const leaf = findLeaf(owner.paneTree, leafId);
+        if (leaf?.leafKind === "terminal" && leaf.cwd === cwd) return curr;
+      }
+      return curr.map((t) => {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
         const paneTree = setLeafCwdInTree(t.paneTree, leafId, cwd);
         return syncPaneMirror({ ...t, paneTree });
-      }),
-    );
+      });
+    });
   }, []);
 
   /**
@@ -922,9 +926,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   const moveExtTabToPane = useCallback(
     (extTabId: number, targetTabId: number, targetLeafId: number, dir: SplitDir): void => {
       setTabs((curr) => {
-        const extTab = curr.find(
-          (t): t is ExtensionTab => t.id === extTabId && t.kind === "ext",
-        );
+        const extTab = curr.find((t): t is ExtensionTab => t.id === extTabId && t.kind === "ext");
         if (!extTab) return curr;
         const target = curr.find((t) => t.id === targetTabId);
         if (!target || target.kind !== "pane") return curr;

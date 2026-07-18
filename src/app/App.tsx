@@ -65,9 +65,8 @@ import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
 import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Layout, LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
@@ -250,115 +249,12 @@ export default function App() {
     extensionId: string;
     prior: RightAuxSnapshot;
   } | null>(null);
-  // Last user-intended sidebar size as a *percentage* of the window, so a
-  // minimize -> restore (or maximize) can put it back. Percentage (not pixels)
-  // because react-resizable-panels holds a panel's percentage constant while
-  // the container px changes, so it survives a maximize/normal round-trip. Only
-  // a genuine separator drag writes this (see handleSidebarLayoutChanged).
-  const lastSidebarPctRef = useRef<number | null>(null);
-  // The sidebar's current closed-by-intent state: true when it was last left
-  // closed, false when last left open. The SINGLE source of truth the
-  // minimize->restore guard reads, so the decision never depends on which path
-  // closed the sidebar. Written by every intent site - handleSidebarLayoutChanged
-  // (separator drag), toggleSidebar (header button), and the extension sidebar
-  // bridge (programmatic hide/show, via `setSidebarVisibleImperative`). It is NOT
-  // written by the container resize a window minimize triggers, so that artifact
-  // can never corrupt it. (Replaces the earlier per-path flags whose OR went
-  // stale when one path closed the sidebar and a different path reopened it.)
-  const lastSidebarCollapsedRef = useRef(false);
-  // Track the user's sidebar width/closed intent from the group's post-drag
-  // layout callback, NOT the panel's onResize. `isUserInteraction` is true only
-  // for a pointer/keyboard separator drag; a window minimize / restore / maximize
-  // and every imperative expand()/collapse() report false, so they can never
-  // corrupt the intent we restore after a minimize. This is exactly what made
-  // the old onResize + frozen/visibility guards fragile: onResize cannot tell a
-  // real drag from the force-collapse that fires when the minimizing container
-  // shrinks the sidebar below its minSize, so that artifact leaked in as a
-  // "user closed it" and the sidebar came back shut.
-  const handleSidebarLayoutChanged = useCallback((_layout: Layout, meta: LayoutChangedMeta) => {
-    if (!meta.isUserInteraction) return;
-    const p = sidebarRef.current;
-    if (!p) return;
-    const pct = p.getSize().asPercentage;
-    if (pct > 0) {
-      lastSidebarPctRef.current = pct;
-      lastSidebarCollapsedRef.current = false;
-    } else {
-      lastSidebarCollapsedRef.current = true;
-    }
-  }, []);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
     sidebarHiderRef.current = null;
-    if (p.getSize().asPercentage <= 0) {
-      lastSidebarCollapsedRef.current = false;
-      p.expand();
-    } else {
-      lastSidebarCollapsedRef.current = true;
-      p.collapse();
-    }
-  }, []);
-
-  // Minimizing the window reports a 0px container to react-resizable-panels,
-  // which force-collapses the sidebar (its preserved percentage falls below
-  // minSize) and leaves it collapsed once the window is restored/maximized. On
-  // the minimize->restore transition, put the sidebar back the way the user
-  // left it: if they had it open, re-open and re-size to their last width; if
-  // they had closed it (toggle, extension hide, or a drag-to-collapse), keep it
-  // closed. "The way they left it" comes from the isUserInteraction-gated refs
-  // above, which the minimize's own layout churn cannot have corrupted.
-  useEffect(() => {
-    const w = getCurrentWindow();
-    let unlisten: (() => void) | undefined;
-    let wasMinimized = false;
-    void w
-      .onResized(({ payload: size }) => {
-        // Classify minimize vs restore from the SYNCHRONOUS event payload, not
-        // `await w.isMinimized()`. A minimized window reports a 0x0 physical size
-        // on Windows, so the payload alone tells us. The old async check spawned
-        // one independent `isMinimized()` IPC per resize event, and those
-        // round-trips could resolve OUT OF ORDER: a restore event's check could
-        // resolve first (see `false`, bail because `wasMinimized` was not set
-        // yet) before the minimize event's check resolved `true` - so the restore
-        // branch never ran and the sidebar came back collapsed. The payload is
-        // delivered in order, so this is race-free.
-        const minimized = size.width === 0 || size.height === 0;
-        if (minimized) {
-          wasMinimized = true;
-          return;
-        }
-        if (!wasMinimized) return;
-        wasMinimized = false;
-        // Defer past the panel library's own post-restore layout pass so our
-        // expand()/collapse()/resize() is the final word.
-        setTimeout(() => {
-          const p = sidebarRef.current;
-          if (!p) return;
-          // Single source of truth: lastSidebarCollapsedRef is kept faithful by
-          // every visibility-changing site (drag, toggle, and the extension bridge
-          // via setSidebarVisibleImperative), so it alone decides. Do NOT also OR
-          // in sidebarHiderRef: that latch stays non-null while the user is off an
-          // ext's tab even after the sidebar auto-restored to OPEN (LSC=false), so
-          // ORing it would wrongly re-collapse a visibly-open sidebar on restore.
-          const wantClosed = lastSidebarCollapsedRef.current;
-          if (wantClosed) {
-            // Keep a closed sidebar closed (also undoes any spurious re-expand).
-            if (!p.isCollapsed()) p.collapse();
-          } else {
-            // Re-open and restore the user's last dragged width.
-            if (p.isCollapsed()) p.expand();
-            const want = lastSidebarPctRef.current;
-            if (want != null && Math.abs(p.getSize().asPercentage - want) > 0.5) {
-              p.resize(`${want}%`);
-            }
-          }
-        }, 120);
-      })
-      .then((u) => {
-        unlisten = u;
-      });
-    return () => unlisten?.();
+    if (p.getSize().asPercentage <= 0) p.expand();
+    else p.collapse();
   }, []);
 
   // When the active workspace is closed, activeId is reassigned to a
@@ -496,7 +392,6 @@ export default function App() {
     setExtensionTabState,
     sidebarRef,
     sidebarHiderRef,
-    lastSidebarCollapsedRef,
     rightSidebarHiderRef,
     activeTab,
     tabs,
@@ -975,11 +870,7 @@ export default function App() {
               gapped from each other (`p-1.5` + `gap-1.5`). Under glass the gaps
               reveal the wallpaper, matching the floating-panels look. */}
           <main className="bg-sidebar flex min-h-0 flex-1 flex-col">
-            <ResizablePanelGroup
-              orientation="horizontal"
-              className="min-h-0 flex-1 gap-1.5 p-1.5"
-              onLayoutChanged={handleSidebarLayoutChanged}
-            >
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 gap-1.5 p-1.5">
               <AppSidebar
                 sidebarRef={sidebarRef}
                 explorerRoot={explorerRoot}

@@ -168,7 +168,7 @@ fn current_branch(repo: &Path) -> Option<String> {
 /// a detached HEAD (`## HEAD (no branch)`); the caller then resolves the short
 /// SHA. Git ref names cannot contain spaces or `..`, so the `" ["` and `"..."`
 /// splits are unambiguous.
-fn parse_branch_header(line: &str) -> (Option<String>, Option<String>, u32, u32) {
+pub(crate) fn parse_branch_header(line: &str) -> (Option<String>, Option<String>, u32, u32) {
     let rest = line.strip_prefix("## ").unwrap_or(line);
     // Unborn branch (no commits yet): "No commits yet on <b>" / "Initial commit on <b>".
     for prefix in ["No commits yet on ", "Initial commit on "] {
@@ -201,7 +201,7 @@ fn parse_branch_header(line: &str) -> (Option<String>, Option<String>, u32, u32)
     (Some(branch), upstream, ahead, behind)
 }
 
-fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
+pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
     // Porcelain v1 with -z uses NUL as the entry separator and a second NUL
     // after the source path of a rename. Each entry is "XY <path>" plus
     // "<src>" for renames.
@@ -1031,6 +1031,25 @@ fn git_push_inner(repo_path: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::parse_branch_header;
+
+    /// `ssh_git_status` reuses this parser with a POSIX remote root while
+    /// running on whatever OS the app is on. On Windows `Path::join` inserts a
+    /// backslash, so the paths handed to the frontend are only correct because
+    /// `to_forward` normalizes them back.
+    #[test]
+    fn porcelain_paths_stay_posix_for_a_remote_root() {
+        let changes = super::parse_porcelain_v1(
+            std::path::Path::new("/home/u/repo"),
+            " M src/a.rs\0?? b.txt\0",
+        );
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].path, "/home/u/repo/src/a.rs");
+        assert_eq!(changes[0].relative, "src/a.rs");
+        assert_eq!(changes[0].status, "modified");
+        assert!(!changes[0].staged);
+        assert_eq!(changes[1].path, "/home/u/repo/b.txt");
+        assert_eq!(changes[1].status, "untracked");
+    }
 
     #[test]
     fn branch_header_variants() {

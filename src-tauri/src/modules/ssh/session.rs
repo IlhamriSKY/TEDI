@@ -359,6 +359,51 @@ impl SshSession {
         *guard = Some(sftp.clone());
         Ok(sftp)
     }
+
+    /// Run one non-interactive command on the remote and capture its stdout.
+    /// Opens a one-shot channel on the retained handle, the same way
+    /// `open_sftp_on_handle` does, so it is independent of the shell channel
+    /// driving the terminal. stderr is dropped: every caller so far wants the
+    /// command's value, and a failed command is reported as empty output.
+    pub async fn exec_capture(&self, cmd: &str) -> Result<String, String> {
+        let handle_guard = self.handle.lock().await;
+        let handle = handle_guard
+            .as_ref()
+            .ok_or_else(|| "ssh session is closed".to_string())?;
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("ssh: open exec channel failed: {e}"))?;
+        channel
+            .exec(true, cmd)
+            .await
+            .map_err(|e| format!("ssh: exec failed: {e}"))?;
+
+        // Bounded so a pathological remote can neither exhaust memory nor hang
+        // the caller. Both limits are far above a `git status` on a large repo.
+        // ponytail: fixed 4 MiB / 15s ceiling; make it a parameter only if a
+        // second caller needs a different budget.
+        const CAP: usize = 4 * 1024 * 1024;
+        let deadline = tokio::time::sleep(std::time::Duration::from_secs(15));
+        tokio::pin!(deadline);
+        let mut out: Vec<u8> = Vec::new();
+        loop {
+            tokio::select! {
+                _ = &mut deadline => break,
+                msg = channel.wait() => match msg {
+                    Some(ChannelMsg::Data { ref data }) => {
+                        let room = CAP.saturating_sub(out.len());
+                        if room > 0 {
+                            out.extend_from_slice(&data[..data.len().min(room)]);
+                        }
+                    }
+                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                    _ => {}
+                },
+            }
+        }
+        Ok(String::from_utf8_lossy(&out).into_owned())
+    }
 }
 
 impl Drop for SshSession {

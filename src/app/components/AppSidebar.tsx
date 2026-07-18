@@ -53,6 +53,7 @@ type Props = {
     sessionId: number | null;
     hostLabel: string | null;
     cwd: string | null;
+    fromActiveLeaf: boolean;
   };
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   showSourceControl: boolean;
@@ -108,6 +109,12 @@ const isBuiltinKey = (k: SectionKey): k is BuiltinKey =>
 // card's 1px top+bottom border, so a minimized bento card shows its full header
 // without clipping. Min size while expanded keeps a few rows visible and tidy.
 const SECTION_COLLAPSED_SIZE = "34px";
+/** Stays px on purpose. The sidebar panel's minSize had to become a percentage
+ *  (see there) to survive a minimize, but the same change here would cap the
+ *  sidebar at 100/N sections: the count is 4 built-ins PLUS one per extension
+ *  section, all rendered unconditionally, so a fixed percentage overflows once
+ *  enough are expanded. A px minimum scales with window height instead, which is
+ *  what makes a tall window able to show them all. */
 const SECTION_MIN_SIZE = "100px";
 
 // Persisted in localStorage (sidebar lives in the main window only).
@@ -349,6 +356,8 @@ export function AppSidebar({
               onOpenInTab={openScmTab}
               dragHandle={controls}
               collapsed={isCollapsed}
+              sshSessionId={activeSshContext.fromActiveLeaf ? activeSshContext.sessionId : null}
+              sshCwd={activeSshContext.cwd}
             />
           </Suspense>
         );
@@ -375,7 +384,15 @@ export function AppSidebar({
       id="sidebar"
       panelRef={sidebarRef}
       defaultSize="225px"
-      minSize="130px"
+      // Percentage, NOT px. react-resizable-panels re-derives a px minSize
+      // against the LIVE container, so while a minimize/restore ramps the
+      // WebView2 client area down through ~40-400px, "130px" becomes 65%+ and
+      // the library snaps this collapsible panel to collapsedSize 0 - which then
+      // survives the way back up, because a growing container never revisits the
+      // stored percentages. That is what made the sidebar come back shut. A
+      // percentage minimum is container-invariant, so a resize can never make
+      // `size < minSize` true and the force-collapse is structurally impossible.
+      minSize="8%"
       maxSize="450px"
       collapsible
       collapsedSize={0}
