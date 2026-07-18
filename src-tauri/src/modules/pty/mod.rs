@@ -7,7 +7,7 @@ pub(crate) mod shell_init;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -31,9 +31,94 @@ use crate::modules::pty_daemon::protocol::SessionInfo;
 /// switch mid-flight - mixing live sessions across modes would let the
 /// numeric id `1` map to two different shells depending on backend, which
 /// is the kind of confusion no error message can untangle.
+/// Holds the daemon client behind a swap-on-death indirection. The daemon is
+/// a separate process that can die (crash, idle-shutdown, an OOM, or the
+/// pre-fix pty-race abort) while the GUI keeps running. The GUI opens ONE
+/// persistent connection at startup, so before this holder a single daemon
+/// death set the client's `alive=false` forever and every subsequent pty op
+/// (every new tab, every retry) returned "daemon connection dropped" until the
+/// whole app was restarted - the recurring crash the user hit when spam-opening
+/// tabs or running the remote-access agent as a 2nd daemon client.
+///
+/// `get_live` swaps in a freshly reconnected client (respawning the daemon if
+/// it is gone) the next time the backend needs one, so a daemon death becomes a
+/// one-op hiccup that self-heals instead of a restart-required wedge.
+struct DaemonClientHolder {
+    inner: RwLock<Arc<PtyClient>>,
+    /// Serializes reconnects. Held across the slow `connect_or_spawn` INSTEAD of
+    /// `inner`'s write lock, so a concurrent `current()` read on the UI thread
+    /// never blocks behind a ~5s daemon respawn - `inner.write()` is taken only
+    /// for the microsecond Arc swap at the end.
+    reconnecting: Mutex<()>,
+}
+
+impl DaemonClientHolder {
+    fn new(client: PtyClient) -> Self {
+        Self {
+            inner: RwLock::new(Arc::new(client)),
+            reconnecting: Mutex::new(()),
+        }
+    }
+
+    /// The current client without reconnecting. Used by write/resize/close,
+    /// where reconnecting is pointless: those target an EXISTING session id,
+    /// which a freshly respawned daemon would not know. They just surface the
+    /// dropped-connection error (logged + swallowed by the caller). Only ever
+    /// contends with the microsecond Arc swap in `get_live`, so it never stalls
+    /// the sync (UI-thread) command path.
+    fn current(&self) -> Arc<PtyClient> {
+        self.inner.read().unwrap().clone()
+    }
+
+    /// A live client, reconnecting (and respawning the daemon if it died) when
+    /// the current connection is dead. The `reconnecting` mutex + re-check means
+    /// many callers that all observe a dead client reconnect exactly once - the
+    /// rest reuse the fresh connection.
+    ///
+    /// BLOCKS on the reconnect path (`connect_or_spawn` polls a respawned daemon
+    /// for up to ~5s), so it must run on the blocking pool, never the async
+    /// executor or the WebView2 UI thread. Every caller invokes it from inside
+    /// `spawn_blocking`.
+    fn get_live(&self) -> Arc<PtyClient> {
+        {
+            let c = self.inner.read().unwrap();
+            if c.is_alive() {
+                return c.clone();
+            }
+        }
+        // Serialize the reconnect on a dedicated mutex, NOT `inner`'s write lock,
+        // so `current()` readers stay non-blocking through the slow respawn.
+        let _guard = self.reconnecting.lock().unwrap();
+        // Re-check: a caller that held `reconnecting` before us may already have
+        // swapped in a live client.
+        {
+            let c = self.inner.read().unwrap();
+            if c.is_alive() {
+                return c.clone();
+            }
+        }
+        match PtyClient::connect_or_spawn() {
+            Ok(fresh) => {
+                let fresh = Arc::new(fresh);
+                // Brief write lock: just the pointer swap.
+                *self.inner.write().unwrap() = fresh.clone();
+                log::info!("pty daemon connection was dead; reconnected to a fresh daemon");
+                fresh
+            }
+            Err(e) => {
+                // Reconnect failed - hand back the dead client so the caller
+                // still returns a clear "daemon connection dropped" rather than
+                // silently succeeding. The next op retries the reconnect.
+                log::error!("pty daemon reconnect failed: {e}");
+                self.inner.read().unwrap().clone()
+            }
+        }
+    }
+}
+
 enum PtyBackend {
     Daemon {
-        client: Arc<PtyClient>,
+        client: Arc<DaemonClientHolder>,
         /// Local numeric id ↔ remote UUID. Numeric ids stay stable for the
         /// life of the GUI process; the UUID is what the daemon and disk
         /// (workspace serialization) use.
@@ -60,7 +145,7 @@ impl PtyState {
                 log::info!("pty backend: daemon");
                 Self {
                     backend: PtyBackend::Daemon {
-                        client: Arc::new(client),
+                        client: Arc::new(DaemonClientHolder::new(client)),
                         sessions: RwLock::new(HashMap::new()),
                     },
                     next_id: AtomicU32::new(1),
@@ -135,8 +220,13 @@ pub async fn pty_open(
         PtyBackend::InProcess(_) => None,
     };
     if let Some(client) = client {
-        let uuid = tauri::async_runtime::spawn_blocking(move || client.open(cols, rows, cwd, on_event))
-            .await
+        let uuid = tauri::async_runtime::spawn_blocking(move || {
+            // get_live reconnects (respawning the daemon) if it died since the
+            // last op, so opening a new tab self-heals a dropped connection
+            // instead of erroring until the app restarts.
+            client.get_live().open(cols, rows, cwd, on_event)
+        })
+        .await
             .map_err(|e| format!("pty_open join error: {e}"))?
             .map_err(|e| {
                 log::error!(
@@ -211,9 +301,11 @@ pub async fn pty_attach(
     let uuid: Uuid = session_id
         .parse()
         .map_err(|e| format!("invalid session_id: {e}"))?;
-    let alive = tauri::async_runtime::spawn_blocking(move || client.attach(uuid, cols, rows, on_event))
-        .await
-        .map_err(|e| format!("pty_attach join error: {e}"))??;
+    let alive = tauri::async_runtime::spawn_blocking(move || {
+        client.get_live().attach(uuid, cols, rows, on_event)
+    })
+    .await
+    .map_err(|e| format!("pty_attach join error: {e}"))??;
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     if let PtyBackend::Daemon { sessions, .. } = &state.backend {
         sessions.write().unwrap().insert(id, uuid);
@@ -235,6 +327,7 @@ pub fn pty_write(state: tauri::State<PtyState>, id: u32, data: String) -> Result
                 "no session".to_string()
             })?;
             client
+                .current()
                 .write(uuid, B64.encode(data.as_bytes()))
                 .map_err(|e| {
                     log::debug!("pty_write id={id} failed: {e}");
@@ -276,7 +369,7 @@ pub fn pty_resize(
                 log::warn!("pty_resize: unknown id={id}");
                 "no session".to_string()
             })?;
-            client.resize(uuid, cols, rows).map_err(|e| {
+            client.current().resize(uuid, cols, rows).map_err(|e| {
                 log::warn!("pty_resize id={id} failed: {e}");
                 e
             })
@@ -310,7 +403,7 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
         PtyBackend::Daemon { client, sessions } => {
             let uuid = sessions.write().unwrap().remove(&id);
             if let Some(u) = uuid {
-                if let Err(e) = client.close(u) {
+                if let Err(e) = client.current().close(u) {
                     log::debug!("pty_close: daemon close id={id} uuid={u} returned {e}");
                 }
                 log::info!("pty closed id={id} uuid={u}");
@@ -388,7 +481,10 @@ pub async fn pty_list_sessions(
         PtyBackend::Daemon { client, .. } => client.clone(),
         PtyBackend::InProcess(_) => return Ok(Vec::new()),
     };
-    tauri::async_runtime::spawn_blocking(move || client.list())
+    // get_live here means the remote-access adopt poll (~2s) auto-reconnects a
+    // dead daemon in the background, so a dropped connection often heals before
+    // the user even opens the next tab.
+    tauri::async_runtime::spawn_blocking(move || client.get_live().list())
         .await
         .map_err(|e| format!("pty_list_sessions join error: {e}"))?
 }
@@ -398,7 +494,7 @@ pub async fn pty_list_sessions(
 #[tauri::command]
 pub fn pty_kill_all(state: tauri::State<PtyState>) -> Result<(), String> {
     if let PtyBackend::Daemon { client, sessions } = &state.backend {
-        client.kill_all()?;
+        client.current().kill_all()?;
         sessions.write().unwrap().clear();
     }
     Ok(())

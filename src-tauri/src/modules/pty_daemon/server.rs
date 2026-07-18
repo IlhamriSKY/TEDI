@@ -138,10 +138,18 @@ pub struct DaemonSession {
 }
 
 impl DaemonSession {
-    fn pty(&self) -> &Arc<crate::modules::pty::session::Session> {
-        self.pty
-            .get()
-            .expect("pty accessed before open_session finished filling it")
+    /// The live shell handle, or `Err` if `open_session` has not finished
+    /// filling it yet. Returning an error instead of `.expect()`-panicking is
+    /// load-bearing: the daemon is built `panic = "abort"`, so a panic here
+    /// aborts the WHOLE daemon and drops EVERY client's connection (surfacing
+    /// as "daemon connection dropped" in the GUI). A second client (the
+    /// remote-access agent) hits exactly that window: its 2s poll `List`s a
+    /// session the moment `open_session` inserts it into the map (below) and
+    /// `Attach`es before the ~tens-of-ms ConPTY spawn fills this OnceLock. The
+    /// caller now returns a transient error and the agent retries on its next
+    /// tick (by which point the pty is filled).
+    fn pty(&self) -> Result<&Arc<crate::modules::pty::session::Session>, String> {
+        self.pty.get().ok_or_else(|| "session still initializing".to_string())
     }
 }
 
@@ -704,9 +712,11 @@ fn open_session(
     // Reserve-then-insert: re-check the live-session cap and insert the
     // (pty-less) shell under the SAME write guard, so two concurrent Opens
     // can't both observe an under-cap len and both spawn (TOCTOU). The pty
-    // OnceLock is filled below; nothing reads `pty()` before `open_session`
-    // returns the id via OpenOk, so the not-yet-filled window is unobservable
-    // to clients, and the sink never touches `pty`.
+    // OnceLock is filled below. This publishes the session into the map (and
+    // thus into `List` output) before the pty exists, so a SECOND client (the
+    // remote-access agent) CAN observe it and `Attach` inside the fill window.
+    // `DaemonSession::pty()` returns Err (not a panic) for exactly that window;
+    // the sink itself never touches `pty`.
     {
         let mut sessions = state.sessions.write().unwrap();
         if sessions.len() >= MAX_SESSIONS {
@@ -751,7 +761,7 @@ fn attach_session(
         .ok_or_else(|| format!("unknown session {session_id}"))?;
     // Resize to the attaching client's viewport so its terminal renders correctly.
     let _ = shell
-        .pty()
+        .pty()?
         .master
         .lock()
         .unwrap()
@@ -791,7 +801,7 @@ fn write_session(state: &Arc<DaemonState>, session_id: Uuid, data_b64: &str) -> 
         .decode(data_b64)
         .map_err(|e| format!("invalid base64: {e}"))?;
     use std::io::Write;
-    let pty = shell.pty().clone();
+    let pty = shell.pty()?.clone();
     let mut writer = pty.writer.lock().unwrap();
     writer.write_all(&bytes).map_err(|e| e.to_string())
 }
@@ -810,7 +820,7 @@ fn resize_session(
         .cloned()
         .ok_or_else(|| format!("unknown session {session_id}"))?;
     shell
-        .pty()
+        .pty()?
         .master
         .lock()
         .unwrap()
@@ -833,9 +843,17 @@ fn close_session(state: &Arc<DaemonState>, session_id: Uuid) {
     let Some(shell) = removed else { return };
     // Kill the whole child tree synchronously (not just the shell leader), so a
     // `claude`/`node` running inside dies now rather than lingering until the
-    // deferred `Session` drop closes the Job Object - or forever, if the job
-    // was never created. See `Session::kill_tree`.
-    shell.pty().kill_tree();
+    // deferred `Session` drop closes the Job Object, or forever if the job was
+    // never created. See `Session::kill_tree`. A session closed inside its
+    // open_session spawn window has no pty yet, so there is nothing to kill here.
+    // That window IS reachable (KillAll enumerates the map directly, so no prior
+    // attach is needed), but the fresh shell is not orphaned: open_session's
+    // local `shell` Arc drops at its return and runs `Session::drop`, which
+    // reaps the child. (The GUI can still see a phantom OpenOk for that removed
+    // id; pre-existing, low severity, and strictly better than the old abort.)
+    if let Ok(pty) = shell.pty() {
+        pty.kill_tree();
+    }
     shell.alive.store(false, Ordering::Release);
     // Notify subscribers BEFORE handing the shell off to the drop thread,
     // since the drop chain can take seconds (ConPTY close on Windows blocks
@@ -885,4 +903,38 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression: a session published into the map but whose ConPTY spawn has
+    // not yet filled the pty OnceLock must return Err from pty(), never panic.
+    // Under `panic = "abort"` a panic here aborts the whole daemon and drops
+    // every client, the "daemon connection dropped" crash the remote-access
+    // agent triggered by Attaching inside `open_session`'s spawn window.
+    #[test]
+    fn pty_before_fill_errors_instead_of_panicking() {
+        let id = Uuid::new_v4();
+        let s = DaemonSession {
+            id,
+            pty: OnceLock::new(),
+            info: Mutex::new(SessionInfo {
+                id,
+                cwd: None,
+                cols: 80,
+                rows: 24,
+                alive: true,
+                created_at_ms: 0,
+            }),
+            scrollback: Mutex::new(VecDeque::new()),
+            subscribers: Mutex::new(Vec::new()),
+            alive: AtomicBool::new(true),
+        };
+        assert!(
+            s.pty().is_err(),
+            "unfilled pty must be a recoverable Err, never a panic"
+        );
+    }
 }

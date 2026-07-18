@@ -215,6 +215,16 @@ impl PtyClient {
         self.state.next_req_id.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Whether the socket connection is still live. Goes false once the reader
+    /// thread sees a socket error (daemon crash / idle-shutdown) or a producer
+    /// write fails. The backend swaps in a fresh reconnected client the next
+    /// time it needs one - see `DaemonClientHolder::get_live` in `pty/mod.rs`.
+    /// Without that swap a single daemon death wedged EVERY pty op with "daemon
+    /// connection dropped" until the whole GUI was restarted.
+    pub fn is_alive(&self) -> bool {
+        self.state.alive.load(Ordering::Acquire)
+    }
+
     /// Register `channel` as the route for `session_id` and, still holding the
     /// routing lock, replay every event buffered before registration in
     /// arrival order. Holding the lock across the replay closes BOTH the
@@ -244,6 +254,11 @@ impl PtyClient {
         };
         if let Err(e) = write_result {
             self.state.pending.lock().unwrap().remove(&req_id);
+            // A failed socket write means the connection is gone. Mark it dead
+            // now so the backend reconnects on the next op instead of waiting
+            // for the reader thread to independently notice the broken socket
+            // (which it may not until its next blocking read errors out).
+            self.state.alive.store(false, Ordering::Release);
             return Err(format!("daemon write: {e}"));
         }
         match rx.recv_timeout(REQUEST_TIMEOUT) {
