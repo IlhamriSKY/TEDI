@@ -33,16 +33,13 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 
 type Props = {
   sidebarRef: RefObject<PanelImperativeHandle | null>;
-  /** Reports the sidebar panel's size on every resize (drag + window resize),
-   *  so App can snapshot the user's width and restore it after a minimize. */
-  onSidebarResize: (size: PanelSize) => void;
   explorerRoot: string | null;
   hasAnySshLeaf: boolean;
   onOpenFile: (path: string, pin?: boolean) => void;
@@ -160,7 +157,6 @@ function reconcileOrder(persisted: SectionKey[], allKeys: SectionKey[]): Section
  */
 export function AppSidebar({
   sidebarRef,
-  onSidebarResize,
   explorerRoot,
   hasAnySshLeaf,
   onOpenFile,
@@ -378,7 +374,6 @@ export function AppSidebar({
     <ResizablePanel
       id="sidebar"
       panelRef={sidebarRef}
-      onResize={onSidebarResize}
       defaultSize="225px"
       minSize="130px"
       maxSize="450px"

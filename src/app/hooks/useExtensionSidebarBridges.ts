@@ -31,6 +31,10 @@ type Params = {
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
+  /** App's single source of truth for the sidebar's closed-by-intent state. This
+   *  hook keeps it in sync when it programmatically shows/hides the sidebar, so
+   *  App's minimize->restore guard never reads a stale collapse intent. */
+  lastSidebarCollapsedRef: RefObject<boolean>;
   rightSidebarHiderRef: RefObject<{
     extensionId: string;
     prior: RightAuxSnapshot;
@@ -38,6 +42,24 @@ type Params = {
   activeTab: Tab | undefined;
   tabs: Tab[];
 };
+
+/** Imperatively show/hide the sidebar AND record the resulting closed-intent in
+ *  the shared ref. App's minimize->restore guard reads that ref and cannot
+ *  observe an imperative expand()/collapse() the way it observes a user drag, so
+ *  a programmatic show/hide that skipped the ref would leave a stale intent and
+ *  the sidebar could come back the wrong way after a restore. Guards the panel
+ *  calls so a redundant show/hide is a no-op, but always writes the intended
+ *  state. */
+function setSidebarVisibleImperative(
+  p: PanelImperativeHandle,
+  visible: boolean,
+  collapsedRef: RefObject<boolean>,
+): void {
+  const visibleNow = p.getSize().asPercentage > 0;
+  if (visible && !visibleNow) p.expand();
+  else if (!visible && visibleNow) p.collapse();
+  collapsedRef.current = !visible;
+}
 
 /**
  * Registers the extension-host bridge setters for the tabs/sidebar surfaces
@@ -53,6 +75,7 @@ export function useExtensionSidebarBridges({
   setExtensionTabState,
   sidebarRef,
   sidebarHiderRef,
+  lastSidebarCollapsedRef,
   rightSidebarHiderRef,
   activeTab,
   tabs,
@@ -100,8 +123,7 @@ export function useExtensionSidebarBridges({
       } else {
         sidebarHiderRef.current = null;
       }
-      if (visible && !visibleNow) p.expand();
-      else if (!visible && visibleNow) p.collapse();
+      setSidebarVisibleImperative(p, visible, lastSidebarCollapsedRef);
     });
     return () => setSidebarSetter(null);
   }, []);
@@ -195,20 +217,15 @@ export function useExtensionSidebarBridges({
     if (!hider) return;
     const p = sidebarRef.current;
     if (!p) return;
-    const visibleNow = p.getSize().asPercentage > 0;
     const stillOpen = tabs.some((t) => t.kind === "ext" && t.extensionId === hider.extensionId);
     if (!stillOpen) {
-      if (hider.prior && !visibleNow) p.expand();
-      else if (!hider.prior && visibleNow) p.collapse();
+      setSidebarVisibleImperative(p, hider.prior, lastSidebarCollapsedRef);
       sidebarHiderRef.current = null;
       return;
     }
     const onHiderTab = activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
-    if (onHiderTab) {
-      if (visibleNow) p.collapse();
-    } else {
-      if (hider.prior && !visibleNow) p.expand();
-      else if (!hider.prior && visibleNow) p.collapse();
-    }
+    // On the hider extension's own tab the sidebar stays hidden; anywhere else,
+    // restore the visibility the user had when the extension hid it.
+    setSidebarVisibleImperative(p, onHiderTab ? false : hider.prior, lastSidebarCollapsedRef);
   }, [activeTab, tabs]);
 }
