@@ -16,6 +16,24 @@ import { flushPendingInput, openPtyForSession, syncPtySize } from "./pty-lifecyc
 const RECONNECT_BACKOFF_MS = [1_000, 3_000, 7_000] as const;
 const MAX_SSH_RECONNECT_ATTEMPTS = RECONNECT_BACKOFF_MS.length;
 
+// On an SSH drop the remote program (vim/htop/tmux) never got to send its
+// mode-reset teardown, so xterm.js stays in whatever stateful modes it left on -
+// most visibly mouse tracking, which then streams `ESC[<35;col;rowM` motion
+// reports into the reconnected shell as garbage (buffered into pendingInput while
+// pty is null, then flushed). Feed the DECRST teardown to the LOCAL term so it
+// stops generating those events and any leaked alt-screen / scroll-region /
+// cursor state is cleared, without wiping scrollback the way term.reset() would.
+const TERM_MODE_RESET =
+  "\x1b[?1000l\x1b[?1002l\x1b[?1003l" + // mouse tracking off (X11 / btn-event / any-motion)
+  "\x1b[?1005l\x1b[?1006l\x1b[?1015l" + // mouse encodings off (UTF-8 / SGR / urxvt)
+  "\x1b[?1004l" + // focus reporting off
+  "\x1b[?2004l" + // bracketed paste off
+  "\x1b[?1049l" + // leave alternate screen (restore normal buffer)
+  "\x1b[?25h" + // show cursor
+  "\x1b[?7h" + // autowrap on
+  "\x1b[r" + // reset scroll region (full height)
+  "\x1b[0m"; // reset SGR
+
 export function writeSshBanner(s: Session, text: string): void {
   const enc = new TextEncoder();
   s.term.write(enc.encode(text));
@@ -69,6 +87,9 @@ export async function openSshForSession(
     if (s.disposed) return;
     // SSH dropped. Reset the AI CLI detector so its state doesn't ghost into the next reconnect.
     s.aiCliDetector?.reset();
+    // Clear terminal modes the dead program left enabled (mouse tracking, alt
+    // screen, ...) so they don't leak into the reconnected shell as garbage.
+    s.term.write(TERM_MODE_RESET);
     if (s.sshUserClose) {
       emitSshStatus(s, {
         kind: "disconnected",
