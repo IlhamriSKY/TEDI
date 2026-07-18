@@ -31,12 +31,16 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string;
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  /** Forwarded to DialogContent. Radix restores focus on close (after the exit
+   *  animation); a consumer can preventDefault here to keep focus it moved. */
+  onCloseAutoFocus?: (e: Event) => void;
 }) {
   return (
     <Dialog {...props}>
@@ -47,6 +51,7 @@ function CommandDialog({
       <DialogContent
         className={cn("top-1/3 translate-y-0 overflow-hidden rounded-4xl! p-0", className)}
         showCloseButton={showCloseButton}
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         {/* cmdk's Input/List/Item read their state from this root store via
             context; without it they hit `store.subscribe` on `undefined` and

@@ -14,18 +14,22 @@ import {
   type Shortcut,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
+import { runCommand } from "@/modules/shortcuts";
+import { Kbd } from "@/components/ui/kbd";
 import { KEY_SEP } from "@/lib/platform";
 import { Search, X } from "lucide-react";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDispatch: (id: ShortcutId) => void;
 };
 
-function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
+function CommandPaletteImpl({ open, onOpenChange }: Props) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // The command to run once the dialog has closed, run from onCloseAutoFocus so
+  // it lands after Radix's focus restore instead of racing it.
+  const pendingId = useRef<ShortcutId | null>(null);
 
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
@@ -40,15 +44,36 @@ function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
 
   const select = useCallback(
     (id: ShortcutId) => {
-      onDispatch(id);
+      // Stash the command and close; it runs from onCloseAutoFocus below.
+      pendingId.current = id;
       onOpenChange(false);
     },
-    [onDispatch, onOpenChange],
+    [onOpenChange],
   );
+
+  // Radix restores focus when the close animation ends. Run the command here, at
+  // that moment: if the command moves focus to its own target (Go to file,
+  // Search in files, Find and replace, address bar, …), preventDefault so that
+  // focus sticks; otherwise let Radix restore focus to where it was.
+  const runPending = useCallback((e: Event) => {
+    const id = pendingId.current;
+    if (!id) return;
+    pendingId.current = null;
+    const before = document.activeElement;
+    runCommand(id);
+    if (document.activeElement !== before) e.preventDefault();
+  }, []);
 
   const items = useMemo(() => {
     const groups = new Map<string, Shortcut[]>();
     for (const s of SHORTCUTS) {
+      // Skip commands that can't be run from a list: readOnly ones are
+      // documentation-only key hints (e.g. Enter to send) with no handler;
+      // tab.selectByIndex needs a specific digit; commandPalette.open is this
+      // palette itself.
+      if (s.readOnly || s.id === "tab.selectByIndex" || s.id === "commandPalette.open") {
+        continue;
+      }
       const g = groups.get(s.group) ?? [];
       g.push(s);
       groups.set(s.group, g);
@@ -56,11 +81,11 @@ function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
     return groups;
   }, []);
 
-  const bindingString = useCallback(
-    (s: Shortcut): string => {
+  const bindingTokens = useCallback(
+    (s: Shortcut): string[] => {
       const bindings = userShortcuts[s.id] || s.defaultBindings;
-      if (!bindings || bindings.length === 0) return "";
-      return getBindingTokens(bindings[0]).join(KEY_SEP);
+      if (!bindings || bindings.length === 0) return [];
+      return getBindingTokens(bindings[0]);
     },
     [userShortcuts],
   );
@@ -73,6 +98,7 @@ function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
       description="Search for a command to run..."
       className="sm:max-w-lg"
       showCloseButton={false}
+      onCloseAutoFocus={runPending}
     >
       <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-0.5">
         <span className="text-muted-foreground px-1 text-[11px] font-medium tracking-tight">
@@ -124,7 +150,7 @@ function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
         {[...items.entries()].map(([group, shortcuts]) => (
           <CommandGroup key={group} heading={group}>
             {shortcuts.map((s) => {
-              const hint = bindingString(s);
+              const tokens = bindingTokens(s);
               return (
                 <CommandItem
                   key={s.id}
@@ -133,10 +159,8 @@ function CommandPaletteImpl({ open, onOpenChange, onDispatch }: Props) {
                   onSelect={() => select(s.id)}
                 >
                   <span className="flex-1">{s.label}</span>
-                  {hint ? (
-                    <span className="text-muted-foreground/70 ml-auto text-xs tracking-widest">
-                      {hint}
-                    </span>
+                  {tokens.length > 0 ? (
+                    <Kbd className="ml-auto">{tokens.join(KEY_SEP)}</Kbd>
                   ) : null}
                 </CommandItem>
               );

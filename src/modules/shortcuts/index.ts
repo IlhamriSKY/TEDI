@@ -11,3 +11,4 @@ export {
 } from "./shortcuts";
 export { useGlobalShortcuts, type ShortcutHandlers } from "./lib/useGlobalShortcuts";
 export { useExtensionShortcuts } from "./lib/useExtensionShortcuts";
+export { runCommand, hasCommand } from "./lib/commandRegistry";

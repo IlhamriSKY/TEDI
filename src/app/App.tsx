@@ -43,7 +43,6 @@ import {
   useExtensionShortcuts,
   useGlobalShortcuts,
   type ShortcutHandlers,
-  type ShortcutId,
 } from "@/modules/shortcuts";
 import { StatusBar } from "@/modules/statusbar";
 import {
@@ -218,11 +217,6 @@ export default function App() {
   useEffect(() => {
     if (newEditorOpen) setNewEditorMounted(true);
   }, [newEditorOpen]);
-
-  // Commands dispatched from the Command Palette are routed through the cached
-  // shortcutHandlers created below, so the palette never needs to know about
-  // the handler wiring. The ref is kept live by the useMemo below.
-  const shortcutHandlersRef = useRef<ShortcutHandlers>({});
 
   /**
    * Editor leaves currently shown as markdown preview instead of source.
@@ -789,14 +783,6 @@ export default function App() {
     setCommandPaletteOpen((prev) => !prev);
   }, []);
 
-  const dispatchCommand = useCallback(
-    (id: ShortcutId) => {
-      const h = shortcutHandlersRef.current[id];
-      if (h) h(new KeyboardEvent("keydown", { key: "CommandPalette" }));
-    },
-    [],
-  );
-
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () =>
       buildShortcutHandlers({
@@ -843,9 +829,6 @@ export default function App() {
       commandPaletteHandler,
     ],
   );
-
-  // Keep the shortcutHandlers ref live for the Command Palette dispatcher.
-  shortcutHandlersRef.current = shortcutHandlers;
 
   // Gate the browser.* shortcuts to a focused browser pane so they fall through
   // to the shell/editor everywhere else - the terminal keeps Ctrl+Shift+R,
@@ -1099,11 +1082,7 @@ export default function App() {
 
           <Toaster />
 
-          <CommandPalette
-            open={commandPaletteOpen}
-            onOpenChange={setCommandPaletteOpen}
-            onDispatch={dispatchCommand}
-          />
+          <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
 
           <AppDialogs
             askPopup={askPopup}
