@@ -3,6 +3,7 @@ import type { AppContextSnapshot } from "@/modules/extensions/host";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
+import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import type { SshStatus } from "@/modules/ssh/status";
 import { countSavedTerminalLeaves, useWorkspacesStore } from "@/modules/workspaces";
 import { basename } from "@/lib/path";
@@ -78,6 +79,10 @@ export function useAppContextBridge({
   // Live per-leaf AI-CLI status (idle/working/blocking), so the tabmeta a mirror
   // receives carries the SAME working indicator the desktop shows, on every tab.
   const aiStatuses = useAiCliStatuses((s) => s.statuses);
+  // Host-captured, glyph-stripped OSC 0/2 window title per leaf. Carried over the
+  // bridge so a mirror shows the SAME title the desktop does instead of a stale /
+  // blank second capture off the mirrored byte stream.
+  const titles = useTerminalTitles((s) => s.titles);
   // Per-terminal metadata (daemon ptyId -> FIFO number + AI-CLI state + owning
   // workspace) for EVERY live workspace, so a mirror labels tabs with the same
   // number the desktop shows AND groups them into the same workspaces. The
@@ -109,6 +114,7 @@ export function useAppContextBridge({
             ptyId: key,
             ordinal: l.terminalOrdinal,
             state: aiStatuses[l.id]?.state,
+            title: titles[l.id],
             wsId,
             wsName,
             wsActive,
@@ -122,7 +128,7 @@ export function useAppContextBridge({
       walk(wsTabs, w.id, w.name, isActive);
     }
     return out;
-  }, [tabs, sshStatuses, aiStatuses, wsList, wsActiveId, liveTabsByWorkspace]);
+  }, [tabs, sshStatuses, aiStatuses, titles, wsList, wsActiveId, liveTabsByWorkspace]);
   const workspaceCount = wsList.length;
   const activeTabKind = useMemo<AppContextSnapshot["activeTabKind"]>(() => {
     if (!activeTab) return null;

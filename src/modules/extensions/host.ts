@@ -128,12 +128,20 @@ export type AppContextSnapshot = {
    *    so a mirror shows the same working indicator on EVERY tab (the browser
    *    can't derive this: PowerShell emits no OSC 133 C, and only the host sees
    *    commands started from the desktop).
+   *  - `title`: the host's already-captured, glyph-stripped OSC 0/2 window title
+   *    (the running agent's task / TUI name). A mirror MUST prefer this over its
+   *    own xterm capture: the browser re-derives the title from the mirrored byte
+   *    stream on a SECOND xterm, which goes stale on a scrollback-replay reset and
+   *    is simply blank for a browser that late-joins a running alt-screen agent
+   *    (the OSC-2 already scrolled by) - so the web tab showed a different/wrong
+   *    title than the desktop until the title rode the bridge too.
    *  - `wsId`/`wsName`/`wsActive`: the workspace the terminal belongs to, so a
    *    mirror can offer the same per-workspace switcher instead of one flat list. */
   terminals: {
     ptyId: string;
     ordinal: number;
     state?: "idle" | "working" | "blocking";
+    title?: string;
     wsId?: string;
     wsName?: string;
     wsActive?: boolean;
