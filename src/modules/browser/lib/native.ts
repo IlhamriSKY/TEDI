@@ -25,7 +25,7 @@ export type BrowserNavEvent = {
  * shortcuts stay leaf-id-addressed like {@link previewEmbedDispatch} - the
  * focused `BrowserPane` listens and selects its input. Avoids threading a
  * browser-handle ref registry through the pane tree for a single consumer.
- * ponytail: one event vs. a 5-file ref registry; switch to a ref if a second
+ * Note: one event vs. a 5-file ref registry; switch to a ref if a second
  * caller ever needs the live handle.
  */
 export const BROWSER_FOCUS_ADDRESS_EVENT = "tedi:browser-focus-address";

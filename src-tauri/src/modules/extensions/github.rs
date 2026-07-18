@@ -233,7 +233,7 @@ pub(crate) async fn raw_content_bytes(
 /// Cap the count + total size of text files returned from a repo archive so a
 /// huge repo can't balloon the response. The download itself is already bounded
 /// by `MAX_DOWNLOAD_BYTES`; these bound what we hand back to the frontend.
-/// ponytail: fixed ceilings; bump if a legit skills repo ever trips them.
+/// Note: fixed ceilings; bump if a legit skills repo ever trips them.
 const REPO_MAX_FILES: usize = 4000;
 const REPO_MAX_TEXT_BYTES: u64 = 24 * 1024 * 1024;
 const REPO_MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -250,7 +250,7 @@ fn is_binary_path(p: &str) -> bool {
 /// Resolve a repo's default branch + HEAD commit SHA via git's smart-HTTP
 /// `info/refs` advertisement (what `git ls-remote` reads). Served by github.com,
 /// NOT api.github.com, so it sidesteps the REST API's 60 req/h anonymous cap.
-/// ponytail: scans the advertisement text for the `symref=HEAD:` capability and
+/// Note: scans the advertisement text for the `symref=HEAD:` capability and
 /// the HEAD sha rather than decoding pkt-line framing; both markers are stable
 /// parts of the git protocol.
 pub(crate) async fn resolve_head(owner: &str, repo: &str) -> Result<(String, String), String> {

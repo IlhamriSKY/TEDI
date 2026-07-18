@@ -92,7 +92,7 @@ export function McpServersCard() {
   const handleAdd = async () => {
     const raw = cmd.trim();
     if (!raw || busy) return;
-    // ponytail: whitespace split — MCP run commands rarely carry quoted/spaced
+    // Note: whitespace split — MCP run commands rarely carry quoted/spaced
     // args; edit the server afterward for the rare one that does.
     const [command, ...args] = raw.split(/\s+/);
     const name = deriveName(args, command, servers);

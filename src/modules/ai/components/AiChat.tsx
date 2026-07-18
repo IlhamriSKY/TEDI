@@ -32,7 +32,7 @@ import { AiToolApproval } from "./AiToolApproval";
 import { ChevronUp, Code, Hash, Terminal } from "lucide-react";
 
 function CommandSnippet({ name }: { name: string }) {
-  // Built-in command first, then an installed skill (`/ponytail-gain` etc.) so
+  // Built-in command first, then an installed skill (`/my-skill` etc.) so
   // skill commands render with a proper icon + label, not a bare fallback.
   const meta = SLASH_COMMANDS[name] ?? skillSlashCommands().find((c) => c.name === name);
   if (!meta) {

@@ -293,7 +293,7 @@ export function ExplorerGrep({
 
   // Replace every match on a single hit's line (VS Code's per-match "Replace").
   // Grep hits are per-line, so this rewrites that one line only. Optimistically
-  // drops the row; ponytail: if the replacement itself still matches the
+  // drops the row; if the replacement itself still matches the
   // pattern the row would re-surface on the next search, rare enough to accept
   // over a full re-grep after every single replace.
   const replaceHit = async (hit: GrepHit) => {

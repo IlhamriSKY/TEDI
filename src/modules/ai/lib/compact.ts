@@ -380,7 +380,7 @@ export function compactUiMessages<
  *  fires mid-loop and the growing tool-result pile is re-sent in full every step
  *  - the dominant cost on gateways with no prompt cache (SumoPod). This bounds
  *  the per-step payload to ~this budget instead. Tune down for cheaper (lossier)
- *  runs, up for more fidelity. ponytail: one constant, not a per-model table. */
+ *  runs, up for more fidelity. Note: one constant, not a per-model table. */
 export const RESEND_COMPACTION_BUDGET = 80_000;
 
 /** Compact the per-step message set handed to prepareStep. Elide-only (Stage 3

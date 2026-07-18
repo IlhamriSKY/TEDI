@@ -27,7 +27,7 @@ const PROJECT_MEMORY_TRUNCATION_NOTE =
  *  section header (\n#{1,6} ) at or before the budget so it never severs a table
  *  or sentence, then append a read-on-demand pointer. Falls back to a paragraph
  *  break, then a hard slice, when no header sits in range.
- *  ponytail: head-truncation, not section-aware pruning; good enough because the
+ *  Note: head-truncation, not section-aware pruning; good enough because the
  *  useful head (identity, stack, commands, backend map) leads the doc. */
 function boundProjectMemory(content: string, budget = TEDI_MD_PRELOAD_BYTES): string {
   const trimmed = content.trim();

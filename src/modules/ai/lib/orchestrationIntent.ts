@@ -13,7 +13,7 @@
  *  soft prompt mandate still nudges capable models to delegate.
  *
  *  Pure (regex only, no imports) so it stays unit-testable under node/tsx.
- *  ponytail: keyword heuristic, not intent parsing; EN + ID; tighten if it misfires. */
+ *  Note: keyword heuristic, not intent parsing; EN + ID; tighten if it misfires. */
 
 const EXPLICIT_SUBAGENT_INTENT = /sub[-\s]?agents?|orchestrat\w*/i;
 

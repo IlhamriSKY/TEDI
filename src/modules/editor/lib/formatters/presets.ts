@@ -41,7 +41,7 @@ export const EXTERNAL_PRESETS: Record<string, Preset> = {
   lua: { command: "stylua", args: ["-"] }, // stdin (--search-parent-directories is default)
   shell: { command: "shfmt", args: ["-"] }, // stdin (respects .editorconfig)
   // temp-file via PSScriptAnalyzer's Invoke-Formatter cmdlet — it isn't an exe,
-  // so it must be hosted by powershell. ponytail: needs PSScriptAnalyzer
+  // so it must be hosted by powershell. Note: needs PSScriptAnalyzer
   // installed; falls through to a plain save (with a toast) if the module is missing.
   powershell: {
     command: "powershell",

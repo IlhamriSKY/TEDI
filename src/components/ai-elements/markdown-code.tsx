@@ -139,7 +139,7 @@ function useCopyTable(ref: RefObject<HTMLTableElement | null>) {
 /** Filter `tbody` rows by substring, in place via `display:none`. Re-runs on
  *  `children` too so streamed-in rows stay filtered; the setState guard keeps
  *  the per-render re-run from looping.
- *  ponytail: DOM-hide filter, O(rows) per render - fine for chat-sized tables. */
+ *  Note: DOM-hide filter, O(rows) per render - fine for chat-sized tables. */
 function useTableFilter(ref: RefObject<HTMLTableElement | null>, children: ReactNode) {
   const [query, setQuery] = useState("");
   const [counts, setCounts] = useState({ shown: 0, total: 0 });

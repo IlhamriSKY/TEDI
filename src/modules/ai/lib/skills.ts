@@ -324,7 +324,7 @@ export async function loadSkills(workspaceRoot: string | null): Promise<SkillMet
   // leaf. Unique leaves keep their bare slug (the common case, no UX change);
   // collisions get a stable `-2`/`-3` suffix in sorted-dir order so assignment is
   // deterministic across runs.
-  // ponytail: numeric suffix, not group-qualified `group:leaf`; bump to qualified
+  // Note: numeric suffix, not group-qualified `group:leaf`; bump to qualified
   // if users want readable disambiguated commands.
   const survivors = Array.from(byId.values()).sort((a, b) => a.dir.localeCompare(b.dir));
   const taken = new Set<string>();

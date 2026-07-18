@@ -40,7 +40,7 @@ export function useEditorFileDrop(openFileTab: (path: string, pin?: boolean) => 
         // Only open when the drop lands on a pane leaf (an editor pane). Drops on
         // the composer, sidebar, tab strip, etc. are left to their own handlers.
         if (!under.closest("[data-pane-leaf]")) return;
-        // ponytail: dirs aren't filtered — dropping a folder opens an editor that
+        // Note: dirs aren't filtered — dropping a folder opens an editor that
         // fails to load. Add an fs stat here if that UX ever bites.
         for (const p of paths) openRef.current(toForwardSlash(p), true);
       })

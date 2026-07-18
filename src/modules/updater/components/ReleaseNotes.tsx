@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  *  code, **bold**, `inline code`, [text](url), --- dividers), so a small
  *  purpose-built renderer beats pulling a full markdown engine into both the
  *  main and settings webviews.
- *  ponytail: handles only the subset the release-notes generator emits; if the
+ *  Note: handles only the subset the release-notes generator emits; if the
  *  changelog grows richer markdown (images, nested lists, tables), swap this
  *  for the shared Streamdown renderer. */
 

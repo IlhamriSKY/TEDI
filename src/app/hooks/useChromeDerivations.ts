@@ -107,7 +107,7 @@ export function useChromeDerivations({
     // SSH terminal: follow the remote shell's cwd (reported via OSC 7). Never
     // fall back to the local explorer root - a Windows path under a remote
     // shell is wrong. Null (-> "no directory") until the remote reports one.
-    // ponytail: keys off the saved-profile id; a rare ad-hoc SSH leaf (no
+    // Note: keys off the saved-profile id; a rare ad-hoc SSH leaf (no
     // profile) would still show the local root. Widen to live session state if
     // that case matters.
     if (leaf.sshConnectionId) return leaf.cwd ?? null;

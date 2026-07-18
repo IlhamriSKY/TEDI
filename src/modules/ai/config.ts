@@ -2,7 +2,7 @@ export const KEYRING_SERVICE = "tedi";
 export type ProviderId = "openai" | "anthropic" | "google" | "xai" | "cerebras" | "groq" | "deepseek" | "sumopod" | "openai-compatible" | "lmstudio";
 export type ProviderInfo = { id: ProviderId; label: string; keyringAccount: string; keyPrefix: string | null; consoleUrl: string };
 
-// ponytail: flat arrays over verbose objects; all fields are positional and used by index
+// Flat arrays over verbose objects; all fields are positional and used by index
 export const PROVIDERS: readonly ProviderInfo[] = [
   { id: "openai", label: "OpenAI", keyringAccount: "openai-api-key", keyPrefix: "sk-", consoleUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", label: "Anthropic", keyringAccount: "anthropic-api-key", keyPrefix: "sk-ant-", consoleUrl: "https://console.anthropic.com/settings/keys" },
@@ -19,7 +19,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
 export function getProvider(id: ProviderId): ProviderInfo { const p = PROVIDERS.find(x => x.id === id); if (!p) throw new Error(`Unknown provider: ${id}`); return p; }
 
 export type ModelInfo = { id: string; provider: ProviderId; label: string; hint: string; ownedBy?: string };
-// ponytail: 4-field tuples unpacked to ModelInfo; saves ~200 lines of repeated key names
+// 4-field tuples unpacked to ModelInfo; saves ~200 lines of repeated key names
 const M = (id: string, p: ProviderId, label: string, hint: string): ModelInfo => ({ id, provider: p, label, hint });
 export const MODELS = [
   M("gpt-5.4-mini", "openai", "GPT-5.4 mini", "Fast, default"), M("gpt-5.5", "openai", "GPT-5.5", "Higher quality"), M("gpt-5.3-codex", "openai", "GPT-5.3 Codex", "Coding"),
