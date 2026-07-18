@@ -47,6 +47,7 @@ export interface ShortcutHandlerDeps {
   activeId: number;
   activeLeafIdInTab: number | null;
   activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
+  commandPaletteOpen: () => void;
 }
 
 export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandlers {
@@ -72,8 +73,10 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     activeId,
     activeLeafIdInTab,
     activeLeafKindCurrent,
+    commandPaletteOpen,
   } = deps;
   return {
+    "commandPalette.open": commandPaletteOpen,
     "tab.new": openNewTab,
     "tab.newPrivate": openNewPrivateTab,
     "tab.newPreview": () => openPreviewTab(""),
