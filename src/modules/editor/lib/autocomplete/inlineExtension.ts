@@ -15,6 +15,8 @@ import {
   type PluginValue,
   type ViewUpdate,
 } from "@codemirror/view";
+import { isLoopbackBaseURL } from "@/modules/ai/config";
+import { MAX_PREFIX, MAX_SUFFIX } from "./prompt";
 import { requestCompletion, type CompletionDeps } from "./provider";
 
 export type AutocompletePrefs = CompletionDeps & {
@@ -121,8 +123,11 @@ const MAX_LINES = 6;
 const CACHE_SIZE = 32;
 const CACHE_TAIL = 512;
 const CACHE_HEAD = 128;
-const PREFIX_WINDOW = 4000;
-const SUFFIX_WINDOW = 2000;
+// Slice exactly what the prompt will send. These used to be 4000/2000, i.e.
+// double, and trimContext threw the other half away on every fire; nothing in
+// between (the cache key, trimSuggestion) ever looked past this much.
+const PREFIX_WINDOW = MAX_PREFIX;
+const SUFFIX_WINDOW = MAX_SUFFIX;
 
 class LRU<K, V> {
   private map = new Map<K, V>();
@@ -147,15 +152,35 @@ class LRU<K, V> {
   }
 }
 
-function suggestionKey(prefix: string, suffix: string, lang: string | null): string {
+/** Cache key. The path belongs in it because the request already depends on it
+ *  (`buildUserPrompt` sends `File: <name>`), and one driver instance outlives
+ *  the file it was created for: EditorPane swaps `path` without remounting.
+ *  Keying on content alone let two files that agree on the bytes around the
+ *  cursor - identical import headers, an empty new file - serve each other's
+ *  ghost text. */
+function suggestionKey(
+  prefix: string,
+  suffix: string,
+  lang: string | null,
+  path: string | null,
+): string {
   const p = prefix.length > CACHE_TAIL ? prefix.slice(-CACHE_TAIL) : prefix;
   const s = suffix.length > CACHE_HEAD ? suffix.slice(0, CACHE_HEAD) : suffix;
-  return `${lang ?? ""}${p}\x1f${s}`;
+  return `${path ?? ""}\x1f${lang ?? ""}${p}\x1f${s}`;
 }
 
+/** Is this provider ready to be called? A keyless local server needs a reachable
+ *  base URL instead of a key, so gating purely on `apiKey` would silently
+ *  disable ghost text for every local BYOK setup. */
 function hasProviderKey(prefs: AutocompletePrefs): boolean {
   if (prefs.provider === "lmstudio") return !!prefs.lmstudioBaseURL;
-  return !!prefs.apiKey;
+  if (prefs.apiKey) return true;
+  // A local OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM) authenticates
+  // with nothing; treat a configured loopback base URL as credentials enough.
+  return (
+    prefs.provider === "openai-compatible" &&
+    isLoopbackBaseURL(prefs.openaiCompatibleBaseURL ?? "")
+  );
 }
 
 function shouldTrigger(state: EditorState, prefs: AutocompletePrefs, isManual: boolean): boolean {
@@ -205,11 +230,16 @@ class CompletionDriver implements PluginValue {
       const ev = tr.annotation(Transaction.userEvent);
       if (!ev) continue;
       if (ev.startsWith("input.complete.ai")) chained = true;
+      // A paste or drop is not typing. Dropping 400 lines in used to schedule a
+      // completion for a cursor the user is not sitting at.
+      else if (ev.startsWith("input.paste") || ev.startsWith("input.drop")) isDelete = true;
       else if (ev.startsWith("input")) typed = true;
       else if (ev.startsWith("delete")) isDelete = true;
       else if (ev === "undo" || ev === "redo") isUndo = true;
     }
 
+    // Deletes, undo/redo, paste and drop all invalidate pending work without
+    // implying the user wants a suggestion for the new position.
     if (isDelete || isUndo) {
       this.cancelTimer();
       this.cancelInFlight();
@@ -241,6 +271,12 @@ class CompletionDriver implements PluginValue {
 
   private schedule(isManual: boolean, delayOverride?: number) {
     this.cancelTimer();
+    // Whatever is in flight was requested for a cursor position that no longer
+    // exists, so its result is already guaranteed to be discarded by
+    // applyResult's position check. Aborting here stops paying for a token
+    // stream nobody can ever see; previously it ran to completion and was only
+    // cancelled by the NEXT fire, i.e. one wasted request per typing pause.
+    this.cancelInFlight();
     const delay = delayOverride ?? (isManual ? 0 : DEBOUNCE_MS);
     this.timer = setTimeout(() => void this.fire(isManual), delay);
   }
@@ -282,7 +318,8 @@ class CompletionDriver implements PluginValue {
     const suffix = doc.sliceString(cursor, Math.min(doc.length, cursor + SUFFIX_WINDOW));
 
     const lang = this.ctx.getLanguage();
-    const key = suggestionKey(prefix, suffix, lang);
+    const path = this.ctx.getPath();
+    const key = suggestionKey(prefix, suffix, lang, path);
 
     const cached = this.cache.get(key);
     if (cached !== undefined) {
@@ -303,7 +340,7 @@ class CompletionDriver implements PluginValue {
         {
           prefix,
           suffix,
-          filename: this.ctx.getPath(),
+          filename: path,
           language: lang,
         },
         prefs,
@@ -311,6 +348,12 @@ class CompletionDriver implements PluginValue {
       );
     } catch (err) {
       if (signal.aborted) return;
+      // Ghost text has no error surface by design (a toast per keystroke would
+      // be unusable), but swallowing silently made every distinct failure look
+      // identical: a rejected sampling param, a 404 on a mistyped model id, a
+      // 401 from the wrong key. One console line keeps the UI quiet and still
+      // makes a misconfiguration diagnosable.
+      console.debug("[autocomplete] request failed:", err);
       if (this.controller === controller) {
         this.controller = null;
         this.inflightKey = null;

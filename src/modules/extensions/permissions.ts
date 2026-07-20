@@ -37,12 +37,52 @@ export class PermissionDeniedError extends Error {
 // directly, bypassing this set. Hardening that fully requires sandboxing
 // extension code (iframe/worker) - tracked separately. This list still raises
 // the bar for well-behaved extensions and documents intent.
+// The extension-management commands are denied for a different reason than the
+// keychain ones: they mint install-time consent. `ext_install_from_github` would
+// let one extension install another (and approve its permission set on the
+// user's behalf), and `ext_enable`/`ext_disable`/`ext_uninstall` would let it
+// silently disarm a security extension or resurrect a disabled one. There is
+// deliberately no `ctx` facade replacement - installing an extension is a user
+// action that must go through the review dialog.
 const HARD_DENY_INVOKE: ReadonlySet<string> = new Set([
   "secrets_get_all",
   "secrets_get",
   "secrets_set",
   "secrets_delete",
+  "ext_install_from_zip",
+  "ext_install_from_github",
+  "ext_enable",
+  "ext_disable",
+  "ext_uninstall",
 ]);
+
+/**
+ * Permissions whose grant implies HIGH risk. `permissionRiskTier` probes these
+ * through `checkPermission` before its literal-prefix chain, so a pattern is
+ * tiered by what it GRANTS rather than by how it is spelled.
+ *
+ * Without this, the two functions were independent answers to "what does this
+ * permission mean" and drifted silently, always toward under-warning: `*:*`,
+ * `**`, `invoke*`, `i*`, `s*`, `sec*` and `shell:*` all grant a high-risk
+ * capability through `checkPermission`'s glob branch while the literal chain
+ * below sees no matching prefix and falls through to "medium".
+ *
+ * Keep in sync with the high-tier prefixes in `permissionRiskTier`: one probe
+ * per family, spelled as an exact permission an attacker would actually want.
+ */
+const HIGH_PROBES: readonly string[] = [
+  "invoke:fs_read_file",
+  "invoke:shell_run_command",
+  "invoke:secrets_get",
+  "invoke:pty_open",
+  "invoke:ssh_open",
+  "invoke:mcp_spawn",
+  "invoke:fmt_run_external",
+  "secrets:read",
+  "ssh:connections",
+  "shell:transform",
+  "ai:configure",
+];
 
 const GLOB_ESCAPE_RE = /[.+?^${}()|[\]\\]/g;
 const GLOB_RE_CACHE = new Map<string, RegExp>();
@@ -89,7 +129,9 @@ export function requirePermission(
 
 /** Risk label for the install dialog. Lower is safer. */
 export function permissionRiskTier(p: string): "low" | "medium" | "high" {
-  if (p === "*") return "high";
+  // Grant-derived first. Catches every glob shape; the literal chain below only
+  // ever sees exact strings and narrow families it can reason about by name.
+  if (HIGH_PROBES.some((probe) => checkPermission([p], probe))) return "high";
   if (p.startsWith("invoke:")) {
     const cmd = p.slice("invoke:".length);
     // Any glob is HIGH. `invoke:*` grants near-total access; a family glob like
@@ -101,14 +143,16 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
     // Code-execution / remote-shell / arbitrary-binary families are HIGH even as
     // an exact single command: fs_ (disk), shell_ (process), secrets_ (keychain),
     // pty_ (spawns a real shell = local code execution), ssh_ (remote shell +
-    // SFTP write/delete), and fmt_run_external (runs an arbitrary external
-    // binary, deliberately bypassing the shell).
+    // SFTP write/delete), mcp_ (mcp_spawn launches an arbitrary binary as an MCP
+    // server, same class as pty_), and fmt_run_external (runs an arbitrary
+    // external binary, deliberately bypassing the shell).
     if (
       cmd.startsWith("fs_") ||
       cmd.startsWith("shell_") ||
       cmd.startsWith("secrets_") ||
       cmd.startsWith("pty_") ||
       cmd.startsWith("ssh_") ||
+      cmd.startsWith("mcp_") ||
       cmd === "fmt_run_external"
     )
       return "high";
@@ -135,5 +179,9 @@ export function permissionRiskTier(p: string): "low" | "medium" | "high" {
   // `shell:transform` lets an extension rewrite every AI shell command;
   // mark high so the install dialog flags it.
   if (p === "shell:transform") return "high";
+  // `ai:configure` retargets the agent's model/provider and `ai:prompt` submits
+  // turns on the user's behalf. Both spend the user's API credit and steer an
+  // agent that can write files, so neither is a "medium" the dialog should mute.
+  if (p.startsWith("ai:")) return "high";
   return "medium";
 }

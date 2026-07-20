@@ -36,9 +36,11 @@ pub async fn fs_search(
     limit: Option<usize>,
     include_hidden: Option<bool>,
 ) -> Result<Vec<SearchHit>, String> {
-    tauri::async_runtime::spawn_blocking(move || fs_search_inner(root, query, limit, include_hidden))
-        .await
-        .map_err(|e| format!("fs_search join error: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        fs_search_inner(root, query, limit, include_hidden)
+    })
+    .await
+    .map_err(|e| format!("fs_search join error: {e}"))?
 }
 
 fn fs_search_inner(

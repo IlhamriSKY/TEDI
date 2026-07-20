@@ -5,8 +5,11 @@ export type CompletionRequest = {
   filename: string | null;
 };
 
-const MAX_PREFIX = 2000;
-const MAX_SUFFIX = 1000;
+/** Context actually sent to the model. Exported so the editor slices the
+ *  document to the same size instead of cutting twice as much and discarding
+ *  half of it here on every fire. */
+export const MAX_PREFIX = 2000;
+export const MAX_SUFFIX = 1000;
 
 export function trimContext(prefix: string, suffix: string) {
   const p = prefix.length > MAX_PREFIX ? prefix.slice(prefix.length - MAX_PREFIX) : prefix;

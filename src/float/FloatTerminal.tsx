@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   b64ToBytes,
   floatEv,
@@ -26,10 +27,21 @@ export function FloatTerminal({ leafId }: { leafId: number }) {
       fontFamily: '"JetBrainsMono Nerd Font Mono", ui-monospace, "Cascadia Code", Menlo, monospace',
       fontSize: 13,
       cursorBlink: true,
-      scrollback: 10000,
+      // Follow the user's history cap like the main window does, instead of
+      // pinning 10k lines. A floated pane is a second full xterm buffer, so
+      // ignoring a lowered setting doubled the memory the user asked to save.
+      scrollback: usePreferencesStore.getState().terminalScrollback,
       allowProposedApi: true,
     });
     term.open(el);
+
+    // Prefs hydrate asynchronously in this webview and can change while the
+    // float is open, so track both instead of reading once at construction.
+    const unsubPrefs = usePreferencesStore.subscribe((s, prev) => {
+      if (s.terminalScrollback !== prev.terminalScrollback) {
+        term.options.scrollback = s.terminalScrollback;
+      }
+    });
 
     const onData = term.onData((d) => void emit(floatEv.in(leafId), d));
 
@@ -58,6 +70,7 @@ export function FloatTerminal({ leafId }: { leafId: number }) {
       clearTimeout(retry);
       window.removeEventListener("pagehide", bye);
       void emit(floatEv.bye(leafId));
+      unsubPrefs();
       onData.dispose();
       for (const u of unlisteners) u();
       term.dispose();

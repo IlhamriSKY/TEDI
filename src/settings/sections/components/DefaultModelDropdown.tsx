@@ -19,7 +19,10 @@ import {
   type OpenAICompatibleInstance,
   type ProviderId,
 } from "@/modules/ai/config";
-import { getOpenAICompatibleModelsState } from "@/modules/ai/lib/openaiCompatible";
+import {
+  getOpenAICompatibleModelsState,
+  isOpenAICompatibleInstanceReady,
+} from "@/modules/ai/lib/openaiCompatible";
 import type { useSumopodModels } from "@/modules/ai/lib/sumopod";
 import { setDefaultModel } from "@/modules/settings/store";
 import { useState } from "react";
@@ -157,7 +160,11 @@ export function DefaultModelDropdown({
             // Expand each provider to one section, except OpenAI-Compatible which
             // yields one section per configured endpoint, headed by its label.
             const sectionDefs = PROVIDERS.flatMap((p) => {
-              if (!(providerNeedsKey(p.id) && !!keys[p.id])) return [];
+              // openai-compatible is gated per-instance below (a keyless loopback
+              // endpoint is valid, and keys["openai-compatible"] only reflects the
+              // default instance), so never drop the whole provider on that slot.
+              if (p.id !== "openai-compatible" && !(providerNeedsKey(p.id) && !!keys[p.id]))
+                return [];
               if (p.id === "openai-compatible") {
                 return groupOpenAICompatibleByInstance(oaiCompatModels, oaiCompatInstances).map(
                   (g) => ({
@@ -188,7 +195,16 @@ export function DefaultModelDropdown({
               const filtered = s.all.filter((m) => matchesQuery(m, modelQuery));
               totalMatches += filtered.length;
               if (filtered.length === 0 && searching) return null;
-              const hasKey = !!keys[p.id];
+              // A keyless loopback OAC endpoint is usable, so read its own
+              // readiness (baseURL + shared slot) rather than the slot alone,
+              // which would grey out a working local server's models.
+              const hasKey =
+                p.id === "openai-compatible" && s.instanceId
+                  ? isOpenAICompatibleInstanceReady(
+                      oaiCompatInstances.find((i) => i.id === s.instanceId)?.baseURL ?? "",
+                      keys[p.id],
+                    )
+                  : !!keys[p.id];
               // Detection status: SumoPod has one stream; each OAC endpoint reads
               // its own instance status.
               const dynamicStatus =

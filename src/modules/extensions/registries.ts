@@ -58,6 +58,14 @@ export type StatusItem = {
    *  with a real progress bar per row instead of the plain `tooltip` string
    *  (which stays the aria-label and the fallback on hosts that ignore this). */
   detail?: { title?: string; rows: StatusItemDetailRow[] };
+  /** Optional click handler. When set the item renders as a real `<button>`
+   *  instead of a decorative `<span role="img">`, so it is focusable and
+   *  keyboard-activatable. Without this an extension that wants a clickable
+   *  status icon has to attach a document-wide listener and match the DOM,
+   *  which breaks whenever the host's markup changes. Status items are set at
+   *  runtime through `ctx.statusBar` (they are not a manifest contribution),
+   *  so a function on this object is passed in-process and never serialised. */
+  onClick?: () => void;
 };
 
 class Registry<T> {

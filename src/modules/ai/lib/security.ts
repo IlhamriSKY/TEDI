@@ -220,11 +220,77 @@ export async function checkWritableResolved(
 }
 
 /**
+ * Path-looking tokens in a shell command, for the unattended checks below.
+ *
+ * Heuristic by nature: a shell string is not parseable without a shell. It
+ * splits on whitespace and the common separators, strips quotes and a leading
+ * `VAR=`, and keeps anything that looks like a path OR whose basename matches a
+ * secret pattern (so a bare `.env` is caught, not just `./.env`).
+ */
+function extractPathTokens(cmd: string): string[] {
+  const out: string[] = [];
+  for (const raw of cmd.split(/[\s;|&<>()]+/)) {
+    if (!raw) continue;
+    // Strip quotes, a leading `VAR=` assignment, and `--flag=` prefixes.
+    let t = raw.replace(/^['"]|['"]$/g, "");
+    const eq = t.indexOf("=");
+    if (eq > 0 && !t.slice(0, eq).includes("/")) t = t.slice(eq + 1);
+    t = t.replace(/^['"]|['"]$/g, "");
+    if (!t) continue;
+    const looksLikePath =
+      /^[~/]/.test(t) ||
+      /^\.{1,2}\//.test(t) ||
+      /^[A-Za-z]:[\\/]/.test(t) ||
+      /\$\{?HOME\}?/.test(t) ||
+      t.includes("/") ||
+      t.includes("\\");
+    if (looksLikePath || SECRET_BASENAME_PATTERNS.some((re) => re.test(basename(t)))) {
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
  * Heuristic block for destructive shell commands even after user approval.
  * The approval UI is the primary gate; this catches obvious model mistakes.
+ *
+ * `unattended` turns on the extra checks that matter when there is NO approver:
+ * an autonomous worker sub-agent runs `bash_run` with auto-approval, so without
+ * these its shell was the one hole in the scope model that `fs`/`edit` enforce.
+ * It refuses commands that name a secret path (`~/.ssh/id_rsa`, `.env`) or an
+ * absolute path outside the workspace, via the same deny-list and scope
+ * predicate the file tools use.
+ *
+ * Still a defense layer, not a sandbox: a shell cannot be scoped by inspecting
+ * a string, and an obfuscated command (variable indirection, base64, a helper
+ * script) will get through. It raises the bar against the realistic case, a
+ * prompt-injected worker reading a file and following its instructions.
  */
-export function checkShellCommand(cmd: string): SafetyResult {
+export function checkShellCommand(
+  cmd: string,
+  opts: { unattended?: boolean; isOutsideScope?: (path: string) => boolean } = {},
+): SafetyResult {
   const c = cmd.trim();
+
+  if (opts.unattended) {
+    for (const token of extractPathTokens(c)) {
+      const readable = checkReadable(token);
+      if (!readable.ok) {
+        return {
+          ok: false,
+          reason: `${readable.reason} (in shell command, and this sub-agent runs without an approval prompt)`,
+        };
+      }
+      if (opts.isOutsideScope?.(token)) {
+        return {
+          ok: false,
+          reason: `Refused: "${token}" is outside the workspace, and this sub-agent runs without an approval prompt.`,
+        };
+      }
+    }
+  }
+
   // rm with recursive AND force flags (any order, combined `-rf` or split
   // `-r -f`) targeting a filesystem-root or home path (`/`, `/*`, `~`, `$HOME`).
   // A relative path or a home subdir (`~/proj/build`, `./build`, `node_modules`)

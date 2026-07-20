@@ -12,6 +12,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   DEFAULT_MODEL_ID,
   getModelContextLimit,
+  isLoopbackBaseURL,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   ORCHESTRATION_PROMPT_BODY,
@@ -36,7 +37,7 @@ import { corsFallbackFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import type { Tool } from "ai";
-import { applyCacheBreakpoints } from "./cache";
+import { applyCacheBreakpoints, applyStepCacheBreakpoints } from "./cache";
 import { compactModelMessagesDetailed, compactStepMessages, type CompactStages } from "./compact";
 import { wantsForcedFanout } from "./orchestrationIntent";
 import { HOST_PROMPT_LINE } from "./osTag";
@@ -64,6 +65,7 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   bash_list: () => `Listing background processes`,
   bash_kill: () => `Stopping background process`,
   suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
+  read_browser_console: () => `Reading browser console`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   skill: (i) => `Using ${String(i.name ?? "skill")} skill`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
@@ -130,7 +132,22 @@ export async function buildLanguageModel(
   resolvedModelId: string,
   options: BuildModelOptions = {},
 ): Promise<LanguageModel> {
-  if (providerNeedsKey(provider) && !keys[provider]) {
+  // An openai-compatible instance carries its own key and base URL, and a local
+  // server (Ollama / llama.cpp / vLLM) needs no key at all. Resolve that first so
+  // a keyless loopback endpoint is not rejected by the generic key gate below.
+  const oaiCompatEarly =
+    provider === "openai-compatible" ? resolveOpenAICompatibleModel(resolvedModelId) : null;
+  const oaiCompatBaseEarly =
+    oaiCompatEarly?.baseURL ||
+    (provider === "openai-compatible" ? (options.openaiCompatibleBaseURL ?? "") : "");
+  // True when the instance supplies its own credentials, or needs none because
+  // it is local. Not "keyless" in the literal sense: it means the generic key
+  // gate below does not apply to this request.
+  const oaiCompatSelfKeyed =
+    provider === "openai-compatible" &&
+    (!!oaiCompatEarly?.apiKey || isLoopbackBaseURL(oaiCompatBaseEarly));
+
+  if (providerNeedsKey(provider) && !keys[provider] && !oaiCompatSelfKeyed) {
     // The resolved provider has no key. If the same model id is served by a
     // configured provider (one the user has a key for), route there instead of
     // failing - covers ids shared across providers (e.g. deepseek-v4-pro on both
@@ -150,6 +167,12 @@ export async function buildLanguageModel(
   // For openai-compatible, fold the resolved instance's base URL + key into the
   // cache key so rotating one instance's key (or editing its URL) invalidates
   // its cached client without disturbing other instances.
+  // Resolved AGAINST THE POST-GATE PROVIDER, deliberately not reusing the
+  // pre-gate value above: the `alt` fallback can reroute *into*
+  // openai-compatible (namespaced ids live under this provider in the dynamic
+  // registry), and the pre-gate ternary short-circuited on the original
+  // provider, so it is null exactly when it matters. It is an indexOf plus a
+  // Map lookup; sharing it across these ten lines would only risk that case.
   const oaiCompatResolved =
     provider === "openai-compatible" ? resolveOpenAICompatibleModel(resolvedModelId) : null;
   const oaiCompatCacheTag = oaiCompatResolved
@@ -633,7 +656,15 @@ export async function runAgentStream(
       stepNumber: number;
       messages: ModelMessage[];
     }) => {
-      const messages = compactStepMessages(stepMessages);
+      // Provider-aware: on a caching provider this only compacts once the
+      // payload is genuinely large, because eliding an old result invalidates
+      // the cached prefix after it.
+      const compacted = compactStepMessages(stepMessages, provider);
+      // Re-mark breakpoints per step so the rolling tool-result one (BP3) has
+      // something to land on. At turn start the newest message is always the
+      // user turn, so without this the intra-turn tool tail was re-sent
+      // uncached on every step (quadratic over a long loop).
+      const messages = applyStepCacheBreakpoints(compacted, provider);
       return forceSpawnStep0 && stepNumber === 0
         ? { messages, activeTools: ["run_subagents"], toolChoice: "required" }
         : { messages };

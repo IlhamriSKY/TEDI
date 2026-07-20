@@ -16,10 +16,35 @@ const DEFAULT_COMPLETION_TEMPERATURE = 0.2;
 export type CompletionDeps = {
   provider: AutocompleteProviderId;
   modelId: string;
-  /** Provider API key, or null for keyless (LM Studio). */
+  /** Provider API key, or null for keyless (LM Studio, local OpenAI-compatible). */
   apiKey: string | null;
   lmstudioBaseURL: string;
+  /** Base URL for the OpenAI-compatible provider. Required only when a bare
+   *  (non-namespaced) model id is used, since a namespaced id carries its own
+   *  instance base URL. Optional so existing callers keep compiling. */
+  openaiCompatibleBaseURL?: string;
 };
+
+/**
+ * Families that spend output tokens on hidden thought before emitting any
+ * visible text. They need the larger cap below, or the tight one finishes
+ * mid-thought and the completion comes back empty.
+ *
+ * `(?<!non-)` matters: `grok-4.20-non-reasoning` is a default here, and matching
+ * it would grant an 8x cap to the one model whose name says it does not reason.
+ */
+const THINKING_MODEL = [
+  /\b(gpt-oss|o[1-9]\b|deepseek-r\d|qwq|thinking)\b/i,
+  /(?<!non-)\breasoning\b/i,
+  /\bgpt-5/i,
+  /\bgemini-(?:[3-9]|2\.5)/i,
+  /\bclaude-(fable|mythos)-\d/i,
+  /\bclaude-opus-4-(?:[7-9]|\d\d)/i,
+  /\bclaude-sonnet-(?:[5-9]|\d\d)/i,
+];
+function isThinkingModel(modelId: string): boolean {
+  return THINKING_MODEL.some((re) => re.test(modelId));
+}
 
 const MAX_OUTPUT_TOKENS_DEFAULT = 128;
 // Reasoning models burn output tokens on internal thought; a tight cap
@@ -35,21 +60,44 @@ export async function requestCompletion(
   const keys = { ...EMPTY_PROVIDER_KEYS, [deps.provider]: deps.apiKey };
   const model = await buildLanguageModel(deps.provider, keys, modelId, {
     lmstudioBaseURL: deps.lmstudioBaseURL || LMSTUDIO_DEFAULT_BASE_URL,
+    openaiCompatibleBaseURL: deps.openaiCompatibleBaseURL,
   });
 
-  const isReasoning = /\bgpt-oss\b/i.test(modelId);
+  const isReasoning = isThinkingModel(modelId);
+  // Completion wants an answer, not deliberation, so ask every family that
+  // thinks by default to think as little as it can. The gateway-backed
+  // providers (deepseek / sumopod / openai-compatible) are built through
+  // createOpenAICompatible under those names, so their options namespace is the
+  // name, not "openai" - listing all of them is what actually delivers the hint.
   const providerOptions = isReasoning
     ? {
         cerebras: { reasoningEffort: "low" },
         groq: { reasoningEffort: "low" },
         openai: { reasoningEffort: "low" },
+        deepseek: { reasoningEffort: "low" },
+        sumopod: { reasoningEffort: "low" },
+        "openai-compatible": { reasoningEffort: "low" },
+        // Gemini thinks before emitting text, which at a 128-token cap means an
+        // empty completion. `thinkingLevel` is the current control; the older
+        // `thinkingBudget` is kept only for back-compat and sending BOTH is a
+        // 400, so this deliberately sets one. "minimal" is the floor on the 3.x
+        // line (full off is no longer available).
+        google: { thinkingConfig: { thinkingLevel: "minimal" } },
       }
     : undefined;
 
   const overrides = getPromptOverrides();
   const systemPrompt = resolvePromptText(overrides, "autocomplete", COMPLETION_SYSTEM_PROMPT);
+  // A rejected sampling param is not one bad response here, it is a permanently
+  // dead feature: this fires on every typing pause. The thinking families are
+  // exactly the ones to skip it for - the GPT-5 line and the newer Claude models
+  // return a hard 400, and Google asks that Gemini be left at its default
+  // because lowering it can make the model loop. Older Claude (opus-4-6,
+  // sonnet-4-6, haiku-4-5) and the gpt-4.x line still accept it, and none of
+  // those match. An explicit user setting always wins.
+  const explicitTemperature = resolvePromptTemperature(overrides, "autocomplete");
   const temperature =
-    resolvePromptTemperature(overrides, "autocomplete") ?? DEFAULT_COMPLETION_TEMPERATURE;
+    explicitTemperature ?? (isReasoning ? undefined : DEFAULT_COMPLETION_TEMPERATURE);
 
   const { text } = await generateText({
     model,
@@ -58,7 +106,7 @@ export async function requestCompletion(
     maxOutputTokens: isReasoning ? MAX_OUTPUT_TOKENS_REASONING : MAX_OUTPUT_TOKENS_DEFAULT,
     maxRetries: 0,
     abortSignal: signal,
-    temperature,
+    ...(temperature !== undefined ? { temperature } : {}),
     ...(providerOptions ? { providerOptions } : {}),
   });
 

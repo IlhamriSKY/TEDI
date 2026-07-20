@@ -3,6 +3,7 @@ import { providerNeedsKey, type ProviderId } from "@/modules/ai/config";
 import { getOpenAICompatibleInstanceKey } from "@/modules/ai/lib/keyring";
 import {
   clearOpenAICompatibleInstance,
+  isOpenAICompatibleInstanceReady,
   refreshOpenAICompatibleInstance,
 } from "@/modules/ai/lib/openaiCompatible";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
@@ -79,11 +80,12 @@ export function useAiBootstrap(): { keysLoaded: boolean } {
         }
         const key = await getOpenAICompatibleInstanceKey(inst.id);
         if (cancelled) return;
-        if (!key) {
+        // A local endpoint needs no key, so readiness is not just "has a key".
+        if (!isOpenAICompatibleInstanceReady(inst.baseURL, key)) {
           clearOpenAICompatibleInstance(inst.id);
           continue;
         }
-        void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL, inst.label);
+        void refreshOpenAICompatibleInstance(inst.id, key ?? "", inst.baseURL, inst.label);
       }
     })();
     return () => {

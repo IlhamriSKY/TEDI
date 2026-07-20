@@ -398,7 +398,6 @@ mod unix {
         super::write_if_changed(&init, FISH_INIT)?;
         Ok(init)
     }
-
 }
 
 #[cfg(windows)]
@@ -451,7 +450,6 @@ mod windows {
         super::write_if_changed(&file, PROFILE_PS1)?;
         Ok(file)
     }
-
 }
 
 #[cfg(windows)]

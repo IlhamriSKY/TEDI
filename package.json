@@ -1,7 +1,7 @@
 {
   "name": "tedi",
   "private": true,
-  "version": "0.3.91",
+  "version": "0.3.92",
   "description": "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces.",
   "author": "IlhamriSKY",
   "license": "Apache-2.0",
@@ -29,6 +29,7 @@
     "unlink:ext": "node scripts/link-dev-extensions.mjs --unlink",
     "typecheck": "tsc --noEmit",
     "lint:imports": "node scripts/check-imports.mjs",
+    "verify": "tsx scripts/ext-permissions-verify.ts && tsx scripts/keybindings-collision-verify.ts && tsx scripts/keybindings-terminal-verify.ts && tsx scripts/compact-step-verify.ts && tsx scripts/stream-idle-timeout-verify.ts && tsx scripts/orchestration-intent-verify.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "lint:rust": "cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings",
@@ -125,6 +126,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "react-doctor": "^0.2.14",
+    "tsx": "^4.20.6",
     "typescript": "~6.0.3",
     "vite": "^8.1.4"
   }

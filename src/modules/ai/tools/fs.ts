@@ -13,6 +13,7 @@ import {
   resolvePath,
   scrubErrorPath,
   throwIfAborted,
+  withFileLock,
   type ToolContext,
 } from "./context";
 import { resolveRoot } from "./search";
@@ -22,6 +23,68 @@ const AI_READ_CAP = 200 * 1024;
 const DEFAULT_LINE_LIMIT = 2000;
 /** Skip undo snapshot above this size; IPC cost outweighs the value. */
 const SNAPSHOT_SIZE_CAP = 1_000_000;
+/** Largest image handed to the model. Base64 inflates ~4/3 and every provider
+ *  bills it as tokens, so a screenshot-sized budget beats the 10 MiB file cap. */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+/** Raster extensions the Rust reader decodes. Used only to tell an oversized
+ *  IMAGE apart from any other oversized binary, so each gets the error that
+ *  actually explains it. Magic-byte sniffing still decides the real answer. */
+const IMAGE_EXT = /\.(png|jpe?g|gif|bmp|webp|avif|ico)$/i;
+
+/** Image payload returned by `read_file`, unwrapped into a `file-data` part by
+ *  its `toModelOutput`. `data` is raw base64, no data-URL prefix. */
+type ImageRead = {
+  ok: true;
+  path: string;
+  kind: "image";
+  mediaType: string;
+  size: number;
+  data: string;
+};
+
+type ImageTooLarge = { error: string; path: string; size: number };
+
+/**
+ * Read `abs` as an image. Returns null when it is not one, so the caller can
+ * fall through to the generic binary refusal.
+ *
+ * SVG is deliberately excluded: it is text, so the normal read path describes it
+ * better than a rasterless `file-data` part every provider would have to guess at.
+ */
+async function readAsImage(
+  abs: string,
+  size: number,
+): Promise<ImageRead | ImageTooLarge | null> {
+  // Size-gate before reading, but only claim it as an image error when the name
+  // says it is one. Otherwise a 5 MB archive would be reported as an oversized
+  // image, and every oversized binary would be read in full just to find out.
+  if (size > MAX_IMAGE_BYTES) {
+    return IMAGE_EXT.test(abs)
+      ? {
+          error: `image too large to analyze (${size} bytes, limit ${MAX_IMAGE_BYTES})`,
+          path: abs,
+          size,
+        }
+      : null;
+  }
+  try {
+    const full = await native.readFile(abs);
+    if (full.kind !== "image" || full.mime === "image/svg+xml") return null;
+    const comma = full.dataUrl.indexOf(",");
+    if (comma === -1 || !full.dataUrl.slice(0, comma).includes(";base64")) return null;
+    return {
+      ok: true,
+      path: abs,
+      kind: "image",
+      mediaType: full.mime,
+      size: full.size,
+      data: full.dataUrl.slice(comma + 1),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function buildFsTools(
   ctx: ToolContext,
@@ -60,7 +123,7 @@ export function buildFsTools(
   return {
     read_file: tool({
       description:
-        "Read UTF-8 text file. Refuses binary / oversized / sensitive (.env, keys). Default first 2000 lines (200KB cap). Use offset/limit to page large files. A path outside the workspace/cwd needs approval.",
+        "Read a UTF-8 text file, or an image (PNG/JPEG/GIF/WebP/BMP/AVIF) which is returned as a viewable image. Refuses other binaries, oversized, and sensitive files (.env, keys). Text: first 2000 lines (200KB cap); use offset/limit to page. Images cap at 4MB and ignore offset/limit. A path outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
         offset: flexIntOpt({ min: 0 }).describe(
@@ -90,7 +153,15 @@ export function buildFsTools(
           // Read the requested range on the Rust side via BufReader so only
           // the slice crosses IPC.
           const r = await native.readFilePortion(abs, startLine, lineLimit);
-          if (r.kind === "binary") return { error: "binary file refused", path: abs, size: r.size };
+          if (r.kind === "binary") {
+            // The portion reader is line-oriented and has no image variant, so an
+            // image lands here as "binary". Multimodal models can actually see it,
+            // and the media sub-agent depends on that, so fall back to the
+            // whole-file reader which sniffs and decodes images.
+            const img = await readAsImage(abs, r.size);
+            if (img) return img;
+            return { error: "binary file refused", path: abs, size: r.size };
+          }
           if (r.kind === "toolarge") {
             return {
               error: `file too large (${r.size} bytes, limit ${r.limit})`,
@@ -136,6 +207,21 @@ export function buildFsTools(
         } catch (e) {
           return { error: scrubErrorPath(e, ctx), path: abs };
         }
+      },
+      // An image result is handed over as a real file-data part so multimodal
+      // models see the picture instead of a base64 blob in a JSON string.
+      toModelOutput: ({ output }) => {
+        const o = output as Partial<ImageRead> | undefined;
+        if (o && o.kind === "image" && typeof o.data === "string" && o.mediaType) {
+          return {
+            type: "content",
+            value: [
+              { type: "text", text: `Image at ${o.path} (${o.mediaType}, ${o.size} bytes).` },
+              { type: "file-data", data: o.data, mediaType: o.mediaType },
+            ],
+          };
+        }
+        return { type: "text", value: JSON.stringify(output) };
       },
     }),
 
@@ -218,44 +304,51 @@ export function buildFsTools(
           };
         }
 
-        // Snapshot for restore-checkpoint. Capture original text if the file
-        // existed and was text; mark create-file for new paths. Binary or
-        // oversized existing files are skipped (can't round-trip safely).
-        const sessionId = ctx.getSessionId();
-        if (sessionId) {
-          try {
-            // Probe size first to avoid reading multi-MB files for undo.
-            const probe = await native.readFilePortion(abs, 0, 1);
-            if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
-              const r = await native.readFile(abs);
-              if (r.kind === "text") {
-                recordFileMutation(sessionId, abs, {
-                  kind: "modify",
-                  originalContent: r.content,
-                  writtenContent: content,
-                });
+        // Snapshot-then-write is a read-modify-write, so it takes the same
+        // per-path lock `edit` uses. Parallel workers are actively encouraged by
+        // the orchestration prompt, and without this an `edit` and a `write_file`
+        // racing on one path could interleave: the snapshot would capture the
+        // other's half-applied state and one change would be lost.
+        return withFileLock(abs, async () => {
+          // Capture original text if the file existed and was text; mark
+          // create-file for new paths. Binary or oversized existing files are
+          // skipped (can't round-trip safely).
+          const sessionId = ctx.getSessionId();
+          if (sessionId) {
+            try {
+              // Probe size first to avoid reading multi-MB files for undo.
+              const probe = await native.readFilePortion(abs, 0, 1);
+              if (probe.kind === "text" && probe.size <= SNAPSHOT_SIZE_CAP) {
+                const r = await native.readFile(abs);
+                if (r.kind === "text") {
+                  recordFileMutation(sessionId, abs, {
+                    kind: "modify",
+                    originalContent: r.content,
+                    writtenContent: content,
+                  });
+                }
               }
+              // binary or oversized: skip recording; restore won't touch it.
+            } catch {
+              // ENOENT, fresh file.
+              recordFileMutation(sessionId, abs, {
+                kind: "create-file",
+                writtenContent: content,
+              });
             }
-            // binary or oversized: skip recording; restore won't touch it.
-          } catch {
-            // ENOENT, fresh file.
-            recordFileMutation(sessionId, abs, {
-              kind: "create-file",
-              writtenContent: content,
-            });
           }
-        }
 
-        try {
-          await native.writeFile(abs, content);
-          ctx.readCache.add(abs);
-          notifyMemoryPathChanged(abs);
-          notifySkillPathChanged(abs);
-          dispatchFsRefreshForFile(abs);
-          return { path: abs, bytesWritten: content.length, ok: true };
-        } catch (e) {
-          return { error: scrubErrorPath(e, ctx), path: abs };
-        }
+          try {
+            await native.writeFile(abs, content);
+            ctx.readCache.add(abs);
+            notifyMemoryPathChanged(abs);
+            notifySkillPathChanged(abs);
+            dispatchFsRefreshForFile(abs);
+            return { path: abs, bytesWritten: content.length, ok: true };
+          } catch (e) {
+            return { error: scrubErrorPath(e, ctx), path: abs };
+          }
+        });
       },
     }),
 

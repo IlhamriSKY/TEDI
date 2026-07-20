@@ -1,3 +1,4 @@
+import type { BrowserDiag } from "@/modules/browser";
 import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { ProviderKeys } from "../lib/keyring";
 import type { DynamicModelId, ProviderId } from "../config";
@@ -44,6 +45,9 @@ export type ToolContext = {
     text: string,
     submit: boolean,
   ) => Promise<string | null>;
+  /** Drain a browser pane's captured console errors, warnings, uncaught
+   *  exceptions, and unhandled rejections. Null if that leaf isn't a browser. */
+  consoleBrowser: (leafId: number) => Promise<BrowserDiag[] | null>;
   /** Capture a browser pane as a base64 JPEG (last-resort visual). Null if that
    *  leaf isn't a browser. */
   screenshotBrowser: (leafId: number) => Promise<string | null>;

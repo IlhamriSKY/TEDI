@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (52 commands today).
+index of the backend API surface (103 commands today).
 
 ```mermaid
 flowchart LR
@@ -113,7 +113,7 @@ subsystems, flat files for single-purpose ones).
 
 Single-window React app (plus the Settings webview), path alias `@/*` -> `src/*`.
 `app/App.tsx` is the ~1000-line coordinator described in Section 2. Feature code
-lives in 18 self-contained modules.
+lives in 19 self-contained modules.
 
 | Module        | Responsibility                                                                        |
 | ------------- | ------------------------------------------------------------------------------------- |
@@ -127,6 +127,7 @@ lives in 18 self-contained modules.
 | `header/`     | Top bar, inline search, custom window controls (Linux/Windows).                       |
 | `statusbar/`  | Bottom bar, cwd breadcrumb, AI tools indicator.                                        |
 | `shortcuts/`  | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).       |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared command registry.                            |
 | `settings/`   | Shared settings store and preferences (state layer read by both windows).             |
 | `theme/`      | `next-themes` provider.                                                                |
 | `ai/`         | The AI agent subsystem (Section 5), the largest module.                               |
@@ -151,26 +152,42 @@ unmounted on switch.
 
 ## 5. The AI subsystem (`src/modules/ai/`)
 
-Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Providers and
-models are declared in `config.ts` (`PROVIDERS`, `MODELS`), the single source of
-truth. The layering:
+Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Ten providers are
+declared in `config.ts` (`PROVIDERS`, `MODELS`), the single source of truth. Local
+models are first-class: LM Studio has its own provider, and the OpenAI-compatible
+provider accepts several endpoints at once (Ollama, llama.cpp, vLLM, OpenRouter,
+and anything else that speaks the API). A loopback base URL is treated as keyless,
+so a local server works with no API key while a remote gateway still gets the
+explicit "add a key" error. The layering:
 
-- **`config.ts`**: the provider and model registry. Add new providers here.
-- **`lib/`**: the engine. `agent.ts` (an `Experimental_Agent`), `transport.ts`,
-  `composer.tsx` (shared input state), `sessions.ts`, history `compact.ts` /
-  `checkpoint.ts`, prompt `cache.ts`, and `security.ts` (the secret-path
-  deny-list, applied on both read and write).
-- **`tools/`**: the agent's tool definitions. Read-only tools auto-run; mutating
-  tools are approval-gated and route AI-proposed edits through a side-by-side
-  `ai-diff` tab that the user accepts or rejects per hunk before any write.
-- **`agents/`**: named read-only sub-agents with their own tool subset and step
-  budget, invoked via `run_subagent` (one) or `run_subagents` (a bounded-
-  concurrency DAG scheduler with `depends_on` and cascade-skip).
+- **`config.ts`**: the provider and model registry, the system prompts, and the
+  agent's numeric limits. Add new providers here.
+- **`lib/`**: the engine. `agent.ts` (builds the model, assembles the system
+  prompt, runs `streamText` with the stop guards), `transport.ts` (retries,
+  over-context recovery, the per-turn `<env>` block), `composer.tsx`, `sessions.ts`,
+  history `compact.ts` / `checkpoint.ts`, prompt `cache.ts`, `skills.ts`,
+  `mcpClient.ts`, `prompts.ts` (every built-in prompt is user-overridable), and
+  `security.ts` (the symlink-resolved secret deny-list, on both read and write).
+- **`tools/`**: the agent's tool definitions, including a full browser-automation
+  set over the native preview webview. Read-only tools auto-run; mutating tools are
+  approval-gated and route AI-proposed edits through a side-by-side `ai-diff` tab
+  that the user accepts or rejects per hunk before any write. Extension- and
+  MCP-contributed tools merge in ahead of the built-ins, so neither can shadow one.
+- **`agents/`**: ten named sub-agents with their own tool subset, invoked via
+  `run_subagent` (one) or `run_subagents` (a bounded-concurrency DAG scheduler with
+  `depends_on` and cascade-skip). Most are read-only; the three worker agents also
+  mutate, auto-approving because their `generateText` loop has no approver, and are
+  bounded instead by the deny-list, out-of-scope refusal, and checkpointing.
+  Recursion is structurally impossible: sub-agents never receive `run_subagent`.
 - **`store/`, `hooks/`, `components/`**: state, React glue, UI.
+
+The agent loop stops on three conditions, not one: a 15-step cap, the same tool
+called with the same input three times, and two consecutive text-only steps.
+Whichever tripped is reported to the user.
 
 App.tsx wires a **live-context bridge** (`setLive({ getCwd, getTerminalContext,
 openTerminal, ... })`) so tools read the active terminal's cwd and scrollback and
-can spawn or drive terminals, lazily and without pre-snapshotting.
+can spawn or drive terminals and browser panes, lazily and without pre-snapshotting.
 
 ## 6. Data flow and lifecycles
 
@@ -273,11 +290,15 @@ method checks its declared permission before acting. The surface:
 | `ctx.tabs.openExtensionTab` / `.openExtensionPane` | `tabs:open`                |
 | `ctx.ssh.*`                                     | `ssh:connections`             |
 | `ctx.shell.registerCommandTransformer`          | `shell:transform`             |
-| `ctx.panel.*`, `ctx.registerPanelRenderer`, `contribute.panels` | `panels:register` |
+| `ctx.panel.*`, `ctx.registerPanelRenderer`, runtime `ctx.contribute.panels` | `panels:register` (a manifest `contributes.panels[]` entry is seeded without it) |
+| `ctx.paths.home` | none |
+| `ctx.ai.getState` / `.onStateChange` / `.stop` | none |
+| `ctx.ai.setModel` / `.setSubagentsEnabled` | `ai:configure` |
+| `ctx.ai.sendPrompt` | `ai:prompt` |
 
 Namespacing is uniform per extension id: settings `ext:<id>:<key>`, events
 `ext://<id>/<name>`, storage `tedi-ext-<id>.json`, keychain `tedi-ext:<id>`.
-`secrets_get_all` is hard-denied even with `*`. Extension-to-extension
+`secrets_get_all` (with `secrets_get`/`set`/`delete`) and the five extension-management commands (`ext_install_from_zip`/`_from_github`, `ext_enable`/`disable`/`uninstall`) are hard-denied even with `*`. Extension-to-extension
 collaboration has no built-in contract by design: `ctx.events` is scoped to the
 caller's own id.
 

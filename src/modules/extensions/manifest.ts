@@ -7,9 +7,21 @@ import { z } from "zod";
  * and validates the `contributes.*` shape Rust treats as opaque.
  * To add a contribution category, extend `ContributesSchema` and update
  * `host.ts`. Keep IDs kebab-case.
+ *
+ * INVARIANT: this schema must never be stricter than Rust. Rust decides what
+ * installs; this decides what renders. A field Rust accepts and this rejects
+ * produces a GHOST: the install succeeds with a success toast, then `listInstalled`
+ * drops the entry, so the extension never appears in Settings, never activates,
+ * and cannot be uninstalled from the UI. Every object schema here is therefore
+ * `.passthrough()`, and unknown keys are ignored by the runtime rather than
+ * rejected. Loosening this side is the fix for any such divergence, never
+ * tightening Rust.
  */
 
-const SemverIshSchema = z.string().regex(/^\d+\.\d+\.\d+([\-+].*)?$/);
+// Rust is the version authority (it parses and compares at install time) and
+// `semver.ts` tolerates non-semver, so a regex here only ever ghosts an
+// extension Rust was happy to install.
+const SemverIshSchema = z.string().min(1);
 
 const SettingSchema = z
   .object({
@@ -22,7 +34,7 @@ const SettingSchema = z
     section: z.string().optional(),
     secret: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
 
 const CommandSchema = z
   .object({
@@ -30,7 +42,7 @@ const CommandSchema = z
     title: z.string().min(1),
     category: z.string().optional(),
   })
-  .strict();
+  .passthrough();
 
 const KeybindingSchema = z
   .object({
@@ -38,16 +50,15 @@ const KeybindingSchema = z
     key: z.string().min(1),
     when: z.string().optional(),
   })
-  .strict();
+  .passthrough();
 
-// `.passthrough()` (not `.strict()`): older TEDI builds must tolerate
-// extension manifests that declare panel flags added in newer TEDI
-// versions. v0.2.20 added `compact`, and a `.strict()` schema in
-// v0.2.15..v0.2.19 rejected install of any extension that set it with
-// `contributes.panels.0: Invalid input`. Unknown keys now survive the
-// parse and are simply ignored by the runtime renderer; engines.tedi
-// constraints from the extension manifest still gate hard if the
-// extension needs the new behaviour to work at all.
+// This schema is the reason the module-level INVARIANT above exists: it is the
+// case where the strictness bug already shipped. v0.2.20 added `compact`, and
+// the then-strict schema in v0.2.15..v0.2.19 rejected install of any extension
+// that set it, with `contributes.panels.0: Invalid input`. The fix was to stop
+// rejecting unknown keys here; the same reasoning was later applied to every
+// other schema in this file. `engines.tedi` still gates hard when an extension
+// genuinely needs the newer behaviour to work at all.
 const PanelSchema = z
   .object({
     id: z.string().min(1),
@@ -82,7 +93,7 @@ const AiToolSchema = z
     parameters: z.record(z.string(), z.unknown()),
     approval: z.enum(["auto", "needsApproval"]).default("auto"),
   })
-  .strict();
+  .passthrough();
 
 // `.passthrough()` so a newer TEDI's manifest with an unknown contribution
 // category (e.g. a future `contributes.notifications`) does not fail the
@@ -103,7 +114,7 @@ const EnginesSchema = z
   .object({
     tedi: z.string().optional(),
   })
-  .strict();
+  .passthrough();
 
 export const ManifestSchema = z
   .object({
@@ -127,7 +138,7 @@ export const ManifestSchema = z
     contributes: z.preprocess((v) => (v == null ? undefined : v), ContributesSchema.default({})),
     engines: EnginesSchema.nullish(),
   })
-  .strict();
+  .passthrough();
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 export type ContributedSetting = z.infer<typeof SettingSchema>;

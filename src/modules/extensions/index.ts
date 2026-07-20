@@ -24,7 +24,7 @@ export type {
   SidebarSectionAction,
   StatusItem,
 } from "./registries";
-export { permissionRiskTier } from "./permissions";
+export { checkPermission, permissionRiskTier } from "./permissions";
 export { useRegistry } from "./useRegistry";
 export { loadExtensionIcon } from "./icon";
 export { ExtensionStatusItems } from "./components/ExtensionStatusItems";

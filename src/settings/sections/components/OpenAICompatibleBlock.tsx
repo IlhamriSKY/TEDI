@@ -5,10 +5,14 @@ import { cn, maskKey } from "@/lib/utils";
 import {
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_PRESETS,
+  isLoopbackBaseURL,
   normalizeOpenAICompatibleBaseURL,
   type OpenAICompatibleInstance,
 } from "@/modules/ai/config";
-import { refreshOpenAICompatibleInstance } from "@/modules/ai/lib/openaiCompatible";
+import {
+  isOpenAICompatibleInstanceReady,
+  refreshOpenAICompatibleInstance,
+} from "@/modules/ai/lib/openaiCompatible";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -64,8 +68,8 @@ export function OpenAICompatibleBlock({
   }, [apiKey]);
 
   // Save persists label + URL + key in one shot. For an existing endpoint with
-  // a key already stored, the key field may stay blank (keeping the old key);
-  // for a new endpoint a key is required.
+  // a key already stored, the key field may stay blank (keeping the old key).
+  // A new endpoint needs a key UNLESS it is a local server, which has none.
   const save = async () => {
     const trimmedKey = keyDraft.trim();
     const trimmedUrl = urlDraft.trim();
@@ -73,8 +77,9 @@ export function OpenAICompatibleBlock({
       setSaveError("Enter a base URL.");
       return;
     }
-    if (!instance && !trimmedKey) {
-      setSaveError("Enter your API key.");
+    const isLocal = isLoopbackBaseURL(normalizeOpenAICompatibleBaseURL(trimmedUrl));
+    if (!instance && !trimmedKey && !isLocal) {
+      setSaveError("Enter your API key. (A local endpoint can be saved without one.)");
       return;
     }
     setSaving(true);
@@ -106,14 +111,16 @@ export function OpenAICompatibleBlock({
     }
   };
 
+  // A typed key, or a loopback URL that needs none.
+  const canSaveWithoutKey =
+    !!keyDraft.trim() || isLoopbackBaseURL(normalizeOpenAICompatibleBaseURL(urlDraft.trim()));
+
   const refresh = () => {
-    if (!instance || !apiKey) return;
-    void refreshOpenAICompatibleInstance(
-      instance.id,
-      apiKey,
-      urlDraft.trim() || initialURL,
-      instance.label,
-    );
+    if (!instance) return;
+    const url = urlDraft.trim() || initialURL;
+    // Keyless is valid for a local server, so Detect must not require a key.
+    if (!isOpenAICompatibleInstanceReady(url, apiKey ?? null)) return;
+    void refreshOpenAICompatibleInstance(instance.id, apiKey ?? "", url, instance.label);
   };
 
   const maskedKey = maskKey(apiKey ?? "");
@@ -256,7 +263,13 @@ export function OpenAICompatibleBlock({
                     void save();
                   }
                 }}
-                placeholder={apiKey ? "Paste a new key (or leave blank)" : "Paste API key"}
+                placeholder={
+                  isLoopbackBaseURL(normalizeOpenAICompatibleBaseURL(urlDraft.trim()))
+                    ? "Not needed for a local server"
+                    : apiKey
+                      ? "Paste a new key (or leave blank)"
+                      : "Paste API key"
+                }
                 autoComplete="off"
                 spellCheck={false}
                 className="h-7 pr-8 font-mono text-[11px]"
@@ -320,7 +333,10 @@ export function OpenAICompatibleBlock({
             size="sm"
             variant="outline"
             onClick={() => void save()}
-            disabled={saving || !urlDraft.trim() || (!instance && !keyDraft.trim())}
+            // A new endpoint normally needs a key, but a local server has none to
+            // give: requiring one made Ollama / llama.cpp / vLLM impossible to add
+            // at all, which is the first step of a local-only setup.
+            disabled={saving || !urlDraft.trim() || (!instance && !canSaveWithoutKey)}
             className="h-8 px-2 text-[11px]"
           >
             {saving ? "Saving…" : "Save"}

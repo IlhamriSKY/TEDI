@@ -726,6 +726,30 @@ export function buildTerminalTools(ctx: ToolContext) {
       },
     }),
 
+    read_browser_console: tool({
+      description:
+        "Read the JavaScript errors, warnings, uncaught exceptions, and unhandled promise rejections an OPEN browser pane has logged since you last called this. Capture starts before the page's own scripts run, so page-load failures are included. THE fast way to find out why a dev-server page is blank or broken: open the page, then call this instead of guessing from rendered text or screenshots. Entries are drained, so a second call returns only what is new. Auto.",
+      inputSchema: z.object({
+        leafId: z.number().int().describe("leaf_id of the browser, from the <env> browsers list."),
+      }),
+      execute: async ({ leafId }) => {
+        const entries = await ctx.consoleBrowser(leafId);
+        if (entries === null) return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+        if (entries.length === 0) {
+          return { leafId, entries: [], note: "No errors or warnings recorded since the last read." };
+        }
+        // Cap what re-enters context: a page in a render loop can log thousands,
+        // and the newest entries are the ones that explain the current state.
+        const MAX = 40;
+        const kept = entries.length > MAX ? entries.slice(-MAX) : entries;
+        return {
+          leafId,
+          entries: kept.map((e) => ({ level: e.level, text: e.text })),
+          ...(entries.length > kept.length ? { dropped: entries.length - kept.length } : {}),
+        };
+      },
+    }),
+
     browser_screenshot: tool({
       description:
         "LAST-RESORT visual: capture the focused browser tab as an image so you can SEE it - just the tab's web content, not the TEDI window. Use ONLY when Read Browser (incl fields:true), Browser Scroll, and Browser Hover still can't locate or let you understand a purely-visual target (canvas, map, drawn UI, or an ambiguous layout) - PREFER the DOM tools, this is the final fallback. After seeing it, act with Browser Click At({ x, y }) at the point you see (CSS px; Read Browser fields:true reports the viewport size to map against). Cross-platform; keep the browser pane open and visible. Auto.",

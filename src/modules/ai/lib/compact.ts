@@ -1,4 +1,6 @@
 import type { ModelMessage } from "ai";
+import type { ProviderId } from "../config";
+import { providerHasPromptCache } from "./cache";
 
 const KEEP_TAIL = 24;
 /** Elision markers. Earlier wording ("see prior tool call in history") nudged
@@ -383,14 +385,32 @@ export function compactUiMessages<
  *  runs, up for more fidelity. Note: one constant, not a per-model table. */
 export const RESEND_COMPACTION_BUDGET = 80_000;
 
+/** Below this fraction of the budget, per-step compaction is not worth doing on
+ *  a provider that caches: rewriting an old message invalidates the cached
+ *  prefix after it, so a small saving costs a full re-read at write price. */
+const CACHED_PROVIDER_COMPACTION_FLOOR = 0.75;
+
 /** Compact the per-step message set handed to prepareStep. Elide-only (Stage 3
  *  hard-drop disabled) so it can never orphan a tool_call/tool_result pair or the
  *  task brief mid-loop, and idempotent: the AI SDK re-derives the full history
  *  from its own accumulator each step, so this only shrinks what THIS step sends
  *  to the provider - the loop's own state and result.steps stay complete.
- *  Does NOT re-apply cache breakpoints (the turn-start marks already ride in the
- *  accumulator; re-marking risks Anthropic's 4-breakpoint ceiling). */
-export function compactStepMessages(messages: ModelMessage[]): ModelMessage[] {
+ *
+ *  This exists for gateways with NO prompt cache, where the growing tool pile is
+ *  re-sent in full every step. On a caching provider it is counterproductive
+ *  until the payload is actually large, because eliding an old result busts the
+ *  prefix: there, only run once the payload approaches the budget.
+ *
+ *  Cache breakpoints are re-applied by the caller (`applyStepCacheBreakpoints`),
+ *  not here, so the two concerns stay separable. */
+export function compactStepMessages(
+  messages: ModelMessage[],
+  provider?: ProviderId,
+): ModelMessage[] {
+  if (provider && providerHasPromptCache(provider)) {
+    const tokens = approxBytes(messages) / 4;
+    if (tokens < RESEND_COMPACTION_BUDGET * CACHED_PROVIDER_COMPACTION_FLOOR) return messages;
+  }
   return compactModelMessagesDetailed(messages, RESEND_COMPACTION_BUDGET, {
     skipHardDrop: true,
   }).messages;

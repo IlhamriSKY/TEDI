@@ -162,6 +162,75 @@ const TRANSPARENT_BODY_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Injected at document start into every embedded pane so runtime errors are
+/// already being recorded before the page's own scripts run. Without a
+/// document-created hook the first (and usually most interesting) errors of a
+/// page load are gone by the time anything can ask for them.
+///
+/// Deliberately small and defensive: it wraps `console.error/warn`, `onerror`,
+/// and `unhandledrejection` into a capped ring on `window.__tediDiag`, always
+/// calls the original console method through, and never throws into the page.
+/// Nothing is sent anywhere; the buffer is only read when the drain command
+/// below is invoked. Network failures are not hooked: patching fetch/XHR on
+/// arbitrary third-party pages is far more intrusive than it is worth, and a
+/// failed request usually surfaces as a console error anyway.
+const DIAG_CAPTURE_SCRIPT: &str = r#"
+(function(){
+  try {
+    if (window.__tediDiag) return;
+    var CAP = 200, MAXLEN = 800;
+    var ring = [];
+    var push = function(level, text){
+      try {
+        if (typeof text !== 'string') text = String(text);
+        if (text.length > MAXLEN) text = text.slice(0, MAXLEN) + '...';
+        ring.push({ level: level, text: text });
+        if (ring.length > CAP) ring.splice(0, ring.length - CAP);
+      } catch (e) {}
+    };
+    window.__tediDiag = {
+      drain: function(){ var out = ring.slice(); ring.length = 0; return out; }
+    };
+    var fmt = function(args){
+      var parts = [];
+      for (var i = 0; i < args.length; i++) {
+        var a = args[i];
+        try {
+          if (a instanceof Error) { parts.push(a.stack || (a.name + ': ' + a.message)); }
+          else if (typeof a === 'object' && a !== null) { parts.push(JSON.stringify(a)); }
+          else { parts.push(String(a)); }
+        } catch (e) { parts.push('[unserializable]'); }
+      }
+      return parts.join(' ');
+    };
+    ['error','warn'].forEach(function(level){
+      var orig = console[level];
+      console[level] = function(){
+        push(level, fmt(arguments));
+        try { orig.apply(console, arguments); } catch (e) {}
+      };
+    });
+    window.addEventListener('error', function(ev){
+      if (ev && ev.message) {
+        push('error', ev.message + (ev.filename ? ' (' + ev.filename + ':' + ev.lineno + ':' + ev.colno + ')' : ''));
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function(ev){
+      var r = ev && ev.reason;
+      push('error', 'Unhandled rejection: ' + ((r && (r.stack || r.message)) || String(r)));
+    }, true);
+  } catch (e) {}
+})();
+"#;
+
+/// Drains the ring built by [`DIAG_CAPTURE_SCRIPT`] and returns it as JSON. The
+/// `[]` fallback keeps the contract simple on a page that has not run the init
+/// script yet (about:blank, a hard navigation still in flight).
+const DIAG_DRAIN_JS: &str = r#"(function(){try{
+  if (!window.__tediDiag) return '[]';
+  return JSON.stringify(window.__tediDiag.drain());
+}catch(e){return '[]';}})()"#;
+
 /// WebView2 command-line flags for embedded browser panes. Keeps wry's defaults
 /// (disable the mini-menu / SmartScreen / PDF OOUI) and adds the bits that let a
 /// pane keep running while TEDI is minimized or occluded: turning off
@@ -266,6 +335,10 @@ fn spawn_preview_child(
         }
         builder = builder.initialization_script(TRANSPARENT_BODY_SCRIPT);
     }
+    // Always on, unlike the transparency script: the agent's dev loop (run the
+    // server, open the page, find out why it is broken) depends on errors having
+    // been captured from document start, and there is nothing to capture later.
+    builder = builder.initialization_script(DIAG_CAPTURE_SCRIPT);
     // A background (off-screen) pane is created WITHOUT focus. wry's default is
     // `focused = true`, which makes WebView2 call `controller.MoveFocus(...)` the
     // moment the child is created (wry webview2 mod.rs) - that yanks keyboard
@@ -441,6 +514,21 @@ pub async fn preview_embed_dispatch(
         other => return Err(format!("unknown action: {other}")),
     };
     wv.eval(js).map_err(|e| e.to_string())
+}
+
+/// Drain the console errors, warnings, uncaught exceptions, and unhandled
+/// promise rejections an embedded browser pane has recorded since the last call.
+///
+/// This is the piece that turns the in-app browser from a viewer into a dev
+/// surface: the agent can start a dev server, open the page, and read back why
+/// it broke, instead of guessing from rendered text. Draining (rather than
+/// peeking) keeps repeated calls from re-feeding the same errors into context.
+#[tauri::command]
+pub async fn preview_embed_console(app: tauri::AppHandle, tab_id: i64) -> Result<String, String> {
+    let wv = app
+        .get_webview(&embed_label(tab_id))
+        .ok_or_else(|| "no open browser pane with that id".to_string())?;
+    eval_for_string(wv, DIAG_DRAIN_JS.to_string()).await
 }
 
 /// Read the live, JS-rendered text of an embedded browser pane (title + visible

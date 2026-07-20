@@ -75,6 +75,24 @@ export async function previewEmbedRead(tabId: number, fields = false): Promise<s
   return invoke<string>("preview_embed_read", { tabId, fields });
 }
 
+/** One captured browser diagnostic: a console error/warning, an uncaught
+ *  exception, or an unhandled promise rejection. Entries arrive in the order
+ *  they occurred, so no timestamp is carried. */
+export type BrowserDiag = { level: "error" | "warn"; text: string };
+
+/** Drain an embedded browser pane's captured errors and warnings since the last
+ *  call. Capture starts at document creation, so page-load failures are included.
+ *  Draining (not peeking) keeps repeat calls from returning the same entries. */
+export async function previewEmbedConsole(tabId: number): Promise<BrowserDiag[]> {
+  const raw = await invoke<string>("preview_embed_console", { tabId });
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as BrowserDiag[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Type into or click an interactive control of an embedded browser pane,
  *  located by the `[N]` index from a `previewEmbedRead(_, true)`. Returns the
  *  raw result string: "ok", "not-found", "not-editable", or "error:..". */

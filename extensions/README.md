@@ -322,7 +322,7 @@ settings section and are fired by the keybinding dispatcher.
 | --------- | -------- | --------------------------------------------------------- |
 | `command` | yes      | A `commands[]` id.                                        |
 | `key`     | yes      | e.g. `"Mod+Alt+D"`. `Mod` = Cmd on macOS, Ctrl elsewhere. |
-| `when`    | no       | Context expression string (grammar not schema-validated). |
+| `when`    | no       | **Parsed but NOT evaluated in this version.** A binding with a registered handler fires globally, including while a terminal or the editor is focused. Do not rely on it to scope a keybinding. |
 
 Bindings are matched on a capture-phase `keydown` listener. User overrides
 (from `preferences.extensionShortcuts`) win; an empty override clears a binding.
@@ -415,6 +415,29 @@ type AppContextSnapshot = {
     | null;
   workspaceCount: number; // >= 1
   terminalCountAll: number; // sum across all workspaces
+  // Every live terminal, across all workspaces. See the disclosure note below.
+  terminals: {
+    ptyId: string;
+    ordinal: number;
+    state?: "idle" | "working" | "blocking"; // detected AI-CLI run state
+    title?: string; // captured OSC 0/2 window title
+    wsId?: string;
+    wsName?: string;
+    wsActive?: boolean;
+  }[];
+};
+
+type AiStateSnapshot = {
+  modelId: string;
+  provider: string;
+  status: "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
+  step: string | null;
+  approvalsPending: number;
+  usage: { input: number; output: number; cached: number };
+  activeSessionId: string | null;
+  approvalMode: "ask" | "semi" | "yolo";
+  subagentsEnabled: boolean;
+  hasKey: boolean; // a key is configured for `provider`; the key is never exposed
 };
 
 type Disposer = () => void;
@@ -423,6 +446,7 @@ type ExtensionContext = {
   id: string;
   installPath: string; // absolute install-folder path; join with sidecar paths
   os: ExtensionOs; // static snapshot resolved once at load
+  paths: { home: string }; // home dir, no trailing separator; "" if unresolved
 
   storage: {
     get<T>(key: string): Promise<T | null>;
@@ -447,6 +471,15 @@ type ExtensionContext = {
     get<T = unknown>(key: string): Promise<T | undefined>;
     set<T>(key: string, value: T): Promise<void>;
     onChange(key: string, cb: (value: unknown) => void): Disposer;
+  };
+
+  ai: {
+    getState(): AiStateSnapshot;
+    onStateChange(cb: (state: AiStateSnapshot) => void): Disposer;
+    setModel(modelId: string, provider: string): Promise<void>; // ai:configure
+    setSubagentsEnabled(enabled: boolean): Promise<void>; // ai:configure
+    sendPrompt(text: string): Promise<boolean>; // ai:prompt
+    stop(): void;
   };
 
   invoke<T = unknown>(
@@ -578,13 +611,19 @@ type ExtensionContext = {
 The permission required by each member is listed below. Members marked **none**
 have no permission gate by design.
 
-### `ctx.id` / `ctx.installPath` / `ctx.os`: none
+### `ctx.id` / `ctx.installPath` / `ctx.os` / `ctx.paths`: none
 
 - `ctx.id`: your extension id.
 - `ctx.installPath`: absolute path of your install folder. Join it with a
   sidecar binary path before passing to `shell_bg_spawn_direct`.
 - `ctx.os`: `{ platform, arch }`, resolved once at module load (cached;
   falls back to `unknown`/`unknown` on any failure).
+- `ctx.paths.home`: the user's home directory as a string, no trailing
+  separator, `""` if it cannot be resolved. Cached like `ctx.os`. This is a
+  path, not access: reading anything under it still needs the matching
+  `invoke:fs_*` permission. Prefer it over shelling out to `echo $HOME` /
+  `%USERPROFILE%`, which costs a subprocess and the HIGH-risk
+  `invoke:shell_run_command` grant.
 
 ### `ctx.storage`: none
 
@@ -598,8 +637,13 @@ large state that does not belong in app settings.
 
 ### `ctx.app`: none (workspace methods need `workspaces:manage`)
 
-- `getContext(): AppContextSnapshot`: the current app state snapshot (6 fields,
+- `getContext(): AppContextSnapshot`: the current app state snapshot (7 fields,
   see the type above). `activeTabKind` is `"browser"` for the browser/preview tab.
+  **Disclosure:** `terminals[]` is the widest ungated read in this API. It
+  includes each terminal's captured OSC 0/2 title, which for an AI CLI is the
+  task the user is running, plus the detected idle/working/blocking state, for
+  every workspace. An extension that declares no permissions at all can read it,
+  so it is part of what installing *any* extension grants.
 - `onContextChange(cb): Disposer`: fires **once immediately** with the current
   snapshot, then on each shallow-different snapshot. Auto-disposed.
 - `setSidebarVisible(visible)`: show/hide the **left** sidebar (file explorer +
@@ -625,6 +669,68 @@ TEDI prefs are off-limits. Use this for values you also declare in
 - `set<T>(key, value): Promise<void>`: _requires `settings:write`._
 - `onChange(key, cb): Disposer`: _requires `settings:read`_ (checked synchronously). Filters to your namespaced key. Auto-disposed.
 
+### `ctx.ai`: reads ungated; `ai:configure` / `ai:prompt` for writes
+
+The built-in AI agent. Reads are ungated because the snapshot is strictly less
+revealing than `ctx.app.getContext()`, which already exposes every terminal's
+window title. Writes are gated because they spend the user's API credit and
+steer an agent that can modify files.
+
+- `getState(): AiStateSnapshot`: derived live from the chat and preference
+  stores on every call, so it tracks the model/run fields even before the AI
+  panel has ever been opened. The one caveat is the earliest moment of app boot:
+  `approvalMode` and `subagentsEnabled` come from the preferences store, which
+  hydrates asynchronously, so a read in the very first tick of your `activate()`
+  can return the defaults (`ask` / `true`). If you need the saved values, read
+  them from `onStateChange` rather than a single `getState()` at startup. See the
+  type above.
+- `onStateChange(cb): Disposer`: fires on any agent **or** preference change.
+  It does not coalesce, so debounce it if you render from it. Auto-disposed.
+- `setModel(modelId, provider): Promise<void>`: _requires `ai:configure`._
+  Takes effect on the **next** prompt; an in-flight run stays bound to the model
+  it started with. `provider` is required because ids can be shared across
+  providers: pass `getState().provider` when you only mean to change the model.
+  An unrecognised provider is ignored and the store resolves one from the id.
+  The model id is not validated (openai-compatible instances mint ids at
+  runtime), so a bad id surfaces on the next run.
+- `setSubagentsEnabled(enabled): Promise<void>`: _requires `ai:configure`._
+- `sendPrompt(text): Promise<boolean>`: _requires `ai:prompt`._ Submits a turn as
+  if the user typed it. Resolves `false` when the composer refused (no API key
+  configured, or a run is already active). The agent's own approval flow still
+  gates every tool the turn calls.
+- `stop(): void`: ungated. Stopping is de-escalating and the user can always do
+  it from the UI.
+
+**There is deliberately no `setApprovalMode`.** `approvalMode` is the user's
+safety posture, and unlike every other write here it **persists across
+restarts**: one call could permanently move the agent to `yolo`, and nothing in
+the UI would tell the user it moved. Read it and branch on it (for example, warn
+in your panel when it is not `ask`), then ask the user to change it themselves.
+
+Also never exposed, and not by omission: API keys and message history, the
+custom-instruction and system-prompt overrides (a persistent injection slot on
+every future turn), the openai-compatible instance list (rewriting an instance's
+base URL while keeping its id would resend the user's stored bearer token to
+another host), and the debug capture (it snapshots full prompts).
+
+```js
+export function activate(ctx) {
+  const s = ctx.ai.getState();
+  ctx.logger.info(`model=${s.modelId} provider=${s.provider} hasKey=${s.hasKey}`);
+  if (s.approvalMode !== "ask") ctx.ui.toast("Heads up: AI approval mode is relaxed.");
+
+  ctx.ai.onStateChange((next) => {
+    ctx.statusBar.setItem({
+      id: "ai",
+      icon: "lucide:Sparkles",
+      tooltip: `${next.modelId} (${next.status})`,
+      tone: next.status === "error" ? "error" : "default",
+      onClick: () => ctx.ai.stop(),
+    });
+  });
+}
+```
+
 ### `ctx.invoke`: `invoke:<command>`
 
 ```ts
@@ -648,9 +754,42 @@ const { pid } = await ctx.invoke("shell_bg_spawn_direct", {
 "@tauri-apps/api/core"` bypasses it entirely. See [Section 9](#9-security-model).
 
 For commands that stream events through a Tauri `Channel` (for example
-`pty_attach`, `ssh_attach`), use `ctx.invokeChannel(command, args, onEvent)`: the
-host creates the channel internally and passes it as the command's `onEvent`
-arg. Same `invoke:<command>` gate, returns the command's resolved value.
+`pty_attach`, `ssh_attach`, `http_stream`), use
+`ctx.invokeChannel(command, args, onEvent)`: the host creates the channel
+internally and passes it as the command's `onEvent` arg. Same `invoke:<command>`
+gate, returns the command's resolved value.
+
+**Calling an HTTPS endpoint:** declare `invoke:http_stream` (medium risk) rather
+than `invoke:shell_run_command` + `curl` (HIGH: it grants arbitrary local code
+execution permanently, and puts any bearer token on a command line). It runs on
+the native stack, so webview CORS and preflight do not apply, and it keeps the
+app's SSRF and redirect guards. Four traps worth knowing:
+
+```js
+// permission: "invoke:http_stream" (+ "invoke:http_abort" to cancel)
+const id = crypto.randomUUID();
+const parts = [];
+let status = 0;
+await ctx.invokeChannel(
+  "http_stream",
+  {
+    id,
+    method: "GET",
+    url,
+    headers: [["Authorization", `Bearer ${token}`]], // ARRAY OF PAIRS, not an object
+    body: null,
+  },
+  (ev) => {
+    if (ev.type === "meta") status = ev.status; // may never arrive
+    else if (ev.type === "chunk")
+      parts.push(Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0))); // base64
+    else if (ev.type === "error") {
+      // http_stream always resolves Ok: failures arrive HERE, not as a rejection
+    }
+  },
+);
+// ctx.invoke("http_abort", { id }) cancels an in-flight stream.
+```
 
 ### `ctx.secrets`: `secrets:read` / `secrets:write`
 
@@ -752,8 +891,22 @@ type StatusItem = {
   tone?: "default" | "success" | "warning" | "error"; // warning pulses, error adds a red dot
   label?: string; // optional tiny text after the icon (e.g. "62%")
   progress?: number; // optional 0..1 fill: renders a compact progress bar coloured by tone (error red, warning amber, success green, else accent)
+  detail?: { title?: string; rows: StatusItemDetailRow[] }; // structured tooltip: one themed progress bar per row; `tooltip` stays the aria-label and the fallback
+  onClick?: () => void; // renders the item as a real <button> (focusable, Enter/Space) instead of a decorative <span role="img">
+};
+
+type StatusItemDetailRow = {
+  label: string;
+  progress?: number; // 0..1 fill; draws a real themed bar
+  tone?: "default" | "success" | "warning" | "error";
+  value?: string; // e.g. "62%"
+  note?: string; // muted trailing text, e.g. "resets in 3h 9m"
 };
 ```
+
+Set `onClick` rather than attaching a document-level listener and matching the
+host's DOM: the markup is not a contract and a selector will break silently.
+A throw inside `onClick` is caught and logged, not allowed to unmount the bar.
 
 ### `ctx.headerBar`: `setItem` needs `headerbar:write`; `removeItem` is ungated
 
@@ -876,8 +1029,12 @@ ctx.registerCommandHandler("tedi.secondary-folder-tree.toggle", () =>
 
 Imperatively (re)register a contribution slice at runtime. Each call **replaces**
 your prior slice for that category (pass `[]` to clear). These overwrite whatever
-was seeded from the manifest. Only `contribute.panels` is gated (on
-`panels:register`); all others are ungated.
+was seeded from the manifest. Among the runtime `contribute.*` calls only
+`contribute.panels` is gated (on `panels:register`); the others are ungated.
+Note the asymmetry: a `contributes.panels[]` entry **declared in the manifest**
+is seeded without any permission and renders its status-bar toggle, so
+`panels:register` gates the renderer and the imperative open/toggle controls,
+not the existence of the panel entry.
 
 ```js
 ctx.contribute.settings([
@@ -964,9 +1121,10 @@ prompts in Ask mode; auto-approved only if the user enabled that), the handler
 is unvetted third-party code, so it never auto-runs silently. Built-in tools win
 on a name collision (you can't shadow `bash_run`), disabled extensions' tools
 drop out automatically, and subagents (fixed read-only tool set) don't receive
-extension tools. The install dialog discloses the tool names so the user's
-consent is informed. This is the richest seam for turning an extension into an
-agent-capability pack.
+extension tools. The install dialog discloses each tool's **name and
+description** so consent covers the description too, which is the text injected
+into the model's tool list every turn. This is the richest seam for turning an
+extension into an agent-capability pack.
 
 ---
 
@@ -980,14 +1138,16 @@ checks the extension's declared `permissions[]` (recorded at install as
 | Permission         | Risk    | Gates / grants                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `settings:read`    | low     | `ctx.settings.get`, `ctx.settings.onChange` (own `ext:<id>:*` keys only).                                                                                                                                                                                                                                                                                                                                |
+| `ai:configure`     | high    | `ctx.ai.setModel`, `ctx.ai.setSubagentsEnabled`. Retargets the agent and spends the user's API credit. There is no `setApprovalMode` at any tier.                                                                                                                                                                                                                                          |
+| `ai:prompt`        | high    | `ctx.ai.sendPrompt`. Submits agent turns as if the user typed them.                                                                                                                                                                                                                                                                                                                      |
 | `settings:write`   | medium  | `ctx.settings.set`.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `secrets:read`     | high    | `ctx.secrets.get` (service `tedi-ext:<id>`).                                                                                                                                                                                                                                                                                                                                                             |
 | `secrets:write`    | high    | `ctx.secrets.set`.                                                                                                                                                                                                                                                                                                                                                                                       |
-| `invoke:<command>` | medium† | `ctx.invoke(command, …)`. Matches exact, family-glob (`invoke:foo_*`), or `invoke:*`. **†Rated HIGH** when the command is `fs_*`, `shell_*`, `secrets_*`, `pty_*`, `ssh_*`, or `fmt_run_external` (code-exec / remote-shell / arbitrary-binary), and for **any glob** (`invoke:*`, `invoke:git_*`, …) since a glob spans a whole command family. Otherwise medium. Prefer exact, least-privilege grants. |
+| `invoke:<command>` | medium† | `ctx.invoke(command, …)`. Matches exact, family-glob (`invoke:foo_*`), or `invoke:*`. **†Rated HIGH** when the command is `fs_*`, `shell_*`, `secrets_*`, `pty_*`, `ssh_*`, or `fmt_run_external` (code-exec / remote-shell / arbitrary-binary; `mcp_*` too, since `mcp_spawn` launches a binary), and for **any glob** (`invoke:*`, `invoke:git_*`, …) since a glob spans a whole command family. Otherwise medium. Prefer exact, least-privilege grants. Some commands (the keychain and extension-management families) are hard-denied outright, see the list below. |
 | `events:emit`      | low     | `ctx.events.emit` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                     |
 | `events:listen`    | low     | `ctx.events.on` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                       |
 | `ui:toast`         | low     | `ctx.ui.toast`. (`mountFolderTree` / `codeEditor` / `icon` need no permission.)                                                                                                                                                                                                                                                                                                                          |
-| `panels:register`  | low     | `contribute.panels`, `ctx.registerPanelRenderer`, `ctx.panel.open`, `ctx.panel.toggle`. (`ctx.panel.close` is ungated.)                                                                                                                                                                                                                                                                                  |
+| `panels:register`  | low     | `ctx.registerPanelRenderer`, `ctx.panel.open`, `ctx.panel.toggle`, and the runtime `ctx.contribute.panels`. (`ctx.panel.close` is ungated, and a manifest `contributes.panels[]` entry is seeded without it.)                                                                                                                                                                                                                                                                                  |
 | `statusbar:write`  | low     | `ctx.statusBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
 | `headerbar:write`  | low     | `ctx.headerBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
 | `sidebar:write`    | low     | `ctx.sidebar.setSection`. (`removeSection` ungated.)                                                                                                                                                                                                                                                                                                                                                     |
@@ -1000,7 +1160,11 @@ checks the extension's declared `permissions[]` (recorded at install as
 | `*`                | high    | Everything checkPermission-gated. Does **not** override the hard-deny set.                                                                                                                                                                                                                                                                                                                               |
 
 Members with **no** permission: `ctx.id`, `ctx.installPath`, `ctx.os`,
-`ctx.storage.*`, `ctx.app.*`, `ctx.ui.mountFolderTree`/`icon`/`codeEditor`,
+`ctx.paths.home`, `ctx.storage.*`, `ctx.app.getContext`/`onContextChange`/
+`setSidebarVisible`/`setRightSidebarVisible` (but **not**
+`ctx.app.createWorkspace`/`setActiveWorkspace`, which need `workspaces:manage`),
+`ctx.ai.getState`/`onStateChange`/`stop`,
+`ctx.ui.mountFolderTree`/`icon`/`codeEditor`,
 `ctx.panel.close`, `ctx.statusBar.removeItem`, `ctx.headerBar.removeItem`, all
 `ctx.contribute.*` except `panels`, `ctx.registerCommandHandler`,
 `ctx.registerAiToolHandler`, `ctx.logger.*`, `ctx.addDisposer`.
@@ -1017,16 +1181,33 @@ Members with **no** permission: `ctx.id`, `ctx.installPath`, `ctx.os`,
 
 ### Hard-denied `invoke` commands
 
-`ctx.invoke` refuses these four even with `invoke:*` or `*`, because their raw
-`(service, account)` signature would otherwise let an extension read the main
-app's keys (service `tedi`) or another extension's keys, sidestepping the
-`tedi-ext:<id>` namespace:
+`ctx.invoke` refuses these even with `invoke:*` or `*`.
+
+The keychain four, because their raw `(service, account)` signature would
+otherwise let an extension read the main app's keys (service `tedi`) or another
+extension's keys, sidestepping the `tedi-ext:<id>` namespace:
 
 ```
 secrets_get_all   secrets_get   secrets_set   secrets_delete
 ```
 
 Use `ctx.secrets` for your own keys.
+
+The extension-management five, because they mint install-time consent.
+`ext_install_from_github` / `ext_install_from_zip` would let one extension
+install another and approve its permission set on the user's behalf, and
+`ext_enable` / `ext_disable` / `ext_uninstall` would let it silently disarm a
+security extension or resurrect a disabled one:
+
+```
+ext_install_from_zip   ext_install_from_github
+ext_enable   ext_disable   ext_uninstall
+```
+
+There is deliberately no `ctx` facade for these: installing or disabling an
+extension is a user action that goes through the review dialog. The read-only
+ones (`ext_list`, `ext_read_manifest`, `ext_check_update`) stay available with
+the matching `invoke:` grant.
 
 ### Request least privilege
 

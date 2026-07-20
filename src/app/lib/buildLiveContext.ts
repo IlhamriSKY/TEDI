@@ -3,7 +3,9 @@ import {
   previewEmbedAct,
   previewEmbedDispatch,
   previewEmbedRead,
+  previewEmbedConsole,
   previewEmbedScreenshot,
+  type BrowserDiag,
 } from "@/modules/browser";
 import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs";
 import {
@@ -167,6 +169,14 @@ export function buildLiveContext(deps: LiveContextDeps) {
         return await previewEmbedAct(leafId, index, action, text, submit);
       } catch (e) {
         return `error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+    consoleBrowser: async (leafId: number): Promise<BrowserDiag[] | null> => {
+      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
+      try {
+        return await previewEmbedConsole(leafId);
+      } catch {
+        return null;
       }
     },
     screenshotBrowser: async (leafId: number): Promise<string | null> => {

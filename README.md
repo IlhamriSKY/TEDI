@@ -6,7 +6,7 @@
   <p>
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="license" />
     <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="platform" />
-    <img src="https://img.shields.io/badge/footprint-~7--10%20MB-brightgreen" alt="footprint" />
+    <img src="https://img.shields.io/badge/runtime-no%20Electron-brightgreen" alt="no Electron" />
     <img src="https://img.shields.io/badge/telemetry-none-blue" alt="no telemetry" />
   </p>
 </div>
@@ -15,7 +15,7 @@
 
 ## What is TEDI?
 
-**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) folds eight tools you reach for every day (a terminal, SSH client, DB browser, editor, AI agent, browser, and Git) into one window, so you stop alt-tabbing. Built on Tauri 2 (Rust + a single webview), it ships in roughly **7-10 MB** with **no telemetry**; API keys stay in the OS keychain.
+**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) folds eight tools you reach for every day (a terminal, SSH client, DB browser, editor, AI agent, browser, and Git) into one window, so you stop alt-tabbing. Built on Tauri 2, so a Rust core owns every OS resource and the UI is a single webview: no Node runtime, no bundled Chromium, and a resident footprint closer to a terminal than to an IDE. **No telemetry**; API keys stay in the OS keychain, and it runs fully offline against a local model if you want.
 
 ## The eight features
 
@@ -25,8 +25,8 @@
 | 2   | **SSH connection**              | Connect to remote hosts (`russh`), open remote shells, and browse/transfer files over an integrated **SFTP** explorer, all from a saved connection manager.                                                                      |
 | 3   | **SQL explorer** _(extension)_  | Browse and query databases from a dedicated panel. Ships as an extension (feature 8), so it installs and updates at runtime.                                                                                                     |
 | 4   | **Code editor**                 | CodeMirror 6 for TS/JS, Rust, Python, PHP, HTML/CSS, JSON, Markdown, C/C++, Java, C#, SQL, and more, with inline AI autocomplete, diff view, Vim mode, and Markdown/image preview.                                               |
-| 5   | **AI-native agent**             | Bring-your-own-key agent (OpenAI, Anthropic, Google, Groq, xAI, Cerebras, DeepSeek, any OpenAI-compatible endpoint, or **local** LM Studio). Sub-agents, voice input, project memory via `TEDI.md`, and tools gated by approval. |
-| 6   | **AI browser control**          | A real in-app browser (native webview) the agent drives end to end: navigate, read, type, click, scroll, and screenshot the tab to _see_ it.                                                                                     |
+| 5   | **AI-native agent**             | Bring-your-own-key agent across ten providers (OpenAI, Anthropic, Google, xAI, Cerebras, Groq, DeepSeek, SumoPod) and **local models** via LM Studio or any OpenAI-compatible server (Ollama, llama.cpp, vLLM). Plan mode, skills, MCP, ten sub-agents, voice input, project memory via `TEDI.md`, and tools gated by approval. |
+| 6   | **AI browser control**          | A real in-app browser (native webview) the agent drives end to end: navigate, read, type, click, scroll, screenshot the tab to _see_ it, and read its **console errors** to find out why your page broke.                        |
 | 7   | **Workspaces**                  | Each workspace keeps its own project session (tab layout + working dirs) and switches instantly. The header folder picker spawns a terminal rooted there.                                                                        |
 | 8   | **Source control + extensions** | Inline Git diff / SCM pane, and a first-class **extension** system: install from a `.zip` or GitHub release to add settings, AI tools, commands, keybindings, panels, and status / header / sidebar items.                       |
 
@@ -52,7 +52,14 @@ Pre-built binaries: **[Releases](https://github.com/IlhamriSKY/TEDI/releases/lat
 
 ## Configure AI
 
-**Settings → AI**, pick a provider, paste your API key (or point TEDI at a local LM Studio endpoint). Keys go to the OS keychain via `keyring`, never to disk or `localStorage`. Full list: `PROVIDERS` in [src/modules/ai/config.ts](src/modules/ai/config.ts).
+**Settings → AI**, pick a provider and paste your API key. Keys go to the OS keychain via `keyring`, never to disk or `localStorage`. Full list: `PROVIDERS` in [src/modules/ai/config.ts](src/modules/ai/config.ts).
+
+**Running fully local?** Two routes, both keyless:
+
+- **LM Studio** is its own provider. Start its server and point TEDI at it (default `http://localhost:1234/v1`).
+- **OpenAI Compatible** takes any server that speaks the API, and you can add several at once. Presets ship for **Ollama** (`:11434`), **llama.cpp** (`:8080`), **vLLM** (`:8000`), plus OpenRouter and 9Router. A `localhost` / `127.0.0.1` endpoint needs no API key; leave the field blank.
+
+The same providers back **inline autocomplete** (Settings → AI → Autocomplete), so ghost text works on a cloud key or entirely offline. Set the model id yourself when your server names models its own way (`qwen2.5-coder:7b`, a GGUF filename).
 
 ## Extensions
 

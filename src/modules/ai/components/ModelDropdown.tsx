@@ -24,7 +24,11 @@ import {
   type ProviderId,
   type ProviderInfo,
 } from "../config";
-import { getOpenAICompatibleModelsState, useOpenAICompatibleModels } from "../lib/openaiCompatible";
+import {
+  getOpenAICompatibleModelsState,
+  isOpenAICompatibleInstanceReady,
+  useOpenAICompatibleModels,
+} from "../lib/openaiCompatible";
 import { useSumopodModels } from "../lib/sumopod";
 import { useChatStore } from "../store/chatStore";
 import { pinKey } from "./modelPinUtils";
@@ -99,7 +103,11 @@ export function ModelDropdown() {
   const sections = useMemo(
     () =>
       PROVIDERS.flatMap((p) => {
-        if (providerNeedsKey(p.id) && !apiKeys[p.id]) return [];
+        // openai-compatible is gated per-instance below (a keyless loopback
+        // endpoint is valid, and the shared apiKeys slot only reflects the
+        // default instance), so never drop the whole provider on that slot -
+        // that hid every working local server's models from the picker.
+        if (p.id !== "openai-compatible" && providerNeedsKey(p.id) && !apiKeys[p.id]) return [];
         // OpenAI-Compatible: one section per configured endpoint, headed by its
         // label, since several can be added under the one provider id.
         if (p.id === "openai-compatible") {
@@ -241,7 +249,19 @@ export function ModelDropdown() {
           {sections.map((s) => {
             const p = s.provider;
             if (s.filtered.length === 0 && query) return null;
-            const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
+            // Per-instance for openai-compatible: a local endpoint is usable with
+            // no key at all, and the shared `apiKeys["openai-compatible"]` slot
+            // only ever reflects the default instance. Gating on it alone greyed
+            // out a working local server's models.
+            const hasKey =
+              p.id === "openai-compatible" && s.instanceId
+                ? isOpenAICompatibleInstanceReady(
+                    oaiCompatInstances.find((i) => i.id === s.instanceId)?.baseURL ?? "",
+                    apiKeys[p.id],
+                  )
+                : providerNeedsKey(p.id)
+                  ? !!apiKeys[p.id]
+                  : true;
             // Detection status note for gateways whose catalogue is fetched
             // dynamically. OpenAI-Compatible reads its own instance's status.
             const note =

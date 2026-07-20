@@ -3,6 +3,7 @@ import { corsFallbackFetch } from "./httpProxy";
 import {
   clearOpenAICompatibleRuntime,
   friendlyModelLabel,
+  isLoopbackBaseURL,
   normalizeOpenAICompatibleBaseURL,
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   openaiCompatibleModelId,
@@ -54,6 +55,18 @@ function hintFor(raw: { owned_by?: string }, label?: string): string {
   const trimmed = label?.trim();
   if (trimmed) return `via ${trimmed}`;
   return raw.owned_by ? `via ${raw.owned_by}` : "OpenAI Compatible";
+}
+
+/**
+ * Can this instance be detected and used? A base URL is always required. A key
+ * is required only for remote endpoints: local servers (Ollama, llama.cpp,
+ * vLLM) authenticate with nothing, and gating them on a key made a working
+ * local setup look unconfigured - the instance was cleared before it could
+ * register, so its models never appeared and its namespaced ids never resolved.
+ */
+export function isOpenAICompatibleInstanceReady(baseURL: string, key: string | null): boolean {
+  if (!baseURL) return false;
+  return !!key || isLoopbackBaseURL(normalizeOpenAICompatibleBaseURL(baseURL));
 }
 
 /**

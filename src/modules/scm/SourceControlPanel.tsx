@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { basename } from "@/lib/path";
+import { useSshBrowseStore } from "@/modules/ssh/sshBrowseStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   gitCommit,
@@ -69,8 +70,9 @@ type Props = {
    * would hide their real changes.
    */
   sshSessionId?: number | null;
-  /** The SSH leaf's cwd (OSC 7). Empty until the first remote prompt, which
-   *  the backend reads as "the login directory". */
+  /** Remote directory to resolve the repository from. Prefers the folder the
+   *  Remote file tree is browsing, falling back to the SSH leaf's cwd (OSC 7);
+   *  empty means the remote login directory. */
   sshCwd?: string | null;
 };
 
@@ -159,13 +161,18 @@ export function SourceControlPanel({
   // discard, diff, history) stays local-only and is hidden below, because those
   // all run local git and would silently act on the WRONG repository.
   const remote = sshSessionId != null;
+  // Anchor on the folder the Remote tree last showed, not the shell's $PWD.
+  // See sshBrowseStore for why; the session-id guard there means a root from
+  // another host is never applied.
+  const browseRoot = useSshBrowseStore((s) => (s.sessionId === sshSessionId ? s.root : null));
+  const sshAnchor = browseRoot ?? sshCwd;
   const inFlightRef = useRef(false);
   const rootRef = useRef(rootPath);
   const sshRef = useRef<{ sessionId: number | null; cwd: string | null }>({
     sessionId: sshSessionId,
-    cwd: sshCwd,
+    cwd: sshAnchor,
   });
-  sshRef.current = { sessionId: sshSessionId, cwd: sshCwd };
+  sshRef.current = { sessionId: sshSessionId, cwd: sshAnchor };
   // What the in-flight fetch was for, so a slow response that lands after the
   // user switched repo or session is dropped. Two remotes both have a null
   // rootPath, so the session id has to be part of the key.
@@ -209,7 +216,11 @@ export function SourceControlPanel({
       setStatus(null);
       return;
     }
-    const target = isRemote ? `ssh:${sessionId}` : `local:${cur}`;
+    // The anchor is part of the key, not just the session: browsing to another
+    // folder or focusing a different remote file changes the target while the
+    // session id stays the same, and a slow reply for the old folder must not
+    // overwrite the new one.
+    const target = isRemote ? `ssh:${sessionId}:${cwd ?? ""}` : `local:${cur}`;
     targetRef.current = target;
     if (silent && inFlightRef.current) return;
     inFlightRef.current = true;
@@ -222,10 +233,13 @@ export function SourceControlPanel({
       }
     } catch (e) {
       if (targetRef.current === target) {
-        // A session that dropped mid-poll is a normal disconnect, not a git
-        // failure: show the empty state instead of a red banner that flickers.
-        const msg = String(e);
-        setError(isRemote && /no session|session is closed/i.test(msg) ? null : msg);
+        // Show every failure. This used to swallow "no session" / "session is
+        // closed" to avoid a flickering banner, but those are exactly the two
+        // strings a wrong or stale session id produces, so the panel sat silent
+        // instead of saying why. A genuine disconnect flips the leaf out of
+        // `connected` within a tick, which clears `remote` and unmounts the
+        // banner anyway.
+        setError(String(e));
         setStatus(null);
       }
     } finally {
@@ -244,13 +258,14 @@ export function SourceControlPanel({
     void fetchStatus(false);
   }, [fetchStatus, rootPath, collapsed, sshSessionId]);
 
-  // A `cd` in the remote terminal can land in a different repo. Refetch
+  // The anchor moved - a `cd` in the remote terminal, or a different folder
+  // opened in the Remote tree - and that can be a different repo. Refetch
   // silently: OSC 7 fires on every prompt, so a spinner here would flash
   // constantly while the user just types.
   useEffect(() => {
     if (collapsed || sshSessionId === null) return;
     void fetchStatus(true);
-  }, [fetchStatus, collapsed, sshSessionId, sshCwd]);
+  }, [fetchStatus, collapsed, sshSessionId, sshAnchor]);
 
   useEffect(() => {
     // Collapsed to its header: the change list / graph aren't rendered, so
@@ -459,19 +474,26 @@ export function SourceControlPanel({
   if (!rootPath && !remote) {
     return (
       <div className="relative flex h-full flex-col">
-        {onClose ? (
-          <div className="flex h-8 shrink-0 items-center justify-end px-2">
-            <IconTooltip label="Close panel" side="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
-                onClick={onClose}
-                aria-label="Close Source Control panel"
-              >
-                <X size={12} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
+        {/* Keep the header row whenever the sidebar injected a drag grip, not
+            only when there's a close button: without it the section loses its
+            reorder handle and collapse chevron and reads as broken. */}
+        {dragHandle || onClose ? (
+          <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+            {dragHandle}
+            <span className="flex-1" />
+            {onClose ? (
+              <IconTooltip label="Close panel" side="bottom">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+                  onClick={onClose}
+                  aria-label="Close Source Control panel"
+                >
+                  <X size={12} strokeWidth={2} />
+                </Button>
+              </IconTooltip>
+            ) : null}
           </div>
         ) : null}
         <div className="text-muted-foreground flex flex-1 items-center justify-center px-3 text-center text-[11px]">
@@ -503,7 +525,11 @@ export function SourceControlPanel({
 
           {!status?.isRepo ? (
             <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-              {remote ? "Not a git repository on the remote." : "Not a git repository."}
+              {!remote
+                ? "Not a git repository."
+                : error
+                  ? "Could not read the remote repository."
+                  : "Not a git repository on the remote."}
             </div>
           ) : remote ? (
             /* Read-only remote view. Commit / push / discard / diff / history

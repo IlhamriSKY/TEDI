@@ -363,33 +363,50 @@ impl SshSession {
     /// Run one non-interactive command on the remote and capture its stdout.
     /// Opens a one-shot channel on the retained handle, the same way
     /// `open_sftp_on_handle` does, so it is independent of the shell channel
-    /// driving the terminal. stderr is dropped: every caller so far wants the
-    /// command's value, and a failed command is reported as empty output.
+    /// driving the terminal.
+    ///
+    /// A non-zero exit is an `Err` carrying the remote's stderr. Swallowing it
+    /// made every remote failure - `git` missing from sshd's minimal PATH,
+    /// dubious-ownership, a denied exec - indistinguishable from "empty output",
+    /// so the caller could only ever report "not a repository".
     pub async fn exec_capture(&self, cmd: &str) -> Result<String, String> {
-        let handle_guard = self.handle.lock().await;
-        let handle = handle_guard
-            .as_ref()
-            .ok_or_else(|| "ssh session is closed".to_string())?;
-        let mut channel = handle
-            .channel_open_session()
-            .await
-            .map_err(|e| format!("ssh: open exec channel failed: {e}"))?;
+        // Hold the handle lock only across the channel open, exactly like
+        // `open_sftp_on_handle`. Keeping it for the whole command would park
+        // `ssh_close` (the other holder) behind a poll for up to the deadline,
+        // so closing an SSH tab could hang for seconds.
+        let mut channel = {
+            let handle_guard = self.handle.lock().await;
+            let handle = handle_guard
+                .as_ref()
+                .ok_or_else(|| "ssh session is closed".to_string())?;
+            handle
+                .channel_open_session()
+                .await
+                .map_err(|e| format!("ssh: open exec channel failed: {e}"))?
+        };
         channel
             .exec(true, cmd)
             .await
             .map_err(|e| format!("ssh: exec failed: {e}"))?;
 
         // Bounded so a pathological remote can neither exhaust memory nor hang
-        // the caller. Both limits are far above a `git status` on a large repo.
-        // ponytail: fixed 4 MiB / 15s ceiling; make it a parameter only if a
-        // second caller needs a different budget.
+        // the caller. All three are far above a `git status` on a large repo.
+        // ponytail: fixed 4 MiB stdout / 4 KiB stderr / 15s ceiling; make them
+        // parameters only if a second caller needs a different budget.
         const CAP: usize = 4 * 1024 * 1024;
+        const ERR_CAP: usize = 4096;
         let deadline = tokio::time::sleep(std::time::Duration::from_secs(15));
         tokio::pin!(deadline);
         let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let mut exit: u32 = 0;
+        let mut timed_out = false;
         loop {
             tokio::select! {
-                _ = &mut deadline => break,
+                _ = &mut deadline => {
+                    timed_out = true;
+                    break;
+                }
                 msg = channel.wait() => match msg {
                     Some(ChannelMsg::Data { ref data }) => {
                         let room = CAP.saturating_sub(out.len());
@@ -397,10 +414,55 @@ impl SshSession {
                             out.extend_from_slice(&data[..data.len().min(room)]);
                         }
                     }
-                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                    // ext 1 is stderr. Keep the LAST 4 KiB, not the first: a
+                    // chatty ~/.bashrc writes to stderr before the command runs,
+                    // so a head-capped buffer would drop the actual message.
+                    Some(ChannelMsg::ExtendedData { ref data, ext: 1 }) => {
+                        err.extend_from_slice(data);
+                        if err.len() > ERR_CAP {
+                            err.drain(..err.len() - ERR_CAP);
+                        }
+                    }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => exit = exit_status,
+                    // A signal death arrives as exit-signal, NOT exit-status
+                    // (RFC 4254 6.10 - a server sends one or the other), so
+                    // without this `exit` would stay 0 and a truncated read
+                    // would be reported as success. 128+n is the shell's
+                    // convention for "killed by a signal".
+                    Some(ChannelMsg::ExitSignal {
+                        ref signal_name, ..
+                    }) => {
+                        exit = 128;
+                        if err.is_empty() {
+                            err.extend_from_slice(
+                                format!("killed by signal {signal_name:?}").as_bytes(),
+                            );
+                        }
+                    }
+                    // Eof is deliberately NOT a break. The `exit-status` request
+                    // legitimately arrives AFTER Eof (dropbear always; OpenSSH
+                    // whenever the child's stdout closes before it is reaped),
+                    // and breaking there would leave `exit` at 0 - i.e. every
+                    // failure would still be reported as success with empty
+                    // output, which is the exact bug this capture exists to fix.
+                    // The server always follows with Close once the command is
+                    // done, and the deadline above is the backstop.
+                    Some(ChannelMsg::Close) | None => break,
                     _ => {}
                 },
             }
+        }
+        if timed_out {
+            return Err("ssh exec timed out after 15s".to_string());
+        }
+        if exit != 0 {
+            let detail = String::from_utf8_lossy(&err);
+            let detail = detail.trim();
+            return Err(if detail.is_empty() {
+                format!("ssh exec exited {exit}")
+            } else {
+                format!("ssh exec ({exit}): {detail}")
+            });
         }
         Ok(String::from_utf8_lossy(&out).into_owned())
     }

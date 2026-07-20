@@ -57,11 +57,6 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-        {/* Leads the status bar. Kept ahead of the OS badge rather than between
-            it and the breadcrumb because the badge disappears under SSH, which
-            would otherwise slide the zoom control sideways whenever focus
-            enters or leaves a remote pane. */}
-        <ZoomControl />
         {/* Hidden while the active pane is a live SSH session: the breadcrumb
             already shows the remote path, so the local-OS badge would mislead. */}
         {activeIsSsh ? null : <OsBadge />}
@@ -81,10 +76,14 @@ function StatusBarInner({
         {/* Update pill sits just left of the extension status icons (Discord,
             etc.) so the right cluster leads with the update prompt. */}
         <UpdaterPill />
+        {/* Zoom leads the icon row - the left edge of the right cluster, just
+            before the extension status items (the AI usage meter). The pills
+            above it (agent / update) only appear in transient states. */}
+        <ZoomControl />
         {/* Extension-contributed borderless icons (status items + compact
-            panel toggles + movable sidebar-section toggles) cluster at the
-            leftmost slot so the icon row stays visually unified, and a section's
-            toggle keeps the same position as the other tree-panel toggles. */}
+            panel toggles + movable sidebar-section toggles) cluster together so
+            the icon row stays visually unified, and a section's toggle keeps
+            the same position as the other tree-panel toggles. */}
         <ExtensionStatusItems />
         <RightPanelCompactToggles />
         <SidebarSectionRightToggles />

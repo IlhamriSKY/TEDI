@@ -1,4 +1,5 @@
 import { toast } from "@/components/ui/toast";
+import { dirname } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
@@ -93,6 +94,14 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     };
     const hostLabelForTab = (tab: Tab | undefined): string | null =>
       tab && tab.kind === "pane" ? tab.title : null;
+    /** Is this russh session still connected on some leaf? Keyed by session id
+     *  rather than leaf id, for consumers that hold one without its leaf. */
+    const sessionIsLive = (sid: number): boolean => {
+      for (const st of sshStatuses.values()) {
+        if (st.kind === "connected" && st.sessionId === sid) return true;
+      }
+      return false;
+    };
 
     // Active leaf if connected. A live SSH session is keyed in `sshStatuses` by
     // leaf id; that connected status (not a saved `sshConnectionId`, which an
@@ -109,6 +118,29 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
             fromActiveLeaf: true,
           };
         }
+      } else if (
+        leaf &&
+        leaf.leafKind === "editor" &&
+        leaf.sshSessionId !== undefined &&
+        // The leaf's sshSessionId is frozen at open time and nothing rewrites it
+        // on disconnect, so a remote file left open after Disconnect would keep
+        // pointing Source Control at a dead session (a permanent error banner).
+        sessionIsLive(leaf.sshSessionId)
+      ) {
+        // A remote file open in the editor counts as "focused on that remote":
+        // opening one from the SSH tree used to hand Source Control straight
+        // back to the LOCAL repo, which is the opposite of what the user is
+        // looking at. Keyed on the leaf's own sshSessionId, so a LOCAL file
+        // still correctly returns to the local repo.
+        //
+        // Its directory is a better repo anchor than the shell's $PWD, too:
+        // the terminal usually still sits in $HOME, which is not a repo.
+        return {
+          sessionId: leaf.sshSessionId,
+          hostLabel: leaf.sshHostLabel ?? hostLabelForTab(activePaneTab),
+          cwd: dirname(leaf.path),
+          fromActiveLeaf: true,
+        };
       }
     }
     // Else any connected SSH leaf. Walks all pane tabs so a backgrounded

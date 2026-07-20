@@ -31,6 +31,7 @@ import { useSshFileTree } from "./useSshFileTree";
 import { useSshFileDrop } from "./useSshFileDrop";
 import { useSshNav } from "./useSshNav";
 import { useSshRightPanelStore } from "./sshRightPanelStore";
+import { useSshBrowseStore } from "./sshBrowseStore";
 import {
   ArrowLeft,
   ArrowRight,
@@ -129,6 +130,14 @@ export function SshFileExplorer({
   const nav = useSshNav(followRoot, sessionId);
   const rootPath = nav.root;
   const tree = useSshFileTree(sessionId, rootPath, { includeHidden: showHiddenFiles });
+
+  // Publish the browsed folder so Source Control can anchor remote git status on
+  // it. The shell's $PWD is $HOME until the user cd's, which is almost never a
+  // repository - the folder they navigated to here is what they mean.
+  const publishBrowseRoot = useSshBrowseStore((s) => s.set);
+  useEffect(() => {
+    publishBrowseRoot(sessionId, rootPath);
+  }, [publishBrowseRoot, sessionId, rootPath]);
 
   // Drag-and-drop upload: drop OS files onto this panel to SFTP them to the
   // remote folder under the cursor. Refresh (and reveal) the target dir after.

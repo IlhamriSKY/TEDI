@@ -46,6 +46,7 @@ import {
 import { SUBAGENTS } from "@/modules/ai/agents/registry";
 import {
   clearOpenAICompatibleInstance,
+  isOpenAICompatibleInstanceReady,
   refreshOpenAICompatibleInstance,
   useOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
@@ -505,11 +506,11 @@ export function PromptModelDropdown({
   useEffect(() => {
     for (const inst of oaiCompatInstances) {
       const key = instanceKeys[inst.id] ?? null;
-      if (!inst.baseURL || !key) {
+      if (!isOpenAICompatibleInstanceReady(inst.baseURL, key)) {
         clearOpenAICompatibleInstance(inst.id);
         continue;
       }
-      void refreshOpenAICompatibleInstance(inst.id, key, inst.baseURL, inst.label);
+      void refreshOpenAICompatibleInstance(inst.id, key ?? "", inst.baseURL, inst.label);
     }
   }, [instanceKeys, oaiCompatInstances]);
 

@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { permissionRiskTier } from "@/modules/extensions";
+import { checkPermission, permissionRiskTier } from "@/modules/extensions";
 import type { Manifest } from "@/modules/extensions/manifest";
 
 export type PendingSource = { kind: "zip"; path: string } | { kind: "github"; repo: string };
@@ -66,12 +66,25 @@ export function InstallReviewDialog({
   const newPerms = isUpdate ? requested.filter((p) => !prior.includes(p)) : requested;
   const keptPerms = isUpdate ? requested.filter((p) => prior.includes(p)) : [];
 
-  // `*` or `invoke:*` is near-total access to the Rust command surface; warn
-  // explicitly on top of the (now red) per-permission badge.
-  const grantsNearTotal = requested.some((p) => p === "*" || /^invoke:\*/.test(p));
+  // Near-total access to the Rust command surface; warned on top of the (red)
+  // per-permission badge. Probed rather than pattern-matched: the old
+  // `p === "*" || /^invoke:\*/` test missed every other glob that grants the
+  // same thing (`*:*`, `**`, `*e*`, `invoke*`, `i*`). Two probes from different
+  // command families, so a narrow family glob like `invoke:git_*` still badges
+  // red without claiming access it does not have.
+  const grantsNearTotal = requested.some(
+    (p) =>
+      p.includes("*") &&
+      checkPermission([p], "invoke:shell_run_command") &&
+      checkPermission([p], "invoke:fs_read_file"),
+  );
   // AI tools the extension registers are callable by the assistant (and run the
   // extension's code). Disclose them at install so the consent is informed.
-  const aiToolNames = ready?.manifest.contributes?.aiTools?.map((t) => t.name) ?? [];
+  // The DESCRIPTION is shown, not just the name: the description is what gets
+  // injected into the agent's tool list every turn, so it is the part that can
+  // carry instructions to the model, and it was the only part the user could
+  // not see before agreeing to it.
+  const aiTools = ready?.manifest.contributes?.aiTools ?? [];
 
   const title = isUpdate ? "Update extension?" : "Install extension?";
   const cta = busy
@@ -202,13 +215,21 @@ export function InstallReviewDialog({
           </div>
         ) : null}
 
-        {aiToolNames.length > 0 ? (
+        {aiTools.length > 0 ? (
           <div className="border-icon-working/40 bg-icon-working/5 text-foreground/80 rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
             <span className="text-foreground font-medium">
-              Registers {aiToolNames.length} AI tool{aiToolNames.length === 1 ? "" : "s"}
+              Registers {aiTools.length} AI tool{aiTools.length === 1 ? "" : "s"}
             </span>{" "}
-            the assistant can call ({aiToolNames.join(", ")}). Each runs this extension&rsquo;s code
-            and is gated by your tool-approval flow.
+            the assistant can call. Each runs this extension&rsquo;s code and is gated by your
+            tool-approval flow.
+            <ul className="mt-1 space-y-0.5">
+              {aiTools.map((t) => (
+                <li key={t.name}>
+                  <span className="text-foreground font-medium">{t.name}</span>
+                  <span className="text-foreground/60"> &mdash; {t.description}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

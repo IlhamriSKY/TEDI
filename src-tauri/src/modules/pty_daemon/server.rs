@@ -149,7 +149,9 @@ impl DaemonSession {
     /// caller now returns a transient error and the agent retries on its next
     /// tick (by which point the pty is filled).
     fn pty(&self) -> Result<&Arc<crate::modules::pty::session::Session>, String> {
-        self.pty.get().ok_or_else(|| "session still initializing".to_string())
+        self.pty
+            .get()
+            .ok_or_else(|| "session still initializing".to_string())
     }
 }
 

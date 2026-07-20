@@ -75,7 +75,7 @@ If an issue already exists for what you want to do, comment "I'll take this" bef
 
 - Telemetry, analytics, or anything that phones home.
 - Hardcoded API keys or accounts. TEDI stays BYOK.
-- Large dependencies for small wins. The bundle is ~10 MB and we want it to stay light.
+- Large dependencies for small wins. Binary size is not a hard limit, but resident memory is: prefer what does not add a background thread, a poll loop, or an unbounded buffer.
 - Sweeping refactors with no functional change.
 
 ## Code style
@@ -172,10 +172,10 @@ src/
   settings/       Settings UI (a SEPARATE Tauri webview; distinct from src/modules/settings/)
   components/      shadcn/ui + Vercel AI Elements (generated; don't hand-edit)
   lib/            Shared helpers
-  modules/        18 self-contained features:
+  modules/        19 self-contained features:
                   terminal, editor, explorer, panes, tabs, workspaces, header,
-                  statusbar, shortcuts, settings, theme, ai, scm, ssh, preview,
-                  scheduler, updater, extensions
+                  statusbar, shortcuts, commandPalette, settings, theme, ai, scm,
+                  ssh, browser, scheduler, updater, extensions
 ```
 
 For the exhaustive per-file reference (every command, every gotcha) see [TEDI.md](TEDI.md).

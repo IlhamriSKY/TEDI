@@ -7,10 +7,12 @@ export {
   browserEmbedHide,
   previewEmbedDispatch,
   previewEmbedRead,
+  previewEmbedConsole,
   previewEmbedScreenshot,
   previewEmbedSetBg,
   focusBrowserAddressBar,
   BROWSER_NAV_EVENT,
   BROWSER_FOCUS_ADDRESS_EVENT,
   type BrowserNavEvent,
+  type BrowserDiag,
 } from "./lib/native";

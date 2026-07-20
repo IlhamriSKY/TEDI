@@ -98,13 +98,27 @@ function getHostVersion(): Promise<string> {
   return hostVersionPromise;
 }
 
+/** Ids already reported by `listInstalled` as unparseable, so the toast fires
+ *  once per session instead of on every enable/disable/install/refresh (this
+ *  function is called from ~12 places in `store.ts`). */
+const warnedBadManifest = new Set<string>();
+
 export async function listInstalled(): Promise<InstalledExtension[]> {
   const raw = await invoke<RawListEntry[]>("ext_list");
   const out: InstalledExtension[] = [];
   for (const entry of raw) {
     const parsed = safeParseManifest(entry.manifest);
     if (!parsed.ok) {
+      // Rust installed it, this side cannot parse it: the entry is dropped
+      // here, so it never reaches Settings and cannot be uninstalled from the
+      // UI. Silence made that a ghost. See the INVARIANT in `manifest.ts`.
       console.warn(`[extensions] skipping ${entry.id}: ${parsed.error}`);
+      if (!warnedBadManifest.has(entry.id)) {
+        warnedBadManifest.add(entry.id);
+        toast(`Extension "${entry.id}" has an invalid manifest: ${parsed.error}`, {
+          variant: "error",
+        });
+      }
       continue;
     }
     out.push({ ...entry, manifest: parsed.manifest });
@@ -179,7 +193,13 @@ export async function activate(ext: InstalledExtension): Promise<void> {
       console.error(`[extensions] failed to activate ${ext.id}`, err);
       if (scriptUrl) URL.revokeObjectURL(scriptUrl);
       await dispose();
-      // Re-seed in case the JS partially called contribute.* before throwing.
+      // `dispose()` only runs the disposers the context handed out. A partial
+      // activate can also have called `contribute.*` / `registerAiToolHandler`,
+      // which write straight into the registries with no disposer, so clear the
+      // whole slice first and then restore the declarative half. Without the
+      // clear, a half-registered AI tool or command survives with no handler
+      // behind it.
+      clearExtensionContributions(ext.id);
       seedManifestContributions(ext);
       throw err;
     }
@@ -190,7 +210,15 @@ export async function activate(ext: InstalledExtension): Promise<void> {
 
 export async function deactivate(id: string): Promise<void> {
   const rec = active.get(id);
-  if (!rec) return;
+  if (!rec) {
+    // Not active, but not necessarily contribution-free: an extension whose
+    // activate() threw never enters `active` while its declarative
+    // contributions stay seeded (see `activate`'s catch), and a declarative-only
+    // pack has no `main` to activate at all. Returning early left both on screen
+    // after disable/uninstall until the next restart.
+    clearExtensionContributions(id);
+    return;
+  }
   active.delete(id);
   try {
     if (rec.userDeactivate) await Promise.resolve(rec.userDeactivate());
@@ -198,6 +226,8 @@ export async function deactivate(id: string): Promise<void> {
     console.error(`[extensions] ${id} deactivate() threw`, err);
   }
   await rec.dispose();
+  // After `userDeactivate`, so an extension's own deactivate() still sees its
+  // registry slice while it runs.
   clearExtensionContributions(id);
   if (rec.scriptUrl) URL.revokeObjectURL(rec.scriptUrl);
 }

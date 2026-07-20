@@ -128,6 +128,9 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   const hasMeter = item.progress != null || item.label != null;
   const iconLive = isLive || hasMeter;
 
+  const onClick = item.onClick;
+  const interactive = typeof onClick === "function";
+
   const iconEl = Icon ? (
     <Icon
       size={16}
@@ -171,57 +174,72 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
     <span className="bg-muted size-4 rounded-sm" aria-hidden />
   );
 
-  if (hasMeter) {
-    return (
-      <IconTooltip label={<TooltipBody item={item} />} side="top">
+  const shellClass = hasMeter
+    ? "relative inline-flex h-6 shrink-0 items-center gap-1 px-0.5 transition-opacity hover:opacity-80"
+    : "relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80";
+
+  const body = hasMeter ? (
+    <>
+      <span className="inline-flex size-4 items-center justify-center">{iconEl}</span>
+      {item.label != null ? (
         <span
-          role="img"
-          aria-label={item.tooltip}
-          className="relative inline-flex h-6 shrink-0 items-center gap-1 px-0.5 transition-opacity hover:opacity-80"
+          className={cn("text-[10px] leading-none font-medium tabular-nums", valueColor(item.tone))}
         >
-          <span className="inline-flex size-4 items-center justify-center">{iconEl}</span>
-          {item.label != null ? (
-            <span
-              className={cn(
-                "text-[10px] leading-none font-medium tabular-nums",
-                valueColor(item.tone),
-              )}
-            >
-              {item.label}
-            </span>
-          ) : null}
-          {item.progress != null ? (
-            <PixelBar
-              progress={item.progress}
-              tone={item.tone}
-              cells={8}
-              cellClass="h-2 w-[3px]"
-              className="gap-px"
-            />
-          ) : null}
+          {item.label}
         </span>
-      </IconTooltip>
-    );
-  }
+      ) : null}
+      {item.progress != null ? (
+        <PixelBar
+          progress={item.progress}
+          tone={item.tone}
+          cells={8}
+          cellClass="h-2 w-[3px]"
+          className="gap-px"
+        />
+      ) : null}
+    </>
+  ) : (
+    <>
+      {iconEl}
+      {dot ? (
+        <span
+          aria-hidden
+          className={cn("ring-card absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2", dot)}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <IconTooltip label={<TooltipBody item={item} />} side="top">
-      <span
-        role="img"
-        aria-label={item.tooltip}
-        className="relative inline-flex size-6 shrink-0 items-center justify-center transition-opacity hover:opacity-80"
-      >
-        {iconEl}
-        {dot ? (
-          <span
-            aria-hidden
-            className={cn(
-              "ring-card absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2",
-              dot,
-            )}
-          />
-        ) : null}
-      </span>
+      {/* A clickable item is a real <button>: focusable and Enter/Space
+          activated. A decorative one stays <span role="img"> so nothing is
+          announced as interactive when it isn't. `onClick` is third-party code,
+          so a throw is caught here the same way `ExtensionHeaderItems` does it,
+          rather than being allowed to unmount the status bar. */}
+      {interactive ? (
+        <button
+          type="button"
+          aria-label={item.tooltip}
+          className={cn(shellClass, "cursor-pointer")}
+          onClick={() => {
+            try {
+              onClick?.();
+            } catch (err) {
+              console.error(
+                `[extensions] ${extensionId} status item "${item.id}" onClick threw`,
+                err,
+              );
+            }
+          }}
+        >
+          {body}
+        </button>
+      ) : (
+        <span role="img" aria-label={item.tooltip} className={shellClass}>
+          {body}
+        </span>
+      )}
     </IconTooltip>
   );
 }

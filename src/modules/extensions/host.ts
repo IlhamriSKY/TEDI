@@ -101,6 +101,22 @@ async function detectOs(): Promise<ExtensionOs> {
   return cachedOs;
 }
 
+/** `""` on failure, mirroring `detectOs`'s "unknown" convention: extensions
+ *  should degrade, not throw, when a platform lookup is unavailable. The
+ *  trailing separator is stripped here so every consumer stops re-doing it. */
+let cachedHome: string | null = null;
+
+async function detectHome(): Promise<string> {
+  if (cachedHome !== null) return cachedHome;
+  try {
+    const { homeDir } = await import("@tauri-apps/api/path");
+    cachedHome = (await homeDir()).replace(/[\\/]+$/, "");
+  } catch {
+    cachedHome = "";
+  }
+  return cachedHome;
+}
+
 type Disposer = () => void;
 
 /** App-state snapshot exposed to extensions. Add fields when needed. */
@@ -148,6 +164,32 @@ export type AppContextSnapshot = {
   }[];
 };
 
+/**
+ * Read-only view of the AI agent, derived live from `chatStore` +
+ * `usePreferencesStore` on every call. Structural on purpose (the same
+ * convention as `AppContextSnapshot`): extensions load as Blob modules and
+ * cannot resolve the app's `@/` types, so the shape IS the contract.
+ */
+export type AiStateSnapshot = {
+  /** Currently selected model id, as shown in the chat dropdown. */
+  modelId: string;
+  /** Provider that owns `modelId`. Pass this back to `setModel`. */
+  provider: string;
+  status: "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";
+  /** Human-readable current step while running, else `null`. */
+  step: string | null;
+  approvalsPending: number;
+  /** Cumulative tokens for the active session, this app's own BYOK agent. */
+  usage: { input: number; output: number; cached: number };
+  activeSessionId: string | null;
+  /** The user's safety posture. Read-only by design; see `ctx.ai` below. */
+  approvalMode: "ask" | "semi" | "yolo";
+  subagentsEnabled: boolean;
+  /** Whether a key is configured for `modelId`'s provider. False means a run
+   *  would fail; the key itself is never exposed. */
+  hasKey: boolean;
+};
+
 export type ExtensionContext = {
   id: string;
   /** Absolute path of the extension's install folder. Join with the sidecar
@@ -155,6 +197,13 @@ export type ExtensionContext = {
   installPath: string;
   /** Static OS info (platform + arch). Resolved once at module load. */
   os: ExtensionOs;
+  /** Well-known paths, resolved once and cached. Ungated: these are strings,
+   *  not access. Reading anything under them still needs `invoke:fs_*`. */
+  paths: {
+    /** User home directory, no trailing separator. `""` if it cannot be
+     *  resolved. Saves every extension a `shell_run_command` + `echo $HOME`. */
+    home: string;
+  };
   /** Per-extension storage backed by `tauri-plugin-store`. JSON file
    *  `tedi-ext-<id>.json`. */
   storage: {
@@ -190,6 +239,38 @@ export type ExtensionContext = {
     get<T = unknown>(key: string): Promise<T | undefined>;
     set<T>(key: string, value: T): Promise<void>;
     onChange(key: string, cb: (value: unknown) => void): Disposer;
+  };
+  /**
+   * The AI agent. Reads are ungated (strictly less revealing than the already
+   * ungated `app.getContext()`, which exposes every terminal's window title).
+   * Writes that spend the user's API credit or retarget the agent need
+   * `ai:configure`; submitting a turn needs `ai:prompt`.
+   *
+   * There is deliberately NO `setApprovalMode`. `approvalMode` is the user's
+   * safety posture, and unlike everything else here a write to it PERSISTS
+   * across restarts, so an extension could permanently disarm the approval
+   * gate in one call and the user would have no event telling them it moved.
+   * Read it, branch on it, ask the user to change it themselves.
+   */
+  ai: {
+    getState(): AiStateSnapshot;
+    /** Fires on any agent or preference change. Coalesce if you render. */
+    onStateChange(cb: (state: AiStateSnapshot) => void): Disposer;
+    /** Retarget the agent. Takes effect on the NEXT prompt: an in-flight run
+     *  stays bound to the model it started with. `provider` is required
+     *  because ids can be shared across providers; pass `getState().provider`
+     *  when you only mean to change the model. Requires `ai:configure`. */
+    setModel(modelId: string, provider: string): Promise<void>;
+    /** Requires `ai:configure`. */
+    setSubagentsEnabled(enabled: boolean): Promise<void>;
+    /** Submit a turn as if the user typed it. Resolves `false` when the
+     *  composer refused (no key, or a run is already active). The agent's own
+     *  approval gate still applies to every tool it calls. Requires
+     *  `ai:prompt`. */
+    sendPrompt(text: string): Promise<boolean>;
+    /** Stop the active run. Ungated: de-escalating, and the user can always
+     *  do it from the UI. */
+    stop(): void;
   };
   /** Invoke a Rust command. Each command id needs an `invoke:` permission. */
   invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
@@ -438,15 +519,41 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     iconRoots.clear();
   });
 
-  const [{ getAppContext, subscribeAppContext }, os] = await Promise.all([
+  const [{ getAppContext, subscribeAppContext }, chatMod, prefsMod, os, home] = await Promise.all([
     import("./appBridge"),
+    import("@/modules/ai/store/chatStore"),
+    import("@/modules/settings/preferences"),
     detectOs(),
+    detectHome(),
   ]);
+
+  // Derived on every call rather than pushed from a component: the only place
+  // that could push (AgentRunBridge) is mounted just when a key exists AND a
+  // session is active, so a pushed snapshot would report defaults for
+  // approvalMode/subagentsEnabled the rest of the time, and freeze mid-run
+  // values on unmount. Both stores are sync, so reading is cheap and honest.
+  const readAiState = (): AiStateSnapshot => {
+    const c = chatMod.useChatStore.getState();
+    const p = prefsMod.usePreferencesStore.getState();
+    return {
+      modelId: c.selectedModelId,
+      provider: c.selectedProvider,
+      status: c.agentMeta.status,
+      step: c.agentMeta.step,
+      approvalsPending: c.agentMeta.approvalsPending,
+      usage: { ...c.agentMeta.usage },
+      activeSessionId: c.activeSessionId,
+      approvalMode: p.approvalMode,
+      subagentsEnabled: p.subagentsEnabled,
+      hasKey: chatMod.hasKeyForModel(c.selectedModelId),
+    };
+  };
 
   const context: ExtensionContext = {
     id: ext.id,
     installPath: ext.root,
     os,
+    paths: { home },
     storage,
     app: {
       getContext: () => getAppContext(),
@@ -465,6 +572,46 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         requirePermission(ext.id, declared, "workspaces:manage");
         return setActiveWorkspaceBridge(String(wsId ?? ""));
       },
+    },
+    ai: {
+      getState: () => readAiState(),
+      onStateChange: (cb) => {
+        // Fan-in: model/run state lives in chatStore, approvalMode and
+        // subagentsEnabled in preferences. Either can move independently.
+        const emit = (): void => cb(readAiState());
+        const unsubs = [
+          chatMod.useChatStore.subscribe(emit),
+          prefsMod.usePreferencesStore.subscribe(emit),
+        ];
+        const dispose = (): void => {
+          for (const u of unsubs) u();
+        };
+        disposers.push(dispose);
+        return dispose;
+      },
+      async setModel(modelId: string, provider: string): Promise<void> {
+        requirePermission(ext.id, declared, "ai:configure");
+        // The model id is NOT validated against the registry on purpose:
+        // openai-compatible instances mint ids at runtime, so a registry check
+        // would reject valid ones. A bad id surfaces on the next run.
+        // The provider IS validated, because it is a closed union and an
+        // unrecognised one would be stored verbatim and break provider
+        // resolution silently. Unknown provider => let the store resolve it
+        // from the id, the same fallback an omitted argument gets.
+        const { PROVIDERS } = await import("@/modules/ai/config");
+        const known = PROVIDERS.find((p) => p.id === provider)?.id;
+        chatMod.useChatStore.getState().setSelectedModelId(String(modelId ?? ""), known);
+      },
+      async setSubagentsEnabled(enabled: boolean): Promise<void> {
+        requirePermission(ext.id, declared, "ai:configure");
+        const mod = await import("@/modules/settings/store");
+        await mod.setSubagentsEnabled(!!enabled);
+      },
+      async sendPrompt(text: string): Promise<boolean> {
+        requirePermission(ext.id, declared, "ai:prompt");
+        return chatMod.sendMessage(String(text ?? ""));
+      },
+      stop: () => chatMod.stop(),
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {

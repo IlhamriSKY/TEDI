@@ -707,8 +707,17 @@ mod tests {
         // a zip pairing a benign `manifest.json` with any of these is caught
         // by the duplicate-entry guard on case-folding filesystems.
         let base = fold_zip_path(Path::new("manifest.json"));
-        for spoof in ["Manifest.json", "MANIFEST.JSON", "manifest.json.", "manifest.json "] {
-            assert_eq!(base, fold_zip_path(Path::new(spoof)), "{spoof} must fold to manifest.json");
+        for spoof in [
+            "Manifest.json",
+            "MANIFEST.JSON",
+            "manifest.json.",
+            "manifest.json ",
+        ] {
+            assert_eq!(
+                base,
+                fold_zip_path(Path::new(spoof)),
+                "{spoof} must fold to manifest.json"
+            );
         }
         // Distinct files stay distinct; nested paths fold per component.
         assert_ne!(base, fold_zip_path(Path::new("main.js")));

@@ -3,7 +3,13 @@ import { z } from "zod";
 import { shellTransformersRegistry } from "@/modules/extensions/registries";
 import { native } from "../lib/native";
 import { checkShellCommand } from "../lib/security";
-import { clampForModel, scrubErrorPath, throwIfAborted, type ToolContext } from "./context";
+import {
+  clampForModel,
+  isReadOutsideScope,
+  scrubErrorPath,
+  throwIfAborted,
+  type ToolContext,
+} from "./context";
 import { flexIntOpt, flexIntReq } from "./schedule";
 
 /**
@@ -53,9 +59,15 @@ export function disposeSessionShell(sessionId: string): void {
 export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean } = {}) {
   // bash_run / bash_background normally raise an approval card. An autonomous
   // worker subagent has no approver in its generateText loop, so it passes
-  // autoApprove to execute directly - still guarded by checkShellCommand's
-  // destructive-command denylist. Default keeps approval on for the main agent.
+  // autoApprove to execute directly. Default keeps approval on for the main agent.
   const approve = opts.autoApprove ? false : true;
+  // With no approver, the shell was the one tool that ignored the scope model
+  // `fs` and `edit` enforce, so a prompt-injected worker could read a secret or
+  // reach outside the project through it. Turn on the unattended checks for
+  // exactly that case; an approved command from the main agent is unaffected.
+  const shellGuard = opts.autoApprove
+    ? { unattended: true, isOutsideScope: (p: string) => isReadOutsideScope(p, ctx) }
+    : undefined;
   return {
     bash_run: tool({
       description:
@@ -69,7 +81,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
       needsApproval: approve,
       execute: async ({ command, timeout_secs }) => {
         throwIfAborted(ctx);
-        const safety = checkShellCommand(command);
+        const safety = checkShellCommand(command, shellGuard);
         if (!safety.ok) return { error: safety.reason };
         const sid = ctx.getSessionId();
         if (!sid) return { error: "no active chat session" };
@@ -107,7 +119,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
       needsApproval: approve,
       execute: async ({ command, cwd }) => {
         throwIfAborted(ctx);
-        const safety = checkShellCommand(command);
+        const safety = checkShellCommand(command, shellGuard);
         if (!safety.ok) return { error: safety.reason };
         const effectiveCwd = cwd ?? ctx.getCwd();
         try {

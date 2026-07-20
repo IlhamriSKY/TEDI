@@ -7,7 +7,7 @@ import {
   type ProviderId,
 } from "../config";
 import { buildLanguageModel, describeStep, noProgressStop, noToolRepetition } from "../lib/agent";
-import { applyCacheBreakpoints } from "../lib/cache";
+import { applyCacheBreakpoints, applyStepCacheBreakpoints } from "../lib/cache";
 import { compactStepMessages } from "../lib/compact";
 import { classifyError, TediErrorCode } from "../lib/errors";
 import type { ProviderKeys } from "../lib/keyring";
@@ -215,10 +215,12 @@ export async function runSubagent({
         stepNumber: number;
         messages: ModelMessage[];
       }) => {
-        const compacted = compactStepMessages(stepMessages);
-        return stepNumber === 0
-          ? { messages: compacted, toolChoice: "required" }
-          : { messages: compacted };
+        // Same provider-aware treatment as the main loop: skip compaction while
+        // it would only bust a cached prefix, and re-mark breakpoints per step
+        // so the rolling tool-result one actually lands.
+        const compacted = compactStepMessages(stepMessages, info.provider);
+        const messages = applyStepCacheBreakpoints(compacted, info.provider);
+        return stepNumber === 0 ? { messages, toolChoice: "required" } : { messages };
       },
       ...(temperature !== undefined ? { temperature } : {}),
       // Own the retry (jittered) in withRateLimitRetry below. The SDK's default

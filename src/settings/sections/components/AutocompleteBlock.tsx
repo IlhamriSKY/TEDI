@@ -13,6 +13,7 @@ import {
   DEFAULT_AUTOCOMPLETE_MODEL,
   MODELS,
   getProvider,
+  isLoopbackBaseURL,
   providerNeedsKey,
   type AutocompleteProviderId,
 } from "@/modules/ai/config";
@@ -34,22 +35,46 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
   const provider = usePreferencesStore((s) => s.autocompleteProvider);
   const modelId = usePreferencesStore((s) => s.autocompleteModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
+  const openaiCompatibleBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
 
   const [urlDraft, setUrlDraft] = useState(lmstudioBaseURL);
+  const [modelDraft, setModelDraft] = useState(modelId);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   useEffect(() => setUrlDraft(lmstudioBaseURL), [lmstudioBaseURL]);
+  useEffect(() => setModelDraft(modelId), [modelId]);
 
   const onProviderChange = (next: AutocompleteProviderId) => {
+    if (next === provider) return;
     void setAutocompleteProvider(next);
-    const knownDefaults = Object.values(DEFAULT_AUTOCOMPLETE_MODEL);
-    if (knownDefaults.includes(modelId)) {
-      void setAutocompleteModelId(DEFAULT_AUTOCOMPLETE_MODEL[next]);
-    }
+    // A model id belongs to one provider, so always reset it. Keeping a custom
+    // id (the free-text field below makes those normal now) meant switching to
+    // Anthropic while still pointing at "my-local-q4.gguf" and 404ing on every
+    // keystroke, even though the row the user clicked was labelled "Claude".
+    void setAutocompleteModelId(DEFAULT_AUTOCOMPLETE_MODEL[next]);
+    setModelDraft(DEFAULT_AUTOCOMPLETE_MODEL[next]);
   };
 
   const providerInfo = getProvider(provider);
-  const hasKey = providerNeedsKey(provider) ? !!keys[provider] : true;
+  // ONE definition of "connected", used by both the selected-provider notice and
+  // every dropdown row. They were separate predicates before, which is how the
+  // row came to say "not connected" while the panel below it said the opposite.
+  // A local OpenAI-compatible server (Ollama, llama.cpp, vLLM) authenticates with
+  // nothing, so a loopback base URL counts.
+  const isConnected = (id: AutocompleteProviderId) =>
+    !providerNeedsKey(id) ||
+    !!keys[id] ||
+    (id === "openai-compatible" && isLoopbackBaseURL(openaiCompatibleBaseURL));
+
+  const oacIsLocal = provider === "openai-compatible" && isLoopbackBaseURL(openaiCompatibleBaseURL);
+  const hasKey = isConnected(provider);
+
+  /** Blank falls back to the provider default rather than persisting "". */
+  const commitModelDraft = () => {
+    const next = modelDraft.trim() || DEFAULT_AUTOCOMPLETE_MODEL[provider];
+    if (next !== modelId) void setAutocompleteModelId(next);
+    setModelDraft(next);
+  };
 
   const testLmStudio = async () => {
     setTestStatus("testing");
@@ -111,7 +136,7 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
                 const defaultModel = DEFAULT_AUTOCOMPLETE_MODEL[id];
                 const modelInfo = MODELS.find((m) => m.id === defaultModel);
                 const label = modelInfo?.label ?? defaultModel;
-                const itemHasKey = providerNeedsKey(id) ? !!keys[id] : true;
+                const itemHasKey = isConnected(id);
                 return (
                   <DropdownMenuItem
                     key={id}
@@ -139,6 +164,31 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Model id. Free text because a local server names its own models
+       *  ("qwen2.5-coder:7b" on Ollama, a GGUF filename on llama.cpp) and no
+       *  registry can know them. Blank falls back to the provider default. */}
+      {enabled ? (
+        <div className="flex flex-col gap-1.5 sm:pl-[calc(6rem+1.5rem+0.75rem)]">
+          <span className="text-muted-foreground text-[10px]">Model</span>
+          <Input
+            value={modelDraft}
+            onChange={(e) => setModelDraft(e.target.value)}
+            // Commit on Enter as well as blur: closing Settings without leaving
+            // the field would otherwise discard what the user just typed.
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitModelDraft();
+              }
+            }}
+            onBlur={commitModelDraft}
+            placeholder={DEFAULT_AUTOCOMPLETE_MODEL[provider]}
+            spellCheck={false}
+            className="h-8 font-mono text-[11.5px]"
+          />
+        </div>
+      ) : null}
 
       {/* Warning when the selected autocomplete provider has no API key.
        *  Indented under the dropdown so it reads as a sub-message of the
@@ -184,6 +234,15 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
           ) : testStatus === "testing" ? (
             <span className="text-muted-foreground text-[10.5px]">Testing…</span>
           ) : null}
+        </div>
+      ) : null}
+
+      {/* OpenAI-compatible points at an endpoint configured once in Models, so
+       *  show where it resolves rather than duplicating the editor here. */}
+      {enabled && provider === "openai-compatible" ? (
+        <div className="text-muted-foreground/80 text-[10.5px] sm:pl-[calc(6rem+1.5rem+0.75rem)]">
+          Using <span className="font-mono">{openaiCompatibleBaseURL || "no endpoint set"}</span>
+          {oacIsLocal ? " - local server, no key needed." : "."} Change it under Models.
         </div>
       ) : null}
     </>

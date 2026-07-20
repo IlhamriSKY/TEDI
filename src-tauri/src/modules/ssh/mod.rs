@@ -271,13 +271,28 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-/// `git status` for the repo the SSH terminal is sitting in, so Source Control
-/// follows the remote instead of the local workspace.
+/// Last non-empty line of a remote command's stdout.
+///
+/// sshd runs an exec request through the user's login shell, and bash sources
+/// `~/.bashrc` on that path, so anything an rc file echoes (a greeting, nvm /
+/// conda / direnv chatter) is prepended to the output we asked for. Every value
+/// we read back is single-line, so the last line is the answer.
+fn last_line(s: &str) -> &str {
+    s.lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+}
+
+/// `git status` for the repo containing `cwd` on the remote, so Source Control
+/// follows the machine you are working on instead of the local workspace. The
+/// caller picks `cwd` (the folder the Remote tree is browsing, else the SSH
+/// terminal's OSC 7 cwd); empty means the remote login directory.
 ///
 /// Read-only by design: it reuses the existing porcelain parsers but skips the
 /// numstat / line-count enrichment, which reads the LOCAL disk. `added`,
 /// `removed` and `binary` therefore stay at their defaults for remote entries.
-/// An empty `cwd` (no OSC 7 seen yet) runs in the login directory.
 #[tauri::command]
 pub async fn ssh_git_status(
     state: tauri::State<'_, SshState>,
@@ -309,25 +324,44 @@ pub async fn ssh_git_status(
     } else {
         format!("-C {} ", shell_quote(&cwd))
     };
-    let root = session
-        .exec_capture(&format!("git {cd}rev-parse --show-toplevel 2>/dev/null"))
-        .await?;
-    let root = root.trim();
+    // No `2>/dev/null`: stderr arrives on its own channel, so it cannot mix into
+    // stdout, and dropping it is what made every failure look like "no repo".
+    let root = match session
+        .exec_capture(&format!("git {cd}rev-parse --show-toplevel"))
+        .await
+    {
+        Ok(s) => s,
+        // The one expected failure. Anything else (git not on sshd's PATH,
+        // dubious ownership, a cwd that no longer exists, exec denied) is a real
+        // error the user needs to read, not a silent empty panel.
+        //
+        // Matching on git's English text is safe here: we send no env, so an
+        // sshd exec channel runs in the C locale and git does not translate.
+        Err(e) if e.contains("not a git repository") => return Ok(not_a_repo()),
+        Err(e) => return Err(e),
+    };
+    let root = last_line(&root);
     if root.is_empty() {
         return Ok(not_a_repo());
     }
 
     let raw = session
         .exec_capture(&format!(
-            "git -C {} status --porcelain=v1 --branch -z --untracked-files=all 2>/dev/null",
+            "git -C {} status --porcelain=v1 --branch -z --untracked-files=all",
             shell_quote(root)
         ))
         .await?;
+    // `--branch` always emits a header, so this is only reachable when the
+    // remote git was killed by a signal: russh reports that as ExitSignal, not
+    // ExitStatus, so `exit` stays 0 and we get a successful-looking empty read.
     if raw.is_empty() {
         return Ok(not_a_repo());
     }
     // The `--branch` header is the first -z record; the rest are file entries.
     let (header, entries) = raw.split_once('\0').unwrap_or((raw.as_str(), ""));
+    // Same rc-noise guard as the root above, so a chatty ~/.bashrc can't be
+    // parsed as the branch name.
+    let header = last_line(header);
     let (branch, upstream, ahead, behind) = parse_branch_header(header);
     Ok(GitStatus {
         is_repo: true,
@@ -340,4 +374,39 @@ pub async fn ssh_git_status(
         // the parser's `to_forward` normalizes back to a POSIX path.
         changes: parse_porcelain_v1(std::path::Path::new(root), entries),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{last_line, shell_quote};
+
+    /// The rc-noise guard: a chatty remote `~/.bashrc` prepends its own output
+    /// to every `ssh host cmd` capture, so the value we want is the last line.
+    #[test]
+    fn last_line_survives_rc_chatter() {
+        assert_eq!(last_line("/home/u/app"), "/home/u/app");
+        assert_eq!(
+            last_line("Welcome!\nnvm loaded\n/home/u/app\n"),
+            "/home/u/app"
+        );
+        assert_eq!(last_line("/home/u/app\n\n"), "/home/u/app");
+        assert_eq!(last_line("  /home/u/app  "), "/home/u/app");
+        assert_eq!(last_line(""), "");
+        assert_eq!(last_line("\n \n"), "");
+        // A branch header behind a greeting still parses as the header.
+        assert_eq!(
+            last_line("motd\n## main...origin/main"),
+            "## main...origin/main"
+        );
+    }
+
+    /// `cwd` reaches us from the remote shell's OSC 7, i.e. it is untrusted.
+    #[test]
+    fn shell_quote_blocks_injection() {
+        assert_eq!(shell_quote("/home/u/app"), "'/home/u/app'");
+        assert_eq!(
+            shell_quote("/tmp/x'; rm -rf ~ ;'"),
+            r"'/tmp/x'\''; rm -rf ~ ;'\'''"
+        );
+    }
 }

@@ -227,14 +227,14 @@ pub async fn pty_open(
             client.get_live().open(cols, rows, cwd, on_event)
         })
         .await
-            .map_err(|e| format!("pty_open join error: {e}"))?
-            .map_err(|e| {
-                log::error!(
-                    "pty_open daemon failed after {}ms: {e}",
-                    t0.elapsed().as_millis()
-                );
-                e
-            })?;
+        .map_err(|e| format!("pty_open join error: {e}"))?
+        .map_err(|e| {
+            log::error!(
+                "pty_open daemon failed after {}ms: {e}",
+                t0.elapsed().as_millis()
+            );
+            e
+        })?;
         let id = state.next_id.fetch_add(1, Ordering::Relaxed);
         if let PtyBackend::Daemon { sessions, .. } = &state.backend {
             sessions.write().unwrap().insert(id, uuid);
@@ -249,15 +249,14 @@ pub async fn pty_open(
             alive: true,
         })
     } else {
-        let (session, _) = tauri::async_runtime::spawn_blocking(move || {
-            session::spawn(cols, rows, cwd, on_event)
-        })
-        .await
-        .map_err(|e| format!("pty_open join error: {e}"))?
-        .map_err(|e| {
-            log::error!("pty_open failed after {}ms: {e}", t0.elapsed().as_millis());
-            e
-        })?;
+        let (session, _) =
+            tauri::async_runtime::spawn_blocking(move || session::spawn(cols, rows, cwd, on_event))
+                .await
+                .map_err(|e| format!("pty_open join error: {e}"))?
+                .map_err(|e| {
+                    log::error!("pty_open failed after {}ms: {e}", t0.elapsed().as_millis());
+                    e
+                })?;
         let id = state.next_id.fetch_add(1, Ordering::Relaxed);
         if let PtyBackend::InProcess(map) = &state.backend {
             map.write().unwrap().insert(id, session);

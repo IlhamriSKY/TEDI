@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useDocument } from "./lib/useDocument";
 import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
+import { providerNeedsKey, type ProviderId } from "@/modules/ai/config";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
 import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
@@ -237,7 +238,12 @@ export function EditorPane({
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const languageRef = useRef<string | null>(null);
-  const apiKeyRef = useRef<string | null>(null);
+  // The key is fetched asynchronously but the provider is read synchronously from
+  // the store, so the ref MUST carry which provider it belongs to. Without that,
+  // switching provider left the previous provider's key in the ref and the next
+  // keystroke shipped it to the new provider's endpoint: a real credential leak,
+  // not a narrow race.
+  const apiKeyRef = useRef<{ provider: ProviderId; key: string | null } | null>(null);
 
   // Manual "Change Language Mode" override (right-click). `null` follows path
   // detection. Reset whenever the open file changes so a forced mode never
@@ -260,12 +266,19 @@ export function EditorPane({
     let cancelled = false;
     const refresh = async () => {
       const provider = usePreferencesStore.getState().autocompleteProvider;
-      if (provider === "lmstudio") {
-        apiKeyRef.current = null;
+      if (!providerNeedsKey(provider)) {
+        apiKeyRef.current = { provider, key: null };
         return;
       }
+      // Clear first: until the fetch lands there is no valid key for this
+      // provider, and a stale one must never be offered in its place.
+      apiKeyRef.current = null;
       const k = await getKey(provider);
-      if (!cancelled) apiKeyRef.current = k;
+      if (cancelled) return;
+      // Two rapid switches race; only the fetch matching the CURRENT provider
+      // may publish, so the loser cannot land last.
+      if (usePreferencesStore.getState().autocompleteProvider !== provider) return;
+      apiKeyRef.current = { provider, key: k };
     };
     void refresh();
     let unlistenKeys: (() => void) | undefined;
@@ -410,8 +423,13 @@ export function EditorPane({
             enabled: s.autocompleteEnabled && !aiDisabledRef.current,
             provider: s.autocompleteProvider,
             modelId: s.autocompleteModelId,
-            apiKey: apiKeyRef.current,
+            // Only hand over a key that was fetched FOR this provider.
+            apiKey:
+              apiKeyRef.current?.provider === s.autocompleteProvider
+                ? apiKeyRef.current.key
+                : null,
             lmstudioBaseURL: s.lmstudioBaseURL,
+            openaiCompatibleBaseURL: s.openaiCompatibleBaseURL,
           };
         },
         getPath: () => pathRef.current,

@@ -652,6 +652,7 @@ pub fn run() {
             preview::preview_embed_navigate,
             preview::preview_embed_dispatch,
             preview::preview_embed_read,
+            preview::preview_embed_console,
             preview::preview_embed_act,
             preview::preview_embed_screenshot,
             preview::preview_embed_set_bg,

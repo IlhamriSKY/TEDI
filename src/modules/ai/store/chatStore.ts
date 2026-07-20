@@ -1,6 +1,7 @@
 import { Chat, type UIMessage } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { create } from "zustand";
+import type { BrowserDiag } from "@/modules/browser";
 import {
   DEFAULT_MODEL_ID,
   providerNeedsKey,
@@ -123,6 +124,9 @@ type Live = {
     text: string,
     submit: boolean,
   ) => Promise<string | null>;
+  /** Drain a browser pane's captured console errors / warnings / uncaught
+   *  exceptions. Null if that leaf isn't a browser. */
+  consoleBrowser: (leafId: number) => Promise<BrowserDiag[] | null>;
   /** Capture a browser pane as a base64 JPEG (last-resort visual). */
   screenshotBrowser: (leafId: number) => Promise<string | null>;
   /** Inject text into a specific terminal (no Enter). */
@@ -285,6 +289,7 @@ const NOOP_LIVE: Live = {
   dispatchBrowser: () => false,
   readBrowser: async () => null,
   actBrowser: async () => null,
+  consoleBrowser: async () => null,
   screenshotBrowser: async () => null,
   injectIntoTerminal: () => false,
   runInTerminal: () => false,
@@ -434,6 +439,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     readBrowser: (leafId, fields) => useChatStore.getState().live.readBrowser(leafId, fields),
     actBrowser: (leafId, index, action, text, submit) =>
       useChatStore.getState().live.actBrowser(leafId, index, action, text, submit),
+    consoleBrowser: (leafId) => useChatStore.getState().live.consoleBrowser(leafId),
     screenshotBrowser: (leafId) => useChatStore.getState().live.screenshotBrowser(leafId),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
     openTerminalAdvanced: (opts) => useChatStore.getState().live.openTerminalAdvanced(opts),

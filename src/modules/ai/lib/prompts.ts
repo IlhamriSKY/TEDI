@@ -166,7 +166,7 @@ export const PROMPT_META: readonly PromptMeta[] = [
   {
     id: "subagent:aurora",
     label: "Aurora sub-agent",
-    description: "Read-only visual/media analyst: reads images, diagrams, and PDFs and extracts what you ask.",
+    description: "Read-only visual analyst: reads images, screenshots, and diagrams and extracts what you ask.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
