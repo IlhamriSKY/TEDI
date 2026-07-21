@@ -45,18 +45,11 @@ export function useHeaderActions({
   handleHeaderConnectSsh: (conn: SshConnection, opts?: { private?: boolean }) => void;
   headerCanSplit: boolean;
 } {
-  // Stable props for memoised footer/sidebar children so unrelated state
-  // churn (AI streaming, PaneStack ticks) doesn't re-render them. Inline
-  // arrows or per-render expressions would defeat memo equality.
   const handleOpenDetectedPreview = useCallback(() => {
     if (detectedBrowserUrl) openPreviewTab(detectedBrowserUrl);
   }, [detectedBrowserUrl, openPreviewTab]);
   const handleAddProviderKey = useCallback(() => void openSettingsWindow("models"), []);
 
-  // Stable handlers for the memoised <Header/>. Each was previously an inline
-  // arrow in the JSX, so the memo wrapper saw a fresh prop identity on every
-  // App re-render (AI streaming tokens, statusbar ticks, etc.) and re-rendered
-  // the header + tab strip even when no header-relevant state changed.
   const handleHeaderSelectEntry = useCallback(
     (tabId: number, leafId: number | null) => {
       setActiveId(tabId);

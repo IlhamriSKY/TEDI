@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.93] - 21-07-2026
+
+### Added
+
+- **Split-pane layouts keep their proportions across a restart.** Reopening a workspace already restored your panes, but every split snapped back to an equal size. The divider positions you set now persist and are restored exactly as you left them. See [panes.ts](src/modules/terminal/lib/panes.ts), [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [serialize.ts](src/modules/workspaces/serialize.ts).
+- **A "done" state for the terminal AI-agent badge.** The per-terminal status (idle / working / waiting for approval) gained a fourth state: a finished turn now shows a distinct "done" glance, held until you focus or type in that terminal, so among many terminals you can tell at a glance which agent just completed. See [aiCliStatus.ts](src/modules/terminal/lib/aiCliStatus.ts), [aiCliDetector.ts](src/modules/terminal/lib/aiCliDetector.ts).
+
+### Changed
+
+- **A running agent is recognized again after a restart.** When a reopened workspace reattaches to a still-running agent, the badge resumes its working / waiting-for-approval state immediately instead of going blank until you type a command. Launching an agent indirectly - `npx claude`, `bunx opencode`, or an absolute path - is now detected too. See [aiCliDetector.ts](src/modules/terminal/lib/aiCliDetector.ts), [session-lifecycle.ts](src/modules/terminal/lib/session-lifecycle.ts).
+
+### Fixed
+
+- **Panes no longer disappear after a terminal error or an update.** A transient empty snapshot could overwrite a saved layout, and a locked or partial read during an update handoff could blank the saved workspaces. An empty snapshot never overwrites saved panes now, a failed read retries before falling back, and the layout is flushed to disk before the window closes - so a pane you closed also stays closed instead of reappearing. See [store.ts](src/modules/workspaces/store.ts), [App.tsx](src/app/App.tsx).
+- **The agent badge no longer sticks on "waiting for approval" (red) while it is actually working.** A stray phrase in the agent's own output could latch a false approval state over an actively-generating turn and hold it for a full minute; an "esc to interrupt" hint now overrides it and the hold is much shorter. See [aiCliDetector.ts](src/modules/terminal/lib/aiCliDetector.ts).
+- **"Finished" no longer fires mid-turn, especially for Claude.** A quiet stretch inside one turn (a silent sub-agent) could trip a premature completion; the agent's own busy signal is now trusted until it clears or the shell prompt returns. See [aiCliDetector.ts](src/modules/terminal/lib/aiCliDetector.ts).
+
 ## [0.3.92] - 20-07-2026
 
 ### Added

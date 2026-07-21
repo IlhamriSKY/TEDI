@@ -2,6 +2,7 @@ export { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 export {
   disposeSession,
   respawnSession,
+  acknowledgeAiCli,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";

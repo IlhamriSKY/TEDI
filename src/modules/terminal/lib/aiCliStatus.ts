@@ -15,7 +15,13 @@ export type AiCliKind =
   | "cursor"
   | "ollama";
 
-export type AiCliState = "idle" | "working" | "blocking";
+/**
+ * `done` marks a turn that just finished and is awaiting attention: emitted on
+ * the working->quiet edge and held (a gentle breathing badge) until the user
+ * focuses or types in that terminal, then it decays to `idle`. Distinct from
+ * `idle` so a completed agent stays visible at a glance across many terminals.
+ */
+export type AiCliState = "idle" | "working" | "blocking" | "done";
 
 export type AiCliStatus = {
   tool: AiCliKind;
@@ -33,6 +39,8 @@ export function aiCliLabel(s: NonNullable<AiCliStatus>): string {
       return `${tool} · working`;
     case "blocking":
       return `${tool} · waiting for approval`;
+    case "done":
+      return `${tool} · done`;
   }
 }
 
@@ -48,6 +56,8 @@ export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
       return "text-[color:var(--tedi-icon-working)]";
     case "blocking":
       return "text-[color:var(--tedi-icon-blocked)]";
+    case "done":
+      return "text-[color:var(--tedi-icon-done)]";
   }
 }
 

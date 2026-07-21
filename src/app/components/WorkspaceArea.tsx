@@ -34,6 +34,8 @@ type Props = {
   hasExtensionTab: boolean;
   respondToApproval: (approvalId: string, approve: boolean) => void;
   onPathDeleted: (path: string) => void;
+  /** Persist a split node's per-child size percentages after a divider drag. */
+  onSplitSizes: (splitId: number, sizes: number[]) => void;
 } & Pick<
   TabsApi,
   | "setBrowserLeafUrl"
@@ -72,6 +74,7 @@ export function WorkspaceArea({
   hasExtensionTab,
   respondToApproval,
   onPathDeleted,
+  onSplitSizes,
   setBrowserLeafUrl,
   movePaneLeafToEdge,
   moveExtTabToPane,
@@ -118,6 +121,7 @@ export function WorkspaceArea({
               onCloseLeafRequest={paneHandles.handlePaneHeaderClose}
               onSplitWithExtTab={moveExtTabToPane}
               onSetTerminalTheme={setLeafTerminalTheme}
+              onSplitSizes={onSplitSizes}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
             />

@@ -20,6 +20,7 @@ type Params = {
     workspaceId: string,
     saved: ReturnType<typeof serializeTabs>,
     activeTabIndex: number,
+    liveTabCount?: number,
   ) => void;
   tabs: Tab[];
   activeId: number;
@@ -93,6 +94,9 @@ export function useWorkspacePersistence({
       return;
     }
     const saved = serializeTabs(tabs);
-    wsSaveTabs(wsActiveId, saved, savedActiveTabIndex(tabs, activeId));
+    // Pass the live tab count so the store's anti-wipe guard can tell a
+    // legitimate all-session-only emptying (tabs.length > 0, serialize empty)
+    // from a transient truly-empty state (tabs.length 0).
+    wsSaveTabs(wsActiveId, saved, savedActiveTabIndex(tabs, activeId), tabs.length);
   }, [tabs, activeId, wsHydrated, wsActiveId, wsSaveTabs]);
 }

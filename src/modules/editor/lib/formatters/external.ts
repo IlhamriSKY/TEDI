@@ -51,10 +51,8 @@ function randomToken(): string {
 
 async function tempFilePath(originalPath: string): Promise<string> {
   const ext = extFromPath(originalPath);
-  // Tauri's tempDir would require an extra plugin; use the OS-side tmp
-  // command via fs_create_file in a cache dir. The simplest robust path is
-  // to ask Rust for the temp dir through a tiny shell roundtrip. For MVP
-  // we use the workspace dir of the file with a hidden prefix.
+  // Tauri's tempDir would need an extra plugin, so write the temp file beside
+  // the original with a hidden prefix instead.
   const dir = dirOf(originalPath);
   const name = `.tedi-fmt-${randomToken()}${ext}`;
   return dir ? `${dir}/${name}` : name;

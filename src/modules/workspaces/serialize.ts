@@ -54,6 +54,12 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       // Only local PTYs use the daemon backend; SSH leaves carry their
       // remote session id separately and aren't restored via pty_attach.
       ...(leaf.ptyId && !leaf.sshConnectionId ? { ptyId: leaf.ptyId } : {}),
+      // Persist the running agent kind only for reattachable local leaves
+      // (same gate as ptyId), and never for private ones. On restore it
+      // pre-activates the detector so a still-running agent's badge survives.
+      ...(leaf.activeTool && leaf.ptyId && !leaf.sshConnectionId && !leaf.private
+        ? { activeTool: leaf.activeTool }
+        : {}),
     };
   }
   if (leaf.leafKind === "editor") {
@@ -84,6 +90,11 @@ function nodeToSaved(node: PaneNode): SavedPaneNode {
     kind: "split",
     dir: node.dir,
     children: node.children.map(nodeToSaved),
+    // Only persist sizes that still match the child count (a split/close can
+    // leave a stale-length array); a mismatch restores as an equal split.
+    ...(node.sizes && node.sizes.length === node.children.length
+      ? { sizes: node.sizes }
+      : {}),
   };
 }
 
@@ -162,6 +173,8 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         // to attempt `reattachPty` before falling back to `openPty`. The
         // hot `ptyId` field is populated by the session itself on attach.
         ...(node.ptyId ? { savedPtyId: node.ptyId } : {}),
+        // Pre-activate the detector for a still-running agent on reattach.
+        ...(node.activeTool ? { activeTool: node.activeTool } : {}),
       };
     }
     if (node.leafKind === "editor") {
@@ -184,11 +197,15 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
       ...(node.private ? { private: true } : {}),
     };
   }
+  const children = node.children.map((c) => savedToNode(c, allocId, outLeafIds));
   return {
     kind: "split",
     id: allocId(),
     dir: node.dir,
-    children: node.children.map((c) => savedToNode(c, allocId, outLeafIds)),
+    children,
+    // Restore divider positions only when the saved sizes still line up with
+    // the child count; otherwise fall back to an equal split.
+    ...(node.sizes && node.sizes.length === children.length ? { sizes: node.sizes } : {}),
   };
 }
 

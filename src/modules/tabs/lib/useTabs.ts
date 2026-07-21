@@ -12,10 +12,12 @@ import {
   removeLeaf,
   reorderLeafInTree,
   rotateLeafWithNeighbor,
+  setLeafActiveTool as setLeafActiveToolInTree,
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
   setLeafPtyId as setLeafPtyIdInTree,
   setLeafTerminalTheme as setLeafTerminalThemeInTree,
+  setSplitSizes as setSplitSizesInTree,
   siblingLeafOf,
   splitLeaf,
   updateEditorLeaf,
@@ -29,6 +31,7 @@ import {
   type SplitDir,
   type TerminalLeafState,
 } from "@/modules/terminal/lib/panes";
+import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
 import { syncPaneMirror } from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
@@ -473,6 +476,48 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         if (t.kind !== "pane") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
         const paneTree = setLeafPtyIdInTree(t.paneTree, leafId, ptyId);
+        if (paneTree === t.paneTree) return t;
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
+
+  /**
+   * Record the AI CLI kind detected in a terminal leaf (or `null` to clear).
+   * Fires on every detector transition, so it bails at the top when the tool
+   * is unchanged - the frequent working<->idle flips must not churn the tabs
+   * array or re-serialize the workspace. The serializer persists it (for
+   * reattachable local leaves) so a still-running agent resumes its badge on
+   * the next launch.
+   */
+  const setLeafActiveTool = useCallback((leafId: number, tool: AiCliKind | null) => {
+    setTabs((curr) => {
+      const owner = curr.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
+      if (owner?.kind === "pane") {
+        const leaf = findLeaf(owner.paneTree, leafId);
+        if (leaf?.leafKind === "terminal" && (leaf.activeTool ?? null) === tool) return curr;
+      }
+      return curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const paneTree = setLeafActiveToolInTree(t.paneTree, leafId, tool);
+        if (paneTree === t.paneTree) return t;
+        return syncPaneMirror({ ...t, paneTree });
+      });
+    });
+  }, []);
+
+  /**
+   * Store per-child size percentages on a split node so a restored workspace
+   * keeps its divider positions. Wired to react-resizable-panels'
+   * `onLayoutChanged` (only on genuine user drags), and `setSplitSizesInTree`
+   * bails on unchanged sizes, so a stray layout echo can't churn state.
+   */
+  const setSplitSizes = useCallback((splitId: number, sizes: number[]) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        const paneTree = setSplitSizesInTree(t.paneTree, splitId, sizes);
         if (paneTree === t.paneTree) return t;
         return syncPaneMirror({ ...t, paneTree });
       }),
@@ -991,6 +1036,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     setBrowserLeafUrl,
     setBrowserLeafTitle,
     setLeafPtyId,
+    setLeafActiveTool,
+    setSplitSizes,
     setEditorLeafDirty,
     setEditorLeafPath,
     focusPane,

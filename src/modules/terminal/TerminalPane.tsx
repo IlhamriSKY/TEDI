@@ -8,7 +8,7 @@ import {
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
-import type { AiCliStatus } from "./lib/aiCliStatus";
+import type { AiCliKind, AiCliStatus } from "./lib/aiCliStatus";
 
 export type TerminalPaneHandle = {
   write: (data: string) => void;
@@ -44,6 +44,12 @@ type Props = {
    */
   savedPtyId?: string;
   /**
+   * AI CLI kind that was running when the workspace was last saved. Forwarded
+   * to `useTerminalSession` to pre-activate the detector on reattach so a
+   * still-running agent's badge resumes immediately.
+   */
+  savedActiveTool?: AiCliKind;
+  /**
    * Per-leaf terminal theme override id (a `TERMINAL_PRESETS` id). When set,
    * this pane paints its own palette regardless of the global terminal theme.
    * Set from the pane header's right-click "Terminal theme" menu.
@@ -73,6 +79,7 @@ export function TerminalPane({
   initialCwd,
   sshConnectionId,
   savedPtyId,
+  savedActiveTool,
   terminalThemeId,
   onSearchReady,
   onExit,
@@ -115,6 +122,7 @@ export function TerminalPane({
     initialCwd,
     sshConnectionId,
     savedPtyId,
+    savedActiveTool,
     terminalThemeId,
     onSearchReady: (a) => onSearchReady?.(leafId, a),
     onExit: (c) => onExit?.(leafId, c),

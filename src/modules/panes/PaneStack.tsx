@@ -58,6 +58,8 @@ type Props = {
   /** Set (or clear, with `null`) a terminal leaf's per-pane theme override.
    *  `themeId` is a `TERMINAL_PRESETS` id. Backs the header "Terminal theme" menu. */
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
+  /** Persist a split node's per-child size percentages after a divider drag. */
+  onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Live SSH status per terminal leaf id. Colors the SSH header label, mirroring the tab strip. */
   sshStatuses?: Map<number, SshStatus>;
   /** Live AI CLI status per terminal leaf id. Tints the header icon, mirroring the tab strip. */
@@ -87,6 +89,7 @@ export function PaneStack({
   onCloseLeafRequest,
   onSplitWithExtTab,
   onSetTerminalTheme,
+  onSplitSizes,
   sshStatuses,
   aiCliStatuses,
 }: Props) {
@@ -226,6 +229,7 @@ export function PaneStack({
                   : undefined
               }
               onSetTerminalTheme={onSetTerminalTheme}
+              onSplitSizes={onSplitSizes}
               sshHosts={sshHosts}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}

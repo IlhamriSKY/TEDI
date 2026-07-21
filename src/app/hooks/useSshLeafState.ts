@@ -222,12 +222,12 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
         } else if (
           notify &&
           status &&
-          status.state === "idle" &&
+          status.state === "done" &&
           before?.state === "working" &&
           status.tool === before.tool &&
           Date.now() - before.since >= 1500
         ) {
-          // AI returned to idle after working. Skip when working lasted
+          // AI finished a turn (working -> done). Skip when working lasted
           // under 1.5s to avoid spam from brief spinner flickers.
           try {
             toast(`${toolDisplayName(status.tool)} finished`, {

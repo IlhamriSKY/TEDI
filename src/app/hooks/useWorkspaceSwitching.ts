@@ -18,6 +18,7 @@ type Params = {
     workspaceId: string,
     saved: ReturnType<typeof serializeTabs>,
     activeTabIndex: number,
+    liveTabCount?: number,
   ) => void;
   wsSetActive: (id: string | null) => void;
   wsCreate: (name: string) => { id: string };
@@ -62,7 +63,7 @@ export function useWorkspaceSwitching({
       if (wsActiveId) {
         // Disk snapshot for restart. Drops live ids, keeps cwd/path.
         const saved = serializeTabs(tabs);
-        wsSaveTabs(wsActiveId, saved, savedActiveTabIndex(tabs, activeId));
+        wsSaveTabs(wsActiveId, saved, savedActiveTabIndex(tabs, activeId), tabs.length);
         // Live snapshot for in-session switches. Keeps leaf ids so the
         // existing PTY/xterm sessions stay attached on return.
         liveTabsByWorkspace.current.set(wsActiveId, {

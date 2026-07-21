@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { create } from "zustand";
 
 const STORE_PATH = "tedi-workspaces.json";
@@ -38,6 +39,13 @@ export type SavedTerminalLeaf = {
    * until the workspace is reopened and its terminals go live again.
    */
   title?: string;
+  /**
+   * AI CLI kind that was running in this terminal at snapshot time (only
+   * persisted for reattachable local leaves, i.e. alongside `ptyId`). On
+   * restore it pre-activates the detector so a still-running agent shows its
+   * working/blocking badge immediately after reattach instead of going dark.
+   */
+  activeTool?: AiCliKind;
 };
 
 export type SavedEditorLeaf = {
@@ -66,6 +74,8 @@ export type SavedPaneNode =
       kind: "split";
       dir: "row" | "col";
       children: SavedPaneNode[];
+      /** Per-child size percentages (0..100), so restore keeps divider positions. */
+      sizes?: number[];
     };
 
 export type SavedPaneTab = {
@@ -105,14 +115,27 @@ type State = {
 
 type Actions = {
   hydrate: () => Promise<void>;
+  /** Force a synchronous-as-possible write of the current state to disk.
+   *  Called on window close so a just-closed pane / latest layout is durable
+   *  before the app quits (the per-change save is fire-and-forget). */
+  flush: () => Promise<void>;
   setWorkspaces: (workspaces: Workspace[]) => void;
   setActiveId: (id: string | null) => void;
   /** Create an empty workspace. Caller must save prior tabs and call setActiveId to switch. */
   createWorkspace: (name: string) => Workspace;
   renameWorkspace: (id: string, name: string) => void;
   removeWorkspace: (id: string) => void;
-  /** Replace a workspace's saved tabs. Used before a switch. */
-  saveWorkspaceTabs: (id: string, tabs: SavedTab[], activeTabIndex: number) => void;
+  /** Replace a workspace's saved tabs. Used before a switch. `liveTabCount` is
+   *  the number of LIVE tabs the snapshot came from (before serialization drops
+   *  session-only kinds); it lets the anti-wipe guard tell a legitimate
+   *  all-session-only emptying (liveTabCount > 0) from a transient truly-empty
+   *  state (liveTabCount 0). */
+  saveWorkspaceTabs: (
+    id: string,
+    tabs: SavedTab[],
+    activeTabIndex: number,
+    liveTabCount?: number,
+  ) => void;
   /** Reorder via drag-and-drop: move `activeId` into `overId`'s slot. */
   reorderWorkspaces: (activeId: string, overId: string) => void;
 };
@@ -131,20 +154,32 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     workspaces: [],
     activeId: null,
 
+    flush: () => persist(),
+
     async hydrate() {
       let list: Workspace[] = [];
       let active: string | null = null;
-      try {
-        list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
-        active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
-      } catch {
-        // Corrupt / unreadable store: fall through to seeding a default below.
-        // `hydrated` MUST still flip true - the `tedi .` CLI drain now waits on
-        // it (see useWorkspaceRoot), and other consumers gate on it too, so a
-        // read failure that left it false would strand both, not just lose the
-        // saved workspaces.
-        list = [];
-        active = null;
+      let readFailed = false;
+      // Retry a few times with a short backoff: a read can transiently fail on a
+      // file lock during an auto-update handoff (the old instance hasn't
+      // released the store yet). Letting it clear avoids falling through to a
+      // default that then overwrites recoverable saved workspaces. A genuinely
+      // corrupt/parse failure just exhausts the retries. `hydrated` MUST still
+      // flip true regardless - the `tedi .` CLI drain and other consumers gate
+      // on it, so a read failure that left it false would strand them, not just
+      // lose the saved workspaces.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          list = (await store.get<Workspace[]>(KEY_LIST)) ?? [];
+          active = (await store.get<string | null>(KEY_ACTIVE)) ?? null;
+          readFailed = false;
+          break;
+        } catch {
+          readFailed = true;
+          list = [];
+          active = null;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 150));
+        }
       }
       // Seed a default workspace on first run (or after a read failure).
       if (list.length === 0) {
@@ -155,10 +190,19 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
           activeTabIndex: 0,
         };
         set({ workspaces: [ws], activeId: ws.id, hydrated: true });
-        try {
-          await persist();
-        } catch {
-          // Best-effort persist; the in-memory default is enough to boot.
+        // Only overwrite the on-disk store on a GENUINE first run (the read
+        // succeeded and returned nothing). If the read THREW - a transient file
+        // lock (an in-progress update handoff), a partial write, momentary
+        // corruption - do NOT persist the empty default over it: that would
+        // permanently blank a user's saved workspaces on a single bad read.
+        // Leaving the file untouched lets the next healthy launch recover it;
+        // the first real change re-persists.
+        if (!readFailed) {
+          try {
+            await persist();
+          } catch {
+            // Best-effort persist; the in-memory default is enough to boot.
+          }
         }
         return;
       }
@@ -220,11 +264,25 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       void persist();
     },
 
-    saveWorkspaceTabs(id, tabs, activeTabIndex) {
+    saveWorkspaceTabs(id, tabs, activeTabIndex, liveTabCount) {
+      let changed = false;
       set({
-        workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, tabs, activeTabIndex } : w)),
+        workspaces: get().workspaces.map((w) => {
+          if (w.id !== id) return w;
+          // Anti-wipe safety net: refuse an EMPTY snapshot over a workspace that
+          // already has saved panes ONLY when the LIVE tabs were also empty
+          // (liveTabCount 0) - a transient/error state (an exit cascade, a
+          // mid-restore render, a switch flicker), never a real user action
+          // since closeTab always keeps >=1 tab. When liveTabCount > 0 the
+          // serialize is empty only because every remaining tab is session-only
+          // (ai-diff/scm/ext) - a legitimate "closed all panes", so persist it
+          // (else a deliberately closed pane revives on the next launch).
+          if (tabs.length === 0 && w.tabs.length > 0 && (liveTabCount ?? 0) === 0) return w;
+          changed = true;
+          return { ...w, tabs, activeTabIndex };
+        }),
       });
-      void persist();
+      if (changed) void persist();
     },
 
     reorderWorkspaces(activeId, overId) {

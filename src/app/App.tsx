@@ -54,6 +54,7 @@ import {
   type Tab,
 } from "@/modules/tabs";
 import {
+  acknowledgeAiCli,
   ensureFsDragListener,
   leaves,
   useTerminalFileDrop,
@@ -66,6 +67,7 @@ import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
@@ -125,6 +127,8 @@ export default function App() {
     setBrowserLeafUrl,
     setBrowserLeafTitle,
     setLeafPtyId,
+    setLeafActiveTool,
+    setSplitSizes,
     setEditorLeafDirty,
     setEditorLeafPath,
     focusPane,
@@ -330,6 +334,7 @@ export default function App() {
   const wsCreate = useWorkspacesStore((s) => s.createWorkspace);
   const wsRemove = useWorkspacesStore((s) => s.removeWorkspace);
   const wsSaveTabs = useWorkspacesStore((s) => s.saveWorkspaceTabs);
+  const wsFlush = useWorkspacesStore((s) => s.flush);
 
   useWorkspacePersistence({
     wsHydrate,
@@ -345,6 +350,40 @@ export default function App() {
     replaceAllTabs,
     skipNextSnapshotRef,
   });
+
+  // Durably flush the workspace snapshot before the window closes. The
+  // per-change save is fire-and-forget and can be mid-write when the app quits
+  // or an update relaunches it, which is the "close a pane but it's back on
+  // reopen" symptom. Safety: a re-entrancy guard, a hard timeout race, and an
+  // always-run destroy() in `finally` so a slow/failed flush can never hang the
+  // close - and a second close attempt (guard already set) skips preventDefault
+  // and closes normally. The `.catch` covers the dev-browser shim where the
+  // window has no real close event.
+  useEffect(() => {
+    if (isDevSession) return;
+    let unlisten: (() => void) | undefined;
+    let closing = false;
+    const w = getCurrentWindow();
+    w.onCloseRequested(async (event) => {
+      if (closing) return;
+      closing = true;
+      event.preventDefault();
+      try {
+        await Promise.race([wsFlush(), new Promise((r) => setTimeout(r, 1200))]);
+      } catch {
+        /* flush failed; close anyway */
+      } finally {
+        void w.destroy();
+      }
+    })
+      .then((un) => {
+        unlisten = un;
+      })
+      .catch(() => {
+        /* no real Tauri close event (dev browser shim): nothing to flush on */
+      });
+    return () => unlisten?.();
+  }, [wsFlush, isDevSession]);
 
   const { switchToWorkspace, createNewWorkspace, closeWorkspace } = useWorkspaceSwitching({
     wsActiveId,
@@ -411,6 +450,20 @@ export default function App() {
     hasAnySshLeaf,
   } = useSshLeafState({ activePaneTab, tabs });
 
+  // Besides the live toast/beep + status map that `handleAiCliStatus` drives,
+  // stamp the detected agent kind onto the leaf so the serializer persists it.
+  // On the next launch a still-running (reattached) agent resumes its badge
+  // instead of going dark until the user types a command. Only the tool
+  // identity is written; the frequent working<->idle flips are no-op-guarded
+  // inside `setLeafActiveTool`.
+  const handleAiCliStatusAndPersist: typeof handleAiCliStatus = useCallback(
+    (leafId, status) => {
+      handleAiCliStatus(leafId, status);
+      setLeafActiveTool(leafId, status?.tool ?? null);
+    },
+    [handleAiCliStatus, setLeafActiveTool],
+  );
+
   // Hide the local-OS status badge while the active pane IS a live SSH session:
   // the status bar's cwd breadcrumb shows the REMOTE path, so "Windows" would
   // misrepresent the shell the user is actually in. Keyed off the active leaf's
@@ -418,6 +471,18 @@ export default function App() {
   // you're in a local tab still shows the correct local badge.
   const activeLeafIsSsh =
     activeLeafIdInTab != null && sshStatuses.get(activeLeafIdInTab)?.kind === "connected";
+
+  // The focused terminal's "done" badge decays back to idle: done is an
+  // attention glance for panes you're NOT looking at. `aiCliStatuses` is in the
+  // deps so this also fires when the ACTIVE pane transitions into done while
+  // already focused (a single pane you're watching finish) - not only when you
+  // switch TO a done pane. acknowledgeAiCli is a no-op unless the leaf is done,
+  // so the extra runs are cheap. Typing clears it too (detector pushInput). The
+  // "<tool> finished" toast still fires first (working->done edge in
+  // useSshLeafState), so you don't miss the completion signal.
+  useEffect(() => {
+    if (activeLeafIdInTab != null) acknowledgeAiCli(activeLeafIdInTab);
+  }, [activeLeafIdInTab, aiCliStatuses]);
 
   // Mutual exclusion for the shared right slot. Declared here (not up with the
   // other store reads) because it needs hasAnySshLeaf from useSshLeafState.
@@ -910,7 +975,7 @@ export default function App() {
                 onSearchReady={handleSearchReady}
                 onDetectedLocalUrl={handleDetectedLocalUrl}
                 onSshStatus={handleSshStatus}
-                onAiCliStatus={handleAiCliStatus}
+                onAiCliStatus={handleAiCliStatusAndPersist}
                 sshStatuses={sshStatuses}
                 aiCliStatuses={aiCliStatuses}
                 mdPreviewLeafIds={mdPreviewLeafIds}
@@ -925,6 +990,7 @@ export default function App() {
                 moveExtTabToPane={moveExtTabToPane}
                 openGitDiffTab={openGitDiffTab}
                 setLeafTerminalTheme={setLeafTerminalTheme}
+                onSplitSizes={setSplitSizes}
               />
               <AppRightSlot
                 rightPanelActive={rightPanelActive}

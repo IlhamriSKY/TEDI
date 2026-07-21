@@ -25,6 +25,7 @@ import {
   registerTediSpawnTabHandler,
 } from "./osc-handlers";
 import { createAiCliDetector } from "./aiCliDetector";
+import type { AiCliKind } from "./aiCliStatus";
 import { sessions, type Callbacks, type Session } from "./sessionState";
 import { useTerminalTitles } from "./terminalTitles";
 import { useAiCliStatuses } from "./aiCliStatusStore";
@@ -153,6 +154,7 @@ export function ensureSession(
   sshConnectionId?: string,
   savedPtyId?: string,
   terminalThemeId?: string,
+  savedActiveTool?: AiCliKind,
 ): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -301,6 +303,8 @@ export function ensureSession(
         return "";
       }
     },
+    // Restore path: resume classifying a still-running agent after reattach.
+    initialTool: savedActiveTool,
   });
   session.aiCliDetector = detector;
   session.cleanups.push(() => detector.dispose());
@@ -427,6 +431,15 @@ export function ensureSession(
   })();
 
   return session;
+}
+
+/**
+ * Mark a terminal's finished ("done") AI-CLI badge as attended-to (the user
+ * focused it), so the held "done" decays back to idle. No-op when the leaf has
+ * no session or no active agent.
+ */
+export function acknowledgeAiCli(leafId: number): void {
+  sessions.get(leafId)?.aiCliDetector?.acknowledge();
 }
 
 /** Write raw bytes to a leaf's PTY without React state. Returns false if no live PTY. */

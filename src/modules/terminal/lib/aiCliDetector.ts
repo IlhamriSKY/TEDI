@@ -26,8 +26,15 @@ const WORKING_HOLD_MS = 2_500;
  */
 const SUBMIT_OPTIMISTIC_EXTRA_MS = 5_000;
 
-/** Hold `blocking` this long after the last approval marker. Cleared by any fresh working hit. */
-const BLOCKING_HOLD_MS = 60_000;
+/**
+ * Hold `blocking` this long after the last approval marker. Cleared by any fresh
+ * working hit. A REAL approval prompt stays on screen and re-refreshes this every
+ * reclassify tick, so the hold only has to bridge a momentary detection gap (a
+ * redraw) - it does NOT need to outlast a long wait. Kept short so a one-off
+ * false-positive substring match (Claude prose containing "[y/n]", "continue?",
+ * etc.) clears in seconds instead of freezing the badge red for a minute.
+ */
+const BLOCKING_HOLD_MS = 20_000;
 
 /**
  * Crash-safety window for the OSC 9;4 progress busy signal. The protocol has no
@@ -41,6 +48,17 @@ const BLOCKING_HOLD_MS = 60_000;
  * ~15s staleness timeout, but combined with output-freshness instead of replacing it.
  */
 const PROGRESS_STALE_MS = 20_000;
+
+/**
+ * How long to keep trusting a tool's own "busy" flag (OSC 9;4 state 1/3) as
+ * *working* after its last progress update, even with no on-screen output, so a
+ * long QUIET stretch inside one turn (a Claude subagent that goes silent for a
+ * while) never expires the working hold and fires a premature "done". Far longer
+ * than PROGRESS_STALE_MS because the tool's own clear (state 0) or the shell
+ * prompt (clearTool) is the real turn-end signal; this is only the backstop for
+ * a missed clear, so it stays generous but bounded.
+ */
+const PROGRESS_BUSY_TRUST_MS = 60_000;
 
 /**
  * Streaming-rate fallback for tools without spinner activity (e.g. opencode).
@@ -80,24 +98,54 @@ function stripAnsi(s: string): string {
  * Tool activation patterns. Matched against the typed command before it
  * reaches the shell, so they work identically on every platform.
  */
+// Trailing `(?![\w.-])` (NOT `\b`): `\b` counts a trailing `-`/`.` as a word
+// boundary, so after `normalizeCommandForMatch` basenames the first token,
+// `claude-monitor` / `codex-wrapper.sh` / `goose-linux-amd64` / `claude.ts`
+// would falsely match `claude`/`codex`/`goose`. The negative lookahead rejects
+// a following letter, digit, `_`, `-`, or `.`, so only the exact tool name (or an explicit
+// `-code`/`-cli` variant listed below) activates.
 const TOOL_PATTERNS: { tool: AiCliKind; commands: RegExp }[] = [
-  { tool: "claude", commands: /^\s*(claude(?:-code)?)\b/ },
-  { tool: "codex", commands: /^\s*codex\b/ },
-  { tool: "opencode", commands: /^\s*opencode\b/ },
-  { tool: "copilot", commands: /^\s*(gh\s+copilot|copilot)\b/ },
-  { tool: "pi", commands: /^\s*pi\b/ },
-  { tool: "aider", commands: /^\s*aider\b/ },
-  { tool: "gemini", commands: /^\s*(gemini|gemini-cli)\b/ },
-  { tool: "amazon-q", commands: /^\s*(q\s+chat|q\s+code|amazon-q)\b/ },
-  { tool: "cody", commands: /^\s*cody\b/ },
-  { tool: "goose", commands: /^\s*goose\b/ },
-  { tool: "cursor", commands: /^\s*cursor-agent\b/ },
-  { tool: "ollama", commands: /^\s*ollama\s+run\b/ },
+  { tool: "claude", commands: /^\s*claude(?:-code)?(?![\w.-])/ },
+  { tool: "codex", commands: /^\s*codex(?![\w.-])/ },
+  { tool: "opencode", commands: /^\s*opencode(?![\w.-])/ },
+  { tool: "copilot", commands: /^\s*(?:gh\s+copilot|copilot)(?![\w.-])/ },
+  { tool: "pi", commands: /^\s*pi(?![\w.-])/ },
+  { tool: "aider", commands: /^\s*aider(?![\w.-])/ },
+  { tool: "gemini", commands: /^\s*(?:gemini-cli|gemini)(?![\w.-])/ },
+  { tool: "amazon-q", commands: /^\s*(?:q\s+chat|q\s+code|amazon-q)(?![\w.-])/ },
+  { tool: "cody", commands: /^\s*cody(?![\w.-])/ },
+  { tool: "goose", commands: /^\s*goose(?![\w.-])/ },
+  { tool: "cursor", commands: /^\s*cursor-agent(?![\w.-])/ },
+  { tool: "ollama", commands: /^\s*ollama\s+run(?![\w.-])/ },
 ];
 
+/**
+ * Normalize a typed command so a tool still activates when launched indirectly:
+ * strip a leading package runner (`npx claude`, `bunx opencode`, `pnpm dlx …`)
+ * and reduce an absolute/relative path in the first token to its basename
+ * (`/usr/local/bin/claude` -> `claude`, `@anthropic-ai/claude-code` ->
+ * `claude-code`). Widens activation coverage for indirect launches without
+ * touching the per-tool patterns.
+ */
+function normalizeCommandForMatch(line: string): string {
+  let s = line.replace(/^\s+/, "");
+  s = s.replace(
+    /^(?:sudo\s+)?(?:npx|bunx|pnpm\s+dlx|pnpm\s+exec|yarn\s+dlx|yarn\s+exec|npm\s+exec|deno\s+run)\s+(?:-{1,2}\S+\s+)*/i,
+    "",
+  );
+  const m = s.match(/^(\S+)([\s\S]*)$/);
+  if (m) {
+    const first = m[1];
+    const slash = Math.max(first.lastIndexOf("/"), first.lastIndexOf("\\"));
+    if (slash >= 0) s = first.slice(slash + 1) + m[2];
+  }
+  return s;
+}
+
 function matchTool(line: string): AiCliKind | null {
+  const norm = normalizeCommandForMatch(line);
   for (const t of TOOL_PATTERNS) {
-    if (t.commands.test(line)) return t.tool;
+    if (t.commands.test(norm)) return t.tool;
   }
   return null;
 }
@@ -490,6 +538,14 @@ export type AiCliDetectorOptions = {
   isAltScreen: () => boolean;
   /** Current cursor line content. Most reliable signal for "where the user is now". */
   readCursorLine: () => string;
+  /**
+   * Tool to pre-activate at creation, bypassing the type-a-command gate. Set
+   * on workspace restore so a still-running agent (reattached PTY) resumes
+   * being classified immediately instead of staying dark until the user runs a
+   * new command. Self-correcting: the first reclassify tick clears it if the
+   * cursor is at a shell prompt (the agent had already exited).
+   */
+  initialTool?: AiCliKind;
 };
 
 export type AiCliDetector = {
@@ -510,6 +566,11 @@ export type AiCliDetector = {
   pushProgress: (state: number, progress: number | null) => void;
   /** Drop the active tool. */
   reset: () => void;
+  /**
+   * Mark a finished ("done") terminal as attended-to (the user focused it),
+   * decaying the held "done" back to idle. Also called internally on typing.
+   */
+  acknowledge: () => void;
   /**
    * Wired to OSC 133;A. A new shell prompt while a tool is active means
    * the CLI exited. Covers tools that don't use the alt screen.
@@ -537,6 +598,15 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
   let hasSeenWorking = false;
   let userSubmittedAtLeastOnce = false;
   let pendingPrintable = false;
+  // "done" state machine. `turnInProgress` = a genuine turn is running (a real
+  // submit or a working signal), so a mere startup settle never counts. On the
+  // working->quiet edge it flips to a held `pendingDone` (finished, awaiting
+  // attention) until the user attends (`doneAcknowledged` via focus/typing),
+  // then it decays to idle. A fresh turn clears the ack so the next finish
+  // shows done again.
+  let turnInProgress = false;
+  let pendingDone = false;
+  let doneAcknowledged = false;
   /** Latest OSC 0/2 title carries a leading spinner glyph (see TITLE_GLYPH_TOOLS). */
   let lastTitleIsWorking = false;
   /** Latest title carries a distinct "action required" glyph (see TITLE_APPROVAL_TOOLS). */
@@ -606,6 +676,9 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     hasSeenWorking = false;
     userSubmittedAtLeastOnce = false;
     pendingPrintable = false;
+    turnInProgress = false;
+    pendingDone = false;
+    doneAcknowledged = false;
     lastTitleIsWorking = false;
     lastTitleIsApproval = false;
     progressWorking = false;
@@ -648,6 +721,19 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     resetRuntime();
     emit("idle");
     scheduleReclassify();
+  }
+
+  /**
+   * The user has attended to a finished ("done") terminal (focused it or typed
+   * in it). Clear the held done so it decays to idle now, and remember the ack
+   * so reclassify doesn't immediately re-raise it. A new turn resets the ack.
+   */
+  function acknowledgeDone() {
+    if (!activeTool) return;
+    if (!pendingDone && lastEmittedState !== "done") return;
+    pendingDone = false;
+    doneAcknowledged = true;
+    emit("idle");
   }
 
   function pruneOutputSamples(now: number) {
@@ -769,6 +855,26 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         }
       }
 
+      // Veto blocking when the tool is clearly mid-generation: an "esc to
+      // interrupt" / "ctrl+c to interrupt" / Gemini "esc to cancel" hint offers
+      // to stop the RUNNING generation, which is mutually exclusive with waiting
+      // on the user for approval. Without this, a false-positive blocked
+      // substring in the streaming output (or a leftover prompt above) paints an
+      // actively-working turn red. The Gemini "✋ Action Required" title
+      // (lastTitleIsApproval) is a real wait and never shows an interrupt hint,
+      // so it is not affected.
+      if (blockingHit) {
+        const genAbove = contentAbovePromptBox(content);
+        const genLower = genAbove.toLowerCase();
+        if (
+          genLower.includes("esc to interrupt") ||
+          genLower.includes("ctrl+c to interrupt") ||
+          GEMINI_WORKING_RE.test(genAbove)
+        ) {
+          blockingHit = false;
+        }
+      }
+
       // An in-progress "N/M agents" line outranks an explicit-idle hint: if a
       // background workflow is genuinely still running, a stray search box or
       // toggle hint elsewhere on screen must not flip the badge to idle.
@@ -780,14 +886,45 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         if (workingHit || rateHit || bgAgentsHit || titleHit || progressHit) {
           lastWorkingAt = now;
           hasSeenWorking = true;
+          // Any live working signal means a genuine turn is running, so its end
+          // will raise "done". (A mere startup settle produces no such signal.)
+          turnInProgress = true;
           if (!blockingHit) lastBlockingAt = 0;
         }
         if (blockingHit && hasSeenWorking) lastBlockingAt = now;
       }
 
-      if (now - lastBlockingAt < BLOCKING_HOLD_MS) emit("blocking");
-      else if (now - lastWorkingAt < WORKING_HOLD_MS) emit("working");
-      else emit("idle");
+      // The tool still reports busy (OSC 9;4) → trust it as WORKING past the
+      // working hold, even through a long quiet stretch, so "done" never fires
+      // mid-turn. Its own clear (progressWorking → false) or a shell prompt
+      // (clearTool, handled above) is the real turn-end. Bounded by
+      // PROGRESS_BUSY_TRUST_MS as a backstop for a missed clear.
+      const busyTrusted =
+        progressWorking && (hasFreshOutput() || now - lastProgressAt < PROGRESS_BUSY_TRUST_MS);
+
+      if (now - lastBlockingAt < BLOCKING_HOLD_MS) {
+        // A fresh approval wait supersedes any pending "done".
+        pendingDone = false;
+        emit("blocking");
+      } else if (now - lastWorkingAt < WORKING_HOLD_MS || busyTrusted) {
+        // Within the working hold, OR the tool itself still reports busy.
+        // On the edge into working, clear a prior ack so the next finish shows
+        // "done" again.
+        if (lastEmittedState !== "working") {
+          pendingDone = false;
+          doneAcknowledged = false;
+        }
+        emit("working");
+      } else {
+        // Neither working nor blocking: if a real turn just ended, hold "done"
+        // until the user attends; otherwise idle.
+        if (lastEmittedState === "working" && turnInProgress) {
+          pendingDone = true;
+          turnInProgress = false;
+        }
+        if (pendingDone && !doneAcknowledged) emit("done");
+        else emit("idle");
+      }
     } catch {
       // Swallow parse errors. Stay in current state.
     }
@@ -803,7 +940,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     }, RECLASSIFY_INTERVAL_MS);
   }
 
-  return {
+  const detector = {
     pushInput(chunk: string) {
       // Any PTY input timestamps lastUserInputAt so pushOutput can skip echo bytes.
       if (activeTool) lastUserInputAt = Date.now();
@@ -843,6 +980,8 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
               if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
               lastWorkingAt = Date.now() + SUBMIT_OPTIMISTIC_EXTRA_MS;
               hasSeenWorking = true;
+              // A real submit starts a genuine turn, so its end raises "done".
+              turnInProgress = true;
               // Drop the recent-output buffer so a just-answered prompt
               // doesn't refire blocking while the AI responds.
               recentOutput = [];
@@ -853,6 +992,8 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
             }
             pendingPrintable = false;
           } else if (code >= 0x20 && code !== 0x7f) {
+            // Typing into a finished terminal = attending to it: clear "done".
+            acknowledgeDone();
             pendingPrintable = true;
           }
         }
@@ -894,6 +1035,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         // straight into work). reclassify() re-confirms via the gated titleHit.
         if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
         hasSeenWorking = true;
+        turnInProgress = true;
         lastWorkingAt = Date.now();
       } else if (lastTitleIsApproval) {
         // An approval wait is a real turn boundary too; satisfy the blocking
@@ -914,12 +1056,16 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         // (e.g. `claude -c` resumes straight into work).
         if (!userSubmittedAtLeastOnce) userSubmittedAtLeastOnce = true;
         hasSeenWorking = true;
+        turnInProgress = true;
         lastWorkingAt = Date.now();
       }
     },
     reset() {
       cmdBuffer = "";
       if (activeTool) clearTool();
+    },
+    acknowledge() {
+      acknowledgeDone();
     },
     notifyShellPrompt() {
       // New shell prompt while a tool is active means the CLI exited.
@@ -933,5 +1079,21 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         reclassifyTimer = null;
       }
     },
-  };
+  } satisfies AiCliDetector;
+
+  // Restore path: resume classifying a reattached, still-running agent. Emits
+  // `idle` for now and lets the normal signals (OSC 9;4 / title / viewport /
+  // streaming-rate) upgrade it to working/blocking; a shell-prompt tick clears
+  // a stale one. `userSubmittedAtLeastOnce` is forced so the viewport + rate
+  // branches (gated on it) can run WITHOUT a keystroke this session - otherwise
+  // a resumed streaming-only agent (no OSC 9;4 / title glyph: aider, opencode,
+  // cody, goose, cursor) would sit at "idle" until the user typed. reclassify's
+  // cursorAtShell / alt-exit checks run BEFORE that gate, so a dead reattach
+  // (fresh shell prompt) still clears to idle instead of false-flagging.
+  if (opts.initialTool) {
+    activateTool(opts.initialTool);
+    userSubmittedAtLeastOnce = true;
+  }
+
+  return detector;
 }

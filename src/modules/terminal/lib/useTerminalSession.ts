@@ -7,7 +7,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { type TediOpenInput, type TediSpawnTabInput } from "./osc-handlers";
 import type { SshStatus } from "@/modules/ssh/status";
 import { cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
-import type { AiCliStatus } from "./aiCliStatus";
+import type { AiCliKind, AiCliStatus } from "./aiCliStatus";
 import { sessions, type Callbacks, type Session } from "./sessionState";
 import { STUCK_RECOVERY_MS, effectiveTerminalFontSize, describeError } from "./session-helpers";
 import { respawnSession, retryPty, syncPtySize, writePtyError } from "./pty-lifecycle";
@@ -17,7 +17,7 @@ import { ensureSession, attachSession, detachSession, canFit } from "./session-l
 
 export type { TediOpenInput, TediSpawnTabInput };
 export { disconnectSsh, reconnectSsh, respawnSession };
-export { writeToLeaf, findLeafIdFromPoint, disposeSession } from "./session-lifecycle";
+export { writeToLeaf, findLeafIdFromPoint, disposeSession, acknowledgeAiCli } from "./session-lifecycle";
 
 /**
  * A font-size or font-family change invalidates the WebGL glyph atlas (glyphs
@@ -51,6 +51,12 @@ type Options = {
    */
   savedPtyId?: string;
   /**
+   * AI CLI kind that was running when this workspace was last saved. On a
+   * restore/reattach it pre-activates the detector so a still-running agent's
+   * status badge resumes immediately. Consumed once at session creation.
+   */
+  savedActiveTool?: AiCliKind;
+  /**
    * Per-leaf terminal theme override id (a `TERMINAL_PRESETS` id). When set,
    * this pane paints its own palette instead of the global terminal theme.
    * Undefined follows the global theme.
@@ -82,6 +88,7 @@ export function useTerminalSession({
   initialCwd,
   sshConnectionId,
   savedPtyId,
+  savedActiveTool,
   terminalThemeId,
   onSearchReady,
   onExit,
@@ -121,7 +128,14 @@ export function useTerminalSession({
     let rafId: number | null = null;
     let attachIntervalId: ReturnType<typeof setInterval> | null = null;
     let stuckTimer: ReturnType<typeof setTimeout> | null = null;
-    const s = ensureSession(leafId, initialCwd, sshConnectionId, savedPtyId, terminalThemeId);
+    const s = ensureSession(
+      leafId,
+      initialCwd,
+      sshConnectionId,
+      savedPtyId,
+      terminalThemeId,
+      savedActiveTool,
+    );
     // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;

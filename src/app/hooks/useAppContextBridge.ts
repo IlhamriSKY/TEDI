@@ -43,9 +43,6 @@ export function useAppContextBridge({
   sshStatuses,
   liveTabsByWorkspace,
 }: Params): void {
-  // Snapshot of "what the user is doing now", pushed to extensions via
-  // `setAppContext`. Extensions subscribe via `tedi.app.onContextChange`.
-  // Core code stays free of integration-specific hooks.
   const activeFileName = useMemo(() => {
     if (!activePaneTab) return null;
     const leaf = activeLeaf(activePaneTab);
@@ -110,10 +107,13 @@ export function useAppContextBridge({
           }
           if (!key || seen.has(key)) continue;
           seen.add(key);
+          // "done" is a UI-only attention state; extensions see the stable
+          // idle/working/blocking triple, so collapse it to idle here.
+          const aiState = aiStatuses[l.id]?.state;
           out.push({
             ptyId: key,
             ordinal: l.terminalOrdinal,
-            state: aiStatuses[l.id]?.state,
+            state: aiState === "done" ? "idle" : aiState,
             title: titles[l.id],
             wsId,
             wsName,

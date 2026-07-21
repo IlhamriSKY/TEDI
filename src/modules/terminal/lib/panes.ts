@@ -3,6 +3,7 @@
 // `leafKind`.
 
 import type { ExtensionTabState } from "@/modules/tabs/lib/tabTypes";
+import type { AiCliKind } from "./aiCliStatus";
 
 export type PaneId = number;
 
@@ -55,6 +56,17 @@ export type TerminalLeafState = {
    * the workspace serializer so it survives restart.
    */
   terminalThemeId?: string;
+  /**
+   * AI CLI kind detected running in this terminal (claude, codex, …), or
+   * undefined when no agent is active. Written live by the detector's status
+   * callback and persisted alongside `ptyId` so that after a reattach the
+   * detector can resume classifying a still-running agent instead of going
+   * dark until the user types a new command. Consumed once on restore to
+   * pre-activate the detector; it self-corrects (clears on the first shell
+   * prompt) if the agent had already exited. SSH leaves never persist it (a
+   * remote reconnect is a fresh shell, not a reattach).
+   */
+  activeTool?: AiCliKind;
 };
 
 export type EditorLeafState = {
@@ -130,6 +142,14 @@ export type PaneNode =
       id: PaneId;
       dir: SplitDir;
       children: PaneNode[];
+      /**
+       * Per-child size percentages (0..100, one per child, in order). Captured
+       * from react-resizable-panels' `onLayoutChanged` when the user drags a
+       * divider and persisted by the workspace serializer so a restored layout
+       * keeps its divider positions instead of resetting to an equal split.
+       * Undefined (or a stale length after a split/close) means "equal split".
+       */
+      sizes?: number[];
     };
 
 export function isLeaf(n: PaneNode): n is PaneLeaf {
@@ -199,6 +219,52 @@ export function setLeafPtyId(n: PaneNode, id: PaneId, ptyId: string): PaneNode {
     return updated;
   }
   return { ...n, children: n.children.map((c) => setLeafPtyId(c, id, ptyId)) };
+}
+
+/**
+ * Set or clear a terminal leaf's detected AI CLI kind. Pass `null` to clear it
+ * (no agent active). Returns the same tree by reference on no-op so callers can
+ * bail before churning React state. No-op for non-terminal leaves or mismatched
+ * ids.
+ */
+export function setLeafActiveTool(n: PaneNode, id: PaneId, tool: AiCliKind | null): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id || n.leafKind !== "terminal") return n;
+    if ((n.activeTool ?? null) === tool) return n;
+    if (tool) return { ...n, activeTool: tool };
+    const { activeTool: _drop, ...rest } = n;
+    return rest as PaneLeaf;
+  }
+  return { ...n, children: n.children.map((c) => setLeafActiveTool(c, id, tool)) };
+}
+
+/**
+ * Store per-child size percentages on the split node identified by `splitId`.
+ * `sizes` must have one entry per child, in child order. Returns the same tree
+ * by reference when the sizes are unchanged (rounded compare) so a layout event
+ * that merely re-reports the current sizes doesn't churn React state or the
+ * on-disk snapshot. No-op when the length doesn't match the split's children.
+ */
+export function setSplitSizes(n: PaneNode, splitId: PaneId, sizes: number[]): PaneNode {
+  if (isLeaf(n)) return n;
+  if (n.id === splitId) {
+    if (sizes.length !== n.children.length) return n;
+    const same =
+      n.sizes?.length === sizes.length &&
+      n.sizes.every((v, i) => Math.round(v) === Math.round(sizes[i]));
+    if (same) return n;
+    return { ...n, sizes };
+  }
+  // Return the same node reference when no descendant changed, so a caller
+  // walking every tab's tree can skip the ones that don't hold this split.
+  let changed = false;
+  const children = n.children.map((c) => {
+    const r = setSplitSizes(c, splitId, sizes);
+    if (r !== c) changed = true;
+    return r;
+  });
+  if (!changed) return n;
+  return { ...n, children };
 }
 
 /**
@@ -315,6 +381,9 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
       ...(leaf.terminalThemeId ? { terminalThemeId: leaf.terminalThemeId } : {}),
+      // Carry the live agent kind so a move/extract doesn't drop the badge
+      // until the detector re-emits; the same session keeps running.
+      ...(leaf.activeTool ? { activeTool: leaf.activeTool } : {}),
     };
   }
   if (leaf.leafKind === "editor") {
@@ -369,6 +438,9 @@ export function splitLeaf(
       return {
         ...tree,
         children: [...tree.children.slice(0, idx + 1), newLeaf, ...tree.children.slice(idx + 1)],
+        // Adding a child invalidates the stored divider ratios (positional,
+        // one-per-child); the next drag re-captures them.
+        sizes: undefined,
       };
     }
   }
@@ -403,7 +475,13 @@ export function removeLeaf(tree: PaneNode, targetId: PaneId): PaneNode | null {
   }
   if (newChildren.length === 0) return null;
   if (newChildren.length === 1) return newChildren[0];
-  return { ...tree, children: newChildren };
+  return {
+    ...tree,
+    children: newChildren,
+    // A removed DIRECT child drops a slot, so this split's positional ratios no
+    // longer line up; a deeper removal (count unchanged) leaves them valid.
+    ...(newChildren.length === tree.children.length ? {} : { sizes: undefined }),
+  };
 }
 
 export function nextLeafId(tree: PaneNode, currentId: PaneId, delta: 1 | -1): PaneId {
@@ -462,7 +540,8 @@ export function rotateLeafWithNeighbor(
     newChildren.splice(lo, 2, pair);
     // One-child wrapper after a 2-leaf collapse. Unwrap to keep the tree canonical.
     if (newChildren.length === 1) return newChildren[0];
-    return { ...tree, children: newChildren };
+    // Two children were replaced by one wrapper -> the ratio set changed.
+    return { ...tree, children: newChildren, sizes: undefined };
   }
   // Leaf is deeper. Recurse and rebuild only on the matching path.
   let changed = false;
@@ -506,6 +585,9 @@ export function reorderLeafInTree(
     return {
       ...tree,
       children: [...without.slice(0, targetIdx), moving, ...without.slice(targetIdx)],
+      // Reordering keeps the count but changes the order, so the positional
+      // ratios would land on the wrong panes -> drop them.
+      sizes: undefined,
     };
   }
   let changed = false;
@@ -553,6 +635,8 @@ function insertLeafBeside(
       return {
         ...tree,
         children: [...tree.children.slice(0, insertAt), source, ...tree.children.slice(insertAt)],
+        // Inserting a sibling adds a slot -> stored ratios no longer align.
+        sizes: undefined,
       };
     }
     const wrapped: PaneNode = {
@@ -618,5 +702,11 @@ export function normalizePaneTree(node: PaneNode): PaneNode {
     }
   }
   if (flattened.length === 1) return flattened[0];
-  return { ...node, children: flattened };
+  return {
+    ...node,
+    children: flattened,
+    // A flatten (a nested same-dir split expanded) changes the direct-child
+    // count, so positional ratios are stale; a same-count normalize keeps them.
+    ...(flattened.length === node.children.length ? {} : { sizes: undefined }),
+  };
 }

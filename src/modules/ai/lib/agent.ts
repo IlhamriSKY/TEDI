@@ -238,7 +238,7 @@ export async function buildLanguageModel(
         // SumoPod uses the native fetch (it sends CORS headers, so the Rust
         // proxy's idle guard never runs). Wrap it so a wedged mid-stream request
         // aborts with a retryable error instead of hanging the turn forever -
-        // the single most common "berhenti di tengah" on this gateway.
+        // the single most common mid-stream stall on this gateway.
         fetch: withStreamIdleTimeout(globalThis.fetch),
         // Surface streaming usage so the context/cache-hit indicator reflects
         // real spend on SumoPod (without this the endpoint isn't asked for usage

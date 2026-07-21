@@ -126,6 +126,8 @@ type Props = {
   /** Set (or clear, with `null`) a terminal leaf's per-pane theme override.
    *  `themeId` is a `TERMINAL_PRESETS` id. Backs the header "Terminal theme" menu. */
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
+  /** Persist a split node's per-child size percentages after a divider drag. */
+  onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
   sshHosts?: Map<string, SshConnection>;
   /** Live SSH status per terminal leaf id. Colors the SSH header label. */
@@ -283,6 +285,7 @@ const LeafBody = memo(function LeafBody({
             initialCwd={node.cwd}
             sshConnectionId={node.sshConnectionId}
             savedPtyId={node.savedPtyId}
+            savedActiveTool={node.activeTool}
             terminalThemeId={node.terminalThemeId}
             ref={b.setTerminalRef}
             onSearchReady={(_id, addon) => b.onSearchReady(addon)}
@@ -680,6 +683,7 @@ type NodesProps = {
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
   mdPreviewLeafIds: ReadonlySet<number>;
+  onSplitSizes?: (splitId: number, sizes: number[]) => void;
 };
 
 const PaneNodes = memo(function PaneNodes({
@@ -689,6 +693,7 @@ const PaneNodes = memo(function PaneNodes({
   onFocusLeaf,
   getBundle,
   mdPreviewLeafIds,
+  onSplitSizes,
 }: NodesProps) {
   if (node.kind === "leaf") {
     return (
@@ -703,15 +708,38 @@ const PaneNodes = memo(function PaneNodes({
     );
   }
 
+  // Restore saved divider positions only when the stored ratios still line up
+  // with the current children (a split/close leaves a stale-length array);
+  // otherwise fall back to an equal split.
+  const savedSizes =
+    node.sizes && node.sizes.length === node.children.length ? node.sizes : null;
+
   return (
     <ResizablePanelGroup
       orientation={node.dir === "row" ? "horizontal" : "vertical"}
       className="gap-1.5"
+      // `onLayoutChanged` fires once the layout settles (no debounce needed);
+      // `isUserInteraction` isolates a genuine drag/keyboard resize from mount,
+      // container-resize, and programmatic layouts so only real user intent is
+      // persisted. `layout` is keyed by panel id -> percentage; map it back to
+      // child order for the tree.
+      onLayoutChanged={(layout, meta) => {
+        if (!meta.isUserInteraction || !onSplitSizes) return;
+        const sizes = node.children.map((c) => layout[`pane-${c.id}`]);
+        if (sizes.some((s) => typeof s !== "number")) return;
+        onSplitSizes(node.id, sizes);
+      }}
     >
       {node.children.map((child, i) => (
         <Fragment key={child.id}>
           {i > 0 && <ResizableHandle withHandle />}
-          <ResizablePanel id={`pane-${child.id}`} minSize="10%">
+          {/* Numeric sizes would be read as pixels; a "%"-string keeps them
+              as percentages of the group. */}
+          <ResizablePanel
+            id={`pane-${child.id}`}
+            minSize="10%"
+            defaultSize={savedSizes ? `${savedSizes[i]}%` : undefined}
+          >
             <PaneNodes
               node={child}
               tabVisible={tabVisible}
@@ -719,6 +747,7 @@ const PaneNodes = memo(function PaneNodes({
               onFocusLeaf={onFocusLeaf}
               getBundle={getBundle}
               mdPreviewLeafIds={mdPreviewLeafIds}
+              onSplitSizes={onSplitSizes}
             />
           </ResizablePanel>
         </Fragment>
@@ -739,6 +768,7 @@ export function PaneTreeView({
   extTabs,
   onSplitWithExtTab,
   onSetTerminalTheme,
+  onSplitSizes,
   sshHosts,
   sshStatuses,
   aiCliStatuses,
@@ -844,6 +874,7 @@ export function PaneTreeView({
             onFocusLeaf={onFocusLeaf}
             getBundle={getBundle}
             mdPreviewLeafIds={mdPreviewLeafIds}
+            onSplitSizes={onSplitSizes}
           />
         </PaneDndContext.Provider>
       </PaneMetaContext.Provider>
