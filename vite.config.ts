@@ -31,6 +31,20 @@ export default defineConfig(async ({ mode }) => ({
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return;
 
+          // clsx / tailwind-merge / cva are tiny class-name utils that `cn` and
+          // every shadcn UI primitive use, so they're imported by nearly all of
+          // the eager chrome. Pin them to their own chunk: streamdown ALSO
+          // depends on clsx + tailwind-merge, so without this rule rolldown
+          // folded them into the large (lazy) streamdown chunk - and the eager
+          // UI's clsx import then dragged the whole ~479KB streamdown chunk onto
+          // first paint. Their own tiny eager chunk keeps streamdown lazy.
+          if (
+            id.includes("/clsx/") ||
+            id.includes("/tailwind-merge/") ||
+            id.includes("/class-variance-authority/")
+          )
+            return "ui-utils";
+
           // Each AI provider SDK in its own chunk so unused providers
           // don't bloat the initial load (lazy-imported in agent.ts).
           if (id.includes("@ai-sdk/anthropic")) return "ai-anthropic";
@@ -56,7 +70,13 @@ export default defineConfig(async ({ mode }) => ({
             id.includes("@replit/codemirror")
           )
             return "codemirror";
-          if (id.includes("/streamdown/") || id.includes("@streamdown/")) return "streamdown";
+          // streamdown is deliberately NOT a manual chunk. It is used only by
+          // lazy surfaces (the AI chat renderer, the editor markdown preview),
+          // so letting rolldown auto-split it keeps the ~479KB library in a
+          // lazy chunk. Pinning it to a named chunk pulled the injected runtime
+          // helpers (_defineProperty / __vitePreload) and its bundled clsx +
+          // tailwind-merge into that named chunk, which every eager chunk then
+          // imported - dragging the whole library onto first paint.
           if (id.includes("/motion/") || id.includes("framer-motion")) return "motion";
           if (id.includes("/react-dom/") || id.includes("/react/") || id.includes("/scheduler/"))
             return "react";

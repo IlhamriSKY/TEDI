@@ -1,7 +1,9 @@
 import {
   createContext,
   Fragment,
+  lazy,
   memo,
+  Suspense,
   use,
   useCallback,
   useMemo,
@@ -43,7 +45,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
 import { cn } from "@/lib/utils";
-import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
+import { type EditorPaneHandle } from "@/modules/editor";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { BrowserPane, setPaneDragActive } from "@/modules/browser";
 import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
@@ -61,6 +63,15 @@ import { closeFloat, floatPane } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
 import { GripVertical, Settings, SquareArrowOutUpRight, X } from "lucide-react";
+
+// Lazy so the ~1.5MB editor stack (CodeMirror + streamdown + markdown + katex)
+// is only fetched+parsed when an editor leaf actually renders, not on every
+// launch. PaneTreeView is on the boot render tree but the default/most common
+// tab is a terminal, so this keeps the editor bundle off first paint. The
+// separate float.html entry (FloatApp) still imports EditorPane directly.
+const EditorPane = lazy(() =>
+  import("@/modules/editor").then((m) => ({ default: m.EditorPane })),
+);
 
 /** Leaf kinds that can be floated into their own window. Terminals mirror live
  *  over Tauri events (the primary "watch an agent while working" case); an SSH
@@ -327,15 +338,19 @@ const LeafBody = memo(function LeafBody({
   if (isFloating) return null;
   return (
     <ErrorBoundary label="editor pane" resetKeys={[node.id, node.path]}>
-      <EditorPane
-        ref={setEditorRef}
-        path={node.path}
-        onDirtyChange={b.onDirtyChange}
-        onClose={b.onCloseLeaf}
-        mdPreview={mdPreview}
-        sshSessionId={node.sshSessionId}
-        aiDisabled={node.private === true}
-      />
+      {/* fallback={null}: the editor chunk loads on first editor render; the
+          brief gap is unnoticeable and only on the first editor of a session. */}
+      <Suspense fallback={null}>
+        <EditorPane
+          ref={setEditorRef}
+          path={node.path}
+          onDirtyChange={b.onDirtyChange}
+          onClose={b.onCloseLeaf}
+          mdPreview={mdPreview}
+          sshSessionId={node.sshSessionId}
+          aiDisabled={node.private === true}
+        />
+      </Suspense>
     </ErrorBoundary>
   );
 });

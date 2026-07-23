@@ -236,23 +236,31 @@ export async function deactivate(id: string): Promise<void> {
  *  failures are logged, not thrown. */
 export async function bootAll(): Promise<InstalledExtension[]> {
   const installed = await listInstalled();
-  // sequential activation: extensions may register contributions others depend on
-  for (const ext of installed) {
-    if (!ext.enabled) continue;
-    try {
-      await activate(ext);
-    } catch (err) {
-      console.error(`[extensions] activate ${ext.id} failed`, err);
-      // Surface the failure so a developer iterating on their extension sees
-      // it without opening DevTools. Manifest contributions stay applied (see
-      // `activate`'s catch), so the settings card still renders for
-      // disable/uninstall.
-      const msg = err instanceof Error ? err.message : String(err);
-      toast(`Extension "${ext.manifest.name}" failed to activate: ${msg}`, {
-        variant: "error",
-      });
-    }
-  }
+  // Parallel activation. Serial activation summed every extension's activate()
+  // latency into one chain: a single ext that awaits the network or a subprocess
+  // inside activate() (a usage meter curling an endpoint, a relay handshake, a
+  // `--version` probe) delayed every LATER extension's contributions from
+  // appearing. Activations are order-independent - no bundled extension reads
+  // another's runtime registry slice, and each seeds its own declarative
+  // contributions from its own manifest. allSettled keeps per-ext error
+  // isolation so one slow/failed activate can't reject or stall the batch.
+  await Promise.allSettled(
+    installed
+      .filter((ext) => ext.enabled)
+      .map((ext) =>
+        activate(ext).catch((err) => {
+          console.error(`[extensions] activate ${ext.id} failed`, err);
+          // Surface the failure so a developer iterating on their extension sees
+          // it without opening DevTools. Manifest contributions stay applied (see
+          // `activate`'s catch), so the settings card still renders for
+          // disable/uninstall.
+          const msg = err instanceof Error ? err.message : String(err);
+          toast(`Extension "${ext.manifest.name}" failed to activate: ${msg}`, {
+            variant: "error",
+          });
+        }),
+      ),
+  );
   return installed;
 }
 

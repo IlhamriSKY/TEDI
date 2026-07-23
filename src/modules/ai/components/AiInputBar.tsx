@@ -1,5 +1,3 @@
-import { Button } from "@/components/ui/button";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -32,7 +30,6 @@ import { OpenFilesRow } from "./OpenFilesRow";
 import { QueueRow } from "./QueueRow";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
-import { KeyRound, X } from "lucide-react";
 
 /** Paint only the leading `/command` or `#tag` token in the theme accent; the
  *  rest of the message stays the normal text color. Only the color differs from
@@ -615,34 +612,4 @@ function autoresize(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-}
-
-export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
-  const closePanel = useChatStore((s) => s.closePanel);
-  return (
-    <div className="border-border/60 bg-card/40 shrink-0 border-t px-3 py-2">
-      <div className="flex h-10 items-center justify-between gap-3 rounded-lg px-3 text-xs">
-        <span className="text-muted-foreground">
-          Connect any AI provider (or use local models) - your key stays in your OS keychain.
-        </span>
-        <div className="flex items-center gap-1">
-          <Button size="xs" onClick={onAdd}>
-            <KeyRound />
-            Add API key
-          </Button>
-          <IconTooltip label="Dismiss" side="top">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={closePanel}
-              aria-label="Dismiss"
-              className="hover:bg-destructive/10 hover:text-destructive"
-            >
-              <X size={12} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-        </div>
-      </div>
-    </div>
-  );
 }

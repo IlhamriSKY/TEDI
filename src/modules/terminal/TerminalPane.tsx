@@ -221,7 +221,14 @@ export function TerminalPane({
       // shell-quoted path to the matching PTY. The Tauri OS-level
       // drop path is separate and lives in `useTerminalFileDrop`.
       style={{
-        visibility: visible ? "visible" : "hidden",
+        // `visibility: hidden` is not enough here: WebView2 can composite
+        // xterm's native viewport scrollbar even when its DOM ancestors are
+        // invisible, letting an inactive tab's scrollbar appear over the
+        // active pane. `display: none` suppresses that compositor surface
+        // while keeping this React component and its PTY/xterm session alive.
+        // The visibility effect in useTerminalSession re-fits and re-syncs
+        // the PTY when this host becomes visible again.
+        display: visible ? undefined : "none",
         pointerEvents: visible ? "auto" : "none",
       }}
     />

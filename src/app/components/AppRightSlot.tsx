@@ -1,5 +1,5 @@
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
-import { AiInputBarConnect } from "@/modules/ai/components/AiInputBar";
+import { AiInputBarConnect } from "@/modules/ai/components/AiInputBarConnect";
 import {
   BUILTIN_SECTION_EXT,
   parseSectionPanelId,

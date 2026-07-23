@@ -204,8 +204,9 @@ export function PaneStack({
             // Hide inactive tabs at the wrapper. Panes stay mounted so PTY and
             // editor state survive tab switches; hidden DOM ignores pointer
             // events so resize handles from inactive tabs don't leak through.
-            // The active wrapper paints `bg-background` to cover WebView2's
-            // native xterm scrollbar from hidden tabs.
+            // Each hidden TerminalPane additionally uses `display: none` so
+            // WebView2 cannot composite an inactive xterm scrollbar above
+            // this active wrapper.
             className={
               tabVisible
                 ? "bg-background absolute inset-0"

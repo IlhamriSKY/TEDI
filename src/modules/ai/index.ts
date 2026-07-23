@@ -1,10 +1,13 @@
 export { AgentRunBridge } from "./components/AgentRunBridge";
 export { AgentStatusPill } from "./components/AgentStatusPill";
-export { AiInputBar } from "./components/AiInputBar";
-// AiSidebarPanel is loaded lazily via app/components/lazyPanels.ts; re-exporting
-// it here put AiMiniWindow back in the eager static graph (Rollup
-// INEFFECTIVE_DYNAMIC_IMPORT), defeating the code-split. No one imports it from
-// this barrel, so drop the edge and let the lazy chunk hold it.
+// AiInputBar (the composer) and AiSidebarPanel are loaded lazily (AiMiniWindow's
+// own dynamic import / app/components/lazyPanels.ts). Re-exporting either from
+// this barrel puts it back in the eager static graph (Rollup
+// INEFFECTIVE_DYNAMIC_IMPORT: a module both statically re-exported here AND
+// dynamically imported elsewhere stays eager), defeating the code-split and
+// dragging the composer's markdown renderer (streamdown) onto first paint. No
+// one imports them from this barrel, so drop the edge and let the lazy chunks
+// hold them.
 export { SelectionAskAi } from "./components/SelectionAskAi";
 export {
   EMPTY_PROVIDER_KEYS,

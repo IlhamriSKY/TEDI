@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.94] - 23-07-2026
+
+### Changed
+
+- **The app opens faster.** Enabled extensions now activate in parallel instead of one at a time, so a single extension that waits on the network or a subprocess (a usage meter curling an endpoint, a relay agent) no longer holds up every other extension's status items and panels from appearing. The code editor and the AI composer are also no longer loaded on the first frame - each loads the moment you first open an editor or the AI panel - trimming roughly 1.3 MB of JavaScript (the editor stack, the markdown renderer) off the initial paint. And the accumulated AI chat history is no longer serialized across the app bridge on every launch. See [loader.ts](src/modules/extensions/loader.ts), [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [AiInputBarConnect.tsx](src/modules/ai/components/AiInputBarConnect.tsx), [sessions.ts](src/modules/ai/lib/sessions.ts), [vite.config.ts](vite.config.ts).
+- **The status-bar zoom control only appears while you are zoomed.** The minus / percentage / plus pill now hides at 100% and returns the moment you zoom in or out, keeping the status bar clean at the default zoom. Zooming in from 100% is still available from the keyboard shortcut. See [ZoomControl.tsx](src/modules/statusbar/ZoomControl.tsx).
+
+### Fixed
+
+- **An inactive tab's terminal scrollbar no longer bleeds over the active pane.** WebView2 could composite a hidden xterm's native scrollbar above the visible tab; hidden terminal panes now use `display: none` (their PTY and xterm session stay alive and re-fit on return) so the compositor can't surface the stray scrollbar. See [TerminalPane.tsx](src/modules/terminal/TerminalPane.tsx), [PaneStack.tsx](src/modules/panes/PaneStack.tsx).
+
 ## [0.3.93] - 21-07-2026
 
 ### Added

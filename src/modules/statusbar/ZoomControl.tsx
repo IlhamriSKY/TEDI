@@ -12,9 +12,9 @@ import { Minus, Plus } from "lucide-react";
 // command registry, so a button and its shortcut can never drift apart - the
 // clamp and the 2dp rounding stay in the one handler in shortcutHandlers.ts.
 //
-// Always visible, unlike the indicator this replaces: hiding at 100% is fine
-// for a readout, but it would make zoom-in unreachable by mouse from the
-// default state.
+// Hidden at 100%: the status bar stays clean at the default zoom and only
+// surfaces the pill once zoomed away from it. Zoom-in from the default state
+// stays reachable via the keyboard shortcut.
 
 /** Segment chrome. The pill is `h-6` / `rounded-md` / `text-[11px]`, matching the
  *  right cluster's pill language (UpdaterPill, SchedulerStatusPill) so it sits
@@ -52,6 +52,10 @@ function Seg({
 
 export function ZoomControl() {
   const zoom = usePreferencesStore((s) => s.contentZoom);
+
+  // Only show while zoomed. `Math.round(...*100)` not `=== 1` since the
+  // persisted value is an arbitrary float, though the 0.1 step lands on 1.0.
+  if (Math.round(zoom * 100) === 100) return null;
 
   return (
     <div

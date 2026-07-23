@@ -21,16 +21,16 @@ export type LoadedSessions = {
 };
 
 export async function loadAll(): Promise<LoadedSessions> {
-  // One IPC roundtrip via entries() rather than two parallel get()s. Per-
-  // session messages are loaded lazily via `loadMessages` only when a
-  // session is opened, so cold boot stays at a single store call.
-  const entries = await store.entries();
-  let sessions: SessionMeta[] | undefined;
-  let activeId: string | null | undefined;
-  for (const [k, v] of entries) {
-    if (k === KEY_SESSIONS) sessions = v as SessionMeta[];
-    else if (k === KEY_ACTIVE) activeId = v as string | null;
-  }
+  // Two targeted get()s, NOT entries(). This same store file also holds every
+  // conversation under `messages:<id>` (see saveMessages), so entries() shipped
+  // the entire accumulated chat history over IPC + JSON.parsed it on the main
+  // thread just to read these two small keys - it grows unbounded with usage.
+  // The whole file is still loaded once natively by the LazyStore, but only
+  // these values cross the bridge. Messages stay lazy via `loadMessages`.
+  const [sessions, activeId] = await Promise.all([
+    store.get<SessionMeta[]>(KEY_SESSIONS),
+    store.get<string | null>(KEY_ACTIVE),
+  ]);
   return { sessions: sessions ?? [], activeId: activeId ?? null };
 }
 
