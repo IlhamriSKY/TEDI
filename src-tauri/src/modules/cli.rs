@@ -78,7 +78,7 @@ pub fn help_text() -> String {
          {dim_note}\n\
          {dim_registry}\n",
         title = brand(&format!("TEDI {}", env!("CARGO_PKG_VERSION"))),
-        tag = dim("· Terminal Environment & Development Infrastructure"),
+        tag = dim("· Terminal Director"),
         usage = header("USAGE"),
         tedi = cmd("tedi"),
         path = dim("[PATH]"),

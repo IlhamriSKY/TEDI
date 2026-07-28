@@ -115,3 +115,10 @@ export type DaemonSessionInfo = {
 export async function listDaemonSessions(): Promise<DaemonSessionInfo[]> {
   return invoke<DaemonSessionInfo[]>("pty_list_sessions");
 }
+
+/** Kill every session the daemon owns, so nothing survives the GUI exiting.
+ *  Backs the quit prompt's "Close all terminals" choice; a no-op under the
+ *  in-process backend, whose shells die with the GUI anyway. */
+export async function killAllDaemonSessions(): Promise<void> {
+  return invoke<void>("pty_kill_all");
+}

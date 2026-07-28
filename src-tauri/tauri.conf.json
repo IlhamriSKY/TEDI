@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TEDI",
   "mainBinaryName": "TEDIApp",
-  "version": "0.3.94",
+  "version": "0.3.95",
   "identifier": "id.ilhamrisky.tedi",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -69,8 +69,8 @@
     "category": "DeveloperTool",
     "copyright": "Copyright © 2026 Crynta. Licensed under the Apache License, Version 2.0.",
     "licenseFile": "../LICENSE",
-    "shortDescription": "Terminal Environment & Development Infrastructure",
-    "longDescription": "TEDI (Terminal Environment & Development Infrastructure) is a lightweight, low-footprint terminal that boosts developer productivity with split-screen terminals, tab grouping, and workspaces."
+    "shortDescription": "Terminal Director",
+    "longDescription": "TEDI (Terminal Director) is a lightweight, low-footprint terminal that boosts developer productivity with split-screen terminals, tab grouping, and workspaces."
   },
   "plugins": {
     "updater": {

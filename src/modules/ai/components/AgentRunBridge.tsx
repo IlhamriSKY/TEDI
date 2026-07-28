@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
-import { checkReadable } from "../lib/security";
+import { checkReadable, checkShellCommand } from "../lib/security";
 import { resolvePath } from "../tools/tools";
 import {
   flushPersist,
@@ -355,24 +355,40 @@ function applyEditsLocally(
   edits: EditOp[],
 ): { ok: true; content: string } | { ok: false } {
   let content = original;
+  // Mirror `applyEditsLocked` (ai/tools/edit.ts): the model emits LF-only text
+  // while `native.readFile` preserves the file's CRLF, so a multi-line
+  // old_string only matches after translation. Without this every multi-line
+  // edit to a CRLF file (the norm on Windows) returned !ok, the caller
+  // `continue`d, and the side-by-side review tab silently never opened - the
+  // user approved the write having seen no diff.
+  const crlf = original.includes("\r\n");
+  const norm = (s: string) => (crlf ? s.replace(/\r?\n/g, "\r\n") : s);
   for (const e of edits) {
     if (e.old_string === e.new_string || e.old_string.length === 0) return { ok: false };
+    const oldS = norm(e.old_string);
+    const newS = norm(e.new_string);
     if (e.replace_all) {
-      if (!content.includes(e.old_string)) return { ok: false };
-      content = content.split(e.old_string).join(e.new_string);
+      if (!content.includes(oldS)) return { ok: false };
+      content = content.split(oldS).join(newS);
     } else {
-      const first = content.indexOf(e.old_string);
+      const first = content.indexOf(oldS);
       if (first === -1) return { ok: false };
-      const second = content.indexOf(e.old_string, first + 1);
+      const second = content.indexOf(oldS, first + 1);
       if (second !== -1) return { ok: false };
-      content = content.slice(0, first) + e.new_string + content.slice(first + e.old_string.length);
+      content = content.slice(0, first) + newS + content.slice(first + oldS.length);
     }
   }
   return { ok: true, content };
 }
 
 /** Read-only shell prefixes auto-approved in "semi" mode. Anything that pipes,
- *  chains, or redirects falls back to asking. */
+ *  chains, or redirects falls back to asking, and the whole command still has
+ *  to clear `checkShellCommand` (see `shouldAutoApprove`).
+ *
+ *  `find` is deliberately NOT here: `-delete`, `-exec` and friends make it a
+ *  mutation tool wearing a read-only name, and neither the metachar filter
+ *  (`find . -delete` has none) nor the secret denylist would stop it. The
+ *  auto-approved `glob` / `grep` tools already cover the read-only use. */
 const READ_ONLY_BASH_PREFIXES = [
   "ls",
   "pwd",
@@ -384,7 +400,6 @@ const READ_ONLY_BASH_PREFIXES = [
   "which",
   "where",
   "echo",
-  "find",
   "du",
   "df",
   "stat",
@@ -429,7 +444,15 @@ function shouldAutoApprove(
   // mode === "semi"
   if (toolName === "bash_run") {
     const cmd = typeof input?.command === "string" ? input.command : "";
-    return isReadOnlyBashCommand(cmd);
+    if (!isReadOnlyBashCommand(cmd)) return false;
+    // A prefix match alone said nothing about the ARGUMENT, so `cat` and
+    // `head` auto-ran on `~/.ssh/id_rsa` or `.env` with the secret denylist
+    // never consulted. Auto-approving is exactly the no-approver situation
+    // `unattended` exists for, so run that same pass: the secret-basename /
+    // protected-directory check on every path token, plus the destructive
+    // -command heuristics. Failing it only downgrades to asking, so the user
+    // can still approve a deliberate `cat .env` from the card.
+    return checkShellCommand(cmd, { unattended: true }).ok;
   }
   // File mutations and bash_background still need explicit approval in semi.
   return false;

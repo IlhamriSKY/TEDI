@@ -8,7 +8,7 @@ import { type TediOpenInput, type TediSpawnTabInput } from "./osc-handlers";
 import type { SshStatus } from "@/modules/ssh/status";
 import { cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
 import type { AiCliKind, AiCliStatus } from "./aiCliStatus";
-import { sessions, type Callbacks, type Session } from "./sessionState";
+import { isSessionBusy, sessions, type Callbacks, type Session } from "./sessionState";
 import { STUCK_RECOVERY_MS, effectiveTerminalFontSize, describeError } from "./session-helpers";
 import { respawnSession, retryPty, syncPtySize, writePtyError } from "./pty-lifecycle";
 import { disconnectSsh, reconnectSsh, retrySsh } from "./ssh-session";
@@ -17,7 +17,12 @@ import { ensureSession, attachSession, detachSession, canFit } from "./session-l
 
 export type { TediOpenInput, TediSpawnTabInput };
 export { disconnectSsh, reconnectSsh, respawnSession };
-export { writeToLeaf, findLeafIdFromPoint, disposeSession, acknowledgeAiCli } from "./session-lifecycle";
+export {
+  writeToLeaf,
+  findLeafIdFromPoint,
+  disposeSession,
+  acknowledgeAiCli,
+} from "./session-lifecycle";
 
 /**
  * A font-size or font-family change invalidates the WebGL glyph atlas (glyphs
@@ -376,21 +381,12 @@ export function useTerminalSession({
     }
   }, [leafId]);
 
-  // True when a foreground command is actually running: a full-screen TUI owns
-  // the alt-screen, or the OSC 133 command lifecycle (C/D, with Enter-synthesis
-  // for pwsh) says a command is mid-flight. Unlike `isAtPrompt`, this does not
-  // guess from the PS1 text, so an idle terminal with a custom prompt never
-  // reads as busy. Used by the close-confirmation so it only fires for a real
-  // running process.
+  // True when a foreground command is actually running - see `isSessionBusy`,
+  // shared with the quit prompt. Unlike `isAtPrompt` it does not guess from the
+  // PS1 text, so an idle terminal with a custom prompt never reads as busy.
   const isProcessRunning = useCallback((): boolean => {
     const s = sessions.get(leafId);
-    if (!s) return false;
-    try {
-      if (s.term.buffer.active.type === "alternate") return true;
-    } catch {
-      // ignore - fall through to the command-lifecycle flag.
-    }
-    return s.commandRunning === true;
+    return s ? isSessionBusy(s) : false;
   }, [leafId]);
 
   const applyTheme = useCallback(() => {

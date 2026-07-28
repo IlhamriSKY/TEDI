@@ -91,7 +91,7 @@ export function AboutSection() {
         <div className="flex min-w-0 flex-col">
           <span className="text-[15px] font-semibold tracking-tight">{name}</span>
           <span className="text-muted-foreground text-[11px]">
-            Terminal Environment & Development Infrastructure
+            Terminal Director
           </span>
           <span className="text-muted-foreground mt-1 font-mono text-[11px]">
             v{version || "-"}

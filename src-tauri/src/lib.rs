@@ -736,7 +736,10 @@ pub fn run() {
                         }
                     }
                 }
-                tauri::WindowEvent::CloseRequested { .. } => {
+                // Destroyed, not CloseRequested: the GUI can veto its own close
+                // (the quit prompt), and taking the settings/debug windows down
+                // on a close the user then cancels would be wrong.
+                tauri::WindowEvent::Destroyed => {
                     for child in CHILDREN {
                         if let Some(w) = app.get_webview_window(child) {
                             let _ = w.close();

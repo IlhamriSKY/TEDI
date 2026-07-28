@@ -13,6 +13,7 @@ import { type SshConnection } from "@/modules/ssh/connections";
 import { HostKeyPromptDialog } from "@/modules/ssh/HostKeyPromptDialog";
 import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, type Dispatch, type SetStateAction } from "react";
+import { type QuitGuard } from "../hooks/useQuitGuard";
 import { type PendingClose } from "../hooks/useTabActions";
 
 // Dialogs mount only while `open` is true.
@@ -41,6 +42,7 @@ type Props = {
   pendingClose: PendingClose | null;
   cancelClose: () => void;
   confirmClose: () => void;
+  quitGuard: QuitGuard;
 };
 
 /**
@@ -68,6 +70,7 @@ export function AppDialogs({
   pendingClose,
   cancelClose,
   confirmClose,
+  quitGuard,
 }: Props) {
   return (
     <>
@@ -129,6 +132,39 @@ export function AppDialogs({
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelClose}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmClose}>Close Anyway</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Quit prompt. Only shown when a terminal is actually busy; the two
+          actions differ in what happens to those shells, since the PTY daemon
+          outlives the GUI. */}
+      <AlertDialog
+        open={quitGuard.busyCount !== null}
+        onOpenChange={(open) => !open && quitGuard.cancel()}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {quitGuard.busyCount === 1
+                ? "1 terminal is still running"
+                : `${quitGuard.busyCount ?? 0} terminals are still running`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Leave them running and they keep going in the background, then reattach the next time
+              you open TEDI. Closing them stops whatever they are doing right now.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {/* Three choices don't fit the shared two-column footer; stack them.
+              Cancel stays last so Radix's open-auto-focus lands on it. */}
+          <AlertDialogFooter className="grid-cols-1">
+            <AlertDialogAction onClick={() => quitGuard.quit(false)}>
+              Leave them running
+            </AlertDialogAction>
+            <AlertDialogAction variant="destructive" onClick={() => quitGuard.quit(true)}>
+              Close all terminals
+            </AlertDialogAction>
+            <AlertDialogCancel onClick={quitGuard.cancel}>Cancel</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

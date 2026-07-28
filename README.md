@@ -1,6 +1,7 @@
 <div align="center">
   <img src="public/icon.png" width="120" height="120" alt="TEDI" />
   <h1>TEDI</h1>
+  <p><em>Terminal Director</em></p>
   <p><strong>One lightweight app. Eight features. Your whole dev workflow in a single window.</strong></p>
 
   <p>
@@ -15,7 +16,7 @@
 
 ## What is TEDI?
 
-**TEDI** (**T**erminal **E**nvironment & **D**evelopment **I**nfrastructure) folds eight tools you reach for every day (a terminal, SSH client, DB browser, editor, AI agent, browser, and Git) into one window, so you stop alt-tabbing. Built on Tauri 2, so a Rust core owns every OS resource and the UI is a single webview: no Node runtime, no bundled Chromium, and a resident footprint closer to a terminal than to an IDE. **No telemetry**; API keys stay in the OS keychain, and it runs fully offline against a local model if you want.
+**TEDI** (Terminal Director) folds eight tools you reach for every day (a terminal, SSH client, DB browser, editor, AI agent, browser, and Git) into one window, so you stop alt-tabbing. Built on Tauri 2, so a Rust core owns every OS resource and the UI is a single webview: no Node runtime, no bundled Chromium, and a resident footprint closer to a terminal than to an IDE. **No telemetry**; API keys stay in the OS keychain, and it runs fully offline against a local model if you want.
 
 ## The eight features
 

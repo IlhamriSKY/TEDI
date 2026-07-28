@@ -10,6 +10,7 @@ import {
   type TediSpawnTabInput,
 } from "@/modules/terminal";
 import { useCallback, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { isQuitting } from "./useQuitGuard";
 import { type TabsApi } from "./tabsApi";
 
 type Params = {
@@ -101,6 +102,12 @@ export function usePaneHandles({
 
   const handleLeafExit = useCallback(
     (leafId: number, _code: number) => {
+      // Quitting: the shells are being killed on purpose (force quit), so every
+      // Exit here is our own doing. Reshaping the layout now would persist a
+      // torn-down workspace over the user's real one - and the last-terminal
+      // branch below would spawn a FRESH shell that then outlives the GUI,
+      // which is the exact opposite of "close all terminals".
+      if (isQuitting()) return;
       const all = tabsRef.current;
       const tab = all.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
       if (!tab || tab.kind !== "pane") return;

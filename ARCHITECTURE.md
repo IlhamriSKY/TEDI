@@ -5,7 +5,7 @@ and why it is built that way. Read this to understand the design; use
 [TEDI.md](TEDI.md) as the dense per-module map and navigation index, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and PR conventions.
 
-TEDI (Terminal Environment and Development Infrastructure) is a lightweight,
+TEDI (Terminal Director) is a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. It is a [Tauri 2](https://tauri.app)
 desktop app for macOS, Linux, and Windows.

@@ -12,6 +12,7 @@
  *   - useAiBootstrap           - API keys, model restore/persist, store hydration
  *   - useExtensionPanelDefaults- extension boot + right-panel defaults
  *   - useWorkspacePersistence  - hydrate + auto-snapshot workspaces
+ *   - useQuitGuard             - pre-quit snapshot flush + busy-terminal prompt
  *   - useWorkspaceSwitching    - switch / create / close orchestration
  *   - useRightPanelExclusion   - SCM / AI / extension right-slot mutual exclusion
  *   - useExtensionSidebarBridges - tabs/sidebar host bridges + auto-restore
@@ -67,7 +68,6 @@ import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
@@ -88,6 +88,7 @@ import { useHeaderActions } from "./hooks/useHeaderActions";
 import { useWorkspaceRoot } from "./hooks/useWorkspaceRoot";
 import { useAiBootstrap } from "./hooks/useAiBootstrap";
 import { useExtensionPanelDefaults } from "./hooks/useExtensionPanelDefaults";
+import { useQuitGuard } from "./hooks/useQuitGuard";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 import { useEditorBridge } from "./hooks/useEditorBridge";
 import { useAgentBridges } from "./hooks/useAgentBridges";
@@ -351,39 +352,9 @@ export default function App() {
     skipNextSnapshotRef,
   });
 
-  // Durably flush the workspace snapshot before the window closes. The
-  // per-change save is fire-and-forget and can be mid-write when the app quits
-  // or an update relaunches it, which is the "close a pane but it's back on
-  // reopen" symptom. Safety: a re-entrancy guard, a hard timeout race, and an
-  // always-run destroy() in `finally` so a slow/failed flush can never hang the
-  // close - and a second close attempt (guard already set) skips preventDefault
-  // and closes normally. The `.catch` covers the dev-browser shim where the
-  // window has no real close event.
-  useEffect(() => {
-    if (isDevSession) return;
-    let unlisten: (() => void) | undefined;
-    let closing = false;
-    const w = getCurrentWindow();
-    w.onCloseRequested(async (event) => {
-      if (closing) return;
-      closing = true;
-      event.preventDefault();
-      try {
-        await Promise.race([wsFlush(), new Promise((r) => setTimeout(r, 1200))]);
-      } catch {
-        /* flush failed; close anyway */
-      } finally {
-        void w.destroy();
-      }
-    })
-      .then((un) => {
-        unlisten = un;
-      })
-      .catch(() => {
-        /* no real Tauri close event (dev browser shim): nothing to flush on */
-      });
-    return () => unlisten?.();
-  }, [wsFlush, isDevSession]);
+  // Flushes the workspace snapshot before the window goes away, and prompts
+  // (keep terminals running / close them all) when a terminal is still busy.
+  const quitGuard = useQuitGuard(wsFlush, !isDevSession);
 
   const { switchToWorkspace, createNewWorkspace, closeWorkspace } = useWorkspaceSwitching({
     wsActiveId,
@@ -1059,6 +1030,7 @@ export default function App() {
             pendingClose={pendingClose}
             cancelClose={cancelClose}
             confirmClose={confirmClose}
+            quitGuard={quitGuard}
           />
         </div>
       </TooltipProvider>

@@ -112,7 +112,11 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     if (isFirstByte && !s.sshConnectionId) {
       armBlankViewportRepaint(s, myEpoch);
     }
-    if (containsSchemeSeparator(bytes)) {
+    // Local PTYs only. A remote `npm run dev` prints `http://localhost:5173`,
+    // but that port lives on the REMOTE host; the pill this fires opens the
+    // URL on THIS machine, where it is either dead or, worse, an unrelated
+    // local service. Detecting it needs a port forward, not a guess.
+    if (containsSchemeSeparator(bytes) && !s.sshConnectionId) {
       const text = urlDecoder.decode(bytes, { stream: true });
       const matches = text.match(LOCAL_URL_RE);
       if (matches && matches.length > 0) {

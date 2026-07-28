@@ -167,3 +167,31 @@ export type Session = {
 };
 
 export const sessions = new Map<number, Session>();
+
+/**
+ * True when a session has real foreground work: a TUI owning the alt-screen, an
+ * in-flight OSC 133 command (with Enter-synthesis for pwsh), or an AI CLI
+ * mid-turn / waiting for approval. Prompt-text independent, so an idle shell
+ * with a custom prompt (oh-my-posh, starship) never reads busy. Shared by the
+ * tab/pane close confirmation and the quit prompt.
+ */
+export function isSessionBusy(s: Session): boolean {
+  if (s.disposed) return false;
+  try {
+    if (s.term.buffer.active.type === "alternate") return true;
+  } catch {
+    // term disposed mid-read - fall through to the lifecycle flags.
+  }
+  const ai = s.aiCliStatus?.state;
+  return s.commandRunning || ai === "working" || ai === "blocking";
+}
+
+/**
+ * How many live terminals are running something, across every workspace (the
+ * `sessions` map outlives workspace switches). Backs the quit prompt.
+ */
+export function busyTerminalCount(): number {
+  let n = 0;
+  for (const s of sessions.values()) if (isSessionBusy(s)) n++;
+  return n;
+}

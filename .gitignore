@@ -49,6 +49,7 @@ react-doctor.config.json
 /icon.png
 TODO.MD
 REMOTE-ACCESS-SPEC.md
+FEATURE-STUDY.md
 # Exported theme files are personal / test artifacts, not repo content.
 *.tedi
 

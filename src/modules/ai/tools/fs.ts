@@ -236,6 +236,15 @@ export function buildFsTools(
         : undefined,
       execute: async ({ path }) => {
         const abs = resolvePath(path, ctx.getCwd());
+        // Same refusal `read_file` / `grep` / `glob` carry: with no approver
+        // the `needsApproval` gate above is inert, so an unattended subagent
+        // could enumerate any directory on disk.
+        if (refuseOutOfScope && isReadOutsideScope(path, ctx)) {
+          return {
+            error: "refused: a subagent may not read outside the workspace/cwd",
+            path: abs,
+          };
+        }
         const safety = await checkReadableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
         try {

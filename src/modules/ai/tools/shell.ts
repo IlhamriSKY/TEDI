@@ -122,6 +122,16 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
         const safety = checkShellCommand(command, shellGuard);
         if (!safety.ok) return { error: safety.reason };
         const effectiveCwd = cwd ?? ctx.getCwd();
+        // `checkShellCommand` only inspects the command string, so an explicit
+        // `cwd` was the one argument that reached the spawn unchecked - a
+        // worker could run an in-scope command while rooted anywhere on disk.
+        // Only enforced unattended; the main agent's approval card shows the
+        // cwd and the human is the gate.
+        if (shellGuard && cwd != null && shellGuard.isOutsideScope(cwd)) {
+          return {
+            error: `Refused: cwd "${cwd}" is outside the workspace, and this sub-agent runs without an approval prompt.`,
+          };
+        }
         try {
           const handle = await native.shellBgSpawn(
             applyShellTransformers(command, "bash"),

@@ -9,10 +9,10 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 
 ## Project
 
-**TEDI** (Terminal Environment and Development Infrastructure): a lightweight,
+**TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.3.92.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.3.95.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |

@@ -84,45 +84,85 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
   };
 }
 
-function nodeToSaved(node: PaneNode): SavedPaneNode {
-  if (node.kind === "leaf") return leafToSaved(node);
+/**
+ * True for an editor leaf bound to a remote file over SFTP. Such a leaf cannot
+ * be restored: `sshSessionId` is a LIVE russh session number (frozen at open
+ * time, never rewritten), not a stable connection id, so in a later launch it
+ * is dead or belongs to a different host. Persisting the leaf WITHOUT it is
+ * worse still, which is what used to happen: `useDocument` only routes through
+ * SFTP while `sshSessionId !== undefined`, so a restored remote leaf read, and
+ * on the next save WROTE, the remote path against the LOCAL filesystem. On
+ * Unix that silently resolves to a real, different file. Drop the leaf and
+ * keep its siblings until editor leaves carry a reconnectable id.
+ */
+function isRemoteEditorLeaf(leaf: PaneLeaf): boolean {
+  return leaf.leafKind === "editor" && leaf.sshSessionId !== undefined;
+}
+
+/** Serialises a pane subtree, pruning leaves that cannot be restored.
+ *  Returns null when nothing in this subtree survives. */
+function nodeToSaved(node: PaneNode): SavedPaneNode | null {
+  if (node.kind === "leaf") return isRemoteEditorLeaf(node) ? null : leafToSaved(node);
+  const children: SavedPaneNode[] = [];
+  for (const c of node.children) {
+    const s = nodeToSaved(c);
+    if (s !== null) children.push(s);
+  }
+  if (children.length === 0) return null;
+  // A lone survivor collapses into its parent: a one-child split is not a
+  // valid pane tree.
+  if (children.length === 1) return children[0];
+  // Only persist sizes that still match the child count (a split/close can
+  // leave a stale-length array, and pruning above invalidates the ratios);
+  // a mismatch restores as an equal split.
+  const pruned = children.length !== node.children.length;
   return {
     kind: "split",
     dir: node.dir,
-    children: node.children.map(nodeToSaved),
-    // Only persist sizes that still match the child count (a split/close can
-    // leave a stale-length array); a mismatch restores as an equal split.
-    ...(node.sizes && node.sizes.length === node.children.length
+    children,
+    ...(!pruned && node.sizes && node.sizes.length === children.length
       ? { sizes: node.sizes }
       : {}),
   };
 }
 
 /**
- * True for tabs that survive serialization. The session-only kinds (ai-diff,
- * git-diff, ext, scm) are never persisted - only pane tabs are. Single source
- * of truth for "which tabs are saved", shared by `tabToSaved` and
- * `savedActiveTabIndex` so the saved active-index can't drift from the saved
- * array.
+ * True for exactly the tabs `tabToSaved` emits. The session-only kinds
+ * (ai-diff, git-diff, ext, scm) are never persisted - only pane tabs are.
+ * A pane tab holding an extension-panel leaf is skipped whole, and a pane tab
+ * whose every leaf is a remote editor has nothing left to save.
+ *
+ * Single source of truth for "which tabs are saved", shared by `tabToSaved`
+ * and `savedActiveTabIndex` so the saved active-index can't drift from the
+ * saved array. It previously counted every pane tab, including the
+ * extension-panel ones `tabToSaved` drops, which mis-focused the restored
+ * workspace whenever such a tab preceded the active one.
  */
 function isPersistedTab(tab: Tab): tab is PaneTab {
-  return tab.kind === "pane";
+  if (tab.kind !== "pane") return false;
+  const all = leaves(tab.paneTree);
+  // Extension-panel leaves are session-only. If a pane tab contains one, skip
+  // persisting the whole tab so the serializer never hits a non-saveable leaf.
+  // (MVP: a terminal split next to an extension panel isn't restored either;
+  // acceptable until extension-panel leaves round-trip.)
+  if (all.some((l) => l.leafKind === "extension-panel")) return false;
+  return all.some((l) => !isRemoteEditorLeaf(l));
 }
 
 function tabToSaved(tab: Tab): SavedTab | null {
-  // ai-diff / git-diff / ext / scm are session-only (re-opened on demand).
   if (!isPersistedTab(tab)) return null;
-  // Extension-panel leaves are session-only too. If a pane tab contains one,
-  // skip persisting the whole tab so the serializer never hits a non-saveable
-  // leaf. (MVP: a terminal split next to an extension panel isn't restored
-  // either; acceptable until extension-panel leaves round-trip.)
-  if (leaves(tab.paneTree).some((l) => l.leafKind === "extension-panel")) return null;
-  const all = leaves(tab.paneTree);
-  const idx = all.findIndex((l) => l.id === tab.activeLeafId);
+  const paneTree = nodeToSaved(tab.paneTree);
+  // isPersistedTab already proved at least one leaf survives; this narrows.
+  if (paneTree === null) return null;
+  // Index within the leaves that were actually SAVED, not the live ones: a
+  // pruned remote editor shifts every later leaf. A dropped active leaf lands
+  // on the first survivor via the Math.max below.
+  const kept = leaves(tab.paneTree).filter((l) => !isRemoteEditorLeaf(l));
+  const idx = kept.findIndex((l) => l.id === tab.activeLeafId);
   return {
     kind: "pane",
     title: tab.title,
-    paneTree: nodeToSaved(tab.paneTree),
+    paneTree,
     activeLeafIndex: Math.max(0, idx),
   };
 }

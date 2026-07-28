@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.95] - 28-07-2026
+
+### Added
+
+- **TEDI asks before it quits on top of a running terminal.** Closing the window while a terminal is busy (a full-screen TUI, a command still running, or an AI agent mid-turn) now opens a prompt instead of taking the decision for you. "Leave them running" closes the window while the PTY daemon keeps every session alive, so they reattach on the next launch; "Close all terminals" kills them outright; Cancel keeps you where you are. Busy is the same test the tab-close confirmation already used, so the two agree. See [useQuitGuard.ts](src/app/hooks/useQuitGuard.ts), [sessionState.ts](src/modules/terminal/lib/sessionState.ts), [AppDialogs.tsx](src/app/components/AppDialogs.tsx).
+
+### Changed
+
+- **TEDI now reads "Terminal Director" everywhere.** The old expansion ("Terminal Environment & Development Infrastructure") is replaced across the README, the docs, the installer metadata, the `tedi --help` banner, and the About panel. See [README.md](README.md), [tauri.conf.json](src-tauri/tauri.conf.json), [cli.rs](src-tauri/src/modules/cli.rs), [AboutSection.tsx](src/settings/sections/AboutSection.tsx).
+
+### Fixed
+
+- **The close button works again.** Clicking X (or pressing Alt+F4) did nothing: the window handler asked the backend to destroy the window, but `core:window:allow-destroy` was never granted in the capability file and `core:default` does not include it, so the request was denied into a discarded promise and every close path was dead. See [default.json](src-tauri/capabilities/default.json), [App.tsx](src/app/App.tsx).
+- **The AI's side-by-side review tab opens again on Windows.** Files saved with CRLF line endings are the norm on Windows, and the preview that builds the diff compared the model's LF-only text against them without translating, so any multi-line edit silently failed to render and you were left approving a write you could not see. It now normalizes exactly the way the edit tool itself does. See [AgentRunBridge.tsx](src/modules/ai/components/AgentRunBridge.tsx), [edit.ts](src/modules/ai/tools/edit.ts).
+- **A remote file tab no longer comes back pointing at your local disk.** An editor opened over SFTP is bound to a live SSH session number, which is meaningless after a restart, so the restored tab quietly fell back to local file access: it read whatever sat at that path on your own machine, and the next save wrote over it. Remote editor panes are now left out of the saved layout rather than restored wrong, and any terminal or editor split beside them still comes back. See [serialize.ts](src/modules/workspaces/serialize.ts), [useDocument.ts](src/modules/editor/lib/useDocument.ts).
+- **The AI no longer treats a remote directory as a local one.** With an SSH terminal focused, the working directory handed to the AI's file and shell tools was the remote host's path, even though every one of those tools runs locally. It now falls back to the workspace root, matching what the file explorer already did. See [buildLiveContext.ts](src/app/lib/buildLiveContext.ts).
+- **The "open in browser" pill no longer appears for a remote dev server.** A `npm run dev` over SSH prints a `localhost` URL that belongs to the remote host, and the pill offered to open that port on your own machine. Detection is now limited to local terminals. See [pty-lifecycle.ts](src/modules/terminal/lib/pty-lifecycle.ts).
+- **A restored workspace focuses the tab you left active.** The saved active-tab index counted tabs that were then dropped from the save, so a workspace holding an extension panel reopened with the wrong tab in front. See [serialize.ts](src/modules/workspaces/serialize.ts).
+- **Quitting with "Close all terminals" no longer leaves a stray shell behind.** Killing every session made the daemon report each one as exited, which the pane handler read as a normal close and answered by tearing down panes and spawning a replacement shell, overwriting the layout on the way out. See [usePaneHandles.ts](src/app/hooks/usePaneHandles.ts), [pty/mod.rs](src-tauri/src/modules/pty/mod.rs).
+- **Cancelling a quit no longer closes the Settings window.** Child windows now follow the main window's actual destruction rather than the close request the prompt can veto. See [lib.rs](src-tauri/src/lib.rs).
+
+### Security
+
+- **"Semi" approval mode no longer auto-runs a command that reads your keys.** The mode auto-approved a list of read-only command prefixes but never looked at the argument, so `cat ~/.ssh/id_rsa` and `cat .env` ran with no prompt and with the secret deny-list never consulted. Auto-approval now requires the whole command to clear that deny-list; anything it flags falls back to asking, so a deliberate read is still one click away. `find` was also dropped from the list, since `-delete` and `-exec` make it a mutating command that the prefix check could not see. See [AgentRunBridge.tsx](src/modules/ai/components/AgentRunBridge.tsx), [security.ts](src/modules/ai/lib/security.ts).
+- **An unattended sub-agent can no longer enumerate directories outside the workspace.** `list_directory` was missing the out-of-scope refusal its three sibling read tools carry; because a sub-agent has no approval prompt, the approval gate on it was inert. See [fs.ts](src/modules/ai/tools/fs.ts).
+- **An unattended sub-agent can no longer start a background process outside the workspace.** The safety check inspected the command text only, so an explicit working directory reached the spawn unchecked. See [shell.ts](src/modules/ai/tools/shell.ts).
+
 ## [0.3.94] - 23-07-2026
 
 ### Changed

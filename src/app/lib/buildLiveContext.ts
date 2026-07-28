@@ -71,17 +71,23 @@ export function buildLiveContext(deps: LiveContextDeps) {
     getCwd: () => {
       const { tabs, activeId, explorerRoot, home } = liveContextRef.current;
       const active = tabs.find((x) => x.id === activeId);
-      // Private leaves never leak their cwd. Fall back to the workspace
-      // root the same way an empty terminal tab would.
+      // Private leaves never leak their cwd. SSH leaves are skipped too: their
+      // OSC 7 cwd names a path on the REMOTE host, and every consumer of this
+      // value (resolvePath, the fs/edit tools, the agent shell's cwd) runs
+      // LOCALLY, so a remote `/home/u/app` would be read or written against
+      // this machine. Same predicate `useWorkspaceCwd` uses to keep the local
+      // explorer off a remote root. Fall back to the workspace root the same
+      // way an empty terminal tab would.
       if (active?.kind === "pane") {
         const leaf = activeLeaf(active);
-        if (leaf?.leafKind === "terminal" && !leaf.private && leaf.cwd) return leaf.cwd;
+        if (leaf?.leafKind === "terminal" && !leaf.private && !leaf.sshConnectionId && leaf.cwd)
+          return leaf.cwd;
       }
       for (let i = tabs.length - 1; i >= 0; i--) {
         const t = tabs[i];
         if (t.kind !== "pane") continue;
         for (const l of leaves(t.paneTree)) {
-          if (l.leafKind === "terminal" && !l.private && l.cwd) return l.cwd;
+          if (l.leafKind === "terminal" && !l.private && !l.sshConnectionId && l.cwd) return l.cwd;
         }
       }
       return explorerRoot ?? home ?? null;

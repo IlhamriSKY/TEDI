@@ -488,13 +488,21 @@ pub async fn pty_list_sessions(
         .map_err(|e| format!("pty_list_sessions join error: {e}"))?
 }
 
-/// Kill every daemon-owned session. Backs the "Reset all sessions"
-/// settings button. No-op in in-process mode (caller can just close tabs).
+/// Kill every daemon-owned session. Backs the quit prompt's "Close all
+/// terminals" choice. No-op in in-process mode (caller can just close tabs).
+/// Async + `spawn_blocking` for the same reason as `pty_list_sessions`: the
+/// kill is a blocking daemon round-trip and must not run on the UI thread.
+/// Uses `current()` (not `get_live()`): if the daemon is already gone its
+/// sessions died with it, so respawning one just to kill nothing would stall
+/// the quit path for ~5s.
 #[tauri::command]
-pub fn pty_kill_all(state: tauri::State<PtyState>) -> Result<(), String> {
-    if let PtyBackend::Daemon { client, sessions } = &state.backend {
-        client.current().kill_all()?;
-        sessions.write().unwrap().clear();
-    }
-    Ok(())
+pub async fn pty_kill_all(state: tauri::State<'_, PtyState>) -> Result<(), String> {
+    let PtyBackend::Daemon { client, sessions } = &state.backend else {
+        return Ok(());
+    };
+    let client = client.current();
+    sessions.write().unwrap().clear();
+    tauri::async_runtime::spawn_blocking(move || client.kill_all())
+        .await
+        .map_err(|e| format!("pty_kill_all join error: {e}"))?
 }

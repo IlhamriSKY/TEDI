@@ -16,8 +16,8 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.3.94"
-description = "TEDI - Terminal Environment & Development Infrastructure. A lightweight terminal with split screens, tab grouping, and workspaces."
+version = "0.3.95"
+description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
 repository = "https://github.com/IlhamriSKY/TEDI"
