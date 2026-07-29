@@ -40,7 +40,8 @@ type Props = {
   /** Toggle the per-leaf privacy flag from the tab right-click menu. */
   onTogglePrivate?: (leafId: number) => void;
   onNewPreview: () => void;
-  onNewEditor: () => void;
+  /** `+` -> Agent...: open the agent picker dialog. */
+  onOpenAgents: () => void;
   /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
   /** Drag-and-drop reorder of the tab strip. */
@@ -112,7 +113,7 @@ function HeaderImpl({
   onNewPrivateTerminal,
   onTogglePrivate,
   onNewPreview,
-  onNewEditor,
+  onOpenAgents,
   onPinLeaf,
   onReorderTabs,
   onReorderLeafInGroup,
@@ -315,7 +316,14 @@ function HeaderImpl({
       <div
         data-tauri-drag-region
         onMouseDown={onHeaderMouseDown}
-        className="border-border/60 bg-background flex h-10 shrink-0 items-center border-t pl-2"
+        // `data-tab-strip` marks the whole row (tabs + the trailing drag region)
+        // as an OS file-drop target: dropping a file here opens it in an editor,
+        // a folder opens a terminal tab. Hit-tested by `useEditorFileDrop`,
+        // which also sets `data-drop-active` while a drag hovers the row - the
+        // only affordance the user gets, since Tauri's native drag intercept
+        // means no HTML dragover fires to style against.
+        data-tab-strip
+        className="border-border/60 bg-background data-[drop-active=true]:bg-accent/50 flex h-10 shrink-0 items-center border-t pl-2 transition-colors"
       >
         <TabBar
           tabs={tabs}
@@ -326,7 +334,7 @@ function HeaderImpl({
           onNewPrivateTerminal={onNewPrivateTerminal}
           onTogglePrivate={onTogglePrivate}
           onNewPreview={onNewPreview}
-          onNewEditor={onNewEditor}
+          onOpenAgents={onOpenAgents}
           onPinLeaf={onPinLeaf}
           onReorderTabs={onReorderTabs}
           onReorderLeafInGroup={onReorderLeafInGroup}

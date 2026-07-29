@@ -40,6 +40,7 @@ export interface ShortcutHandlerDeps {
   toggleSidebar: () => void;
   requestCloseLeaf: (leafId: number) => void;
   setNewEditorOpen: (open: boolean) => void;
+  setAgentDialogOpen: (open: boolean) => void;
   searchInlineRef: RefObject<SearchInlineHandle | null>;
   editorRefs: RefObject<Map<number, EditorPaneHandle>>;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
@@ -66,6 +67,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     toggleSidebar,
     requestCloseLeaf,
     setNewEditorOpen,
+    setAgentDialogOpen,
     searchInlineRef,
     editorRefs,
     terminalRefs,
@@ -81,6 +83,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "tab.newPrivate": openNewPrivateTab,
     "tab.newPreview": () => openPreviewTab(""),
     "tab.newEditor": () => setNewEditorOpen(true),
+    "tab.newAgent": () => setAgentDialogOpen(true),
     "tab.close": handleCloseTabOrPane,
     "tab.next": () => cycleTab(1),
     "tab.prev": () => cycleTab(-1),

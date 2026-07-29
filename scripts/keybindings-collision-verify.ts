@@ -28,6 +28,7 @@ const HANDLED = new Set<string>([
   "tab.newPrivate",
   "tab.newPreview",
   "tab.newEditor",
+  "tab.newAgent",
   "tab.close",
   "tab.next",
   "tab.prev",

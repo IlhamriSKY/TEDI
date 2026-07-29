@@ -2,7 +2,7 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { MAX_PANES_PER_TAB, type PaneTab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal";
-import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useMemo } from "react";
 import { type TabsApi } from "./tabsApi";
 
 type Params = {
@@ -11,7 +11,6 @@ type Params = {
   openPreviewTab: (url: string) => number | null;
   handleClose: (id: number) => void;
   requestCloseLeaf: (leafId: number) => void;
-  setNewEditorOpen: Dispatch<SetStateAction<boolean>>;
 } & Pick<TabsApi, "setActiveId" | "focusPane" | "pinTab" | "newSshTab">;
 
 /**
@@ -27,7 +26,6 @@ export function useHeaderActions({
   openPreviewTab,
   handleClose,
   requestCloseLeaf,
-  setNewEditorOpen,
   setActiveId,
   focusPane,
   pinTab,
@@ -38,7 +36,6 @@ export function useHeaderActions({
   handleHeaderSelectEntry: (tabId: number, leafId: number | null) => void;
   handleHeaderCloseEntry: (tabId: number, leafId: number | null) => void;
   handleHeaderNewPreview: () => void;
-  handleHeaderNewEditor: () => void;
   handleHeaderPinLeaf: (tabId: number, leafId: number) => void;
   handleHeaderOpenExtensions: () => void;
   handleHeaderOpenSettings: () => void;
@@ -68,7 +65,6 @@ export function useHeaderActions({
     [requestCloseLeaf, handleClose],
   );
   const handleHeaderNewPreview = useCallback(() => openPreviewTab(""), [openPreviewTab]);
-  const handleHeaderNewEditor = useCallback(() => setNewEditorOpen(true), []);
   const handleHeaderPinLeaf = useCallback(
     (tabId: number, leafId: number) => {
       focusPane(tabId, leafId);
@@ -93,7 +89,6 @@ export function useHeaderActions({
     handleHeaderSelectEntry,
     handleHeaderCloseEntry,
     handleHeaderNewPreview,
-    handleHeaderNewEditor,
     handleHeaderPinLeaf,
     handleHeaderOpenExtensions,
     handleHeaderOpenSettings,

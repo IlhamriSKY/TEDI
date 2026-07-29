@@ -35,6 +35,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
+import { CliAgentsCard } from "./components/CliAgentsCard";
 import { SkillsCard } from "./components/SkillsCard";
 import { McpServersCard } from "./components/McpServersCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
@@ -146,6 +147,8 @@ export function AgentsSection() {
       </section>
 
       <SubagentsCard />
+
+      <CliAgentsCard />
 
       <SkillsCard />
 

@@ -324,6 +324,23 @@ export function useTerminalSession({
 
   const write = useCallback((data: string) => sessions.get(leafId)?.pty?.write(data), [leafId]);
 
+  /**
+   * Start an AI CLI in this pane and tag it as running `tool`. `write` goes
+   * straight to the PTY, so the command never passes through xterm's `onData`
+   * and the detector's type-a-command activation never fires - hence the
+   * explicit `activate`, which also covers a renamed launcher (`claude-start`)
+   * that `TOOL_PATTERNS` cannot match. `tool: null` just runs the command.
+   */
+  const launchAgent = useCallback(
+    (command: string, tool: AiCliKind | null) => {
+      const s = sessions.get(leafId);
+      if (!s?.pty) return;
+      s.pty.write(`${command}\r`);
+      if (tool) s.aiCliDetector?.activate(tool);
+    },
+    [leafId],
+  );
+
   const focus = useCallback(() => {
     sessions.get(leafId)?.term.focus();
   }, [leafId]);
@@ -401,6 +418,7 @@ export function useTerminalSession({
 
   return {
     write,
+    launchAgent,
     focus,
     getBuffer,
     getSelection,

@@ -15,6 +15,7 @@ import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, type Dispatch, type SetStateAction } from "react";
 import { type QuitGuard } from "../hooks/useQuitGuard";
 import { type PendingClose } from "../hooks/useTabActions";
+import { type PaneLayout } from "@/modules/terminal";
 
 // Dialogs mount only while `open` is true.
 const NewEditorDialog = lazy(() =>
@@ -23,11 +24,21 @@ const NewEditorDialog = lazy(() =>
 const SshConnectionDialog = lazy(() =>
   import("@/modules/ssh/SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
 );
+const AgentSpawnDialog = lazy(() =>
+  import("@/modules/tabs/components/AgentSpawnDialog").then((m) => ({
+    default: m.AgentSpawnDialog,
+  })),
+);
 
 type Props = {
   askPopup: { x: number; y: number } | null;
   onAskFromSelection: () => void;
   setAskPopup: Dispatch<SetStateAction<{ x: number; y: number } | null>>;
+  agentDialogMounted: boolean;
+  agentDialogOpen: boolean;
+  setAgentDialogOpen: Dispatch<SetStateAction<boolean>>;
+  /** Spawn one terminal per picked agent id, arranged by `layout`. */
+  onSpawnAgents: (agentIds: string[], layout: PaneLayout) => void;
   newEditorMounted: boolean;
   newEditorOpen: boolean;
   setNewEditorOpen: Dispatch<SetStateAction<boolean>>;
@@ -56,6 +67,10 @@ export function AppDialogs({
   askPopup,
   onAskFromSelection,
   setAskPopup,
+  agentDialogMounted,
+  agentDialogOpen,
+  setAgentDialogOpen,
+  onSpawnAgents,
   newEditorMounted,
   newEditorOpen,
   setNewEditorOpen,
@@ -85,6 +100,16 @@ export function AppDialogs({
           />
         ) : null}
       </AnimatePresence>
+
+      {agentDialogMounted ? (
+        <Suspense fallback={null}>
+          <AgentSpawnDialog
+            open={agentDialogOpen}
+            onOpenChange={setAgentDialogOpen}
+            onSpawn={onSpawnAgents}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Mount-once. Defers the chunk until first open, then stays
           mounted so Radix's exit animation plays and reopens skip the

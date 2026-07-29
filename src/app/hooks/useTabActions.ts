@@ -1,7 +1,19 @@
 import { toast } from "@/components/ui/toast";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/browser/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
-import { hasLeaf, leafIds, leaves, type TerminalPaneHandle } from "@/modules/terminal";
+import {
+  agentToolKind,
+  MAX_AGENT_SPAWN,
+  useCliAgentsStore,
+  type CliAgent,
+} from "@/modules/terminal/lib/cliAgents";
+import {
+  hasLeaf,
+  leafIds,
+  leaves,
+  type PaneLayout,
+  type TerminalPaneHandle,
+} from "@/modules/terminal";
 import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type TabsApi } from "./tabsApi";
 
@@ -25,6 +37,7 @@ type Params = {
   TabsApi,
   | "setActiveId"
   | "newTab"
+  | "newPaneGroupTab"
   | "newBrowserTab"
   | "setLeafCwd"
   | "splitActivePane"
@@ -66,6 +79,7 @@ export function useTabActions({
   disposeTab,
   setActiveId,
   newTab,
+  newPaneGroupTab,
   newBrowserTab,
   setLeafCwd,
   splitActivePane,
@@ -82,6 +96,7 @@ export function useTabActions({
   openNewPrivateTab: () => void;
   sendCd: (path: string) => void;
   cdInNewTab: (path: string) => void;
+  spawnAgents: (agentIds: string[], layout?: PaneLayout) => void;
   openPreviewTab: (url: string, activate?: boolean) => number | null;
   splitActivePaneInActiveTab: (
     dir: "row" | "col",
@@ -248,6 +263,58 @@ export function useTabActions({
     [newTab],
   );
 
+  /**
+   * `+` -> Agent: one tab holding a terminal per picked agent, arranged by
+   * `layout`, each auto-running that agent's CLI.
+   *
+   * The whole pane group is built in one shot (`newPaneGroupTab`) rather than by
+   * chaining splits, because a grid is not reachable by repeatedly splitting the
+   * active pane, and because every leaf must exist before we start typing into
+   * them.
+   *
+   * The CLI is typed into the shell rather than spawned as the PTY's program, so
+   * the pane falls back to a normal shell when the agent exits. `launchAgent`
+   * (not `write`) does the typing because it also tags the pane with the agent's
+   * detector kind - the status badge would otherwise stay dark, since the
+   * command bypasses xterm's `onData` and a renamed launcher (`claude-start`)
+   * matches no detector pattern anyway.
+   */
+  const spawnAgents = useCallback(
+    (agentIds: string[], layout: PaneLayout = "row") => {
+      const roster = useCliAgentsStore.getState().all();
+      const picked: CliAgent[] = [];
+      for (const id of agentIds.slice(0, MAX_AGENT_SPAWN)) {
+        const agent = roster.find((a) => a.id === id);
+        if (agent && agent.command.trim() !== "") picked.push(agent);
+      }
+      if (picked.length === 0) return;
+      const cwd = explorerRoot ?? inheritedCwdForNewTab();
+      const title = picked.length === 1 ? picked[0].name : `${picked.length} agents`;
+      const tabId = newPaneGroupTab(picked.length, layout, cwd, title);
+      // Panes mount and spawn their PTY asynchronously; wait for the shell to
+      // reach a prompt before typing, else the keystrokes land in a shell that
+      // is not reading stdin yet. Give up after ~6s rather than typing blind.
+      const launch = (leafId: number, agent: CliAgent, tries: number) => {
+        const term = terminalRefs.current.get(leafId);
+        if (term?.isAtPrompt()) {
+          term.launchAgent(agent.command.trim(), agentToolKind(agent));
+          return;
+        }
+        if (tries <= 0) return;
+        setTimeout(() => launch(leafId, agent, tries - 1), 150);
+      };
+      setTimeout(() => {
+        const tab = tabsRef.current.find((x) => x.id === tabId);
+        if (!tab || tab.kind !== "pane") return;
+        leafIds(tab.paneTree).forEach((leafId, i) => {
+          const agent = picked[i];
+          if (agent) launch(leafId, agent, 40);
+        });
+      }, 120);
+    },
+    [newPaneGroupTab, explorerRoot, inheritedCwdForNewTab],
+  );
+
   const openPreviewTab = useCallback(
     (url: string, activate = true): number | null => {
       if (url && isSelfReferenceUrl(url)) {
@@ -319,6 +386,7 @@ export function useTabActions({
     openNewPrivateTab,
     sendCd,
     cdInNewTab,
+    spawnAgents,
     openPreviewTab,
     splitActivePaneInActiveTab,
     moveLeafToGroup,

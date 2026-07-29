@@ -12,6 +12,9 @@ import type { AiCliKind, AiCliStatus } from "./lib/aiCliStatus";
 
 export type TerminalPaneHandle = {
   write: (data: string) => void;
+  /** Run an AI CLI here and tag the pane as running `tool` (null = no badge).
+   *  See `useTerminalSession.launchAgent` for why the tag must be explicit. */
+  launchAgent: (command: string, tool: AiCliKind | null) => void;
   focus: () => void;
   getBuffer: (maxLines?: number) => string | null;
   getSelection: () => string | null;
@@ -164,6 +167,7 @@ export function TerminalPane({
       getBuffer: (max?: number) => session.getBuffer(max),
       getSelection: () => session.getSelection(),
       paste: (data: string) => session.paste(data),
+      launchAgent: session.launchAgent,
       isAtPrompt: () => session.isAtPrompt(),
       isProcessRunning: () => session.isProcessRunning(),
     }),

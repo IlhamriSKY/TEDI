@@ -112,6 +112,7 @@ const TOOL_PATTERNS: { tool: AiCliKind; commands: RegExp }[] = [
   { tool: "pi", commands: /^\s*pi(?![\w.-])/ },
   { tool: "aider", commands: /^\s*aider(?![\w.-])/ },
   { tool: "gemini", commands: /^\s*(?:gemini-cli|gemini)(?![\w.-])/ },
+  { tool: "grok", commands: /^\s*grok(?![\w.-])/ },
   { tool: "amazon-q", commands: /^\s*(?:q\s+chat|q\s+code|amazon-q)(?![\w.-])/ },
   { tool: "cody", commands: /^\s*cody(?![\w.-])/ },
   { tool: "goose", commands: /^\s*goose(?![\w.-])/ },
@@ -142,7 +143,12 @@ function normalizeCommandForMatch(line: string): string {
   return s;
 }
 
-function matchTool(line: string): AiCliKind | null {
+/**
+ * Classify a shell command line as an AI CLI launch, or null. Exported so the
+ * `+` -> Agent launcher can tag a pane it spawns with the right tool even though
+ * it writes straight to the PTY (bypassing `pushInput`).
+ */
+export function matchTool(line: string): AiCliKind | null {
   const norm = normalizeCommandForMatch(line);
   for (const t of TOOL_PATTERNS) {
     if (t.commands.test(norm)) return t.tool;
@@ -564,6 +570,18 @@ export type AiCliDetector = {
    * busy/idle oracle for tools that emit it (Claude Code).
    */
   pushProgress: (state: number, progress: number | null) => void;
+  /**
+   * Force-activate `tool` without a typed command. Needed because TEDI's own
+   * launchers (`+` -> Agent, OSC 8889 spawn) write straight to the PTY, so the
+   * command never reaches `pushInput` and the type-a-command gate never fires.
+   * Also the only way a renamed launcher (`claude-start`) or a user-defined CLI
+   * agent can light its badge, since neither matches `TOOL_PATTERNS`.
+   *
+   * Self-correcting exactly like `initialTool`: the next reclassify tick clears
+   * it if the cursor is sitting at a shell prompt (the launch failed, or the
+   * tool already exited).
+   */
+  activate: (tool: AiCliKind) => void;
   /** Drop the active tool. */
   reset: () => void;
   /**
@@ -807,8 +825,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       // reset on exit can't pin the badge to "working" forever: real work always
       // animates its spinner/elapsed timer, so fresh bytes are present throughout;
       // once output truly stops, the glyph decays out within the working hold.
-      const titleHit =
-        TITLE_GLYPH_TOOLS.has(activeTool) && lastTitleIsWorking && hasFreshOutput();
+      const titleHit = TITLE_GLYPH_TOOLS.has(activeTool) && lastTitleIsWorking && hasFreshOutput();
 
       // OSC 9;4 progress signal: the STRONGEST, most deterministic working oracle.
       // The tool itself reports "busy" (state 1/3) until it reports "clear" (0),
@@ -1059,6 +1076,14 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
         turnInProgress = true;
         lastWorkingAt = Date.now();
       }
+    },
+    activate(tool: AiCliKind) {
+      cmdBuffer = "";
+      activateTool(tool);
+      // The launcher just submitted a command, so the viewport/rate branches
+      // (gated on a keystroke this session) must run without one - same reason
+      // the `initialTool` restore path forces it.
+      userSubmittedAtLeastOnce = true;
     },
     reset() {
       cmdBuffer = "";

@@ -9,6 +9,7 @@ export type AiCliKind =
   | "pi"
   | "aider"
   | "gemini"
+  | "grok"
   | "amazon-q"
   | "cody"
   | "goose"
@@ -88,6 +89,8 @@ export function toolDisplayName(t: AiCliKind): string {
       return "Aider";
     case "gemini":
       return "Gemini";
+    case "grok":
+      return "Grok";
     case "amazon-q":
       return "Amazon Q";
     case "cody":

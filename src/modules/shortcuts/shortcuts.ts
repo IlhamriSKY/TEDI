@@ -7,6 +7,7 @@ export type ShortcutId =
   | "tab.newPrivate"
   | "tab.newPreview"
   | "tab.newEditor"
+  | "tab.newAgent"
   | "tab.close"
   | "tab.next"
   | "tab.prev"
@@ -45,7 +46,16 @@ export type ShortcutId =
   | "commandPalette.open";
 
 export type ShortcutGroup =
-  "General" | "Tabs" | "Panes" | "Search" | "AI" | "View" | "Editor" | "Terminal" | "Browser" | "Command Palette";
+  | "General"
+  | "Tabs"
+  | "Panes"
+  | "Search"
+  | "AI"
+  | "View"
+  | "Editor"
+  | "Terminal"
+  | "Browser"
+  | "Command Palette";
 
 export type KeyBinding = {
   key: string;
@@ -101,6 +111,19 @@ export const SHORTCUTS: Shortcut[] = [
     label: "New editor tab",
     group: "Tabs",
     defaultBindings: [{ [MOD_PROP]: true, key: "e" }],
+  },
+  {
+    // Opens the AI-CLI picker, not a tab directly - the dialog decides how many
+    // panes and in what layout. N for "new agents": Mod+Shift+N is free, and
+    // being Mod+Shift it never shadows a shell control code the way a bare
+    // Mod+letter would. Deliberately NOT A or B - those are the GNU screen and
+    // tmux prefixes, so muscle memory in a multiplexer session would keep
+    // hitting this by mistake even though the bare-Ctrl form still reaches the
+    // shell.
+    id: "tab.newAgent",
+    label: "Run AI agents...",
+    group: "Tabs",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "n" }],
   },
   {
     id: "tab.close",
