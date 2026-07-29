@@ -134,7 +134,7 @@ function LanguagePickerDialogImpl({
       </div>
 
       {/* Native list (no `no-scrollbar`) so the themed scrollbar shows for
-          navigating the ~75-item list. */}
+          navigating the full language list (~180 entries). */}
       <CommandPrimitive.List
         data-slot="command-list"
         className="max-h-80 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none"
@@ -183,7 +183,7 @@ function LanguagePickerDialogImpl({
 
 /**
  * Memoized so the always-mounted (but usually closed) picker doesn't rebuild
- * its ~75-item list every time the editor re-renders on cursor moves. With a
+ * its ~180-item list every time the editor re-renders on cursor moves. With a
  * stable `onPick` the props stay referentially equal until the file or
  * override changes.
  */

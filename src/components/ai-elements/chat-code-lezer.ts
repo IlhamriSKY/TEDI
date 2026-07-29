@@ -1,6 +1,7 @@
 import type { Language, StreamParser } from "@codemirror/language";
 import { StringStream } from "@codemirror/language";
 import { classHighlighter, highlightCode } from "@lezer/highlight";
+import { LANGUAGES, detectLanguageId } from "@/modules/editor/lib/languages";
 
 export type HighlightedNode = { kind: "text"; value: string; cls: string } | { kind: "break" };
 
@@ -198,13 +199,9 @@ const streamLoaders: Record<string, StreamLoader> = {
     import("@codemirror/legacy-modes/mode/gherkin").then(
       (m) => m.gherkin as unknown as StreamParser<unknown>,
     ),
-  // ── Modern langs (hand-rolled on clike; shared with the editor) ──
-  odin: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.odin),
-  zig: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.zig),
-  nim: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.nim),
-  solidity: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.solidity),
-  gleam: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.gleam),
-  hare: () => import("@/modules/editor/lib/streamLanguages").then((m) => m.hare),
+  // Odin / Zig / Nim / Solidity / Gleam / Hare and the rest of the hand-rolled
+  // grammars are reached through the registry fallback below - listing them
+  // twice is what let the two tables drift apart in the first place.
   // ── More legacy modes ──
   haxe: () =>
     import("@codemirror/legacy-modes/mode/haxe").then(
@@ -258,10 +255,28 @@ const aliases: Record<string, string> = {
   // Markdown
   md: "markdown",
   mdx: "markdown",
-  // HTML / Web
+  // HTML / Web. The template dialects are HTML with an embedded tag syntax;
+  // routing them here (rather than letting the registry fallback find them)
+  // matters because their registry loader returns an Extension, and only the
+  // Lezer `loaders` table can turn that into a highlightable Language.
   htm: "html",
   xhtml: "html",
   svg: "xml",
+  vue: "html",
+  svelte: "html",
+  astro: "html",
+  blade: "html",
+  ejs: "html",
+  erb: "html",
+  rhtml: "html",
+  hbs: "html",
+  handlebars: "html",
+  mustache: "html",
+  twig: "html",
+  liquid: "html",
+  razor: "html",
+  cshtml: "html",
+  tpl: "html",
   // CSS
   scss: "css",
   sass: "css",
@@ -287,12 +302,10 @@ const aliases: Record<string, string> = {
   cfg: "properties",
   // Scripting
   rb: "ruby",
-  erb: "ruby",
   gemspec: "ruby",
   pl: "perl",
   pm: "perl",
   hs: "haskell",
-  jl: "octave",
   matlab: "octave",
   // Shell
   sh: "shell",
@@ -309,7 +322,6 @@ const aliases: Record<string, string> = {
   psd1: "powershell",
   // DevOps
   docker: "dockerfile",
-  conf: "nginx",
   nginxconf: "nginx",
   gradle: "groovy",
   // Diff
@@ -329,13 +341,12 @@ const aliases: Record<string, string> = {
   csproj: "xml",
   // Schema
   proto: "protobuf",
-  graphql: "protobuf",
-  gql: "protobuf",
-  // Hardware
+  // Hardware. `v` is spelled out because the registry has a language whose id
+  // is literally "v" (vlang) and ids outrank extensions there - without this
+  // the chat would read ```v as V while the editor reads `.v` as Verilog.
+  // V is still reachable as ```vlang / ```vsh.
   v: "verilog",
   sv: "verilog",
-  vhdl: "verilog",
-  vhd: "verilog",
   // VB
   vbnet: "vb",
   vbs: "vb",
@@ -349,9 +360,6 @@ const aliases: Record<string, string> = {
   // Scheme / Lisp
   scm: "scheme",
   rkt: "scheme",
-  lisp: "scheme",
-  cl: "scheme",
-  el: "scheme",
   // OCaml / ML
   ml: "oCaml",
   mli: "oCaml",
@@ -390,9 +398,36 @@ const aliases: Record<string, string> = {
   xqm: "xquery",
 };
 
+// Fallback for every fence tag the two tables above do not name: the editor's
+// language registry already maps ~180 languages to a loader, so a ```nix or
+// ```makefile block highlights without this file mirroring that list - and,
+// more to the point, without the two lists drifting apart (a hand-mirrored
+// `jl` used to resolve to Octave here while the editor read it as Julia).
+// Only the stream-parser half is usable: the registry's `lang-*` entries hand
+// back an Extension, and the Lezer path needs a `Language`, which the explicit
+// `loaders` table above already covers for those.
+// Ids win over aliases, so a fuzzy-search alias on an earlier entry can never
+// outrank another language's canonical name (```sass is Sass, even though the
+// SCSS entry lists "sass" as a search term).
+const registryByKey = new Map<string, (typeof LANGUAGES)[number]>();
+for (const def of LANGUAGES) registryByKey.set(def.id, def);
+for (const def of LANGUAGES) {
+  for (const alias of def.aliases ?? []) {
+    if (!registryByKey.has(alias)) registryByKey.set(alias, def);
+  }
+}
+
+function registryLookup(tag: string): string | null {
+  const hit = registryByKey.get(tag);
+  if (hit) return hit.id;
+  // Extension spelling (```mjs, ```bzl): reuse the registry's own precedence.
+  return detectLanguageId(`f.${tag}`);
+}
+
 type ResolvedKey =
   | { kind: "lezer"; key: keyof typeof loaders }
-  | { kind: "stream"; key: keyof typeof streamLoaders };
+  | { kind: "stream"; key: keyof typeof streamLoaders }
+  | { kind: "registry"; key: string };
 
 function resolve(lang: string | null | undefined): ResolvedKey | null {
   if (!lang) return null;
@@ -400,7 +435,8 @@ function resolve(lang: string | null | undefined): ResolvedKey | null {
   const direct = lower in aliases ? aliases[lower]! : lower;
   if (direct in loaders) return { kind: "lezer", key: direct as keyof typeof loaders };
   if (direct in streamLoaders) return { kind: "stream", key: direct as keyof typeof streamLoaders };
-  return null;
+  const id = registryLookup(direct);
+  return id ? { kind: "registry", key: id } : null;
 }
 
 export function isHighlightable(lang: string | null | undefined): boolean {
@@ -424,6 +460,29 @@ async function getStream(key: keyof typeof streamLoaders): Promise<StreamParser<
   const parser = await streamLoaders[key]!();
   streamCache.set(key, parser);
   return parser;
+}
+
+/**
+ * Load a registry language's parser. Returns `null` when that entry is backed
+ * by a `lang-*` package (its loader hands back an Extension, not a parser we
+ * can drive token by token) - the caller then falls back to a plain block.
+ */
+async function getRegistryStream(id: string): Promise<StreamParser<unknown> | null> {
+  const cacheKey = `registry:${id}`;
+  const hit = streamCache.get(cacheKey);
+  if (hit) return hit;
+  const def = registryByKey.get(id);
+  if (!def) return null;
+  const loaded = await def.load();
+  if (!isStreamParser(loaded)) return null;
+  streamCache.set(cacheKey, loaded);
+  return loaded;
+}
+
+function isStreamParser(v: unknown): v is StreamParser<unknown> {
+  return (
+    typeof v === "object" && v !== null && typeof (v as { token?: unknown }).token === "function"
+  );
 }
 
 function highlightStream(code: string, parser: StreamParser<unknown>): HighlightedNode[] {
@@ -549,6 +608,11 @@ export async function highlight(code: string, rawLang: string): Promise<Highligh
       },
     );
     return out;
+  }
+
+  if (r.kind === "registry") {
+    const parser = await getRegistryStream(r.key);
+    return parser ? highlightStream(code, parser) : null;
   }
 
   const parser = await getStream(r.key);

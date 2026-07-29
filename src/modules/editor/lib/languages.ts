@@ -2,19 +2,19 @@
  * Central language registry - the single source of truth for editor syntax
  * highlighting.
  *
- * Each {@link LanguageDef} carries everything three surfaces need:
- *  - detection: `extensions`, `filenames`, and `filenamePatterns` map a path to
- *    a language id (used by `resolveLanguage` and the diff panes);
- *  - the manual override picker: `label` + `aliases` drive fuzzy search and
- *    `icon` (a representative filename) is fed through the explorer's
- *    `fileIconUrl` so the picker shows the *exact* glyph the file tree does;
- *  - lazy loading: `load` dynamic-imports the CodeMirror parser so a language
- *    pack only enters the bundle when a matching file is opened or picked.
+ * Every language is one {@link lang} row carrying what three surfaces need:
+ *  - detection: the extension list plus `files` / `patterns` map a path to a
+ *    language id (used by `resolveLanguage` and the diff panes);
+ *  - the manual override picker: `label` + `alias` drive fuzzy search, and the
+ *    glyph defaults to the one the file tree shows for the first extension;
+ *  - lazy loading: `load` dynamic-imports the parser, so a language pack only
+ *    enters the bundle when a matching file is opened or picked.
  *
- * Loaders return either an `Extension` (`@codemirror/lang-*` packages) or a raw
- * `StreamParser` (`@codemirror/legacy-modes` + the hand-rolled
- * `./streamLanguages`); `loadLanguageExtension` wraps the latter in
- * `StreamLanguage`.
+ * Extensions are matched first-definition-wins, so where two languages claim the
+ * same suffix the earlier row is the deliberate default (`.m` is Objective-C,
+ * not MATLAB; `.v` is Verilog, not V or Coq; `.pp` is Pascal, not Puppet). The
+ * losing language stays reachable through the picker. `scripts/languages-verify.ts`
+ * asserts every row is reachable, so a new row cannot silently shadow an old one.
  */
 import { StreamLanguage, type StreamParser } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
@@ -44,8 +44,115 @@ export type LanguageDef = {
   load: LanguageLoader;
 };
 
-// Shared loaders for families so the entries below stay terse and the same
-// dynamic import is reused (one chunk) across related extensions.
+/**
+ * One thunk per parser module. `import()` needs a literal path to stay
+ * analyzable, so the paths cannot be built from a variable - this map is what
+ * keeps every mode in its own lazily fetched chunk while the table below stays
+ * one line per language.
+ */
+const M = {
+  apl: () => import("@codemirror/legacy-modes/mode/apl"),
+  asciiarmor: () => import("@codemirror/legacy-modes/mode/asciiarmor"),
+  brainfuck: () => import("@codemirror/legacy-modes/mode/brainfuck"),
+  clike: () => import("@codemirror/legacy-modes/mode/clike"),
+  clojure: () => import("@codemirror/legacy-modes/mode/clojure"),
+  cmake: () => import("@codemirror/legacy-modes/mode/cmake"),
+  cobol: () => import("@codemirror/legacy-modes/mode/cobol"),
+  coffeescript: () => import("@codemirror/legacy-modes/mode/coffeescript"),
+  commonlisp: () => import("@codemirror/legacy-modes/mode/commonlisp"),
+  crystal: () => import("@codemirror/legacy-modes/mode/crystal"),
+  css: () => import("@codemirror/legacy-modes/mode/css"),
+  cypher: () => import("@codemirror/legacy-modes/mode/cypher"),
+  d: () => import("@codemirror/legacy-modes/mode/d"),
+  diff: () => import("@codemirror/legacy-modes/mode/diff"),
+  dockerfile: () => import("@codemirror/legacy-modes/mode/dockerfile"),
+  dtd: () => import("@codemirror/legacy-modes/mode/dtd"),
+  dylan: () => import("@codemirror/legacy-modes/mode/dylan"),
+  ebnf: () => import("@codemirror/legacy-modes/mode/ebnf"),
+  ecl: () => import("@codemirror/legacy-modes/mode/ecl"),
+  eiffel: () => import("@codemirror/legacy-modes/mode/eiffel"),
+  elm: () => import("@codemirror/legacy-modes/mode/elm"),
+  erlang: () => import("@codemirror/legacy-modes/mode/erlang"),
+  factor: () => import("@codemirror/legacy-modes/mode/factor"),
+  fcl: () => import("@codemirror/legacy-modes/mode/fcl"),
+  forth: () => import("@codemirror/legacy-modes/mode/forth"),
+  fortran: () => import("@codemirror/legacy-modes/mode/fortran"),
+  gas: () => import("@codemirror/legacy-modes/mode/gas"),
+  gherkin: () => import("@codemirror/legacy-modes/mode/gherkin"),
+  groovy: () => import("@codemirror/legacy-modes/mode/groovy"),
+  haskell: () => import("@codemirror/legacy-modes/mode/haskell"),
+  haxe: () => import("@codemirror/legacy-modes/mode/haxe"),
+  http: () => import("@codemirror/legacy-modes/mode/http"),
+  jinja2: () => import("@codemirror/legacy-modes/mode/jinja2"),
+  julia: () => import("@codemirror/legacy-modes/mode/julia"),
+  livescript: () => import("@codemirror/legacy-modes/mode/livescript"),
+  ll: () => import("./lineLanguages"),
+  lua: () => import("@codemirror/legacy-modes/mode/lua"),
+  mathematica: () => import("@codemirror/legacy-modes/mode/mathematica"),
+  mbox: () => import("@codemirror/legacy-modes/mode/mbox"),
+  mirc: () => import("@codemirror/legacy-modes/mode/mirc"),
+  mllike: () => import("@codemirror/legacy-modes/mode/mllike"),
+  modelica: () => import("@codemirror/legacy-modes/mode/modelica"),
+  mscgen: () => import("@codemirror/legacy-modes/mode/mscgen"),
+  nginx: () => import("@codemirror/legacy-modes/mode/nginx"),
+  nsis: () => import("@codemirror/legacy-modes/mode/nsis"),
+  ntriples: () => import("@codemirror/legacy-modes/mode/ntriples"),
+  octave: () => import("@codemirror/legacy-modes/mode/octave"),
+  oz: () => import("@codemirror/legacy-modes/mode/oz"),
+  pascal: () => import("@codemirror/legacy-modes/mode/pascal"),
+  pegjs: () => import("@codemirror/legacy-modes/mode/pegjs"),
+  perl: () => import("@codemirror/legacy-modes/mode/perl"),
+  pig: () => import("@codemirror/legacy-modes/mode/pig"),
+  powershell: () => import("@codemirror/legacy-modes/mode/powershell"),
+  properties: () => import("@codemirror/legacy-modes/mode/properties"),
+  protobuf: () => import("@codemirror/legacy-modes/mode/protobuf"),
+  pug: () => import("@codemirror/legacy-modes/mode/pug"),
+  puppet: () => import("@codemirror/legacy-modes/mode/puppet"),
+  python: () => import("@codemirror/legacy-modes/mode/python"),
+  q: () => import("@codemirror/legacy-modes/mode/q"),
+  r: () => import("@codemirror/legacy-modes/mode/r"),
+  rpm: () => import("@codemirror/legacy-modes/mode/rpm"),
+  ruby: () => import("@codemirror/legacy-modes/mode/ruby"),
+  sas: () => import("@codemirror/legacy-modes/mode/sas"),
+  sass: () => import("@codemirror/legacy-modes/mode/sass"),
+  scheme: () => import("@codemirror/legacy-modes/mode/scheme"),
+  shell: () => import("@codemirror/legacy-modes/mode/shell"),
+  sieve: () => import("@codemirror/legacy-modes/mode/sieve"),
+  sl: () => import("./streamLanguages"),
+  smalltalk: () => import("@codemirror/legacy-modes/mode/smalltalk"),
+  sparql: () => import("@codemirror/legacy-modes/mode/sparql"),
+  sql: () => import("@codemirror/legacy-modes/mode/sql"),
+  stex: () => import("@codemirror/legacy-modes/mode/stex"),
+  stylus: () => import("@codemirror/legacy-modes/mode/stylus"),
+  swift: () => import("@codemirror/legacy-modes/mode/swift"),
+  tcl: () => import("@codemirror/legacy-modes/mode/tcl"),
+  textile: () => import("@codemirror/legacy-modes/mode/textile"),
+  tiddlywiki: () => import("@codemirror/legacy-modes/mode/tiddlywiki"),
+  toml: () => import("@codemirror/legacy-modes/mode/toml"),
+  troff: () => import("@codemirror/legacy-modes/mode/troff"),
+  ttcn: () => import("@codemirror/legacy-modes/mode/ttcn"),
+  turtle: () => import("@codemirror/legacy-modes/mode/turtle"),
+  vb: () => import("@codemirror/legacy-modes/mode/vb"),
+  vbscript: () => import("@codemirror/legacy-modes/mode/vbscript"),
+  velocity: () => import("@codemirror/legacy-modes/mode/velocity"),
+  verilog: () => import("@codemirror/legacy-modes/mode/verilog"),
+  vhdl: () => import("@codemirror/legacy-modes/mode/vhdl"),
+  wast: () => import("@codemirror/legacy-modes/mode/wast"),
+  webidl: () => import("@codemirror/legacy-modes/mode/webidl"),
+  xml: () => import("@codemirror/legacy-modes/mode/xml"),
+  xquery: () => import("@codemirror/legacy-modes/mode/xquery"),
+  yacas: () => import("@codemirror/legacy-modes/mode/yacas"),
+  yaml: () => import("@codemirror/legacy-modes/mode/yaml"),
+  z80: () => import("@codemirror/legacy-modes/mode/z80"),
+};
+
+/** Pull one named export out of a module thunk. */
+const pick =
+  <T, K extends keyof T>(mod: () => Promise<T>, key: K) =>
+  () =>
+    mod().then((m) => m[key]);
+
+// Parsers that take options, or that several rows share.
 const js = () => import("@codemirror/lang-javascript").then((m) => m.javascript());
 const ts = () =>
   import("@codemirror/lang-javascript").then((m) => m.javascript({ typescript: true }));
@@ -56,714 +163,440 @@ const json = () => import("@codemirror/lang-json").then((m) => m.json());
 const markdown = () => import("@codemirror/lang-markdown").then((m) => m.markdown());
 const html = () => import("@codemirror/lang-html").then((m) => m.html());
 const php = () => import("@codemirror/lang-php").then((m) => m.php({ plain: true }));
-const cMode = () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.c);
-const cppMode = () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.cpp);
-const rubyMode = () => import("@codemirror/legacy-modes/mode/ruby").then((m) => m.ruby);
-const shellMode = () => import("@codemirror/legacy-modes/mode/shell").then((m) => m.shell);
-const xmlMode = () => import("@codemirror/legacy-modes/mode/xml").then((m) => m.xml);
-const propsMode = () =>
-  import("@codemirror/legacy-modes/mode/properties").then((m) => m.properties);
-const goMode = () => import("@codemirror/legacy-modes/mode/go").then((m) => m.go);
-const dockerMode = () =>
-  import("@codemirror/legacy-modes/mode/dockerfile").then((m) => m.dockerFile);
-const cmakeMode = () => import("@codemirror/legacy-modes/mode/cmake").then((m) => m.cmake);
+const python = () => import("@codemirror/lang-python").then((m) => m.python());
+const cMode = pick(M.clike, "c");
+const cppMode = pick(M.clike, "cpp");
+const javaMode = pick(M.clike, "java");
+const shaderMode = pick(M.clike, "shader");
+const rubyMode = pick(M.ruby, "ruby");
+const perlMode = pick(M.perl, "perl");
+const haskellMode = pick(M.haskell, "haskell");
+const shellMode = pick(M.shell, "shell");
+const xmlMode = pick(M.xml, "xml");
+const propsMode = pick(M.properties, "properties");
+const dockerMode = pick(M.dockerfile, "dockerFile");
+const cmakeMode = pick(M.cmake, "cmake");
+const jinjaMode = pick(M.jinja2, "jinja2");
+const makefileMode = pick(M.ll, "makefile");
+
+/** Optional per-language fields; everything here is space-separated. */
+type Spec = {
+  /** Extra picker search terms. */
+  alias?: string;
+  /** Exact lowercase basenames. */
+  files?: string;
+  /** Lowercase basename patterns, tested before filenames and extensions. */
+  patterns?: RegExp[];
+  /** Override the default glyph (`a.` + the first extension). */
+  icon?: string;
+};
+
+const split = (s?: string) => (s ? s.split(/\s+/).filter(Boolean) : undefined);
+
+/** One registry row. `exts` is a space-separated extension list. */
+function lang(
+  id: string,
+  label: string,
+  exts: string,
+  load: LanguageLoader,
+  spec: Spec = {},
+): LanguageDef {
+  const extensions = split(exts);
+  return {
+    id,
+    label,
+    aliases: split(spec.alias),
+    extensions,
+    filenames: split(spec.files),
+    filenamePatterns: spec.patterns,
+    icon: spec.icon ?? `a.${extensions?.[0] ?? ""}`,
+    load,
+  };
+}
 
 /**
- * The registry. Order here is the picker's display order before its
- * alphabetical sort, so grouping by family only aids maintenance, not the UI.
+ * The registry. Order is the picker's display order before its alphabetical
+ * sort, so grouping by family aids maintenance - but it *is* the tie-breaker
+ * for any extension claimed by more than one row.
  */
 export const LANGUAGES: LanguageDef[] = [
-  // ── JavaScript / TypeScript family ─────────────────────────────────────────
-  {
-    id: "javascript",
-    label: "JavaScript",
-    aliases: ["js", "node"],
-    extensions: ["js", "mjs", "cjs"],
-    icon: "a.js",
-    load: js,
-  },
-  {
-    id: "jsx",
-    label: "JavaScript JSX",
-    aliases: ["react"],
-    extensions: ["jsx"],
-    icon: "a.jsx",
-    load: jsx,
-  },
-  {
-    id: "typescript",
-    label: "TypeScript",
-    aliases: ["ts"],
-    extensions: ["ts", "mts", "cts"],
-    icon: "a.ts",
-    load: ts,
-  },
-  {
-    id: "tsx",
-    label: "TypeScript JSX",
-    aliases: ["react", "tsx"],
-    extensions: ["tsx"],
-    icon: "a.tsx",
-    load: tsx,
-  },
-  {
-    id: "json",
-    label: "JSON",
-    aliases: ["json5"],
-    extensions: ["json", "jsonc", "json5", "jsonl", "geojson", "webmanifest"],
-    filenames: [".babelrc", ".prettierrc", ".eslintrc", "tsconfig.json"],
-    icon: "a.json",
-    load: json,
-  },
-  {
-    id: "markdown",
-    label: "Markdown",
-    aliases: ["md", "mdx"],
-    extensions: ["md", "markdown", "mdx", "mdown", "mkd"],
-    icon: "a.md",
-    load: markdown,
-  },
+  // JavaScript / TypeScript family
+  lang("javascript", "JavaScript", "js mjs cjs es6 pac", js, { alias: "js node" }),
+  lang("jsx", "JavaScript JSX", "jsx", jsx, { alias: "react" }),
+  lang("typescript", "TypeScript", "ts mts cts", ts, { alias: "ts" }),
+  lang("tsx", "TypeScript JSX", "tsx", tsx, { alias: "react tsx" }),
+  lang(
+    "json",
+    "JSON",
+    "json jsonc json5 jsonl ndjson geojson topojson jsonld webmanifest avsc har importmap code-workspace tsbuildinfo",
+    json,
+    {
+      alias: "json5",
+      files:
+        ".babelrc .prettierrc .eslintrc .stylelintrc .jshintrc .swcrc .watchmanconfig tsconfig.json package-lock.json composer.lock deno.lock",
+    },
+  ),
+  lang("markdown", "Markdown", "md markdown mdx mdc mdown mkd mkdn mdwn qmd ronn", markdown, {
+    alias: "md mdx",
+    files: "readme changelog contributing",
+  }),
 
-  // ── Web ────────────────────────────────────────────────────────────────────
-  {
-    id: "html",
-    label: "HTML",
-    aliases: ["htm"],
-    extensions: ["html", "htm", "xhtml"],
-    icon: "a.html",
-    load: html,
-  },
-  {
-    id: "css",
-    label: "CSS",
-    extensions: ["css"],
-    icon: "a.css",
-    load: () => import("@codemirror/lang-css").then((m) => m.css()),
-  },
-  {
-    id: "scss",
-    label: "SCSS",
-    aliases: ["sass"],
-    extensions: ["scss"],
-    icon: "a.scss",
-    load: () => import("@codemirror/legacy-modes/mode/css").then((m) => m.sCSS),
-  },
-  {
-    id: "less",
-    label: "Less",
-    extensions: ["less"],
-    icon: "a.less",
-    load: () => import("@codemirror/legacy-modes/mode/css").then((m) => m.less),
-  },
-  {
-    id: "sass",
-    label: "Sass",
-    extensions: ["sass"],
-    icon: "a.sass",
-    load: () => import("@codemirror/legacy-modes/mode/sass").then((m) => m.sass),
-  },
-  {
-    id: "stylus",
-    label: "Stylus",
-    extensions: ["styl"],
-    icon: "a.styl",
-    load: () => import("@codemirror/legacy-modes/mode/stylus").then((m) => m.stylus),
-  },
-  { id: "vue", label: "Vue", aliases: ["vuejs"], extensions: ["vue"], icon: "a.vue", load: html },
-  { id: "svelte", label: "Svelte", extensions: ["svelte"], icon: "a.svelte", load: html },
-  { id: "astro", label: "Astro", extensions: ["astro"], icon: "a.astro", load: html },
-  {
-    id: "php",
-    label: "PHP",
-    extensions: ["php", "phtml", "php3", "php4", "php5"],
-    icon: "a.php",
-    load: php,
-  },
+  // Web
+  lang("html", "HTML", "html htm xhtml shtml hta", html, { alias: "htm" }),
+  lang("css", "CSS", "css", () => import("@codemirror/lang-css").then((m) => m.css())),
+  lang("scss", "SCSS", "scss", pick(M.css, "sCSS"), { alias: "sassy-css" }),
+  lang("less", "Less", "less", pick(M.css, "less")),
+  lang("sass", "Sass", "sass", pick(M.sass, "sass")),
+  lang("stylus", "Stylus", "styl", pick(M.stylus, "stylus")),
+  lang("vue", "Vue", "vue", html, { alias: "vuejs" }),
+  lang("svelte", "Svelte", "svelte", html),
+  lang("astro", "Astro", "astro", html),
+  lang("blade", "Blade", "", php, {
+    alias: "laravel",
+    patterns: [/\.blade\.php$/],
+    icon: "a.blade.php",
+  }),
+  lang("php", "PHP", "php phtml php3 php4 php5 php7 php8 phps ctp", php),
 
-  // ── Systems ────────────────────────────────────────────────────────────────
-  {
-    id: "rust",
-    label: "Rust",
-    aliases: ["rs"],
-    extensions: ["rs"],
-    icon: "a.rs",
-    load: () => import("@codemirror/lang-rust").then((m) => m.rust()),
-  },
-  {
-    id: "go",
-    label: "Go",
-    aliases: ["golang"],
-    extensions: ["go"],
-    filenames: ["go.mod", "go.sum"],
-    icon: "a.go",
-    load: goMode,
-  },
-  { id: "c", label: "C", extensions: ["c", "h"], icon: "a.c", load: cMode },
-  {
-    id: "cpp",
-    label: "C++",
-    aliases: ["cplusplus", "cxx"],
-    extensions: ["cpp", "cc", "cxx", "hpp", "hxx", "hh", "ino"],
-    icon: "a.cpp",
-    load: cppMode,
-  },
-  {
-    id: "csharp",
-    label: "C#",
-    aliases: ["cs", "dotnet"],
-    extensions: ["cs", "csx"],
-    icon: "a.cs",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.csharp),
-  },
-  {
-    id: "objective-c",
-    label: "Objective-C",
-    aliases: ["objc"],
-    extensions: ["m"],
+  // Systems
+  lang("rust", "Rust", "rs", () => import("@codemirror/lang-rust").then((m) => m.rust()), {
+    alias: "rs",
+  }),
+  lang("go", "Go", "go", () => import("@codemirror/lang-go").then((m) => m.go()), {
+    alias: "golang",
+    files: "go.mod go.sum go.work go.work.sum",
+  }),
+  lang("c", "C", "c h", cMode),
+  lang("cpp", "C++", "cpp cc cxx c++ hpp hxx hh h++ ipp inl ino", cppMode, {
+    alias: "cplusplus cxx",
+  }),
+  lang("cuda", "CUDA C++", "cu cuh", cppMode, { alias: "nvcc gpu" }),
+  lang("csharp", "C#", "cs csx cake", pick(M.clike, "csharp"), { alias: "cs dotnet" }),
+  lang("objective-c", "Objective-C", "m", pick(M.clike, "objectiveC"), { alias: "objc" }),
+  lang("objective-cpp", "Objective-C++", "mm", pick(M.clike, "objectiveCpp"), { alias: "objcpp" }),
+  lang("d", "D", "d", pick(M.d, "d")),
+  lang("zig", "Zig", "zig zon", pick(M.sl, "zig")),
+  lang("odin", "Odin", "odin", pick(M.sl, "odin")),
+  lang("nim", "Nim", "nim nims nimble nimcfg", pick(M.sl, "nim")),
+  lang("hare", "Hare", "ha", pick(M.sl, "hare")),
+  lang("v", "V", "vsh vv", pick(M.sl, "vlang"), { alias: "vlang", icon: "a.v" }),
+  lang("vala", "Vala", "vala vapi", pick(M.sl, "vala"), { alias: "gnome genie" }),
+  lang("ada", "Ada", "adb ads ada gpr", pick(M.sl, "ada"), { alias: "gnat spark" }),
+  lang("squirrel", "Squirrel", "nut", pick(M.clike, "squirrel")),
+  lang("nesc", "nesC", "nc", pick(M.clike, "nesC"), { alias: "tinyos" }),
+
+  // JVM
+  lang("java", "Java", "java jsh", javaMode),
+  lang("apex", "Apex", "apex trigger", javaMode, { alias: "salesforce", icon: "a.cls" }),
+  lang("processing", "Processing", "pde", javaMode, { alias: "pde" }),
+  lang("kotlin", "Kotlin", "kt kts ktm", pick(M.clike, "kotlin"), { alias: "kt" }),
+  lang("scala", "Scala", "scala sc sbt", pick(M.clike, "scala")),
+  lang("groovy", "Groovy", "groovy gradle gvy gy", pick(M.groovy, "groovy"), {
+    alias: "gradle jenkins",
+    files: "jenkinsfile",
+    patterns: [/^jenkinsfile(\.[^.\\/]+)+$/],
+  }),
+  lang("clojure", "Clojure", "clj cljs cljc cljd cljr edn bb boot", pick(M.clojure, "clojure"), {
+    alias: "babashka",
+  }),
+  lang("ceylon", "Ceylon", "ceylon", pick(M.clike, "ceylon")),
+
+  // Apple / mobile
+  lang("swift", "Swift", "swift", pick(M.swift, "swift")),
+  lang("dart", "Dart", "dart", pick(M.clike, "dart"), { alias: "flutter" }),
+
+  // Scripting
+  lang("python", "Python", "py pyw pyi pyt rpy gyp gypi", python, {
+    alias: "py",
+    files: "sconstruct sconscript wscript",
+  }),
+  lang("cython", "Cython", "pyx pxd pxi", pick(M.python, "cython"), { alias: "pyrex" }),
+  lang("mojo", "Mojo", "mojo 🔥", pick(M.sl, "mojo"), { alias: "modular max" }),
+  lang("starlark", "Starlark / Bazel", "bzl star bazel", pick(M.sl, "starlark"), {
+    alias: "bazel buck skylark",
+    files: "build build.bazel workspace workspace.bazel module.bazel",
+    icon: "BUILD.bazel",
+  }),
+  lang("ruby", "Ruby", "rb rbw rake gemspec ru builder jbuilder arb", rubyMode, {
+    alias: "rb",
+    files:
+      "gemfile rakefile podfile vagrantfile brewfile guardfile capfile thorfile berksfile fastfile appfile matchfile deliverfile .irbrc .pryrc",
+  }),
+  lang("elixir", "Elixir", "ex exs eex heex leex sface", pick(M.sl, "elixir"), {
+    alias: "ex phoenix beam",
+    files: "mix.exs",
+  }),
+  lang("perl", "Perl", "pl pm t pod psgi ph", perlMode),
+  lang("raku", "Raku", "raku rakumod rakutest rakudoc p6 pm6 pl6", perlMode, { alias: "perl6" }),
+  lang("lua", "Lua", "lua rockspec wlua nse", pick(M.lua, "lua")),
+  lang("r", "R", "r rmd rd rsx", pick(M.r, "r"), { files: ".rprofile renviron" }),
+  lang("julia", "Julia", "jl", pick(M.julia, "julia")),
+  lang("octave", "MATLAB / Octave", "octave matlab", pick(M.octave, "octave"), {
+    alias: "matlab m mathworks",
     icon: "a.m",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.objectiveC),
-  },
-  {
-    id: "objective-cpp",
-    label: "Objective-C++",
-    aliases: ["objcpp"],
-    extensions: ["mm"],
-    icon: "a.mm",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.objectiveCpp),
-  },
-  {
-    id: "d",
-    label: "D",
-    extensions: ["d"],
-    icon: "a.d",
-    load: () => import("@codemirror/legacy-modes/mode/d").then((m) => m.d),
-  },
-  {
-    id: "zig",
-    label: "Zig",
-    extensions: ["zig"],
-    icon: "a.zig",
-    load: () => import("./streamLanguages").then((m) => m.zig),
-  },
-  {
-    id: "odin",
-    label: "Odin",
-    extensions: ["odin"],
-    icon: "a.odin",
-    load: () => import("./streamLanguages").then((m) => m.odin),
-  },
-  {
-    id: "nim",
-    label: "Nim",
-    extensions: ["nim", "nims", "nimble"],
-    icon: "a.nim",
-    load: () => import("./streamLanguages").then((m) => m.nim),
-  },
-  {
-    id: "hare",
-    label: "Hare",
-    extensions: ["ha"],
-    icon: "a.ha",
-    load: () => import("./streamLanguages").then((m) => m.hare),
-  },
+  }),
+  lang("awk", "AWK", "awk gawk mawk", pick(M.sl, "awk"), { alias: "gawk mawk nawk" }),
+  lang("coffeescript", "CoffeeScript", "coffee iced cson", pick(M.coffeescript, "coffeeScript")),
+  lang("livescript", "LiveScript", "ls", pick(M.livescript, "liveScript")),
+  lang("tcl", "Tcl", "tcl tk itcl exp", pick(M.tcl, "tcl"), { alias: "tk" }),
 
-  // ── JVM ────────────────────────────────────────────────────────────────────
-  {
-    id: "java",
-    label: "Java",
-    extensions: ["java"],
-    icon: "a.java",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.java),
-  },
-  {
-    id: "kotlin",
-    label: "Kotlin",
-    aliases: ["kt"],
-    extensions: ["kt", "kts"],
-    icon: "a.kt",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.kotlin),
-  },
-  {
-    id: "scala",
-    label: "Scala",
-    extensions: ["scala", "sc"],
-    icon: "a.scala",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.scala),
-  },
-  {
-    id: "groovy",
-    label: "Groovy",
-    aliases: ["gradle"],
-    extensions: ["groovy", "gradle"],
-    icon: "a.groovy",
-    load: () => import("@codemirror/legacy-modes/mode/groovy").then((m) => m.groovy),
-  },
-  {
-    id: "clojure",
-    label: "Clojure",
-    extensions: ["clj", "cljs", "cljc", "edn"],
-    icon: "a.clj",
-    load: () => import("@codemirror/legacy-modes/mode/clojure").then((m) => m.clojure),
-  },
+  // Functional
+  lang("haskell", "Haskell", "hs lhs hs-boot", haskellMode),
+  lang("purescript", "PureScript", "purs", haskellMode, { alias: "purs" }),
+  lang("idris", "Idris", "idr lidr", haskellMode),
+  lang("agda", "Agda", "agda lagda", haskellMode),
+  lang("lean", "Lean 4", "lean hlean", pick(M.sl, "lean"), { alias: "mathlib theorem proof" }),
+  lang("ocaml", "OCaml", "ml mli mll mly eliom", pick(M.mllike, "oCaml")),
+  lang("fsharp", "F#", "fs fsx fsi fsscript", pick(M.mllike, "fSharp"), { icon: "a.fsx" }),
+  lang("sml", "Standard ML", "sml", pick(M.mllike, "sml"), { alias: "smlnj mlton" }),
+  lang("rescript", "ReScript", "res resi", pick(M.sl, "rescript"), {
+    alias: "reason bucklescript",
+  }),
+  lang("elm", "Elm", "elm", pick(M.elm, "elm")),
+  lang("erlang", "Erlang", "erl hrl escript", pick(M.erlang, "erlang"), { files: "rebar.config" }),
+  lang("crystal", "Crystal", "cr ecr", pick(M.crystal, "crystal")),
+  lang("gleam", "Gleam", "gleam", pick(M.sl, "gleam")),
+  lang("haxe", "Haxe", "hx hxml", pick(M.haxe, "haxe")),
+  lang("smalltalk", "Smalltalk", "st", pick(M.smalltalk, "smalltalk")),
+  lang("commonlisp", "Common Lisp", "lisp cl el lsp asd", pick(M.commonlisp, "commonLisp"), {
+    alias: "lisp elisp emacs",
+  }),
+  lang("scheme", "Scheme", "scm ss rkt sld sps sls", pick(M.scheme, "scheme"), {
+    alias: "racket guile chez",
+  }),
+  lang("prolog", "Prolog", "prolog pro plg", pick(M.ll, "prolog"), {
+    alias: "swipl datalog",
+    icon: "a.pro",
+  }),
+  lang("oz", "Oz", "oz", pick(M.oz, "oz"), { alias: "mozart" }),
+  lang("factor", "Factor", "factor", pick(M.factor, "factor"), { alias: "concatenative" }),
+  lang("forth", "Forth", "fth 4th forth frt", pick(M.forth, "forth")),
+  lang("apl", "APL", "apl dyalog aplf", pick(M.apl, "apl"), { alias: "dyalog" }),
+  lang("q", "Q / kdb+", "q k", pick(M.q, "q"), { alias: "kdb kx" }),
+  lang("dylan", "Dylan", "dylan dyl intr", pick(M.dylan, "dylan")),
+  lang("eiffel", "Eiffel", "e", pick(M.eiffel, "eiffel")),
 
-  // ── Apple / mobile ─────────────────────────────────────────────────────────
-  {
-    id: "swift",
-    label: "Swift",
-    extensions: ["swift"],
-    icon: "a.swift",
-    load: () => import("@codemirror/legacy-modes/mode/swift").then((m) => m.swift),
-  },
-  {
-    id: "dart",
-    label: "Dart",
-    aliases: ["flutter"],
-    extensions: ["dart"],
-    icon: "a.dart",
-    load: () => import("@codemirror/legacy-modes/mode/clike").then((m) => m.dart),
-  },
-
-  // ── Scripting ──────────────────────────────────────────────────────────────
-  {
-    id: "python",
-    label: "Python",
-    aliases: ["py"],
-    extensions: ["py", "pyw", "pyi"],
-    icon: "a.py",
-    load: () => import("@codemirror/lang-python").then((m) => m.python()),
-  },
-  {
-    id: "ruby",
-    label: "Ruby",
-    aliases: ["rb"],
-    extensions: ["rb", "rake", "gemspec"],
-    filenames: ["gemfile", "rakefile", "podfile", "vagrantfile"],
-    icon: "a.rb",
-    load: rubyMode,
-  },
-  {
-    id: "perl",
-    label: "Perl",
-    extensions: ["pl", "pm", "t", "pod"],
-    icon: "a.pl",
-    load: () => import("@codemirror/legacy-modes/mode/perl").then((m) => m.perl),
-  },
-  {
-    id: "lua",
-    label: "Lua",
-    extensions: ["lua"],
-    icon: "a.lua",
-    load: () => import("@codemirror/legacy-modes/mode/lua").then((m) => m.lua),
-  },
-  {
-    id: "r",
-    label: "R",
-    extensions: ["r", "rmd"],
-    icon: "a.r",
-    load: () => import("@codemirror/legacy-modes/mode/r").then((m) => m.r),
-  },
-  {
-    id: "julia",
-    label: "Julia",
-    extensions: ["jl"],
-    icon: "a.jl",
-    load: () => import("@codemirror/legacy-modes/mode/julia").then((m) => m.julia),
-  },
-  {
-    id: "coffeescript",
-    label: "CoffeeScript",
-    extensions: ["coffee"],
-    icon: "a.coffee",
-    load: () => import("@codemirror/legacy-modes/mode/coffeescript").then((m) => m.coffeeScript),
-  },
-  {
-    id: "livescript",
-    label: "LiveScript",
-    extensions: ["ls"],
-    icon: "a.ls",
-    load: () => import("@codemirror/legacy-modes/mode/livescript").then((m) => m.liveScript),
-  },
-  {
-    id: "tcl",
-    label: "Tcl",
-    extensions: ["tcl"],
-    icon: "a.tcl",
-    load: () => import("@codemirror/legacy-modes/mode/tcl").then((m) => m.tcl),
-  },
-
-  // ── Functional ─────────────────────────────────────────────────────────────
-  {
-    id: "haskell",
-    label: "Haskell",
-    extensions: ["hs", "lhs"],
-    icon: "a.hs",
-    load: () => import("@codemirror/legacy-modes/mode/haskell").then((m) => m.haskell),
-  },
-  {
-    id: "ocaml",
-    label: "OCaml",
-    extensions: ["ml", "mli"],
-    icon: "a.ml",
-    load: () => import("@codemirror/legacy-modes/mode/mllike").then((m) => m.oCaml),
-  },
-  {
-    id: "fsharp",
-    label: "F#",
-    extensions: ["fs", "fsx", "fsi"],
-    icon: "a.fsx",
-    load: () => import("@codemirror/legacy-modes/mode/mllike").then((m) => m.fSharp),
-  },
-  {
-    id: "elm",
-    label: "Elm",
-    extensions: ["elm"],
-    icon: "a.elm",
-    load: () => import("@codemirror/legacy-modes/mode/elm").then((m) => m.elm),
-  },
-  {
-    id: "erlang",
-    label: "Erlang",
-    extensions: ["erl", "hrl"],
-    icon: "a.erl",
-    load: () => import("@codemirror/legacy-modes/mode/erlang").then((m) => m.erlang),
-  },
-  {
-    id: "crystal",
-    label: "Crystal",
-    extensions: ["cr"],
-    icon: "a.cr",
-    load: () => import("@codemirror/legacy-modes/mode/crystal").then((m) => m.crystal),
-  },
-  {
-    id: "gleam",
-    label: "Gleam",
-    extensions: ["gleam"],
-    icon: "a.gleam",
-    load: () => import("./streamLanguages").then((m) => m.gleam),
-  },
-  {
-    id: "haxe",
-    label: "Haxe",
-    extensions: ["hx", "hxml"],
-    icon: "a.hx",
-    load: () => import("@codemirror/legacy-modes/mode/haxe").then((m) => m.haxe),
-  },
-  {
-    id: "smalltalk",
-    label: "Smalltalk",
-    extensions: ["st"],
-    icon: "a.st",
-    load: () => import("@codemirror/legacy-modes/mode/smalltalk").then((m) => m.smalltalk),
-  },
-  {
-    id: "commonlisp",
-    label: "Common Lisp",
-    aliases: ["lisp"],
-    extensions: ["lisp", "cl", "el"],
-    icon: "a.lisp",
-    load: () => import("@codemirror/legacy-modes/mode/commonlisp").then((m) => m.commonLisp),
-  },
-  {
-    id: "scheme",
-    label: "Scheme",
-    aliases: ["racket"],
-    extensions: ["scm", "ss", "rkt"],
-    icon: "a.scm",
-    load: () => import("@codemirror/legacy-modes/mode/scheme").then((m) => m.scheme),
-  },
-
-  // ── Legacy / enterprise ────────────────────────────────────────────────────
-  {
-    id: "pascal",
-    label: "Pascal",
-    extensions: ["pas", "pp"],
-    icon: "a.pas",
-    load: () => import("@codemirror/legacy-modes/mode/pascal").then((m) => m.pascal),
-  },
-  {
-    id: "vb",
-    label: "Visual Basic",
-    extensions: ["vb"],
-    icon: "a.vb",
-    load: () => import("@codemirror/legacy-modes/mode/vb").then((m) => m.vb),
-  },
-  {
-    id: "vbscript",
-    label: "VBScript",
-    extensions: ["vbs"],
-    icon: "a.vbs",
-    load: () => import("@codemirror/legacy-modes/mode/vbscript").then((m) => m.vbScript),
-  },
-  {
-    id: "fortran",
-    label: "Fortran",
-    extensions: ["f", "f90", "f95", "f03", "for"],
+  // Legacy / enterprise
+  lang("pascal", "Pascal", "pas pp lpr dpr dpk", pick(M.pascal, "pascal"), {
+    alias: "delphi freepascal lazarus",
+  }),
+  lang("vb", "Visual Basic", "vb bas frm", pick(M.vb, "vb"), { alias: "vbnet vba" }),
+  lang("vbscript", "VBScript", "vbs", pick(M.vbscript, "vbScript")),
+  lang("fortran", "Fortran", "f f77 f90 f95 f03 f08 for ftn fpp", pick(M.fortran, "fortran"), {
     icon: "a.f90",
-    load: () => import("@codemirror/legacy-modes/mode/fortran").then((m) => m.fortran),
-  },
-  {
-    id: "cobol",
-    label: "COBOL",
-    extensions: ["cob", "cbl", "cpy"],
-    icon: "a.cob",
-    load: () => import("@codemirror/legacy-modes/mode/cobol").then((m) => m.cobol),
-  },
+  }),
+  lang("cobol", "COBOL", "cob cbl cpy cobol ccp", pick(M.cobol, "cobol")),
+  lang("sas", "SAS", "sas", pick(M.sas, "sas")),
+  lang("mathematica", "Mathematica", "wl wls nb cdf", pick(M.mathematica, "mathematica"), {
+    alias: "wolfram wls",
+    icon: "a.nb",
+  }),
+  lang("modelica", "Modelica", "mo", pick(M.modelica, "modelica")),
+  lang("yacas", "Yacas", "ys", pick(M.yacas, "yacas")),
+  lang("pig", "Pig Latin", "pig", pick(M.pig, "pig"), { alias: "hadoop" }),
+  lang("ecl", "ECL", "ecl", pick(M.ecl, "ecl"), { alias: "hpcc" }),
 
-  // ── Smart contracts ────────────────────────────────────────────────────────
-  {
-    id: "solidity",
-    label: "Solidity",
-    aliases: ["sol", "ethereum"],
-    extensions: ["sol"],
-    icon: "a.sol",
-    load: () => import("./streamLanguages").then((m) => m.solidity),
-  },
+  // Smart contracts
+  lang("solidity", "Solidity", "sol", pick(M.sl, "solidity"), { alias: "sol ethereum evm" }),
+  lang("vyper", "Vyper", "vy", pick(M.sl, "vyper"), { alias: "ethereum evm" }),
+  lang("move", "Move", "move", pick(M.sl, "move"), { alias: "sui aptos" }),
+  lang("cairo", "Cairo", "cairo", pick(M.sl, "cairo"), { alias: "starknet starkware" }),
 
-  // ── Shell / config ─────────────────────────────────────────────────────────
-  {
-    id: "shell",
-    label: "Shell Script",
-    aliases: ["bash", "sh", "zsh", "fish"],
-    extensions: ["sh", "bash", "zsh", "fish", "ksh", "ash"],
-    filenames: [".bashrc", ".bash_profile", ".zshrc", ".zshenv", ".profile", ".zprofile"],
-    icon: "a.sh",
-    load: shellMode,
-  },
-  {
-    id: "powershell",
-    label: "PowerShell",
-    aliases: ["pwsh", "ps"],
-    extensions: ["ps1", "psm1", "psd1"],
-    icon: "a.ps1",
-    load: () => import("@codemirror/legacy-modes/mode/powershell").then((m) => m.powerShell),
-  },
-  {
-    id: "dockerfile",
-    label: "Dockerfile",
-    aliases: ["docker", "container", "containerfile", "oci"],
-    extensions: ["dockerfile"],
-    filenames: ["dockerfile", "containerfile"],
-    filenamePatterns: [/^(dockerfile|containerfile)(\.[^.\\/]+)+$/],
+  // Shell / config
+  lang("shell", "Shell Script", "sh bash zsh fish ksh ash command bats ebuild eclass", shellMode, {
+    alias: "bash sh zsh fish",
+    files:
+      ".bashrc .bash_profile .bash_logout .bash_aliases .zshrc .zshenv .profile .zprofile .envrc .xinitrc .xprofile pkgbuild",
+  }),
+  lang("powershell", "PowerShell", "ps1 psm1 psd1 ps1xml", pick(M.powershell, "powerShell"), {
+    alias: "pwsh ps",
+  }),
+  lang("batch", "Batch", "bat cmd btm", pick(M.ll, "batch"), { alias: "bat cmd dos windows" }),
+  lang("nushell", "Nushell", "nu", pick(M.sl, "nushell"), {
+    alias: "nu",
+    files: "config.nu env.nu",
+  }),
+  lang("vim", "Vim Script", "vim vimrc", pick(M.ll, "vim"), {
+    alias: "vimscript vim9 neovim",
+    files: ".vimrc .gvimrc .exrc init.vim",
+  }),
+  lang("makefile", "Makefile", "mk mak make", makefileMode, {
+    alias: "make gnumake",
+    files: "makefile gnumakefile bsdmakefile makefile.am makefile.in",
+    icon: "Makefile",
+  }),
+  lang("just", "Justfile", "just", makefileMode, {
+    alias: "just casey",
+    files: "justfile .justfile",
+    icon: "justfile",
+  }),
+  lang("dockerfile", "Dockerfile", "dockerfile", dockerMode, {
+    alias: "docker container containerfile oci",
+    files: "dockerfile containerfile",
+    patterns: [/^(dockerfile|containerfile)(\.[^.\\/]+)+$/],
     icon: "Dockerfile",
-    load: dockerMode,
-  },
-  {
-    id: "yaml",
-    label: "YAML",
-    aliases: ["yml"],
-    extensions: ["yaml", "yml"],
+  }),
+  lang("yaml", "YAML", "yaml yml", pick(M.yaml, "yaml"), {
+    alias: "yml ansible helm k8s kubernetes",
+    files: ".clang-format .clang-tidy .yamllint",
     icon: "a.yml",
-    load: () => import("@codemirror/legacy-modes/mode/yaml").then((m) => m.yaml),
-  },
-  {
-    id: "toml",
-    label: "TOML",
-    extensions: ["toml"],
-    filenames: ["cargo.lock", "gleam.toml"],
-    icon: "a.toml",
-    load: () => import("@codemirror/legacy-modes/mode/toml").then((m) => m.toml),
-  },
-  {
-    id: "ini",
-    label: "INI / Properties",
-    aliases: ["conf", "cfg", "properties", "env", "dotenv"],
-    extensions: ["ini", "conf", "cfg", "properties", "env", "editorconfig"],
-    filenames: [".env", ".npmrc", ".editorconfig"],
-    filenamePatterns: [/^\.env(\.[^.\\/]+)+$/],
-    icon: "a.ini",
-    load: propsMode,
-  },
-  {
-    id: "nginx",
-    label: "Nginx",
-    extensions: ["nginx"],
-    filenames: ["nginx.conf"],
+  }),
+  lang("toml", "TOML", "toml", pick(M.toml, "toml"), {
+    files: "cargo.lock gleam.toml pipfile poetry.lock uv.lock",
+  }),
+  lang(
+    "ini",
+    "INI / Properties",
+    "ini conf cfg properties env editorconfig desktop service timer socket nmconnection prefs",
+    propsMode,
+    {
+      alias: "conf cfg properties env dotenv systemd",
+      files:
+        ".env .npmrc .editorconfig .gitconfig .gitmodules .hgrc .flake8 .pylintrc .coveragerc .inputrc .wslconfig",
+      patterns: [/^\.env(\.[^.\\/]+)+$/],
+    },
+  ),
+  lang("nix", "Nix", "nix", pick(M.sl, "nix"), { alias: "nixos flake nixpkgs" }),
+  lang("nginx", "Nginx", "nginx", pick(M.nginx, "nginx"), {
+    files: "nginx.conf mime.types",
     icon: "nginx.conf",
-    load: () => import("@codemirror/legacy-modes/mode/nginx").then((m) => m.nginx),
-  },
-  {
-    id: "cmake",
-    label: "CMake",
-    extensions: ["cmake"],
-    filenames: ["cmakelists.txt"],
-    icon: "a.cmake",
-    load: cmakeMode,
-  },
-  {
-    id: "terraform",
-    label: "Terraform / HCL",
-    aliases: ["hcl", "tf"],
-    extensions: ["tf", "tfvars", "hcl"],
-    icon: "a.tf",
-    load: () => import("./streamLanguages").then((m) => m.terraform),
-  },
-  {
-    id: "prisma",
-    label: "Prisma",
-    extensions: ["prisma"],
-    icon: "schema.prisma",
-    load: () => import("./streamLanguages").then((m) => m.prisma),
-  },
-  {
-    id: "graphql",
-    label: "GraphQL",
-    aliases: ["gql"],
-    extensions: ["graphql", "gql"],
-    icon: "a.graphql",
-    load: () => import("./streamLanguages").then((m) => m.graphql),
-  },
-  {
-    id: "protobuf",
-    label: "Protocol Buffers",
-    aliases: ["proto", "grpc"],
-    extensions: ["proto"],
-    icon: "a.proto",
-    load: () => import("@codemirror/legacy-modes/mode/protobuf").then((m) => m.protobuf),
-  },
+  }),
+  lang("apacheconf", "Apache Config", "htaccess", pick(M.ll, "apacheconf"), {
+    alias: "htaccess httpd apache",
+    files: ".htaccess .htpasswd httpd.conf apache2.conf vhost.conf",
+    icon: ".htaccess",
+  }),
+  lang("cmake", "CMake", "cmake", cmakeMode, {
+    files: "cmakelists.txt",
+    patterns: [/\.cmake\.in$/],
+  }),
+  lang("terraform", "Terraform / HCL", "tf tfvars hcl nomad", pick(M.sl, "terraform"), {
+    alias: "hcl tf opentofu packer nomad",
+  }),
+  lang("bicep", "Bicep", "bicep bicepparam", pick(M.sl, "bicep"), { alias: "azure arm" }),
+  lang("puppet", "Puppet", "puppet epp", pick(M.puppet, "puppet"), {
+    alias: "pp manifest",
+    icon: "a.pp",
+  }),
+  lang("jinja2", "Jinja2", "j2 jinja jinja2 njk", jinjaMode, {
+    alias: "jinja nunjucks ansible salt",
+  }),
+  lang("jsonnet", "Jsonnet", "jsonnet libsonnet", pick(M.sl, "jsonnet"), {
+    alias: "tanka grafana",
+  }),
+  lang("cue", "CUE", "cue", pick(M.sl, "cuelang"), { alias: "cuelang" }),
+  lang("pkl", "Pkl", "pkl", pick(M.sl, "pkl"), { alias: "apple pickle" }),
+  lang("prisma", "Prisma", "prisma", pick(M.sl, "prisma"), { icon: "schema.prisma" }),
+  lang("graphql", "GraphQL", "graphql graphqls gql", pick(M.sl, "graphql"), { alias: "gql" }),
+  lang("protobuf", "Protocol Buffers", "proto", pick(M.protobuf, "protobuf"), {
+    alias: "proto grpc",
+  }),
+  lang("http", "HTTP", "http rest", pick(M.http, "http"), { alias: "rest curl httpie" }),
 
-  // ── Data / markup ──────────────────────────────────────────────────────────
-  {
-    id: "xml",
-    label: "XML",
-    extensions: ["xml", "xsl", "xsd", "svg", "plist", "rss", "atom", "wsdl", "xaml"],
-    icon: "a.xml",
-    load: xmlMode,
-  },
-  {
-    id: "sql",
-    label: "SQL",
-    extensions: ["sql"],
+  // Data / markup
+  lang(
+    "xml",
+    "XML",
+    "xml xsl xslt xsd svg plist rss atom wsdl xaml resx csproj vbproj fsproj props targets nuspec storyboard xib mxml iml opml gpx kml qrc",
+    xmlMode,
+  ),
+  lang("dtd", "DTD", "dtd ent", pick(M.dtd, "dtd")),
+  lang("webidl", "Web IDL", "webidl widl", pick(M.webidl, "webIDL"), { alias: "idl interface" }),
+  lang("asn1", "ASN.1", "asn asn1", pick(M.sl, "asn1"), { icon: "a.asn1" }),
+  lang("ebnf", "EBNF", "ebnf bnf", pick(M.ebnf, "ebnf"), { alias: "grammar bnf" }),
+  lang("pegjs", "PEG.js", "pegjs peggy peg", pick(M.pegjs, "pegjs"), {
+    alias: "peggy parser grammar",
+  }),
+  lang("sql", "SQL", "sql ddl dml", pick(M.sql, "standardSQL")),
+  lang("mysql", "MySQL", "mysql", pick(M.sql, "mySQL"), { alias: "mariadb", icon: "a.sql" }),
+  lang("pgsql", "PostgreSQL", "pgsql psql", pick(M.sql, "pgSQL"), {
+    alias: "postgres psql plpgsql",
     icon: "a.sql",
-    load: () => import("@codemirror/legacy-modes/mode/sql").then((m) => m.standardSQL),
-  },
-  {
-    id: "mysql",
-    label: "MySQL",
-    extensions: ["mysql"],
+  }),
+  lang("sqlite", "SQLite", "sqlite", pick(M.sql, "sqlite"), { icon: "a.sql" }),
+  lang("mssql", "T-SQL / SQL Server", "mssql tsql", pick(M.sql, "msSQL"), {
+    alias: "tsql sqlserver mssql",
     icon: "a.sql",
-    load: () => import("@codemirror/legacy-modes/mode/sql").then((m) => m.mySQL),
-  },
-  {
-    id: "pgsql",
-    label: "PostgreSQL",
-    aliases: ["postgres", "psql"],
-    extensions: ["pgsql", "psql"],
+  }),
+  lang("plsql", "PL/SQL", "pls plsql pks pkb", pick(M.sql, "plSQL"), {
+    alias: "oracle",
     icon: "a.sql",
-    load: () => import("@codemirror/legacy-modes/mode/sql").then((m) => m.pgSQL),
-  },
-  {
-    id: "sqlite",
-    label: "SQLite",
-    extensions: ["sqlite"],
-    icon: "a.sql",
-    load: () => import("@codemirror/legacy-modes/mode/sql").then((m) => m.sqlite),
-  },
-  {
-    id: "diff",
-    label: "Diff / Patch",
-    extensions: ["diff", "patch"],
-    icon: "a.diff",
-    load: () => import("@codemirror/legacy-modes/mode/diff").then((m) => m.diff),
-  },
+  }),
+  lang("hive", "HiveQL", "hql", pick(M.sql, "hive"), { alias: "hadoop hql", icon: "a.sql" }),
+  lang("diff", "Diff / Patch", "diff patch rej orig", pick(M.diff, "diff")),
+  lang("asciiarmor", "PGP / ASCII Armor", "asc pgp sig gpg", pick(M.asciiarmor, "asciiArmor"), {
+    alias: "gpg pgp signature",
+  }),
+  lang("mbox", "Mbox", "mbox eml", pick(M.mbox, "mbox"), { alias: "email mail" }),
+  lang("ntriples", "N-Triples / N-Quads", "nt nq", pick(M.ntriples, "ntriples"), {
+    alias: "rdf linkeddata",
+  }),
 
-  // ── Hardware description ────────────────────────────────────────────────────
-  {
-    id: "verilog",
-    label: "Verilog",
-    extensions: ["v", "sv", "svh"],
-    icon: "a.v",
-    load: () => import("@codemirror/legacy-modes/mode/verilog").then((m) => m.verilog),
-  },
-  {
-    id: "vhdl",
-    label: "VHDL",
-    extensions: ["vhd", "vhdl"],
-    icon: "a.vhd",
-    load: () => import("@codemirror/legacy-modes/mode/vhdl").then((m) => m.vhdl),
-  },
+  // Hardware description
+  lang("verilog", "Verilog", "v sv svh vh", pick(M.verilog, "verilog"), { alias: "systemverilog" }),
+  lang("tlverilog", "TL-Verilog", "tlv", pick(M.verilog, "tlv"), { alias: "tlv redwood" }),
+  lang("vhdl", "VHDL", "vhd vhdl", pick(M.vhdl, "vhdl")),
+  lang("ttcn", "TTCN-3", "ttcn ttcn3 ttcnpp", pick(M.ttcn, "ttcn"), {
+    alias: "testing conformance",
+  }),
+  lang("fcl", "Fuzzy Control Language", "fcl", pick(M.fcl, "fcl"), { alias: "fuzzy iec" }),
 
-  // ── Templating ─────────────────────────────────────────────────────────────
-  {
-    id: "pug",
-    label: "Pug",
-    aliases: ["jade"],
-    extensions: ["pug", "jade"],
-    icon: "a.pug",
-    load: () => import("@codemirror/legacy-modes/mode/pug").then((m) => m.pug),
-  },
+  // GPU / shaders
+  lang(
+    "glsl",
+    "GLSL / HLSL Shader",
+    "glsl vert frag geom tesc tese comp hlsl hlsli fx fxh cginc shader metal usf ush",
+    shaderMode,
+    { alias: "shader hlsl metal opengl directx unity" },
+  ),
+  lang("wgsl", "WGSL", "wgsl", pick(M.sl, "wgsl"), { alias: "webgpu shader" }),
 
-  // ── Assembly / low level ───────────────────────────────────────────────────
-  {
-    id: "asm",
-    label: "Assembly",
-    aliases: ["gas", "nasm"],
-    extensions: ["s", "asm"],
+  // Templating
+  lang("pug", "Pug", "pug jade", pick(M.pug, "pug"), { alias: "jade" }),
+  lang("erb", "ERB", "erb rhtml", html, { alias: "rhtml rails" }),
+  lang("ejs", "EJS", "ejs", html),
+  lang("handlebars", "Handlebars", "hbs handlebars mustache", html, {
+    alias: "hbs mustache ember",
+  }),
+  lang("twig", "Twig", "twig", html, { alias: "symfony" }),
+  lang("liquid", "Liquid", "liquid", html, { alias: "shopify jekyll" }),
+  lang("razor", "Razor", "cshtml razor vbhtml", html, { alias: "cshtml blazor aspnet" }),
+  lang("smarty", "Smarty", "tpl", html, { alias: "tpl" }),
+  lang("velocity", "Velocity", "vm vtl", pick(M.velocity, "velocity"), { alias: "vtl apache" }),
+
+  // UI markup
+  lang("slint", "Slint", "slint", pick(M.sl, "slint"), { alias: "ui toolkit" }),
+
+  // Assembly / low level
+  lang("asm", "Assembly", "s asm nasm", pick(M.gas, "gas"), {
+    alias: "gas nasm x86",
     icon: "a.asm",
-    load: () => import("@codemirror/legacy-modes/mode/gas").then((m) => m.gas),
-  },
-  {
-    id: "wast",
-    label: "WebAssembly Text",
-    aliases: ["wasm"],
-    extensions: ["wat", "wast"],
-    icon: "a.wat",
-    load: () => import("@codemirror/legacy-modes/mode/wast").then((m) => m.wast),
-  },
+  }),
+  lang("z80", "Z80 Assembly", "z80", pick(M.z80, "z80"), { alias: "retro gameboy" }),
+  lang("wast", "WebAssembly Text", "wat wast", pick(M.wast, "wast"), { alias: "wasm" }),
+  lang("brainfuck", "Brainfuck", "bf", pick(M.brainfuck, "brainfuck"), { alias: "esolang bf" }),
 
-  // ── Misc / niche ───────────────────────────────────────────────────────────
-  {
-    id: "nsis",
-    label: "NSIS",
-    extensions: ["nsi", "nsh"],
-    icon: "a.nsi",
-    load: () => import("@codemirror/legacy-modes/mode/nsis").then((m) => m.nsis),
-  },
-  {
-    id: "gherkin",
-    label: "Gherkin",
-    aliases: ["cucumber", "bdd"],
-    extensions: ["feature"],
-    icon: "a.feature",
-    load: () => import("@codemirror/legacy-modes/mode/gherkin").then((m) => m.gherkin),
-  },
-  {
-    id: "latex",
-    label: "LaTeX",
-    aliases: ["tex"],
-    extensions: ["tex", "sty", "cls", "ltx"],
-    icon: "a.tex",
-    load: () => import("@codemirror/legacy-modes/mode/stex").then((m) => m.stex),
-  },
-  {
-    id: "cypher",
-    label: "Cypher",
-    aliases: ["neo4j"],
-    extensions: ["cypher", "cql", "cyp"],
-    icon: "a.cypher",
-    load: () => import("@codemirror/legacy-modes/mode/cypher").then((m) => m.cypher),
-  },
-  {
-    id: "turtle",
-    label: "Turtle / RDF",
-    aliases: ["rdf"],
-    extensions: ["ttl"],
-    icon: "a.ttl",
-    load: () => import("@codemirror/legacy-modes/mode/turtle").then((m) => m.turtle),
-  },
-  {
-    id: "sparql",
-    label: "SPARQL",
-    extensions: ["rq", "sparql"],
-    icon: "a.rq",
-    load: () => import("@codemirror/legacy-modes/mode/sparql").then((m) => m.sparql),
-  },
-  {
-    id: "xquery",
-    label: "XQuery",
-    extensions: ["xq", "xqy", "xquery"],
-    icon: "a.xq",
-    load: () => import("@codemirror/legacy-modes/mode/xquery").then((m) => m.xQuery),
-  },
+  // Misc / niche
+  lang("nsis", "NSIS", "nsi nsh", pick(M.nsis, "nsis")),
+  lang("rpmspec", "RPM Spec", "spec", pick(M.rpm, "rpmSpec"), { alias: "rpm fedora redhat" }),
+  lang("gherkin", "Gherkin", "feature story", pick(M.gherkin, "gherkin"), {
+    alias: "cucumber bdd",
+  }),
+  lang("latex", "LaTeX", "tex sty cls ltx bib dtx ins bbx cbx", pick(M.stex, "stex"), {
+    alias: "tex bibtex",
+  }),
+  lang("troff", "Troff / man", "roff troff nroff man", pick(M.troff, "troff"), {
+    alias: "nroff groff manpage",
+  }),
+  lang("textile", "Textile", "textile", pick(M.textile, "textile")),
+  lang("tiddlywiki", "TiddlyWiki", "tid", pick(M.tiddlywiki, "tiddlyWiki")),
+  lang("mscgen", "MscGen", "msc mscgen", pick(M.mscgen, "mscgen"), { alias: "sequence diagram" }),
+  lang("sieve", "Sieve", "sieve", pick(M.sieve, "sieve"), { alias: "mailfilter" }),
+  lang("mirc", "mIRC Script", "mrc", pick(M.mirc, "mirc")),
+  lang("cypher", "Cypher", "cypher cql cyp", pick(M.cypher, "cypher"), { alias: "neo4j" }),
+  lang("turtle", "Turtle / RDF", "ttl", pick(M.turtle, "turtle"), { alias: "rdf" }),
+  lang("sparql", "SPARQL", "rq sparql", pick(M.sparql, "sparql")),
+  lang("xquery", "XQuery", "xq xqy xquery xqm", pick(M.xquery, "xQuery")),
 ];
 
 // ── Lookup indexes (built once at module load) ───────────────────────────────
