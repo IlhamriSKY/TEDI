@@ -3,7 +3,7 @@ import { type SearchTarget } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setLineWrap } from "@/modules/settings/store";
 import { activeLeaf, type PaneTab, type Tab } from "@/modules/tabs";
-import { type TerminalPaneHandle } from "@/modules/terminal";
+import { isRemoteEditorLeaf, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useMemo, type RefObject } from "react";
 
@@ -128,7 +128,7 @@ export function useChromeDerivations({
     }
     if (activeTab.kind === "pane") {
       const leaf = activeLeaf(activeTab);
-      if (leaf?.leafKind === "editor" && !leaf.sshSessionId) return leaf.path;
+      if (leaf?.leafKind === "editor" && !isRemoteEditorLeaf(leaf)) return leaf.path;
     }
     return null;
   }, [activeTab]);

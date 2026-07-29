@@ -67,6 +67,10 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       kind: "leaf",
       leafKind: "editor",
       path: leaf.path,
+      // Only the STABLE half of a remote binding is persisted. `sshSessionId`
+      // is deliberately dropped: see `isUnrestorableEditorLeaf`.
+      ...(leaf.sshConnectionId ? { sshConnectionId: leaf.sshConnectionId } : {}),
+      ...(leaf.sshConnectionId && leaf.sshHostLabel ? { sshHostLabel: leaf.sshHostLabel } : {}),
       ...(leaf.private ? { private: true } : {}),
     };
   }
@@ -85,24 +89,31 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
 }
 
 /**
- * True for an editor leaf bound to a remote file over SFTP. Such a leaf cannot
- * be restored: `sshSessionId` is a LIVE russh session number (frozen at open
- * time, never rewritten), not a stable connection id, so in a later launch it
- * is dead or belongs to a different host. Persisting the leaf WITHOUT it is
- * worse still, which is what used to happen: `useDocument` only routes through
- * SFTP while `sshSessionId !== undefined`, so a restored remote leaf read, and
- * on the next save WROTE, the remote path against the LOCAL filesystem. On
- * Unix that silently resolves to a real, different file. Drop the leaf and
- * keep its siblings until editor leaves carry a reconnectable id.
+ * True for a remote editor leaf that has nothing stable to come back as: an
+ * AD-HOC connection, identified only by a LIVE russh session number that is
+ * dead in a later launch (and, since the counter restarts at 1, may then name a
+ * different host entirely). There is no saved profile to reconnect to, so the
+ * leaf is dropped and its siblings kept.
+ *
+ * A leaf carrying `sshConnectionId` round-trips instead: the connection id is
+ * stable across restarts and the pane re-resolves it to a live session, holding
+ * the file unread until then. What must never happen is a remote leaf restored
+ * as a LOCAL one, which is what a naive persist did: `useDocument` routed
+ * through SFTP only while a session id was set, so the remote path was read
+ * from, and on the next save written to, the local filesystem.
  */
-function isRemoteEditorLeaf(leaf: PaneLeaf): boolean {
-  return leaf.leafKind === "editor" && leaf.sshSessionId !== undefined;
+function isUnrestorableEditorLeaf(leaf: PaneLeaf): boolean {
+  return (
+    leaf.leafKind === "editor" &&
+    leaf.sshSessionId !== undefined &&
+    leaf.sshConnectionId === undefined
+  );
 }
 
 /** Serialises a pane subtree, pruning leaves that cannot be restored.
  *  Returns null when nothing in this subtree survives. */
 function nodeToSaved(node: PaneNode): SavedPaneNode | null {
-  if (node.kind === "leaf") return isRemoteEditorLeaf(node) ? null : leafToSaved(node);
+  if (node.kind === "leaf") return isUnrestorableEditorLeaf(node) ? null : leafToSaved(node);
   const children: SavedPaneNode[] = [];
   for (const c of node.children) {
     const s = nodeToSaved(c);
@@ -130,7 +141,7 @@ function nodeToSaved(node: PaneNode): SavedPaneNode | null {
  * True for exactly the tabs `tabToSaved` emits. The session-only kinds
  * (ai-diff, git-diff, ext, scm) are never persisted - only pane tabs are.
  * A pane tab holding an extension-panel leaf is skipped whole, and a pane tab
- * whose every leaf is a remote editor has nothing left to save.
+ * whose every leaf is an ad-hoc remote editor has nothing left to save.
  *
  * Single source of truth for "which tabs are saved", shared by `tabToSaved`
  * and `savedActiveTabIndex` so the saved active-index can't drift from the
@@ -146,7 +157,7 @@ function isPersistedTab(tab: Tab): tab is PaneTab {
   // (MVP: a terminal split next to an extension panel isn't restored either;
   // acceptable until extension-panel leaves round-trip.)
   if (all.some((l) => l.leafKind === "extension-panel")) return false;
-  return all.some((l) => !isRemoteEditorLeaf(l));
+  return all.some((l) => !isUnrestorableEditorLeaf(l));
 }
 
 function tabToSaved(tab: Tab): SavedTab | null {
@@ -157,7 +168,7 @@ function tabToSaved(tab: Tab): SavedTab | null {
   // Index within the leaves that were actually SAVED, not the live ones: a
   // pruned remote editor shifts every later leaf. A dropped active leaf lands
   // on the first survivor via the Math.max below.
-  const kept = leaves(tab.paneTree).filter((l) => !isRemoteEditorLeaf(l));
+  const kept = leaves(tab.paneTree).filter((l) => !isUnrestorableEditorLeaf(l));
   const idx = kept.findIndex((l) => l.id === tab.activeLeafId);
   return {
     kind: "pane",
@@ -225,6 +236,12 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         path: node.path,
         dirty: false,
         preview: false,
+        // Remote leaves come back bound to the saved PROFILE only. No
+        // `sshSessionId`: the pane resolves one from whichever session for this
+        // connection is live, and shows a reconnect prompt until then, so an
+        // unbound remote path can never reach the local filesystem.
+        ...(node.sshConnectionId ? { sshConnectionId: node.sshConnectionId } : {}),
+        ...(node.sshHostLabel ? { sshHostLabel: node.sshHostLabel } : {}),
         ...(node.private ? { private: true } : {}),
       };
     }

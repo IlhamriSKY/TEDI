@@ -61,6 +61,7 @@ import {
   useTerminalFileDrop,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
+import { useCliAgentsStore } from "@/modules/terminal/lib/cliAgents";
 import { ThemeProvider } from "@/modules/theme";
 import { listConnections, type SshConnection } from "@/modules/ssh/connections";
 import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
@@ -111,6 +112,7 @@ export default function App() {
     activeId,
     setActiveId,
     newTab,
+    newPaneGroupTab,
     newSshTab,
     openFileTab,
     pinTab,
@@ -153,10 +155,6 @@ export default function App() {
   // shell-quoted path. Tauri captures OS drops globally, so one listener
   // at the app root hit-tests the cursor.
   useTerminalFileDrop();
-
-  // Drop a file onto an editor pane (not a terminal) to open it, VSCode-style —
-  // works for any absolute path, even outside the current workspace root.
-  useEditorFileDrop(openFileTab);
 
   // HTML5 drags from `[data-fs-path]` elements (sidebar tree, extension
   // panels via `ctx.ui.mountFolderTree`, etc.) populate dataTransfer at a
@@ -216,8 +214,15 @@ export default function App() {
     if (sshEditorOpen) setSshEditorMounted(true);
   }, [sshEditorOpen]);
 
+  // `+` -> Agent...: the CLI-agent picker. Mount-once like the editor dialog so
+  // the chunk loads on first open and Radix's exit animation still plays.
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [agentDialogMounted, setAgentDialogMounted] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [newEditorMounted, setNewEditorMounted] = useState(false);
+  useEffect(() => {
+    if (agentDialogOpen) setAgentDialogMounted(true);
+  }, [agentDialogOpen]);
   useEffect(() => {
     if (newEditorOpen) setNewEditorMounted(true);
   }, [newEditorOpen]);
@@ -326,6 +331,13 @@ export default function App() {
   // vanish: gone from the left sidebar, closed in the right).
   useDockedSectionAutoOpen();
 
+  // CLI-agent roster for the `+` -> Agent submenu. Hydrated here (not in the
+  // menu) so a Settings edit broadcast arrives even while the menu is closed.
+  const hydrateCliAgents = useCliAgentsStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateCliAgents();
+  }, [hydrateCliAgents]);
+
   // -------- workspaces wiring --------
   const wsHydrate = useWorkspacesStore((s) => s.hydrate);
   const wsHydrated = useWorkspacesStore((s) => s.hydrated);
@@ -418,8 +430,21 @@ export default function App() {
     handleSshStatus,
     handleAiCliStatus,
     activeSshContext,
+    sshBindingByConnection,
     hasAnySshLeaf,
   } = useSshLeafState({ activePaneTab, tabs });
+
+  // "Reconnect" on a remote editor pane with no live session (typically a
+  // restored workspace whose SSH terminal was closed). Opens a normal SSH tab
+  // for the saved profile, so host-key prompts and jump hosts run through the
+  // usual terminal flow; the editor pane rebinds itself once the session lands,
+  // since it resolves by connection id rather than holding a session number.
+  const handleReconnectSshForEditor = useCallback(
+    (connectionId: string, title: string) => {
+      newSshTab(connectionId, title);
+    },
+    [newSshTab],
+  );
 
   // Besides the live toast/beep + status map that `handleAiCliStatus` drives,
   // stamp the detected agent kind onto the leaf so the serializer persists it.
@@ -620,6 +645,7 @@ export default function App() {
     openNewPrivateTab,
     sendCd,
     cdInNewTab,
+    spawnAgents,
     openPreviewTab,
     splitActivePaneInActiveTab,
     moveLeafToGroup,
@@ -638,6 +664,7 @@ export default function App() {
     disposeTab,
     setActiveId,
     newTab,
+    newPaneGroupTab,
     newBrowserTab,
     setLeafCwd,
     splitActivePane,
@@ -683,7 +710,17 @@ export default function App() {
       disposeTab,
       openFileTab,
       setEditorLeafPath,
+      openPreviewTab,
+      sshBindingByConnection,
     });
+
+  // Drop a file onto an editor pane or the tab strip to open it, VSCode-style —
+  // works for any absolute path, even outside the current workspace root. A
+  // dropped folder opens a terminal tab rooted there instead. Routed through
+  // `handleOpenFile` (not `openFileTab`) so a dropped PDF lands in a browser
+  // pane exactly like one clicked in the explorer. Declared here rather than
+  // beside the other drop listeners because it needs `handleOpenFile`.
+  useEditorFileDrop({ openFile: handleOpenFile, newTerminalTab: newTab });
 
   // Explorer "Preview in Browser" (HTML files): open the local file in a new
   // in-app browser preview tab via its file:// URL.
@@ -731,6 +768,7 @@ export default function App() {
         toggleSidebar,
         requestCloseLeaf,
         setNewEditorOpen,
+        setAgentDialogOpen,
         searchInlineRef,
         editorRefs,
         terminalRefs,
@@ -835,7 +873,6 @@ export default function App() {
     handleHeaderSelectEntry,
     handleHeaderCloseEntry,
     handleHeaderNewPreview,
-    handleHeaderNewEditor,
     handleHeaderPinLeaf,
     handleHeaderOpenExtensions,
     handleHeaderOpenSettings,
@@ -847,7 +884,6 @@ export default function App() {
     openPreviewTab,
     handleClose,
     requestCloseLeaf,
-    setNewEditorOpen,
     setActiveId,
     focusPane,
     pinTab,
@@ -877,7 +913,7 @@ export default function App() {
             onNewPrivateTerminal={openNewPrivateTab}
             onTogglePrivate={togglePrivate}
             onNewPreview={handleHeaderNewPreview}
-            onNewEditor={handleHeaderNewEditor}
+            onOpenAgents={() => setAgentDialogOpen(true)}
             onPinLeaf={handleHeaderPinLeaf}
             onReorderTabs={reorderTabs}
             onReorderLeafInGroup={reorderLeafInGroup}
@@ -949,6 +985,8 @@ export default function App() {
                 onAiCliStatus={handleAiCliStatusAndPersist}
                 sshStatuses={sshStatuses}
                 aiCliStatuses={aiCliStatuses}
+                sshBindingByConnection={sshBindingByConnection}
+                onReconnectSsh={handleReconnectSshForEditor}
                 mdPreviewLeafIds={mdPreviewLeafIds}
                 hasAiDiffTab={hasAiDiffTab}
                 hasGitDiffTab={hasGitDiffTab}
@@ -1016,6 +1054,10 @@ export default function App() {
             askPopup={askPopup}
             onAskFromSelection={onAskFromSelection}
             setAskPopup={setAskPopup}
+            agentDialogMounted={agentDialogMounted}
+            agentDialogOpen={agentDialogOpen}
+            setAgentDialogOpen={setAgentDialogOpen}
+            onSpawnAgents={spawnAgents}
             newEditorMounted={newEditorMounted}
             newEditorOpen={newEditorOpen}
             setNewEditorOpen={setNewEditorOpen}

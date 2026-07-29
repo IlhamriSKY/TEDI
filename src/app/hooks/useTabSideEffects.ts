@@ -1,7 +1,7 @@
 import { type EditorPaneHandle } from "@/modules/editor";
 import { useChatStore } from "@/modules/ai";
 import { countTabEntries, type Tab } from "@/modules/tabs";
-import { leaves } from "@/modules/terminal";
+import { isRemoteEditorLeaf, leaves } from "@/modules/terminal";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import { basename } from "@/lib/path";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -39,6 +39,9 @@ export function useTabSideEffects({ tabs, editorRefs, wsActiveId }: Params): {
         if (other.kind !== "pane") continue;
         for (const leaf of leaves(other.paneTree)) {
           if (leaf.leafKind !== "editor") continue;
+          // An AI diff is always about a LOCAL file, so a remote leaf that
+          // happens to share the path is a different file entirely.
+          if (isRemoteEditorLeaf(leaf)) continue;
           if (leaf.path !== t.path) continue;
           editorRefs.current.get(leaf.id)?.reload();
         }
@@ -69,6 +72,9 @@ export function useTabSideEffects({ tabs, editorRefs, wsActiveId }: Params): {
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind !== "editor") continue;
         if (l.private) continue;
+        // Remote files are excluded: the AI's file tools are local-only, so
+        // offering a remote path as a chip points them at the local disk.
+        if (isRemoteEditorLeaf(l)) continue;
         if (seenPaths.has(l.path)) continue;
         seenPaths.add(l.path);
         openFiles.push({

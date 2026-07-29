@@ -11,6 +11,7 @@ import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs
 import {
   findLeaf,
   hasLeaf,
+  isRemoteEditorLeaf,
   leafIds,
   leafParentDir,
   leaves,
@@ -131,6 +132,9 @@ export function buildLiveContext(deps: LiveContextDeps) {
       if (!leaf || leaf.leafKind !== "editor") return null;
       // Private editor leaves keep their path hidden too.
       if (leaf.private) return null;
+      // So do remote ones: this lands in `<env>` as `active_file`, and every
+      // file tool the model can reach from there runs against the LOCAL disk.
+      if (isRemoteEditorLeaf(leaf)) return null;
       return leaf.path;
     },
     openPreview: (url: string) => {
@@ -397,8 +401,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       leafId: number,
       direction?: "row" | "col",
     ):
-      | { ok: true; orientation: "row" | "col"; changed: boolean }
-      | { ok: false; error: string } => {
+      { ok: true; orientation: "row" | "col"; changed: boolean } | { ok: false; error: string } => {
       const { tabs, rotateLeafSplit } = liveContextRef.current;
       if (isLeafPrivate(liveContextRef.current, leafId))
         return { ok: false, error: `leaf ${leafId} not found` };

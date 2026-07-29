@@ -3,7 +3,7 @@ import type { PaneTab, Tab } from "@/modules/tabs";
 import { leaves, type PaneEdge, type SplitDir } from "@/modules/terminal/lib/panes";
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
-import type { SshStatus } from "@/modules/ssh/status";
+import type { SshConnectionBinding, SshStatus } from "@/modules/ssh/status";
 import {
   listConnections,
   onConnectionsChanged,
@@ -64,6 +64,12 @@ type Props = {
   sshStatuses?: Map<number, SshStatus>;
   /** Live AI CLI status per terminal leaf id. Tints the header icon, mirroring the tab strip. */
   aiCliStatuses?: Map<number, AiCliStatus>;
+  /** Live session per saved SSH connection. A remote editor leaf holds a
+   *  connection id (which survives a restart) and reads its session from here. */
+  sshBindingByConnection?: Map<string, SshConnectionBinding>;
+  /** Open an SSH session for a saved connection, from a remote editor pane that
+   *  has no live session to bind to. */
+  onReconnectSsh?: (connectionId: string, title: string) => void;
 };
 
 export function PaneStack({
@@ -92,6 +98,8 @@ export function PaneStack({
   onSplitSizes,
   sshStatuses,
   aiCliStatuses,
+  sshBindingByConnection,
+  onReconnectSsh,
 }: Props) {
   // Memoize the filter so the prune effect below sees a stable identity.
   const paneTabs = useMemo(() => tabs.filter((t): t is PaneTab => t.kind === "pane"), [tabs]);
@@ -234,6 +242,8 @@ export function PaneStack({
               sshHosts={sshHosts}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
+              sshBindingByConnection={sshBindingByConnection}
+              onReconnectSsh={onReconnectSsh}
             />
           </div>
         );

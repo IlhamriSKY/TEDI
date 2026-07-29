@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { ExtensionTabStack } from "@/modules/extensions/components/ExtensionTabStack";
 import { PaneStack } from "@/modules/panes";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import { type SshStatus } from "@/modules/ssh/status";
+import { type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
 import { type PaneTab, type Tab } from "@/modules/tabs";
 import type { SearchAddon } from "@xterm/addon-search";
 import { Suspense } from "react";
@@ -27,6 +27,10 @@ type Props = {
   onAiCliStatus: (leafId: number, status: AiCliStatus) => void;
   sshStatuses: Map<number, SshStatus>;
   aiCliStatuses: Map<number, AiCliStatus>;
+  /** Live session per saved SSH connection; a remote editor pane binds through it. */
+  sshBindingByConnection: Map<string, SshConnectionBinding>;
+  /** Open an SSH session for a saved connection (remote editor reconnect). */
+  onReconnectSsh: (connectionId: string, title: string) => void;
   mdPreviewLeafIds: ReadonlySet<number>;
   hasAiDiffTab: boolean;
   hasGitDiffTab: boolean;
@@ -67,6 +71,8 @@ export function WorkspaceArea({
   onAiCliStatus,
   sshStatuses,
   aiCliStatuses,
+  sshBindingByConnection,
+  onReconnectSsh,
   mdPreviewLeafIds,
   hasAiDiffTab,
   hasGitDiffTab,
@@ -124,6 +130,8 @@ export function WorkspaceArea({
               onSplitSizes={onSplitSizes}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
+              sshBindingByConnection={sshBindingByConnection}
+              onReconnectSsh={onReconnectSsh}
             />
           </div>
           <div

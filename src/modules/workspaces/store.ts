@@ -52,6 +52,17 @@ export type SavedEditorLeaf = {
   kind: "leaf";
   leafKind: "editor";
   path: string;
+  /**
+   * Saved SSH connection id when this file lives on a remote host. `path` is
+   * then a path on THAT host, never on the local disk. The live russh session
+   * number is deliberately not persisted (it is dead after a restart, and the
+   * counter restarts from 1, so it would point at whichever host connected
+   * first); the pane re-resolves this id to a live session instead.
+   * Absent = local file, which is every leaf written before this field existed.
+   */
+  sshConnectionId?: string;
+  /** Display label for the remote host, shown while the leaf waits to rebind. */
+  sshHostLabel?: string;
   /** Per-leaf privacy flag. AI inline autocomplete refuses on private leaves. */
   private?: boolean;
 };

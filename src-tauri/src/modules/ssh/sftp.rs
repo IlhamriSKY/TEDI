@@ -57,11 +57,7 @@ async fn get_session(
 
 /// Shared SFTP command scaffolding: resolve the session, open the sftp
 /// subsystem, and run `f` on the daemon runtime, mapping the join error.
-async fn on_sftp<F, Fut, T>(
-    state: &tauri::State<'_, SshState>,
-    id: u32,
-    f: F,
-) -> Result<T, String>
+async fn on_sftp<F, Fut, T>(state: &tauri::State<'_, SshState>, id: u32, f: F) -> Result<T, String>
 where
     F: FnOnce(Arc<SftpSession>) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<T, String>> + Send,

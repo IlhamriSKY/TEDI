@@ -24,6 +24,45 @@ export type SshStatus =
   | { kind: "disconnected"; reason: string; canRetry: boolean }
   | { kind: "error"; message: string; canRetry: boolean };
 
+/**
+ * How a SAVED connection stands across every terminal leaf that uses it,
+ * collapsed from the per-leaf statuses above.
+ *
+ * Remote editor leaves bind to the profile rather than to a leaf or a session
+ * number (the only id that survives a restart), and read their live session
+ * from here. "No entry at all" means no terminal is open for that host.
+ */
+export type SshConnectionBinding = {
+  /** Live russh session, set once some leaf for this profile is connected. */
+  sessionId?: number;
+  /** A leaf for this profile is on its way up (idle, connecting, retrying).
+   *  Distinguishes "wait a moment" from "this needs you to reconnect". */
+  connecting: boolean;
+};
+
+/**
+ * Fold one more terminal leaf's status into a connection's binding.
+ *
+ * The rules, in order: a connected leaf wins outright and is never displaced (so
+ * two terminals on the same host settle on one session instead of flapping); a
+ * leaf that has actually FAILED leaves the connection promptable, which is what
+ * puts a Reconnect button on a waiting remote editor; anything else - idle,
+ * handshaking, retrying, or not having reported yet - counts as on its way up,
+ * so a restored workspace does not flash "not connected" during startup before
+ * its terminals have even emitted a first status.
+ */
+export function foldSshBinding(
+  prev: SshConnectionBinding | undefined,
+  status: SshStatus | undefined,
+): SshConnectionBinding {
+  if (prev?.sessionId !== undefined) return prev;
+  if (status?.kind === "connected") return { sessionId: status.sessionId, connecting: false };
+  if (status?.kind === "error" || status?.kind === "disconnected") {
+    return { connecting: prev?.connecting ?? false };
+  }
+  return { connecting: true };
+}
+
 export type SshStatusDotTone = "neutral" | "warn" | "ok" | "bad";
 
 export function statusTone(s: SshStatus): SshStatusDotTone {

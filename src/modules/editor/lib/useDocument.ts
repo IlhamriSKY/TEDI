@@ -49,8 +49,19 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
     onDirtyChangeRef.current?.(dirty);
   }, [dirty]);
 
+  /** Path this effect last loaded, to tell a real path change from a remote
+   *  leaf rebinding to a fresh session. */
+  const loadedPathRef = useRef<string | null>(null);
+
   // Load on path change or explicit reload.
   useEffect(() => {
+    // A remote leaf whose SSH session reconnects gets a NEW session id for the
+    // same path. Re-reading then would overwrite unsaved edits with the copy on
+    // disk, so keep the buffer and let it save through the new session instead.
+    // Same rule `reload` already applies. Never fires locally: `sshSessionId` is
+    // static there, and `reload` refuses while dirty.
+    if (dirtyRef.current && loadedPathRef.current === path) return;
+    loadedPathRef.current = path;
     let cancelled = false;
     setDoc({ status: "loading" });
     setDirty(false);

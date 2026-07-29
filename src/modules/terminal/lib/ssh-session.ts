@@ -5,7 +5,12 @@ import {
   resolveJumpHops,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { openSsh, isHostKeyMismatchError, type SshSession } from "@/modules/ssh/bridge";
+import {
+  openSsh,
+  isHostKeyMismatchError,
+  type SshJumpHop,
+  type SshSession,
+} from "@/modules/ssh/bridge";
 import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { PtySession } from "./pty-bridge";
@@ -59,17 +64,30 @@ export async function openSshForSession(
   onData: (bytes: Uint8Array) => void,
   onExit: (code: number) => void,
 ): Promise<PtySession> {
-  // Look up connection metadata at open time so settings changes are picked up on the next reconnect.
-  const list = await listConnections();
-  const conn: SshConnection | undefined = list.find((c) => c.id === sshConnectionId);
-  if (!conn) {
-    throw new Error(`ssh: connection "${sshConnectionId}" not found`);
+  // Look up connection metadata at open time so settings changes are picked up on
+  // the next reconnect. These pre-flight failures (profile deleted, jump chain
+  // broken or cyclic) are the only ones that happen BEFORE the "connecting"
+  // status below, so they are reported explicitly: a leaf that throws here would
+  // otherwise sit at `idle` forever, which reads as "still coming up" to
+  // everything watching - the terminal's Enter-to-retry stays disabled, and a
+  // remote editor pane bound to this profile waits on a session that will never
+  // arrive instead of offering to reconnect.
+  let conn: SshConnection;
+  let secrets: Awaited<ReturnType<typeof getConnectionSecrets>>;
+  let jumps: SshJumpHop[];
+  try {
+    const list = await listConnections();
+    const found = list.find((c) => c.id === sshConnectionId);
+    if (!found) throw new Error(`ssh: connection "${sshConnectionId}" not found`);
+    conn = found;
+    secrets = await getConnectionSecrets(sshConnectionId);
+    // Resolve the ProxyJump chain (if this host tunnels through others). Done at
+    // open time so each reconnect re-reads the current chain + jump secrets.
+    jumps = await resolveJumpHops(conn.proxyJumpId, conn.id, list);
+  } catch (e) {
+    emitSshStatus(s, { kind: "error", message: describeError(e), canRetry: true });
+    throw e;
   }
-  const secrets = await getConnectionSecrets(sshConnectionId);
-
-  // Resolve the ProxyJump chain (if this host tunnels through others). Done at
-  // open time so each reconnect re-reads the current chain + jump secrets.
-  const jumps = await resolveJumpHops(conn.proxyJumpId, conn.id, list);
 
   // `sshReconnectAttempts` is bumped by `scheduleSshReconnect`. 0 means first open.
   const attempt = Math.max(1, s.sshReconnectAttempts);

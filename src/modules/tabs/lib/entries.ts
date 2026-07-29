@@ -1,5 +1,5 @@
 import { basename } from "@/lib/path";
-import { type PaneLeaf, leaves } from "@/modules/terminal/lib/panes";
+import { type PaneLeaf, isRemoteEditorLeaf, leaves } from "@/modules/terminal/lib/panes";
 import { type ExtensionTabState } from "./useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { type SshStatus } from "@/modules/ssh/status";
@@ -169,7 +169,7 @@ export function buildEntries(
               ? leaf.browserOrdinal
               : undefined;
         const remoteHost =
-          leaf.leafKind === "editor" && leaf.sshSessionId !== undefined
+          leaf.leafKind === "editor" && isRemoteEditorLeaf(leaf)
             ? (leaf.sshHostLabel ?? "remote")
             : undefined;
         out.push({

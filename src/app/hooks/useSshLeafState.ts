@@ -2,8 +2,8 @@ import { toast } from "@/components/ui/toast";
 import { dirname } from "@/lib/path";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { activeLeaf, type Tab } from "@/modules/tabs";
-import { leaves } from "@/modules/terminal";
-import type { SshStatus } from "@/modules/ssh/status";
+import { isRemoteEditorLeaf, leaves } from "@/modules/terminal";
+import { foldSshBinding, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
 import { toolDisplayName, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
 import {
@@ -41,6 +41,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     cwd: string | null;
     fromActiveLeaf: boolean;
   };
+  sshBindingByConnection: Map<string, SshConnectionBinding>;
   hasAnySshLeaf: boolean;
 } {
   // Per-leaf SSH status. React state so TabBar dot and StatusBar pill
@@ -55,6 +56,32 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
   // fallback below can stay on it instead of flipping to whichever session
   // happens to come first in tab order.
   const lastSessionIdRef = useRef<number | null>(null);
+
+  /**
+   * Live session per SAVED CONNECTION, collapsed from the terminal leaves that
+   * use one. This is the rebinding table for remote editor leaves: they persist
+   * a connection id (the only handle that survives a restart) and read their
+   * session from here, so a reconnect - which mints a fresh session id - is
+   * picked up without the leaf ever holding a number that can go stale.
+   *
+   * First connected leaf in tab order wins, so two terminals on the same host
+   * resolve deterministically instead of flapping. A leaf that is not connected
+   * yet counts as `connecting` unless it has actually failed, which keeps a
+   * restored remote file from flashing "not connected" during startup, before
+   * its terminal has even emitted a status. Ad-hoc connections have no profile
+   * and never appear here.
+   */
+  const sshBindingByConnection = useMemo(() => {
+    const m = new Map<string, SshConnectionBinding>();
+    for (const t of tabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind !== "terminal" || !l.sshConnectionId) continue;
+        m.set(l.sshConnectionId, foldSshBinding(m.get(l.sshConnectionId), sshStatuses.get(l.id)));
+      }
+    }
+    return m;
+  }, [tabs, sshStatuses]);
 
   const handleSshStatus = useCallback((leafId: number, status: SshStatus) => {
     setSshStatuses((prev) => {
@@ -118,15 +145,15 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
             fromActiveLeaf: true,
           };
         }
-      } else if (
-        leaf &&
-        leaf.leafKind === "editor" &&
-        leaf.sshSessionId !== undefined &&
-        // The leaf's sshSessionId is frozen at open time and nothing rewrites it
-        // on disconnect, so a remote file left open after Disconnect would keep
-        // pointing Source Control at a dead session (a permanent error banner).
-        sessionIsLive(leaf.sshSessionId)
-      ) {
+      } else if (leaf && leaf.leafKind === "editor" && isRemoteEditorLeaf(leaf)) {
+        // Resolve the profile to whatever session is live now; an ad-hoc leaf
+        // falls back to its frozen id. Either way the session must still be
+        // connected: a remote file left open after Disconnect would otherwise
+        // point Source Control at a dead session (a permanent error banner).
+        const sid = leaf.sshConnectionId
+          ? sshBindingByConnection.get(leaf.sshConnectionId)?.sessionId
+          : leaf.sshSessionId;
+        if (sid === undefined || !sessionIsLive(sid)) return none;
         // A remote file open in the editor counts as "focused on that remote":
         // opening one from the SSH tree used to hand Source Control straight
         // back to the LOCAL repo, which is the opposite of what the user is
@@ -136,7 +163,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
         // Its directory is a better repo anchor than the shell's $PWD, too:
         // the terminal usually still sits in $HOME, which is not a repo.
         return {
-          sessionId: leaf.sshSessionId,
+          sessionId: sid,
           hostLabel: leaf.sshHostLabel ?? hostLabelForTab(activePaneTab),
           cwd: dirname(leaf.path),
           fromActiveLeaf: true,
@@ -168,7 +195,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
       }
     }
     return first ?? none;
-  }, [sshStatuses, activePaneTab, tabs]);
+  }, [sshStatuses, activePaneTab, tabs, sshBindingByConnection]);
 
   // Written in an effect so the memo above stays pure. It only needs the value
   // as of the next recompute, so the ref intentionally isn't a memo dep.
@@ -257,6 +284,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     handleSshStatus,
     handleAiCliStatus,
     activeSshContext,
+    sshBindingByConnection,
     hasAnySshLeaf,
   };
 }

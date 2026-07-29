@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { basename } from "@/lib/path";
 import {
+  buildPaneTree,
   cloneLeafState,
   findLeaf,
   hasLeaf,
@@ -24,6 +25,7 @@ import {
   type EditorLeafState,
   type LeafState,
   type PaneEdge,
+  type PaneLayout,
   type PaneLeaf,
   type PaneNode,
   type BrowserLeafState,
@@ -57,6 +59,17 @@ export { activeLeaf, activeLeafKind, isTerminalLikeTab, isEditorLikeTab } from "
 // Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
 // 6 panes per tab leaves headroom for multiple tabs.
 export const MAX_PANES_PER_TAB = 6;
+
+/**
+ * Which host an editor leaf's file lives on: the saved SSH profile when there
+ * is one, else the ad-hoc session, else local. Two leaves show the same file
+ * only when this AND the path match, so opening a local file never lands on a
+ * remote leaf that happens to share its path - including a restored remote leaf,
+ * which has no session id yet and would otherwise read as local.
+ */
+function editorRemoteKey(l: Pick<EditorLeafState, "sshConnectionId" | "sshSessionId">) {
+  return l.sshConnectionId ?? l.sshSessionId ?? null;
+}
 
 export function useTabs(initial?: { cwd?: string; title?: string }) {
   const [tabs, setTabs] = useState<Tab[]>(() => {
@@ -194,6 +207,41 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [allocOrdinal],
   );
 
+  /**
+   * Open one tab holding `count` terminals arranged by `layout`. Used by the
+   * `+` -> Agent spawn, which needs shapes `splitActivePane` cannot express (a
+   * 2x2, or one pane beside a stacked pair) and needs every leaf to exist before
+   * any of them is written to. The tree is built in a single state update, so
+   * the leaf ids are stable and in visual order.
+   */
+  const newPaneGroupTab = useCallback(
+    (count: number, layout: PaneLayout, cwd?: string, title = "shell"): number => {
+      const tabId = nextIdRef.current++;
+      setTabs((curr) => {
+        const n = Math.max(1, Math.min(count, MAX_PANES_PER_TAB));
+        const states: TerminalLeafState[] = Array.from({ length: n }, () => ({
+          leafKind: "terminal",
+          cwd,
+          terminalOrdinal: allocOrdinal(curr),
+        }));
+        const paneTree = buildPaneTree(states, layout, () => nextIdRef.current++);
+        return [
+          ...curr,
+          syncPaneMirror({
+            id: tabId,
+            kind: "pane",
+            title,
+            paneTree,
+            activeLeafId: leafIds(paneTree)[0],
+          }),
+        ];
+      });
+      setActiveId(tabId);
+      return tabId;
+    },
+    [allocOrdinal],
+  );
+
   /** Open a tab whose initial terminal leaf is bound to a saved SSH connection. Routes through `ssh_open`. */
   const newSshTab = useCallback(
     (sshConnectionId: string, title: string, opts?: { private?: boolean }) => {
@@ -250,15 +298,16 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       curr: Tab[],
       path: string,
       predicate: (l: PaneLeaf & EditorLeafState) => boolean = () => true,
-      sshSessionId?: number,
+      remoteKey: string | number | null = null,
     ): { tab: PaneTab; leaf: PaneLeaf & EditorLeafState } | null => {
       for (const t of curr) {
         if (t.kind !== "pane") continue;
         for (const l of leaves(t.paneTree)) {
           if (l.leafKind !== "editor") continue;
           if (l.path !== path) continue;
-          // Same path on different sessions (or local vs remote) is a different file. Only dedup when session matches.
-          if ((l.sshSessionId ?? null) !== (sshSessionId ?? null)) continue;
+          // Same path on a different host (or local vs remote) is a different
+          // file. Only dedup when the host matches.
+          if (editorRemoteKey(l) !== remoteKey) continue;
           if (!predicate(l)) continue;
           return { tab: t, leaf: l };
         }
@@ -274,11 +323,22 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * `pin = false`: VSCode-style preview slot.
    */
   const openFileTab = useCallback(
-    (path: string, pin = true, remote?: { sshSessionId: number; sshHostLabel: string }) => {
+    (
+      path: string,
+      pin = true,
+      remote?: {
+        /** Saved profile of the host, when the session came from one. Absent for
+         *  an ad-hoc connection, which then cannot survive a restart. */
+        sshConnectionId?: string;
+        sshSessionId: number;
+        sshHostLabel: string;
+      },
+    ) => {
       let targetTabId: number | null = null;
+      const remoteKey = remote ? editorRemoteKey(remote) : null;
       setTabs((curr) => {
         if (pin) {
-          const hit = findEditorLeafIn(curr, path, undefined, remote?.sshSessionId);
+          const hit = findEditorLeafIn(curr, path, undefined, remoteKey);
           if (hit) {
             targetTabId = hit.tab.id;
             return curr.map((t) => {
@@ -305,6 +365,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             dirty: false,
             preview: false,
             ...(remote && {
+              ...(remote.sshConnectionId ? { sshConnectionId: remote.sshConnectionId } : {}),
               sshSessionId: remote.sshSessionId,
               sshHostLabel: remote.sshHostLabel,
             }),
@@ -322,7 +383,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         }
 
         // Preview open
-        const persistent = findEditorLeafIn(curr, path, (l) => !l.preview, remote?.sshSessionId);
+        const persistent = findEditorLeafIn(curr, path, (l) => !l.preview, remoteKey);
         if (persistent) {
           targetTabId = persistent.tab.id;
           return curr.map((t) => {
@@ -333,12 +394,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             });
           });
         }
-        const existingPreview = findEditorLeafIn(
-          curr,
-          path,
-          (l) => l.preview,
-          remote?.sshSessionId,
-        );
+        const existingPreview = findEditorLeafIn(curr, path, (l) => l.preview, remoteKey);
         if (existingPreview) {
           targetTabId = existingPreview.tab.id;
           return curr.map((t) => {
@@ -370,6 +426,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           dirty: false,
           preview: true,
           ...(remote && {
+            ...(remote.sshConnectionId ? { sshConnectionId: remote.sshConnectionId } : {}),
             sshSessionId: remote.sshSessionId,
             sshHostLabel: remote.sshHostLabel,
           }),
@@ -612,23 +669,28 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             };
             state = ts;
           } else if (kind === "editor") {
-            // Duplicate the active editor's path; fall back to any editor in the tab.
-            // No editor in the tab means no path to clone, so the split is a no-op.
-            const sourcePath =
+            // Duplicate the active editor; fall back to any editor in the tab.
+            // No editor in the tab means nothing to clone, so the split is a no-op.
+            const source =
               active.leafKind === "editor"
-                ? active.path
+                ? active
                 : leaves(t.paneTree).find(
                     (l): l is PaneLeaf & EditorLeafState => l.leafKind === "editor",
-                  )?.path;
-            if (!sourcePath) {
+                  );
+            if (!source) {
               newLeafId = null;
               return t;
             }
             const es: EditorLeafState = {
               leafKind: "editor",
-              path: sourcePath,
+              path: source.path,
               dirty: false,
               preview: false,
+              // Carry the host with the path. Cloning the path alone would open
+              // a REMOTE path against the local disk in the new pane.
+              ...(source.sshConnectionId ? { sshConnectionId: source.sshConnectionId } : {}),
+              ...(source.sshSessionId !== undefined ? { sshSessionId: source.sshSessionId } : {}),
+              ...(source.sshHostLabel ? { sshHostLabel: source.sshHostLabel } : {}),
             };
             state = es;
           } else {
@@ -1018,6 +1080,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     activeId,
     setActiveId,
     newTab,
+    newPaneGroupTab,
     newSshTab,
     openFileTab,
     pinTab,

@@ -1,5 +1,7 @@
+import { isPdfPath, pathToFileUrl } from "@/lib/path";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { type Tab } from "@/modules/tabs";
+import type { SshConnectionBinding } from "@/modules/ssh/status";
 import { leaves } from "@/modules/terminal";
 import { useCallback, useEffect } from "react";
 import { type TabsApi } from "./tabsApi";
@@ -7,14 +9,33 @@ import { type TabsApi } from "./tabsApi";
 type Params = {
   tabs: Tab[];
   disposeTab: (id: number) => void;
+  /** Live session per saved SSH connection, from `useSshLeafState`. Lets a file
+   *  opened from the remote tree record which PROFILE it came from, not just the
+   *  session number, so the tab can be restored after a restart. */
+  sshBindingByConnection: Map<string, SshConnectionBinding>;
+  /** Opens a URL in a browser pane. Used for file types the editor cannot
+   *  render but the native webview can - see `isPdfPath`. */
+  openPreviewTab: (url: string, activate?: boolean) => number | null;
 } & Pick<TabsApi, "openFileTab" | "setEditorLeafPath">;
 
 /**
  * File-open / rename / delete wiring shared by the local explorer, the SSH
- * tree, and the extension workspace bridge. Moved verbatim from App with
- * identical dependency arrays. `disposeTab` is threaded in (it stays in App).
+ * tree, the extension workspace bridge, and OS file drops. Moved verbatim from
+ * App with identical dependency arrays. `disposeTab` is threaded in (it stays
+ * in App).
+ *
+ * `handleOpenFile` is the single place that decides WHICH surface a local file
+ * opens in, so every one of those callers agrees. Adding the choice at one
+ * call site instead would leave the others opening a PDF as "Binary file".
  */
-export function useFileActions({ tabs, disposeTab, openFileTab, setEditorLeafPath }: Params): {
+export function useFileActions({
+  tabs,
+  disposeTab,
+  openFileTab,
+  setEditorLeafPath,
+  sshBindingByConnection,
+  openPreviewTab,
+}: Params): {
   handleOpenFile: (path: string, pin?: boolean) => void;
   handleOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   handlePathRenamed: (from: string, to: string) => void;
@@ -22,9 +43,18 @@ export function useFileActions({ tabs, disposeTab, openFileTab, setEditorLeafPat
 } {
   const handleOpenFile = useCallback(
     (path: string, pin?: boolean) => {
+      // PDF goes to a browser pane; everything else to an editor tab. Images
+      // need no branch here - `fs_read_file` returns them as a data URL and
+      // `EditorPane` renders it. A non-absolute path yields a null URL and
+      // falls through rather than opening a blank browser tab.
+      const url = isPdfPath(path) ? pathToFileUrl(path) : null;
+      if (url) {
+        openPreviewTab(url, true);
+        return;
+      }
       openFileTab(path, pin ?? false);
     },
-    [openFileTab],
+    [openFileTab, openPreviewTab],
   );
 
   // Wire the extension workspace bridge to the live file-open handler.
@@ -43,12 +73,24 @@ export function useFileActions({ tabs, disposeTab, openFileTab, setEditorLeafPat
   // silently replace whichever local file is in preview.
   const handleOpenRemoteFile = useCallback(
     (path: string, sessionId: number, hostLabel: string | null) => {
+      // Record the saved profile behind this session, not just the session
+      // number: the number dies with the app, the profile is what lets the tab
+      // come back and rebind after a restart. Ad-hoc sessions have none, and
+      // stay session-only.
+      let sshConnectionId: string | undefined;
+      for (const [connId, binding] of sshBindingByConnection) {
+        if (binding.sessionId === sessionId) {
+          sshConnectionId = connId;
+          break;
+        }
+      }
       openFileTab(path, true, {
+        sshConnectionId,
         sshSessionId: sessionId,
         sshHostLabel: hostLabel ?? "remote",
       });
     },
-    [openFileTab],
+    [openFileTab, sshBindingByConnection],
   );
 
   const handlePathRenamed = useCallback(

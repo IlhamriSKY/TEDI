@@ -14,11 +14,15 @@ export {
   writeTerminalInput,
 } from "./lib/floatTap";
 export {
+  buildPaneTree,
   hasLeaf,
+  isRemoteEditorLeaf,
+  layoutsFor,
   leafIds,
   leaves,
   findLeaf,
   leafParentDir,
+  type PaneLayout,
   type PaneNode,
   type PaneLeaf,
 } from "./lib/panes";

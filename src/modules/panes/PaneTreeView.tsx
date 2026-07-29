@@ -52,9 +52,9 @@ import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPa
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode, SplitDir } from "@/modules/terminal/lib/panes";
-import { leaves } from "@/modules/terminal/lib/panes";
+import { editorPaneSession, isRemoteEditorLeaf, leaves } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
-import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
+import { statusLabelClass, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
 import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
@@ -62,16 +62,14 @@ import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import { closeFloat, floatPane } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
-import { GripVertical, Settings, SquareArrowOutUpRight, X } from "lucide-react";
+import { Cloud, GripVertical, Settings, SquareArrowOutUpRight, X } from "lucide-react";
 
 // Lazy so the ~1.5MB editor stack (CodeMirror + streamdown + markdown + katex)
 // is only fetched+parsed when an editor leaf actually renders, not on every
 // launch. PaneTreeView is on the boot render tree but the default/most common
 // tab is a terminal, so this keeps the editor bundle off first paint. The
 // separate float.html entry (FloatApp) still imports EditorPane directly.
-const EditorPane = lazy(() =>
-  import("@/modules/editor").then((m) => ({ default: m.EditorPane })),
-);
+const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default: m.EditorPane })));
 
 /** Leaf kinds that can be floated into their own window. Terminals mirror live
  *  over Tauri events (the primary "watch an agent while working" case); an SSH
@@ -86,7 +84,7 @@ const EditorPane = lazy(() =>
  *  Tauri build, so this path is build-green but needs a manual smoke test. */
 function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
   if (node.leafKind === "terminal") return { leafId: node.id, kind: "terminal", title };
-  if (node.leafKind === "editor" && node.sshSessionId === undefined)
+  if (node.leafKind === "editor" && !isRemoteEditorLeaf(node))
     return {
       leafId: node.id,
       kind: "editor",
@@ -145,6 +143,10 @@ type Props = {
   sshStatuses?: Map<number, SshStatus>;
   /** Live AI CLI status per terminal leaf id. Tints the header icon (idle/working/blocking). */
   aiCliStatuses?: Map<number, AiCliStatus>;
+  /** Live session per saved SSH connection, for remote editor leaves. */
+  sshBindingByConnection?: Map<string, SshConnectionBinding>;
+  /** Open an SSH session for a saved connection (remote editor reconnect). */
+  onReconnectSsh?: (connectionId: string, title: string) => void;
 };
 
 type PaneDragState = {
@@ -190,6 +192,8 @@ type PaneMetaValue = {
   sshHosts?: Map<string, SshConnection>;
   sshStatuses?: Map<number, SshStatus>;
   aiCliStatuses?: Map<number, AiCliStatus>;
+  sshBindingByConnection?: Map<string, SshConnectionBinding>;
+  onReconnectSsh?: (connectionId: string, title: string) => void;
 };
 
 // SSH host/status lives in its own context so status pushes re-render only the
@@ -249,10 +253,60 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
     isPrivate: node.private === true,
     isSsh: node.leafKind === "terminal" && !!node.sshConnectionId,
     editorFileName: node.leafKind === "editor" ? basename(node.path) : undefined,
-    editorRemote: node.leafKind === "editor" && node.sshSessionId !== undefined,
+    editorRemote: isRemoteEditorLeaf(node),
     browserUrl: node.leafKind === "browser" ? node.url : undefined,
     aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,
   };
+}
+
+/** One remote editor leaf resolved against the live SSH sessions, for the
+ *  current render. Undefined on local leaves. */
+type RemoteEditorBinding = {
+  /** Session to read and write through. Undefined while nothing is connected. */
+  sessionId: number | undefined;
+  /** A terminal for this host is on its way up, so wait rather than prompt. */
+  connecting: boolean;
+  hostLabel: string;
+  /** Absent for ad-hoc connections: there is no saved profile to reopen. */
+  onReconnect?: () => void;
+};
+
+/**
+ * Waiting room for a remote editor leaf with no live SSH session: shown after a
+ * restart, before any terminal for its host has connected. The editor is
+ * deliberately NOT mounted here, so a remote path can never be read from (or
+ * saved to) the local disk while unbound.
+ */
+function RemoteEditorPending({
+  fileName,
+  hostLabel,
+  connecting,
+  onReconnect,
+}: {
+  fileName: string;
+  hostLabel: string;
+  connecting: boolean;
+  onReconnect?: () => void;
+}) {
+  return (
+    <div className="bg-background text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center text-[11px]">
+      <Cloud size={22} strokeWidth={1.5} className="opacity-50" />
+      <span className="max-w-72 leading-relaxed">
+        <span className="text-foreground">{fileName}</span> lives on{" "}
+        <span className="text-foreground">{hostLabel}</span>.{" "}
+        {connecting ? "Connecting…" : "Not connected."}
+      </span>
+      {!connecting && onReconnect && (
+        <button
+          type="button"
+          onClick={onReconnect}
+          className="hover:bg-muted hover:text-foreground border-border rounded-md border px-2 py-1 transition-colors"
+        >
+          Reconnect
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** Heavy leaf content. Memoized so pointer-move re-renders during a drag don't churn xterm/CodeMirror. */
@@ -264,6 +318,7 @@ const LeafBody = memo(function LeafBody({
   focused,
   b,
   mdPreview,
+  remoteSession,
 }: {
   node: PaneLeaf;
   tabVisible: boolean;
@@ -274,6 +329,9 @@ const LeafBody = memo(function LeafBody({
   focused: boolean;
   b: LeafBundle;
   mdPreview: boolean;
+  /** Resolution of a remote editor leaf against the live SSH sessions.
+   *  Undefined for local leaves. */
+  remoteSession?: RemoteEditorBinding;
 }) {
   // Register the editor handle both with the parent bundle (find/replace etc.)
   // and the frame's own ref (save-before-float). Stable so EditorPane doesn't
@@ -285,6 +343,13 @@ const LeafBody = memo(function LeafBody({
     },
     [b, editorHandleRef],
   );
+  // Last session this leaf actually bound to. Losing the session (Disconnect, a
+  // dropped link) must NOT swap a live editor for the reconnect panel: that
+  // unmounts CodeMirror and takes any unsaved edits with it. Keep the editor on
+  // the old session instead - saving fails against a dead one, exactly as it did
+  // before - until a reconnect resolves a fresh session and it heals itself.
+  const boundSessionRef = useRef<number | undefined>(undefined);
+  if (remoteSession?.sessionId !== undefined) boundSessionRef.current = remoteSession.sessionId;
   if (node.leafKind === "terminal") {
     return (
       <ErrorBoundary label="terminal pane" resetKeys={[node.id]}>
@@ -336,6 +401,20 @@ const LeafBody = memo(function LeafBody({
   // two live CodeMirror views can't race and save-stomp the same file (the parent
   // overlays a "floating" indicator in its place).
   if (isFloating) return null;
+  // Remote file with nothing to read it through yet (typically a workspace
+  // restored before its SSH terminal came up). Hold the pane closed rather than
+  // mount an editor that would fall back to the LOCAL filesystem.
+  const sshSessionId = editorPaneSession(node, remoteSession?.sessionId, boundSessionRef.current);
+  if (sshSessionId === "blocked") {
+    return (
+      <RemoteEditorPending
+        fileName={basename(node.path)}
+        hostLabel={remoteSession?.hostLabel ?? node.sshHostLabel ?? "remote"}
+        connecting={remoteSession?.connecting ?? false}
+        onReconnect={remoteSession?.onReconnect}
+      />
+    );
+  }
   return (
     <ErrorBoundary label="editor pane" resetKeys={[node.id, node.path]}>
       {/* fallback={null}: the editor chunk loads on first editor render; the
@@ -347,7 +426,7 @@ const LeafBody = memo(function LeafBody({
           onDirtyChange={b.onDirtyChange}
           onClose={b.onCloseLeaf}
           mdPreview={mdPreview}
-          sshSessionId={node.sshSessionId}
+          sshSessionId={sshSessionId}
           aiDisabled={node.private === true}
         />
       </Suspense>
@@ -391,7 +470,8 @@ function PaneLeafFrame({
 }) {
   const { drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme } =
     use(PaneDndContext);
-  const { sshHosts, sshStatuses, aiCliStatuses } = use(PaneMetaContext);
+  const { sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh } =
+    use(PaneMetaContext);
   const draggable = leafCount > 1;
   const {
     listeners,
@@ -427,6 +507,27 @@ function PaneLeafFrame({
     !!termTitle &&
     termTitle !== baseLabel &&
     termTitle !== node.cwd;
+
+  // Resolve a remote editor leaf to a live session on every render, rather than
+  // stamping one onto the leaf: a saved profile outlives any session, so a
+  // reconnect (which mints a new session id) is followed automatically and a
+  // restored leaf simply waits until its host is up.
+  const remoteSession = useMemo<RemoteEditorBinding | undefined>(() => {
+    if (node.leafKind !== "editor" || !isRemoteEditorLeaf(node)) return undefined;
+    const connId = node.sshConnectionId;
+    const conn = connId ? sshHosts?.get(connId) : undefined;
+    const hostLabel = conn?.name.trim() || node.sshHostLabel || "remote";
+    // Ad-hoc connection: no profile to re-resolve or reopen, so the session it
+    // was opened with is all this leaf will ever have.
+    if (!connId) return { sessionId: node.sshSessionId, connecting: false, hostLabel };
+    const binding = sshBindingByConnection?.get(connId);
+    return {
+      sessionId: binding?.sessionId,
+      connecting: binding?.connecting ?? false,
+      hostLabel,
+      onReconnect: onReconnectSsh ? () => onReconnectSsh(connId, hostLabel) : undefined,
+    };
+  }, [node, sshHosts, sshBindingByConnection, onReconnectSsh]);
 
   // Float the pane into its own always-on-top window (terminals mirror live via
   // Tauri events; editors open the file). Browser/extension panes can't float.
@@ -660,6 +761,7 @@ function PaneLeafFrame({
           focused={focused}
           b={b}
           mdPreview={mdPreview}
+          remoteSession={remoteSession}
         />
         {isFloating && (
           <div className="bg-background text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-[11px]">
@@ -726,8 +828,7 @@ const PaneNodes = memo(function PaneNodes({
   // Restore saved divider positions only when the stored ratios still line up
   // with the current children (a split/close leaves a stale-length array);
   // otherwise fall back to an equal split.
-  const savedSizes =
-    node.sizes && node.sizes.length === node.children.length ? node.sizes : null;
+  const savedSizes = node.sizes && node.sizes.length === node.children.length ? node.sizes : null;
 
   return (
     <ResizablePanelGroup
@@ -787,6 +888,8 @@ export function PaneTreeView({
   sshHosts,
   sshStatuses,
   aiCliStatuses,
+  sshBindingByConnection,
+  onReconnectSsh,
 }: Props) {
   const leafList = useMemo(() => leaves(node), [node]);
   const leafCount = leafList.length;
@@ -860,8 +963,8 @@ export function PaneTreeView({
     [drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme],
   );
   const metaValue = useMemo<PaneMetaValue>(
-    () => ({ sshHosts, sshStatuses, aiCliStatuses }),
-    [sshHosts, sshStatuses, aiCliStatuses],
+    () => ({ sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh }),
+    [sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh],
   );
 
   // Re-render the overlay once the file-icon set lands so a dragged editor leaf

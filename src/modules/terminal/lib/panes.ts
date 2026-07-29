@@ -77,9 +77,22 @@ export type EditorLeafState = {
   dirty: boolean;
   /** VSCode-style preview indicator (italic title). */
   preview: boolean;
-  /** When set, edits a remote file via the matching russh session (SFTP). */
+  /**
+   * Saved SSH connection id of the host this file lives on. The STABLE half of
+   * a remote editor's identity: it survives a restart, so the workspace
+   * serializer persists it and the pane resolves it to whatever russh session
+   * is live at render time (see `sshSessionId`). Absent on local files and on
+   * ad-hoc connections, which have no saved profile to rebind to.
+   */
+  sshConnectionId?: string;
+  /**
+   * LIVE russh session this leaf currently reads and writes through (SFTP).
+   * Frozen at open time for an ad-hoc connection (no saved profile, so nothing
+   * to re-resolve); for a profile-bound leaf the pane passes the freshly
+   * resolved session instead, which is why this is never persisted.
+   */
   sshSessionId?: number;
-  /** `user@host:port` for the remote host. Only set when `sshSessionId` is set. */
+  /** Display label for the remote host. Set alongside either ssh field. */
   sshHostLabel?: string;
   /** Privacy flag. AI autocomplete + tools refuse on private editor leaves. */
   private?: boolean;
@@ -128,10 +141,7 @@ export type ExtensionPanelLeafState = {
 };
 
 export type LeafState =
-  | TerminalLeafState
-  | EditorLeafState
-  | BrowserLeafState
-  | ExtensionPanelLeafState;
+  TerminalLeafState | EditorLeafState | BrowserLeafState | ExtensionPanelLeafState;
 
 export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
 
@@ -154,6 +164,48 @@ export type PaneNode =
 
 export function isLeaf(n: PaneNode): n is PaneLeaf {
   return n.kind === "leaf";
+}
+
+/**
+ * True for an editor leaf whose file lives on a remote host over SFTP, bound to
+ * a live session or not.
+ *
+ * Every "is this file local?" decision must route through this. Testing only
+ * `sshSessionId` misses a leaf restored from a saved workspace (which carries
+ * just the connection id until a session comes up) and treats it as a LOCAL
+ * file: that is how a remote path used to be read from, and on the next save
+ * written to, the local disk.
+ */
+export function isRemoteEditorLeaf(leaf: PaneLeaf): boolean {
+  return (
+    leaf.leafKind === "editor" &&
+    (leaf.sshConnectionId !== undefined || leaf.sshSessionId !== undefined)
+  );
+}
+
+/**
+ * Which session an editor pane may read and write through this render.
+ *
+ * `undefined` = the local filesystem, i.e. an ordinary local file. A number =
+ * that russh session. `"blocked"` = remote with nothing to reach it through,
+ * and the pane MUST NOT mount an editor: `useDocument` falls back to the LOCAL
+ * filesystem whenever no session is set, so mounting would read - and on the
+ * next save write - a remote path against this machine's disk. That single
+ * fallback is why remote leaves used to be dropped from the saved workspace
+ * rather than restored.
+ *
+ * `lastBound` keeps a pane that HAS been bound on its previous session when the
+ * connection drops, instead of tearing the editor down and taking unsaved edits
+ * with it; saving then fails against the dead session (exactly as it did before
+ * any of this) until a reconnect resolves a new one.
+ */
+export function editorPaneSession(
+  leaf: PaneLeaf,
+  resolved: number | undefined,
+  lastBound: number | undefined,
+): number | "blocked" | undefined {
+  if (!isRemoteEditorLeaf(leaf)) return undefined;
+  return resolved ?? lastBound ?? "blocked";
 }
 
 export function leafIds(n: PaneNode): PaneId[] {
@@ -392,6 +444,7 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       path: leaf.path,
       dirty: leaf.dirty,
       preview: leaf.preview,
+      sshConnectionId: leaf.sshConnectionId,
       sshSessionId: leaf.sshSessionId,
       sshHostLabel: leaf.sshHostLabel,
       ...(leaf.private ? { private: true } : {}),
@@ -416,6 +469,63 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
     ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
     ...(leaf.private ? { private: true } : {}),
   };
+}
+
+/**
+ * How a freshly opened multi-pane tab arranges its leaves.
+ * `row` = side by side, `col` = stacked, `grid` = both axes combined.
+ */
+export type PaneLayout = "row" | "col" | "grid";
+
+/**
+ * Layouts that are meaningful for `count` panes, in menu order. Below three
+ * panes there is nothing for `grid` to combine (it would just be a row), so it
+ * is left out rather than offered as a duplicate.
+ */
+export function layoutsFor(count: number): PaneLayout[] {
+  if (count < 2) return [];
+  if (count < 3) return ["row", "col"];
+  return ["row", "col", "grid"];
+}
+
+/**
+ * Build a pane tree holding `states` in the given layout, left-to-right /
+ * top-to-bottom in array order. `allocId` yields fresh pane ids.
+ *
+ * `grid` mixes both axes: 3 panes become one full-height pane beside a stacked
+ * pair, and 4 or more split into two rows with the larger half on top (4 = 2x2,
+ * 5 = 3 over 2, 6 = 3x2). Under 3 panes there is nothing to combine, so it falls
+ * back to a single row and the caller never has to special-case it.
+ */
+export function buildPaneTree(
+  states: LeafState[],
+  layout: PaneLayout,
+  allocId: () => PaneId,
+): PaneNode {
+  if (states.length === 0) throw new Error("buildPaneTree: needs at least one leaf");
+  const leaf = (s: LeafState): PaneLeaf => ({ kind: "leaf", id: allocId(), ...s });
+  if (states.length === 1) return leaf(states[0]);
+  const split = (dir: SplitDir, children: PaneNode[]): PaneNode => ({
+    kind: "split",
+    id: allocId(),
+    dir,
+    children,
+  });
+  if (layout === "grid" && states.length === 3) {
+    const [a, b, c] = states.map((s) => leaf(s));
+    return split("row", [a, split("col", [b, c])]);
+  }
+  if (layout === "grid" && states.length >= 4) {
+    // Two rows, larger half on top. Ceil keeps both rows at 2+ children, so no
+    // single-child split (which `normalizePaneTree` would only unwrap again).
+    const top = Math.ceil(states.length / 2);
+    const cells = states.map((s) => leaf(s));
+    return split("col", [split("row", cells.slice(0, top)), split("row", cells.slice(top))]);
+  }
+  return split(
+    layout === "col" ? "col" : "row",
+    states.map((s) => leaf(s)),
+  );
 }
 
 /** Insert a new leaf next to `targetId` in `dir`. Joins as a sibling if the enclosing split already runs that way. */
