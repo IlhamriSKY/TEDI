@@ -272,9 +272,70 @@ fn take_initial_target() -> Option<CliTarget> {
     INITIAL_TARGET.lock().ok().and_then(|mut slot| slot.take())
 }
 
+/// Flips true the first time the frontend drains the startup slot, which it
+/// does once on mount. Past that point the `tedi:open-cli-target` listener is
+/// registered, so a target can be delivered live instead of stashed. Only
+/// `handle_opened_urls` needs the distinction - see its doc comment.
+static FRONTEND_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 pub fn cli_initial_target() -> Option<CliTarget> {
+    FRONTEND_DRAINED.store(true, std::sync::atomic::Ordering::Release);
     take_initial_target()
+}
+
+/// Classify an arbitrary path the same way `tedi <path>` does. Exposed so the
+/// frontend can route a drag-and-drop by what the path actually IS rather than
+/// by guessing from its name: a folder becomes a terminal tab, a file becomes
+/// an editor tab, and anything that is neither (a dangling path, a socket, a
+/// device node) returns `None` so the drop is ignored instead of opening an
+/// editor onto something unreadable.
+#[tauri::command]
+pub fn cli_classify_path(path: String) -> Option<CliTarget> {
+    classify(Path::new(&path))
+}
+
+/// macOS Finder delivery: "Open With > TEDI", double-clicking a file TEDI is
+/// the default handler for, or dropping a folder on the Dock icon. Launch
+/// Services sends `application:openURLs:`, which Tauri surfaces as
+/// `RunEvent::Opened`. The declared UTIs live in `src-tauri/Info.plist`.
+///
+/// Cold start and warm start need different delivery and the window's mere
+/// existence cannot tell them apart: on a cold open the main window is built
+/// in `setup` before the event loop starts, so it exists while the webview is
+/// still booting and has no `tedi:open-cli-target` listener yet - an emit
+/// there would vanish. `FRONTEND_DRAINED` marks the point where the listener
+/// is definitely live, so before it we stash into the same slot
+/// `capture_startup` uses and the frontend picks the target up on mount.
+#[cfg(target_os = "macos")]
+pub fn handle_opened_urls(app: &tauri::AppHandle, urls: &[url::Url]) {
+    use tauri::{Emitter, Manager};
+
+    // Finder can hand over a multi-selection; TEDI opens one target, so take
+    // the first entry that is a real file or folder on disk.
+    let Some(target) = urls
+        .iter()
+        .filter_map(|u| u.to_file_path().ok())
+        .find_map(|p| classify(&p))
+    else {
+        return;
+    };
+
+    if !FRONTEND_DRAINED.load(std::sync::atomic::Ordering::Acquire) {
+        if let Ok(mut slot) = INITIAL_TARGET.lock() {
+            *slot = Some(target);
+        }
+        return;
+    }
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // Finder does not raise the app for us when it is already running.
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = window.emit(crate::modules::events::OPEN_CLI_TARGET, target);
 }
 
 /// Drain the captured update request. Returns true at most once per launch

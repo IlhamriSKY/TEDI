@@ -14,4 +14,9 @@ if [ -L /usr/bin/tedi ] && [ "$(readlink /usr/bin/tedi)" = "TEDIApp" ]; then
   rm -f /usr/bin/tedi
 fi
 
+# No update-desktop-database call here: this runs BEFORE the .desktop file is
+# removed, so rebuilding the cache would just re-register the entry. Both
+# dpkg and rpm ship a desktop-file-utils trigger on /usr/share/applications
+# that rebuilds it after the removal lands.
+
 exit 0

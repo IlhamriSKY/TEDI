@@ -20,4 +20,14 @@ if [ -x /usr/bin/TEDIApp ]; then
   ln -sf TEDIApp /usr/bin/tedi
 fi
 
+# Register the "Open With > TEDI" association. The MimeType line in
+# `tedi.desktop` (inode/directory + text/plain) is inert until the desktop
+# database is rebuilt, so a fresh install would ship the entry without file
+# managers ever offering it. Best-effort: the tool lives in desktop-file-utils,
+# which a headless/server install may not have, and a missing association is a
+# smaller problem than a package that refuses to install.
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
 exit 0

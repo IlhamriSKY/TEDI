@@ -193,8 +193,15 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 
     // Freshly built windows carry the tab in `url_path`; a revealed existing
     // window won't re-read the URL, so it gets the tab pushed via event.
-    if open_or_reveal_child(&app, "settings", url_path, "Settings", (880.0, 620.0), (600.0, 480.0))?
-        .is_none()
+    if open_or_reveal_child(
+        &app,
+        "settings",
+        url_path,
+        "Settings",
+        (880.0, 620.0),
+        (600.0, 480.0),
+    )?
+    .is_none()
     {
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
             if let Some(window) = app.get_webview_window("settings") {
@@ -211,9 +218,11 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 /// window's geometry can't be read. Shared by the Settings and Debug windows.
 fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
     if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(main_pos), Ok(main_size), Ok(win_size)) =
-            (main.outer_position(), main.outer_size(), window.outer_size())
-        {
+        if let (Ok(main_pos), Ok(main_size), Ok(win_size)) = (
+            main.outer_position(),
+            main.outer_size(),
+            window.outer_size(),
+        ) {
             let x = main_pos.x + (main_size.width as i32 - win_size.width as i32) / 2;
             let y = main_pos.y + (main_size.height as i32 - win_size.height as i32) / 2;
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
@@ -226,7 +235,14 @@ fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
 /// src/modules/ai/store/debugBridge.ts). Same owner-window chrome as Settings.
 #[tauri::command]
 async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
-    open_or_reveal_child(&app, "debug", "debug.html".to_string(), "Debug", (980.0, 680.0), (460.0, 360.0))?;
+    open_or_reveal_child(
+        &app,
+        "debug",
+        "debug.html".to_string(),
+        "Debug",
+        (980.0, 680.0),
+        (460.0, 360.0),
+    )?;
     Ok(())
 }
 
@@ -626,10 +642,7 @@ pub fn run() {
             git::commands::git_ignored,
             git::commands::git_file_head,
             git::commands::git_file_at,
-            git::commands::git_discard_file,
-            git::commands::git_discard_all,
-            git::commands::git_commit,
-            git::commands::git_push,
+            git::commands::git_run,
             git::commands::git_diff_full,
             git::commands::git_log,
             git::commands::git_commit_detail,
@@ -659,6 +672,7 @@ pub fn run() {
             preview::preview_embed_close,
             preview::preview_resolve_favicon,
             cli::cli_initial_target,
+            cli::cli_classify_path,
             cli::cli_take_initial_update_request,
             cli::cli_install_path_shim,
             secrets::secrets_get,
@@ -679,6 +693,7 @@ pub fn run() {
             ssh::ssh_list_sessions,
             ssh::ssh_attach,
             ssh::ssh_git_status,
+            ssh::ssh_git,
             ssh::sftp::ssh_sftp_home,
             ssh::sftp::ssh_sftp_read_dir,
             ssh::sftp::ssh_sftp_read_file,
@@ -749,6 +764,16 @@ pub fn run() {
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // `build` + `run` rather than `run(context)` so the run loop can see
+        // `RunEvent::Opened` - macOS Launch Services' "Open With > TEDI" and
+        // drag-onto-Dock delivery. Every other platform routes the same open
+        // through argv (`cli::capture_startup`) or single-instance forwarding.
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                cli::handle_opened_urls(_app, urls);
+            }
+        });
 }

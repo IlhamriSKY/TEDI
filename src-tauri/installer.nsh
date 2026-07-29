@@ -45,6 +45,44 @@
 ; NSIS_HOOK_POSTINSTALL for why.
 !define TEDI_ENV_REG_PS "HKCU:\Environment"
 
+; --- "Open with TEDI" shell verbs -----------------------------------------
+; Explorer builds a context menu from static verbs under
+; <root>\shell\<verb>, so registering under HKCU\Software\Classes gives the
+; whole thing without an elevated installer (installMode is currentUser).
+; Four roots, because Explorer treats them as unrelated:
+;   Directory             right-click ON a folder
+;   Directory\Background  right-click on empty space INSIDE a folder
+;   Drive                 right-click on a drive root (C:\, D:\, ...)
+;   *                     right-click on any file
+;
+; `%V` is the folder the menu was raised on and is the only field code the
+; Background root understands; `*` has no `%V`, so files use `%1`.
+;
+; The command points at TEDIApp.exe, NOT the tedi.exe console stub: the stub
+; is console-subsystem and would flash a console window on every click.
+; TEDIApp.exe already resolves a positional path via `cli::capture_startup`
+; and forwards it to a running instance through single-instance, so one click
+; either boots TEDI at that path or opens a tab in the window already up.
+;
+; Windows 11 note: these are classic verbs, so they appear under
+; "Show more options" (Shift+F10) rather than the trimmed default menu.
+; Top-level placement needs an IExplorerCommand COM handler shipped from a
+; packaged (MSIX/sparse) app - the same limitation VS Code's "Open with Code"
+; lives with.
+!define TEDI_VERB "TEDI"
+!define TEDI_VERB_LABEL "Open with TEDI"
+
+; Write one shell verb. `_root` is the class root, `_arg` the field code.
+!macro TediWriteVerb _root _arg
+  WriteRegStr HKCU "Software\Classes\${_root}\shell\${TEDI_VERB}" "" "${TEDI_VERB_LABEL}"
+  WriteRegStr HKCU "Software\Classes\${_root}\shell\${TEDI_VERB}" "Icon" '"$INSTDIR\TEDIApp.exe",0'
+  WriteRegStr HKCU "Software\Classes\${_root}\shell\${TEDI_VERB}\command" "" '"$INSTDIR\TEDIApp.exe" "${_arg}"'
+!macroend
+
+!macro TediDeleteVerb _root
+  DeleteRegKey HKCU "Software\Classes\${_root}\shell\${TEDI_VERB}"
+!macroend
+
 ; App-data dir must match `identifier` in tauri.conf.json. Tauri 2's
 ; `app_data_dir` resolves to `%APPDATA%\<identifier>\` on Windows. The
 ; backup lives in %TEMP% so it disappears on reboot even if a restore is
@@ -151,6 +189,14 @@
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${EndIf}
 
+  ; --- "Open with TEDI" context-menu entries -------------------------------
+  ; See the TediWriteVerb definition above for why there are four roots and
+  ; why the command targets TEDIApp.exe rather than the tedi.exe stub.
+  !insertmacro TediWriteVerb "Directory" "%V"
+  !insertmacro TediWriteVerb "Directory\Background" "%V"
+  !insertmacro TediWriteVerb "Drive" "%V"
+  !insertmacro TediWriteVerb "*" "%1"
+
   ; --- restore user data ---------------------------------------------------
   ; If PREINSTALL took a snapshot, copy it back. Two key files (settings +
   ; sessions) gate the restore — if either is missing post-install we
@@ -178,4 +224,17 @@
   ; Legacy shim from <=0.2.19 installs. Delete is a no-op when absent so
   ; this is safe on fresh-install-then-uninstall flows.
   Delete "$INSTDIR\tedi.cmd"
+
+  ; Drop the context-menu verbs. Unlike the PATH entry (deliberately left
+  ; behind - see the header note), these are ours alone and point at an
+  ; $INSTDIR that is about to stop existing, so leaving them would put a
+  ; dead "Open with TEDI" on every folder and file.
+  ;
+  ; Auto-update runs the old uninstaller in passive mode before the new
+  ; install, so this fires on upgrades too - NSIS_HOOK_POSTINSTALL rewrites
+  ; the verbs immediately afterwards.
+  !insertmacro TediDeleteVerb "Directory"
+  !insertmacro TediDeleteVerb "Directory\Background"
+  !insertmacro TediDeleteVerb "Drive"
+  !insertmacro TediDeleteVerb "*"
 !macroend

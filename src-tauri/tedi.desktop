@@ -1,0 +1,15 @@
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}Comment={{comment}}{{/if}}
+# %F (not %U) so file managers pass plain paths, which is what
+# `cli::capture_startup` resolves; %U would hand over file:// URIs.
+Exec={{exec}} %F
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+# Puts TEDI in the file manager's "Open With" menu. `inode/directory` is the
+# point of it: the Linux counterpart to the Explorer shell verb and the Finder
+# document type. Inert until `update-desktop-database` runs (see
+# scripts/linux-postinstall.sh), so AppImage needs manual integration.
+MimeType=inode/directory;text/plain;

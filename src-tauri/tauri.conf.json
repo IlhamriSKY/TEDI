@@ -46,11 +46,13 @@
       "deb": {
         "section": "utils",
         "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "desktopTemplate": "tedi.desktop",
         "postInstallScript": "scripts/linux-postinstall.sh",
         "preRemoveScript": "scripts/linux-preremove.sh"
       },
       "rpm": {
         "depends": ["webkit2gtk4.1", "gtk3"],
+        "desktopTemplate": "tedi.desktop",
         "postInstallScript": "scripts/linux-postinstall.sh",
         "preRemoveScript": "scripts/linux-preremove.sh"
       },
