@@ -43,6 +43,22 @@ function encodeFileUrlPath(path: string): string {
 }
 
 /**
+ * True for a file the editor cannot show but the in-app browser can. Today
+ * that is PDF alone: `fs_read_file` sniffs it as binary (it is not one of the
+ * `<img>`-renderable formats), so an editor tab would only ever print
+ * "Binary file", while the browser pane is a real WebView2 / WebKit surface
+ * and both ship a built-in PDF viewer.
+ *
+ * Deliberately not a general "viewable in a browser" list: every entry has to
+ * be a format the editor genuinely cannot handle AND the webview genuinely
+ * can. Images already round-trip through `fs_read_file` as a data URL that
+ * `EditorPane` renders, so adding them here would be a regression.
+ */
+export function isPdfPath(path: string): boolean {
+  return /\.pdf$/i.test(path);
+}
+
+/**
  * Convert a local filesystem path to a `file://` URL, or null if it isn't an
  * absolute local path. Handles Windows drive paths (`D:\dir\f.html` /
  * `D:/dir/f.html`), UNC paths (`\\server\share\f`), and POSIX absolute paths
