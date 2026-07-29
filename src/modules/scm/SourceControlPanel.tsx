@@ -17,19 +17,11 @@ import {
 import { basename } from "@/lib/path";
 import { useSshBrowseStore } from "@/modules/ssh/sshBrowseStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  gitCommit,
-  gitDiffFull,
-  gitDiscardAll,
-  gitDiscardFile,
-  gitPush,
-  gitStatus,
-  gitStatusSsh,
-} from "./api";
+import { gitStatus, gitStatusSsh, isBranchSwitch, localOps, remoteOps, type GitOps } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
-import { ChangeRow } from "./components/ChangeRow";
-import { CommitBox } from "./components/CommitBox";
+import { ChangeSection } from "./components/ChangeSection";
+import { CommitBox, type ScmBusy } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
 import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
 import { X } from "lucide-react";
@@ -62,7 +54,7 @@ type Props = {
   collapsed?: boolean;
   /**
    * Set only while the FOCUSED terminal leaf is a connected SSH session. The
-   * panel then reports that remote's repo instead of the local workspace, so
+   * panel then acts on that remote's repo instead of the local workspace, so
    * source control follows the terminal you are actually working in.
    *
    * Deliberately keyed to the focused leaf, not "any live session": silently
@@ -89,8 +81,10 @@ const STATUS_ORDER: Record<GitChangeStatus, number> = {
 
 const AUTO_REFRESH_MS = 2500;
 
+type GitOp = "commit" | "push" | "pull" | "fetch" | "discard" | "stage" | "branch";
+
 /** Map raw git stderr to actionable text. Common cases get plain-language hints; unknown errors fall through unchanged. */
-function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string {
+function friendlyGitError(e: unknown, op: GitOp): string {
   const raw = e instanceof Error ? e.message : String(e);
   const lower = raw.toLowerCase();
 
@@ -116,9 +110,8 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
   ) {
     return "Authentication failed - check your remote credentials / SSH key.";
   }
-  if (lower.includes("no upstream branch")) {
-    // Rare: backend retries with `-u origin <branch>`. Show next step anyway.
-    return "No upstream configured. Run `git push -u origin <branch>` from a terminal.";
+  if (lower.includes("no tracking information") || lower.includes("there is no tracking")) {
+    return "This branch has no upstream. Push it once to publish and set one.";
   }
   if (lower.includes("not a git repository")) {
     return "Not a git repository.";
@@ -126,10 +119,31 @@ function friendlyGitError(e: unknown, op: "commit" | "push" | "discard"): string
   if (lower.includes("index.lock") || lower.includes("unable to create")) {
     return "Another git process is running (index.lock present). Try again in a moment.";
   }
+  if (
+    lower.includes("your local changes") ||
+    lower.includes("would be overwritten") ||
+    lower.includes("please commit your changes or stash them")
+  ) {
+    return "Local changes would be overwritten. Commit or discard them first.";
+  }
+  if (lower.includes("conflict")) {
+    return "Merge conflicts - resolve the conflicted files, then stage them.";
+  }
   if (op === "commit" && (lower.includes("empty") || lower.includes("aborting commit"))) {
     return "Commit aborted - message or content is empty.";
   }
   return raw || `Failed to ${op}.`;
+}
+
+/** Both sides of a rename, so a discard restores the source instead of leaving
+ *  it deleted while the destination is removed. */
+function discardPaths(changes: GitChange[]): string[] {
+  const out = new Set<string>();
+  for (const c of changes) {
+    out.add(c.relative);
+    if (c.oldRelative) out.add(c.oldRelative);
+  }
+  return [...out];
 }
 
 export function SourceControlPanel({
@@ -145,21 +159,35 @@ export function SourceControlPanel({
   sshCwd = null,
 }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
+  /**
+   * Which repository `status` describes, set in the same update as `status`.
+   * Empty until one resolves.
+   *
+   * Derived from the RESOLVED root rather than read from a ref when it is
+   * needed: focusing another terminal updates `sshSessionId` / `sshCwd` a full
+   * render before that session's status arrives, so anything reading the live
+   * value would pair the new repository's key with the old repository's branch.
+   * The transport has to be in the key too - two hosts can both have
+   * /home/u/app checked out - and the root rather than the browse anchor keeps
+   * it stable while the user `cd`s around inside one repo.
+   */
+  const [statusKey, setStatusKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
-  const [confirmOne, setConfirmOne] = useState<GitChange | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<GitChange[] | null>(null);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState<null | "commit" | "push" | "ai">(null);
+  const [busy, setBusy] = useState<ScmBusy>(null);
   const [tab, setTab] = useState<"changes" | "graph">("changes");
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   // Bumped after commit/push and on manual refresh so the Graph tab refetches
   // without us wiring a direct ref into the child.
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
   const bumpGraph = useCallback(() => setGraphRefreshToken((n) => n + 1), []);
 
-  // Remote mode: read the SSH session's repo. Every write path (commit, push,
-  // discard, diff, history) stays local-only and is hidden below, because those
-  // all run local git and would silently act on the WRONG repository.
+  // Remote mode: read AND write the SSH session's repo. Every operation below
+  // goes through `ops`, which routes to `ssh_git` in this mode, so a remote
+  // repository is never touched by the local git binary.
   const remote = sshSessionId != null;
   // Anchor on the folder the Remote tree last showed, not the shell's $PWD.
   // See sshBrowseStore for why; the session-id guard there means a root from
@@ -177,27 +205,46 @@ export function SourceControlPanel({
   // user switched repo or session is dropped. Two remotes both have a null
   // rootPath, so the session id has to be part of the key.
   const targetRef = useRef("");
-  // Last branch seen for the current repo. Lets us toast on external HEAD
-  // switches. Reset on rootPath change to avoid false-firing across folders.
-  const prevBranchRef = useRef<string | null>(null);
   useEffect(() => {
     rootRef.current = rootPath;
-    prevBranchRef.current = null;
   }, [rootPath]);
 
+  // Last (repository, branch) pair seen, so an external HEAD switch toasts but
+  // merely looking at a different repository does not.
+  const prevBranchRef = useRef<{ key: string; branch: string } | null>(null);
   useEffect(() => {
-    const cur = status?.branch ?? null;
-    const prev = prevBranchRef.current;
-    if (cur && prev && cur !== prev) {
-      // Keep the in-progress commit message. Switching branches shouldn't drop the draft.
-      toast(`Switched to branch ${cur}`, { variant: "info" });
-    }
-    prevBranchRef.current = cur;
-  }, [status?.branch]);
+    const next = { key: statusKey, branch: status?.branch ?? null };
+    const switched = isBranchSwitch(prevBranchRef.current, next);
+    prevBranchRef.current = next.branch && next.key ? { key: next.key, branch: next.branch } : null;
+    // Keep the in-progress commit message. Switching branches shouldn't drop the draft.
+    if (switched) toast(`Switched to branch ${next.branch}`, { variant: "info" });
+  }, [statusKey, status?.branch]);
+
+  /**
+   * Which repository the panel is acting on, read live rather than from render
+   * state. A write that finishes after the user opened another folder or
+   * focused another SSH session must not clear that repo's draft message or
+   * report its result.
+   */
+  const identity = useCallback(
+    () =>
+      sshRef.current.sessionId !== null
+        ? `ssh:${sshRef.current.sessionId}`
+        : `local:${rootRef.current}`,
+    [],
+  );
+
+  const ops: GitOps | null = useMemo(() => {
+    const root = status?.root;
+    if (!root || !status?.isRepo) return null;
+    return remote && sshSessionId != null ? remoteOps(sshSessionId, root) : localOps(root);
+  }, [status?.root, status?.isRepo, remote, sshSessionId]);
 
   const openDiff = useCallback(
     (c: GitChange) => {
-      if (!status?.root) return;
+      // Reading a blob and rendering the diff both run local git, so a remote
+      // repository has no diff tab to open yet.
+      if (!status?.root || remote) return;
       onOpenDiff?.({
         path: c.path,
         relative: c.relative,
@@ -205,7 +252,7 @@ export function SourceControlPanel({
         changeStatus: c.status,
       });
     },
-    [status, onOpenDiff],
+    [status, onOpenDiff, remote],
   );
 
   const fetchStatus = useCallback(async (silent = false) => {
@@ -214,6 +261,7 @@ export function SourceControlPanel({
     const isRemote = sessionId !== null;
     if (!isRemote && !cur) {
       setStatus(null);
+      setStatusKey("");
       return;
     }
     // The anchor is part of the key, not just the session: browsing to another
@@ -229,6 +277,9 @@ export function SourceControlPanel({
       const s = isRemote ? await gitStatusSsh(sessionId, cwd ?? "") : await gitStatus(cur!);
       if (targetRef.current === target) {
         setStatus(s);
+        setStatusKey(
+          s.isRepo && s.root ? `${isRemote ? `ssh:${sessionId}` : "local"}:${s.root}` : "",
+        );
         setError(null);
       }
     } catch (e) {
@@ -241,6 +292,7 @@ export function SourceControlPanel({
         // banner anyway.
         setError(String(e));
         setStatus(null);
+        setStatusKey("");
       }
     } finally {
       inFlightRef.current = false;
@@ -319,105 +371,190 @@ export function SourceControlPanel({
     });
   }, [status]);
 
-  const doDiscardOne = useCallback(
-    async (change: GitChange) => {
-      if (!status?.root) return;
-      try {
-        await gitDiscardFile(status.root, change.relative);
-        if (change.status === "untracked" || change.status === "added") {
-          onPathDeleted?.(change.path);
-        }
-        await refresh();
-      } catch (e) {
-        setError(String(e));
-      }
-    },
-    [status, refresh, onPathDeleted],
+  // Three lists, the same split VSCode shows. A partially-staged file appears
+  // in two of them because git tracks its index and worktree states separately.
+  const conflicts = useMemo(() => sorted.filter((c) => c.status === "conflicted"), [sorted]);
+  const staged = useMemo(
+    () => sorted.filter((c) => c.staged && c.status !== "conflicted"),
+    [sorted],
+  );
+  const unstaged = useMemo(
+    () => sorted.filter((c) => !c.staged && c.status !== "conflicted"),
+    [sorted],
   );
 
-  const doDiscardAll = useCallback(async () => {
-    if (!status?.root) return;
-    try {
-      const untracked = status.changes.filter(
-        (c) => c.status === "untracked" || c.status === "added",
-      );
-      await gitDiscardAll(status.root);
-      for (const u of untracked) onPathDeleted?.(u.path);
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [status, refresh, onPathDeleted]);
-
-  const doCommit = useCallback(async () => {
-    if (busy !== null) return;
-    if (!status?.isRepo || !status.root) {
-      toast("Not a git repository.", { variant: "warning" });
-      return;
-    }
-    if (sorted.length === 0) {
-      toast("Nothing to commit - make changes first.", { variant: "warning" });
-      return;
-    }
-    const msg = message.trim();
-    if (!msg) {
-      toast("Enter a commit message first.", { variant: "warning" });
-      return;
-    }
-    // Capture repo identity before await. If the user opens a different
-    // folder mid-flight, skip state mutations so they don't leak.
-    const startRoot = status.root;
-    const startBranch = status.branch;
-    setBusy("commit");
-    try {
-      await gitCommit(startRoot, msg);
-      if (rootRef.current === startRoot) {
-        setMessage("");
-        toast(`Committed to ${startBranch ?? "HEAD"}`, { variant: "success" });
-        await refresh();
+  /**
+   * Run one write and refresh. Captures the repo root up front so a slow
+   * operation that finishes after the user switched folders doesn't clear the
+   * new folder's commit message or claim its result.
+   */
+  const runOp = useCallback(
+    async (
+      op: GitOp,
+      kind: ScmBusy,
+      fn: (ops: GitOps) => Promise<void>,
+      onDone?: () => void,
+    ): Promise<boolean> => {
+      if (busy !== null) return false;
+      if (!ops || !status?.isRepo || !status.root) {
+        toast("Not a git repository.", { variant: "warning" });
+        return false;
       }
-    } catch (e) {
-      toast(friendlyGitError(e, "commit"), { variant: "error" });
-    } finally {
-      setBusy(null);
-    }
-  }, [busy, status, sorted.length, message, refresh]);
+      const startId = identity();
+      setBusy(kind);
+      try {
+        await fn(ops);
+        if (identity() !== startId) return false;
+        onDone?.();
+        await fetchStatus(true);
+        bumpGraph();
+        return true;
+      } catch (e) {
+        if (identity() === startId) toast(friendlyGitError(e, op), { variant: "error" });
+        return false;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy, ops, status, identity, fetchStatus, bumpGraph],
+  );
 
-  const doPush = useCallback(async () => {
-    if (busy !== null) return;
-    if (!status?.isRepo || !status.root) {
-      toast("Not a git repository.", { variant: "warning" });
-      return;
-    }
-    if (status.ahead === 0 && status.upstream) {
-      toast("Nothing to push - branch is up to date.", { variant: "warning" });
-      return;
-    }
-    const startRoot = status.root;
-    const startBranch = status.branch;
-    const startUpstream = status.upstream;
-    setBusy("push");
-    try {
-      await gitPush(startRoot);
-      if (rootRef.current === startRoot) {
+  const setStaged = useCallback(
+    (changes: GitChange[], stage: boolean) => {
+      const paths = discardPaths(changes);
+      void runOp("stage", "stage", (o) => (stage ? o.stage(paths) : o.unstage(paths)));
+    },
+    [runOp],
+  );
+
+  const doDiscard = useCallback(
+    (changes: GitChange[]) => {
+      const gone = changes.filter((c) => c.status === "untracked" || c.status === "added");
+      void runOp(
+        "discard",
+        "stage",
+        (o) => o.discard(discardPaths(changes)),
+        () => {
+          for (const c of gone) onPathDeleted?.(c.path);
+        },
+      );
+    },
+    [runOp, onPathDeleted],
+  );
+
+  const doDiscardAll = useCallback(() => {
+    const gone = sorted.filter((c) => c.status === "untracked" || c.status === "added");
+    void runOp(
+      "discard",
+      "stage",
+      (o) => o.discardAll(),
+      () => {
+        for (const c of gone) onPathDeleted?.(c.path);
+      },
+    );
+  }, [runOp, sorted, onPathDeleted]);
+
+  const doCommit = useCallback(
+    async (amend = false) => {
+      const msg = message.trim();
+      if (!msg) {
+        toast("Enter a commit message first.", { variant: "warning" });
+        return;
+      }
+      if (sorted.length === 0 && !amend) {
+        toast("Nothing to commit - make changes first.", { variant: "warning" });
+        return;
+      }
+      if (conflicts.length > 0) {
+        // With nothing staged, Commit stages everything first - which on a
+        // conflicted file is `git add`, i.e. "I resolved this", and would
+        // commit the conflict markers verbatim. Git refuses this on its own
+        // only when the path is still unmerged, which the staging step has
+        // already undone by then.
         toast(
-          startUpstream
-            ? `Pushed ${startBranch ?? "HEAD"} → ${startUpstream}`
-            : `Pushed ${startBranch ?? "HEAD"}`,
+          `Resolve ${conflicts.length} conflicted file${conflicts.length === 1 ? "" : "s"} first, then check them off.`,
+          { variant: "warning" },
+        );
+        return;
+      }
+      const branch = status?.branch;
+      const stageFirst = staged.length === 0 && sorted.length > 0;
+      const ok = await runOp(
+        "commit",
+        "commit",
+        async (o) => {
+          // Nothing staged: commit everything, matching what the button says
+          // and what VSCode does when its staged list is empty.
+          if (stageFirst) await o.stage(discardPaths(sorted));
+          await o.commit(msg, amend);
+        },
+        () => setMessage(""),
+      );
+      if (ok) {
+        toast(amend ? `Amended ${branch ?? "HEAD"}` : `Committed to ${branch ?? "HEAD"}`, {
+          variant: "success",
+        });
+      }
+    },
+    [message, sorted, staged.length, conflicts.length, status?.branch, runOp],
+  );
+
+  const doPush = useCallback(
+    async (force = false) => {
+      if (!force && status?.ahead === 0 && status.upstream) {
+        toast("Nothing to push - branch is up to date.", { variant: "warning" });
+        return;
+      }
+      const branch = status?.branch ?? null;
+      const upstream = status?.upstream;
+      const ok = await runOp("push", "push", (o) => o.push(branch, force));
+      if (ok) {
+        toast(
+          upstream ? `Pushed ${branch ?? "HEAD"} → ${upstream}` : `Published ${branch ?? "HEAD"}`,
           { variant: "success" },
         );
-        await refresh();
       }
-    } catch (e) {
-      toast(friendlyGitError(e, "push"), { variant: "error" });
-    } finally {
-      setBusy(null);
-    }
-  }, [busy, status, refresh]);
+    },
+    [status, runOp],
+  );
+
+  const doPull = useCallback(async () => {
+    const ok = await runOp("pull", "pull", (o) => o.pull());
+    if (ok) toast("Pulled from the remote.", { variant: "success" });
+  }, [runOp]);
+
+  const doFetch = useCallback(async () => {
+    const ok = await runOp("fetch", "fetch", (o) => o.fetch());
+    if (ok) toast("Fetched from the remote.", { variant: "success" });
+  }, [runOp]);
+
+  const doCheckout = useCallback(
+    async (name: string, create?: boolean) => {
+      const ok = await runOp("branch", "branch", (o) => o.checkout(name, create));
+      if (ok)
+        toast(create ? `Created branch ${name}` : `Switched to ${name}`, { variant: "success" });
+    },
+    [runOp],
+  );
+
+  const doDeleteBranch = useCallback(
+    async (name: string, force?: boolean) => {
+      // Rethrows so the dialog can offer a force delete on the "not fully
+      // merged" refusal instead of silently swallowing it into a toast.
+      if (!ops) throw new Error("Not a git repository.");
+      await ops.deleteBranch(name, force);
+      toast(`Deleted branch ${name}`, { variant: "success" });
+      await fetchStatus(true);
+      bumpGraph();
+    },
+    [ops, fetchStatus, bumpGraph],
+  );
+
+  const loadBranches = useCallback(async () => (ops ? ops.branches() : []), [ops]);
 
   const doGenerate = useCallback(async () => {
     if (busy !== null) return;
-    if (!status?.isRepo || !status.root) {
+    if (!ops || !status?.isRepo || !status.root) {
       toast("Not a git repository.", { variant: "warning" });
       return;
     }
@@ -426,27 +563,21 @@ export function SourceControlPanel({
       return;
     }
     const startRoot = status.root;
+    const startId = identity();
     setBusy("ai");
     try {
       let diff = "";
       try {
-        diff = await gitDiffFull(startRoot, DIFF_BYTE_CAP);
+        diff = await ops.diff(DIFF_BYTE_CAP);
       } catch (e) {
         // Diff read failed. Fall back to a deterministic message so the user can still commit.
-        if (rootRef.current === startRoot) {
-          setMessage(fallbackCommitMessage(sorted));
-          toast(`Couldn't read diff: ${String(e)} - used a default message`, {
-            variant: "warning",
-          });
-        }
+        if (identity() !== startId) return;
+        setMessage(fallbackCommitMessage(sorted));
+        toast(`Couldn't read diff: ${String(e)} - used a default message`, { variant: "warning" });
         return;
       }
-      const res = await generateCommitMessage({
-        repoPath: startRoot,
-        diff,
-        changes: sorted,
-      });
-      if (rootRef.current !== startRoot) return;
+      const res = await generateCommitMessage({ repoPath: startRoot, diff, changes: sorted });
+      if (identity() !== startId) return;
       setMessage(res.message);
       if (res.fallback) {
         toast(
@@ -460,16 +591,17 @@ export function SourceControlPanel({
       }
     } catch (e) {
       // generateCommitMessage isn't supposed to throw, but catch anyway so the panel doesn't crash.
-      if (rootRef.current === startRoot) {
-        setMessage(fallbackCommitMessage(sorted));
-        toast(`AI generation failed: ${String(e)} - used a default message`, {
-          variant: "warning",
-        });
-      }
+      if (identity() !== startId) return;
+      setMessage(fallbackCommitMessage(sorted));
+      toast(`AI generation failed: ${String(e)} - used a default message`, { variant: "warning" });
     } finally {
       setBusy(null);
     }
-  }, [busy, status, sorted]);
+  }, [busy, ops, status, sorted, identity]);
+
+  const toggleSection = useCallback((key: string) => {
+    setCollapsedSections((s) => ({ ...s, [key]: !s[key] }));
+  }, []);
 
   if (!rootPath && !remote) {
     return (
@@ -503,6 +635,51 @@ export function SourceControlPanel({
     );
   }
 
+  const sections =
+    sorted.length === 0 ? (
+      <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
+        No changes.
+      </div>
+    ) : (
+      <ScrollArea className="min-h-0 flex-1">
+        <ChangeSection
+          title="Merge Changes"
+          changes={conflicts}
+          collapsed={!!collapsedSections.conflicts}
+          onToggleCollapse={() => toggleSection("conflicts")}
+          busy={busy !== null}
+          // Checking a conflict stages it, which is exactly how git records
+          // "I resolved this". Without it the panel could show a conflict but
+          // never let the user finish the merge.
+          onSetStaged={setStaged}
+          onClickDiff={remote ? undefined : openDiff}
+          onDiscardOne={(c) => setConfirmDiscard([c])}
+        />
+        <ChangeSection
+          title="Staged Changes"
+          changes={staged}
+          collapsed={!!collapsedSections.staged}
+          onToggleCollapse={() => toggleSection("staged")}
+          busy={busy !== null}
+          onSetStaged={setStaged}
+          onDiscard={(cs) => setConfirmDiscard(cs)}
+          onClickDiff={remote ? undefined : openDiff}
+          onDiscardOne={(c) => setConfirmDiscard([c])}
+        />
+        <ChangeSection
+          title="Changes"
+          changes={unstaged}
+          collapsed={!!collapsedSections.unstaged}
+          onToggleCollapse={() => toggleSection("unstaged")}
+          busy={busy !== null}
+          onSetStaged={setStaged}
+          onDiscard={(cs) => setConfirmDiscard(cs)}
+          onClickDiff={remote ? undefined : openDiff}
+          onDiscardOne={(c) => setConfirmDiscard([c])}
+        />
+      </ScrollArea>
+    );
+
   return (
     <div className="flex h-full min-h-0 flex-col outline-none">
       <PanelHeader
@@ -511,10 +688,14 @@ export function SourceControlPanel({
         historyOnly={historyOnly}
         loading={loading}
         refresh={refresh}
-        onDiscardAll={remote ? undefined : () => setConfirmAll(true)}
+        onDiscardAll={() => setConfirmAll(true)}
         onOpenInTab={onOpenInTab}
         onClose={onClose}
         dragHandle={dragHandle}
+        loadBranches={loadBranches}
+        onCheckout={doCheckout}
+        onDeleteBranch={doDeleteBranch}
+        busy={busy !== null}
       />
 
       {collapsed ? null : (
@@ -531,28 +712,6 @@ export function SourceControlPanel({
                   ? "Could not read the remote repository."
                   : "Not a git repository on the remote."}
             </div>
-          ) : remote ? (
-            /* Read-only remote view. Commit / push / discard / diff / history
-               all run LOCAL git, so offering them here would act on the wrong
-               repository - they are omitted rather than disabled. */
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="text-muted-foreground border-border/60 border-b px-3 py-1.5 text-[11px]">
-                Remote repository - read only
-              </div>
-              {sorted.length === 0 ? (
-                <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-                  No changes.
-                </div>
-              ) : (
-                <ScrollArea className="min-h-0 flex-1">
-                  <ul className="py-0.5">
-                    {sorted.map((c) => (
-                      <ChangeRow key={c.relative + ":" + c.status} change={c} />
-                    ))}
-                  </ul>
-                </ScrollArea>
-              )}
-            </div>
           ) : historyOnly ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <GitGraphView
@@ -562,6 +721,26 @@ export function SourceControlPanel({
                 anchorMode="mouse"
                 onOpenDiff={onOpenDiff}
               />
+            </div>
+          ) : remote ? (
+            /* History reads blobs through local git, so a remote repo gets the
+               Changes view alone rather than a tab that would query the wrong
+               repository. */
+            <div className="flex min-h-0 flex-1 flex-col">
+              <CommitBox
+                status={status}
+                message={message}
+                setMessage={setMessage}
+                changeCount={sorted.length}
+                stagedCount={staged.length}
+                busy={busy}
+                doCommit={doCommit}
+                doGenerate={doGenerate}
+                doPush={doPush}
+                doPull={doPull}
+                doFetch={doFetch}
+              />
+              {sections}
             </div>
           ) : (
             <Tabs
@@ -584,30 +763,15 @@ export function SourceControlPanel({
                   message={message}
                   setMessage={setMessage}
                   changeCount={sorted.length}
+                  stagedCount={staged.length}
                   busy={busy}
                   doCommit={doCommit}
                   doGenerate={doGenerate}
                   doPush={doPush}
+                  doPull={doPull}
+                  doFetch={doFetch}
                 />
-
-                {sorted.length === 0 ? (
-                  <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-                    No changes.
-                  </div>
-                ) : (
-                  <ScrollArea className="min-h-0 flex-1">
-                    <ul className="py-0.5">
-                      {sorted.map((c) => (
-                        <ChangeRow
-                          key={c.relative + ":" + c.status}
-                          change={c}
-                          onClickDiff={() => openDiff(c)}
-                          onDiscard={() => setConfirmOne(c)}
-                        />
-                      ))}
-                    </ul>
-                  </ScrollArea>
-                )}
+                {sections}
               </TabsContent>
 
               <TabsContent value="graph" className="flex min-h-0 flex-1 flex-col">
@@ -630,12 +794,13 @@ export function SourceControlPanel({
             <AlertDialogTitle>Discard all changes?</AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently revert every modified file to its last committed state and
-              delete every untracked file. This cannot be undone.
+              delete every untracked file{remote ? " on the remote machine" : ""}. This cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void doDiscardAll()}>
+            <AlertDialogAction variant="destructive" onClick={doDiscardAll}>
               Discard all
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -643,20 +808,22 @@ export function SourceControlPanel({
       </AlertDialog>
 
       <AlertDialog
-        open={confirmOne !== null}
+        open={confirmDiscard !== null}
         onOpenChange={(o) => {
-          if (!o) setConfirmOne(null);
+          if (!o) setConfirmDiscard(null);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Discard changes to {confirmOne ? basename(confirmOne.relative) : ""}?
+              {confirmDiscard?.length === 1
+                ? `Discard changes to ${basename(confirmDiscard[0].relative)}?`
+                : `Discard changes to ${confirmDiscard?.length ?? 0} files?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmOne?.status === "untracked" || confirmOne?.status === "added"
-                ? "This will delete the untracked file from disk. This cannot be undone."
-                : "This will revert the file to its last committed state. This cannot be undone."}
+              {confirmDiscard?.every((c) => c.status === "untracked" || c.status === "added")
+                ? "This will delete the files from disk. This cannot be undone."
+                : "This will unstage the selection and revert it to its last committed state, deleting anything that was never committed. This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -664,8 +831,8 @@ export function SourceControlPanel({
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (confirmOne) void doDiscardOne(confirmOne);
-                setConfirmOne(null);
+                if (confirmDiscard) doDiscard(confirmDiscard);
+                setConfirmDiscard(null);
               }}
             >
               Discard

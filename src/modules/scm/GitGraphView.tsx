@@ -516,7 +516,7 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
         {/* Author + sha are progressively dropped on narrow sidebars (both
             still live in the row tooltip + detail card), so subject + time
             always stay readable. */}
-        <span className="text-muted-foreground hidden min-w-0 max-w-24 shrink truncate text-[10px] @[15rem]:block">
+        <span className="text-muted-foreground hidden max-w-24 min-w-0 shrink truncate text-[10px] @[15rem]:block">
           {commit.authorName}
         </span>
         <span className="text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] tabular-nums @[12rem]:block">

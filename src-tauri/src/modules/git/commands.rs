@@ -24,6 +24,12 @@ fn git(repo: &Path) -> Command {
     // hanging a worker.
     cmd.stdin(std::process::Stdio::null());
     cmd.env("GIT_TERMINAL_PROMPT", "0");
+    // Same reasoning for the editor: `git pull` that resolves to a merge, and
+    // `git commit --amend`, both open $EDITOR for a message. With no terminal
+    // attached that either hangs the worker or fails obscurely, so accept the
+    // default message instead. Every call that has a message passes `-m`, so
+    // this only ever fires where there was nothing to type.
+    cmd.env("GIT_EDITOR", "true");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
@@ -51,6 +57,9 @@ pub struct GitChange {
     pub relative: String,
     /// One of "modified", "added", "deleted", "renamed", "untracked", "conflicted".
     pub status: String,
+    /// Forward-slash repo-relative path this entry was renamed/copied FROM,
+    /// else `None`. Discarding a rename has to restore both sides.
+    pub old_relative: Option<String>,
     /// True when the entry is staged (index differs from HEAD).
     pub staged: bool,
     /// Lines added relative to HEAD. 0 when unknown or binary.
@@ -125,7 +134,10 @@ fn parse_refs(raw: &str) -> Vec<String> {
 }
 
 fn find_repo_root(start: &Path) -> Option<PathBuf> {
-    let out = git(start).args(["rev-parse", "--show-toplevel"]).output().ok()?;
+    let out = git(start)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -201,6 +213,14 @@ pub(crate) fn parse_branch_header(line: &str) -> (Option<String>, Option<String>
     (Some(branch), upstream, ahead, behind)
 }
 
+/// True for the seven porcelain-v1 unmerged states. Only `UU` carries a `U`, so
+/// classifying on the letter alone read `DD` (both deleted) and `AA` (both
+/// added) as ordinary staged changes - the panel then listed a live conflict as
+/// resolved and offered to stage half of it.
+fn is_unmerged(x: u8, y: u8) -> bool {
+    matches!((x, y), (b'D', b'D') | (b'A', b'A') | (b'U', _) | (_, b'U'))
+}
+
 pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
     // Porcelain v1 with -z uses NUL as the entry separator and a second NUL
     // after the source path of a rename. Each entry is "XY <path>" plus
@@ -218,21 +238,51 @@ pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
         let path = &token[3..];
         let is_rename = x == b'R' || y == b'R' || x == b'C' || y == b'C';
         // Renames are emitted as "R  new\0old"; consume the source path.
-        if is_rename {
-            let _src = tokens.next();
+        let old_relative = if is_rename {
+            tokens.next().map(to_forward)
+        } else {
+            None
+        };
+        let abs = to_forward(&root.join(path).to_string_lossy());
+        let rel = to_forward(path);
+        let mut emit = |status: &str, staged: bool| {
+            out.push(GitChange {
+                path: abs.clone(),
+                relative: rel.clone(),
+                status: status.to_string(),
+                old_relative: old_relative.clone(),
+                staged,
+                added: 0,
+                removed: 0,
+                binary: false,
+            });
+        };
+
+        if is_unmerged(x, y) {
+            // A conflict is neither staged nor unstaged - it is one row the
+            // user resolves - so it never splits in two the way the states
+            // below do.
+            emit("conflicted", false);
+            continue;
         }
-        let staged = x != b' ' && x != b'?';
-        let status_code = if x != b' ' && x != b'?' { x } else { y };
-        let abs = root.join(path);
-        out.push(GitChange {
-            path: to_forward(&abs.to_string_lossy()),
-            relative: to_forward(path),
-            status: classify(status_code).to_string(),
-            staged,
-            added: 0,
-            removed: 0,
-            binary: false,
-        });
+        if x == b'?' {
+            emit("untracked", false);
+            continue;
+        }
+        if x == b'!' {
+            emit("ignored", false);
+            continue;
+        }
+        // `XY`: X is index-vs-HEAD, Y is worktree-vs-index, and a file can
+        // carry both (`MM` = a staged edit plus a newer unstaged one). Git and
+        // VSCode both list such a file twice; collapsing it into a single row
+        // kept the unstaged half invisible and unstageable.
+        if x != b' ' {
+            emit(classify(x), true);
+        }
+        if y != b' ' {
+            emit(classify(y), false);
+        }
     }
     out
 }
@@ -244,7 +294,26 @@ struct NumstatEntry {
     binary: bool,
 }
 
-/// Parse `git diff --numstat HEAD` output. Each non-empty line is
+/// Line counts for one side of the index. `staged` reads index-vs-HEAD
+/// (`--cached`), otherwise worktree-vs-index. A failure - most often an unborn
+/// branch, where there is no HEAD to diff against - yields an empty table and
+/// the caller falls back to counting the file itself.
+fn numstat(root: &Path, staged: bool) -> HashMap<String, NumstatEntry> {
+    let mut cmd = git(root);
+    cmd.args(["diff", "--numstat"]);
+    if staged {
+        cmd.arg("--cached");
+    }
+    let raw = cmd
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    parse_numstat(&raw)
+}
+
+/// Parse `git diff --numstat` output. Each non-empty line is
 /// `<added>\t<removed>\t<path>`; binary files show "-" for both counts.
 /// Renames appear as "old => new" or the compact "dir/{old => new}/file";
 /// normalized to the new path so it matches the porcelain status output.
@@ -374,21 +443,19 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     };
     let numstat_handle = {
         let root = root.clone();
-        thread::spawn(move || {
-            let mut nc = git(&root);
-            nc.args(["diff", "--numstat", "HEAD"]);
-            nc.output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                .unwrap_or_default()
-        })
+        // Two reads, one thread. A staged row's line counts are index-vs-HEAD
+        // and an unstaged row's are worktree-vs-index; the single
+        // `diff --numstat HEAD` this replaced measured the sum of both against
+        // HEAD, so a partially-staged file showed the same total twice.
+        // Sequential on purpose: the poller's git.exe fan-out is what the
+        // comment above is guarding against.
+        thread::spawn(move || (numstat(&root, true), numstat(&root, false)))
     };
 
     let raw = status_handle
         .join()
         .map_err(|_| "git status thread panicked".to_string())??;
-    let stats_raw = numstat_handle
+    let (staged_stats, work_stats) = numstat_handle
         .join()
         .map_err(|_| "numstat thread panicked".to_string())?;
 
@@ -403,8 +470,8 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     }
 
     let mut changes = parse_porcelain_v1(&root, entries_raw);
-    let stats = parse_numstat(&stats_raw);
     for c in changes.iter_mut() {
+        let stats = if c.staged { &staged_stats } else { &work_stats };
         if let Some(s) = stats.get(&c.relative) {
             c.added = s.added;
             c.removed = s.removed;
@@ -541,93 +608,94 @@ fn git_file_at_inner(
     Ok(show_blob(&root, &rev, &relative))
 }
 
-/// Discard working-tree changes for a single file. Untracked files are
-/// removed from disk; tracked files are restored to their HEAD content.
-#[tauri::command]
-pub async fn git_discard_file(repo_path: String, relative: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_discard_file_inner(repo_path, relative))
-        .await
-        .map_err(|e| format!("git_discard_file join error: {e}"))?
-}
+/// Git subcommands the Source Control panel may drive. An argument vector
+/// arrives over IPC, so the subcommand is the boundary worth pinning down:
+/// everything the panel needs is here and nothing that rewrites shared history
+/// or edits persistent config is.
+const ALLOWED_SUBCOMMANDS: &[&str] = &[
+    "add",
+    "branch",
+    "checkout",
+    "clean",
+    "commit",
+    "diff",
+    "fetch",
+    "for-each-ref",
+    "ls-tree",
+    "pull",
+    "push",
+    "reset",
+    "rev-parse",
+    "rm",
+    "show-ref",
+];
 
-fn git_discard_file_inner(repo_path: String, relative: String) -> Result<(), String> {
-    let root = require_root(&repo_path)?;
+/// git's transport options take the name of a program to run
+/// (`--upload-pack`, `--receive-pack`, `--exec`). None of the panel's calls
+/// need one, and an argument vector arriving over IPC must not be able to pick
+/// an executable.
+const DENIED_PREFIXES: &[&str] = &["--upload-pack", "--receive-pack", "--exec"];
 
-    // Probe: is this path tracked at HEAD?
-    let mut probe = git(&root);
-    probe.args(["ls-files", "--error-unmatch", "--", relative.as_str()]);
-    // git() already applies CREATE_NO_WINDOW to every Command it returns.
-    let tracked = probe.output().map(|o| o.status.success()).unwrap_or(false);
-
-    if tracked {
-        // Unstage staged hunks and restore working tree to HEAD.
-        let mut cmd = git(&root);
-        cmd.args(["checkout", "HEAD", "--", relative.as_str()]);
-        run(cmd)?;
-        // `checkout HEAD --` leaves the index copy intact when the file was
-        // staged-only-deleted; reset the index too.
-        let mut reset = git(&root);
-        reset.args(["reset", "HEAD", "--", relative.as_str()]);
-        let _ = reset.output();
-    } else {
-        // Untracked: delete from disk.
-        let abs = root.join(&relative);
-        if abs.exists() {
-            let meta = std::fs::symlink_metadata(&abs).map_err(|e| e.to_string())?;
-            if meta.is_dir() {
-                std::fs::remove_dir_all(&abs).map_err(|e| e.to_string())?;
-            } else {
-                std::fs::remove_file(&abs).map_err(|e| e.to_string())?;
+/// Shared by the local runner and the SSH one, so a remote repo is held to the
+/// same argument rules as a local one.
+pub(crate) fn check_args(args: &[String]) -> Result<(), String> {
+    let Some(sub) = args.first() else {
+        return Err("git: no subcommand".into());
+    };
+    if !ALLOWED_SUBCOMMANDS.contains(&sub.as_str()) {
+        return Err(format!("git: subcommand '{sub}' is not allowed"));
+    }
+    if args.iter().any(|a| a.bytes().any(|b| b == 0)) {
+        return Err("git: argument contains a NUL byte".into());
+    }
+    // Values are not options, and checking them as if they were is wrong in
+    // both directions: a commit message is free text that may legitimately
+    // read `moved a/../b`, and a pathspec after `--` can never be an option.
+    let mut skip_value = false;
+    let mut in_paths = false;
+    for a in &args[1..] {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if in_paths {
+            if a.split(['/', '\\']).any(|seg| seg == "..") {
+                return Err(format!("git: path '{a}' leaves the repository"));
             }
+            continue;
+        }
+        match a.as_str() {
+            "--" => in_paths = true,
+            "-m" | "--message" => skip_value = true,
+            _ if DENIED_PREFIXES.iter().any(|d| a.starts_with(d)) => {
+                return Err(format!("git: option '{a}' is not allowed"))
+            }
+            _ => {}
         }
     }
     Ok(())
 }
 
-/// Discard every working-tree change and remove untracked files.
-/// Equivalent to `git reset --hard HEAD && git clean -fd`.
+/// Run one whitelisted git subcommand in `repo_path`'s repository and return
+/// its stdout; a non-zero exit is an `Err` carrying stderr.
+///
+/// One runner rather than a typed command per operation: the SSH panel drives
+/// the identical argument vectors through `ssh_git`, so staging, discard,
+/// commit, push, pull and branch switching share a single implementation
+/// instead of a local and a remote copy that drift.
 #[tauri::command]
-pub async fn git_discard_all(repo_path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_discard_all_inner(repo_path))
+pub async fn git_run(repo_path: String, args: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git_run_inner(repo_path, args))
         .await
-        .map_err(|e| format!("git_discard_all join error: {e}"))?
+        .map_err(|e| format!("git_run join error: {e}"))?
 }
 
-fn git_discard_all_inner(repo_path: String) -> Result<(), String> {
+fn git_run_inner(repo_path: String, args: Vec<String>) -> Result<String, String> {
+    check_args(&args)?;
     let root = require_root(&repo_path)?;
-
-    let mut reset = git(&root);
-    reset.args(["reset", "--hard", "HEAD"]);
-    run(reset)?;
-
-    let mut clean = git(&root);
-    clean.args(["clean", "-fd"]);
-    run(clean)?;
-    Ok(())
-}
-
-/// Stage every working-tree change (tracked + untracked) and commit with
-/// the given message. Mirrors the all-or-nothing panel UI.
-#[tauri::command]
-pub async fn git_commit(repo_path: String, message: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_commit_inner(repo_path, message))
-        .await
-        .map_err(|e| format!("git_commit join error: {e}"))?
-}
-
-fn git_commit_inner(repo_path: String, message: String) -> Result<(), String> {
-    let root = require_root(&repo_path)?;
-    let msg = message.trim();
-    if msg.is_empty() {
-        return Err("commit message is empty".into());
-    }
-    let mut add = git(&root);
-    add.args(["add", "-A"]);
-    run(add)?;
-    let mut commit = git(&root);
-    commit.args(["commit", "-m", msg]);
-    run(commit)?;
-    Ok(())
+    let mut cmd = git(&root);
+    cmd.args(&args);
+    run(cmd)
 }
 
 /// Return the combined diff (staged + working tree) plus a list of untracked
@@ -1003,34 +1071,9 @@ fn git_commit_detail_inner(repo_path: String, sha: String) -> Result<CommitDetai
     })
 }
 
-/// Push the current branch to its upstream. With no upstream configured,
-/// falls back to `git push -u origin <branch>` to publish the branch.
-#[tauri::command]
-pub async fn git_push(repo_path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || git_push_inner(repo_path))
-        .await
-        .map_err(|e| format!("git_push join error: {e}"))?
-}
-
-fn git_push_inner(repo_path: String) -> Result<String, String> {
-    let root = require_root(&repo_path)?;
-    let mut up = git(&root);
-    up.arg("rev-parse").arg("--abbrev-ref").arg("@{u}");
-    let has_upstream = up.output().map(|o| o.status.success()).unwrap_or(false);
-    if has_upstream {
-        let mut push = git(&root);
-        push.arg("push");
-        return run(push);
-    }
-    let branch = current_branch(&root).ok_or_else(|| "no current branch".to_string())?;
-    let mut push = git(&root);
-    push.args(["push", "-u", "origin", branch.as_str()]);
-    run(push)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::parse_branch_header;
+    use super::{check_args, is_unmerged, parse_branch_header};
 
     /// `ssh_git_status` reuses this parser with a POSIX remote root while
     /// running on whatever OS the app is on. On Windows `Path::join` inserts a
@@ -1049,6 +1092,100 @@ mod tests {
         assert!(!changes[0].staged);
         assert_eq!(changes[1].path, "/home/u/repo/b.txt");
         assert_eq!(changes[1].status, "untracked");
+    }
+
+    /// `XY` carries two independent states. A partially-staged file has to
+    /// reach the panel as two rows or its unstaged half is invisible - and
+    /// unstageable, since the checkbox acts on the row.
+    #[test]
+    fn partially_staged_file_splits_into_two_rows() {
+        let changes =
+            super::parse_porcelain_v1(std::path::Path::new("/r"), "MM a.rs\0M  b.rs\0 D c.rs\0");
+        assert_eq!(changes.len(), 4);
+        // a.rs: staged edit + a newer unstaged one.
+        assert_eq!(
+            (changes[0].relative.as_str(), changes[0].staged),
+            ("a.rs", true)
+        );
+        assert_eq!(
+            (changes[1].relative.as_str(), changes[1].staged),
+            ("a.rs", false)
+        );
+        // b.rs: staged only. c.rs: deleted in the worktree only.
+        assert_eq!(
+            (changes[2].relative.as_str(), changes[2].staged),
+            ("b.rs", true)
+        );
+        assert_eq!(
+            (
+                changes[3].relative.as_str(),
+                changes[3].staged,
+                changes[3].status.as_str()
+            ),
+            ("c.rs", false, "deleted")
+        );
+    }
+
+    /// A rename's source path has to survive the parse: discarding one restores
+    /// both sides, and without the old path the `clean` step would delete the
+    /// new file and leave the old one gone.
+    #[test]
+    fn rename_keeps_its_source_path() {
+        let changes =
+            super::parse_porcelain_v1(std::path::Path::new("/r"), "R  new.rs\0old.rs\0?? z.txt\0");
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].relative, "new.rs");
+        assert_eq!(changes[0].old_relative.as_deref(), Some("old.rs"));
+        // The source token must be consumed, not parsed as its own entry.
+        assert_eq!(changes[1].relative, "z.txt");
+        assert_eq!(changes[1].old_relative, None);
+    }
+
+    /// Only `UU` contains a `U`; `DD` and `AA` are unmerged too and used to be
+    /// reported as an ordinary staged delete / add.
+    #[test]
+    fn every_unmerged_state_is_a_conflict() {
+        for (x, y) in [
+            (b'D', b'D'),
+            (b'A', b'A'),
+            (b'U', b'U'),
+            (b'A', b'U'),
+            (b'U', b'A'),
+            (b'D', b'U'),
+            (b'U', b'D'),
+        ] {
+            assert!(
+                is_unmerged(x, y),
+                "{}{} should be unmerged",
+                x as char,
+                y as char
+            );
+        }
+        for (x, y) in [(b'M', b'M'), (b'A', b'M'), (b'?', b'?'), (b' ', b'D')] {
+            assert!(
+                !is_unmerged(x, y),
+                "{}{} should not be unmerged",
+                x as char,
+                y as char
+            );
+        }
+    }
+
+    #[test]
+    fn arg_guard_rejects_what_it_must() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(check_args(&v(&["add", "-A", "--", "src/a.rs"])).is_ok());
+        // A commit message is free text, not a path or an option.
+        assert!(check_args(&v(&["commit", "-m", "moved a/../b, --exec style"])).is_ok());
+        assert!(check_args(&[]).is_err());
+        // Not on the list: config writes, history rewrites, arbitrary plumbing.
+        assert!(check_args(&v(&["config", "core.editor", "sh"])).is_err());
+        assert!(check_args(&v(&["-c", "core.pager=sh"])).is_err());
+        // Transport options name a program to execute.
+        assert!(check_args(&v(&["fetch", "--upload-pack=calc"])).is_err());
+        // Path arguments must stay inside the repository.
+        assert!(check_args(&v(&["add", "--", "../../etc/passwd"])).is_err());
+        assert!(check_args(&v(&["add", "--", "..\\..\\win.ini"])).is_err());
     }
 
     #[test]

@@ -376,6 +376,42 @@ pub async fn ssh_git_status(
     })
 }
 
+/// Run one whitelisted git subcommand in `cwd` on the remote and return its
+/// stdout; a non-zero exit is an `Err` carrying the remote's stderr.
+///
+/// The counterpart to `git_run`, taking the identical argument vector, so the
+/// Source Control panel drives a remote repository through the same code path
+/// as a local one instead of a parallel remote-only implementation. Every
+/// argument is single-quoted before it reaches the remote shell, and the
+/// subcommand is held to the same list as the local runner.
+#[tauri::command]
+pub async fn ssh_git(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    cwd: String,
+    args: Vec<String>,
+) -> Result<String, String> {
+    crate::modules::git::commands::check_args(&args)?;
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "no session".to_string())?;
+
+    let mut cmd = String::from("git");
+    if !cwd.is_empty() {
+        cmd.push_str(" -C ");
+        cmd.push_str(&shell_quote(&cwd));
+    }
+    for a in &args {
+        cmd.push(' ');
+        cmd.push_str(&shell_quote(a));
+    }
+    session.exec_capture(&cmd).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{last_line, shell_quote};

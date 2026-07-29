@@ -3,7 +3,8 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setSourceControlInRightPanel } from "@/modules/settings/store";
 import { useScmRightPanelStore } from "../scmRightPanelStore";
-import type { GitStatus } from "../types";
+import type { GitBranch as GitBranchRef, GitStatus } from "../types";
+import { BranchMenu } from "./BranchMenu";
 import {
   ChevronDown,
   ChevronUp,
@@ -22,13 +23,18 @@ type PanelHeaderProps = {
   historyOnly: boolean;
   loading: boolean;
   refresh: () => Promise<void> | void;
-  /** Omitted for a read-only listing (a remote repo): discard runs local git,
-   *  so the button must not exist rather than act on the wrong working tree. */
+  /** Omitted only while the panel has no writable repository. */
   onDiscardAll?: () => void;
   onOpenInTab?: () => void;
   onClose?: () => void;
   /** Sidebar-section reorder + collapse controls, injected by the sidebar. */
   dragHandle?: React.ReactNode;
+  /** Branch switching. Omitted turns the branch name back into a plain label. */
+  loadBranches?: () => Promise<GitBranchRef[]>;
+  onCheckout?: (name: string, create?: boolean) => Promise<void>;
+  onDeleteBranch?: (name: string, force?: boolean) => Promise<void>;
+  /** True while a git operation is in flight; blocks a branch switch on top. */
+  busy?: boolean;
 };
 
 export function PanelHeader({
@@ -41,33 +47,37 @@ export function PanelHeader({
   onOpenInTab,
   onClose,
   dragHandle,
+  loadBranches,
+  onCheckout,
+  onDeleteBranch,
+  busy,
 }: PanelHeaderProps) {
-  const label = (
-    <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
-      {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
-      {status?.isRepo && changeCount > 0 ? (
-        <span className="text-muted-foreground ml-1.5 text-[10.5px] tabular-nums">
-          ({changeCount})
-        </span>
-      ) : null}
-    </span>
-  );
+  // No change count here: each section header already carries its own, and the
+  // one that mattered sat right of the branch name where it read as part of it.
+  const switchable = status?.isRepo && loadBranches && onCheckout && onDeleteBranch;
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 px-2">
       {dragHandle}
-      <GitBranch size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
-      {status?.branch ? (
-        <Tooltip>
-          <TooltipTrigger asChild>{label}</TooltipTrigger>
-          <TooltipContent side="bottom">{status.branch}</TooltipContent>
-        </Tooltip>
+      {switchable ? (
+        <BranchMenu
+          status={status}
+          loadBranches={loadBranches}
+          onCheckout={onCheckout}
+          onDeleteBranch={onDeleteBranch}
+          disabled={busy}
+        />
       ) : (
-        label
+        <>
+          <GitBranch size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
+          <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">
+            {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
+          </span>
+        </>
       )}
       {status?.isRepo && status.ahead > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+            <span className="text-muted-foreground inline-flex shrink-0 items-center gap-0.5 text-[10.5px] tabular-nums">
               <ChevronUp size={10} strokeWidth={2.25} />
               {status.ahead}
             </span>
@@ -80,7 +90,7 @@ export function PanelHeader({
       {status?.isRepo && status.behind > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-muted-foreground inline-flex items-center gap-0.5 text-[10.5px] tabular-nums">
+            <span className="text-muted-foreground inline-flex shrink-0 items-center gap-0.5 text-[10.5px] tabular-nums">
               <ChevronDown size={10} strokeWidth={2.25} />
               {status.behind}
             </span>

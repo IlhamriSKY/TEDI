@@ -1,17 +1,13 @@
 export type GitChangeStatus =
-  | "modified"
-  | "added"
-  | "deleted"
-  | "renamed"
-  | "copied"
-  | "untracked"
-  | "conflicted"
-  | "ignored";
+  "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "conflicted" | "ignored";
 
 export type GitChange = {
   path: string;
   relative: string;
   status: GitChangeStatus;
+  /** Path this entry was renamed/copied FROM, else null. Discarding a rename
+   *  has to restore both sides, so the source travels with the row. */
+  oldRelative: string | null;
   staged: boolean;
   /** Lines added vs HEAD. 0 for binary or not applicable. */
   added: number;
@@ -29,6 +25,17 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   changes: GitChange[];
+};
+
+/** One entry from `git for-each-ref` over refs/heads + refs/remotes. */
+export type GitBranch = {
+  /** Short name: "main" for a local branch, "origin/main" for a remote one. */
+  name: string;
+  /** True for the checked-out branch (never true for a remote entry). */
+  current: boolean;
+  remote: boolean;
+  /** Tracking branch for a local entry, else null. */
+  upstream: string | null;
 };
 
 export type GitCommit = {
