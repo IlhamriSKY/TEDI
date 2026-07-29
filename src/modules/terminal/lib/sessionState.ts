@@ -50,6 +50,12 @@ export type Session = {
   pendingExit: number | null;
   webglEnabled: boolean;
   webglAddon: WebglAddon | null;
+  /**
+   * GPU context losses this session has already auto-recovered from. Bounded by
+   * `MAX_CONTEXT_LOSS_RELOADS` in `webgl.ts` so a context storm settles on the
+   * DOM renderer rather than looping.
+   */
+  webglLossReloads: number;
   ready: Promise<void>;
   disposed: boolean;
   /**

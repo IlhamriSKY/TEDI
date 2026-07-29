@@ -210,6 +210,7 @@ export function ensureSession(
     pendingExit: null,
     webglEnabled,
     webglAddon: null,
+    webglLossReloads: 0,
     ready: Promise.resolve(),
     disposed: false,
     initialCwd,

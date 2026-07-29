@@ -17,6 +17,7 @@ import {
 } from "./session-helpers";
 import { openSshForSession } from "./ssh-session";
 import { useTerminalTitles } from "./terminalTitles";
+import { createWriteMeter } from "./writeMeter";
 
 /**
  * Push xterm dimensions to the live PTY, floored to MIN_PTY_DIM and
@@ -64,6 +65,13 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
   let totalBytes = 0;
   const spawnedAtForLog = performance.now();
 
+  // Keeps a hidden window (Windows lock screen) from queueing PTY output into
+  // xterm without bound. See `writeMeter`.
+  const writeMeter = createWriteMeter(
+    (chunk, done) => s.term.write(chunk, done),
+    () => s.disposed || myEpoch !== s.ptySpawnEpoch,
+  );
+
   const onData = (bytes: Uint8Array) => {
     // The Channel data handler can fire after disposeSession() disposed the
     // term, or after a superseded reattach: bail before writing into a
@@ -95,7 +103,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
       s.term.write("\x1b[H\x1b[2J");
     }
     totalBytes += bytes.length;
-    s.term.write(bytes);
+    writeMeter.push(bytes);
     // Mirror the same bytes to a floating window, if one is open for this leaf.
     s.onOutputTap?.(bytes);
     s.aiCliDetector?.pushOutput(bytes);

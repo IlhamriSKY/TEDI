@@ -241,6 +241,38 @@ impl PtyClient {
         }
     }
 
+    /// Write a request frame and return without waiting for the daemon's
+    /// reply. Used by the sync Tauri commands on the hot paths - `pty_write`
+    /// (every keystroke), `pty_resize` (every pane drag / window restore) and
+    /// `pty_close` (every tab close). On Windows a sync `#[tauri::command]`
+    /// runs on the WebView2 UI thread, so a `send_request` round-trip there
+    /// freezes the entire app for as long as the daemon takes to answer -
+    /// up to `REQUEST_TIMEOUT`. None of those three callers reads the reply
+    /// (the frontend `void`s the promise), so the round-trip was pure stall.
+    ///
+    /// Ordering is preserved by `write_lock`, which serializes frames on the
+    /// socket exactly as `send_request` does - keystrokes cannot transpose.
+    /// The daemon still answers `Ok { req_id }`; `reader_loop` finds nothing
+    /// registered in `pending` for it and drops it, which is harmless.
+    fn send_oneway(&self, msg: &ClientMsg) -> Result<(), String> {
+        if !self.state.alive.load(Ordering::Acquire) {
+            return Err("daemon connection dropped".into());
+        }
+        let write_result = {
+            let _guard = self.state.write_lock.lock().unwrap();
+            transport::write_msg(&mut (&*self.state.stream), msg)
+        };
+        if let Err(e) = write_result {
+            // Same reasoning as `send_request`: a failed socket write means the
+            // connection is gone, so mark it dead now and let the next op
+            // reconnect via `get_live` instead of waiting for the reader thread
+            // to notice on its next blocking read.
+            self.state.alive.store(false, Ordering::Release);
+            return Err(format!("daemon write: {e}"));
+        }
+        Ok(())
+    }
+
     fn send_request(&self, req_id: ReqId, msg: &ClientMsg) -> Result<DaemonMsg, String> {
         if !self.state.alive.load(Ordering::Acquire) {
             return Err("daemon connection dropped".into());
@@ -343,39 +375,31 @@ impl PtyClient {
         }
     }
 
+    /// Fire-and-forget - see `send_oneway`. Runs on the UI thread on Windows.
     pub fn write(&self, session_id: Uuid, data_b64: String) -> Result<(), String> {
         let req_id = self.next_req_id();
-        match self.send_request(
+        self.send_oneway(&ClientMsg::Write {
             req_id,
-            &ClientMsg::Write {
-                req_id,
-                session_id,
-                data_b64,
-            },
-        )? {
-            DaemonMsg::Ok { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(message),
-            other => Err(format!("unexpected write response: {other:?}")),
-        }
+            session_id,
+            data_b64,
+        })
     }
 
+    /// Fire-and-forget - see `send_oneway`. Runs on the UI thread on Windows.
     pub fn resize(&self, session_id: Uuid, cols: u16, rows: u16) -> Result<(), String> {
         let req_id = self.next_req_id();
-        match self.send_request(
+        self.send_oneway(&ClientMsg::Resize {
             req_id,
-            &ClientMsg::Resize {
-                req_id,
-                session_id,
-                cols,
-                rows,
-            },
-        )? {
-            DaemonMsg::Ok { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(message),
-            other => Err(format!("unexpected resize response: {other:?}")),
-        }
+            session_id,
+            cols,
+            rows,
+        })
     }
 
+    /// Fire-and-forget - see `send_oneway`. Runs on the UI thread on Windows.
+    /// The local routing teardown is what actually stops events reaching the
+    /// closed pane, and that happens synchronously here; the daemon-side close
+    /// is best-effort either way (`pty_close` only debug-logs its error).
     pub fn close(&self, session_id: Uuid) -> Result<(), String> {
         {
             let mut routing = self.state.routing.lock().unwrap();
@@ -383,11 +407,7 @@ impl PtyClient {
             routing.early.remove(&session_id);
         }
         let req_id = self.next_req_id();
-        match self.send_request(req_id, &ClientMsg::Close { req_id, session_id })? {
-            DaemonMsg::Ok { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(message),
-            other => Err(format!("unexpected close response: {other:?}")),
-        }
+        self.send_oneway(&ClientMsg::Close { req_id, session_id })
     }
 
     pub fn list(&self) -> Result<Vec<SessionInfo>, String> {
