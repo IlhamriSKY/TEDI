@@ -24,28 +24,26 @@
 ;     console stub replaces it entirely.
 ;   * Append the install dir to the user's PATH (HKCU\Environment) if not
 ;     already present, then broadcast WM_SETTINGCHANGE so freshly-spawned
-;     shells pick it up without a logout.
+;     shells pick it up without a logout. Through PowerShell, not NSIS
+;     registry instructions - NSIS cannot hold a PATH longer than 1024
+;     characters and mangles it on the way through.
 ;   * Restore the user-data snapshot when key files vanished during the
 ;     install. Belt-and-suspenders against Tauri NSIS template variants
 ;     that wipe app data on upgrade.
 ;
 ; On uninstall we delete both binaries-as-data we wrote (`tedi.exe`,
 ; `tedi.cmd` for legacy installs) but deliberately leave the PATH entry
-; alone. Stripping it cleanly from a `;`-delimited string in NSIS needs a
-; full string-replace helper and is easy to get wrong - a stale entry to a
-; non-existent dir is harmless (Windows skips it during PATH lookup), while
-; a buggy uninstaller can corrupt the user's PATH.
+; alone: a stale entry to a non-existent dir is harmless (Windows skips it
+; during PATH lookup), while every write to that value is a chance to corrupt
+; the user's PATH, and auto-update runs the old uninstaller mid-flight.
 
 !include "LogicLib.nsh"
 !include "WinMessages.nsh"
-!include "StrFunc.nsh"
-; ${StrStr} needs an explicit declaration before first use - this line is
-; the declaration, not a call. Used in NSIS_HOOK_POSTINSTALL to test whether
-; $INSTDIR is already on the user's PATH so reinstalls don't pile up dupes.
-${StrStr}
 
-!define TEDI_PATH_REG_ROOT HKCU
-!define TEDI_PATH_REG_KEY  "Environment"
+; PowerShell-provider form of the user environment key. The PATH append runs
+; through PowerShell rather than NSIS registry instructions - see the block in
+; NSIS_HOOK_POSTINSTALL for why.
+!define TEDI_ENV_REG_PS "HKCU:\Environment"
 
 ; App-data dir must match `identifier` in tauri.conf.json. Tauri 2's
 ; `app_data_dir` resolves to `%APPDATA%\<identifier>\` on Windows. The
@@ -66,6 +64,9 @@ ${StrStr}
     ; /Y silent overwrite, /H copy hidden + system, /K preserve attrs,
     ; /Q quiet. nul redirection suppresses console output during /PASSIVE.
     nsExec::ExecToLog 'cmd /c xcopy "${TEDI_DATA_DIR}" "${TEDI_DATA_BACKUP}" /E /I /Y /H /K /Q >nul 2>&1'
+    ; nsExec pushes the exit code whether or not you want it. Leaving it on
+    ; the stack corrupts whatever the Tauri template pops next.
+    Pop $0
   tedi_preinstall_no_backup:
 !macroend
 
@@ -108,23 +109,46 @@ ${StrStr}
   Delete "$INSTDIR\tedi.cmd"
 
   ; --- ensure install dir is on user PATH ---------------------------------
-  ReadRegStr $1 ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path"
-  ${If} $1 == ""
-    WriteRegExpandStr ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path" "$INSTDIR"
+  ; NEVER read PATH with ReadRegStr. NSIS_MAX_STRLEN is 1024, and on a longer
+  ; value ReadRegStr does not return a truncated string - it returns an EMPTY
+  ; one plus the error flag. The old code read that as "user has no PATH yet"
+  ; and wrote `Path = $INSTDIR`, destroying every entry the user had. Measured
+  ; against the NSIS 3.08 the Tauri bundler ships: a 1023-char PATH reads fine,
+  ; 1024 comes back empty, and a 1573-char one came back out as 32 chars of
+  ; install dir. Any dev machine clears that easily. Issue #9. Just under the
+  ; limit the concatenation truncated instead, appending half a directory as a
+  ; junk PATH entry. Both failure modes are silent.
+  ;
+  ; .NET's RegistryKey has no length limit, so the whole read-modify-write
+  ; runs in PowerShell. DoNotExpandEnvironmentNames keeps `%VAR%` entries
+  ; literal so they are written back unexpanded, -Type ExpandString preserves
+  ; REG_EXPAND_SZ, and -notcontains is a literal case-insensitive element
+  ; compare so reinstalls don't pile up dupes and a `[` in a path can't be
+  ; read as a wildcard. Set-ItemProperty creates the value when absent.
+  ;
+  ; $INSTDIR travels in an env var rather than being interpolated into the
+  ; script text: the directory page lets the user pick a path containing an
+  ; apostrophe, which would otherwise break the PowerShell string literal.
+  ;
+  ; powershell.exe is invoked by absolute path, not resolved through PATH -
+  ; PATH is the one thing this block cannot assume is sane, and an absolute
+  ; path also removes the "rogue powershell.exe earlier in PATH" hijack from a
+  ; signed installer. $SYSDIR is WOW64-redirected to SysWOW64 for the 32-bit
+  ; NSIS stub, which carries its own copy. No -ExecutionPolicy: it governs
+  ; script FILES, not -Command (verified under both Restricted and AllSigned),
+  ; and `-ExecutionPolicy Bypass` in an installer is a stock AV heuristic.
+  ; ErrorActionPreference Stop means any failure exits non-zero having written
+  ; nothing - TEDI not being on PATH beats corrupting it - and -NonInteractive
+  ; keeps an unattended auto-update from ever blocking on a prompt.
+  ;
+  ; `exit 3` marks "PATH actually changed" so the broadcast below stays
+  ; conditional; auto-update re-runs this hook on every release and
+  ; HWND_BROADCAST blocks on each unresponsive top-level window.
+  System::Call 'kernel32::SetEnvironmentVariable(t "TEDI_INSTDIR", t "$INSTDIR") i'
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$ErrorActionPreference = 'Stop'; $$k = Get-Item -LiteralPath '${TEDI_ENV_REG_PS}'; $$p = [string]$$k.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); $$d = $$env:TEDI_INSTDIR; if ($$d -and (($$p -split ';') -notcontains $$d)) { $$n = if ($$p -eq '') { $$d } else { $$p.TrimEnd(';') + ';' + $$d }; Set-ItemProperty -LiteralPath '${TEDI_ENV_REG_PS}' -Name Path -Value $$n -Type ExpandString; exit 3 }"`
+  Pop $1
+  ${If} $1 == 3
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
-  ${Else}
-    ; Substring check against `;PATH;` sentinels so a partial-match dir
-    ; doesn't false-positive. ${StrStr} returns the haystack-tail starting
-    ; at the needle (empty when missing).
-    StrCpy $2 ";$1;"
-    StrCpy $3 ";$INSTDIR;"
-    ${StrStr} $4 $2 $3
-    ${If} $4 == ""
-      ; Re-write as REG_EXPAND_SZ so existing `%VAR%` references in the
-      ; user's PATH keep expanding.
-      WriteRegExpandStr ${TEDI_PATH_REG_ROOT} "${TEDI_PATH_REG_KEY}" "Path" "$1;$INSTDIR"
-      SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
-    ${EndIf}
   ${EndIf}
 
   ; --- restore user data ---------------------------------------------------
@@ -143,6 +167,7 @@ ${StrStr}
     ${If} $5 == "1"
       CreateDirectory "${TEDI_DATA_DIR}"
       nsExec::ExecToLog 'cmd /c xcopy "${TEDI_DATA_BACKUP}" "${TEDI_DATA_DIR}" /E /I /Y /H /K /Q >nul 2>&1'
+      Pop $0
     ${EndIf}
     RMDir /r "${TEDI_DATA_BACKUP}"
   tedi_postinstall_no_restore:
