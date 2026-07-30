@@ -309,6 +309,22 @@
   --sidebar-ring: #0057fe;
 }
 
+/* Elevated chrome (dialogs, dropdowns, context menus, popovers, tooltips, the
+ * command palette) paints --popover, which under dark sits a hair ABOVE
+ * --border (#363636 vs #383838) - so every bordered child on it disappears into
+ * the panel: outline buttons read as an invisible Cancel, inputs lose their
+ * box, separators vanish. The tokens are tuned against the app canvas
+ * (#1a1a1a), not against chrome stacked on top of it, so re-scope them on the
+ * popover surface itself and let every descendant inherit a border that reads.
+ * Derived from --foreground rather than a fixed hex so it lightens whatever it
+ * sits on - which also keeps it correct under glass, where --popover is a
+ * translucent color-mix and any opaque hex would smear. Light mode is fine
+ * as-is (#e4e7ec on white), hence the .dark gate. */
+.dark .bg-popover {
+  --border: color-mix(in srgb, var(--foreground) 22%, transparent);
+  --input: color-mix(in srgb, var(--foreground) 26%, transparent);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
