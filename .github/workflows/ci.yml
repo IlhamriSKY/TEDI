@@ -74,9 +74,15 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # Runs the 27 backend unit tests, including pubkey_constant_decodes which
+      # Runs the backend unit tests, including pubkey_constant_decodes which
       # guards the embedded updater pubkey. The network-hitting live updater test
-      # is #[ignore]d, so the default run stays offline and fast.
+      # is #[ignore]d, so the default run stays offline and fast. Deliberately no
+      # count here: it drifted (27 -> 41 -> 43) every time tests were added.
+      #
+      # NOTE: this job is Linux-only, so it never compiles the macOS or Windows
+      # `cfg` branches - those are first built by release.yml's matrix, i.e. at
+      # tag time. A macOS-only compile error therefore surfaces during a release,
+      # not on the PR that introduced it.
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --locked
