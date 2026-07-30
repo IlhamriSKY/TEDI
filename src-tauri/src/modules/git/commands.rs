@@ -367,6 +367,11 @@ fn rename_new_side(p: &str) -> String {
     p.to_string()
 }
 
+/// How many untracked rows per refresh are worth a file read for their `+N`
+/// chip. See the call site in `git_status_inner`: the per-file cap below bounds
+/// one read, this bounds how many of them a single poll may do.
+const UNTRACKED_LINE_COUNT_BUDGET: usize = 512;
+
 /// Count newlines in a working-tree file for an untracked entry. Capped so
 /// we do not read multi-megabyte logs just to render a `+N` chip. Returns
 /// `None` for binary or oversize files.
@@ -476,18 +481,36 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     }
 
     let mut changes = parse_porcelain_v1(&root, entries_raw);
+    // `git diff --numstat` only knows about tracked files, so an untracked row's
+    // `+N` chip costs a real file read. That read is bounded per file (512 KB,
+    // see `count_file_lines`) but was unbounded in COUNT, and this pass reruns on
+    // every poll of the Source Control panel. A single stray build directory
+    // (16k untracked files, measured live) therefore turned one refresh into
+    // gigabytes of reads every few seconds - which is the "git source control
+    // spikes the RAM" report. The chip is cosmetic and stops meaning anything at
+    // this scale, so past the budget the row still lists, just without it.
+    let mut counted = 0usize;
     for c in changes.iter_mut() {
         let stats = if c.staged { &staged_stats } else { &work_stats };
         if let Some(s) = stats.get(&c.relative) {
             c.added = s.added;
             c.removed = s.removed;
             c.binary = s.binary;
-        } else if c.status == "untracked" {
+        } else if c.status == "untracked" && counted < UNTRACKED_LINE_COUNT_BUDGET {
+            counted += 1;
             match count_file_lines(&c.path) {
                 Some(n) => c.added = n,
                 None => c.binary = true,
             }
         }
+    }
+    // Never truncate silently: say what was skipped and why.
+    if counted >= UNTRACKED_LINE_COUNT_BUDGET {
+        log::info!(
+            "git_status: {} changes, line counts skipped past {} untracked entries",
+            changes.len(),
+            UNTRACKED_LINE_COUNT_BUDGET
+        );
     }
 
     Ok(GitStatus {
