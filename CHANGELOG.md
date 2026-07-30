@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.3.97] - 30-07-2026
+
+### Added
+
+- **The About panel links to the TEDI website.** Build details listed both source repositories but never the project site itself. See [AboutSection.tsx](src/settings/sections/AboutSection.tsx).
+
+### Changed
+
+- **The terminal AI agent roster moved to General.** The roster decides which CLIs the tab strip's `+` menu can launch, which is terminal configuration; the Agents tab is about the in-app AI instead, its personas, sub-agents, skills and MCP servers. It now sits in **General → Terminal** next to the other terminal settings, collapsed behind an accordion so a dozen agent rows no longer dominate the page, with the agent count on the collapsed row. See [CliAgentsCard.tsx](src/settings/sections/components/CliAgentsCard.tsx), [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx).
+
+### Fixed
+
+- **Pasting into a terminal works on Linux.** Copy worked and paste did nothing, on every Linux desktop, with nothing in the log to explain it. The webview's clipboard read can never succeed here: the underlying WebKitGTK flag that permits it is only set when the webview is built with clipboard access enabled, Tauri leaves that off by default, and there is no configuration knob to turn it on for a window declared the way TEDI's is. Writes were unaffected because they ride the keystroke itself, which is exactly why only paste appeared broken. The clipboard is now read in TEDI's own process rather than the webview, on all three platforms, so there is one path to reason about. Three places were broken rather than the one reported: the paste shortcut (`Ctrl+Shift+V` and `Shift+Insert`), right-click paste in a terminal, and the editor's context-menu paste. Reported in [#10](https://github.com/IlhamriSKY/TEDI/issues/10). See [clipboard.rs](src-tauri/src/modules/clipboard.rs), [clipboard.ts](src/lib/clipboard.ts).
+- **Borders are visible again on dark dialogs and menus.** Dialogs, dropdowns, context menus, popovers, tooltips and the command palette paint a surface that in dark mode sits a hair lighter than the border colour, so every bordered child on top of it disappeared: an outline button read as an invisible Cancel, inputs lost their box, separators vanished. The colours were tuned against the app canvas rather than against chrome stacked on top of it, and are now re-scoped on the elevated surface itself. See [globals.css](src/styles/globals.css).
+- **A browser pane the AI opens in the background keeps loading on macOS.** Such a pane is parked off-screen so it can be read without stealing the foreground, and macOS suspends a webview that is not in a window, so the read came back empty. Favicon fetching also stops at `</head>` to avoid pulling a multi-megabyte body, but missed the tag whenever it straddled two chunks of the response and downloaded everything anyway. See [embed.rs](src-tauri/src/modules/preview/embed.rs).
+
 ## [0.3.96] - 29-07-2026
 
 ### Added
