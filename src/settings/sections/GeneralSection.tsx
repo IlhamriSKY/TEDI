@@ -47,6 +47,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
+import { CliAgentsCard } from "./components/CliAgentsCard";
 import { UploadButton } from "../components/UploadButton";
 import { ChevronDown, Download, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 
@@ -325,6 +326,7 @@ export function GeneralSection() {
           </DropdownMenu>
         </SettingRow>
         <AdditionalPathEditor />
+        <CliAgentsCard />
       </div>
 
       <div className="flex flex-col gap-2">

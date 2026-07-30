@@ -22,10 +22,12 @@ import {
   type CliAgent,
 } from "@/modules/terminal/lib/cliAgents";
 import { Pin, PinOff, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { SettingsCard } from "../../components/SettingsCard";
+import { SettingsAccordion } from "../../components/SettingsAccordion";
 
 /**
- * The roster behind the tab strip's `+` -> Agent picker.
+ * The roster behind the tab strip's `+` -> Agent picker. Lives under General ->
+ * Terminal (these are terminal CLIs, not the in-app AI agents the Agents tab
+ * configures), collapsed by default so a dozen rows don't dominate the page.
  *
  * The start command is editable because the shipped default is only a guess at
  * what is on PATH - people alias or wrap these binaries (`claude` ->
@@ -53,35 +55,45 @@ export function CliAgentsCard() {
   const agents = effectiveCliAgents(customAgents, overrides);
 
   return (
-    <SettingsCard
-      title="Terminal AI agents"
-      description={`The CLIs offered by the tab strip's + menu, where up to ${MAX_AGENT_SPAWN} panes (repeats allowed) open in one tab. Edit a start command if your binary is named or wrapped differently - a built-in keeps its icon and status badge through a rename. Pinned agents are listed first.`}
-      headerRight={
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 shrink-0 gap-1.5 px-2 text-[11px]"
-          onClick={() => upsert({ id: newCliAgentId(), name: "", command: "", builtIn: false })}
-        >
-          <Plus size={12} strokeWidth={1.75} />
-          New
-        </Button>
-      }
-    >
-      <ul className="border-border/40 flex flex-col gap-1.5 border-t pt-2">
-        {agents.map((a) => (
-          <AgentRow
-            key={a.id}
-            agent={a}
-            canReset={a.builtIn && hasOverride(a.id)}
-            onSave={upsert}
-            onTogglePin={() => togglePinned(a.id)}
-            onReset={() => resetBuiltin(a.id)}
-            onDelete={() => setPendingDelete(a)}
-          />
-        ))}
-      </ul>
+    <>
+      <SettingsAccordion
+        title="Terminal AI agents"
+        description="The CLIs offered by the tab strip's + menu."
+        summary={`${agents.length} agent${agents.length === 1 ? "" : "s"}`}
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-muted-foreground text-[10.5px] leading-relaxed">
+              {`Up to ${MAX_AGENT_SPAWN} panes (repeats allowed) open in one tab. Edit a start command if your binary is named or wrapped differently - a built-in keeps its icon and status badge through a rename. Pinned agents are listed first.`}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 gap-1.5 px-2 text-[11px]"
+              onClick={() => upsert({ id: newCliAgentId(), name: "", command: "", builtIn: false })}
+            >
+              <Plus size={12} strokeWidth={1.75} />
+              New
+            </Button>
+          </div>
+          <ul className="flex flex-col gap-1.5">
+            {agents.map((a) => (
+              <AgentRow
+                key={a.id}
+                agent={a}
+                canReset={a.builtIn && hasOverride(a.id)}
+                onSave={upsert}
+                onTogglePin={() => togglePinned(a.id)}
+                onReset={() => resetBuiltin(a.id)}
+                onDelete={() => setPendingDelete(a)}
+              />
+            ))}
+          </ul>
+        </div>
+      </SettingsAccordion>
 
+      {/* Outside the accordion: Radix unmounts collapsed content, which would
+          tear down an open confirm dialog with it. */}
       <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -106,7 +118,7 @@ export function CliAgentsCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SettingsCard>
+    </>
   );
 }
 
