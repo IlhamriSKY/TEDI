@@ -866,24 +866,29 @@ mod allocator_tests {
         total
     }
 
-    /// A burst that has been fully freed must not stay charged to the process.
-    ///
-    /// This is the regression guard for the "TEDI gets heavy and then hangs
-    /// after a long session" report: the measured host went to 15.8 GB of
-    /// committed memory in an hour with a working set under 6 GB, i.e. the
-    /// allocator was holding freed pages instead of returning them, and the
-    /// machine's commit limit is finite. Peak here is ~1 GiB in PTY-sized
-    /// chunks, which dwarfs anything the rest of the suite allocates in
-    /// parallel, so the reading does not need the suite to run single-threaded.
-    #[test]
-    fn purge_allocator_returns_a_freed_burst_to_the_os() {
-        const CHUNK: usize = 1024 * 1024;
-        const CHUNKS: usize = 1024;
+    const CHUNK: usize = 1024 * 1024;
 
+    /// Allocate `chunks` MiB, touch every page, then drop it all. `vec![_; _]`
+    /// memsets, so this is committed AND resident, exactly like a base64 chunk
+    /// on its way to the webview.
+    fn burst_and_free(chunks: usize) {
+        let held: Vec<Vec<u8>> = (0..chunks).map(|_| vec![7u8; CHUNK]).collect();
+        std::hint::black_box(&held);
+    }
+
+    /// The regression guard for "TEDI gets heavy and then stops responding after
+    /// a long session". Both halves are needed and they assert different things.
+    ///
+    /// Deliberately ONE test function rather than two: each phase reads the
+    /// process-wide commit, and `cargo test` runs test functions in parallel, so
+    /// two allocator tests would measure each other's bursts and flake.
+    #[test]
+    fn freed_memory_goes_back_to_the_os_and_does_not_ratchet() {
+        // Phase 1: a single burst must not stay charged to the process. Measured
+        // without the fix, the allocator returned NOTHING: 1090 MiB of a 1090 MiB
+        // burst was still committed afterwards.
         let base = committed_private_bytes();
-        // `vec![7u8; _]` writes the pages, so this is committed AND touched,
-        // exactly like a base64 chunk on its way to the webview.
-        let held: Vec<Vec<u8>> = (0..CHUNKS).map(|_| vec![7u8; CHUNK]).collect();
+        let held: Vec<Vec<u8>> = (0..1024).map(|_| vec![7u8; CHUNK]).collect();
         let peak = committed_private_bytes();
         drop(held);
         purge_allocator();
@@ -900,6 +905,24 @@ mod allocator_tests {
             "allocator kept {} MiB of the {} MiB burst after purge_allocator()",
             kept / 1024 / 1024,
             grew / 1024 / 1024
+        );
+
+        // Phase 2: the actual complaint is not that one burst is expensive, it is
+        // that an hour of them never comes back down. Repeated cycles must land
+        // in the same place instead of drifting upward, which is the "long
+        // session stays flat" property in miniature.
+        let mut marks = Vec::new();
+        for _ in 0..3 {
+            burst_and_free(256);
+            purge_allocator();
+            marks.push(committed_private_bytes());
+        }
+        let drift = marks.last().unwrap().saturating_sub(marks[0]);
+        assert!(
+            drift < 64 * 1024 * 1024,
+            "commit drifted up {} MiB across three burst cycles: {:?} MiB",
+            drift / 1024 / 1024,
+            marks.iter().map(|m| m / 1024 / 1024).collect::<Vec<_>>()
         );
     }
 }
