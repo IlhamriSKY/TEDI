@@ -86,14 +86,6 @@ tedi --help | --version | --update
 
 If TEDI is already running, the request forwards to the existing window (no second instance). On macOS / Linux AppImage the `tedi` command is not on `PATH` by default: **Settings → General → "Install `tedi` command in PATH"** creates a shim at `~/.local/bin/tedi`. Windows' installer handles this.
 
-### Open with TEDI
-
-Right-click a folder or file in the file manager and TEDI opens it, the same way `tedi <path>` does (forwarded to the running window if one is up). Registered by the installer on each platform, nothing to configure:
-
-- **Windows**: "Open with TEDI" on folders, drives, folder backgrounds, and files. Windows 11 shows classic verbs under **Show more options** (or Shift+F10); top-level placement needs a packaged COM handler, the same limit VS Code's "Open with Code" has. Removed on uninstall.
-- **macOS**: right-click → **Open With → TEDI**, and dropping a folder on the Dock icon. TEDI registers as an alternate handler, so it never takes over your default app.
-- **Linux** (`.deb` / `.rpm`): right-click → **Open With → TEDI** in Nautilus, Dolphin, Thunar, Nemo. AppImage installs nothing system-wide, so integrate it yourself (e.g. AppImageLauncher) for the entry to appear.
-
 ## Architecture
 
 A Tauri 2 app: a React 19 webview (`src/`) talks to a Rust backend (`src-tauri/`) via `invoke()` and streaming `Channel`s. See **[ARCHITECTURE.md](ARCHITECTURE.md)** for a one-page map, then [TEDI.md](TEDI.md) for the per-module reference.
