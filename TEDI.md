@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.3.96.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.3.97.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |
