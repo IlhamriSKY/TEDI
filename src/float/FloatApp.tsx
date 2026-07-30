@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { Streamdown } from "streamdown";
+import { BrowserPane, previewEmbedReparent } from "@/modules/browser";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { decodeFloatParams, floatEv } from "@/modules/panes/floatProtocol";
 import { FloatTableProvider, markdownComponents } from "@/components/ai-elements/markdown-code";
@@ -34,8 +35,20 @@ export function FloatApp() {
         /* best-effort: don't block the close on a save failure */
       }
     }
+    // A browser leaf's webview LIVES in this window while floated, and closing a
+    // window destroys the webviews inside it - so hand it back to the main window
+    // first or the page is gone. This is awaited, not fired and forgotten. A raw
+    // OS Alt+F4 still bypasses it, and then the main pane simply recreates the
+    // webview from the tab's url on dock-back (a reload, not a broken pane).
+    if (params?.kind === "browser" && leafId !== undefined) {
+      try {
+        await previewEmbedReparent(leafId, "main");
+      } catch {
+        /* best-effort: closing anyway beats a window that refuses to close */
+      }
+    }
     void getCurrentWindow().close();
-  }, [params?.kind]);
+  }, [params?.kind, leafId]);
 
   // "Dock back into TEDI" from the main pane closes this window (saving first).
   useEffect(() => {
@@ -59,6 +72,8 @@ export function FloatApp() {
               <FloatTableView markdown={params.markdown} />
             ) : params?.kind === "editor" && params.path ? (
               <EditorPane ref={editorRef} path={params.path} aiDisabled={params.privateLeaf} />
+            ) : params?.kind === "browser" ? (
+              <FloatBrowser leafId={params.leafId} url={params.url ?? ""} />
             ) : (
               <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
                 This pane can't be floated.
@@ -68,6 +83,61 @@ export function FloatApp() {
         </ErrorBoundary>
       </div>
     </div>
+  );
+}
+
+/**
+ * A browser pane popped out into a float window.
+ *
+ * The pane is a real native webview docked over a rectangle, not DOM, so it is
+ * MOVED here rather than re-created: one `reparent` call and the page keeps its
+ * scroll position, its session and anything it was playing. After that
+ * `BrowserPane` behaves exactly as it does in the main window, because every
+ * operation it performs is keyed by leaf id and goes through Rust - it never knew
+ * which window it was in.
+ *
+ * The pane is mounted only AFTER the move lands: it starts measuring and pushing
+ * bounds the moment it mounts, and those bounds are relative to the OWNING
+ * window, so measuring here while the main window still owned the webview would
+ * park the page at the wrong coordinates for a frame.
+ */
+function FloatBrowser({ leafId, url }: { leafId: number; url: string }) {
+  const [owned, setOwned] = useState(false);
+  const [current, setCurrent] = useState(url);
+  useEffect(() => {
+    let alive = true;
+    void previewEmbedReparent(leafId, `float-${leafId}`)
+      .catch(console.error)
+      // Mount either way: on failure the pane still renders its chrome and the
+      // user can see and act on the state instead of staring at a blank window.
+      .finally(() => {
+        if (alive) setOwned(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [leafId]);
+  if (!owned) {
+    return (
+      <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
+        Moving the page over…
+      </div>
+    );
+  }
+  return (
+    <BrowserPane
+      id={leafId}
+      url={current}
+      visible
+      onUrlChange={(u) => {
+        setCurrent(u);
+        // Report back so the leaf in the main window keeps the real address: its
+        // tab title reads from it, and so does the browser list the AI sees in
+        // `<env>`. Without this, browsing inside a floated pane would leave both
+        // showing whatever page it was popped out on.
+        void emit(floatEv.url(leafId), u);
+      }}
+    />
   );
 }
 

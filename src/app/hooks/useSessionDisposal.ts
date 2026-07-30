@@ -1,5 +1,6 @@
 import { type EditorPaneHandle } from "@/modules/editor";
 import { browserEmbedClose, browserEmbedHide } from "@/modules/browser";
+import { useFloatStore } from "@/modules/panes";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -41,6 +42,10 @@ export function useSessionDisposal({
   setSshStatuses,
   setAiCliStatuses,
 }: Params): void {
+  // Subscribed, not read once: a browser leaf that docks back from a float window
+  // while its workspace is still inactive has to be re-evaluated for hiding, and
+  // that only happens if a change here re-runs the effect below.
+  const floating = useFloatStore((s) => s.floating);
   const liveLeavesRef = useRef<Set<number>>(new Set());
   const liveBrowserRef = useRef<Set<number>>(new Set());
   // Inactive-workspace preview leaves whose always-on-top webview we've already
@@ -95,6 +100,12 @@ export function useSessionDisposal({
     // latch makes this fire once per switch-away, not on every `tabs` change.
     for (const id of liveBrowser) {
       if (!activeBrowser.has(id)) {
+        // A FLOATED pane's webview was moved into its float window, so it is not
+        // compositing over this one and hiding it would simply blank the float.
+        // Skipped without latching, so the hide still happens if it docks back
+        // while its workspace or tab is still the inactive one - which is why
+        // `floating` is an effect dependency rather than a one-shot read.
+        if (floating.has(id)) continue;
         if (!hiddenInactiveBrowserRef.current.has(id)) {
           hiddenInactiveBrowserRef.current.add(id);
           void browserEmbedHide(id).catch(() => {});
@@ -133,5 +144,5 @@ export function useSessionDisposal({
       }
       return mutated ? next : prev;
     });
-  }, [tabs]);
+  }, [tabs, floating]);
 }

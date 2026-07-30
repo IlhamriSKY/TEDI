@@ -18,8 +18,15 @@ import {
   Info,
   Lock,
   RefreshCw,
+  X,
+  ZoomIn,
+  ZoomOut,
   type LucideIcon,
 } from "lucide-react";
+import { BROWSER_ZOOM_STEPS } from "./lib/native";
+
+const ZOOM_MIN = BROWSER_ZOOM_STEPS[0];
+const ZOOM_MAX = BROWSER_ZOOM_STEPS[BROWSER_ZOOM_STEPS.length - 1];
 
 export type BrowserAddressBarHandle = {
   focus: () => void;
@@ -64,10 +71,16 @@ type Props = {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Current page zoom; 1 is 100%. */
+  zoom: number;
   onSubmit: (url: string) => void;
   onReload: () => void;
+  /** Cancel a load in progress. The reload control becomes this while loading. */
+  onStop: () => void;
   onBack: () => void;
   onForward: () => void;
+  onZoom: (dir: 1 | -1) => void;
+  onZoomReset: () => void;
   ref?: Ref<BrowserAddressBarHandle>;
 };
 
@@ -76,10 +89,14 @@ export function BrowserAddressBar({
   loading,
   canGoBack,
   canGoForward,
+  zoom,
   onSubmit,
   onReload,
+  onStop,
   onBack,
   onForward,
+  onZoom,
+  onZoomReset,
   ref,
 }: Props) {
   const [draft, setDraft] = useState(url);
@@ -126,7 +143,10 @@ export function BrowserAddressBar({
 
   return (
     <div className="border-border/60 shrink-0 border-b">
-      <div className="bg-card/40 flex h-9 items-center gap-1 px-1.5">
+      {/* @container so the toolbar can shed controls instead of crushing the
+          address field: a browser pane in a three or four way split gets narrow,
+          and six icon buttons plus a field do not fit. */}
+      <div className="bg-card/40 @container flex h-9 items-center gap-1 px-1.5">
         <IconTooltip label={`Back (${fmtShortcut(ALT_KEY, "←")})`} side="top">
           <Button
             type="button"
@@ -153,23 +173,22 @@ export function BrowserAddressBar({
             <ChevronRight size={15} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
+        {/* One control, two jobs, exactly like every browser's: reload when idle,
+            stop while loading. A spinning reload icon you cannot click to cancel
+            leaves a hung page with no way out. */}
         <IconTooltip
-          label={loading ? "Loading…" : `Reload (${fmtShortcut(MOD_KEY, SHIFT_KEY, "R")})`}
+          label={loading ? "Stop loading" : `Reload (${fmtShortcut(MOD_KEY, SHIFT_KEY, "R")})`}
           side="top"
         >
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            onClick={onReload}
-            aria-label="Reload"
+            onClick={loading ? onStop : onReload}
+            aria-label={loading ? "Stop loading" : "Reload"}
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
           >
-            <RefreshCw
-              size={14}
-              strokeWidth={1.75}
-              className={loading ? "animate-spin" : undefined}
-            />
+            {loading ? <X size={15} strokeWidth={2} /> : <RefreshCw size={14} strokeWidth={1.75} />}
           </Button>
         </IconTooltip>
         {/* Icon + URL share one rounded field (Edge-style): the wrapper carries
@@ -202,6 +221,52 @@ export function BrowserAddressBar({
               }
             }}
           />
+        </div>
+        {/* Zoom. Two steppers with the current level between them, and the level
+            is shown only when it is not 100% so the toolbar stays quiet at the
+            default (Edge behaves the same). Clicking the level resets it.
+            Ctrl+plus / Ctrl+minus / Ctrl+scroll also work, but those are the
+            webview's own accelerators acting on the focused page - TEDI never
+            sees them, which is why the readout is re-read rather than assumed. */}
+        <div className="hidden shrink-0 items-center @[22rem]:flex">
+          <IconTooltip label={`Zoom out (${fmtShortcut(MOD_KEY, "-")})`} side="top">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => onZoom(-1)}
+              disabled={!url || zoom <= ZOOM_MIN + 1e-6}
+              aria-label="Zoom out"
+              className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md disabled:opacity-40`}
+            >
+              <ZoomOut size={14} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+          {Math.abs(zoom - 1) > 1e-6 ? (
+            <IconTooltip label="Reset zoom to 100%" side="top">
+              <button
+                type="button"
+                onClick={onZoomReset}
+                aria-label={`Zoom ${Math.round(zoom * 100)} percent, click to reset`}
+                className={`text-muted-foreground hover:text-foreground ${TOOLBAR_HOVER} h-7 shrink-0 cursor-pointer rounded-md px-1 text-[11px] tabular-nums`}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+            </IconTooltip>
+          ) : null}
+          <IconTooltip label={`Zoom in (${fmtShortcut(MOD_KEY, "+")})`} side="top">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => onZoom(1)}
+              disabled={!url || zoom >= ZOOM_MAX - 1e-6}
+              aria-label="Zoom in"
+              className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md disabled:opacity-40`}
+            >
+              <ZoomIn size={14} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
         </div>
         <IconTooltip label="Open in system browser" side="top">
           <Button
@@ -249,6 +314,10 @@ function normalizeUrl(raw: string, searchEngineId: string): string | null {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   // A local file URL typed directly (file:///… or file://host/…) - pass through.
   if (/^file:\/\//i.test(trimmed)) return trimmed;
+  // An installed browser extension's own page. A webview has no toolbar, so an
+  // extension's popup has nowhere to appear and its dashboard is the only way to
+  // configure it - without this the omnibox would search for the URL instead.
+  if (/^chrome-extension:\/\//i.test(trimmed)) return trimmed;
   // A bare local path (Windows drive / UNC / POSIX absolute) -> a file:// URL so
   // a local HTML file opens directly. Checked BEFORE the whitespace test below,
   // since a real path may contain spaces (e.g. "TEDI - terax-ai").

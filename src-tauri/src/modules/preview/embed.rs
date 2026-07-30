@@ -116,15 +116,23 @@ fn embed_label(tab_id: i64) -> String {
     format!("preview-embed-{tab_id}")
 }
 
-/// Parse a url a browser pane is allowed to load: http(s) for the web, plus
+/// Parse a url a browser pane is allowed to load: http(s) for the web,
 /// `file://` so a local HTML file (a generated report on disk) opens like any
-/// other tab. Everything else is rejected, which keeps `javascript:` and `data:`
-/// out of a surface the AI can drive. Shared by the two create paths and
+/// other tab, and `chrome-extension://` so an installed browser extension's own
+/// dashboard can be opened - a webview has no toolbar, so an extension's popup
+/// has nowhere to appear and its settings page IS the only way to configure it.
+/// Everything else is rejected, which keeps `javascript:` and `data:` out of a
+/// surface the AI can drive. Shared by the two create paths and
 /// `preview_embed_navigate` so all three enforce the same set.
 fn parse_pane_url(url: &str) -> Result<Url, String> {
     let target = Url::parse(url).map_err(|e| format!("invalid url: {e}"))?;
-    if !matches!(target.scheme(), "http" | "https" | "file") {
-        return Err("only http(s) or file:// URLs can load in the preview".into());
+    if !matches!(
+        target.scheme(),
+        "http" | "https" | "file" | "chrome-extension"
+    ) {
+        return Err(
+            "only http(s), file:// or chrome-extension:// URLs can load in the preview".into(),
+        );
     }
     Ok(target)
 }
@@ -347,6 +355,22 @@ fn spawn_preview_child(
         // Windows and Linux it is an inert no-op and cannot reintroduce the
         // args-mismatch blank child of tauri#13092.
         .background_throttling(BackgroundThrottlingPolicy::Disabled);
+    // Chrome extensions the user installed for the pane (an ad blocker, say).
+    // Both the extensions folder AND a separate profile come from `active_dirs`,
+    // which returns None until something is actually installed. That pairing is
+    // mandatory, not tidiness: enabling extensions changes the WebView2
+    // ENVIRONMENT, and Tauri's config docs require webviews differing on
+    // `browserExtensionsEnabled` to use different data directories - the same
+    // mismatch that rendered a child webview blank in tauri#13092. The dedicated
+    // profile also keeps an installed extension out of TEDI's own webview, which
+    // is the one holding Tauri IPC. Applies to panes opened from now on; wry
+    // calls AddBrowserExtension at webview creation.
+    if let Some((extensions_dir, profile_dir)) = super::browser_ext::active_dirs(app) {
+        builder = builder
+            .data_directory(profile_dir)
+            .browser_extensions_enabled(true)
+            .extensions_path(extensions_dir);
+    }
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
     // toggling the setting applies to newly opened browser panes. The webview
@@ -530,9 +554,102 @@ pub async fn preview_embed_dispatch(
     let js = match action.as_str() {
         "back" => "history.back()",
         "forward" => "history.forward()",
+        // Cancel a load in progress, the other half of every browser's reload
+        // button. `Webview` exposes no stop, and CDP's `Page.stopLoading` would be
+        // Windows-only, so this rides `window.stop()` - which Chromium and WebKit
+        // both implement, and which is what the browser's own stop button calls.
+        "stop" => "window.stop()",
         other => return Err(format!("unknown action: {other}")),
     };
     wv.eval(js).map_err(|e| e.to_string())
+}
+
+/// Set a browser pane's zoom level, like a browser's Ctrl+plus / Ctrl+minus.
+/// `factor` is 1.0 for 100%.
+#[tauri::command]
+pub async fn preview_embed_zoom(
+    app: tauri::AppHandle,
+    tab_id: i64,
+    factor: f64,
+) -> Result<(), String> {
+    let Some(wv) = app.get_webview(&embed_label(tab_id)) else {
+        return Ok(());
+    };
+    // Clamp to the range real browsers offer; a factor of 0 or a negative one is
+    // a caller bug that would otherwise blank the page.
+    let factor = factor.clamp(0.25, 5.0);
+    wv.set_zoom(factor).map_err(|e| e.to_string())
+}
+
+/// Read a pane's CURRENT zoom back from the page.
+///
+/// Needed because TEDI is not the only thing that can change it: the pane is a
+/// real webview, so WebView2's own Ctrl+plus / Ctrl+minus and Ctrl+scroll act on
+/// it directly and TEDI never sees those keystrokes (the page has focus, so they
+/// never reach the DOM). Without this the toolbar readout would drift from
+/// reality the first time someone used the keyboard.
+///
+/// wry exposes no getter for the zoom factor, so it is derived: Chromium's
+/// `devicePixelRatio` is the OS scale multiplied by the page zoom, and the owning
+/// window knows the OS scale.
+#[tauri::command]
+pub async fn preview_embed_zoom_get(app: tauri::AppHandle, tab_id: i64) -> Result<f64, String> {
+    let wv = app
+        .get_webview(&embed_label(tab_id))
+        .ok_or_else(|| "no open browser pane with that id".to_string())?;
+    let os_scale = wv.window().scale_factor().unwrap_or(1.0);
+    let dpr = eval_for_string(wv, "String(window.devicePixelRatio)".to_string())
+        .await?
+        .trim()
+        .parse::<f64>()
+        .map_err(|e| format!("unreadable devicePixelRatio: {e}"))?;
+    if os_scale <= 0.0 || dpr <= 0.0 {
+        return Ok(1.0);
+    }
+    // Two decimals: the division lands on 0.9999999 often enough that an exact
+    // comparison against a step would never match.
+    Ok((dpr / os_scale * 100.0).round() / 100.0)
+}
+
+/// The url a browser pane is actually showing, or `None` when it has no webview.
+///
+/// The pane component can outlive nothing and be outlived by plenty: the webview
+/// deliberately survives the React component (a pane move remounts it, a float
+/// hands it to another window), so on mount the component has to ask rather than
+/// assume. Without this, docking a floated pane back would show whatever address
+/// the tab was last told about while the page sat on a different one.
+#[tauri::command]
+pub async fn preview_embed_url(
+    app: tauri::AppHandle,
+    tab_id: i64,
+) -> Result<Option<String>, String> {
+    Ok(app
+        .get_webview(&embed_label(tab_id))
+        .and_then(|wv| wv.url().ok())
+        .map(|u| u.to_string())
+        .filter(|u| u.starts_with("http") || u.starts_with("file") || u.starts_with("chrome-")))
+}
+
+/// Move a browser pane's webview to another window, by label.
+///
+/// This is what lets a browser pane pop out into a float window WITHOUT
+/// reloading: the same webview is re-parented, so the page, its scroll position,
+/// its logged-in session and any running media survive the move. Bounds are
+/// window-relative, so whichever window owns it drives them afterwards through
+/// the ordinary `preview_embed_update` path and no other command changes.
+#[tauri::command]
+pub async fn preview_embed_reparent(
+    app: tauri::AppHandle,
+    tab_id: i64,
+    window_label: String,
+) -> Result<(), String> {
+    let Some(wv) = app.get_webview(&embed_label(tab_id)) else {
+        return Ok(()); // nothing open yet; whoever creates it will own it
+    };
+    let target = app
+        .get_window(&window_label)
+        .ok_or_else(|| format!("no window labelled {window_label}"))?;
+    wv.reparent(&target).map_err(|e| e.to_string())
 }
 
 /// Drain the console errors, warnings, uncaught exceptions, and unhandled
@@ -909,9 +1026,15 @@ pub async fn preview_embed_screenshot(
     if bw < 1 || bh < 1 {
         return Err("browser pane is not visible".into());
     }
+    // The pane's OWN window, not "main": a floated pane's webview was moved into
+    // its float window, and the bounds recorded above are relative to whichever
+    // window owns it. Anchoring to the main window would crop a region of the
+    // wrong window entirely, so the agent's screenshot of a popped-out pane would
+    // silently return whatever happened to be at those coordinates.
     let win = app
-        .get_window("main")
-        .ok_or_else(|| "main window not found".to_string())?;
+        .get_webview(&embed_label(tab_id))
+        .map(|wv| wv.window())
+        .ok_or_else(|| "no open browser pane with that id".to_string())?;
     let pos = win.inner_position().map_err(|e| e.to_string())?;
     let (sx, sy) = (pos.x + bx, pos.y + by);
     let jpeg = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
@@ -1322,6 +1445,9 @@ mod tests {
             "https://example.com/x",
             "http://localhost:5173",
             "file:///tmp/report.html",
+            // An installed extension's settings page: a webview has no toolbar,
+            // so this is the only way to reach one.
+            "chrome-extension://cjpalhdlnbpafiamejdnhcphjbkeiagm/dashboard.html",
         ] {
             assert!(parse_pane_url(ok).is_ok(), "{ok} should be allowed");
         }

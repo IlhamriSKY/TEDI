@@ -516,7 +516,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     control_browser: tool({
       description:
-        "Drive an EXISTING in-app browser pane (from the <env> browsers list, by leaf_id): pass `url` to navigate it (a page or search URL) or `action` to go back/forward/reload. Use this to reuse an open browser instead of spawning tabs; for a brand-new browser use Open Preview. Prefer Navigate And Read when you also need the page content. Auto.",
+        "Drive an EXISTING in-app browser pane (from the <env> browsers list, by leaf_id): pass `url` to navigate it (a page or search URL) or `action` to go back/forward/reload, or `stop` to cancel a load that is hanging. Use this to reuse an open browser instead of spawning tabs; for a brand-new browser use Open Preview. Prefer Navigate And Read when you also need the page content. Auto.",
       inputSchema: z.object({
         leafId: z
           .number()
@@ -527,9 +527,11 @@ export function buildTerminalTools(ctx: ToolContext) {
           .optional()
           .describe("Navigate the pane to this http(s) URL (a page or a search URL)."),
         action: z
-          .enum(["back", "forward", "reload"])
+          .enum(["back", "forward", "reload", "stop"])
           .optional()
-          .describe("History action; omit when `url` is set."),
+          .describe(
+            "back/forward/reload drive session history; stop cancels a load in progress. Omit when `url` is set.",
+          ),
       }),
       execute: async ({ leafId, url, action }) => {
         if (url && action) return { error: "pass either url or action, not both", leafId };
@@ -547,7 +549,7 @@ export function buildTerminalTools(ctx: ToolContext) {
           researchBrowserLeafId = leafId;
           return { ok: true, leafId, action };
         }
-        return { error: "pass url (to navigate) or action (back/forward/reload)", leafId };
+        return { error: "pass url (to navigate) or action (back/forward/reload/stop)", leafId };
       },
     }),
 
@@ -734,9 +736,14 @@ export function buildTerminalTools(ctx: ToolContext) {
       }),
       execute: async ({ leafId }) => {
         const entries = await ctx.consoleBrowser(leafId);
-        if (entries === null) return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+        if (entries === null)
+          return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
         if (entries.length === 0) {
-          return { leafId, entries: [], note: "No errors or warnings recorded since the last read." };
+          return {
+            leafId,
+            entries: [],
+            note: "No errors or warnings recorded since the last read.",
+          };
         }
         // Cap what re-enters context: a page in a render loop can log thousands,
         // and the newest entries are the ones that explain the current state.

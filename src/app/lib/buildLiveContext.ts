@@ -2,11 +2,13 @@ import { type RefObject } from "react";
 import {
   previewEmbedAct,
   previewEmbedDispatch,
+  previewEmbedNavigate,
   previewEmbedRead,
   previewEmbedConsole,
   previewEmbedScreenshot,
   type BrowserDiag,
 } from "@/modules/browser";
+import { useFloatStore } from "@/modules/panes";
 import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs";
 import {
   findLeaf,
@@ -152,9 +154,17 @@ export function buildLiveContext(deps: LiveContextDeps) {
       const { setBrowserLeafUrl } = liveContextRef.current;
       if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
       setBrowserLeafUrl(leafId, url);
+      // A FLOATED pane's component lives in its float window and no longer
+      // follows this leaf's url, so setting the leaf alone would report success
+      // and navigate nothing at all. Drive the webview directly in that case;
+      // the float's address bar catches up from the navigation event. Only in
+      // that case, so the ordinary path keeps its single navigation.
+      if (useFloatStore.getState().floating.has(leafId)) {
+        void previewEmbedNavigate(leafId, url).catch(() => {});
+      }
       return true;
     },
-    dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload"): boolean => {
+    dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload" | "stop"): boolean => {
       if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
       void previewEmbedDispatch(leafId, action).catch(() => {});
       return true;

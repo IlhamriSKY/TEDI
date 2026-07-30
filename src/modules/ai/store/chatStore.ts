@@ -111,7 +111,7 @@ type Live = {
   /** Navigate an existing browser pane (by leaf id) to a URL. False if that leaf isn't a browser. */
   navigateBrowser: (leafId: number, url: string) => boolean;
   /** Drive an existing browser pane's history: back / forward / reload. */
-  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload") => boolean;
+  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload" | "stop") => boolean;
   /** Read an existing browser pane's rendered text (title + visible body).
    *  With `fields` also lists tagged interactive controls as `[N]`. */
   readBrowser: (leafId: number, fields?: boolean) => Promise<string | null>;

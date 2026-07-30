@@ -79,11 +79,15 @@ const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default:
  *  it hands off: the main pane unmounts its editor while floating (so two live
  *  CodeMirror views can't race and save-stomp the same file) and saves before
  *  float + on dock-back. Remote/SFTP editors depend on the main window's russh
- *  session, so those are gated out. Browser panes are native Tauri webview
- *  overlays that can't be mirrored at all. NOTE: float windows only run on a real
- *  Tauri build, so this path is build-green but needs a manual smoke test. */
+ *  session, so those are gated out. A browser leaf hands off too, but by MOVING
+ *  its native webview into the float window rather than re-rendering anything, so
+ *  the page, its scroll position and any playing media survive the pop-out with no
+ *  reload. NOTE: float windows only run on a real Tauri build, so this path is
+ *  build-green but needs a manual smoke test. */
 function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
   if (node.leafKind === "terminal") return { leafId: node.id, kind: "terminal", title };
+  if (node.leafKind === "browser")
+    return { leafId: node.id, kind: "browser", title, url: node.url };
   if (node.leafKind === "editor" && !isRemoteEditorLeaf(node))
     return {
       leafId: node.id,
@@ -379,6 +383,12 @@ const LeafBody = memo(function LeafBody({
     );
   }
   if (node.leafKind === "browser") {
+    // While floating, the float window OWNS this leaf's webview (it was moved
+    // there) and drives its bounds. Staying mounted here would fight it: the rAF
+    // loop would keep pushing main-window rectangles at a webview living in
+    // another window, and hide it outright whenever this tab is not visible. So
+    // hand off completely, exactly like the editor does.
+    if (isFloating) return null;
     return (
       <ErrorBoundary label="browser pane" resetKeys={[node.id]}>
         <BrowserPane
@@ -542,7 +552,10 @@ function PaneLeafFrame({
     // by path) opens the live content and the main editor's unmount can't drop
     // unsaved edits. No-op when clean; skipped when already floating (ref is null).
     if (floatParams.kind === "editor") await editorHandleRef.current?.save();
-    void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 });
+    // Browser hand-off: the float owns the page, so let it push navigation back
+    // into this leaf. The leaf's url is what the tab title and the AI's browser
+    // list read, and both would otherwise freeze at the pop-out address.
+    void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 }, b.onBrowserUrlChange);
   };
 
   return (

@@ -59,10 +59,11 @@ export async function previewEmbedNavigate(tabId: number, url: string): Promise<
   await invoke("preview_embed_navigate", { tabId, url });
 }
 
-/** Drive the embedded webview's own history / reload (browser back/forward/reload). */
+/** Drive the embedded webview's own history / loading: browser back, forward,
+ *  reload, and `stop` to cancel a load in progress. */
 export async function previewEmbedDispatch(
   tabId: number,
-  action: "back" | "forward" | "reload",
+  action: "back" | "forward" | "reload" | "stop",
 ): Promise<void> {
   await invoke("preview_embed_dispatch", { tabId, action });
 }
@@ -121,6 +122,54 @@ export async function previewEmbedScreenshot(tabId: number): Promise<string> {
  *  from the site itself, not a third-party favicon service. */
 export async function previewResolveFavicon(url: string): Promise<string | null> {
   return invoke<string | null>("preview_resolve_favicon", { url });
+}
+
+/** Zoom steps the toolbar walks through, matching what Chrome and Edge offer so
+ *  the control feels like the browser it is. 1 is 100%. */
+export const BROWSER_ZOOM_STEPS = [
+  0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5,
+] as const;
+
+/** The step one place up (`dir` 1) or down (`dir` -1) from `factor`, clamped at
+ *  both ends. Nearest-step based rather than index based, so it still behaves
+ *  when the current zoom came from the webview's own Ctrl+/- and sits between
+ *  two steps. */
+export function nextBrowserZoom(factor: number, dir: 1 | -1): number {
+  const steps = BROWSER_ZOOM_STEPS;
+  if (dir === 1) return steps.find((s) => s > factor + 1e-6) ?? steps[steps.length - 1];
+  let prev: number = steps[0];
+  for (const s of steps) {
+    if (s < factor - 1e-6) prev = s;
+    else break;
+  }
+  return prev;
+}
+
+/** Set a browser pane's zoom level. 1 is 100%. */
+export async function previewEmbedZoom(tabId: number, factor: number): Promise<void> {
+  await invoke("preview_embed_zoom", { tabId, factor });
+}
+
+/** Read a pane's current zoom back. Worth doing rather than trusting a local
+ *  copy: the pane is a real webview, so its own Ctrl+/- and Ctrl+scroll change
+ *  the zoom without TEDI ever seeing the keystroke. */
+export async function previewEmbedZoomGet(tabId: number): Promise<number> {
+  return invoke<number>("preview_embed_zoom_get", { tabId });
+}
+
+/** The url the pane's webview is really on, or null when it has none. The webview
+ *  outlives its React component (a pane move remounts it; a float moves it to
+ *  another window), so a freshly mounted pane asks instead of trusting the url it
+ *  was handed. */
+export async function previewEmbedUrl(tabId: number): Promise<string | null> {
+  return invoke<string | null>("preview_embed_url", { tabId });
+}
+
+/** Move a pane's webview to another window (`"main"`, or a float window's label).
+ *  The same webview is re-parented, so the page is NOT reloaded and its scroll
+ *  position, session and playing media all survive popping out. */
+export async function previewEmbedReparent(tabId: number, windowLabel: string): Promise<void> {
+  await invoke("preview_embed_reparent", { tabId, windowLabel });
 }
 
 /** Set the page background color of an embedded browser pane (live), so its

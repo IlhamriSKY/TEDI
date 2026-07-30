@@ -10,8 +10,11 @@
 //! * [`embed`] - the `preview_embed_*` Tauri commands that drive a real native
 //!   child webview docked over the tab content (a true browser, bypassing the
 //!   iframe proxy), plus `preview_resolve_favicon` for live favicon lookup.
+//! * [`browser_ext`] - install / list / toggle unpacked Chrome extensions the
+//!   embedded pane loads (an ad blocker, for instance). WebView2 only.
 //! * [`util`] - shared HTML / JS string-escaping helpers.
 
+mod browser_ext;
 mod embed;
 mod proxy;
 mod util;
@@ -21,5 +24,6 @@ mod util;
 // macro emits next to each command - `tauri::generate_handler!` references those
 // as `preview::__cmd__<name>`, and a glob (unlike a named re-export) carries them
 // across the module boundary.
+pub use browser_ext::*;
 pub use embed::*;
 pub use proxy::*;

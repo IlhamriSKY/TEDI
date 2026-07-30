@@ -2,12 +2,16 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
   markPreviewCreated,
+  nextBrowserZoom,
   BROWSER_NAV_EVENT,
   BROWSER_FOCUS_ADDRESS_EVENT,
   previewEmbedDispatch,
   previewEmbedNavigate,
   previewEmbedSetBg,
   previewEmbedUpdate,
+  previewEmbedUrl,
+  previewEmbedZoom,
+  previewEmbedZoomGet,
   type BrowserNavEvent,
   wasPreviewCreatedTransparent,
 } from "./lib/native";
@@ -94,6 +98,13 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     url ? { entries: [url], index: 0 } : { entries: [], index: -1 },
   );
   const [loading, setLoading] = useState(false);
+  // Page zoom, 1 = 100%. Only ever a DISPLAY copy: the webview's own Ctrl+plus /
+  // Ctrl+minus / Ctrl+scroll change the real value without TEDI seeing the
+  // keystroke (the page has focus, so nothing reaches the DOM), so every step
+  // re-reads the live factor first and every load re-syncs this.
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  zoomRef.current = zoom;
   const anyOverlayOpen = useAnyOverlayOpen();
   const paneDragActive = usePaneDragActive();
   // Follow whole-app transparency: a transparent TEDI makes the browser
@@ -291,6 +302,17 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
         if (wasPreviewCreatedTransparent(id)) {
           void previewEmbedSetBg(id, canvasBgRgba(appOpacityRef.current)).catch(() => {});
         }
+        // Re-sync the zoom readout against the page. This is the one moment we
+        // are guaranteed a live JS context, and it also picks up any change the
+        // webview's own Ctrl+plus / Ctrl+scroll made while TEDI was not looking.
+        // Only while visible: the agent drives background panes through page
+        // after page, and a readout nobody can see is not worth an eval round
+        // trip on that loop. A step or a reset reads the live value anyway.
+        if (visibleRef.current) {
+          void previewEmbedZoomGet(id)
+            .then((z) => setZoom(z))
+            .catch(() => {});
+        }
       } else if (p.kind === "title") {
         // SPA route changes fire a title change with the current URL; reconcile
         // it so the address bar tracks WITHOUT re-navigating (avoids a reload).
@@ -348,6 +370,32 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     }
   }, [url, id, reconcile]);
 
+  // The webview outlives this component: a pane move remounts the component, and
+  // floating hands the webview to another window and back. So on mount, adopt
+  // whatever page it is REALLY on instead of trusting the url this leaf was last
+  // told about - otherwise docking a float back shows a stale address (and a
+  // stale tab title) for whatever the user browsed to while it was popped out.
+  // Resolves to null when no webview exists yet, which is the ordinary first
+  // open, and then this is a no-op.
+  useEffect(() => {
+    let alive = true;
+    const seeded = currentRef.current;
+    void previewEmbedUrl(id)
+      .then((live) => {
+        // Only when nothing moved since mount. A navigation that landed while
+        // this was in flight - the AI calling control_browser on a pane it just
+        // moved, say - is NEWER than the answer we asked for, and adopting the
+        // stale one would walk that navigation back.
+        if (alive && live && currentRef.current === seeded) {
+          reconcile(live); // the mirror effect above pushes it up to the tab
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id, reconcile]);
+
   // Watchdog so a page that never reports "loaded" doesn't spin forever.
   useEffect(() => {
     if (!loading) return;
@@ -368,6 +416,36 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     setLoading(true);
     void previewEmbedDispatch(id, "reload").catch(() => {});
   }, [id]);
+
+  /** Cancel a load in progress. `loading` is cleared here rather than waiting for
+   *  a "loaded" report, because a stopped load does not necessarily produce one -
+   *  otherwise the button would stay a spinner until the watchdog gave up. */
+  const handleStop = useCallback(() => {
+    setLoading(false);
+    void previewEmbedDispatch(id, "stop").catch(() => {});
+  }, [id]);
+
+  /** Step the zoom, or reset it with `dir` 0. Reads the live factor first so a
+   *  step after the user pressed Ctrl+plus in the page continues from where the
+   *  page actually is instead of jumping back to our last known value. */
+  const handleZoom = useCallback(
+    async (dir: 1 | -1 | 0) => {
+      let current = zoomRef.current;
+      try {
+        current = await previewEmbedZoomGet(id);
+      } catch {
+        /* no webview yet, or the page has no JS context - step from our copy */
+      }
+      const next = dir === 0 ? 1 : nextBrowserZoom(current, dir);
+      setZoom(next);
+      try {
+        await previewEmbedZoom(id, next);
+      } catch {
+        /* pane closed mid-click */
+      }
+    },
+    [id],
+  );
 
   useImperativeHandle(
     ref,
@@ -393,8 +471,12 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
         loading={loading}
         canGoBack={history.index > 0}
         canGoForward={history.index >= 0 && history.index < history.entries.length - 1}
+        zoom={zoom}
         onSubmit={handleSubmit}
         onReload={handleReload}
+        onStop={handleStop}
+        onZoom={(dir) => void handleZoom(dir)}
+        onZoomReset={() => void handleZoom(0)}
         onBack={() => void previewEmbedDispatch(id, "back").catch(() => {})}
         onForward={() => void previewEmbedDispatch(id, "forward").catch(() => {})}
       />

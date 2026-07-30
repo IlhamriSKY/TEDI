@@ -5,6 +5,8 @@ export {
   previewEmbedAct,
   browserEmbedClose,
   browserEmbedHide,
+  previewEmbedReparent,
+  previewEmbedNavigate,
   previewEmbedDispatch,
   previewEmbedRead,
   previewEmbedConsole,

@@ -5,7 +5,7 @@
  * WebView2 windows). Leaf params travel in the float window's URL query.
  */
 
-export type FloatKind = "terminal" | "editor" | "table";
+export type FloatKind = "terminal" | "editor" | "table" | "browser";
 
 export type FloatLeafParams = {
   leafId: number;
@@ -15,6 +15,10 @@ export type FloatLeafParams = {
   path?: string;
   /** editor leaf: private (AI disabled) */
   privateLeaf?: boolean;
+  /** browser leaf: the address to seed the float's address bar with. The page
+   *  itself is NOT reloaded - the same native webview is re-parented into the
+   *  float window - so this only tells the float what it is already showing. */
+  url?: string;
   /** table: the table serialized as markdown. Static content, so it rides in the
    *  window URL and needs no live event mirror (unlike terminals). */
   markdown?: string;
@@ -52,6 +56,7 @@ export const floatEv = {
   size: (id: number) => `tedi://float-size:${id}`, // host -> client: FloatSize
   bye: (id: number) => `tedi://float-bye:${id}`, // client -> host: closing
   close: (id: number) => `tedi://float-close:${id}`, // host -> client: please close (dock back)
+  url: (id: number) => `tedi://float-url:${id}`, // client -> host: browser navigated
 };
 
 export type FloatSnap = { text: string; cols: number; rows: number };
