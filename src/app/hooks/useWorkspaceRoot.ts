@@ -104,7 +104,13 @@ export function useWorkspaceRoot({ tabs, activePaneTab, newTab, openFileTab }: P
       if (target.kind === "folder") {
         newTab(target.path);
       } else {
-        newTab(target.parent);
+        // No `newTab(target.parent)` here: `setPickedRoot` above already
+        // adopts the parent as the workspace root, which is what the explorer
+        // reads, and `openFileTab` appends its own pane tab when no editor
+        // leaf matches - it does not need a terminal to attach to. Spawning
+        // one anyway meant "Open with TEDI" on a file produced an unasked-for
+        // shell next to the editor, unlike every other file-open path
+        // (explorer click, drag-drop, OSC 8889, New File dialog).
         openFileTab(target.path);
       }
     },
