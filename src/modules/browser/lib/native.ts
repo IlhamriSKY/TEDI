@@ -107,7 +107,10 @@ export async function previewEmbedAct(
 }
 
 /** Capture the embedded browser pane as a base64 JPEG (the agent's last-resort
- *  "look at it" for purely-visual targets). Windows-only; rejects elsewhere. */
+ *  "look at it" for purely-visual targets). All three platforms: Windows renders
+ *  the tab's own content via WebView2 `CapturePreview`, macOS and Linux crop a
+ *  screen capture to the pane, so there the pane must be visible and the window
+ *  in front. */
 export async function previewEmbedScreenshot(tabId: number): Promise<string> {
   return invoke<string>("preview_embed_screenshot", { tabId });
 }

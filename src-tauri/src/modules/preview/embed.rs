@@ -14,6 +14,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use lol_html::{element, HtmlRewriter, Settings};
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::webview::{PageLoadEvent, Webview, WebviewBuilder};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewUrl};
 use url::Url;
@@ -113,6 +114,19 @@ struct PreviewNavEvent {
 
 fn embed_label(tab_id: i64) -> String {
     format!("preview-embed-{tab_id}")
+}
+
+/// Parse a url a browser pane is allowed to load: http(s) for the web, plus
+/// `file://` so a local HTML file (a generated report on disk) opens like any
+/// other tab. Everything else is rejected, which keeps `javascript:` and `data:`
+/// out of a surface the AI can drive. Shared by the two create paths and
+/// `preview_embed_navigate` so all three enforce the same set.
+fn parse_pane_url(url: &str) -> Result<Url, String> {
+    let target = Url::parse(url).map_err(|e| format!("invalid url: {e}"))?;
+    if !matches!(target.scheme(), "http" | "https" | "file") {
+        return Err("only http(s) or file:// URLs can load in the preview".into());
+    }
+    Ok(target)
 }
 
 /// Leaf ids whose preview webview has been closed. The rAF bounds loop can have
@@ -322,7 +336,17 @@ fn spawn_preview_child(
                     title: Some(title),
                 },
             );
-        });
+        })
+        // Keep an inactive pane RUNNING. The background create path below parks
+        // a pane fully left of the window so the agent can load and read it
+        // without stealing the foreground, and WKWebView otherwise SUSPENDS a
+        // webview that is not in a window - the headless read would come back
+        // empty on macOS. Windows gets the same effect from the process-wide
+        // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS flags. wry only reads this
+        // attribute on macOS 14+ / iOS 17+ (it is not a browser argument), so on
+        // Windows and Linux it is an inert no-op and cannot reintroduce the
+        // args-mismatch blank child of tauri#13092.
+        .background_throttling(BackgroundThrottlingPolicy::Disabled);
     // Follow whole-app transparency: dissolve the page backdrop into TEDI's
     // transparent window instead of painting opaque white. Create-time only -
     // toggling the setting applies to newly opened browser panes. The webview
@@ -403,10 +427,7 @@ pub async fn preview_embed_update(
         if url.is_empty() {
             return Ok(());
         }
-        let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-        if !matches!(target.scheme(), "http" | "https" | "file") {
-            return Err("only http(s) or file:// URLs can load in the preview".into());
-        }
+        let target = parse_pane_url(&url)?;
         let window = app
             .get_window("main")
             .ok_or_else(|| "main window not found".to_string())?;
@@ -454,12 +475,7 @@ pub async fn preview_embed_update(
     if url.is_empty() {
         return Ok(());
     }
-    let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-    // http(s) for the web; `file://` so a local HTML file (e.g. a generated
-    // report on disk) opens directly in the preview like any browser tab.
-    if !matches!(target.scheme(), "http" | "https" | "file") {
-        return Err("only http(s) or file:// URLs can load in the preview".into());
-    }
+    let target = parse_pane_url(&url)?;
     // First activation of a previously off-screen background pane lands here too
     // (the existing-webview branch above repositions it); a never-created
     // foreground pane is created on the spot. This path is a VISIBLE pane the
@@ -488,12 +504,8 @@ pub async fn preview_embed_navigate(
     let Some(wv) = app.get_webview(&embed_label(tab_id)) else {
         return Ok(());
     };
-    let target = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-    // Mirror `preview_embed_update`: web schemes plus `file://` for local files.
-    if !matches!(target.scheme(), "http" | "https" | "file") {
-        return Err("only http(s) or file:// URLs can load in the preview".into());
-    }
-    wv.navigate(target).map_err(|e| e.to_string())
+    wv.navigate(parse_pane_url(&url)?)
+        .map_err(|e| e.to_string())
 }
 
 /// Drive the embedded webview's own session history / reload, exactly like a
@@ -507,10 +519,17 @@ pub async fn preview_embed_dispatch(
     let Some(wv) = app.get_webview(&embed_label(tab_id)) else {
         return Ok(());
     };
+    // Reload goes through the webview's own API rather than `location.reload()`:
+    // it still works on a page with no usable JS context (a network error page, a
+    // document whose scripts threw on load), which is exactly when the user
+    // reaches for reload. Back/forward have no such API on `Webview`, so they
+    // stay on the session-history calls.
+    if action == "reload" {
+        return wv.reload().map_err(|e| e.to_string());
+    }
     let js = match action.as_str() {
         "back" => "history.back()",
         "forward" => "history.forward()",
-        "reload" => "location.reload()",
         other => return Err(format!("unknown action: {other}")),
     };
     wv.eval(js).map_err(|e| e.to_string())
@@ -899,14 +918,27 @@ pub async fn preview_embed_screenshot(
         use xcap::image::{codecs::jpeg::JpegEncoder, imageops, DynamicImage, ExtendedColorType};
         let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
         let (cx, cy) = (sx + bw / 2, sy + bh / 2);
-        // xcap 0.9's geometry accessors are fallible, so resolve each monitor's
-        // origin up front and keep the one whose rect contains the pane center.
+        // xcap reports monitor geometry in LOGICAL units (its macOS impl reads
+        // CGDisplayBounds; its Linux impl divides the raw values by the scale
+        // factor) while `capture_image` returns the PHYSICAL framebuffer. Every
+        // coordinate on our side is physical - the frontend multiplies the pane
+        // rect by devicePixelRatio, and Tauri's `inner_position` is physical -
+        // so scale each monitor's rect up before comparing against them or
+        // cropping. Skipping this on a Retina Mac or a HiDPI Linux desktop
+        // either reports the pane as off-screen (the containment test compares
+        // physical against logical) or crops the wrong region, off by the scale
+        // factor. Accessors are fallible, so resolve each rect up front.
+        // ponytail: assumes a uniform scale factor across monitors; a mixed-DPI
+        // multi-monitor layout can still pick the wrong origin. Per-monitor
+        // physical origins would need the platform APIs xcap does not expose.
         let mut chosen: Option<(xcap::Monitor, i32, i32)> = None;
         for m in monitors {
-            let mx = m.x().map_err(|e| e.to_string())?;
-            let my = m.y().map_err(|e| e.to_string())?;
-            let mw = m.width().map_err(|e| e.to_string())? as i32;
-            let mh = m.height().map_err(|e| e.to_string())? as i32;
+            let scale = m.scale_factor().map_err(|e| e.to_string())?.max(0.1);
+            let to_phys = |v: i32| (v as f32 * scale).round() as i32;
+            let mx = to_phys(m.x().map_err(|e| e.to_string())?);
+            let my = to_phys(m.y().map_err(|e| e.to_string())?);
+            let mw = to_phys(m.width().map_err(|e| e.to_string())? as i32);
+            let mh = to_phys(m.height().map_err(|e| e.to_string())? as i32);
             if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
                 chosen = Some((m, mx, my));
                 break;
@@ -1198,20 +1230,33 @@ fn resp_is_image(resp: &reqwest::Response) -> bool {
 /// so the whole document is never needed) and lossily decode it as UTF-8.
 async fn read_head_html(mut resp: reqwest::Response, cap: usize) -> String {
     let mut buf: Vec<u8> = Vec::new();
+    // Bytes an earlier pass already looked at. Re-scanning the whole buffer on
+    // every chunk is quadratic in the body size, so only the new tail is read.
+    let mut scanned = 0usize;
     while buf.len() < cap {
         match resp.chunk().await {
             Ok(Some(chunk)) => {
                 buf.extend_from_slice(&chunk);
-                // Favicon links live in <head>; once it closes there is no
-                // reason to keep downloading a possibly multi-MB body.
-                if buf.windows(6).any(|w| w.eq_ignore_ascii_case(b"</head")) {
+                if head_closed(&buf, scanned) {
                     break;
                 }
+                scanned = buf.len();
             }
             _ => break,
         }
     }
     String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// Whether `</head` appears in `buf`, given that the first `scanned` bytes were
+/// already checked by an earlier call. Favicon links live in `<head>`, so once
+/// it closes there is no reason to keep downloading a possibly multi-MB body.
+/// The scan starts 5 bytes before `scanned` so a `</head` split across two
+/// chunks is still seen at the seam.
+fn head_closed(buf: &[u8], scanned: usize) -> bool {
+    buf[scanned.saturating_sub(5).min(buf.len())..]
+        .windows(6)
+        .any(|w| w.eq_ignore_ascii_case(b"</head"))
 }
 
 /// Pick the best `<link rel="icon">` href from HTML: the one with the largest
@@ -1265,4 +1310,46 @@ fn parse_size_width(sizes: &str) -> Option<u32> {
                 .and_then(|w| w.parse::<u32>().ok())
         })
         .max()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_web_and_file_urls_reach_a_pane() {
+        for ok in [
+            "https://example.com/x",
+            "http://localhost:5173",
+            "file:///tmp/report.html",
+        ] {
+            assert!(parse_pane_url(ok).is_ok(), "{ok} should be allowed");
+        }
+        // A pane is a surface the AI can drive, so script/inline schemes must not
+        // load in it even though `Url` parses them happily.
+        for bad in [
+            "javascript:alert(1)",
+            "data:text/html,<script>1</script>",
+            "about:blank",
+            "not a url",
+        ] {
+            assert!(parse_pane_url(bad).is_err(), "{bad} should be rejected");
+        }
+    }
+
+    #[test]
+    fn head_close_is_found_across_the_chunk_seam() {
+        // Whole tag inside one pass.
+        assert!(head_closed(b"<html><head></head>", 0));
+        assert!(!head_closed(b"<html><head><title>x", 0));
+        // Split at the seam: the tag starts at byte 6 and 10 bytes were already
+        // scanned, so it straddles the boundary. A naive `buf[scanned..]` sees
+        // only "ad>" and misses it; starting 5 bytes back catches it.
+        let buf = b"<html></head>";
+        assert!(head_closed(buf, 10));
+        // Case-insensitive, as the byte compare claims.
+        assert!(head_closed(b"<HTML></HEAD>", 0));
+        // `scanned` past the end must not panic (a chunk shorter than the seam).
+        assert!(!head_closed(b"abc", 99));
+    }
 }
