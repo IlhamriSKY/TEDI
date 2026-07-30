@@ -172,6 +172,12 @@ pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
 pub(crate) async fn http_get_bytes_capped(url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        // Callers vet the url they pass, but reqwest follows 3xx by default, so
+        // without this a vetted public url could redirect into the cloud-metadata
+        // or link-local range and land the fetch there anyway. Re-applies the
+        // block on every hop. Release downloads redirect to public CDN hosts, so
+        // no existing caller is affected.
+        .redirect(crate::modules::net::ssrf_redirect_policy())
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(60))
         .build()
