@@ -14,10 +14,11 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingsCard } from "../components/SettingsCard";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, Globe, RefreshCw } from "lucide-react";
 
 const REPO_URL = "https://github.com/IlhamriSKY/TEDI";
 const UPSTREAM_URL = "https://github.com/crynta/terax-ai";
+const SITE_URL = "https://tedi.ilhamriski.com";
 
 const PLATFORM_LABEL: Record<string, string> = {
   macos: "macOS",
@@ -101,7 +102,7 @@ export function AboutSection() {
 
       <SettingsCard
         title="Build details"
-        description="Platform, bundle id, license, and source repositories."
+        description="Platform, bundle id, license, website, and source repositories."
       >
         <dl className="grid grid-cols-[110px_1fr] gap-y-2.5 text-[12px]">
           <dt className="text-muted-foreground">Build</dt>
@@ -114,6 +115,18 @@ export function AboutSection() {
 
           <dt className="text-muted-foreground">License</dt>
           <dd>Apache 2.0</dd>
+
+          <dt className="text-muted-foreground">Website</dt>
+          <dd>
+            <button
+              type="button"
+              onClick={() => void openUrl(SITE_URL)}
+              className="hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:underline"
+            >
+              <Globe size={12} strokeWidth={1.75} />
+              tedi.ilhamriski.com
+            </button>
+          </dd>
 
           <dt className="text-muted-foreground">Source code</dt>
           <dd>
