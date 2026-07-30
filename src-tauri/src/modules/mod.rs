@@ -1,3 +1,4 @@
+pub mod appimage;
 pub mod cli;
 pub mod cli_ext;
 pub mod cli_paint;
