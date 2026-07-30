@@ -46,6 +46,14 @@ export type SavedTerminalLeaf = {
    * working/blocking badge immediately after reattach instead of going dark.
    */
   activeTool?: AiCliKind;
+  /**
+   * User-chosen tab name from the tab's right-click "Rename". Distinct from
+   * `title` above, which is the program-set OSC title and is derived, not
+   * chosen: this one is the user's and must survive a restart, so it is
+   * persisted for private leaves too (it holds no shell or path information -
+   * only what the user decided to call the tab).
+   */
+  customTitle?: string;
 };
 
 export type SavedEditorLeaf = {
@@ -65,6 +73,8 @@ export type SavedEditorLeaf = {
   sshHostLabel?: string;
   /** Per-leaf privacy flag. AI inline autocomplete refuses on private leaves. */
   private?: boolean;
+  /** User-chosen tab name from the tab's right-click "Rename". */
+  customTitle?: string;
 };
 
 export type SavedBrowserLeaf = {
@@ -75,6 +85,8 @@ export type SavedBrowserLeaf = {
   /** FIFO chip number ("Browser 3"). Persisted so it stays stable after restart. */
   browserOrdinal?: number;
   private?: boolean;
+  /** User-chosen tab name from the tab's right-click "Rename". */
+  customTitle?: string;
 };
 
 export type SavedPaneNode =

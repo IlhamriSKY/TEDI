@@ -17,6 +17,7 @@ import {
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
   setLeafPtyId as setLeafPtyIdInTree,
+  setLeafCustomTitle as setLeafCustomTitleInTree,
   setLeafTerminalTheme as setLeafTerminalThemeInTree,
   setSplitSizes as setSplitSizesInTree,
   siblingLeafOf,
@@ -509,6 +510,24 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * in that palette; the serializer persists the choice. No-op for non-terminal
    * leaves or when the value is unchanged.
    */
+  /**
+   * Set or clear a leaf's user-chosen tab name (the tab strip's right-click
+   * "Rename"). `null` or blank clears it, so the entry falls back to its derived
+   * label instead of rendering as an empty tab. Persisted by the workspace
+   * serializer, so it survives a restart.
+   */
+  const renameLeaf = useCallback((leafId: number, title: string | null) => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (t.kind !== "pane") return t;
+        if (!hasLeaf(t.paneTree, leafId)) return t;
+        const paneTree = setLeafCustomTitleInTree(t.paneTree, leafId, title);
+        if (paneTree === t.paneTree) return t;
+        return syncPaneMirror({ ...t, paneTree });
+      }),
+    );
+  }, []);
+
   const setLeafTerminalTheme = useCallback((leafId: number, themeId: string | null) => {
     setTabs((curr) =>
       curr.map((t) => {
@@ -1095,6 +1114,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     closeTab,
     selectByIndex,
     setLeafCwd,
+    renameLeaf,
     setLeafTerminalTheme,
     setBrowserLeafUrl,
     setBrowserLeafTitle,

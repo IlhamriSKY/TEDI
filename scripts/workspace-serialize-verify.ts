@@ -1,5 +1,5 @@
 /**
- * Workspace serialization audit. Three properties, all silent when broken:
+ * Workspace serialization audit. Four properties, all silent when broken:
  *
  * 1. A remote (SFTP) editor leaf must never round-trip through its SESSION.
  *    `sshSessionId` is a live russh number: dead after a restart, and since the
@@ -14,6 +14,11 @@
  *    that prune.
  * 3. `savedActiveTabIndex` must count exactly the tabs `serializeTabs` emits.
  *    Any drift silently focuses the wrong tab on restore.
+ * 4. A tab renamed from its right-click menu must round-trip. The serializer
+ *    whitelists leaf fields one by one, so a new one is dropped unless it is
+ *    added in BOTH directions - and the failure is a name that quietly reverts
+ *    to the folder basename on the next launch. Clearing a name must remove the
+ *    key rather than persist `""`, which would restore as a blank tab.
  *
  * Run: `npx tsx scripts/workspace-serialize-verify.ts`.
  *
@@ -395,6 +400,48 @@ console.log("\n[active index] savedActiveTabIndex must match what serializeTabs 
   const tabs = [scmTab, paneTab];
   check("scm tab is not emitted", serializeTabs(tabs).length, 1);
   check("index skips a session-only scm tab", savedActiveTabIndex(tabs, paneTab.id), 0);
+}
+
+// 4. A tab renamed from its right-click menu must survive a restart, on every
+//    leaf kind that is serialised at all, and clearing it must actually clear -
+//    an empty string persisted as a name would restore as a blank tab.
+{
+  const named = (n: PaneNode, name: string): PaneNode =>
+    ({ ...(n as object), customTitle: name }) as PaneNode;
+  const t = tab(
+    split("row", [
+      named(term(1200, "/w/api"), "backend"),
+      named(editor(1201, "/w/api/main.rs"), "entrypoint"),
+      named({ kind: "leaf", id: 1202, leafKind: "browser", url: "https://x.dev" }, "docs"),
+    ]),
+    1200,
+  );
+  const savedTree = pane(serializeTabs([t])[0]).paneTree;
+  const savedNames =
+    savedTree.kind === "split"
+      ? savedTree.children.map((c) => (c.kind === "leaf" ? c.customTitle : undefined))
+      : [];
+  check("a rename persists on terminal, editor and browser leaves", savedNames, [
+    "backend",
+    "entrypoint",
+    "docs",
+  ]);
+
+  const restored = savedToTab(pane(serializeTabs([t])[0]), () => id());
+  const liveNames =
+    restored.paneTree.kind === "split"
+      ? restored.paneTree.children.map((c) => (c.kind === "leaf" ? c.customTitle : undefined))
+      : [];
+  check("and comes back on restore", liveNames, ["backend", "entrypoint", "docs"]);
+
+  // An un-renamed leaf must carry no key at all, so older saved state and a
+  // reset name are the same thing on disk rather than an empty string.
+  const plain = pane(serializeTabs([tab(term(1203, "/w"), 1203)])[0]).paneTree;
+  check(
+    "an un-renamed leaf persists no name key",
+    plain.kind === "leaf" && "customTitle" in plain,
+    false,
+  );
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

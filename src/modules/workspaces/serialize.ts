@@ -49,6 +49,9 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       sshConnectionId: leaf.sshConnectionId,
       terminalOrdinal: leaf.terminalOrdinal,
       ...(leaf.private ? { private: true } : {}),
+      // Persisted even for private leaves: a name the user typed reveals
+      // nothing about the shell, its cwd or its output.
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
       ...(leaf.terminalThemeId ? { terminalThemeId: leaf.terminalThemeId } : {}),
       ...(title ? { title } : {}),
       // Only local PTYs use the daemon backend; SSH leaves carry their
@@ -72,6 +75,7 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
       ...(leaf.sshConnectionId ? { sshConnectionId: leaf.sshConnectionId } : {}),
       ...(leaf.sshConnectionId && leaf.sshHostLabel ? { sshHostLabel: leaf.sshHostLabel } : {}),
       ...(leaf.private ? { private: true } : {}),
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
     };
   }
   if (leaf.leafKind === "extension-panel") {
@@ -85,6 +89,7 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
     url: leaf.url,
     ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
     ...(leaf.private ? { private: true } : {}),
+    ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
   };
 }
 
@@ -226,6 +231,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         ...(node.ptyId ? { savedPtyId: node.ptyId } : {}),
         // Pre-activate the detector for a still-running agent on reattach.
         ...(node.activeTool ? { activeTool: node.activeTool } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
       };
     }
     if (node.leafKind === "editor") {
@@ -243,6 +249,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         ...(node.sshConnectionId ? { sshConnectionId: node.sshConnectionId } : {}),
         ...(node.sshHostLabel ? { sshHostLabel: node.sshHostLabel } : {}),
         ...(node.private ? { private: true } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
       };
     }
     return {
@@ -252,6 +259,7 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
       url: node.url,
       ...(node.browserOrdinal != null ? { browserOrdinal: node.browserOrdinal } : {}),
       ...(node.private ? { private: true } : {}),
+      ...(node.customTitle ? { customTitle: node.customTitle } : {}),
     };
   }
   const children = node.children.map((c) => savedToNode(c, allocId, outLeafIds));

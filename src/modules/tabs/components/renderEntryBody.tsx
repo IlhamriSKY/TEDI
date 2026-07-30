@@ -25,6 +25,7 @@ import {
   extensionStateLabelClass,
   tabAccentClass,
 } from "../lib/entries";
+import { InlineInput } from "@/modules/explorer/InlineInput";
 import { EntryIcon } from "./EntryIcon";
 import { TrailingIconButton } from "./TrailingIconButton";
 
@@ -62,6 +63,13 @@ export type RenderEntryArgs = {
   onRotateLeafSplit?: (leafId: number) => void;
   onTogglePrivate?: (leafId: number) => void;
   paneGroupsForMove: PaneGroupForMove[];
+  /** Leaf currently being renamed inline, or null. Owned by the caller because
+   *  this is a plain render function, not a component, so it holds no state. */
+  renamingLeafId?: number | null;
+  /** Enter (leafId) or leave (null) inline rename. */
+  onSetRenaming?: (leafId: number | null) => void;
+  /** Commit a new tab name, or `null` to drop back to the derived one. */
+  onRename?: (leafId: number, title: string | null) => void;
 };
 
 /** Render one entry. Extracted so both group-level and leaf-level drag share the same JSX. */
@@ -89,9 +97,18 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     onRotateLeafSplit,
     onTogglePrivate,
     paneGroupsForMove,
+    renamingLeafId,
+    onSetRenaming,
+    onRename,
   } = args;
   const sshHost =
     e.kind === "pane-leaf" && e.sshConnectionId ? sshHosts.get(e.sshConnectionId) : undefined;
+  const isPaneLeaf = e.kind === "pane-leaf";
+  // Declared before the trigger JSX below, which reads `renaming` to swap the
+  // label for an edit field. Keeping them with the other right-click flags
+  // further down would be a use-before-init at render time.
+  const canRename = isPaneLeaf && !!onRename && !!onSetRenaming;
+  const renaming = isPaneLeaf && e.kind === "pane-leaf" && renamingLeafId === e.leafId;
   const trigger = (
     <TabsTrigger
       key={e.key}
@@ -151,27 +168,49 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         )}
       >
         <EntryIcon entry={e} />
-        <span
-          className={cn(
-            "truncate",
-            e.italic && "italic",
-            // SSH status colors the label text: pulse yellow while connecting,
-            // emerald when connected, red on disconnect/error. Icon stays sky.
-            e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
-            // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
-            // its DB connection state). Same palette as the SSH label — for
-            // both the standalone ext tab and an extension-panel pane leaf.
-            e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
-            e.kind === "pane-leaf" && e.leafKind === "extension-panel"
-              ? extensionStateLabelClass(e.extState)
-              : null,
-            // Private leaves carry the red on the label (not the icon) so the
-            // icon colour stays free to show AI CLI status. Last = wins.
-            e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",
-          )}
-        >
-          {e.label}
-        </span>
+        {renaming && e.kind === "pane-leaf" ? (
+          // `stopPropagation` on pointerdown so a drag-to-reorder gesture cannot
+          // start from inside the field: the drag listeners live on the trigger
+          // this input sits in, and text selection would otherwise reorder tabs.
+          // InlineInput is the explorer's rename field, reused here because it
+          // already survives the hazard this flow creates - the context menu's
+          // Radix portal steals focus as it unmounts, and it re-focuses through
+          // that instead of committing an empty name.
+          <span className="flex min-w-0 flex-1" onPointerDown={(ev) => ev.stopPropagation()}>
+            <InlineInput
+              initial={e.label}
+              placeholder="Tab name"
+              onCommit={(value) => {
+                onSetRenaming?.(null);
+                // Blank means "back to the derived name", not an empty tab.
+                onRename?.(e.leafId, value.trim() ? value : null);
+              }}
+              onCancel={() => onSetRenaming?.(null)}
+            />
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "truncate",
+              e.italic && "italic",
+              // SSH status colors the label text: pulse yellow while connecting,
+              // emerald when connected, red on disconnect/error. Icon stays sky.
+              e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
+              // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
+              // its DB connection state). Same palette as the SSH label — for
+              // both the standalone ext tab and an extension-panel pane leaf.
+              e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
+              e.kind === "pane-leaf" && e.leafKind === "extension-panel"
+                ? extensionStateLabelClass(e.extState)
+                : null,
+              // Private leaves carry the red on the label (not the icon) so the
+              // icon colour stays free to show AI CLI status. Last = wins.
+              e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",
+            )}
+          >
+            {e.label}
+          </span>
+        )}
         {e.dirty ? (
           <span
             aria-label="Unsaved changes"
@@ -195,7 +234,6 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
 
   // Right-click actions: rotate split, leave group, join group, close right.
   // Rotate/leave-group only for leaves inside a split. Move-to-group needs another tab.
-  const isPaneLeaf = e.kind === "pane-leaf";
   const isPrivate = isPaneLeaf && e.isPrivate === true;
   const moveTargets =
     isPaneLeaf && onMoveLeafToGroup ? paneGroupsForMove.filter((g) => g.id !== e.tabId) : [];
@@ -205,8 +243,8 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const canTogglePrivate = isPaneLeaf && !!onTogglePrivate;
   const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
   const hasContextActions =
-    canRotate || canLeaveGroup || canMove || canTogglePrivate || canCloseToRight;
-  const hasLeafActions = canRotate || canLeaveGroup || canMove || canTogglePrivate;
+    canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate || canCloseToRight;
+  const hasLeafActions = canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate;
   // Private tabs always get a tooltip explaining the AI-visibility implication;
   // SSH / AI-CLI tooltips win the slot when both apply and append the private
   // note as an extra line.
@@ -232,6 +270,24 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <ContextMenu>
         {wrapped}
         <ContextMenuContent className="min-w-44">
+          {canRename && (
+            <ContextMenuItem
+              onSelect={() => {
+                if (e.kind === "pane-leaf") onSetRenaming!(e.leafId);
+              }}
+            >
+              Rename
+            </ContextMenuItem>
+          )}
+          {canRename && e.kind === "pane-leaf" && e.renamed && (
+            <ContextMenuItem
+              onSelect={() => {
+                if (e.kind === "pane-leaf") onRename!(e.leafId, null);
+              }}
+            >
+              Reset Name
+            </ContextMenuItem>
+          )}
           {canRotate && (
             <ContextMenuItem onSelect={() => onRotateLeafSplit!(e.leafId)}>
               Toggle Split Orientation

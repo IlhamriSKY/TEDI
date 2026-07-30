@@ -13,6 +13,12 @@ export function titleFromUrl(url: string): string {
 
 /** Derive a tab title from its active leaf. */
 function titleFromLeaf(leaf: PaneLeaf): string {
+  // A name set from the tab's right-click Rename wins. This is the THIRD place
+  // the same label is derived (the tab strip's `entryLabel` and the pane
+  // header's `leafLabel` are the others), and `tab.title` surfaces in places
+  // those two do not - the "Join Group" submenu, for one - so all three have to
+  // agree or a renamed tab shows its old folder name somewhere.
+  if (leaf.customTitle) return leaf.customTitle;
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";

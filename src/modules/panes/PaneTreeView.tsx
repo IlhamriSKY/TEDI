@@ -229,6 +229,11 @@ function computeEdge(
 }
 
 function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): string {
+  // A name set from the tab's right-click Rename wins here too. This function is
+  // a second derivation of the same label as the tab strip's `entryLabel`, and
+  // the whole point of it is that "tab and pane read identically" - so a rename
+  // that only moved the tab would be exactly the drift it exists to prevent.
+  if (node.customTitle) return node.customTitle;
   if (node.leafKind === "editor") return basename(node.path);
   if (node.leafKind === "browser") {
     if (node.title) return node.title;

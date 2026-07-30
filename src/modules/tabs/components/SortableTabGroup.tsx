@@ -40,6 +40,12 @@ type SortableTabGroupProps = {
   onRotateLeafSplit?: (leafId: number) => void;
   /** Toggle privacy on a single leaf. */
   onTogglePrivate?: (leafId: number) => void;
+  /** Leaf currently being renamed inline, or null. Owned by TabBar. */
+  renamingLeafId?: number | null;
+  /** Enter (leafId) or leave (null) inline rename. */
+  onSetRenaming?: (leafId: number | null) => void;
+  /** Commit a new tab name, or `null` to drop back to the derived one. */
+  onRename?: (leafId: number, title: string | null) => void;
   paneGroupsForMove: PaneGroupForMove[];
 };
 
@@ -67,6 +73,9 @@ export function SortableTabGroup({
   onMoveLeafToNewTab,
   onRotateLeafSplit,
   onTogglePrivate,
+  renamingLeafId,
+  onSetRenaming,
+  onRename,
   paneGroupsForMove,
 }: SortableTabGroupProps) {
   const isSplit = entries.length > 1;
@@ -119,6 +128,9 @@ export function SortableTabGroup({
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
           onTogglePrivate={onTogglePrivate}
+          renamingLeafId={renamingLeafId}
+          onSetRenaming={onSetRenaming}
+          onRename={onRename}
           paneGroupsForMove={paneGroupsForMove}
         />
       );
@@ -145,6 +157,9 @@ export function SortableTabGroup({
       onMoveLeafToNewTab,
       onRotateLeafSplit,
       onTogglePrivate,
+      renamingLeafId,
+      onSetRenaming,
+      onRename,
       paneGroupsForMove,
     });
   });

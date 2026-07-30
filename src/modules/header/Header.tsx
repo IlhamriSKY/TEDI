@@ -39,6 +39,8 @@ type Props = {
   onNewPrivateTerminal?: () => void;
   /** Toggle the per-leaf privacy flag from the tab right-click menu. */
   onTogglePrivate?: (leafId: number) => void;
+  /** Set a leaf's tab name, or `null` to fall back to the derived one. */
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
   onNewPreview: () => void;
   /** `+` -> Agent...: open the agent picker dialog. */
   onOpenAgents: () => void;
@@ -112,6 +114,7 @@ function HeaderImpl({
   onNewTerminal,
   onNewPrivateTerminal,
   onTogglePrivate,
+  onRenameLeaf,
   onNewPreview,
   onOpenAgents,
   onPinLeaf,
@@ -333,6 +336,7 @@ function HeaderImpl({
           onNewTerminal={onNewTerminal}
           onNewPrivateTerminal={onNewPrivateTerminal}
           onTogglePrivate={onTogglePrivate}
+          onRenameLeaf={onRenameLeaf}
           onNewPreview={onNewPreview}
           onOpenAgents={onOpenAgents}
           onPinLeaf={onPinLeaf}

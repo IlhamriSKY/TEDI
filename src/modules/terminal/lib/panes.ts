@@ -33,6 +33,15 @@ export type TerminalLeafState = {
    */
   private?: boolean;
   /**
+   * User-chosen name for this pane's tab-strip entry, set from the tab's
+   * right-click "Rename". Overrides everything derived (a terminal's folder
+   * basename, an editor's file name, a page title), because the whole point of
+   * renaming is that the derived name is not what you want it called. Cleared
+   * back to `undefined` by "Reset name", never emptied to `""`. Declared on
+   * every leaf kind (like `private`) so the rename works on any entry.
+   */
+  customTitle?: string;
+  /**
    * Daemon-owned PTY UUID for this leaf. Stamped onto the leaf when its
    * `useTerminalSession` Session successfully calls `openPty`/`reattachPty`
    * and the daemon returns a non-empty `sessionId`. The workspace
@@ -96,6 +105,8 @@ export type EditorLeafState = {
   sshHostLabel?: string;
   /** Privacy flag. AI autocomplete + tools refuse on private editor leaves. */
   private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
 };
 
 export type BrowserLeafState = {
@@ -115,6 +126,8 @@ export type BrowserLeafState = {
   browserOrdinal?: number;
   /** Privacy flag, kept for uniformity with the other leaf kinds. */
   private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
 };
 
 export type ExtensionPanelLeafState = {
@@ -138,6 +151,8 @@ export type ExtensionPanelLeafState = {
   /** Privacy flag kept for uniformity with the other leaf kinds. AI never
    *  reads extension panels regardless. */
   private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
 };
 
 export type LeafState =
@@ -353,6 +368,26 @@ export function setLeafTerminalTheme(n: PaneNode, id: PaneId, themeId: string | 
     return rest as PaneLeaf;
   }
   return { ...n, children: n.children.map((c) => setLeafTerminalTheme(c, id, themeId)) };
+}
+
+/**
+ * Set or clear a leaf's user-chosen tab name. A blank string clears it, so the
+ * entry falls back to its derived label rather than rendering as an empty tab.
+ * Returns the same tree by reference on no-op. Works on any leaf kind.
+ */
+export function setLeafCustomTitle(n: PaneNode, id: PaneId, title: string | null): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id) return n;
+    const next = title?.trim();
+    if (next) {
+      if (n.customTitle === next) return n;
+      return { ...n, customTitle: next };
+    }
+    if (n.customTitle === undefined) return n;
+    const { customTitle: _drop, ...rest } = n;
+    return rest as PaneLeaf;
+  }
+  return { ...n, children: n.children.map((c) => setLeafCustomTitle(c, id, title)) };
 }
 
 /** Update a preview leaf's current URL. No-op for other leaves or mismatched ids. */

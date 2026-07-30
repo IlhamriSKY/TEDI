@@ -47,6 +47,9 @@ export type PaneEntry = EntryBase & {
   /** Lifecycle tone for an extension-panel leaf (mirrors the ext tab). Drives
    *  the label text colour, set via `ctx.tabs.setExtensionTabState(...)`. */
   extState?: ExtensionTabState;
+  /** True when `label` is a name the user typed rather than a derived one. Only
+   *  drives whether the right-click menu offers "Reset name". */
+  renamed?: boolean;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -125,6 +128,10 @@ function entryLabel(
   fallbackCwd: string | undefined,
   sshHosts: Map<string, SshConnection>,
 ): string {
+  // A user-set name wins over every derived one. Renaming exists precisely
+  // because "the folder this opened in" is often not what the tab should say,
+  // so nothing below may override it.
+  if (leaf.customTitle) return leaf.customTitle;
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
@@ -193,6 +200,7 @@ export function buildEntries(
           remoteHost,
           isPrivate: leaf.private === true,
           extState: leaf.leafKind === "extension-panel" ? leaf.state : undefined,
+          renamed: leaf.customTitle !== undefined,
         });
       }
       continue;

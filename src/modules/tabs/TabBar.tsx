@@ -49,6 +49,9 @@ type Props = {
   onOpenAgents: () => void;
   /** Flip the `private` flag on a single leaf (per-tab in the strip, not the whole split group). */
   onTogglePrivate?: (leafId: number) => void;
+  /** Set a leaf's tab name, or `null` to fall back to the derived one (folder
+   *  basename, file name, page title). Backs the right-click Rename. */
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
   /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
   /** Reorder tabs. `beforeTabId` null appends. */
@@ -123,6 +126,7 @@ export function TabBar({
   onNewPreview,
   onOpenAgents,
   onTogglePrivate,
+  onRenameLeaf,
   onPinLeaf,
   onReorderTabs,
   onReorderLeafInGroup,
@@ -135,6 +139,10 @@ export function TabBar({
   aiCliStatuses,
   compact,
 }: Props) {
+  // Which leaf's tab label is currently an edit field. Lives here rather than in
+  // the entry renderer, which is a plain function with nowhere to keep state.
+  // Leaf ids are never reused, so a stale id after a close simply matches nothing.
+  const [renamingLeafId, setRenamingLeafId] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Re-render once the lazy icon chunk and catppuccin file-icon set finish
   // loading so extension tab icons + editor-tab file icons swap from the
@@ -427,6 +435,9 @@ export function TabBar({
                       onMoveLeafToNewTab={onMoveLeafToNewTab}
                       onRotateLeafSplit={onRotateLeafSplit}
                       onTogglePrivate={onTogglePrivate}
+                      renamingLeafId={renamingLeafId}
+                      onSetRenaming={setRenamingLeafId}
+                      onRename={onRenameLeaf}
                       paneGroupsForMove={paneGroupsForMove}
                     />
                   ))}
