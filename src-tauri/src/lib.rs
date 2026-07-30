@@ -926,3 +926,122 @@ mod allocator_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod ui_thread_guard {
+    use std::collections::BTreeSet;
+    use std::path::Path;
+
+    /// Sync `#[tauri::command]`s that are allowed to exist, each because it does
+    /// no blocking work: in-memory registry reads, an atomic flag, or a
+    /// fire-and-forget frame onto an already-open pipe.
+    ///
+    /// `pty_write` / `pty_resize` / `pty_close` are here ON PURPOSE and must stay
+    /// sync: they write one small frame and do not await the reply, and moving
+    /// them to `spawn_blocking` would let keystrokes transpose. See
+    /// `PtyClient::send_oneway`.
+    const ALLOWED_SYNC_COMMANDS: &[&str] = &[
+        "cli_classify_path",
+        "cli_initial_target",
+        "cli_install_path_shim",
+        "cli_take_initial_update_request",
+        "http_abort",
+        "pty_close",
+        "pty_resize",
+        "pty_write",
+        "shell_bg_kill",
+        "shell_bg_list",
+        "shell_bg_logs",
+        "shell_bg_remove",
+        "shell_session_close",
+        "shell_session_open",
+        "ssh_confirm_host_key",
+    ];
+
+    fn rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                rs_files(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+
+    /// Names of every `#[tauri::command]` declared as `pub fn` rather than
+    /// `pub async fn`. A `BTreeSet` because `#[cfg]`-gated commands are declared
+    /// once per platform and would otherwise count twice.
+    fn sync_command_names() -> BTreeSet<String> {
+        let mut files = Vec::new();
+        rs_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut found = BTreeSet::new();
+        for path in files {
+            let Ok(src) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let lines: Vec<&str> = src.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim() != "#[tauri::command]" {
+                    continue;
+                }
+                // Attribute macros may sit between the marker and the fn, and a
+                // long signature can push `pub fn` a few lines down.
+                for probe in lines.iter().skip(i + 1).take(8) {
+                    let t = probe.trim_start();
+                    if t.starts_with("pub async fn ") {
+                        break;
+                    }
+                    if let Some(rest) = t.strip_prefix("pub fn ") {
+                        let name = rest.split('(').next().unwrap_or("").trim();
+                        if !name.is_empty() {
+                            found.insert(name.to_string());
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    /// On Windows a sync `#[tauri::command]` runs on the WebView2 UI thread, so
+    /// blocking inside one freezes the whole window. That has shipped THREE
+    /// times: git decorations (v0.3.50), `pty_write` (v0.3.98), and `fs_read_dir`
+    /// on the lock-screen resume path. Each time the fix was to move that one
+    /// command off the thread, and each time the next one was added without
+    /// anybody noticing the rule.
+    ///
+    /// So the list is pinned. A new sync command fails here, which is the point:
+    /// adding one should be a deliberate act with a reason, and the default for
+    /// anything touching the filesystem, a subprocess, a socket or a pipe is
+    /// `pub async fn` plus `spawn_blocking`.
+    #[test]
+    fn no_new_sync_tauri_commands() {
+        let found = sync_command_names();
+        let allowed: BTreeSet<String> =
+            ALLOWED_SYNC_COMMANDS.iter().map(|s| s.to_string()).collect();
+
+        let added: Vec<&String> = found.difference(&allowed).collect();
+        assert!(
+            added.is_empty(),
+            "new sync #[tauri::command]s found: {added:?}\n\
+             On Windows these run on the WebView2 UI thread and will freeze the \
+             window if they block. Make them `pub async fn` + \
+             `tauri::async_runtime::spawn_blocking`, or add them to \
+             ALLOWED_SYNC_COMMANDS with a reason why they cannot block."
+        );
+
+        // The other direction matters too: a command that got fixed should be
+        // struck off, so the list keeps describing reality instead of rotting.
+        let stale: Vec<&String> = allowed.difference(&found).collect();
+        assert!(
+            stale.is_empty(),
+            "ALLOWED_SYNC_COMMANDS lists commands that are no longer sync: {stale:?}\n\
+             Remove them from the list."
+        );
+    }
+}
