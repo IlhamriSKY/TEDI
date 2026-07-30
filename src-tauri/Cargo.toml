@@ -65,6 +65,10 @@ tauri-build = { version = "2", features = [] }
 # timer, turning that high-watermark back into transient peaks. See the
 # `#[global_allocator]` in lib.rs.
 mimalloc = "0.1"
+# Already in the tree as mimalloc's own dependency; taken directly for
+# `mi_collect`, which is what actually hands freed commit back to the OS. See
+# `purge_allocator` in lib.rs.
+libmimalloc-sys = { version = "0.1", features = ["extended"] }
 # `unstable` enables the multi-webview API (`Window::add_child`) used to embed
 # a real native browser webview inside the preview tab.
 tauri = { version = "2", features = ["unstable"] }

@@ -15,6 +15,46 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// How often [`purge_allocator`] runs. Long enough that the sweep is free in
+/// aggregate, short enough that a burst is handed back while the user is still
+/// in the same sitting.
+const ALLOCATOR_PURGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Hand freed-but-still-committed pages back to the OS.
+///
+/// Swapping the system heap for mimalloc (v0.3.76) was supposed to make the
+/// commit recede on its own, and measurement says it does not: on a normal
+/// working session the GUI host went 1.1 GB at 3 min, 7.0 GB at 20 min and
+/// 15.8 GB at 64 min, while its working set stayed under 6 GB and dropped to
+/// 24 MB under `EmptyWorkingSet` without climbing back. So the bulk of it was
+/// committed, freed, untouched, and still charged against the system commit
+/// limit, which was already at 32.8 of 44.1 GB. mimalloc only purges a segment
+/// that happens to fall entirely free, and a bursty producer (the PTY -> webview
+/// path buffers large base64 chunks) strands committed pages across many
+/// partly-used segments, so the process commit only ever ratchets up.
+///
+/// `mi_collect(true)` forces the sweep that the timer-driven purge misses.
+/// `libmimalloc-sys` at this version exposes no `mi_option_purge_delay`
+/// constant, so this is the available lever; see the test at the bottom of this
+/// file for the measured before/after.
+pub fn purge_allocator() {
+    // SAFETY: `mi_collect` takes no pointers, is documented thread-safe, and is
+    // a no-op when there is nothing to reclaim.
+    unsafe { libmimalloc_sys::mi_collect(true) };
+}
+
+/// Run [`purge_allocator`] on a timer, off the UI thread. Deliberately its own
+/// thread rather than a Tauri async task: the sweep walks the heap, and the one
+/// thing it must never do is share a thread with anything that draws.
+fn spawn_allocator_purge_thread() {
+    let _ = std::thread::Builder::new()
+        .name("tedi-alloc-purge".into())
+        .spawn(|| loop {
+            std::thread::sleep(ALLOCATOR_PURGE_INTERVAL);
+            purge_allocator();
+        });
+}
+
 pub mod modules;
 
 /// Version string this crate was compiled against. Re-exposed so the
@@ -520,6 +560,8 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // Keep the process commit from ratcheting up across a long session.
+            spawn_allocator_purge_thread();
             // Strip Windows 11 DWM rounded corners so the app reads as square.
             if let Some(window) = app.get_webview_window("main") {
                 disable_windows_corner_rounding(&window);
@@ -786,4 +828,78 @@ pub fn run() {
                 cli::handle_opened_urls(_app, urls);
             }
         });
+}
+
+// Test module last: clippy's `items_after_test_module`.
+#[cfg(all(test, target_os = "windows"))]
+mod allocator_tests {
+    use super::purge_allocator;
+
+    /// Bytes this process has committed privately, i.e. what it charges against
+    /// the system commit limit. Deliberately NOT the working set: the whole
+    /// point of the bug is that the working set looks fine while the commit
+    /// climbs into double-digit GB.
+    fn committed_private_bytes() -> usize {
+        use windows::Win32::System::Memory::{
+            VirtualQuery, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_PRIVATE,
+        };
+        let stride = std::mem::size_of::<MEMORY_BASIC_INFORMATION>();
+        let mut addr: usize = 0;
+        let mut total: usize = 0;
+        loop {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            // SAFETY: querying our own address space; `mbi` is a live, correctly
+            // sized buffer. A zero return means the walk ran off the top.
+            let read = unsafe { VirtualQuery(Some(addr as *const _), &mut mbi, stride) };
+            if read == 0 {
+                break;
+            }
+            if mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE {
+                total += mbi.RegionSize;
+            }
+            let next = mbi.BaseAddress as usize + mbi.RegionSize;
+            if next <= addr {
+                break; // no forward progress; refuse to spin
+            }
+            addr = next;
+        }
+        total
+    }
+
+    /// A burst that has been fully freed must not stay charged to the process.
+    ///
+    /// This is the regression guard for the "TEDI gets heavy and then hangs
+    /// after a long session" report: the measured host went to 15.8 GB of
+    /// committed memory in an hour with a working set under 6 GB, i.e. the
+    /// allocator was holding freed pages instead of returning them, and the
+    /// machine's commit limit is finite. Peak here is ~1 GiB in PTY-sized
+    /// chunks, which dwarfs anything the rest of the suite allocates in
+    /// parallel, so the reading does not need the suite to run single-threaded.
+    #[test]
+    fn purge_allocator_returns_a_freed_burst_to_the_os() {
+        const CHUNK: usize = 1024 * 1024;
+        const CHUNKS: usize = 1024;
+
+        let base = committed_private_bytes();
+        // `vec![7u8; _]` writes the pages, so this is committed AND touched,
+        // exactly like a base64 chunk on its way to the webview.
+        let held: Vec<Vec<u8>> = (0..CHUNKS).map(|_| vec![7u8; CHUNK]).collect();
+        let peak = committed_private_bytes();
+        drop(held);
+        purge_allocator();
+        let after = committed_private_bytes();
+
+        let grew = peak.saturating_sub(base);
+        let kept = after.saturating_sub(base);
+        assert!(
+            grew > 512 * 1024 * 1024,
+            "burst did not register: base={base} peak={peak} (grew {grew})"
+        );
+        assert!(
+            kept * 4 < grew,
+            "allocator kept {} MiB of the {} MiB burst after purge_allocator()",
+            kept / 1024 / 1024,
+            grew / 1024 / 1024
+        );
+    }
 }
