@@ -83,6 +83,20 @@
   DeleteRegKey HKCU "Software\Classes\${_root}\shell\${TEDI_VERB}"
 !macroend
 
+; --- "Open with" app-picker entry -----------------------------------------
+; Separate mechanism from the shell verbs above, and easy to conflate: the
+; verbs put a top-level "Open with TEDI" line on the menu, while Explorer
+; builds the "Open with >" submenu from apps registered under
+; Software\Classes\Applications\<exe>. Registering only the verbs (as we did
+; through 0.3.97) means TEDI is absent from that submenu even though its own
+; line is right there on the same menu.
+;
+; A shell\open\command is the whole registration - this is what VS Code
+; ships and nothing more. No SupportedTypes (the app opens anything) and no
+; FriendlyAppName: Explorer falls back to the exe's FileDescription, which
+; the Tauri bundler already stamps as "TEDI".
+!define TEDI_APP_KEY "Software\Classes\Applications\TEDIApp.exe"
+
 ; App-data dir must match `identifier` in tauri.conf.json. Tauri 2's
 ; `app_data_dir` resolves to `%APPDATA%\<identifier>\` on Windows. The
 ; backup lives in %TEMP% so it disappears on reboot even if a restore is
@@ -197,6 +211,10 @@
   !insertmacro TediWriteVerb "Drive" "%V"
   !insertmacro TediWriteVerb "*" "%1"
 
+  ; --- "Open with > TEDI" app-picker entry ---------------------------------
+  WriteRegStr HKCU "${TEDI_APP_KEY}\DefaultIcon" "" '"$INSTDIR\TEDIApp.exe",0'
+  WriteRegStr HKCU "${TEDI_APP_KEY}\shell\open\command" "" '"$INSTDIR\TEDIApp.exe" "%1"'
+
   ; --- restore user data ---------------------------------------------------
   ; If PREINSTALL took a snapshot, copy it back. Two key files (settings +
   ; sessions) gate the restore — if either is missing post-install we
@@ -237,4 +255,5 @@
   !insertmacro TediDeleteVerb "Directory\Background"
   !insertmacro TediDeleteVerb "Drive"
   !insertmacro TediDeleteVerb "*"
+  DeleteRegKey HKCU "${TEDI_APP_KEY}"
 !macroend
