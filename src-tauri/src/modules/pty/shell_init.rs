@@ -60,6 +60,11 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
     ensure_utf8_locale(cmd);
     apply_extra_path(cmd);
 
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some() {
+        cmd.env_remove("LD_LIBRARY_PATH");
+    }
+
     let resolved_cwd = cwd
         .map(PathBuf::from)
         .filter(|p| p.is_dir())

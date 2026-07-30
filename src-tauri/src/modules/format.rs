@@ -98,6 +98,8 @@ fn run_blocking(
         cmd.process_group(0);
     }
 
+    crate::modules::appimage::sanitize_env(&mut cmd);
+
     let mut child = cmd.spawn().map_err(|e| {
         log::warn!("fmt_run_external spawn failed for {program}: {e}");
         format!("spawn failed: {e}")
