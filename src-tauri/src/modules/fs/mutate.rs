@@ -2,7 +2,13 @@ use std::path::PathBuf;
 
 /// Create an empty file. Fails if it already exists.
 #[tauri::command]
-pub fn fs_create_file(path: String) -> Result<(), String> {
+pub async fn fs_create_file(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_create_file_inner(path))
+        .await
+        .map_err(|e| format!("fs_create_file join error: {e}"))?
+}
+
+fn fs_create_file_inner(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -17,7 +23,13 @@ pub fn fs_create_file(path: String) -> Result<(), String> {
 /// already exists. Matches the "new folder" UX where typing "a/b/c"
 /// creates the full chain.
 #[tauri::command]
-pub fn fs_create_dir(path: String) -> Result<(), String> {
+pub async fn fs_create_dir(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_create_dir_inner(path))
+        .await
+        .map_err(|e| format!("fs_create_dir join error: {e}"))?
+}
+
+fn fs_create_dir_inner(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -30,7 +42,13 @@ pub fn fs_create_dir(path: String) -> Result<(), String> {
 
 /// Rename or move a path. Refuses to overwrite an existing target.
 #[tauri::command]
-pub fn fs_rename(from: String, to: String) -> Result<(), String> {
+pub async fn fs_rename(from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fs_rename_inner(from, to))
+        .await
+        .map_err(|e| format!("fs_rename join error: {e}"))?
+}
+
+fn fs_rename_inner(from: String, to: String) -> Result<(), String> {
     let from_p = PathBuf::from(&from);
     let to_p = PathBuf::from(&to);
     if !from_p.exists() {

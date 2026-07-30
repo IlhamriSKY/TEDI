@@ -23,8 +23,24 @@ pub struct DirEntry {
 /// List immediate children of `path`. Dirs first, then files, each sorted
 /// case-insensitively. Hidden (dot-prefix) entries filtered unless
 /// `include_hidden` is true.
+///
+/// Offloaded like `git_status`: a sync `#[tauri::command]` runs on the WebView2
+/// UI (main) thread on Windows, and this one costs a `read_dir` plus a
+/// `metadata()` stat PER ENTRY. The explorer refreshes every loaded directory
+/// on window focus AND on visibilitychange, so unlocking the machine fires one
+/// of these per expanded folder back to back against a cold disk cache - enough
+/// serialized UI-thread work to trip Windows' 5s "not responding" hang report.
 #[tauri::command]
-pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<DirEntry>, String> {
+pub async fn fs_read_dir(
+    path: String,
+    include_hidden: Option<bool>,
+) -> Result<Vec<DirEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_read_dir_inner(path, include_hidden))
+        .await
+        .map_err(|e| format!("fs_read_dir join error: {e}"))?
+}
+
+fn fs_read_dir_inner(path: String, include_hidden: Option<bool>) -> Result<Vec<DirEntry>, String> {
     let show_hidden = include_hidden.unwrap_or(false);
     let root = PathBuf::from(&path);
     let read = std::fs::read_dir(&root).map_err(|e| {
@@ -93,7 +109,13 @@ pub fn fs_read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<Dir
 /// Symlinks to directories are included (matches shell `cd` semantics).
 /// Hidden entries filtered by dot-prefix only.
 #[tauri::command]
-pub fn list_subdirs(path: String) -> Result<Vec<String>, String> {
+pub async fn list_subdirs(path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_subdirs_inner(path))
+        .await
+        .map_err(|e| format!("list_subdirs join error: {e}"))?
+}
+
+fn list_subdirs_inner(path: String) -> Result<Vec<String>, String> {
     let root = PathBuf::from(&path);
     let read = std::fs::read_dir(&root).map_err(|e| {
         log::debug!("list_subdirs({}) read_dir failed: {e}", root.display());

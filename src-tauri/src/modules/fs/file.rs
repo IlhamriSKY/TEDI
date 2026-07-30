@@ -104,7 +104,13 @@ fn fs_read_file_inner(path: String) -> Result<ReadResult, String> {
 /// read. Errors (e.g. the path does not exist) are propagated so the caller
 /// can fall back to checking the literal path string.
 #[tauri::command]
-pub fn fs_canonicalize(path: String) -> Result<String, String> {
+pub async fn fs_canonicalize(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_canonicalize_inner(path))
+        .await
+        .map_err(|e| format!("fs_canonicalize join error: {e}"))?
+}
+
+fn fs_canonicalize_inner(path: String) -> Result<String, String> {
     let p = PathBuf::from(&path);
     let canon = std::fs::canonicalize(&p).map_err(|e| {
         log::debug!("fs_canonicalize({}) failed: {e}", p.display());

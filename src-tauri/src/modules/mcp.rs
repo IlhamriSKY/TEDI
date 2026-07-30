@@ -134,8 +134,26 @@ fn resolve_program(program: &str) -> String {
 /// and streamed via `on_event`; the process is tracked under `id` for
 /// `mcp_write`/`mcp_kill`. Returns once the process is spawned (not when it
 /// exits) — failures after spawn surface as `McpEvent::Exit`/`Error`.
+///
+/// Offloaded: a sync `#[tauri::command]` runs on the WebView2 UI thread on
+/// Windows, and this one stats the cwd then does a full `CreateProcess`.
 #[tauri::command]
-pub fn mcp_spawn(
+pub async fn mcp_spawn(
+    id: String,
+    command: String,
+    args: Vec<String>,
+    env: Option<HashMap<String, String>>,
+    cwd: Option<String>,
+    on_event: Channel<McpEvent>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mcp_spawn_inner(id, command, args, env, cwd, on_event)
+    })
+    .await
+    .map_err(|e| format!("mcp_spawn join error: {e}"))?
+}
+
+fn mcp_spawn_inner(
     id: String,
     command: String,
     args: Vec<String>,
@@ -316,8 +334,27 @@ pub fn mcp_spawn(
 }
 
 /// Write a raw frame (caller appends the trailing newline) to the server's stdin.
+///
+/// Offloaded: this is a BLOCKING pipe write into another process. A server that
+/// stops draining its stdin (busy, wedged, or just slow) fills the pipe buffer
+/// and parks the caller indefinitely — on the WebView2 UI thread on Windows,
+/// that parks the whole app with it.
+///
+/// `spawn_blocking` is safe HERE even though it is explicitly forbidden for
+/// `pty_write` (see `PtyClient::send_oneway`, where it would transpose
+/// keystrokes). Two reasons: the `stdin` mutex is held across `write_all` +
+/// `flush`, so a frame can never interleave with another frame; and JSON-RPC
+/// pairs requests to responses by `id`, so the relative order of two concurrent
+/// `send`s carries no meaning. The one ordering that does matter — `initialize`
+/// before everything else — is enforced by the SDK awaiting its response.
 #[tauri::command]
-pub fn mcp_write(id: String, data: String) -> Result<(), String> {
+pub async fn mcp_write(id: String, data: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_write_inner(id, data))
+        .await
+        .map_err(|e| format!("mcp_write join error: {e}"))?
+}
+
+fn mcp_write_inner(id: String, data: String) -> Result<(), String> {
     let proc = procs()
         .lock()
         .unwrap()
@@ -334,7 +371,13 @@ pub fn mcp_write(id: String, data: String) -> Result<(), String> {
 
 /// Kill the server process and forget it. Idempotent.
 #[tauri::command]
-pub fn mcp_kill(id: String) -> Result<(), String> {
+pub async fn mcp_kill(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_kill_inner(id))
+        .await
+        .map_err(|e| format!("mcp_kill join error: {e}"))?
+}
+
+fn mcp_kill_inner(id: String) -> Result<(), String> {
     if let Some(proc) = procs().lock().unwrap().remove(&id) {
         proc.stop_readers.store(true, Ordering::Release);
         kill_process_group(&proc.child); // Unix: reap the grandchild too

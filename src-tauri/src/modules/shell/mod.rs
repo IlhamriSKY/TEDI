@@ -295,13 +295,20 @@ fn reap_exited_bg(map: &mut HashMap<u32, Arc<BackgroundProc>>) {
     }
 }
 
+/// The `CreateProcess` is offloaded: a sync `#[tauri::command]` runs on the
+/// WebView2 UI thread on Windows, and spawning through the host shell there
+/// costs hundreds of ms. `state` cannot cross into the blocking pool (it is
+/// borrowed, not `'static`), so only the spawn goes over; the registry insert
+/// after the await is a HashMap write.
 #[tauri::command]
-pub fn shell_bg_spawn(
-    state: tauri::State<ShellState>,
+pub async fn shell_bg_spawn(
+    state: tauri::State<'_, ShellState>,
     command: String,
     cwd: Option<String>,
 ) -> Result<u32, String> {
-    let proc = background::spawn(command, cwd)?;
+    let proc = tauri::async_runtime::spawn_blocking(move || background::spawn(command, cwd))
+        .await
+        .map_err(|e| format!("shell_bg_spawn join error: {e}"))??;
     let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
     let mut map = state.bg.write().unwrap();
     reap_exited_bg(&mut map);
@@ -315,13 +322,17 @@ pub fn shell_bg_spawn(
 /// extension sidecars where a leaked grandchild would keep an external
 /// connection alive (e.g. Discord IPC) after the extension is disabled.
 #[tauri::command]
-pub fn shell_bg_spawn_direct(
-    state: tauri::State<ShellState>,
+pub async fn shell_bg_spawn_direct(
+    state: tauri::State<'_, ShellState>,
     program: String,
     args: Option<Vec<String>>,
     cwd: Option<String>,
 ) -> Result<u32, String> {
-    let proc = background::spawn_direct(program, args.unwrap_or_default(), cwd)?;
+    let proc = tauri::async_runtime::spawn_blocking(move || {
+        background::spawn_direct(program, args.unwrap_or_default(), cwd)
+    })
+    .await
+    .map_err(|e| format!("shell_bg_spawn_direct join error: {e}"))??;
     let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
     let mut map = state.bg.write().unwrap();
     reap_exited_bg(&mut map);
