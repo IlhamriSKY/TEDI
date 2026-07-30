@@ -29,7 +29,7 @@
     "unlink:ext": "node scripts/link-dev-extensions.mjs --unlink",
     "typecheck": "tsc --noEmit",
     "lint:imports": "node scripts/check-imports.mjs",
-    "verify": "tsx scripts/ext-permissions-verify.ts && tsx scripts/keybindings-collision-verify.ts && tsx scripts/keybindings-terminal-verify.ts && tsx scripts/compact-step-verify.ts && tsx scripts/stream-idle-timeout-verify.ts && tsx scripts/orchestration-intent-verify.ts && tsx scripts/quit-busy-verify.ts && tsx scripts/workspace-serialize-verify.ts && tsx scripts/write-meter-verify.ts && tsx scripts/agent-launch-verify.ts && tsx scripts/scm-ops-verify.ts && tsx scripts/languages-verify.ts",
+    "verify": "tsx scripts/ext-permissions-verify.ts && tsx scripts/keybindings-collision-verify.ts && tsx scripts/keybindings-terminal-verify.ts && tsx scripts/compact-step-verify.ts && tsx scripts/stream-idle-timeout-verify.ts && tsx scripts/orchestration-intent-verify.ts && tsx scripts/quit-busy-verify.ts && tsx scripts/workspace-serialize-verify.ts && tsx scripts/write-meter-verify.ts && tsx scripts/agent-launch-verify.ts && tsx scripts/scm-ops-verify.ts && tsx scripts/languages-verify.ts && tsx scripts/clipboard-read-verify.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\" \"*.{ts,tsx,js,jsx,css,json,md,html}\"",
     "lint:rust": "cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings",

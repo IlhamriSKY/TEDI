@@ -70,6 +70,19 @@ mimalloc = "0.1"
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+# Clipboard READS run in the host process instead of through
+# `navigator.clipboard.readText()`, which cannot work on Linux - see
+# `modules/clipboard.rs` for why. Writes still use the webview API. Default
+# features are off deliberately: `image-data` exists for reading/writing IMAGES
+# and drags in an image + TIFF/LZW + MIME-sniffing stack (~12 crates) that a
+# text-only paste never touches. `wayland-data-control` is not a default but is
+# required or a Wayland session (COSMIC, GNOME) has no clipboard at all; arboard
+# still prefers X11 when that is what is running. Picked over
+# tauri-plugin-clipboard-manager, which is the same arboard call behind an ACL
+# plus that whole image stack for five commands we do not use.
+arboard = { version = "3", default-features = false, features = [
+	"wayland-data-control",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"

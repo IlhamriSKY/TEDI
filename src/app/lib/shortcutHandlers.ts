@@ -1,4 +1,5 @@
 import { type RefObject } from "react";
+import { readClipboardText } from "@/lib/clipboard";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -175,9 +176,10 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       const term = terminalRefs.current.get(activeLeafIdInTab);
       const sel = term?.getSelection();
       if (!sel) return;
-      // navigator.clipboard works in Tauri 2's webview without prompting.
-      // Fire-and-forget; the usual failure is the document not yet
-      // focused (window-switch race) and the user can retry.
+      // Clipboard WRITES work through the webview API on every OS (they ride
+      // the keystroke's user gesture); only reads need the host process, see
+      // `readClipboardText`. Fire-and-forget; the usual failure is the document
+      // not yet focused (window-switch race) and the user can retry.
       void navigator.clipboard.writeText(sel).catch((e) => {
         console.warn("terminal.copy: clipboard write failed:", e);
       });
@@ -190,14 +192,9 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
       const term = terminalRefs.current.get(activeLeafIdInTab);
       if (!term) return;
-      void navigator.clipboard
-        .readText()
-        .then((text) => {
-          if (text) term.paste(text);
-        })
-        .catch((e) => {
-          console.warn("terminal.paste: clipboard read failed:", e);
-        });
+      void readClipboardText().then((text) => {
+        if (text) term.paste(text);
+      });
     },
     // Ctrl+Shift+X: close the focused terminal pane. Blocked when it's
     // the last terminal in the workspace, mirroring the respawn rule in

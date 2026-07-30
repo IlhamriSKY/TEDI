@@ -3,6 +3,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Streamdown } from "streamdown";
+import { readClipboardText } from "@/lib/clipboard";
 import { formatBytes } from "@/lib/format";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { markdownComponents } from "@/components/ai-elements/markdown-code";
@@ -708,8 +709,9 @@ export function EditorPane({
   );
 
   // ── Context-menu editor commands ──────────────────────────────────────────
-  // Clipboard ops go through the WebView clipboard (same as the explorer's
-  // copyToClipboard); all are best-effort and refocus the editor afterward.
+  // Copy/cut write through the WebView clipboard (same as the explorer's
+  // copyToClipboard); paste READS through the host process, see
+  // `readClipboardText`. All are best-effort and refocus the editor afterward.
   const focusView = () => cmRef.current?.view?.focus();
   const handleCopy = () => {
     const view = cmRef.current?.view;
@@ -732,19 +734,16 @@ export function EditorPane({
     focusView();
   };
   const handlePaste = () => {
-    void navigator.clipboard
-      .readText()
-      .then((text) => {
-        const v = cmRef.current?.view;
-        if (!v || !text) return;
-        const sel = v.state.selection.main;
-        v.dispatch({
-          changes: { from: sel.from, to: sel.to, insert: text },
-          selection: { anchor: sel.from + text.length },
-        });
-        v.focus();
-      })
-      .catch(() => {});
+    void readClipboardText().then((text) => {
+      const v = cmRef.current?.view;
+      if (!v || !text) return;
+      const sel = v.state.selection.main;
+      v.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      });
+      v.focus();
+    });
   };
   const handleSelectAll = () => {
     const view = cmRef.current?.view;

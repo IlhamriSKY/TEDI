@@ -1,3 +1,4 @@
+import { readClipboardText } from "@/lib/clipboard";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useTheme } from "@/modules/theme";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -182,10 +183,11 @@ export function TerminalPane({
       // Right-click is context-aware (Windows Terminal / VSCode "copyPaste"):
       // with a selection it COPIES it (block then right-click = copy) and clears
       // the highlight so the next right-click PASTES; with no selection it pastes
-      // straight away. Identical for local + SSH terminals. Clipboard via the
-      // WebView API (same as the editor); paste routes through session.paste so
-      // bracketed paste keeps multi-line snippets from auto-executing. Keyboard
-      // Ctrl+Shift+C / Ctrl+Shift+V / Shift+Insert and select-to-copy still work.
+      // straight away. Identical for local + SSH terminals. Copy uses the WebView
+      // clipboard, paste the host one (see `readClipboardText`) and routes through
+      // session.paste so bracketed paste keeps multi-line snippets from
+      // auto-executing. Keyboard Ctrl+Shift+C / Ctrl+Shift+V / Shift+Insert and
+      // select-to-copy still work.
       onContextMenu={(e) => {
         e.preventDefault();
         const sel = session.getSelection();
@@ -196,14 +198,9 @@ export function TerminalPane({
           session.clearSelection();
           return;
         }
-        void navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (text) session.paste(text);
-          })
-          .catch((err) => {
-            console.warn("terminal right-click paste: clipboard read failed:", err);
-          });
+        void readClipboardText().then((text) => {
+          if (text) session.paste(text);
+        });
       }}
       // Select-to-copy (PuTTY convention): releasing a left-button drag/word/line
       // selection also copies it to the clipboard, so copy out of the terminal is

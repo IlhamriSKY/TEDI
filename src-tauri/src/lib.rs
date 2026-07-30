@@ -24,8 +24,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    cli, cli_ext, cli_theme, cli_update, extensions, format, fs, git, mcp, net, preview, pty,
-    pty_daemon, secrets, shell, ssh,
+    cli, cli_ext, cli_theme, cli_update, clipboard, extensions, format, fs, git, mcp, net, preview,
+    pty, pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -679,6 +679,7 @@ pub fn run() {
             secrets::secrets_set,
             secrets::secrets_delete,
             secrets::secrets_get_all,
+            clipboard::clipboard_read_text,
             net::http_ping,
             net::http_stream,
             net::http_abort,
