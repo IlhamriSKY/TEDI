@@ -30,6 +30,12 @@ fn git(repo: &Path) -> Command {
     // default message instead. Every call that has a message passes `-m`, so
     // this only ever fires where there was nothing to type.
     cmd.env("GIT_EDITOR", "true");
+    // Drop the AppImage's LD_LIBRARY_PATH before running the SYSTEM git. It is
+    // the same failure the shell and formatter paths guard against, and git is
+    // the most exposed of them: it links libcurl for https, so a bundled libcurl
+    // winning the search order breaks fetch and push with an undefined-symbol
+    // error rather than anything that names the cause.
+    crate::modules::appimage::sanitize_env(&mut cmd);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
