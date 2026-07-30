@@ -9,6 +9,7 @@ import {
 import { gitIgnored, gitStatus } from "@/modules/scm/api";
 import type { GitChangeStatus, GitStatus } from "@/modules/scm/types";
 import { FS_REFRESH_EVENT } from "./useFileTree";
+import { coalesceResume } from "@/lib/windowResume";
 
 /** Poll cadence for git status while the window is focused. Mirrors the
  *  Source Control panel so explorer decorations stay in step with that view. */
@@ -232,16 +233,19 @@ export function useGitStatusPoll(rootPath: string | null): GitDecorationData {
         intervalId = null;
       }
     };
+    // Both events fire on a return from lock; one coalescer between them
+    // stops the panel doing its whole refresh twice.
+    const refreshOnResume = coalesceResume(() => void fetchNow());
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        void fetchNow();
+        refreshOnResume();
         start();
       } else {
         stop();
       }
     };
     const onFocus = () => {
-      void fetchNow();
+      refreshOnResume();
       start();
     };
     const onBlur = () => stop();

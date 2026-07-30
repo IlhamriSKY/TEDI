@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_REFRESH_EVENT } from "./fsRefresh";
+import { coalesceResume } from "@/lib/windowResume";
 
 export type DirEntry = {
   name: string;
@@ -240,16 +241,19 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         intervalId = null;
       }
     };
+    // Both events fire on a return from lock, so share one coalescer between
+    // them; the FS_REFRESH_EVENT path below deliberately does not use it.
+    const refreshOnResume = coalesceResume(() => refreshAllLoadedRef.current());
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        refreshAllLoadedRef.current();
+        refreshOnResume();
         start();
       } else {
         stop();
       }
     };
     const onFocus = () => {
-      refreshAllLoadedRef.current();
+      refreshOnResume();
       start();
     };
     const onBlur = () => stop();

@@ -25,6 +25,7 @@ import { CommitBox, type ScmBusy } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
 import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
 import { X } from "lucide-react";
+import { coalesceResume } from "@/lib/windowResume";
 
 type Props = {
   rootPath: string | null;
@@ -336,16 +337,19 @@ export function SourceControlPanel({
         intervalId = null;
       }
     };
+    // Both events fire on a return from lock; one coalescer between them
+    // stops the panel doing its whole refresh twice.
+    const refreshOnResume = coalesceResume(() => fetchStatus(true));
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        void fetchStatus(true);
+        refreshOnResume();
         start();
       } else {
         stop();
       }
     };
     const onFocus = () => {
-      void fetchStatus(true);
+      refreshOnResume();
       start();
     };
     const onBlur = () => stop();

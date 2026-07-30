@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { sameEntries } from "@/modules/explorer/lib/useFileTree";
 import { sftpCreateDir, sftpCreateFile, sftpDelete, sftpReadDir, sftpRename } from "./sftp";
+import { coalesceResume } from "@/lib/windowResume";
 
 // SFTP-backed file tree. Same shape as `useFileTree` so `FileTreeNode` can
 // render it unchanged. Differences from the local hook:
@@ -216,16 +217,19 @@ export function useSshFileTree(
         intervalId = null;
       }
     };
+    // Both events fire on a return from lock; one coalescer between them
+    // stops the panel doing its whole refresh twice.
+    const refreshOnResume = coalesceResume(() => refreshAllLoadedRef.current());
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        refreshAllLoadedRef.current();
+        refreshOnResume();
         start();
       } else {
         stop();
       }
     };
     const onFocus = () => {
-      refreshAllLoadedRef.current();
+      refreshOnResume();
       start();
     };
 
