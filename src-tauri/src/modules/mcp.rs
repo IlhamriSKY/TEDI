@@ -177,6 +177,8 @@ pub fn mcp_spawn(
         cmd.process_group(0);
     }
 
+    crate::modules::appimage::sanitize_env(&mut cmd);
+
     let shared = SharedChild::spawn(&mut cmd).map_err(|e| format!("spawn failed: {e}"))?;
     let stdin = shared.take_stdin();
     let stdout = shared.take_stdout().ok_or("no stdout pipe")?;

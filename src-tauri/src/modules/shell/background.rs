@@ -195,6 +195,8 @@ fn track_spawned(
         cmd.process_group(0);
     }
 
+    crate::modules::appimage::sanitize_env(cmd);
+
     let shared = SharedChild::spawn(cmd).map_err(|e| e.to_string())?;
     let stdout_pipe = shared.take_stdout().ok_or("no stdout pipe")?;
     let stderr_pipe = shared.take_stderr().ok_or("no stderr pipe")?;

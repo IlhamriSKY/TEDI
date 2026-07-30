@@ -380,6 +380,7 @@ pub(crate) fn build_oneshot_command(command: &str) -> Command {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         let mut cmd = Command::new(shell);
         cmd.arg("-lc").arg(command);
+        crate::modules::appimage::sanitize_env(&mut cmd);
         cmd
     }
     #[cfg(windows)]
