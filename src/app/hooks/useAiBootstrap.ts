@@ -5,6 +5,7 @@ import {
   clearOpenAICompatibleInstance,
   isOpenAICompatibleInstanceReady,
   refreshOpenAICompatibleInstance,
+  setManualOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
@@ -84,6 +85,18 @@ export function useAiBootstrap(): { keysLoaded: boolean } {
         if (!isOpenAICompatibleInstanceReady(inst.baseURL, key)) {
           clearOpenAICompatibleInstance(inst.id);
           continue;
+        }
+        // Publish hand-typed ids first and synchronously: they must be usable
+        // even when the catalogue fetch below fails, or on a gateway that has no
+        // `/models` at all. Detection merges into these rather than replacing.
+        if (inst.manualModels?.length) {
+          setManualOpenAICompatibleModels(
+            inst.id,
+            inst.baseURL,
+            key ?? "",
+            inst.manualModels,
+            inst.label,
+          );
         }
         void refreshOpenAICompatibleInstance(inst.id, key ?? "", inst.baseURL, inst.label);
       }

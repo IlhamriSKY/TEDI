@@ -1,75 +1,273 @@
 export const KEYRING_SERVICE = "tedi";
-export type ProviderId = "openai" | "anthropic" | "google" | "xai" | "cerebras" | "groq" | "deepseek" | "sumopod" | "openai-compatible" | "lmstudio";
-export type ProviderInfo = { id: ProviderId; label: string; keyringAccount: string; keyPrefix: string | null; consoleUrl: string };
+export type ProviderId =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "xai"
+  | "cerebras"
+  | "groq"
+  | "deepseek"
+  | "sumopod"
+  | "openai-compatible"
+  | "lmstudio";
+export type ProviderInfo = {
+  id: ProviderId;
+  label: string;
+  keyringAccount: string;
+  keyPrefix: string | null;
+  consoleUrl: string;
+};
 
 // Flat arrays over verbose objects; all fields are positional and used by index
 export const PROVIDERS: readonly ProviderInfo[] = [
-  { id: "openai", label: "OpenAI", keyringAccount: "openai-api-key", keyPrefix: "sk-", consoleUrl: "https://platform.openai.com/api-keys" },
-  { id: "anthropic", label: "Anthropic", keyringAccount: "anthropic-api-key", keyPrefix: "sk-ant-", consoleUrl: "https://console.anthropic.com/settings/keys" },
-  { id: "google", label: "Google", keyringAccount: "google-api-key", keyPrefix: null, consoleUrl: "https://aistudio.google.com/apikey" },
-  { id: "xai", label: "xAI", keyringAccount: "xai-api-key", keyPrefix: "xai-", consoleUrl: "https://console.x.ai/" },
-  { id: "cerebras", label: "Cerebras", keyringAccount: "cerebras-api-key", keyPrefix: "csk-", consoleUrl: "https://cloud.cerebras.ai/" },
-  { id: "groq", label: "Groq", keyringAccount: "groq-api-key", keyPrefix: "gsk_", consoleUrl: "https://console.groq.com/keys" },
-  { id: "deepseek", label: "DeepSeek", keyringAccount: "deepseek-api-key", keyPrefix: "sk-", consoleUrl: "https://platform.deepseek.com/api_keys" },
-  { id: "sumopod", label: "SumoPod", keyringAccount: "sumopod-api-key", keyPrefix: "sk-", consoleUrl: "https://sumopod.com" },
-  { id: "openai-compatible", label: "OpenAI Compatible", keyringAccount: "openai-compatible-api-key", keyPrefix: null, consoleUrl: "https://platform.openai.com/docs/api-reference" },
-  { id: "lmstudio", label: "LM Studio", keyringAccount: "", keyPrefix: null, consoleUrl: "https://lmstudio.ai/docs/basics/server" },
+  {
+    id: "openai",
+    label: "OpenAI",
+    keyringAccount: "openai-api-key",
+    keyPrefix: "sk-",
+    consoleUrl: "https://platform.openai.com/api-keys",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    keyringAccount: "anthropic-api-key",
+    keyPrefix: "sk-ant-",
+    consoleUrl: "https://console.anthropic.com/settings/keys",
+  },
+  {
+    id: "google",
+    label: "Google",
+    keyringAccount: "google-api-key",
+    keyPrefix: null,
+    consoleUrl: "https://aistudio.google.com/apikey",
+  },
+  {
+    id: "xai",
+    label: "xAI",
+    keyringAccount: "xai-api-key",
+    keyPrefix: "xai-",
+    consoleUrl: "https://console.x.ai/",
+  },
+  {
+    id: "cerebras",
+    label: "Cerebras",
+    keyringAccount: "cerebras-api-key",
+    keyPrefix: "csk-",
+    consoleUrl: "https://cloud.cerebras.ai/",
+  },
+  {
+    id: "groq",
+    label: "Groq",
+    keyringAccount: "groq-api-key",
+    keyPrefix: "gsk_",
+    consoleUrl: "https://console.groq.com/keys",
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    keyringAccount: "deepseek-api-key",
+    keyPrefix: "sk-",
+    consoleUrl: "https://platform.deepseek.com/api_keys",
+  },
+  {
+    id: "sumopod",
+    label: "SumoPod",
+    keyringAccount: "sumopod-api-key",
+    keyPrefix: "sk-",
+    consoleUrl: "https://sumopod.com",
+  },
+  {
+    id: "openai-compatible",
+    label: "OpenAI Compatible",
+    keyringAccount: "openai-compatible-api-key",
+    keyPrefix: null,
+    consoleUrl: "https://platform.openai.com/docs/api-reference",
+  },
+  {
+    id: "lmstudio",
+    label: "LM Studio",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://lmstudio.ai/docs/basics/server",
+  },
 ] as const;
 
-export function getProvider(id: ProviderId): ProviderInfo { const p = PROVIDERS.find(x => x.id === id); if (!p) throw new Error(`Unknown provider: ${id}`); return p; }
+export function getProvider(id: ProviderId): ProviderInfo {
+  const p = PROVIDERS.find((x) => x.id === id);
+  if (!p) throw new Error(`Unknown provider: ${id}`);
+  return p;
+}
 
-export type ModelInfo = { id: string; provider: ProviderId; label: string; hint: string; ownedBy?: string };
+export type ModelInfo = {
+  id: string;
+  provider: ProviderId;
+  label: string;
+  hint: string;
+  ownedBy?: string;
+};
 // 4-field tuples unpacked to ModelInfo; saves ~200 lines of repeated key names
-const M = (id: string, p: ProviderId, label: string, hint: string): ModelInfo => ({ id, provider: p, label, hint });
+const M = (id: string, p: ProviderId, label: string, hint: string): ModelInfo => ({
+  id,
+  provider: p,
+  label,
+  hint,
+});
 export const MODELS = [
-  M("gpt-5.6-sol", "openai", "GPT-5.6 Sol", "Frontier"), M("gpt-5.6-terra", "openai", "GPT-5.6 Terra", "Balanced"), M("gpt-5.6-luna", "openai", "GPT-5.6 Luna", "Fast"),
-  M("gpt-5.5", "openai", "GPT-5.5", "Higher quality"), M("gpt-5.4-mini", "openai", "GPT-5.4 mini", "Fast, default"), M("gpt-5.4-nano", "openai", "GPT-5.4 nano", "Cheapest"), M("gpt-5.3-codex", "openai", "GPT-5.3 Codex", "Coding"),
-  M("claude-fable-5", "anthropic", "Claude Fable 5", "Best"), M("claude-opus-4-8", "anthropic", "Claude Opus 4.8", "Most capable"), M("claude-sonnet-5", "anthropic", "Claude Sonnet 5", "Balanced"),
-  M("claude-opus-4-7", "anthropic", "Claude Opus 4.7", "Previous Opus"), M("claude-sonnet-4-6", "anthropic", "Claude Sonnet 4.6", "Previous Sonnet"), M("claude-haiku-4-5", "anthropic", "Claude Haiku 4.5", "Fast"),
-  M("gemini-3.1-pro-preview", "google", "Gemini 3.1 Pro", "Best"), M("gemini-3.5-flash", "google", "Gemini 3.5 Flash", "Balanced"), M("gemini-3-flash-preview", "google", "Gemini 3 Flash", "Fast"), M("gemini-3.1-flash-lite", "google", "Gemini 3.1 Flash Lite", "Fastest"), M("gemini-2.5-flash", "google", "Gemini 2.5 Flash", "Most Efficient"), M("gemma-4-31b-it", "google", "Gemma 4 31B", "Lean & Powerfull"),
-  M("grok-4.5", "xai", "Grok 4.5", "Flagship"), M("grok-4.3", "xai", "Grok 4.3", "Long context"), M("grok-4.20-0309-reasoning", "xai", "Grok 4.20 Reasoning", "Reasoning"), M("grok-4.20-0309-non-reasoning", "xai", "Grok 4.20", "Fast"), M("grok-build-0.1", "xai", "Grok Build 0.1", "Coding"),
-  M("grok-4.20-reasoning", "xai", "Grok 4.20 Reasoning (legacy id)", "Reasoning"), M("grok-4.20-non-reasoning", "xai", "Grok 4.20 (legacy id)", "Fast"),
-  M("gpt-oss-120b", "cerebras", "GPT-OSS 120B", "Cerebras · ultra-fast"), M("openai/gpt-oss-120b", "groq", "GPT-OSS 120B", "Groq · reasoning"), M("openai/gpt-oss-20b", "groq", "GPT-OSS 20B", "Groq · ultra-fast"), M("llama-3.1-8b-instant", "groq", "Llama 3.1 8B", "Groq · fastest"),
-  M("deepseek-v4-flash", "deepseek", "DeepSeek V4 Flash", "Fast"), M("deepseek-v4-pro", "deepseek", "DeepSeek V4 Pro", "Best"),
+  M("gpt-5.6-sol", "openai", "GPT-5.6 Sol", "Frontier"),
+  M("gpt-5.6-terra", "openai", "GPT-5.6 Terra", "Balanced"),
+  M("gpt-5.6-luna", "openai", "GPT-5.6 Luna", "Fast"),
+  M("gpt-5.5", "openai", "GPT-5.5", "Higher quality"),
+  M("gpt-5.4-mini", "openai", "GPT-5.4 mini", "Fast, default"),
+  M("gpt-5.4-nano", "openai", "GPT-5.4 nano", "Cheapest"),
+  M("gpt-5.3-codex", "openai", "GPT-5.3 Codex", "Coding"),
+  M("claude-fable-5", "anthropic", "Claude Fable 5", "Best"),
+  M("claude-opus-4-8", "anthropic", "Claude Opus 4.8", "Most capable"),
+  M("claude-sonnet-5", "anthropic", "Claude Sonnet 5", "Balanced"),
+  M("claude-opus-4-7", "anthropic", "Claude Opus 4.7", "Previous Opus"),
+  M("claude-sonnet-4-6", "anthropic", "Claude Sonnet 4.6", "Previous Sonnet"),
+  M("claude-haiku-4-5", "anthropic", "Claude Haiku 4.5", "Fast"),
+  M("gemini-3.1-pro-preview", "google", "Gemini 3.1 Pro", "Best"),
+  M("gemini-3.5-flash", "google", "Gemini 3.5 Flash", "Balanced"),
+  M("gemini-3-flash-preview", "google", "Gemini 3 Flash", "Fast"),
+  M("gemini-3.1-flash-lite", "google", "Gemini 3.1 Flash Lite", "Fastest"),
+  M("gemini-2.5-flash", "google", "Gemini 2.5 Flash", "Most Efficient"),
+  M("gemma-4-31b-it", "google", "Gemma 4 31B", "Lean & Powerfull"),
+  M("grok-4.5", "xai", "Grok 4.5", "Flagship"),
+  M("grok-4.3", "xai", "Grok 4.3", "Long context"),
+  M("grok-4.20-0309-reasoning", "xai", "Grok 4.20 Reasoning", "Reasoning"),
+  M("grok-4.20-0309-non-reasoning", "xai", "Grok 4.20", "Fast"),
+  M("grok-build-0.1", "xai", "Grok Build 0.1", "Coding"),
+  M("grok-4.20-reasoning", "xai", "Grok 4.20 Reasoning (legacy id)", "Reasoning"),
+  M("grok-4.20-non-reasoning", "xai", "Grok 4.20 (legacy id)", "Fast"),
+  M("gpt-oss-120b", "cerebras", "GPT-OSS 120B", "Cerebras · ultra-fast"),
+  M("openai/gpt-oss-120b", "groq", "GPT-OSS 120B", "Groq · reasoning"),
+  M("openai/gpt-oss-20b", "groq", "GPT-OSS 20B", "Groq · ultra-fast"),
+  M("llama-3.1-8b-instant", "groq", "Llama 3.1 8B", "Groq · fastest"),
+  M("deepseek-v4-flash", "deepseek", "DeepSeek V4 Flash", "Fast"),
+  M("deepseek-v4-pro", "deepseek", "DeepSeek V4 Pro", "Best"),
   M("lmstudio-local", "lmstudio", "LM Studio (local)", "Custom local model"),
 ] as const satisfies readonly ModelInfo[];
 
 export type ModelId = (typeof MODELS)[number]["id"];
 export type DynamicModelId = ModelId | (string & {});
 const dynamicModels = new Map<string, ModelInfo>();
-export function setDetectedModels(p: ProviderId, models: ModelInfo[]): void { for (const [id, i] of dynamicModels) if (i.provider === p) dynamicModels.delete(id); for (const m of models) dynamicModels.set(m.id, m); }
-export function setDetectedModelsForInstance(instanceId: string, models: ModelInfo[]): void { for (const [id, i] of dynamicModels) { if (i.provider !== "openai-compatible") continue; const parsed = parseOpenAICompatibleModelId(id); if (parsed?.instanceId === instanceId) dynamicModels.delete(id); } for (const m of models) dynamicModels.set(m.id, m); }
-export function getDetectedModels(p: ProviderId): ModelInfo[] { const o: ModelInfo[] = []; for (const m of dynamicModels.values()) if (m.provider === p) o.push(m); return o; }
-export function getModel(id: DynamicModelId): ModelInfo { const m = MODELS.find(x => x.id === id) ?? dynamicModels.get(id); if (!m) throw new Error(`Unknown model: ${id}`); return m; }
-export function tryGetModel(id: DynamicModelId): ModelInfo | undefined { return MODELS.find(x => x.id === id) ?? dynamicModels.get(id); }
+export function setDetectedModels(p: ProviderId, models: ModelInfo[]): void {
+  for (const [id, i] of dynamicModels) if (i.provider === p) dynamicModels.delete(id);
+  for (const m of models) dynamicModels.set(m.id, m);
+}
+export function setDetectedModelsForInstance(instanceId: string, models: ModelInfo[]): void {
+  for (const [id, i] of dynamicModels) {
+    if (i.provider !== "openai-compatible") continue;
+    const parsed = parseOpenAICompatibleModelId(id);
+    if (parsed?.instanceId === instanceId) dynamicModels.delete(id);
+  }
+  for (const m of models) dynamicModels.set(m.id, m);
+}
+export function getDetectedModels(p: ProviderId): ModelInfo[] {
+  const o: ModelInfo[] = [];
+  for (const m of dynamicModels.values()) if (m.provider === p) o.push(m);
+  return o;
+}
+export function getModel(id: DynamicModelId): ModelInfo {
+  const m = MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
+  if (!m) throw new Error(`Unknown model: ${id}`);
+  return m;
+}
+export function tryGetModel(id: DynamicModelId): ModelInfo | undefined {
+  return MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
+}
 // Every provider that serves a model with this exact id (static table + dynamic registry). Lets the model builder fall back to a configured provider when an id is shared across providers (e.g. deepseek-v4-pro on native DeepSeek and SumoPod).
-export function providersServingModel(id: DynamicModelId): ProviderId[] { const out: ProviderId[] = []; const seen = new Set<ProviderId>(); for (const m of MODELS) if (m.id === id && !seen.has(m.provider)) { seen.add(m.provider); out.push(m.provider); } const dyn = dynamicModels.get(id); if (dyn && !seen.has(dyn.provider)) out.push(dyn.provider); return out; }
+export function providersServingModel(id: DynamicModelId): ProviderId[] {
+  const out: ProviderId[] = [];
+  const seen = new Set<ProviderId>();
+  for (const m of MODELS)
+    if (m.id === id && !seen.has(m.provider)) {
+      seen.add(m.provider);
+      out.push(m.provider);
+    }
+  const dyn = dynamicModels.get(id);
+  if (dyn && !seen.has(dyn.provider)) out.push(dyn.provider);
+  return out;
+}
 
 // ModelInfo for a picked (id, provider). Returns the known catalogue entry only when it belongs to the chosen provider; otherwise a synthetic entry under that provider, so an id shared across providers routes to the one actually selected (not the id-lookup winner). Shared by runAgentStream + runSubagent.
-export function resolveModelInfo(id: DynamicModelId, provider: ProviderId, known: ModelInfo | undefined = tryGetModel(id)): ModelInfo { return known && known.provider === provider ? known : { id, provider, label: known?.label ?? id, hint: known?.hint ?? "" }; }
+export function resolveModelInfo(
+  id: DynamicModelId,
+  provider: ProviderId,
+  known: ModelInfo | undefined = tryGetModel(id),
+): ModelInfo {
+  return known && known.provider === provider
+    ? known
+    : { id, provider, label: known?.label ?? id, hint: known?.hint ?? "" };
+}
 
 // OpenAI-style `/models` response, and the valid {id, owned_by} rows it carries. Shared by the SumoPod + OpenAI-compatible detectors.
 export type OpenAIModelsResponse = { data?: Array<{ id?: string; owned_by?: string }> };
-export function parseModelsList(json: OpenAIModelsResponse | null | undefined): Array<{ id: string; owned_by?: string }> { const out: Array<{ id: string; owned_by?: string }> = []; for (const m of json?.data ?? []) if (typeof m?.id === "string" && m.id.length > 0) out.push({ id: m.id, owned_by: m.owned_by }); return out; }
+export function parseModelsList(
+  json: OpenAIModelsResponse | null | undefined,
+): Array<{ id: string; owned_by?: string }> {
+  const out: Array<{ id: string; owned_by?: string }> = [];
+  for (const m of json?.data ?? [])
+    if (typeof m?.id === "string" && m.id.length > 0) out.push({ id: m.id, owned_by: m.owned_by });
+  return out;
+}
 // Friendly label for a raw model id: strip any path prefix ("openai/gpt-4o" -> "gpt-4o"), spacers to spaces, case common maker names.
-export function friendlyModelLabel(rawId: string): string { const tail = rawId.includes("/") ? rawId.slice(rawId.lastIndexOf("/") + 1) : rawId; return tail.replace(/[-_]/g, " ").replace(/\bgpt\b/gi, "GPT").replace(/\bclaude\b/gi, "Claude").replace(/\bgemini\b/gi, "Gemini").replace(/\bdeepseek\b/gi, "DeepSeek").replace(/\bllama\b/gi, "Llama").replace(/\bqwen\b/gi, "Qwen").replace(/\bmistral\b/gi, "Mistral").replace(/\s+/g, " ").trim(); }
+export function friendlyModelLabel(rawId: string): string {
+  const tail = rawId.includes("/") ? rawId.slice(rawId.lastIndexOf("/") + 1) : rawId;
+  return tail
+    .replace(/[-_]/g, " ")
+    .replace(/\bgpt\b/gi, "GPT")
+    .replace(/\bclaude\b/gi, "Claude")
+    .replace(/\bgemini\b/gi, "Gemini")
+    .replace(/\bdeepseek\b/gi, "DeepSeek")
+    .replace(/\bllama\b/gi, "Llama")
+    .replace(/\bqwen\b/gi, "Qwen")
+    .replace(/\bmistral\b/gi, "Mistral")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  "gpt-5.6-terra": 1_050_000, "gpt-5.4-mini": 400_000, "gpt-5.3-codex": 400_000, "gpt-5.5": 2_000_000,
+  "gpt-5.6-terra": 1_050_000,
+  "gpt-5.4-mini": 400_000,
+  "gpt-5.3-codex": 400_000,
+  "gpt-5.5": 2_000_000,
   // Claude documents 1M on the current line, but a 1M window is tier-gated, so
   // these stay at the previous 400K. Consistent with the fallback's stated
   // trade: over-compacting costs a little retained context, under-compacting
   // costs a failed turn. Haiku is lowered to its real 200K.
-  "claude-fable-5": 400_000, "claude-opus-4-8": 400_000, "claude-sonnet-5": 400_000, "claude-opus-4-7": 400_000, "claude-sonnet-4-6": 400_000, "claude-haiku-4-5": 200_000,
-  "gemini-3.1-pro-preview": 1_048_576, "gemini-3.5-flash": 1_048_576, "gemini-3-flash-preview": 1_048_576, "gemini-2.5-flash": 2_000_000, "gemma-4-31b-it": 512_000,
-  "grok-4.5": 500_000, "grok-4.3": 1_000_000, "grok-4.20-0309-reasoning": 1_000_000, "grok-4.20-0309-non-reasoning": 1_000_000, "grok-build-0.1": 256_000, "grok-4.20-reasoning": 1_000_000, "grok-4.20-non-reasoning": 1_000_000,
-  "gpt-oss-120b": 256_000, "openai/gpt-oss-120b": 131_072, "openai/gpt-oss-20b": 131_072, "llama-3.1-8b-instant": 131_072,
-  "deepseek-v4-flash": 1_000_000, "deepseek-v4-pro": 1_000_000, "lmstudio-local": 128_000,
+  "claude-fable-5": 400_000,
+  "claude-opus-4-8": 400_000,
+  "claude-sonnet-5": 400_000,
+  "claude-opus-4-7": 400_000,
+  "claude-sonnet-4-6": 400_000,
+  "claude-haiku-4-5": 200_000,
+  "gemini-3.1-pro-preview": 1_048_576,
+  "gemini-3.5-flash": 1_048_576,
+  "gemini-3-flash-preview": 1_048_576,
+  "gemini-2.5-flash": 2_000_000,
+  "gemma-4-31b-it": 512_000,
+  "grok-4.5": 500_000,
+  "grok-4.3": 1_000_000,
+  "grok-4.20-0309-reasoning": 1_000_000,
+  "grok-4.20-0309-non-reasoning": 1_000_000,
+  "grok-build-0.1": 256_000,
+  "grok-4.20-reasoning": 1_000_000,
+  "grok-4.20-non-reasoning": 1_000_000,
+  "gpt-oss-120b": 256_000,
+  "openai/gpt-oss-120b": 131_072,
+  "openai/gpt-oss-20b": 131_072,
+  "llama-3.1-8b-instant": 131_072,
+  "deepseek-v4-flash": 1_000_000,
+  "deepseek-v4-pro": 1_000_000,
+  "lmstudio-local": 128_000,
   // SumoPod curated defaults whose real window is comfortably large, so the
   // lowered fallback below doesn't over-compact them.
-  "gpt-4.1": 1_000_000, "gpt-4.1-mini": 1_000_000, "gemini/gemini-2.5-pro": 1_000_000,
+  "gpt-4.1": 1_000_000,
+  "gpt-4.1-mini": 1_000_000,
+  "gemini/gemini-2.5-pro": 1_000_000,
 };
 // Unknown ids (most runtime-detected SumoPod / OpenAI-compatible models: glm,
 // qwen, gpt-5.x, ...) fall back to this. Kept conservative on purpose: assume a
@@ -79,25 +277,43 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 // nearly lossless); a small one stops erroring. Reliability > a few extra kept
 // tokens on an un-tabled model.
 const FALLBACK_CONTEXT_LIMIT = 256_000;
-export function getModelContextLimit(id: string | undefined): number { return id ? (MODEL_CONTEXT_LIMITS[id] ?? FALLBACK_CONTEXT_LIMIT) : FALLBACK_CONTEXT_LIMIT; }
+export function getModelContextLimit(id: string | undefined): number {
+  return id ? (MODEL_CONTEXT_LIMITS[id] ?? FALLBACK_CONTEXT_LIMIT) : FALLBACK_CONTEXT_LIMIT;
+}
 
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = ["lmstudio"] as const;
-export function providerNeedsKey(id: ProviderId): boolean { return !KEYLESS_PROVIDERS.includes(id); }
+export function providerNeedsKey(id: ProviderId): boolean {
+  return !KEYLESS_PROVIDERS.includes(id);
+}
 // Inline completion runs on the SAME provider stack as chat (buildLanguageModel
 // handles every id), so every BYOK provider is offered here: the big online
 // ones, and local servers via LM Studio or any OpenAI-compatible endpoint.
 // Previously restricted to cerebras/groq/lmstudio, which left a user holding
 // only an OpenAI/Anthropic/local-OAC key with no ghost text at all.
 export type AutocompleteProviderId = ProviderId;
-export const AUTOCOMPLETE_PROVIDERS: readonly AutocompleteProviderId[] = PROVIDERS.map(p => p.id);
+export const AUTOCOMPLETE_PROVIDERS: readonly AutocompleteProviderId[] = PROVIDERS.map((p) => p.id);
 // Defaults favour the fastest model per provider: completion latency is felt
 // per keystroke, so a "best" model is the wrong trade here.
-export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> = { openai: "gpt-5.4-nano", anthropic: "claude-haiku-4-5", google: "gemini-3.1-flash-lite", xai: "grok-4.20-0309-non-reasoning", cerebras: "gpt-oss-120b", groq: "llama-3.1-8b-instant", deepseek: "deepseek-v4-flash", sumopod: "gpt-4.1-mini", "openai-compatible": "qwen3-coder:30b", lmstudio: "qwen3-coder-30b" };
+export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> = {
+  openai: "gpt-5.4-nano",
+  anthropic: "claude-haiku-4-5",
+  google: "gemini-3.1-flash-lite",
+  xai: "grok-4.20-0309-non-reasoning",
+  cerebras: "gpt-oss-120b",
+  groq: "llama-3.1-8b-instant",
+  deepseek: "deepseek-v4-flash",
+  sumopod: "gpt-4.1-mini",
+  "openai-compatible": "qwen3-coder:30b",
+  lmstudio: "qwen3-coder-30b",
+};
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
-export function normalizeOpenAICompatibleBaseURL(raw: string): string { const t = raw.trim().replace(/\/+$/, ""); return t.replace(/^(https?:\/\/)localhost(?=[:/?#]|$)/i, "$1127.0.0.1"); }
+export function normalizeOpenAICompatibleBaseURL(raw: string): string {
+  const t = raw.trim().replace(/\/+$/, "");
+  return t.replace(/^(https?:\/\/)localhost(?=[:/?#]|$)/i, "$1127.0.0.1");
+}
 // Local inference servers (Ollama, llama.cpp, vLLM, text-generation-webui) accept
 // any bearer token or none, so demanding a key would block a valid local-only
 // BYOK setup. Remote endpoints still require one, keeping the actionable
@@ -105,35 +321,125 @@ export function normalizeOpenAICompatibleBaseURL(raw: string): string { const t 
 // Strictly loopback, matching the name: a LAN or mDNS (`.local`) host is someone
 // else's machine as far as this process knows, so it keeps the key requirement.
 // `URL.hostname` returns IPv6 hosts bracketed, hence "[::1]" and not "::1".
-export function isLoopbackBaseURL(raw: string): boolean { try { const h = new URL(raw).hostname.toLowerCase(); return h === "localhost" || h === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(h); } catch { return false; } }
+export function isLoopbackBaseURL(raw: string): boolean {
+  try {
+    const h = new URL(raw).hostname.toLowerCase();
+    return h === "localhost" || h === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(h);
+  } catch {
+    return false;
+  }
+}
 
-export type OpenAICompatibleInstance = { id: string; label: string; baseURL: string };
+// `manualModels` holds model ids the user typed in by hand. Needed because a
+// gateway is only usable here if its catalogue can be read, and plenty cannot
+// be: some don't implement GET /models at all, and some refuse it while still
+// serving /chat/completions. Without this such an endpoint saves fine and then
+// offers zero models, which reads as "I cannot add it".
+export type OpenAICompatibleInstance = {
+  id: string;
+  label: string;
+  baseURL: string;
+  manualModels?: string[];
+};
 export const OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID = "default";
-export function openaiCompatibleKeyringAccount(id: string): string { return id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID ? "openai-compatible-api-key" : `openai-compatible-api-key:${id}`; }
+export function openaiCompatibleKeyringAccount(id: string): string {
+  return id === OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID
+    ? "openai-compatible-api-key"
+    : `openai-compatible-api-key:${id}`;
+}
 const OAI_COMPAT_MODEL_SEP = "::";
-export function openaiCompatibleModelId(instanceId: string, rawModelId: string): string { return `${instanceId}${OAI_COMPAT_MODEL_SEP}${rawModelId}`; }
-export function parseOpenAICompatibleModelId(modelId: string): { instanceId: string; rawModelId: string } | null { const i = modelId.indexOf(OAI_COMPAT_MODEL_SEP); return i === -1 ? null : { instanceId: modelId.slice(0, i), rawModelId: modelId.slice(i + OAI_COMPAT_MODEL_SEP.length) }; }
+export function openaiCompatibleModelId(instanceId: string, rawModelId: string): string {
+  return `${instanceId}${OAI_COMPAT_MODEL_SEP}${rawModelId}`;
+}
+export function parseOpenAICompatibleModelId(
+  modelId: string,
+): { instanceId: string; rawModelId: string } | null {
+  const i = modelId.indexOf(OAI_COMPAT_MODEL_SEP);
+  return i === -1
+    ? null
+    : {
+        instanceId: modelId.slice(0, i),
+        rawModelId: modelId.slice(i + OAI_COMPAT_MODEL_SEP.length),
+      };
+}
 // Group detected openai-compatible models per configured instance, headed by the instance label; several OAC endpoints can be added so the picker groups by label, not the shared provider name.
-export function groupOpenAICompatibleByInstance(models: readonly ModelInfo[], instances: readonly OpenAICompatibleInstance[]): Array<{ instanceId: string; label: string; models: ModelInfo[] }> { return instances.map((inst) => ({ instanceId: inst.id, label: inst.label, models: models.filter((m) => parseOpenAICompatibleModelId(m.id)?.instanceId === inst.id) })); }
+export function groupOpenAICompatibleByInstance(
+  models: readonly ModelInfo[],
+  instances: readonly OpenAICompatibleInstance[],
+): Array<{ instanceId: string; label: string; models: ModelInfo[] }> {
+  return instances.map((inst) => ({
+    instanceId: inst.id,
+    label: inst.label,
+    models: models.filter((m) => parseOpenAICompatibleModelId(m.id)?.instanceId === inst.id),
+  }));
+}
 // Instance label for a namespaced openai-compatible model id; null if not OAC or the instance is gone. Credits the chat chip to the endpoint.
-export function openAICompatibleInstanceLabel(modelId: string, instances: readonly OpenAICompatibleInstance[]): string | null { const p = parseOpenAICompatibleModelId(modelId); if (!p) return null; return instances.find((i) => i.id === p.instanceId)?.label ?? null; }
+export function openAICompatibleInstanceLabel(
+  modelId: string,
+  instances: readonly OpenAICompatibleInstance[],
+): string | null {
+  const p = parseOpenAICompatibleModelId(modelId);
+  if (!p) return null;
+  return instances.find((i) => i.id === p.instanceId)?.label ?? null;
+}
 
 type OAIRuntime = { baseURL: string; apiKey: string };
 const oaiCompatRuntime = new Map<string, OAIRuntime>();
-export function setOpenAICompatibleRuntime(id: string, baseURL: string, apiKey: string): void { oaiCompatRuntime.set(id, { baseURL, apiKey }); }
-export function clearOpenAICompatibleRuntime(id: string): void { oaiCompatRuntime.delete(id); }
-export function resolveOpenAICompatibleModel(modelId: string): (OAIRuntime & { instanceId: string; rawModelId: string }) | null { const p = parseOpenAICompatibleModelId(modelId); if (!p) return null; const rt = oaiCompatRuntime.get(p.instanceId); return rt ? { ...rt, ...p } : null; }
+export function setOpenAICompatibleRuntime(id: string, baseURL: string, apiKey: string): void {
+  oaiCompatRuntime.set(id, { baseURL, apiKey });
+}
+export function clearOpenAICompatibleRuntime(id: string): void {
+  oaiCompatRuntime.delete(id);
+}
+export function resolveOpenAICompatibleModel(
+  modelId: string,
+): (OAIRuntime & { instanceId: string; rawModelId: string }) | null {
+  const p = parseOpenAICompatibleModelId(modelId);
+  if (!p) return null;
+  const rt = oaiCompatRuntime.get(p.instanceId);
+  return rt ? { ...rt, ...p } : null;
+}
 
 // Presets are just base URLs; any OpenAI-compatible server works without one.
 // The local entries cover the three common self-hosted runtimes so a local-only
 // BYOK setup is a two-click affair instead of a port lookup.
 export const OPENAI_COMPATIBLE_PRESETS = [
-  { id: "openai", label: "OpenAI", baseURL: "https://api.openai.com/v1", description: "Official OpenAI API" },
-  { id: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", description: "Cloud gateway for 300+ models" },
-  { id: "ollama", label: "Ollama (local)", baseURL: "http://127.0.0.1:11434/v1", description: "Local models, default port. Leave the key blank" },
-  { id: "llamacpp", label: "llama.cpp (local)", baseURL: "http://127.0.0.1:8080/v1", description: "llama-server, default port. Leave the key blank" },
-  { id: "vllm", label: "vLLM (local)", baseURL: "http://127.0.0.1:8000/v1", description: "vLLM OpenAI server, default port" },
-  { id: "9router", label: "9Router (local)", baseURL: "http://127.0.0.1:20128/v1", description: "Self-hosted router, default port" },
+  {
+    id: "openai",
+    label: "OpenAI",
+    baseURL: "https://api.openai.com/v1",
+    description: "Official OpenAI API",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    description: "Cloud gateway for 300+ models",
+  },
+  {
+    id: "ollama",
+    label: "Ollama (local)",
+    baseURL: "http://127.0.0.1:11434/v1",
+    description: "Local models, default port. Leave the key blank",
+  },
+  {
+    id: "llamacpp",
+    label: "llama.cpp (local)",
+    baseURL: "http://127.0.0.1:8080/v1",
+    description: "llama-server, default port. Leave the key blank",
+  },
+  {
+    id: "vllm",
+    label: "vLLM (local)",
+    baseURL: "http://127.0.0.1:8000/v1",
+    description: "vLLM OpenAI server, default port",
+  },
+  {
+    id: "9router",
+    label: "9Router (local)",
+    baseURL: "http://127.0.0.1:20128/v1",
+    description: "Self-hosted router, default port",
+  },
 ] as const;
 
 export const MAX_AGENT_STEPS = 15;
@@ -197,6 +503,27 @@ export const SYSTEM_PROMPT_LITE = `You are TEDI, an AI agent in a developer term
 - Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.
 - Be terse.`;
 
-const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>(["gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.6-luna", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemma-4-31b-it", "claude-haiku-4-5", "openai/gpt-oss-20b", "gpt-oss-120b", "llama-3.1-8b-instant", "deepseek-v4-flash", "grok-4.20-non-reasoning", "grok-4.20-0309-non-reasoning"]);
-const LITE_MODEL_PATTERN = /\b(mini|nano|flash|haiku|lite|small|tiny|gemma|gpt-oss|qwen2?\.5-coder|coder-(?:1\.5|3|7)b|[1-9]b)\b/i;
-export function pickSystemPromptVariant(modelId: string | undefined): "full" | "lite" { if (!modelId) return "full"; if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return "lite"; if (LITE_MODEL_PATTERN.test(modelId)) return "lite"; return "full"; }
+const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
+  "gpt-5.4-nano",
+  "gpt-5.4-mini",
+  "gpt-5.6-luna",
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+  "gemma-4-31b-it",
+  "claude-haiku-4-5",
+  "openai/gpt-oss-20b",
+  "gpt-oss-120b",
+  "llama-3.1-8b-instant",
+  "deepseek-v4-flash",
+  "grok-4.20-non-reasoning",
+  "grok-4.20-0309-non-reasoning",
+]);
+const LITE_MODEL_PATTERN =
+  /\b(mini|nano|flash|haiku|lite|small|tiny|gemma|gpt-oss|qwen2?\.5-coder|coder-(?:1\.5|3|7)b|[1-9]b)\b/i;
+export function pickSystemPromptVariant(modelId: string | undefined): "full" | "lite" {
+  if (!modelId) return "full";
+  if (LITE_SYSTEM_PROMPT_MODEL_IDS.has(modelId)) return "lite";
+  if (LITE_MODEL_PATTERN.test(modelId)) return "lite";
+  return "full";
+}

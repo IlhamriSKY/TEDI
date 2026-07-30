@@ -661,7 +661,19 @@ function normalizeOpenAICompatibleInstances(
       if (!id || !baseURL || seen.has(id)) continue;
       const label = typeof e.label === "string" && e.label.trim() ? e.label.trim() : id;
       seen.add(id);
-      out.push({ id, label, baseURL });
+      // Hand-typed model ids. Deduped and trimmed here so a corrupt or
+      // duplicated persisted value cannot produce blank picker entries.
+      const manualModels = Array.isArray(e.manualModels)
+        ? [
+            ...new Set(
+              e.manualModels
+                .filter((m): m is string => typeof m === "string")
+                .map((m) => m.trim())
+                .filter(Boolean),
+            ),
+          ]
+        : [];
+      out.push({ id, label, baseURL, ...(manualModels.length ? { manualModels } : {}) });
     }
   }
   // Migration: nothing persisted yet but a legacy single endpoint exists.

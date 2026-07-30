@@ -12,7 +12,10 @@ import {
 import {
   isOpenAICompatibleInstanceReady,
   refreshOpenAICompatibleInstance,
+  setManualOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
+import { setOpenAICompatibleInstances } from "@/modules/settings/store";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -121,6 +124,35 @@ export function OpenAICompatibleBlock({
     // Keyless is valid for a local server, so Detect must not require a key.
     if (!isOpenAICompatibleInstanceReady(url, apiKey ?? null)) return;
     void refreshOpenAICompatibleInstance(instance.id, apiKey ?? "", url, instance.label);
+  };
+
+  // Hand-typed model ids. Some gateways never expose `GET /models`: their own
+  // docs hand you a model id and tell you to type it (AgentRouter documents
+  // `gpt-5.5` that way, and Cline and Cursor let you). Without this the endpoint
+  // saves, detects nothing, and cannot be picked, which reads as "I cannot add
+  // it" even though the endpoint itself is fine.
+  const allInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
+  const manualModels = instance?.manualModels ?? [];
+  const [modelDraft, setModelDraft] = useState("");
+
+  /** Persist the instance's manual ids and republish them into the picker. */
+  const writeManualModels = async (next: string[]) => {
+    if (!instance) return;
+    const deduped = [...new Set(next.map((m) => m.trim()).filter(Boolean))];
+    await setOpenAICompatibleInstances(
+      allInstances.map((i) =>
+        i.id === instance.id
+          ? { ...i, ...(deduped.length ? { manualModels: deduped } : { manualModels: undefined }) }
+          : i,
+      ),
+    );
+    setManualOpenAICompatibleModels(
+      instance.id,
+      urlDraft.trim() || instance.baseURL,
+      apiKey ?? "",
+      deduped,
+      instance.label,
+    );
   };
 
   const maskedKey = maskKey(apiKey ?? "");
@@ -293,6 +325,62 @@ export function OpenAICompatibleBlock({
       </div>
 
       {saveError ? <span className="text-destructive text-[10px]">{saveError}</span> : null}
+
+      {/* Manual model ids. Only once the endpoint exists, since they are stored
+          on the instance. Offered always, not just after a failed detection: an
+          endpoint can serve a model it does not list. */}
+      {instance ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={modelDraft}
+              placeholder="Add a model id by hand (e.g. gpt-5.5)"
+              spellCheck={false}
+              className="h-8 text-[11px]"
+              onChange={(e) => setModelDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                if (!modelDraft.trim()) return;
+                void writeManualModels([...manualModels, modelDraft]);
+                setModelDraft("");
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!modelDraft.trim()}
+              className="h-8 shrink-0 px-2 text-[11px]"
+              onClick={() => {
+                void writeManualModels([...manualModels, modelDraft]);
+                setModelDraft("");
+              }}
+            >
+              Add model
+            </Button>
+          </div>
+          {manualModels.length ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {manualModels.map((m) => (
+                <span
+                  key={m}
+                  className="border-border/60 bg-muted/40 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10.5px]"
+                >
+                  <span className="max-w-40 truncate">{m}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${m}`}
+                    className="text-muted-foreground hover:text-destructive cursor-pointer"
+                    onClick={() => void writeManualModels(manualModels.filter((x) => x !== m))}
+                  >
+                    <X size={10} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground flex-1 truncate text-[10px]">

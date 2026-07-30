@@ -8,6 +8,7 @@ import {
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   openaiCompatibleModelId,
   parseModelsList,
+  type OpenAIModelsResponse,
   setDetectedModelsForInstance,
   setOpenAICompatibleRuntime,
   type ModelInfo,
@@ -39,6 +40,58 @@ function emit() {
 
 function stateFor(instanceId: string): FetchState {
   return states.get(instanceId) ?? INITIAL;
+}
+
+// Detected and hand-typed ids are tracked apart so that neither wipes the other:
+// a re-detect must not drop the ids the user typed, and typing one must not
+// require a successful detection. What reaches the picker is always the union.
+const detectedByInstance = new Map<string, ModelInfo[]>();
+const manualByInstance = new Map<string, string[]>();
+
+function manualInfo(instanceId: string, rawId: string, label?: string): ModelInfo {
+  return {
+    id: openaiCompatibleModelId(instanceId, rawId),
+    provider: "openai-compatible" as const,
+    label: friendlyModelLabel(rawId),
+    hint: hintFor({}, label),
+  };
+}
+
+/** Publish detected + hand-typed models for one instance, detected first, and
+ *  return the union so the caller can record it as the instance's model list. */
+function publishModels(instanceId: string, label?: string): ModelInfo[] {
+  const detected = detectedByInstance.get(instanceId) ?? [];
+  const seen = new Set(detected.map((m) => m.id));
+  const manual = (manualByInstance.get(instanceId) ?? [])
+    .map((raw) => manualInfo(instanceId, raw, label))
+    .filter((m) => !seen.has(m.id));
+  const all = [...detected, ...manual];
+  setDetectedModelsForInstance(instanceId, all);
+  return all;
+}
+
+/**
+ * Register hand-typed model ids for an instance and publish them, with no
+ * network call. This is the only way to use an endpoint whose `/models` cannot
+ * be read, so it deliberately does not require a successful detection first.
+ */
+export function setManualOpenAICompatibleModels(
+  instanceId: string,
+  baseURL: string,
+  apiKey: string,
+  ids: readonly string[],
+  label?: string,
+): void {
+  const clean = [...new Set(ids.map((i) => i.trim()).filter(Boolean))];
+  manualByInstance.set(instanceId, clean);
+  const url = normalizeOpenAICompatibleBaseURL(baseURL);
+  // Register the runtime too: a model picked from a manual id still needs a
+  // client, and detection may never have run for this instance.
+  if (url) setOpenAICompatibleRuntime(instanceId, url, apiKey);
+  const all = publishModels(instanceId, label);
+  const prev = stateFor(instanceId);
+  states.set(instanceId, { ...prev, models: all });
+  emit();
 }
 
 export function getOpenAICompatibleModelsState(
@@ -119,7 +172,22 @@ export async function refreshOpenAICompatibleInstance(
       const body = await res.text().catch(() => "");
       throw new Error(`/models returned ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
     }
-    const raws = parseModelsList(await res.json());
+    // A base URL missing its `/v1` (or pointing at the site rather than the API)
+    // answers 200 with the marketing page, and `res.json()` then fails with a
+    // bare "Unexpected token '<'" that says nothing about the cause.
+    const text = await res.text();
+    if (/^\s*<(!doctype|html)/i.test(text)) {
+      throw new Error(
+        `${trimmedURL}/models returned a web page, not JSON - check the base URL (it usually ends in /v1)`,
+      );
+    }
+    let payload: OpenAIModelsResponse | null;
+    try {
+      payload = JSON.parse(text) as OpenAIModelsResponse | null;
+    } catch {
+      throw new Error(`/models did not return JSON: ${text.slice(0, 120)}`);
+    }
+    const raws = parseModelsList(payload);
     const detected: ModelInfo[] = raws
       .map((raw) => ({
         // Namespace the id so the agent can route the model to this instance,
@@ -132,11 +200,12 @@ export async function refreshOpenAICompatibleInstance(
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
 
-    setDetectedModelsForInstance(instanceId, detected);
+    detectedByInstance.set(instanceId, detected);
+    const published = publishModels(instanceId, label);
     states.set(instanceId, {
       status: "ok",
       error: null,
-      models: detected,
+      models: published,
       fetchedAt: Date.now(),
     });
     emit();
@@ -160,6 +229,10 @@ export async function refreshOpenAICompatibleInstance(
 export function clearOpenAICompatibleInstance(instanceId: string): void {
   setDetectedModelsForInstance(instanceId, []);
   clearOpenAICompatibleRuntime(instanceId);
+  // Both halves, or a re-added endpoint would inherit the old instance's ids.
+  // The persisted `manualModels` is the source of truth and republishes on load.
+  detectedByInstance.delete(instanceId);
+  manualByInstance.delete(instanceId);
   states.set(instanceId, { status: "idle", error: null, models: [], fetchedAt: null });
   emit();
 }
