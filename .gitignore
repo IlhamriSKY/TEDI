@@ -37,6 +37,13 @@ Thumbs.db
 .claude
 .opencode
 .omo
+.agents
+# Per-workspace app state (window layout, restored tabs, saved pane trees).
+# Listed explicitly: it was only being ignored as a side effect of the `*.tedi`
+# theme-file pattern further down, so renaming that pattern would have started
+# committing local session state.
+.tedi/
+.local/
 
 # Recovered WinSCP credentials — local only, never commit
 plan.txt
@@ -47,7 +54,11 @@ react-doctor.config.json
 
 # Project-local working files
 /icon.png
+# Both cases on purpose. Ignore patterns are matched case-SENSITIVELY, so the
+# uppercase spelling alone only worked here because Windows sets
+# core.ignorecase=true; a Linux clone would have offered `todo.md` for commit.
 TODO.MD
+todo.md
 REMOTE-ACCESS-SPEC.md
 FEATURE-STUDY.md
 # Exported theme files are personal / test artifacts, not repo content.
