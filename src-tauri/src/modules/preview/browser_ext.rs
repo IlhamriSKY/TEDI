@@ -405,7 +405,7 @@ fn list_dir(app: &tauri::AppHandle, which: &str, enabled: bool) -> Vec<BrowserEx
         .filter(|e| e.path().is_dir())
         .filter_map(|e| read_manifest(&e.path(), enabled))
         .collect();
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|e| e.name.to_lowercase());
     out
 }
 
