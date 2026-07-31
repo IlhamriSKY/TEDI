@@ -161,15 +161,37 @@ pub(crate) async fn http_get_text(url: &str) -> Result<String, String> {
     String::from_utf8(buf).map_err(|e| format!("response body not valid UTF-8: {e}"))
 }
 
-/// Capped, non-streaming GET for small files fetched outside the install
-/// pipeline - the lightweight peek path that reads `manifest.json` (and the
-/// icon) straight from `raw.githubusercontent.com` instead of pulling the
-/// whole release zip. `max_bytes` bounds memory the same way `http_get_bytes`
-/// bounds the install download: an honest `content-length` over the cap bails
-/// early, and a server that omits or lies about it still trips the
-/// running-total check mid-stream. A shorter total timeout than the install
-/// path is fine - these bodies are KiB-scale.
-pub(crate) async fn http_get_bytes_capped(url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
+/// Capped GET with a per-call deadline. `max_bytes` bounds memory the same way
+/// `http_get_bytes` bounds the install download: an honest `content-length` over
+/// the cap bails early, and a server that omits or lies about it still trips the
+/// running-total check mid-stream.
+///
+/// `timeout_secs` is the whole-request deadline and has to be the caller's call,
+/// because the two callers are nothing alike. The peek path reads a KiB-scale
+/// `manifest.json` from `raw.githubusercontent.com` and should not sit on a
+/// stalled connection for minutes; the browser-extension installer pulls a real
+/// package, and the mainstream ad blockers are ~80 MB, which does not finish in
+/// the minute that used to be hard-coded here. `connect_timeout` stays short
+/// either way, so an unreachable host still fails fast.
+pub(crate) async fn http_get_bytes_capped(
+    url: &str,
+    max_bytes: u64,
+    timeout_secs: u64,
+) -> Result<Vec<u8>, String> {
+    http_get_bytes_capped_with_progress(url, max_bytes, timeout_secs, |_done, _total| {}).await
+}
+
+/// [`http_get_bytes_capped`] that reports cumulative bytes received, for a
+/// download long enough that silence reads as a hang - a store ad blocker is
+/// ~80 MB. `bytes_total` is `Some(content_length)` when the server advertised
+/// one. The closure runs on the network thread on every chunk, so keep it cheap
+/// (the caller throttles before it does anything visible).
+pub(crate) async fn http_get_bytes_capped_with_progress<F: FnMut(u64, Option<u64>)>(
+    url: &str,
+    max_bytes: u64,
+    timeout_secs: u64,
+    mut on_progress: F,
+) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         // Callers vet the url they pass, but reqwest follows 3xx by default, so
@@ -179,7 +201,7 @@ pub(crate) async fn http_get_bytes_capped(url: &str, max_bytes: u64) -> Result<V
         // no existing caller is affected.
         .redirect(crate::modules::net::ssrf_redirect_policy())
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("http client: {e}"))?;
     let mut resp = client
@@ -190,17 +212,21 @@ pub(crate) async fn http_get_bytes_capped(url: &str, max_bytes: u64) -> Result<V
     if !resp.status().is_success() {
         return Err(format!("GET {url}: HTTP {}", resp.status()));
     }
-    if let Some(len) = resp.content_length() {
+    let total = resp.content_length();
+    if let Some(len) = total {
         if len > max_bytes {
             return Err(format!("file too large: {len} bytes (cap {max_bytes})"));
         }
     }
+    // Initial tick so the UI can render "0 / N" before the first chunk lands.
+    on_progress(0, total);
     let mut bytes = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|e| format!("read body: {e}"))? {
         if bytes.len() as u64 + chunk.len() as u64 > max_bytes {
             return Err(format!("file exceeded cap ({max_bytes} bytes)"));
         }
         bytes.extend_from_slice(&chunk);
+        on_progress(bytes.len() as u64, total);
     }
     Ok(bytes)
 }
@@ -223,7 +249,9 @@ pub(crate) async fn raw_content_bytes(
     // escape the repo regardless, so a `..` segment just 404s.
     let rel = rel_path.trim_start_matches('/');
     let url = format!("https://raw.githubusercontent.com/{owner_repo}/{git_ref}/{rel}");
-    http_get_bytes_capped(&url, max_bytes).await
+    // KiB-scale bodies behind an install-review dialog someone is waiting on:
+    // a stalled fetch should give up quickly rather than hold the dialog open.
+    http_get_bytes_capped(&url, max_bytes, 60).await
 }
 
 // ---------- no-API repo fetch (rate-limit-free, for the skills installer) ----------

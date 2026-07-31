@@ -47,19 +47,25 @@ use zip::ZipArchive;
 
 use crate::modules::extensions::github;
 
-/// Cap on a downloaded extension archive. Real ones are single-digit to low
-/// tens of MB (the two blockers measured below are 4.2 and 9.3 MB compressed), so
-/// 64 MB leaves generous room while keeping a mistyped url from streaming a disk
-/// image into app data.
-const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
+/// Cap on a downloaded extension archive. Sized against what real ones actually
+/// weigh, which is a much wider spread than the GitHub-released blockers first
+/// suggested: uBlock Origin is 4.2 MB and uBlock Origin Lite 9.3 MB, but the
+/// mainstream store blockers ship their whole rule set inside the package and are
+/// an order of magnitude bigger - AdBlock from the Chrome Web Store is 77 MB and
+/// Adblock Plus from Edge Add-ons 78 MB. The first cap here was 64 MB, tuned to
+/// the small two, and it refused both of those outright. 256 MB keeps a mistyped
+/// url from streaming a disk image into app data while leaving room for the next
+/// one to grow.
+const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Cap on the UNPACKED size, counted from bytes actually written rather than
 /// from what each entry claims, so a crafted archive cannot lie its way past it.
-/// Without this a 64 MB download can expand to gigabytes straight into app data.
-/// Measured against the real thing: uBlock Origin unpacks to 14.5 MB (3.4x) and
-/// uBlock Origin Lite to 34.4 MB (3.7x), so this leaves several times the headroom
-/// any genuine extension needs while a zip bomb runs into it immediately.
-const MAX_UNPACKED_BYTES: u64 = 256 * 1024 * 1024;
+/// Without this the download above can expand to many gigabytes straight into app
+/// data. Measured against the real thing: uBlock Origin unpacks to 14.5 MB (3.4x),
+/// uBlock Origin Lite to 34.4 MB (3.7x), and AdBlock to 337.5 MB (4.38x, almost
+/// all of it declarative-net-request rule JSON). Roughly three times the largest
+/// real one, which a zip bomb still runs into immediately.
+const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Cap on entry count. The byte cap alone does not bound this: empty entries cost
 /// nothing to unpack, so a 64 MB archive can still declare millions of them and
@@ -104,6 +110,61 @@ pub struct BrowserExt {
     /// slug). Empty for a local file, which may have moved since. Drives the
     /// Update action; nothing else depends on it.
     source: String,
+    /// The extension's own settings page, relative to its root - but ONLY when
+    /// it can actually be opened from here. Empty otherwise, and the UI shows no
+    /// settings button rather than one that does nothing.
+    ///
+    /// A browser reaches these settings through the toolbar popup, which a
+    /// webview has nowhere to display, so opening the page directly is the only
+    /// route left. Chromium allows that for a page the extension has NOT
+    /// published only when the browser itself initiates the navigation - its own
+    /// address bar counts, a host application calling `Navigate` does not - so
+    /// for most extensions the address simply renders nothing at all. uBlock
+    /// Origin Lite is the case in point: `dashboard.html` is not published, so
+    /// its filtering mode cannot be reached from here.
+    ///
+    /// Published means listed in `web_accessible_resources` AND not behind
+    /// `use_dynamic_url`, which replaces the extension id in the address with a
+    /// per-session random one that nothing outside the extension can know.
+    #[serde(rename = "optionsPage")]
+    options_page: String,
+}
+
+/// How far along an install is. Two phases, because both are slow and for
+/// unrelated reasons: a store ad blocker is ~80 MB to fetch and then ~340 MB to
+/// write to disk, so a single spinner would sit still for minutes twice over and
+/// read as a hang.
+#[derive(Clone, serde::Serialize)]
+pub struct ExtInstallProgress {
+    /// `"download"` or `"unpack"`.
+    phase: &'static str,
+    done: u64,
+    /// `None` only while a server declined to declare a content-length, which is
+    /// the one case the UI has to render as indeterminate.
+    total: Option<u64>,
+}
+
+/// Emit progress at most once per [`PROGRESS_STEP_BYTES`], so a chunked download
+/// does not push thousands of IPC messages. ~160 messages for an 80 MB fetch.
+const PROGRESS_STEP_BYTES: u64 = 512 * 1024;
+
+/// Send `done`/`total` on `channel`, but only once per step. `last` is the caller's
+/// running marker of what was last reported; the final value is always sent so the
+/// bar lands on 100% instead of stopping a step short.
+fn report(
+    channel: Option<&tauri::ipc::Channel<ExtInstallProgress>>,
+    phase: &'static str,
+    done: u64,
+    total: Option<u64>,
+    last: &mut u64,
+    force: bool,
+) {
+    let Some(ch) = channel else { return };
+    if !force && done < *last + PROGRESS_STEP_BYTES {
+        return;
+    }
+    *last = done;
+    let _ = ch.send(ExtInstallProgress { phase, done, total });
 }
 
 /// Everything the Settings card needs in one round trip: whether this platform
@@ -145,6 +206,7 @@ pub fn active_dirs(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
         return None;
     }
     let active = root(app, ACTIVE_DIR).ok()?;
+    sweep_non_extensions(&active);
     // An empty directory must read as "off": handing `extensions_path` to wry
     // still flips the environment onto the extension profile, which would move
     // the pane off the app profile for no benefit.
@@ -156,6 +218,44 @@ pub fn active_dirs(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
         return None;
     }
     Some((active, root(app, PROFILE_DIR).ok()?))
+}
+
+/// Drop empty folders out of the loaded directory before it is handed over.
+///
+/// Not tidiness. wry walks `extensions_path` and calls `AddBrowserExtension` on
+/// every entry with a `?`, so the first entry the engine refuses ABORTS the loop
+/// and nothing after it is loaded at all - silently, and in directory order, so
+/// which extensions survive depends on their names. An empty folder is exactly
+/// such an entry, and one turns up in practice: removing an extension while a
+/// pane is open deletes its contents but can fail to remove the folder itself,
+/// because the browser process still holds a handle to it.
+///
+/// Only genuinely empty folders are removed, which cannot lose anything. A
+/// non-empty folder with no manifest would be the same hazard, but nothing
+/// produces one any more (installs are staged outside this directory and moved
+/// in whole), so it is reported rather than guessed at.
+fn sweep_non_extensions(active: &Path) {
+    let Ok(entries) = fs::read_dir(active) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.is_dir() || p.join("manifest.json").is_file() {
+            continue;
+        }
+        let empty = fs::read_dir(&p)
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(false);
+        if empty {
+            let _ = fs::remove_dir(&p);
+        } else {
+            log::warn!(
+                "browser extensions: {} has no manifest.json; the engine stops loading at the \
+                 first folder it rejects, so extensions after it may not load",
+                p.display()
+            );
+        }
+    }
 }
 
 /// Read `manifest.json` out of an installed extension folder. `None` when the
@@ -194,7 +294,56 @@ fn read_manifest(dir: &Path, enabled: bool) -> Option<BrowserExt> {
         source: fs::read_to_string(dir.join(SOURCE_FILE))
             .map(|s| s.trim().chars().take(300).collect())
             .unwrap_or_default(),
+        // Both spellings, oldest last: MV3 prefers `options_ui.page`, MV2 wrote
+        // `options_page`, and plenty of MV3 extensions still ship the latter
+        // (uBlock Origin Lite's dashboard is declared that way). Leading slashes
+        // are stripped so the caller can join it onto `chrome-extension://<id>/`
+        // without producing a double slash. Kept only when the page is one the
+        // extension actually published; see the field's own note.
+        options_page: v
+            .get("options_ui")
+            .and_then(|o| o.get("page"))
+            .or_else(|| v.get("options_page"))
+            .and_then(|x| x.as_str())
+            .map(|s| s.trim().trim_start_matches('/').to_string())
+            .filter(|p| !p.is_empty() && is_web_accessible(&v, p))
+            .unwrap_or_default(),
     })
+}
+
+/// Whether `path` is a resource the extension publishes to the outside world at
+/// an address anyone can construct.
+///
+/// Both halves matter. A page missing from `web_accessible_resources` cannot be
+/// navigated to by a host application at all, and a published one behind
+/// `use_dynamic_url` lives at `chrome-extension://<random-per-session>/…`
+/// instead of the extension's id, so the address cannot be built either. Getting
+/// this wrong in the permissive direction costs a button that silently opens a
+/// blank page, which is worse than the button not being there.
+fn is_web_accessible(manifest: &serde_json::Value, path: &str) -> bool {
+    let want = path.trim_start_matches('/');
+    manifest
+        .get("web_accessible_resources")
+        .and_then(|w| w.as_array())
+        .is_some_and(|blocks| {
+            blocks.iter().any(|b| {
+                // MV2 wrote a flat array of strings; MV3 uses objects. Only MV3
+                // has `use_dynamic_url`, so an MV2 string entry is always fine.
+                if let Some(s) = b.as_str() {
+                    return s.trim_start_matches('/') == want;
+                }
+                if b.get("use_dynamic_url").and_then(|d| d.as_bool()) == Some(true) {
+                    return false;
+                }
+                b.get("resources")
+                    .and_then(|r| r.as_array())
+                    .is_some_and(|rs| {
+                        rs.iter()
+                            .filter_map(|r| r.as_str())
+                            .any(|r| r.trim_start_matches('/') == want)
+                    })
+            })
+        })
 }
 
 /// Resolve a `__MSG_key__` placeholder against the extension's own
@@ -345,13 +494,18 @@ pub async fn browser_ext_remove(app: tauri::AppHandle, dir: String) -> Result<()
     }
 }
 
-/// Install an unpacked Chrome / Edge extension from `source`, which is either a
-/// direct `https://` link to a `.zip` or `.crx`, or a GitHub `owner/repo` whose
-/// latest release ships one. Returns the installed entry.
+/// Install an unpacked Chrome / Edge extension from `source`: a Chrome Web Store
+/// or Edge Add-ons listing, a direct `https://` link to a `.zip` or `.crx`, or a
+/// GitHub `owner/repo` whose latest release ships one. Returns the installed
+/// entry, reporting download and unpack progress on `progress` as it goes.
 #[tauri::command]
+// `Channel` is a `CommandArg` on its own but NOT inside an `Option` (that falls
+// back to `Deserialize`, which `Channel` does not implement), so the frontend
+// always hands one over even when nothing is listening.
 pub async fn browser_ext_install(
     app: tauri::AppHandle,
     source: String,
+    progress: tauri::ipc::Channel<ExtInstallProgress>,
 ) -> Result<BrowserExt, String> {
     require_platform()?;
     let url = resolve_source(&source).await?;
@@ -360,14 +514,35 @@ pub async fn browser_ext_install(
     // link-local addresses that turn "fetch an extension" into an SSRF probe -
     // the same guard `preview_resolve_favicon` applies for the same reason.
     crate::modules::net::reject_metadata_ssrf(&url).await?;
-    let bytes = github::http_get_bytes_capped(&url, MAX_ARCHIVE_BYTES).await?;
+    // Ten minutes, because the packages are big and the link may not be: AdBlock
+    // is 77 MB, which does not arrive inside a minute on an ordinary connection.
+    // The size cap, not the clock, is what bounds this.
+    let mut last = 0u64;
+    let bytes =
+        github::http_get_bytes_capped_with_progress(&url, MAX_ARCHIVE_BYTES, 600, |done, total| {
+            report(
+                Some(&progress),
+                "download",
+                done,
+                total,
+                &mut last,
+                done == 0,
+            )
+        })
+        .await?;
+    // Land the bar on the real total before the phase changes, so it does not
+    // switch over sitting at whatever the last throttled step happened to be.
+    let got = bytes.len() as u64;
+    report(Some(&progress), "download", got, Some(got), &mut last, true);
     let src = source.trim().to_string();
     // Unpacking is blocking file I/O of up to MAX_UNPACKED_BYTES. The download
     // above is async, but this part would sit on an async-runtime worker for the
     // duration, so it goes to the blocking pool like the rest of TEDI's file work.
-    tauri::async_runtime::spawn_blocking(move || install_archive(&app, &bytes, &src))
-        .await
-        .map_err(|e| format!("install task: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        install_archive(&app, &bytes, &src, Some(&progress))
+    })
+    .await
+    .map_err(|e| format!("install task: {e}"))?
 }
 
 /// Install from a `.zip` / `.crx` already on disk.
@@ -394,7 +569,9 @@ pub async fn browser_ext_install_file(
         let bytes = fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
         // Deliberately records no source: a local file can be moved or replaced
         // between now and any later re-fetch, so offering Update would be a lie.
-        install_archive(&app, &bytes, "")
+        // No progress channel either: there is no download, and the unpack of a
+        // file already on disk is the fast half.
+        install_archive(&app, &bytes, "", None)
     })
     .await
     .map_err(|e| format!("install task: {e}"))?
@@ -440,6 +617,7 @@ fn install_archive(
     app: &tauri::AppHandle,
     bytes: &[u8],
     source: &str,
+    progress: Option<&tauri::ipc::Channel<ExtInstallProgress>>,
 ) -> Result<BrowserExt, String> {
     let zip = strip_crx_header(bytes);
 
@@ -455,7 +633,11 @@ fn install_archive(
     let seq = STAGING_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let staging = staging_root.join(format!("{}-{seq}", std::process::id()));
     let _ = fs::remove_dir_all(&staging);
-    let staged = extract_extension(zip, &staging, MAX_UNPACKED_BYTES).and_then(|()| {
+    let mut last = 0u64;
+    let staged = extract_extension(zip, &staging, MAX_UNPACKED_BYTES, &mut |done, total| {
+        report(progress, "unpack", done, Some(total), &mut last, done == 0)
+    })
+    .and_then(|()| {
         let m = read_manifest(&staging, true)
             .ok_or_else(|| "archive has no readable manifest.json".to_string())?;
         if !matches!(m.manifest_version, 2 | 3) {
@@ -535,13 +717,69 @@ fn reject_wrong_engine(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Turn an install source into a download url. A GitHub slug is resolved
-/// through the existing release resolver (REST API, with two HTML fallbacks for
-/// when anonymous API calls are rate limited).
+/// Chrome extension ids are exactly 32 characters drawn from `a`-`p` (a base-16
+/// alphabet shifted into letters). Tight enough that no slug, tag or file name
+/// in the other install sources can be mistaken for one.
+fn is_extension_id(seg: &str) -> bool {
+    seg.len() == 32 && seg.bytes().all(|b| b.is_ascii_lowercase() && b <= b'p')
+}
+
+/// A Chrome Web Store or Edge Add-ons listing - or a bare extension id - turned
+/// into the CRX download the browser itself fetches. `None` for anything else,
+/// so the plain-url and GitHub paths are untouched.
+///
+/// Neither store publishes a documented download link, because a store is meant
+/// to install into the browser rather than hand anyone a file. But both browsers
+/// pull their extensions from an ordinary update endpoint, and that endpoint
+/// answers an anonymous GET with the CRX: it is the same one every "download
+/// CRX" tool has used for years, and `strip_crx_header` already unwraps the
+/// result. Undocumented, so it can change; the failure mode is a plain HTTP
+/// error at install time rather than anything silent.
+///
+/// Without this a pasted store link took the `https://` passthrough below,
+/// downloaded the listing PAGE, and failed with "not a zip" - which reads as the
+/// installer being broken rather than as the wrong kind of link.
+fn store_crx_url(source: &str) -> Option<String> {
+    let lower = source.trim().to_lowercase();
+    let edge = lower.contains("microsoftedge.microsoft.com");
+    // The id is the last path segment of a store link (`/detail/<slug>/<id>`),
+    // or the whole input when an id was pasted on its own.
+    let id = lower
+        .split(['?', '#'])
+        .next()?
+        .split('/')
+        .find(|seg| is_extension_id(seg))?;
+    Some(if edge {
+        format!(
+            "https://edge.microsoft.com/extensionwebstorebase/v1/crx\
+             ?response=redirect&acceptformat=crx3\
+             &x=id%3D{id}%26installsource%3Dondemand%26uc"
+        )
+    } else {
+        // `prodversion` is the Chrome build doing the asking. A real version
+        // number goes stale and starts being served older builds, so send one
+        // that outranks anything published - what CRX downloaders settled on.
+        format!(
+            "https://clients2.google.com/service/update2/crx\
+             ?response=redirect&acceptformat=crx2,crx3&prodversion=9999.0.9999.0\
+             &x=id%3D{id}%26uc"
+        )
+    })
+}
+
+/// Turn an install source into a download url. A store listing resolves to the
+/// browser's own CRX endpoint; a GitHub slug goes through the existing release
+/// resolver (REST API, with two HTML fallbacks for when anonymous API calls are
+/// rate limited).
 async fn resolve_source(source: &str) -> Result<String, String> {
     let s = source.trim();
     if s.is_empty() {
-        return Err("enter a .zip / .crx url or a GitHub owner/repo".into());
+        return Err("enter a store link, a .zip / .crx url, or a GitHub owner/repo".into());
+    }
+    // Before the passthrough below: a store link IS an https url, just not one
+    // that serves an extension.
+    if let Some(crx) = store_crx_url(s) {
+        return Ok(crx);
     }
     let lower = s.to_lowercase();
     if lower.starts_with("https://") {
@@ -589,7 +827,17 @@ fn strip_crx_header(bytes: &[u8]) -> &[u8] {
 /// guess, find the SHALLOWEST `manifest.json` and treat its parent as the root,
 /// dropping anything outside it. `enclosed_name` is the zip crate's own
 /// traversal guard, so `../` entries are skipped rather than escaping `dest`.
-fn extract_extension(zip_bytes: &[u8], dest: &Path, max_unpacked: u64) -> Result<(), String> {
+///
+/// `on_progress` receives `(bytes written, bytes expected)`. The expected total
+/// is summed from the archive's own directory during the pass that locates the
+/// manifest, so it costs nothing extra and the caller gets a real percentage
+/// rather than a spinner - this writes 337 MB for a store ad blocker.
+fn extract_extension(
+    zip_bytes: &[u8],
+    dest: &Path,
+    max_unpacked: u64,
+    on_progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), String> {
     let mut archive =
         ZipArchive::new(io::Cursor::new(zip_bytes)).map_err(|e| format!("not a zip: {e}"))?;
     if archive.len() > MAX_ENTRIES {
@@ -601,8 +849,13 @@ fn extract_extension(zip_bytes: &[u8], dest: &Path, max_unpacked: u64) -> Result
 
     let mut prefix: Option<String> = None;
     let mut best_depth = usize::MAX;
+    // Declared, so only a progress denominator - the write loop below still
+    // counts real bytes against `max_unpacked`, and an archive that lies here
+    // only makes its own bar wrong.
+    let mut expected: u64 = 0;
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
+        expected = expected.saturating_add(entry.size());
         let Some(p) = entry.enclosed_name() else {
             continue;
         };
@@ -619,6 +872,7 @@ fn extract_extension(zip_bytes: &[u8], dest: &Path, max_unpacked: u64) -> Result
     let prefix = prefix.ok_or_else(|| "archive contains no manifest.json".to_string())?;
 
     fs::create_dir_all(dest).map_err(|e| format!("mkdir staging: {e}"))?;
+    on_progress(0, expected);
     let mut written: u64 = 0;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
@@ -652,6 +906,7 @@ fn extract_extension(zip_bytes: &[u8], dest: &Path, max_unpacked: u64) -> Result
                 max_unpacked / (1024 * 1024)
             ));
         }
+        on_progress(written, expected.max(written));
     }
     Ok(())
 }
@@ -775,7 +1030,7 @@ mod tests {
             ("uBlock0.chromium/js/start.js", b"// code"),
         ]);
         let dir = scratch("nested");
-        extract_extension(&nested, &dir, MAX_UNPACKED_BYTES).unwrap();
+        extract_extension(&nested, &dir, MAX_UNPACKED_BYTES, &mut |_, _| {}).unwrap();
         assert!(
             dir.join("manifest.json").is_file(),
             "manifest must land at the root"
@@ -803,7 +1058,7 @@ mod tests {
             ("js/start.js", b"// code"),
         ]);
         let dir = scratch("flat");
-        extract_extension(&flat, &dir, MAX_UNPACKED_BYTES).unwrap();
+        extract_extension(&flat, &dir, MAX_UNPACKED_BYTES, &mut |_, _| {}).unwrap();
         assert!(dir.join("manifest.json").is_file());
         assert!(dir.join("js/start.js").is_file());
         assert_eq!(read_manifest(&dir, true).unwrap().manifest_version, 3);
@@ -814,7 +1069,8 @@ mod tests {
         assert!(extract_extension(
             &zip_with(&[("readme.txt", b"hi")]),
             &dir,
-            MAX_UNPACKED_BYTES
+            MAX_UNPACKED_BYTES,
+            &mut |_, _| {}
         )
         .is_err());
         let _ = fs::remove_dir_all(&dir);
@@ -833,13 +1089,13 @@ mod tests {
         // The archive is small; the payload is not. That asymmetry is the whole
         // shape of a zip bomb, so the guard has to count what it writes.
         let dir = scratch("bomb");
-        let err = extract_extension(&big, &dir, 64 * 1024).unwrap_err();
+        let err = extract_extension(&big, &dir, 64 * 1024, &mut |_, _| {}).unwrap_err();
         assert!(err.contains("unpacked size exceeds"), "got: {err}");
         let _ = fs::remove_dir_all(&dir);
         // And the same archive installs fine under a limit that fits it, so the
         // guard is a ceiling rather than a blanket refusal.
         let dir = scratch("bomb-ok");
-        assert!(extract_extension(&big, &dir, 8 * 1024 * 1024).is_ok());
+        assert!(extract_extension(&big, &dir, 8 * 1024 * 1024, &mut |_, _| {}).is_ok());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -855,7 +1111,7 @@ mod tests {
             ("../escaped.txt", b"pwned"),
         ]);
         let dir = scratch("traversal");
-        extract_extension(&evil, &dir, MAX_UNPACKED_BYTES).unwrap();
+        extract_extension(&evil, &dir, MAX_UNPACKED_BYTES, &mut |_, _| {}).unwrap();
         assert!(dir.join("manifest.json").is_file());
         assert!(
             !dir.parent().unwrap().join("escaped.txt").exists(),
@@ -893,6 +1149,170 @@ mod tests {
             None
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_listings_resolve_to_the_browsers_own_crx_endpoint() {
+        // The ids are real: uBlock Origin Lite on the Chrome Web Store and
+        // uBlock Origin on Edge Add-ons. Both endpoints were confirmed to answer
+        // an anonymous GET with a `Cr24` payload.
+        let ubol = "ddkjiahejlhfcafbddmgiahcphecmpfh";
+        let ubo = "odfafepnkmbhccpbejgmiehpchacaeak";
+
+        // Current store url, the legacy one, and a bare id all reach Google.
+        for src in [
+            &format!("https://chromewebstore.google.com/detail/ublock-origin-lite/{ubol}"),
+            &format!("https://chrome.google.com/webstore/detail/ublock-origin-lite/{ubol}?hl=en"),
+            &ubol.to_string(),
+        ] {
+            let url = store_crx_url(src).unwrap_or_else(|| panic!("unresolved: {src}"));
+            assert!(
+                url.starts_with("https://clients2.google.com/"),
+                "got: {url}"
+            );
+            assert!(url.contains(ubol), "id must survive: {url}");
+        }
+
+        // An Edge listing must NOT be sent to Google: the two stores carry
+        // different builds (Edge still ships uBlock Origin's MV2 one).
+        let edge = store_crx_url(&format!(
+            "https://microsoftedge.microsoft.com/addons/detail/ublock-origin/{ubo}"
+        ))
+        .unwrap();
+
+        // Both urls are pinned WHOLE, not by prefix. They are built with
+        // backslash line continuations, so a stray space or a dropped `&` would
+        // still start with the right host and still contain the id while
+        // producing a query neither store answers - a failure that would only
+        // show up as an HTTP error minutes into a real install. These two exact
+        // strings were confirmed to return a `Cr24` payload.
+        assert_eq!(
+            edge,
+            format!(
+                "https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&acceptformat=crx3&x=id%3D{ubo}%26installsource%3Dondemand%26uc"
+            )
+        );
+        assert_eq!(
+            store_crx_url(ubol).unwrap(),
+            format!(
+                "https://clients2.google.com/service/update2/crx?response=redirect&acceptformat=crx2,crx3&prodversion=9999.0.9999.0&x=id%3D{ubol}%26uc"
+            )
+        );
+
+        // A real listing whose slug is percent-encoded (AdBlock's has an em
+        // dash). The encoded segment is longer than 32 characters AND carries
+        // `%` and letters past `p`, so it cannot shadow the id that follows it.
+        let adblock = "gighmmpiobklfepjocnamgkkbiglidom";
+        let url = store_crx_url(&format!(
+            "https://chromewebstore.google.com/detail/adblock-%E2%80%94-block-ads-acros/{adblock}"
+        ))
+        .unwrap();
+        assert!(url.contains(adblock), "got: {url}");
+
+        // Everything else stays on its own path.
+        for other in [
+            "gorhill/uBlock",
+            "https://github.com/gorhill/uBlock/releases/download/1.72.2/uBlock0_1.72.2.chromium.zip",
+            r"C:\Downloads\uBlock0.chromium.zip",
+            "",
+        ] {
+            assert!(store_crx_url(other).is_none(), "{other:?} is not a store link");
+        }
+        // The id shape is strict: 32 chars, a-p only. A same-length hex sha and a
+        // 31/33-char near-miss must not be mistaken for one.
+        assert!(!is_extension_id("a9dd2acb1c3d4e5f60718293a4b5c6d7"));
+        assert!(!is_extension_id(&"a".repeat(31)));
+        assert!(!is_extension_id(&"a".repeat(33)));
+        assert!(is_extension_id(&"p".repeat(32)));
+    }
+
+    #[test]
+    fn only_a_reachable_settings_page_is_offered() {
+        // A settings button that opens a blank page is worse than no button, and
+        // blank is exactly what Chromium gives for a page the extension has not
+        // published. These three shapes are the real ones.
+        let dir = scratch("optpage");
+        fs::create_dir_all(&dir).unwrap();
+        let write = |m: &str| fs::write(dir.join("manifest.json"), m).unwrap();
+        let page = |m: &str| {
+            write(m);
+            read_manifest(&dir, true).unwrap().options_page
+        };
+
+        // uBlock Origin Lite's shape: a dashboard that is NOT published, plus
+        // published resources hidden behind a per-session random address. Both
+        // are unreachable, so nothing is offered.
+        assert_eq!(
+            page(
+                r#"{"name":"x","version":"1","manifest_version":3,"options_page":"dashboard.html",
+                    "web_accessible_resources":[{"resources":["/picker-ui.html"],"matches":["<all_urls>"],"use_dynamic_url":true}]}"#
+            ),
+            "",
+            "an unpublished dashboard must not be offered"
+        );
+        // Published, but behind use_dynamic_url: the id in the address is not the
+        // one anything outside the extension can build.
+        assert_eq!(
+            page(
+                r#"{"name":"x","version":"1","manifest_version":3,"options_page":"opt.html",
+                    "web_accessible_resources":[{"resources":["opt.html"],"matches":["<all_urls>"],"use_dynamic_url":true}]}"#
+            ),
+            "",
+            "a dynamic-url page has no address we can construct"
+        );
+        // Genuinely reachable: published, static address. This is the only case
+        // that earns a button.
+        assert_eq!(
+            page(
+                r#"{"name":"x","version":"1","manifest_version":3,"options_ui":{"page":"/settings.html"},
+                    "web_accessible_resources":[{"resources":["settings.html"],"matches":["<all_urls>"]}]}"#
+            ),
+            "settings.html"
+        );
+        // MV2 wrote a flat list of strings and has no dynamic-url concept.
+        assert_eq!(
+            page(
+                r#"{"name":"x","version":"1","manifest_version":2,"options_page":"o.html",
+                    "web_accessible_resources":["o.html"]}"#
+            ),
+            "o.html"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_folder_is_swept_out_of_the_loaded_directory() {
+        // The engine aborts its load loop on the first folder it rejects, so an
+        // empty one - what an interrupted remove leaves behind while a pane holds
+        // the directory open - can silently stop every extension sorted after it.
+        let active = scratch("sweep");
+        fs::create_dir_all(active.join("aaa-leftover")).unwrap(); // sorts first
+        fs::create_dir_all(active.join("real-extension")).unwrap();
+        fs::write(
+            active.join("real-extension/manifest.json"),
+            br#"{"name":"x","version":"1","manifest_version":3}"#,
+        )
+        .unwrap();
+        // A non-empty folder without a manifest is left alone: it is reported,
+        // never guessed at, because deleting it could destroy real data.
+        fs::create_dir_all(active.join("has-files")).unwrap();
+        fs::write(active.join("has-files/something.txt"), b"keep me").unwrap();
+
+        sweep_non_extensions(&active);
+
+        assert!(
+            !active.join("aaa-leftover").exists(),
+            "empty debris must go"
+        );
+        assert!(
+            active.join("real-extension/manifest.json").is_file(),
+            "a real extension must survive"
+        );
+        assert!(
+            active.join("has-files/something.txt").is_file(),
+            "a folder with contents must never be deleted"
+        );
+        let _ = fs::remove_dir_all(&active);
     }
 
     #[test]
