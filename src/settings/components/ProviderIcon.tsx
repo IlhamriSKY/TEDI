@@ -1,6 +1,6 @@
 import type { ProviderId } from "@/modules/ai/config";
 import { BrandIcon, type BrandName } from "@/components/BrandIcon";
-import { Cpu, Globe, Monitor, Server, Zap, type LucideIcon } from "lucide-react";
+import { Cpu, Globe, Monitor, Route, Server, Zap, type LucideIcon } from "lucide-react";
 
 // Brand providers render inline logo marks; the rest map to stroke-based
 // Lucide glyphs. The brand keys equal their provider ids.
@@ -10,6 +10,7 @@ const LUCIDE_BY_PROVIDER: Partial<Record<ProviderId, LucideIcon>> = {
   cerebras: Cpu,
   groq: Zap,
   sumopod: Server,
+  agentrouter: Route,
   "openai-compatible": Globe,
   lmstudio: Monitor,
 };

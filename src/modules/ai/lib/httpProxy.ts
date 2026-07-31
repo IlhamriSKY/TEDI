@@ -196,6 +196,28 @@ async function rustProxyFetch(input: RequestInfo | URL, init?: RequestInit): Pro
   return new Response(noBody ? null : stream, { status: meta.status, headers: meta.headers });
 }
 
+/**
+ * Drop-in `fetch` that ALWAYS goes through the Rust proxy, never the WebView.
+ *
+ * Needed when a request must carry a header the browser refuses to hand over.
+ * The case in hand is `User-Agent`: AgentRouter allowlists an exact UA string
+ * (it resells Claude Code / Codex access and 401s `unauthorized_client_error`
+ * for anything else), and a WebView `fetch` cannot set one - it is a forbidden
+ * header name, so the value is dropped silently rather than rejected. reqwest
+ * has no such rule and forwards our headers verbatim.
+ *
+ * `corsFallbackFetch` is NOT enough here: it only falls back on a `TypeError`,
+ * and a gateway that sends `Access-Control-Allow-Origin: *` (AgentRouter does)
+ * makes the native call succeed, so the fallback would never run and the UA
+ * would never be sent. Going straight to the proxy also sidesteps CORS
+ * preflight entirely, which matters because `Authorization` is not covered by a
+ * wildcard `Access-Control-Allow-Headers`.
+ */
+export const proxyOnlyFetch = async (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> => await rustProxyFetch(input, init);
+
 /** Drop-in `fetch`: native first (no change for CORS-friendly cloud gateways),
  *  Rust proxy only when the native call fails with a `Failed to fetch`. */
 export const corsFallbackFetch = async (

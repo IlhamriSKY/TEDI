@@ -8,6 +8,7 @@ export type ProviderId =
   | "groq"
   | "deepseek"
   | "sumopod"
+  | "agentrouter"
   | "openai-compatible"
   | "lmstudio";
 export type ProviderInfo = {
@@ -75,6 +76,15 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "sumopod-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://sumopod.com",
+  },
+  {
+    id: "agentrouter",
+    label: "AgentRouter",
+    keyringAccount: "agentrouter-api-key",
+    // No prefix claim: ProviderKeyCard REFUSES to save a key that doesn't match,
+    // so guessing here would lock the user out of a perfectly valid token.
+    keyPrefix: null,
+    consoleUrl: "https://agentrouter.org/console/token",
   },
   {
     id: "openai-compatible",
@@ -303,11 +313,30 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
   groq: "llama-3.1-8b-instant",
   deepseek: "deepseek-v4-flash",
   sumopod: "gpt-4.1-mini",
+  agentrouter: "gpt-5.6-sol",
   "openai-compatible": "qwen3-coder:30b",
   lmstudio: "qwen3-coder-30b",
 };
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
+
+// AgentRouter. The `/v1` is load-bearing: the bare origin is an SPA with a
+// catch-all route, so `POST /chat/completions` answers 200 + the landing page
+// instead of 404 and the SSE parser silently yields an empty reply.
+export const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1";
+
+// AgentRouter resells Claude Code / Codex access and gates on the User-Agent:
+// anything unrecognised gets 401 `unauthorized_client_error`, which reads like a
+// bad key. Measured 2026-07-31: the check is a PREFIX match, so trailing junk is
+// fine (the AI SDK appends its own agent string and that still passes) but the
+// approved client must come FIRST, and `claude-cli/<v>` alone is rejected
+// without the "(external, cli" part. See scripts/agentrouter-verify.ts.
+// Every AgentRouter request must therefore go through `proxyOnlyFetch`: a
+// WebView `fetch` drops `User-Agent` (forbidden header name) without erroring.
+export const AGENTROUTER_USER_AGENT = "claude-cli/1.0.0 (external, cli)";
+export const AGENTROUTER_HEADERS: Readonly<Record<string, string>> = {
+  "User-Agent": AGENTROUTER_USER_AGENT,
+};
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 export function normalizeOpenAICompatibleBaseURL(raw: string): string {

@@ -8,6 +8,7 @@ import {
   setManualOpenAICompatibleModels,
 } from "@/modules/ai/lib/openaiCompatible";
 import { clearSumopodModels, refreshSumopodModels } from "@/modules/ai/lib/sumopod";
+import { clearAgentRouterModels, refreshAgentRouterModels } from "@/modules/ai/lib/agentrouter";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { usePromptsStore } from "@/modules/ai/store/promptsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
@@ -56,6 +57,12 @@ export function useAiBootstrap(): { keysLoaded: boolean } {
           void refreshSumopodModels(keys.sumopod);
         } else {
           clearSumopodModels();
+        }
+        // Same for AgentRouter, whose catalogue is likewise key-gated.
+        if (keys.agentrouter) {
+          void refreshAgentRouterModels(keys.agentrouter);
+        } else {
+          clearAgentRouterModels();
         }
       });
     };

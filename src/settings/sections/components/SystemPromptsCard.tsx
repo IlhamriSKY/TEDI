@@ -62,6 +62,11 @@ import {
   useSumopodModels,
 } from "@/modules/ai/lib/sumopod";
 import {
+  clearAgentRouterModels,
+  refreshAgentRouterModels,
+  useAgentRouterModels,
+} from "@/modules/ai/lib/agentrouter";
+import {
   MAX_PROMPT_CHARS,
   PROMPT_META,
   type PromptId,
@@ -463,6 +468,7 @@ export function PromptModelDropdown({
   const [instanceKeys, setInstanceKeys] = useState<Record<string, string | null>>({});
   const [query, setQuery] = useState("");
   const sumopodModels = useSumopodModels();
+  const agentRouterModels = useAgentRouterModels();
   useOpenAICompatibleModels();
   const oaiCompatInstances = usePreferencesStore((s) => s.openaiCompatibleInstances);
   const oaiCompatModels = getDetectedModels("openai-compatible");
@@ -504,6 +510,14 @@ export function PromptModelDropdown({
   }, [keys.sumopod]);
 
   useEffect(() => {
+    if (keys.agentrouter) {
+      void refreshAgentRouterModels(keys.agentrouter);
+      return;
+    }
+    clearAgentRouterModels();
+  }, [keys.agentrouter]);
+
+  useEffect(() => {
     for (const inst of oaiCompatInstances) {
       const key = instanceKeys[inst.id] ?? null;
       if (!isOpenAICompatibleInstanceReady(inst.baseURL, key)) {
@@ -515,6 +529,12 @@ export function PromptModelDropdown({
   }, [instanceKeys, oaiCompatInstances]);
 
   const availableModels = useMemo(() => {
+    // Gateways whose catalogue is fetched at runtime rather than living in the
+    // static MODELS table (see ModelDropdown for the same lookup).
+    const gatewayModels: Partial<Record<ProviderId, ModelInfo[]>> = {
+      sumopod: sumopodModels.models,
+      agentrouter: agentRouterModels.models,
+    };
     const out: ModelInfo[] = [];
     const seen = new Set<string>();
     const add = (models: readonly ModelInfo[]) => {
@@ -529,8 +549,9 @@ export function PromptModelDropdown({
     for (const provider of PROVIDERS) {
       const hasAccess = providerNeedsKey(provider.id) ? !!keys[provider.id] : false;
       if (!hasAccess) continue;
-      if (provider.id === "sumopod") {
-        add(sumopodModels.models);
+      const gateway = gatewayModels[provider.id];
+      if (gateway) {
+        add(gateway);
         continue;
       }
       if (provider.id === "openai-compatible") {
@@ -541,7 +562,7 @@ export function PromptModelDropdown({
     }
 
     return out.sort((a, b) => a.label.localeCompare(b.label));
-  }, [keys, oaiCompatModels, sumopodModels.models]);
+  }, [keys, oaiCompatModels, sumopodModels.models, agentRouterModels.models]);
   // Resolve the selected entry by id AND provider so a shared id shows the right
   // provider's label; fall back to id-based lookup for pre-provider saved data.
   const selected = value

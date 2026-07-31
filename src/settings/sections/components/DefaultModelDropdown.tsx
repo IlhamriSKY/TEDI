@@ -16,6 +16,7 @@ import {
   providerNeedsKey,
   tryGetModel,
   type DynamicModelId,
+  type ModelInfo,
   type OpenAICompatibleInstance,
   type ProviderId,
 } from "@/modules/ai/config";
@@ -24,6 +25,7 @@ import {
   isOpenAICompatibleInstanceReady,
 } from "@/modules/ai/lib/openaiCompatible";
 import type { useSumopodModels } from "@/modules/ai/lib/sumopod";
+import type { useAgentRouterModels } from "@/modules/ai/lib/agentrouter";
 import { setDefaultModel } from "@/modules/settings/store";
 import { useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -40,14 +42,23 @@ export function DefaultModelDropdown({
   defaultModel,
   defaultProvider,
   sumopodModels,
+  agentRouterModels,
   oaiCompatInstances,
 }: {
   keys: KeysMap;
   defaultModel: DynamicModelId;
   defaultProvider: ProviderId | null;
   sumopodModels: ReturnType<typeof useSumopodModels>;
+  agentRouterModels: ReturnType<typeof useAgentRouterModels>;
   oaiCompatInstances: OpenAICompatibleInstance[];
 }) {
+  // Gateways whose catalogue is fetched at runtime rather than living in the
+  // static MODELS table, keyed by provider id (see ModelDropdown for the same
+  // shape). One lookup covers both the model pool and the detection note.
+  const gatewayCatalogues: Partial<Record<ProviderId, { models: ModelInfo[]; status: string }>> = {
+    sumopod: sumopodModels,
+    agentrouter: agentRouterModels,
+  };
   const [modelQuery, setModelQuery] = useState("");
   // Open accordions, keyed by section (provider id, or `oac:<instanceId>` for
   // each OpenAI-Compatible endpoint). Reset on open to expand the current default.
@@ -74,11 +85,10 @@ export function DefaultModelDropdown({
   const defaultModelInfo = (() => {
     if (defaultProvider) {
       const pool =
-        defaultProvider === "sumopod"
-          ? sumopodModels.models
-          : defaultProvider === "openai-compatible"
-            ? oaiCompatModels
-            : MODELS.filter((m) => m.provider === defaultProvider);
+        gatewayCatalogues[defaultProvider]?.models ??
+        (defaultProvider === "openai-compatible"
+          ? oaiCompatModels
+          : MODELS.filter((m) => m.provider === defaultProvider));
       const hit = pool.find((m) => m.id === defaultModel);
       if (hit) return hit;
       const providerLabel =
@@ -177,9 +187,7 @@ export function DefaultModelDropdown({
                 );
               }
               const all =
-                p.id === "sumopod"
-                  ? sumopodModels.models
-                  : MODELS.filter((m) => m.provider === p.id);
+                gatewayCatalogues[p.id]?.models ?? MODELS.filter((m) => m.provider === p.id);
               return [
                 {
                   provider: p,
@@ -208,11 +216,8 @@ export function DefaultModelDropdown({
               // Detection status: SumoPod has one stream; each OAC endpoint reads
               // its own instance status.
               const dynamicStatus =
-                p.id === "sumopod"
-                  ? sumopodModels.status
-                  : s.instanceId
-                    ? getOpenAICompatibleModelsState(s.instanceId).status
-                    : null;
+                gatewayCatalogues[p.id]?.status ??
+                (s.instanceId ? getOpenAICompatibleModelsState(s.instanceId).status : null);
               const isDynamicEmpty = !!dynamicStatus && hasKey && filtered.length === 0;
               const dynamicNote =
                 dynamicStatus && hasKey

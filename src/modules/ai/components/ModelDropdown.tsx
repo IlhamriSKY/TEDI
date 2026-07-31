@@ -30,6 +30,7 @@ import {
   useOpenAICompatibleModels,
 } from "../lib/openaiCompatible";
 import { useSumopodModels } from "../lib/sumopod";
+import { useAgentRouterModels } from "../lib/agentrouter";
 import { useChatStore } from "../store/chatStore";
 import { pinKey } from "./modelPinUtils";
 import { ModelSection } from "./ModelSection";
@@ -41,6 +42,20 @@ export function ModelDropdown() {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const sumopodModels = useSumopodModels();
+  const agentRouterModels = useAgentRouterModels();
+  // Gateways whose catalogue is fetched at runtime rather than living in the
+  // static MODELS table. Keyed by provider id so both the model list and the
+  // detection note are one lookup instead of a ternary chain per provider.
+  // Memoised so it stays referentially stable between detections: the section
+  // list below depends on it, and a fresh object each render would defeat that
+  // memo and re-filter every model on every keystroke.
+  const gatewayCatalogues = useMemo(
+    () =>
+      ({ sumopod: sumopodModels, agentrouter: agentRouterModels }) as Partial<
+        Record<ProviderId, { models: ModelInfo[]; status: string; error: string | null }>
+      >,
+    [sumopodModels, agentRouterModels],
+  );
   // Subscribe to openai-compatible detection changes (any instance) so the
   // dropdown re-renders as catalogues resolve. The aggregated model list is
   // read from the dynamic registry; per-instance status drives the note.
@@ -120,8 +135,7 @@ export function ModelDropdown() {
             filtered: g.models.filter((m) => matchesQuery(m, query)),
           }));
         }
-        const all =
-          p.id === "sumopod" ? sumopodModels.models : MODELS.filter((m) => m.provider === p.id);
+        const all = gatewayCatalogues[p.id]?.models ?? MODELS.filter((m) => m.provider === p.id);
         const filtered = all.filter((m) => matchesQuery(m, query));
         return [
           {
@@ -134,7 +148,7 @@ export function ModelDropdown() {
           },
         ];
       }),
-    [query, apiKeys, sumopodModels.models, oaiCompatModels, oaiCompatInstances],
+    [query, apiKeys, gatewayCatalogues, oaiCompatModels, oaiCompatInstances],
   );
 
   // Resolve pinned ids to ModelInfo. Two lookups: qualified (provider::modelId)
@@ -264,12 +278,16 @@ export function ModelDropdown() {
                   : true;
             // Detection status note for gateways whose catalogue is fetched
             // dynamically. OpenAI-Compatible reads its own instance's status.
+            const gateway = gatewayCatalogues[p.id];
             const note =
-              p.id === "sumopod" && hasKey
-                ? sumopodModels.status === "loading"
+              gateway && hasKey
+                ? gateway.status === "loading"
                   ? "Detecting models…"
-                  : sumopodModels.status === "error"
-                    ? "Detection failed"
+                  : gateway.status === "error"
+                    ? // The message, not a bare "Detection failed": AgentRouter's
+                      // two 401s (rejected client vs rejected key) need opposite
+                      // fixes and are indistinguishable without it.
+                      (gateway.error ?? "Detection failed")
                     : s.filtered.length === 0
                       ? "No models detected"
                       : null

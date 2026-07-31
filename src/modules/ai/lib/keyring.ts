@@ -19,6 +19,7 @@ export const EMPTY_PROVIDER_KEYS: ProviderKeys = {
   groq: null,
   deepseek: null,
   sumopod: null,
+  agentrouter: null,
   "openai-compatible": null,
   lmstudio: null,
 };

@@ -76,6 +76,7 @@ export async function requestCompletion(
         openai: { reasoningEffort: "low" },
         deepseek: { reasoningEffort: "low" },
         sumopod: { reasoningEffort: "low" },
+        agentrouter: { reasoningEffort: "low" },
         "openai-compatible": { reasoningEffort: "low" },
         // Gemini thinks before emitting text, which at a 128-token cap means an
         // empty completion. `thinkingLevel` is the current control; the older

@@ -10,6 +10,8 @@ import {
 } from "ai";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
+  AGENTROUTER_BASE_URL,
+  AGENTROUTER_HEADERS,
   DEFAULT_MODEL_ID,
   getModelContextLimit,
   isLoopbackBaseURL,
@@ -33,7 +35,7 @@ import {
 } from "../config";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
-import { corsFallbackFetch, withStreamIdleTimeout } from "./httpProxy";
+import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
 import type { Tool } from "ai";
@@ -243,6 +245,27 @@ export async function buildLanguageModel(
         // Surface streaming usage so the context/cache-hit indicator reflects
         // real spend on SumoPod (without this the endpoint isn't asked for usage
         // and the app is blind to its own token cost).
+        includeUsage: true,
+      })(resolvedModelId);
+      break;
+    }
+    case "agentrouter": {
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      built = createOpenAICompatible({
+        name: "agentrouter",
+        baseURL: AGENTROUTER_BASE_URL,
+        apiKey: key,
+        // The whole reason this is a provider of its own rather than an
+        // OpenAI-Compatible endpoint: AgentRouter allowlists an exact
+        // User-Agent and 401s everything else. `proxyOnlyFetch` is REQUIRED,
+        // not an optimisation - a WebView fetch drops `User-Agent` silently, so
+        // on the native path this header would never leave the process and the
+        // request would fail as `unauthorized_client_error`. Idle-timeout it so
+        // a wedged stream still fails with a retryable error.
+        headers: { ...AGENTROUTER_HEADERS },
+        fetch: withStreamIdleTimeout(proxyOnlyFetch),
+        // Surface streaming usage so the context/cache indicator reflects real
+        // spend rather than showing zero for every turn.
         includeUsage: true,
       })(resolvedModelId);
       break;

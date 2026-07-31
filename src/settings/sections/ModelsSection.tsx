@@ -34,6 +34,11 @@ import {
   refreshSumopodModels,
   useSumopodModels,
 } from "@/modules/ai/lib/sumopod";
+import {
+  clearAgentRouterModels,
+  refreshAgentRouterModels,
+  useAgentRouterModels,
+} from "@/modules/ai/lib/agentrouter";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { emitKeysChanged, setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { useEffect, useState } from "react";
@@ -57,6 +62,7 @@ export function ModelsSection() {
   // for the default instance so existing gating still works.
   const [instanceKeys, setInstanceKeys] = useState<Record<string, string | null>>({});
   const sumopodModels = useSumopodModels();
+  const agentRouterModels = useAgentRouterModels();
   // Subscribe to openai-compatible detection-state changes (any instance) so
   // the dropdown re-renders when a catalogue resolves. The return value isn't
   // read directly; per-instance state is pulled via getOpenAICompatibleModelsState.
@@ -74,6 +80,7 @@ export function ModelsSection() {
     void getAllKeys().then((k) => {
       setKeys(k);
       if (k.sumopod) void refreshSumopodModels(k.sumopod);
+      if (k.agentrouter) void refreshAgentRouterModels(k.agentrouter);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -115,6 +122,7 @@ export function ModelsSection() {
     // in-progress add slot so the configured-providers list takes over.
     setAddingProvider((cur) => (cur === provider ? null : cur));
     if (provider === "sumopod") void refreshSumopodModels(value);
+    if (provider === "agentrouter") void refreshAgentRouterModels(value);
   };
 
   const onClear = async (provider: ProviderId) => {
@@ -122,6 +130,7 @@ export function ModelsSection() {
     setKeys((prev) => (prev ? { ...prev, [provider]: null } : prev));
     await emitKeysChanged();
     if (provider === "sumopod") clearSumopodModels();
+    if (provider === "agentrouter") clearAgentRouterModels();
   };
 
   // Persist (or update) one openai-compatible endpoint: writes label + base URL
@@ -249,6 +258,7 @@ export function ModelsSection() {
                   defaultModel={defaultModel}
                   defaultProvider={defaultProvider}
                   sumopodModels={sumopodModels}
+                  agentRouterModels={agentRouterModels}
                   oaiCompatInstances={oaiCompatInstances}
                 />
               </div>
