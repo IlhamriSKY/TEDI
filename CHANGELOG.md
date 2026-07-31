@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.0] - 31-07-2026
+
+### Added
+
+- **AgentRouter is a provider you pick, instead of an address you guess at.** Adding it as an OpenAI-compatible endpoint could never work, and the address was never the reason it failed. AgentRouter resells access to Claude Code and Codex, and it checks *which program is asking*: a request that does not announce itself as one of those is turned away with the same "unauthorised" answer an expired key gives, so the obvious conclusion is that the key is wrong. It is not. Changing nothing but that announcement is enough to prove it, with one key listing the entire catalogue under one name and being refused under another. A hand-configured endpoint cannot get past that check, because the browser engine TEDI's interface runs in does not allow a page to set that field at all, and drops it in silence rather than reporting it, so the request leaves unidentified no matter what is typed into Settings. AgentRouter is therefore sent through TEDI's own network layer rather than the browser's, which is the only path where the field survives. Pick it in **Settings -> Models -> Add provider**, paste the key, and its catalogue is detected the way SumoPod's already is. Detection deliberately makes the very same request a real message does, so a catalogue that loads is evidence that chat will work rather than merely evidence that the host is reachable. See [agentrouter.ts](src/modules/ai/lib/agentrouter.ts), [httpProxy.ts](src/modules/ai/lib/httpProxy.ts), [config.ts](src/modules/ai/config.ts), [agentrouter-verify.ts](scripts/agentrouter-verify.ts).
+
 ## [0.3.99] - 31-07-2026
 
 ### Added
