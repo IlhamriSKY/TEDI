@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   AGENTROUTER_BASE_URL,
   AGENTROUTER_HEADERS,
@@ -142,9 +142,11 @@ export function clearAgentRouterModels(): void {
   emit();
 }
 
-/** React hook for the AgentRouter fetch state. */
+/** React hook for the AgentRouter fetch state. `useSyncExternalStore` rather
+ *  than useState + useEffect: the hand-rolled pair reads `state` at render but
+ *  only subscribes afterwards, so a detection landing in that gap is missed.
+ *  `state` is replaced wholesale on every change and never mutated, so
+ *  returning it directly is a stable snapshot. */
 export function useAgentRouterModels(): FetchState {
-  const [snapshot, setSnapshot] = useState<FetchState>(state);
-  useEffect(() => subscribeAgentRouterModels(setSnapshot), []);
-  return snapshot;
+  return useSyncExternalStore(subscribeAgentRouterModels, () => state);
 }
