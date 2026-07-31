@@ -383,6 +383,31 @@ export function compactUiMessages<
  *  - the dominant cost on gateways with no prompt cache (SumoPod). This bounds
  *  the per-step payload to ~this budget instead. Tune down for cheaper (lossier)
  *  runs, up for more fidelity. Note: one constant, not a per-model table. */
+/**
+ * Drop every tool call, result, and approval from a model history, keeping the
+ * text. For chat mode, which declares no tools: a leftover `tool_use` block with
+ * no matching tool definition is a 400 on Anthropic and an unpaired orphan
+ * everywhere else, so the strip is a correctness fix as much as a saving (the
+ * tool pile is most of the payload). Assistant messages left with no content
+ * are dropped whole so no empty message reaches the provider.
+ */
+export function stripToolTraffic(messages: ModelMessage[]): ModelMessage[] {
+  const out: ModelMessage[] = [];
+  for (const m of messages) {
+    if (m.role === "tool") continue;
+    if (m.role !== "assistant" || typeof m.content === "string") {
+      out.push(m);
+      continue;
+    }
+    const content = m.content.filter(
+      (p) =>
+        p.type !== "tool-call" && p.type !== "tool-result" && p.type !== "tool-approval-request",
+    );
+    if (content.length > 0) out.push({ ...m, content });
+  }
+  return out;
+}
+
 export const RESEND_COMPACTION_BUDGET = 80_000;
 
 /** Below this fraction of the budget, per-step compaction is not worth doing on

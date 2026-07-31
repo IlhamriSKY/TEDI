@@ -35,6 +35,29 @@ export function applyCacheBreakpoints(
   }
 }
 
+/** Providers seen reporting cache-read tokens in this app run. */
+const observedPromptCache = new Set<ProviderId>();
+
+/**
+ * Record that a provider actually returned cached input tokens.
+ *
+ * Third-party gateways (agentrouter, sumopod, any openai-compatible endpoint)
+ * are assumed cache-less below, because their upstream is arbitrary and betting
+ * on a discount that is not there is the expensive mistake. That assumption has
+ * a cost of its own though: it makes `compactStepMessages` rewrite history on
+ * EVERY step, and a rewritten old message is exactly what invalidates a prefix
+ * the gateway did cache. So stop guessing the moment the meter disagrees - the
+ * usage report is ground truth, and every gateway here is built with
+ * `includeUsage: true` so the report actually arrives.
+ *
+ * One-way on purpose: a single turn that happens not to hit (a cold prefix, an
+ * expired TTL) must not flip the provider back to "cache-less" and restart the
+ * rewriting that caused the miss.
+ */
+export function noteProviderCacheRead(provider: ProviderId): void {
+  observedPromptCache.add(provider);
+}
+
 /**
  * Does this provider cache the prompt prefix at all?
  *
@@ -44,6 +67,8 @@ export function applyCacheBreakpoints(
  * gateway there is no prefix to protect and shrinking is a pure win.
  */
 export function providerHasPromptCache(provider: ProviderId): boolean {
+  // Measured beats tabled: a gateway that reported a cache read has one.
+  if (observedPromptCache.has(provider)) return true;
   switch (provider) {
     case "anthropic": // explicit cacheControl
     case "openai": // implicit prefix cache >= 1024 tokens

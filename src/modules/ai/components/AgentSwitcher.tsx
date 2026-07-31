@@ -11,7 +11,12 @@ import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { APPROVAL_MODE_META, setApprovalMode, type ApprovalMode } from "@/modules/settings/store";
+import {
+  APPROVAL_MODE_META,
+  setApprovalMode,
+  setChatMode,
+  type ApprovalMode,
+} from "@/modules/settings/store";
 import type { AgentIconId } from "../lib/agents";
 import { APPROVAL_MODE_TONE } from "../lib/approvalModeStyle";
 import { useAgentsStore } from "../store/agentsStore";
@@ -20,6 +25,7 @@ import {
   ChevronDown,
   Code,
   DraftingCompass,
+  MessageCircle,
   Paintbrush,
   Settings,
   ShieldUser,
@@ -45,6 +51,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
   const activeId = useAgentsStore((s) => s.activeId);
   const setActiveId = useAgentsStore((s) => s.setActiveId);
   const approvalMode = usePreferencesStore((s) => s.approvalMode);
+  const chatMode = usePreferencesStore((s) => s.chatMode);
 
   const list = useAgentsStore.getState().all();
   void customAgents; // keep the store subscription alive
@@ -52,9 +59,14 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
   const active = list.find((a) => a.id === activeId) ?? list[0];
   const builtIn = list.filter((a) => a.builtIn);
   const custom = list.filter((a) => !a.builtIn);
-  const ActiveIcon = ICONS[active.icon] ?? Sparkles;
+  // Chat mode takes over the trigger rather than adding a second chip: it turns
+  // off the tools AND the agent prompt, so showing the agent name would name
+  // something that is not running this turn.
+  const ActiveIcon = chatMode ? MessageCircle : (ICONS[active.icon] ?? Sparkles);
 
-  const agentTooltip = `Agent: ${active.name} · Approval: ${APPROVAL_MODE_META[approvalMode].label}`;
+  const agentTooltip = chatMode
+    ? `Chat mode: no tools, no project context · Agent: ${active.name}`
+    : `Agent: ${active.name} · Approval: ${APPROVAL_MODE_META[approvalMode].label}`;
 
   return (
     <DropdownMenu>
@@ -73,7 +85,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               )}
             >
               <ActiveIcon size={11} strokeWidth={1.75} className="shrink-0" />
-              <span className="truncate">{active.name}</span>
+              <span className="truncate">{chatMode ? "Chat" : active.name}</span>
               <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
@@ -149,6 +161,26 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
             })}
           </>
         ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => void setChatMode(!chatMode)}
+          className={cn("flex items-start gap-2 text-[12px]", chatMode && "bg-accent/40")}
+        >
+          <MessageCircle
+            size={13}
+            strokeWidth={1.75}
+            className={cn("mt-0.5", chatMode ? "text-foreground" : "text-muted-foreground")}
+          />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span>Chat mode</span>
+            <span className="text-muted-foreground text-[10.5px]">
+              No tools, no project context, no agent prompt
+            </span>
+          </span>
+          {chatMode ? (
+            <Check size={12} strokeWidth={2} className="text-foreground mt-0.5 shrink-0" />
+          ) : null}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <div className="text-muted-foreground px-2 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase">
           Approval mode

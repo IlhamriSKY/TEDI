@@ -300,7 +300,18 @@ const NOOP_LIVE: Live = {
 // don't require rebuilds. Bounded by CHAT_LRU_CAP: LRU chats hibernate
 // (messages flush, Chat dropped); re-open rebuilds from disk.
 const chats = new Map<string, Chat<UIMessage>>();
+/** ToolContext per live chat, mirroring `chats`. See `getToolContext`. */
+const toolContexts = new Map<string, ToolContext>();
 const CHAT_LRU_CAP = 10;
+
+/** The active (or named) session's ToolContext, or undefined before the first
+ *  chat exists. Only for read-only UI such as the tool picker; a turn always
+ *  uses the context the transport was built with. */
+export function getToolContext(sessionId?: string): ToolContext | undefined {
+  if (sessionId) return toolContexts.get(sessionId);
+  const id = useChatStore.getState().activeSessionId;
+  return id ? toolContexts.get(id) : undefined;
+}
 
 function touchChatLRU(sessionId: string): void {
   const existing = chats.get(sessionId);
@@ -344,6 +355,7 @@ function hibernateOldestChat(): void {
       flushPersistEntry(oldest);
     }
     chats.delete(oldest);
+    toolContexts.delete(oldest);
     // Retain readCaches: tiny, and still valid after rehydration.
   }
 }
@@ -462,6 +474,11 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSelectedModelId: () => useChatStore.getState().selectedModelId,
     getSelectedProvider: () => useChatStore.getState().selectedProvider,
   };
+  // Published so UI outside the turn (the tool picker) can enumerate the exact
+  // tool set this session would send, MCP included, without inventing a second
+  // stub context that would resolve a different cwd and open a second MCP
+  // connection. Keyed like `chats` and dropped alongside it.
+  toolContexts.set(sessionId, toolContext);
 
   // `agentMeta` is a single global field the UI renders for the ACTIVE session
   // only (switchSession resets it). These transport callbacks keep firing while
@@ -803,6 +820,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const remaining = get().sessions.filter((s) => s.id !== id);
     chats.get(id)?.stop();
     chats.delete(id);
+    toolContexts.delete(id);
     seedMessages.delete(id);
     const pend = pendingPersist.get(id);
     if (pend) {

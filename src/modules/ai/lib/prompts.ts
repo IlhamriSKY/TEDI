@@ -24,6 +24,7 @@ import type { ProviderId } from "../config";
 export type PromptId =
   | "core"
   | "core-lite"
+  | "chat"
   | "plan-mode"
   | "orchestration"
   | "subagent:comet"
@@ -93,6 +94,14 @@ export const PROMPT_META: readonly PromptMeta[] = [
     capabilities: {},
   },
   {
+    id: "chat",
+    label: "Chat mode prompt",
+    description:
+      "Replaces the whole system prompt while chat mode is on. No tools are sent with it, so keep it short.",
+    group: "Main agent",
+    capabilities: {},
+  },
+  {
     id: "plan-mode",
     label: "Plan mode appendix",
     description: "Appended to the system prompt while plan mode is active.",
@@ -152,28 +161,32 @@ export const PROMPT_META: readonly PromptMeta[] = [
   {
     id: "subagent:vega",
     label: "Vega sub-agent",
-    description: "Read-only strategic planner: produces a decision-complete plan a worker can execute.",
+    description:
+      "Read-only strategic planner: produces a decision-complete plan a worker can execute.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
     id: "subagent:zenith",
     label: "Zenith sub-agent",
-    description: "Autonomous executor: implements a multi-step plan end to end and verifies each task.",
+    description:
+      "Autonomous executor: implements a multi-step plan end to end and verifies each task.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
     id: "subagent:aurora",
     label: "Aurora sub-agent",
-    description: "Read-only visual analyst: reads images, screenshots, and diagrams and extracts what you ask.",
+    description:
+      "Read-only visual analyst: reads images, screenshots, and diagrams and extracts what you ask.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
   {
     id: "subagent:meteor",
     label: "Meteor sub-agent",
-    description: "Autonomous focused executor: completes one small scoped task fast and verifies once.",
+    description:
+      "Autonomous focused executor: completes one small scoped task fast and verifies once.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },

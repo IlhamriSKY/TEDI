@@ -1,8 +1,8 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
-import { findLastIndex } from "@/lib/utils";
-import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { getModelContextLimit, type DynamicModelId, type ProviderId } from "../config";
+import { injectContext, type LiveSnapshot, type SentEnvBlocks } from "./envContext";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import { formatSkillsPrompt, loadSkills } from "./skills";
 import { buildMcpToolsAsync, getMcpToolsSummary } from "../tools/mcp";
@@ -209,18 +209,6 @@ async function readMemory(workspaceRoot: string | null): Promise<string | null> 
   return content;
 }
 
-type LiveSnapshot = {
-  cwd: string | null;
-  workspaceRoot: string | null;
-  activeFile: string | null;
-  /** Every terminal in tab order. Surfaced in the per-turn <env> so the AI
-   *  can address terminals by ordinal/title without `list_terminals`. */
-  terminals: TerminalInfo[];
-  /** Every open in-app browser pane, so the AI can see what the user is
-   *  viewing (URL + tab/leaf ids) without a tool call. */
-  browsers: BrowserInfo[];
-};
-
 type Deps = {
   getKeys: () => ProviderKeys;
   toolContext: ToolContext;
@@ -280,6 +268,12 @@ function tryRecoverPersistedOverflow(
 }
 
 export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage> {
+  // Per-session record of the `<env>` block each user message was SENT with.
+  // Lives here (one transport per chat session) so it is replayed for the whole
+  // conversation and dies with it. See `injectContext` for why replaying is
+  // what makes any prompt cache hit past turn one.
+  const sentEnv: SentEnvBlocks = new Map();
+
   return {
     async sendMessages({ messages, abortSignal }) {
       const correlationId = newCorrelationId();
@@ -299,6 +293,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         lmstudioBaseURL: deps.getLmstudioBaseURL?.(),
         openaiCompatibleBaseURL: deps.getOpenaiCompatibleBaseURL?.(),
         planMode: deps.getPlanMode?.(),
+        chatMode: usePreferencesStore.getState().chatMode,
       };
 
       const live = deps.getLive();
@@ -314,12 +309,17 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // pre-first-token latency off every turn. Pass the same cwd to both MCP
       // calls so the deduped connect (mcpClient.getMcpClient) is cwd-deterministic.
       const mcpCwd = deps.toolContext.getCwd?.() ?? undefined;
+      // Chat mode sends no tools and a one-line system prompt, so all five of
+      // these would be loaded, paid for in the prompt, and ignored - and MCP
+      // servers would be connected for a turn that cannot call them. Skipping
+      // is both the token saving and a latency one.
+      const skip = snapshot.chatMode;
       const [projectMemory, memory, skills, mcpTools, mcpSummary] = await Promise.all([
-        readTediMd(live.workspaceRoot),
-        readMemory(live.workspaceRoot),
-        loadSkills(live.workspaceRoot),
-        buildMcpToolsAsync(deps.toolContext),
-        getMcpToolsSummary(mcpCwd),
+        skip ? null : readTediMd(live.workspaceRoot),
+        skip ? null : readMemory(live.workspaceRoot),
+        skip ? [] : loadSkills(live.workspaceRoot),
+        skip ? undefined : buildMcpToolsAsync(deps.toolContext),
+        skip ? null : getMcpToolsSummary(mcpCwd),
       ]);
       const skillsPrompt = formatSkillsPrompt(skills);
 
@@ -336,7 +336,11 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         }
 
         try {
-          const augmented = injectContext(requestMessages, live);
+          // The <env> block names terminals, cwd, and browser panes: ground
+          // truth for tools, noise for a conversation that has none.
+          const augmented = snapshot.chatMode
+            ? requestMessages
+            : injectContext(requestMessages, live, sentEnv);
           const result = await runAgentStream({
             keys: snapshot.keys,
             modelId: snapshot.modelId,
@@ -365,6 +369,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             lmstudioBaseURL: snapshot.lmstudioBaseURL,
             openaiCompatibleBaseURL: snapshot.openaiCompatibleBaseURL,
             planMode: snapshot.planMode,
+            chatMode: snapshot.chatMode,
             projectMemory,
             memory,
             skillsPrompt,
@@ -433,53 +438,4 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       return null;
     },
   };
-}
-
-function injectContext(messages: UIMessage[], live: LiveSnapshot): UIMessage[] {
-  const block = formatEnvBlock(live);
-  if (!block) return messages;
-  const lastUserIdx = findLastIndex(messages, (m) => m.role === "user");
-  if (lastUserIdx === -1) return messages;
-
-  return messages.map((m, i) => {
-    if (i !== lastUserIdx) return m;
-    const contextPart = { type: "text" as const, text: block };
-    return {
-      ...m,
-      parts: [contextPart, ...m.parts] as UIMessage["parts"],
-    };
-  });
-}
-
-/** Env block prepended to the latest user message. Short so the cacheable
- *  prefix stays stable. Terminal scrollback is not included; the agent calls
- *  `read_terminal` when needed. */
-function formatEnvBlock(live: LiveSnapshot): string | null {
-  const lines: string[] = [];
-  if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);
-  if (live.cwd) lines.push(`active_terminal_cwd: ${live.cwd}`);
-  if (live.activeFile) lines.push(`active_file: ${live.activeFile}`);
-  if (live.terminals.length > 0) {
-    // One line per terminal: `#<ord><*> tab=<tabId> leaf=<leafId> <title> <cwd>`.
-    // The asterisk marks the focused terminal.
-    lines.push("terminals:");
-    for (const t of live.terminals) {
-      const star = t.isActive ? "*" : " ";
-      const cwd = t.cwd ?? "";
-      lines.push(
-        `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}`,
-      );
-    }
-  }
-  if (live.browsers.length > 0) {
-    // In-app browser panes the user is viewing. The asterisk marks the focused
-    // one. The agent can open/reuse a browser with `open_browser`.
-    lines.push("browsers:");
-    for (const b of live.browsers) {
-      const star = b.isActive ? "*" : " ";
-      lines.push(`  ${star} tab=${b.tabId} leaf=${b.leafId} ${b.url || "(blank)"}`);
-    }
-  }
-  if (lines.length === 0) return null;
-  return `<env>\n${lines.join("\n")}\n</env>\n\n`;
 }

@@ -116,6 +116,17 @@ export type Preferences = {
    *  is delegated to parallel sub-agents and `depends_on` (scatter -> gather) is
    *  honored. Off hides the tools entirely (zero sub-agent token spend). */
   subagentsEnabled: boolean;
+  /** Plain-chat mode. On sends a one-line system prompt and NO tools, and skips
+   *  the project memory, .tedi/memory, skills, MCP, and per-turn <env> loads
+   *  entirely. The agent prompt plus ~77 tool schemas cost ~12K input tokens on
+   *  every message, so a "hi" is priced like a code task; this is the off
+   *  switch for turns that are just conversation. Off = the full agent. */
+  chatMode: boolean;
+  /** Model-facing names of tools the user switched OFF in the tool picker.
+   *  Stores what is DISABLED, not what is enabled, so a tool added by an app
+   *  update (or by installing an MCP server / extension) is on by default
+   *  instead of silently missing until the user goes looking for it. */
+  disabledTools: string[];
   /** Debug capture: when on, every request sent to the provider/API (system
    *  prompt, messages, model, params, tool list) is snapshotted in-memory so it
    *  can be inspected and downloaded as JSON from the chat. Off = no capture. */
@@ -344,6 +355,8 @@ const KEY_TERMINAL_THEME_ID = "terminalThemeId";
 const KEY_TERMINAL_CUSTOM_PALETTE = "terminalCustomPalette";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_SUBAGENTS_ENABLED = "subagentsEnabled";
+const KEY_CHAT_MODE = "chatMode";
+const KEY_DISABLED_TOOLS = "disabledTools";
 const KEY_DEBUG_ENABLED = "debugEnabled";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
@@ -471,6 +484,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalCustomPalette: DEFAULT_TERMINAL_PALETTE,
   customInstructions: "",
   subagentsEnabled: true,
+  chatMode: false,
+  disabledTools: [],
   debugEnabled: false,
   autostart: false,
   restoreWindowState: true,
@@ -560,6 +575,11 @@ export async function loadPreferences(): Promise<Preferences> {
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
     subagentsEnabled: get<boolean>(KEY_SUBAGENTS_ENABLED) ?? DEFAULT_PREFERENCES.subagentsEnabled,
+    chatMode: get<boolean>(KEY_CHAT_MODE) ?? DEFAULT_PREFERENCES.chatMode,
+    disabledTools:
+      (get<unknown>(KEY_DISABLED_TOOLS) as string[] | undefined)?.filter(
+        (t): t is string => typeof t === "string",
+      ) ?? DEFAULT_PREFERENCES.disabledTools,
     debugEnabled: get<boolean>(KEY_DEBUG_ENABLED) ?? DEFAULT_PREFERENCES.debugEnabled,
     autostart: get<boolean>(KEY_AUTOSTART) ?? DEFAULT_PREFERENCES.autostart,
     restoreWindowState: get<boolean>(KEY_RESTORE_WINDOW) ?? DEFAULT_PREFERENCES.restoreWindowState,
@@ -816,6 +836,14 @@ export async function setCustomInstructions(value: string): Promise<void> {
 
 export async function setSubagentsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_SUBAGENTS_ENABLED, value);
+}
+
+export async function setChatMode(value: boolean): Promise<void> {
+  await writePref(KEY_CHAT_MODE, value);
+}
+
+export async function setDisabledTools(value: string[]): Promise<void> {
+  await writePref(KEY_DISABLED_TOOLS, [...new Set(value)].sort());
 }
 
 export async function setDebugEnabled(value: boolean): Promise<void> {
@@ -1113,6 +1141,8 @@ export async function onPreferencesChange(
     terminalCustomPalette: KEY_TERMINAL_CUSTOM_PALETTE,
     customInstructions: KEY_CUSTOM_INSTRUCTIONS,
     subagentsEnabled: KEY_SUBAGENTS_ENABLED,
+    chatMode: KEY_CHAT_MODE,
+    disabledTools: KEY_DISABLED_TOOLS,
     debugEnabled: KEY_DEBUG_ENABLED,
     autostart: KEY_AUTOSTART,
     restoreWindowState: KEY_RESTORE_WINDOW,

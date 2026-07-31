@@ -12,6 +12,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AGENTROUTER_BASE_URL,
   AGENTROUTER_HEADERS,
+  CHAT_MODE_PROMPT,
   DEFAULT_MODEL_ID,
   getModelContextLimit,
   isLoopbackBaseURL,
@@ -38,9 +39,15 @@ import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
+import { applyToolFilter } from "../tools/catalog";
 import type { Tool } from "ai";
-import { applyCacheBreakpoints, applyStepCacheBreakpoints } from "./cache";
-import { compactModelMessagesDetailed, compactStepMessages, type CompactStages } from "./compact";
+import { applyCacheBreakpoints, applyStepCacheBreakpoints, noteProviderCacheRead } from "./cache";
+import {
+  compactModelMessagesDetailed,
+  compactStepMessages,
+  stripToolTraffic,
+  type CompactStages,
+} from "./compact";
 import { wantsForcedFanout } from "./orchestrationIntent";
 import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
@@ -413,6 +420,8 @@ export type RunAgentOptions = {
   lmstudioBaseURL?: string;
   openaiCompatibleBaseURL?: string;
   planMode?: boolean;
+  /** Plain chat: one-line system prompt, no tools, no project context. */
+  chatMode?: boolean;
   projectMemory?: string | null;
   /** Concatenated `.tedi/memory/*.md` (durable project memory). */
   memory?: string | null;
@@ -438,22 +447,33 @@ function buildSystemPrompt(opts: {
   skillsPrompt?: string | null;
   mcpSummary?: string | null;
   planMode?: boolean;
+  chatMode?: boolean;
 }): string {
-  // Resolve the core prompt: the user can override the full or compact variant
-  // independently, so the byte-stable lite/full token split survives overrides.
   const overrides = getPromptOverrides();
-  const variant = pickSystemPromptVariant(opts.modelId);
-  const builtinBase = variant === "lite" ? SYSTEM_PROMPT_LITE : SYSTEM_PROMPT;
-  const base = resolvePromptText(overrides, variant === "lite" ? "core-lite" : "core", builtinBase);
-  // Host tag is captured once at boot; prepending it keeps the prefix
-  // byte-stable across turns for prompt caching.
-  const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
   const personaBlock = opts.agentPersona?.instructions.trim()
     ? `\n\n## ACTIVE AGENT - ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
     : "";
   const customBlock = opts.customInstructions?.trim()
     ? `\n\n## USER CUSTOM INSTRUCTIONS - follow unless they conflict with safety rules above\n${opts.customInstructions.trim()}`
     : "";
+
+  // Plain chat: no tools go out this turn, so the agent prompt, project memory,
+  // skills, MCP summary, and orchestration nudge are all instructions about
+  // capabilities the model does not have - paid for on every message. Persona
+  // and custom instructions stay: the user wrote those, and dropping them
+  // silently would be a surprise, not a saving.
+  if (opts.chatMode) {
+    return `${resolvePromptText(overrides, "chat", CHAT_MODE_PROMPT)}${personaBlock}${customBlock}`;
+  }
+
+  // Resolve the core prompt: the user can override the full or compact variant
+  // independently, so the byte-stable lite/full token split survives overrides.
+  const variant = pickSystemPromptVariant(opts.modelId);
+  const builtinBase = variant === "lite" ? SYSTEM_PROMPT_LITE : SYSTEM_PROMPT;
+  const base = resolvePromptText(overrides, variant === "lite" ? "core-lite" : "core", builtinBase);
+  // Host tag is captured once at boot; prepending it keeps the prefix
+  // byte-stable across turns for prompt caching.
+  const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
   const memoryBlock =
     opts.projectMemory && opts.projectMemory.trim().length > 0
       ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
@@ -528,6 +548,7 @@ export async function runAgentStream(
   // (breaks the cached prefix only on those turns, which is the intent).
   const latestUserText = lastUserText(opts.uiMessages);
   const ultrathink = /\bultra ?think\b/i.test(latestUserText);
+  const chatMode = opts.chatMode === true;
   const systemText =
     buildSystemPrompt({
       modelId: modelInfo.id,
@@ -538,13 +559,19 @@ export async function runAgentStream(
       skillsPrompt: opts.skillsPrompt,
       mcpSummary: opts.mcpSummary,
       planMode: opts.planMode,
+      chatMode,
     }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
 
   // Optional main-agent temperature override. Only sent when the user set one,
   // so reasoning models that reject sampling params stay untouched by default.
   const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
-  const history = await convertToModelMessages(opts.uiMessages);
+  const rawHistory = await convertToModelMessages(opts.uiMessages);
+  // Chat mode declares no tools, so a history still carrying tool calls and
+  // results is both the bulk of the payload and, on Anthropic, a hard error
+  // ("tool_use without tools"). Strip it whenever the toggle is flipped
+  // mid-session; the text of the conversation survives.
+  const history = chatMode ? stripToolTraffic(rawHistory) : rawHistory;
   // The system prompt is prepended *after* compaction (see baseMessages below)
   // and the transport injects a per-turn <env> block into the latest user
   // message - neither is visible to the history compactor. Reserve their
@@ -614,11 +641,24 @@ export async function runAgentStream(
   // Extension-contributed AI tools first, then MCP tools, then built-ins.
   // Built-ins spread AFTER so an extension/MCP can never shadow a built-in
   // tool name (e.g. bash_run).
-  const tools = {
-    ...buildExtensionTools(opts.toolContext),
-    ...opts.mcpTools,
-    ...buildTools(opts.toolContext),
-  };
+  // Chat mode sends none: ~77 schemas is the single biggest fixed cost per
+  // step, and a plain conversation cannot use one. Not built either, so the
+  // extension/MCP/zod work is skipped too.
+  //
+  // Otherwise the user's tool picker decides. Filtering here rather than in the
+  // builders is deliberate: this is the ONE place every source (built-in, MCP,
+  // extension) has been merged, so a tool cannot be off in the picker and still
+  // reach the model through another path.
+  const tools = chatMode
+    ? undefined
+    : applyToolFilter(
+        {
+          ...buildExtensionTools(opts.toolContext),
+          ...opts.mcpTools,
+          ...buildTools(opts.toolContext),
+        },
+        new Set(usePreferencesStore.getState().disabledTools),
+      );
 
   // Forced spawn: a soft orchestration mandate in the prompt is unreliable -
   // many models start reading files inline instead of calling run_subagents.
@@ -630,6 +670,7 @@ export async function runAgentStream(
   // Only step 0 is constrained, so the model still synthesizes the summaries
   // itself afterwards (TEDI's run_subagents fans out the whole batch in one go).
   const forceSpawnStep0 =
+    !!tools &&
     usePreferencesStore.getState().subagentsEnabled &&
     "run_subagents" in tools &&
     wantsForcedFanout(latestUserText);
@@ -644,10 +685,11 @@ export async function runAgentStream(
       params: {
         ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
         maxSteps: MAX_AGENT_STEPS,
+        ...(chatMode ? { chatMode: true } : {}),
       },
       system: systemText,
       messages: finalMessages,
-      tools: Object.entries(tools).map(([name, t]) => ({
+      tools: Object.entries(tools ?? {}).map(([name, t]) => ({
         name,
         description: (t as { description?: string } | undefined)?.description,
       })),
@@ -705,12 +747,17 @@ export async function runAgentStream(
       if (opts.onStep && (step.toolCalls?.length || step.text)) {
         opts.onStep(describeStep(step));
       }
-      if (opts.onUsage && step.usage) {
+      if (step.usage) {
         const u = step.usage;
-        opts.onUsage({
+        const cachedInputTokens = u.inputTokenDetails?.cacheReadTokens ?? 0;
+        // A real cache read proves this endpoint caches, whatever the table
+        // says. Recording it stops the per-step history rewrite that would
+        // otherwise keep invalidating the prefix it just cached.
+        if (cachedInputTokens > 0) noteProviderCacheRead(provider);
+        opts.onUsage?.({
           inputTokens: u.inputTokens ?? 0,
           outputTokens: u.outputTokens ?? 0,
-          cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
+          cachedInputTokens,
         });
       }
     },

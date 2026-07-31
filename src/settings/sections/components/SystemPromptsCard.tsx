@@ -31,6 +31,7 @@ import { cn, matchesQuery } from "@/lib/utils";
 import { Label } from "../../components/Label";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
+  CHAT_MODE_PROMPT,
   getDetectedModels,
   MODELS,
   ORCHESTRATION_PROMPT_BODY,
@@ -85,6 +86,7 @@ import { ChevronDown, RefreshCw, SquarePen } from "lucide-react";
 const DEFAULTS: Record<PromptId, string> = {
   core: SYSTEM_PROMPT,
   "core-lite": SYSTEM_PROMPT_LITE,
+  chat: CHAT_MODE_PROMPT,
   "plan-mode": PLAN_MODE_PROMPT_BODY,
   orchestration: ORCHESTRATION_PROMPT_BODY,
   "subagent:comet": SUBAGENTS.comet.systemPrompt,

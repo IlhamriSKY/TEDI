@@ -23,6 +23,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { AiStatusBarControls } from "./AiStatusBarControls";
 import { ChipsRow } from "./ChipsRow";
 import { ContextIndicator } from "./ContextIndicator";
+import { ToolsPicker } from "./ToolsPicker";
 import { DebugRequestViewer } from "./DebugRequestViewer";
 import { InfoModal } from "./InfoModal";
 import { MentionPickerContent, type MentionItem } from "./MentionPicker";
@@ -594,6 +595,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         <div className="border-border/40 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
           <div className="flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
+            <ToolsPicker />
             {/* Hide the percent label from `ContextTrigger` so the chip stays
                 compact while the hovercard focuses on context details. */}
             <div className="shrink-0 [&_button>span:first-child]:hidden">

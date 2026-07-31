@@ -11,6 +11,8 @@ import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
 import { buildTodoTools } from "./todo";
 import { buildMcpToolsAsync, getMcpToolsSummary } from "./mcp";
+import { buildExtensionTools } from "./extensions";
+import { describeTools, type ToolDescriptor } from "./catalog";
 
 import type { ToolContext } from "./context";
 
@@ -49,6 +51,27 @@ export type ChatTools = ReturnType<typeof buildToolsRaw>;
 // `execute`. Per-ctx memoization avoids rebuilding ~12 zod schemas per turn.
 // A fresh session gets a fresh ctx and a fresh build.
 const toolsCache = new WeakMap<ToolContext, ChatTools>();
+
+/**
+ * Every tool this session WOULD send, before the user's off-list is applied.
+ *
+ * Uses the same three sources in the same merge order as `runAgentStream`, so
+ * the picker can never offer a tool the turn would not send, nor miss one it
+ * would. Async because MCP tools come from live servers (the connect is deduped
+ * with the one a turn makes, so opening the picker costs nothing extra).
+ */
+export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescriptor[]> {
+  const extension = buildExtensionTools(ctx);
+  const mcp = await buildMcpToolsAsync(ctx);
+  const builtin = buildTools(ctx);
+  const all = { ...extension, ...mcp, ...builtin };
+  // A built-in or MCP key wins the merge, so only the extension keys that
+  // actually survived may be labelled as coming from an extension.
+  const fromExtension = new Set(
+    Object.keys(extension).filter((k) => !(k in builtin) && !(k in mcp)),
+  );
+  return describeTools(all, fromExtension);
+}
 
 export function buildTools(ctx: ToolContext): ChatTools {
   let built = toolsCache.get(ctx);
