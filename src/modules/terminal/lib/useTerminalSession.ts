@@ -141,6 +141,11 @@ export function useTerminalSession({
       terminalThemeId,
       savedActiveTool,
     );
+    // Seed visibility before `attachSession` below, which is what decides
+    // whether this leaf takes a WebGL context on first attach. The layout
+    // effect that tracks `visible` cannot do it: the session does not exist yet
+    // when it runs on mount (this effect is what creates it).
+    s.visible = visible;
     // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;
@@ -308,9 +313,15 @@ export function useTerminalSession({
   }, [leafId, terminalThemeOverride]);
 
   useLayoutEffect(() => {
-    if (!visible) return;
     const s = sessions.get(leafId);
     if (!s) return;
+    // Hand the GPU context back while this pane sits in an inactive tab, and
+    // take it again on the way in. Cheap both ways: the DOM renderer is fine for
+    // a pane nobody is looking at, and the glyph atlas repopulates lazily on the
+    // next paint. Runs before the fit below so the addon sees the final size.
+    s.visible = visible;
+    syncRendererForWallpaper(s);
+    if (!visible) return;
     // Don't fit against a 0px container (window minimized) - it would reflow the
     // buffer the same way the ResizeObserver path does. Focus still runs.
     if (canFit(container.current)) {

@@ -51,6 +51,13 @@ export type Session = {
   webglEnabled: boolean;
   webglAddon: WebglAddon | null;
   /**
+   * Whether this leaf's pane is currently on screen. An inactive tab keeps its
+   * pane mounted under `display: none` (see `TerminalPane`), so without this the
+   * session would hold a live WebGL context and glyph atlas for a pane nobody
+   * can see. Read by `webgl.ts` as part of "should the renderer be on at all".
+   */
+  visible: boolean;
+  /**
    * GPU context losses this session has already auto-recovered from. Bounded by
    * `MAX_CONTEXT_LOSS_RELOADS` in `webgl.ts` so a context storm settles on the
    * DOM renderer rather than looping.

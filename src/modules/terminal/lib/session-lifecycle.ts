@@ -210,6 +210,10 @@ export function ensureSession(
     pendingExit: null,
     webglEnabled,
     webglAddon: null,
+    // Pessimistic until the mounting pane reports otherwise (it does so before
+    // `attachSession` runs), so a restored-but-hidden tab never briefly grabs a
+    // WebGL context on the way up.
+    visible: false,
     webglLossReloads: 0,
     ready: Promise.resolve(),
     disposed: false,
