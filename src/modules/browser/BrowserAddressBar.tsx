@@ -9,6 +9,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSearchUrl } from "@/modules/settings/searchEngines";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
+import { BrowserExtensionsMenu } from "./BrowserExtensionsMenu";
 import {
   ChevronLeft,
   ChevronRight,
@@ -67,6 +68,9 @@ function securityFor(url: string): {
 }
 
 type Props = {
+  /** Leaf id of the owning pane. The extensions menu needs it to ask the engine
+   *  what it has loaded, and to open store / settings pages in this same pane. */
+  paneId: number;
   url: string;
   loading: boolean;
   canGoBack: boolean;
@@ -85,6 +89,7 @@ type Props = {
 };
 
 export function BrowserAddressBar({
+  paneId,
   url,
   loading,
   canGoBack,
@@ -268,6 +273,9 @@ export function BrowserAddressBar({
             </Button>
           </IconTooltip>
         </div>
+        {/* Where every browser puts it, and so where anyone goes looking.
+            Renders nothing off Windows, whose engines can't load extensions. */}
+        <BrowserExtensionsMenu paneId={paneId} url={url} onNavigate={onSubmit} />
         <IconTooltip label="Open in system browser" side="top">
           <Button
             type="button"

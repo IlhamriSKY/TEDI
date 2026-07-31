@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import {
@@ -12,28 +13,25 @@ import {
   browserExtList,
   browserExtRemove,
   browserExtSetEnabled,
+  extInstallLabel,
+  extInstallPercent,
   type BrowserExt,
+  type ExtInstallProgress,
 } from "@/modules/browser/lib/extensions";
 
 import { SettingsCard } from "../../components/SettingsCard";
-
-/** Two starting points, not a curated catalogue: they exist because their latest
- *  GitHub release ships an unpacked chromium build, so `owner/repo` resolves
- *  without hunting an asset url. Pressing one only fills the field in. Any other
- *  extension installs through the same field with no code here. */
-const EXAMPLES: { label: string; source: string }[] = [
-  { label: "uBlock Origin", source: "gorhill/uBlock" },
-  { label: "uBlock Origin Lite", source: "uBlockOrigin/uBOL-home" },
-];
 
 /**
  * Install and manage Chrome / Edge extensions for the embedded browser pane.
  *
  * Generic by design: this card installs, enables, disables, updates and removes
- * *an extension*, and knows nothing about what any of them do. Content blocking is
- * the case that drove it - the user brings a blocker they already trust and it
- * keeps its own filter lists current, rather than TEDI shipping and maintaining
- * one - but nothing here is specific to that.
+ * *an extension*, and knows nothing about what any of them do or what category
+ * they belong to.
+ *
+ * The browser toolbar's puzzle button does the same things closer to where they
+ * are used, and can also open a store listing and an extension's own settings
+ * page because it has a pane to open them in. This card is the version with room
+ * to explain itself. Both drive the identical `browser_ext_*` commands.
  *
  * Windows only, because the pane is WebView2 there. Rust reports that verdict via
  * `supported` so this component never branches on the platform itself.
@@ -46,6 +44,7 @@ export function BrowserExtensionsCard() {
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ExtInstallProgress | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -79,6 +78,7 @@ export function BrowserExtensionsCard() {
         setError(String(e));
       } finally {
         setBusy(false);
+        setProgress(null);
       }
     },
     [busy, refresh],
@@ -87,7 +87,7 @@ export function BrowserExtensionsCard() {
   const onInstallSource = useCallback(async () => {
     const value = source.trim();
     if (!value) return;
-    await runInstall(() => browserExtInstall(value), "Installed");
+    await runInstall(() => browserExtInstall(value, setProgress), "Installed");
     setSource("");
   }, [source, runInstall]);
 
@@ -142,7 +142,7 @@ export function BrowserExtensionsCard() {
         <div className="flex gap-2">
           <Input
             value={source}
-            placeholder="owner/repo, or an https:// link to a .zip / .crx"
+            placeholder="Chrome / Edge store link, owner/repo, or an https:// link to a .zip / .crx"
             spellCheck={false}
             onChange={(e) => setSource(e.target.value)}
             onKeyDown={(e) => {
@@ -168,19 +168,23 @@ export function BrowserExtensionsCard() {
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-muted-foreground text-[11px]">Examples:</span>
-          {EXAMPLES.map((s) => (
-            <button
-              key={s.source}
-              type="button"
-              className="border-border/60 hover:bg-accent text-muted-foreground hover:text-foreground rounded border px-1.5 py-0.5 text-[11px]"
-              onClick={() => setSource(s.source)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        {/* Both phases are minutes long for a large package, and which one is
+            running explains why: fetching, then writing several times as much. */}
+        {busy ? (
+          <div className="flex flex-col gap-1">
+            <div className="text-muted-foreground flex items-center justify-between text-[11px]">
+              <span>
+                {progress?.phase === "unpack"
+                  ? "Unpacking"
+                  : progress
+                    ? "Downloading"
+                    : "Resolving…"}
+              </span>
+              <span className="tabular-nums">{extInstallLabel(progress)}</span>
+            </div>
+            <Progress value={extInstallPercent(progress)} className="h-1 rounded-full" />
+          </div>
+        ) : null}
 
         {error ? <div className="text-destructive text-[11px] break-words">{error}</div> : null}
 
@@ -211,12 +215,22 @@ export function BrowserExtensionsCard() {
                       className="h-7 px-2 text-[11px]"
                       disabled={busy}
                       onClick={() =>
-                        void runInstall(() => browserExtInstall(ext.source), "Updated")
+                        void runInstall(() => browserExtInstall(ext.source, setProgress), "Updated")
                       }
                     >
                       Update
                     </Button>
                   ) : null}
+                  {/* Spelled out, not just a switch position: a fresh install is
+                      already on, and pressing the switch to "activate it" turns
+                      it off silently. */}
+                  <span
+                    className={`w-6 text-right text-[11px] ${
+                      ext.enabled ? "text-foreground" : "text-muted-foreground/70"
+                    }`}
+                  >
+                    {ext.enabled ? "On" : "Off"}
+                  </span>
                   <Switch
                     checked={ext.enabled}
                     onCheckedChange={(next) => {
@@ -245,6 +259,9 @@ export function BrowserExtensionsCard() {
         </div>
 
         <p className="text-muted-foreground text-[11px] leading-relaxed">
+          A Chrome Web Store or Edge Add-ons page link works as-is: the extension is fetched from
+          the same endpoint the browser itself uses, so a store listing needs no manual download.
+          The two stores do not always carry the same build, so paste the listing you actually want.
           Extensions are attached when a browser tab opens, so changes here apply to tabs you open
           afterwards. Browser tabs also move to their own WebView2 profile once the first extension
           is installed, which keeps extensions out of TEDI&apos;s own window; sites you were signed
