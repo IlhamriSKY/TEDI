@@ -9,6 +9,7 @@ import {
   normalizeOpenAICompatibleBaseURL,
   type OpenAICompatibleInstance,
 } from "@/modules/ai/config";
+import { corsFallbackFetch } from "@/modules/ai/lib/httpProxy";
 import {
   isOpenAICompatibleInstanceReady,
   refreshOpenAICompatibleInstance,
@@ -16,7 +17,6 @@ import {
 } from "@/modules/ai/lib/openaiCompatible";
 import { setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { Eye, EyeOff, SquarePen, X } from "lucide-react";
@@ -104,10 +104,28 @@ export function OpenAICompatibleBlock({
     setTestError(null);
     try {
       const url = normalizeOpenAICompatibleBaseURL(urlDraft) + "/models";
-      const auth = keyDraft.trim() || apiKey;
-      const code = await invoke<number>("http_ping", { url, auth });
-      setTestStatus(code >= 200 && code < 400 ? "ok" : "fail");
-      if (!(code >= 200 && code < 400)) setTestError(`HTTP ${code}`);
+      const auth = (keyDraft.trim() || apiKey || "").trim();
+      // Not `http_ping`: a bare status code cannot tell a working API from the
+      // gateway's own website. A base URL missing its `/v1` answers 200 with the
+      // landing page, so Test went green on an endpoint that could never chat.
+      // The timeout replaces the one `http_ping` got from its 5s reqwest client:
+      // the streaming proxy this can fall back to has no overall cap, so without
+      // it a host that connects and then says nothing leaves Test spinning.
+      const res = await corsFallbackFetch(url, {
+        method: "GET",
+        headers: {
+          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      void res.body?.cancel().catch(() => {});
+      const html = /^\s*text\/html/i.test(res.headers.get("content-type") ?? "");
+      const reachable = res.status >= 200 && res.status < 400 && !html;
+      setTestStatus(reachable ? "ok" : "fail");
+      if (!reachable) {
+        setTestError(html ? "not an API base URL - it usually ends in /v1" : `HTTP ${res.status}`);
+      }
     } catch (e) {
       setTestStatus("fail");
       setTestError(e instanceof Error ? e.message : String(e));

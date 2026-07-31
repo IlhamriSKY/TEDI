@@ -10,6 +10,10 @@
  *  3. OUTER ABORT PROPAGATES: aborting the caller's signal aborts the wrapped
  *     request (and does not masquerade as an idle timeout).
  *  4. CONNECT STALL: a baseFetch that never resolves is abandoned after idleMs.
+ *  5. HTML ON 2xx -> ERROR: a gateway whose base URL is missing its `/v1` answers
+ *     200 with its own landing page; the SSE parser finds no `data:` lines there,
+ *     so without this the turn ends as a silent EMPTY reply. A non-2xx HTML body
+ *     must still pass through, so the provider's own status error wins.
  */
 import { withStreamIdleTimeout } from "../src/modules/ai/lib/httpProxy";
 
@@ -177,6 +181,49 @@ async function main() {
     assert(res.headers.get("content-encoding") === null, "content-encoding dropped");
     const { text } = await drain(res);
     assert(text === "data: hi\n\n", "body streamed intact");
+  }
+
+  console.log("\n[6] HTML on 2xx -> error naming the base URL; HTML on non-2xx passes through");
+  {
+    const htmlAt = (status: number) =>
+      (async () =>
+        new Response('<!doctype html>\n<html lang="zh">…', {
+          status,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        })) as typeof globalThis.fetch;
+
+    let error: Error | null = null;
+    try {
+      await withStreamIdleTimeout(htmlAt(200), IDLE)("https://agentrouter.org/chat/completions");
+    } catch (e) {
+      error = e instanceof Error ? e : new Error(String(e));
+    }
+    assert(!!error, "200 + text/html rejects instead of streaming an empty reply");
+    assert(
+      !!error && /html page/i.test(error.message) && /\/v1/.test(error.message),
+      `error names the cause and the fix (${error?.message})`,
+    );
+    assert(
+      !!error && error.message.includes("https://agentrouter.org/chat/completions"),
+      "error names WHICH endpoint answered (multiple can be configured)",
+    );
+    // classifyError must land on UNKNOWN (non-retryable): a misconfigured base
+    // URL never fixes itself, so retrying it three times only hides the message.
+    assert(
+      !!error && !/\b(401|429|unauthorized|rate limit|timeout|network)\b/i.test(error.message),
+      "message does not trip classifyError into a retryable/auth code",
+    );
+
+    // 404/500 HTML error pages are common and carry a real status: leave them
+    // to the provider's own error handling rather than masking it.
+    let passed = true;
+    try {
+      const res = await withStreamIdleTimeout(htmlAt(404), IDLE)("http://x");
+      passed = res.status === 404;
+    } catch {
+      passed = false;
+    }
+    assert(passed, "non-2xx HTML passes through untouched");
   }
 
   if (failed > 0) throw new Error(`${failed} check(s) FAILED`);

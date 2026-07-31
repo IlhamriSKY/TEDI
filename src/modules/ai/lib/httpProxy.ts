@@ -231,6 +231,9 @@ const STREAM_IDLE_TIMEOUT_MS = 300_000;
  * guard never runs for those because native fetch succeeds first). The error
  * message carries "idle timeout" so `classifyError` maps it to
  * PROVIDER_UNAVAILABLE (retryable) rather than a user abort.
+ *
+ * Also rejects an HTML body on a 2xx (see below). Every call site is an
+ * OpenAI-wire JSON/SSE endpoint, so this is the one place all of them share.
  */
 export function withStreamIdleTimeout(
   baseFetch: typeof globalThis.fetch,
@@ -284,6 +287,19 @@ export function withStreamIdleTimeout(
       throw e;
     }
     clear();
+    // A 2xx carrying HTML is never an API response: it's the gateway's own site
+    // answering because the base URL is missing its `/v1` (or points at the site
+    // rather than the API). AgentRouter is the worst shape of this - its SPA
+    // catch-all answers `POST /chat/completions` with 200 + the landing page, so
+    // the SSE parser finds no `data:` lines and the turn ends as a SILENT EMPTY
+    // REPLY with no error at all. Fail loudly and name the fix instead.
+    if (res.ok && /^\s*text\/html/i.test(res.headers.get("content-type") ?? "")) {
+      void res.body?.cancel().catch(() => {});
+      const reqUrl = input instanceof Request ? input.url : String(input);
+      throw new Error(
+        `${reqUrl} returned an HTML page, not an API response - check the endpoint's base URL (it usually ends in /v1)`,
+      );
+    }
     if (!res.body) return res;
 
     const reader = res.body.getReader();
