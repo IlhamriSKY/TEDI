@@ -1,0 +1,12 @@
+# Paths `tauri dev` must not treat as source. Same syntax as .gitignore.
+#
+# Build output, wherever it lands. The dev watcher walks src-tauri recursively
+# and already skips the one cargo target directory it is building into - but only
+# that one. A SECOND target directory here (a throwaway CARGO_TARGET_DIR for a
+# cross-platform type-check, say) makes every artifact it writes count as a
+# source change: one session logged 108 rebuild-and-respawn cycles, and the app
+# then failed to start at all, because WebView2 refused a user data folder the
+# dying instance still held - HRESULT 0x800700AA, "The requested resource is in
+# use", followed by exit 0xC0000142. It reads like the last code change broke
+# the build, and it is nothing of the sort.
+target*/
