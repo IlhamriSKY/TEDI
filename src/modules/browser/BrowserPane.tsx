@@ -13,10 +13,17 @@ import {
   previewEmbedZoom,
   previewEmbedZoomGet,
   type BrowserNavEvent,
+  type EmbedBounds,
   wasPreviewCreatedTransparent,
 } from "./lib/native";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { anyOverlayIntersects, useAnyOverlayOpen, usePaneDragActive } from "./lib/overlaySuppress";
+import { IS_WINDOWS } from "@/lib/platform";
+import {
+  anyOverlayIntersects,
+  overlayRectsOver,
+  useAnyOverlayOpen,
+  usePaneDragActive,
+} from "./lib/overlaySuppress";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "./lib/proxy";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
 import { CircleAlert, Globe } from "lucide-react";
@@ -163,6 +170,12 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
 
   const syncBounds = useCallback(() => {
     const el = contentRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    // Rectangles to cut out of the pane so a menu, dialog or tooltip drawn over
+    // it is visible AND clickable while the page stays on screen. Only Windows
+    // can do this (a window region on the pane's child HWND); everywhere else
+    // an overlapping overlay still costs the whole page, via `show = false`.
+    let holes: EmbedBounds[] = [];
     let show =
       // The native webview composites ABOVE the DOM. While the window is
       // minimized/hidden the rAF loop below is throttled, so without this it
@@ -181,10 +194,23 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
       r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) {
         show = false;
-      } else if (anyOverlayOpenRef.current && anyOverlayIntersects(r)) {
-        // A dropdown / dialog / popover is covering the pane - yield to the DOM
-        // by hiding the always-on-top native webview while it's open.
-        show = false;
+      } else if (anyOverlayOpenRef.current) {
+        if (IS_WINDOWS) {
+          // Cut each overlay out instead of yielding the whole page. Rounded
+          // outward by a pixel so an antialiased edge cannot leave a sliver of
+          // page showing through under the menu's own border. An overlay that
+          // covers the pane entirely leaves an empty region, which is the same
+          // result as hiding, so that case needs no branch of its own.
+          const pane = r;
+          holes = overlayRectsOver(pane).map((o) => ({
+            x: Math.floor((o.left - pane.left) * dpr) - 1,
+            y: Math.floor((o.top - pane.top) * dpr) - 1,
+            width: Math.ceil(o.width * dpr) + 2,
+            height: Math.ceil(o.height * dpr) + 2,
+          }));
+        } else if (anyOverlayIntersects(r)) {
+          show = false;
+        }
       }
     }
 
@@ -201,6 +227,7 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
             id,
             currentRef.current,
             { x: 0, y: 0, width: 0, height: 0 },
+            [],
             false,
             transparentRef.current,
           )
@@ -213,18 +240,29 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
       return;
     }
 
-    const dpr = window.devicePixelRatio || 1;
     const bounds = {
       x: Math.round(r.left * dpr),
       y: Math.round(r.top * dpr),
       width: Math.round(r.width * dpr),
       height: Math.round(r.height * dpr),
     };
-    const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+    // Holes are part of the identity of what was sent: a menu opening, moving or
+    // closing changes nothing about the bounds, and without this the pane would
+    // keep whatever region it was last given.
+    const boundsKey = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+    const key = boundsKey + holes.map((h) => `|${h.x},${h.y},${h.width},${h.height}`).join("");
     if (sentRef.current?.visible === true && sentRef.current.key === key) return;
     if (inFlightRef.current) return;
     const now = performance.now();
-    if (now - lastSendRef.current < 40) return; // throttle to ~25fps
+    // Bounds move because the user is dragging something and expects the page to
+    // keep up, so they stay at ~25fps. Holes move because an overlay is playing
+    // its entrance animation, which nobody is waiting on and which re-clips the
+    // pane - a forced repaint - on every frame of it. A quarter of the rate is
+    // still well inside one animation, and the loop keeps running, so the final
+    // resting position always lands on a later tick.
+    const holesOnly =
+      sentRef.current?.visible === true && sentRef.current.key.startsWith(boundsKey);
+    if (now - lastSendRef.current < (holesOnly ? 160 : 40)) return;
     lastSendRef.current = now;
     const prev = sentRef.current;
     sentRef.current = { visible: true, key };
@@ -233,7 +271,7 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     // survives this component remounting on pane moves. Idempotent afterwards.
     markPreviewCreated(id, transparentRef.current);
     inFlightRef.current = true;
-    void previewEmbedUpdate(id, currentRef.current, bounds, true, transparentRef.current)
+    void previewEmbedUpdate(id, currentRef.current, bounds, holes, true, transparentRef.current)
       .catch(() => {
         sentRef.current = prev; // let the next tick retry
       })
@@ -467,6 +505,7 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     >
       <BrowserAddressBar
         ref={addressRef}
+        paneId={id}
         url={current}
         loading={loading}
         canGoBack={history.index > 0}

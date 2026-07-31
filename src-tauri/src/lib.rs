@@ -715,6 +715,7 @@ pub fn run() {
             preview::preview_embed_zoom_get,
             preview::preview_embed_url,
             preview::preview_embed_reparent,
+            preview::preview_embed_loaded_exts,
             preview::preview_embed_close,
             preview::preview_resolve_favicon,
             preview::browser_ext_list,
@@ -977,7 +978,10 @@ mod ui_thread_guard {
     /// once per platform and would otherwise count twice.
     fn sync_command_names() -> BTreeSet<String> {
         let mut files = Vec::new();
-        rs_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        rs_files(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
         let mut found = BTreeSet::new();
         for path in files {
             let Ok(src) = std::fs::read_to_string(&path) else {
@@ -1022,8 +1026,10 @@ mod ui_thread_guard {
     #[test]
     fn no_new_sync_tauri_commands() {
         let found = sync_command_names();
-        let allowed: BTreeSet<String> =
-            ALLOWED_SYNC_COMMANDS.iter().map(|s| s.to_string()).collect();
+        let allowed: BTreeSet<String> = ALLOWED_SYNC_COMMANDS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         let added: Vec<&String> = found.difference(&allowed).collect();
         assert!(

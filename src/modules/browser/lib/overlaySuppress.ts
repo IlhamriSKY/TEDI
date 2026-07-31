@@ -1,29 +1,41 @@
 import { useSyncExternalStore } from "react";
 
+import { IS_WINDOWS } from "@/lib/platform";
+
 /**
  * Native webviews always composite *above* the DOM, so a dropdown, dialog,
  * command palette, or any popper that lands over an embedded preview webview
- * would be hidden behind it. `BrowserPane` fixes that by hiding its webview
- * while an overlay actually overlaps its rect.
+ * would be hidden behind it.
  *
- * This module is the cheap gate: a shallow `<body>` observer flips
+ * Two answers, and which one is available depends on the platform. On Windows
+ * the pane is a child window, so `BrowserPane` cuts the overlay's rectangle out
+ * of its window region ({@link overlayRectsOver}) and the page stays on screen,
+ * live, with the DOM showing through the hole. Everywhere else the only lever is
+ * hiding the whole webview while an overlay overlaps it
+ * ({@link anyOverlayIntersects}).
+ *
+ * This module is the cheap gate either way: a shallow `<body>` observer flips
  * {@link useAnyOverlayOpen} when any overlay element is mounted, so the
- * per-frame geometric test ({@link anyOverlayIntersects}) only runs while
- * something is actually open.
- *
- * **Tooltips are deliberately excluded.** Radix tooltips are popper-based, so
- * they also match `[data-radix-popper-content-wrapper]`, but they are
- * non-interactive (`pointer-events: none`) and transient. The status-bar icon
- * buttons open their tooltips `side="top"` - i.e. straight up over the preview
- * pane - so counting them as overlays made the whole browser page flash away on
- * a plain hover, then reappear on hover-out. Real, interactive surfaces (menus,
- * dialogs, popovers, selects) still suppress the webview so they stay clickable
- * on top of it; only tooltips are ignored. The trade-off is a tooltip that
- * happens to overlap the pane renders *behind* the webview, which is far less
- * disruptive than the page vanishing.
+ * per-frame geometric test only runs while something is actually open.
  */
 const OVERLAY_SELECTOR =
   '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [role="menu"]';
+
+/**
+ * Whether tooltips count as overlays. Only where a hole can be cut for them.
+ *
+ * Radix tooltips are popper-based, so they match the selector above like any
+ * other overlay, but they are non-interactive and transient. Where the only
+ * response is hiding the entire page, counting them was actively worse than
+ * ignoring them: the status-bar icon buttons open their tooltips `side="top"`,
+ * straight up over the pane, so the whole page flashed away on a plain hover and
+ * came back on hover-out. Ignoring them cost a tooltip over the pane rendering
+ * *behind* the page, i.e. invisibly, which was the lesser of two bad options.
+ *
+ * With a hole there is no trade to make, so on Windows they count and that
+ * invisible-tooltip corner disappears.
+ */
+const COUNT_TOOLTIPS = IS_WINDOWS;
 
 /**
  * A tooltip popper to be ignored. Two independent signals, either is enough:
@@ -41,11 +53,16 @@ function isTooltipPopper(el: Element): boolean {
   return el.querySelector('[data-slot="tooltip-content"], [role="tooltip"]') !== null;
 }
 
-/** True when at least one *non-tooltip* overlay is currently mounted. */
+/** Whether this element should be ignored for the purposes of the pane. */
+function skip(el: Element): boolean {
+  return !COUNT_TOOLTIPS && isTooltipPopper(el);
+}
+
+/** True when at least one counting overlay is currently mounted. */
 function hasRealOverlay(): boolean {
   const els = document.querySelectorAll(OVERLAY_SELECTOR);
   for (let i = 0; i < els.length; i++) {
-    if (!isTooltipPopper(els[i])) return true;
+    if (!skip(els[i])) return true;
   }
   return false;
 }
@@ -102,20 +119,30 @@ export function useAnyOverlayOpen(): boolean {
 }
 
 /**
- * Whether any currently-open overlay's box intersects `rect` (viewport CSS px).
- * Call only while {@link useAnyOverlayOpen} is true to keep it off the hot path.
+ * Every open overlay box that lands on `rect` (viewport CSS px), in viewport
+ * coordinates. These become the holes cut out of the pane. Call only while
+ * {@link useAnyOverlayOpen} is true to keep it off the hot path.
  */
-export function anyOverlayIntersects(rect: DOMRect): boolean {
+export function overlayRectsOver(rect: DOMRect): DOMRect[] {
+  const out: DOMRect[] = [];
   const overlays = document.querySelectorAll(OVERLAY_SELECTOR);
   for (let i = 0; i < overlays.length; i++) {
-    if (isTooltipPopper(overlays[i])) continue;
+    if (skip(overlays[i])) continue;
     const o = overlays[i].getBoundingClientRect();
     if (o.width < 1 || o.height < 1) continue;
     if (o.left < rect.right && o.right > rect.left && o.top < rect.bottom && o.bottom > rect.top) {
-      return true;
+      out.push(o);
     }
   }
-  return false;
+  return out;
+}
+
+/**
+ * Whether any currently-open overlay's box intersects `rect`. The hide-the-pane
+ * answer, for platforms that cannot cut a hole.
+ */
+export function anyOverlayIntersects(rect: DOMRect): boolean {
+  return overlayRectsOver(rect).length > 0;
 }
 
 // Pane drag-and-drop: while a pane is being dragged, hide preview webviews. The

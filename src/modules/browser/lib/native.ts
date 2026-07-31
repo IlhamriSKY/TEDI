@@ -43,15 +43,21 @@ export type EmbedBounds = { x: number; y: number; width: number; height: number 
  * url is ignored here (use {@link previewEmbedNavigate}). `transparent` (read
  * from the app-opacity setting) makes the webview backdrop transparent; it only
  * takes effect when the webview is first created.
+ *
+ * `holes` are rectangles cut out of the pane, in physical pixels relative to the
+ * pane's own top-left, so a menu or tooltip drawn over it is visible and
+ * clickable while the page behind it stays on screen. Windows only; elsewhere
+ * the caller passes none and hides the pane instead.
  */
 export async function previewEmbedUpdate(
   tabId: number,
   url: string,
   bounds: EmbedBounds,
+  holes: EmbedBounds[],
   visible: boolean,
   transparent: boolean,
 ): Promise<void> {
-  await invoke("preview_embed_update", { tabId, url, bounds, visible, transparent });
+  await invoke("preview_embed_update", { tabId, url, bounds, holes, visible, transparent });
 }
 
 /** Navigate an existing embedded preview webview to `url`. */
@@ -218,6 +224,7 @@ export async function browserEmbedHide(tabId: number): Promise<void> {
     tabId,
     url: "",
     bounds: { x: 0, y: 0, width: 0, height: 0 },
+    holes: [],
     visible: false,
     transparent: false,
   });

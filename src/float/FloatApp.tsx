@@ -90,40 +90,15 @@ export function FloatApp() {
  * A browser pane popped out into a float window.
  *
  * The pane is a real native webview docked over a rectangle, not DOM, so it is
- * MOVED here rather than re-created: one `reparent` call and the page keeps its
- * scroll position, its session and anything it was playing. After that
- * `BrowserPane` behaves exactly as it does in the main window, because every
- * operation it performs is keyed by leaf id and goes through Rust - it never knew
- * which window it was in.
- *
- * The pane is mounted only AFTER the move lands: it starts measuring and pushing
- * bounds the moment it mounts, and those bounds are relative to the OWNING
- * window, so measuring here while the main window still owned the webview would
- * park the page at the wrong coordinates for a frame.
+ * MOVED here rather than re-created: the page keeps its scroll position, its
+ * session and anything it was playing. Nothing has to move it explicitly -
+ * `preview_embed_update` adopts the webview into whichever window is pushing
+ * bounds - so `BrowserPane` behaves exactly as it does in the main window,
+ * because every operation it performs is keyed by leaf id and goes through Rust.
+ * It never knew which window it was in.
  */
 function FloatBrowser({ leafId, url }: { leafId: number; url: string }) {
-  const [owned, setOwned] = useState(false);
   const [current, setCurrent] = useState(url);
-  useEffect(() => {
-    let alive = true;
-    void previewEmbedReparent(leafId, `float-${leafId}`)
-      .catch(console.error)
-      // Mount either way: on failure the pane still renders its chrome and the
-      // user can see and act on the state instead of staring at a blank window.
-      .finally(() => {
-        if (alive) setOwned(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [leafId]);
-  if (!owned) {
-    return (
-      <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
-        Moving the page over…
-      </div>
-    );
-  }
   return (
     <BrowserPane
       id={leafId}

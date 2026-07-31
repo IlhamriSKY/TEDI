@@ -163,12 +163,101 @@ fn last_bounds() -> &'static Mutex<BoundsMap> {
 }
 
 /// Physical-pixel bounds for the embedded webview, measured by the frontend.
+/// Also used for the holes punched out of it, which are relative to the pane's
+/// own top-left rather than the window's.
 #[derive(serde::Deserialize)]
 pub struct EmbedBounds {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
+}
+
+/// Clip the pane to its own rectangle MINUS `holes`, so DOM overlays show
+/// through it instead of the whole page being hidden while one is open.
+///
+/// A pane composites ABOVE the DOM because it is a separate child window, which
+/// is why anything TEDI draws over it is invisible. The blunt answer to that was
+/// to hide the entire webview for as long as an overlay was open, and blanking a
+/// page to show a small menu reads as the page having crashed. A window region
+/// is the precise answer instead: Win32 clips a child window, and everything
+/// inside it, to its region - for painting AND for hit-testing - so an excluded
+/// rectangle both reveals the DOM underneath and routes clicks there. The page
+/// keeps running, keeps its scroll position, and is never redrawn.
+///
+/// `holes` are physical pixels relative to the pane's top-left. An empty list
+/// clears the region, which is what restores a full-bleed pane. An overlay that
+/// covers the pane entirely leaves an empty region, i.e. exactly the old
+/// hide-everything behaviour, so no case needs special-casing.
+///
+/// Skipped entirely when the shape is already what was asked for. `SetWindowRgn`
+/// forces a repaint, and the bounds it rides along with change on every frame of
+/// a splitter drag - almost always with no holes at all - so without this every
+/// drag issued a redundant repaint per frame on top of the resize.
+#[cfg(target_os = "windows")]
+fn apply_clip(
+    wv: &Webview,
+    tab_id: i64,
+    size: PhysicalSize<i32>,
+    holes: Vec<(i32, i32, i32, i32)>,
+) {
+    // The shape last handed to each pane, so an unchanged one costs nothing.
+    // Keyed by leaf id like the rest of this module; leaf ids are never reused.
+    type ShapeMap = std::collections::HashMap<i64, (PhysicalSize<i32>, Vec<(i32, i32, i32, i32)>)>;
+    static LAST_SHAPE: OnceLock<Mutex<ShapeMap>> = OnceLock::new();
+    let shapes = LAST_SHAPE.get_or_init(|| Mutex::new(ShapeMap::new()));
+    if let Ok(mut map) = shapes.lock() {
+        let shape = (size, holes.clone());
+        if map.get(&tab_id) == Some(&shape) {
+            return;
+        }
+        map.insert(tab_id, shape);
+    }
+    apply_clip_inner(wv, size, holes)
+}
+
+#[cfg(target_os = "windows")]
+fn apply_clip_inner(wv: &Webview, size: PhysicalSize<i32>, holes: Vec<(i32, i32, i32, i32)>) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, RGN_DIFF,
+    };
+
+    // The region has to be set on the window WebView2 renders into, which is
+    // wry's own container - the controller's parent - not the top-level window.
+    let _ = wv.with_webview(move |platform| unsafe {
+        let mut hwnd = HWND::default();
+        if platform.controller().ParentWindow(&mut hwnd).is_err() || hwnd.is_invalid() {
+            return;
+        }
+        if holes.is_empty() {
+            // A null region is "no clipping", the state a pane spends almost all
+            // of its life in; it must be restored explicitly, since a region
+            // survives every later SetWindowPos.
+            let _ = SetWindowRgn(hwnd, None, true);
+            return;
+        }
+        let region = CreateRectRgn(0, 0, size.width, size.height);
+        for (x, y, w, h) in holes {
+            let hole = CreateRectRgn(x, y, x + w, y + h);
+            CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
+            let _ = DeleteObject(hole.into());
+        }
+        // SetWindowRgn takes ownership of the region on success, so it must not
+        // be deleted here.
+        let _ = SetWindowRgn(hwnd, Some(region), true);
+    });
+}
+
+/// Other platforms keep the hide-the-whole-pane behaviour: the frontend never
+/// sends holes there, so this is only the shape the shared call site needs.
+#[cfg(not(target_os = "windows"))]
+fn apply_clip(
+    _wv: &Webview,
+    _tab_id: i64,
+    _size: PhysicalSize<i32>,
+    _holes: Vec<(i32, i32, i32, i32)>,
+) {
 }
 
 /// Injected at document start when whole-app transparency is on, so the page's
@@ -282,10 +371,13 @@ pub fn apply_webview2_browser_args_env() {
 }
 
 /// Build + attach an embedded browser child webview for `tab_id` at the given
-/// window-relative position/size, wiring the page-load + title-change events
-/// that drive the React address bar / tab label. Shared by the visible-create
-/// path and the background (off-screen) headless-create path of
-/// `preview_embed_update`.
+/// position/size, wiring the page-load + title-change events that drive the
+/// React address bar / tab label. Shared by the visible-create path and the
+/// background (off-screen) headless-create path of `preview_embed_update`.
+///
+/// `window` is the window that ASKED, not always the main one: a floated browser
+/// pane is driven by its own float window, and both the position and the size are
+/// relative to whoever owns the webview.
 ///
 /// NOTE: the occlusion / background-throttling flags that keep a pane processing
 /// while TEDI is minimized or occluded are applied PROCESS-WIDE via the
@@ -300,7 +392,7 @@ pub fn apply_webview2_browser_args_env() {
 // a struct for a single call path would add ceremony without clarity.
 #[allow(clippy::too_many_arguments)]
 fn spawn_preview_child(
-    app: &tauri::AppHandle,
+    window: &tauri::Window,
     label: String,
     target: Url,
     position: PhysicalPosition<i32>,
@@ -309,9 +401,7 @@ fn spawn_preview_child(
     tab_id: i64,
     focus_on_create: bool,
 ) -> Result<(), String> {
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "main window not found".to_string())?;
+    let app = window.app_handle();
     let app_evt = app.clone();
     let app_title = app.clone();
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(target))
@@ -407,17 +497,32 @@ fn spawn_preview_child(
 
 /// Create (first visible call) or reposition/show the embedded browser webview
 /// for a preview tab. `x/y/width/height` are physical pixels measured by the
-/// frontend. A hidden or zero-area request hides an existing webview, or - when
-/// the webview doesn't exist yet because the tab was opened in the background
-/// (the AI opening a browser to read without focusing it) - creates it OFF-SCREEN
-/// so the page still loads + lays out for headless reads. Never reloads an
-/// existing webview - navigation is a separate command.
+/// frontend, RELATIVE TO THE CALLING WINDOW. A hidden or zero-area request hides
+/// an existing webview, or - when the webview doesn't exist yet because the tab
+/// was opened in the background (the AI opening a browser to read without
+/// focusing it) - creates it OFF-SCREEN so the page still loads + lays out for
+/// headless reads. Never reloads an existing webview - navigation is a separate
+/// command.
+///
+/// `window` is injected by Tauri and is whichever window's pane is driving the
+/// bounds. That matters because a browser pane can be popped out into its own
+/// float window: the webview must be parented to the caller before its rectangle
+/// is applied, or the float's coordinates would place the page inside the main
+/// window - painting it over TEDI's UI while the float sits empty.
+///
+/// `holes` are rectangles to cut out of the pane so DOM overlays show through it
+/// (see [`apply_clip`]). They travel with the bounds rather than in a command of
+/// their own: both are measured in the same frame by the same loop, and pushing
+/// them separately would let the pane render a hole at a stale position.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn preview_embed_update(
     app: tauri::AppHandle,
+    window: tauri::Window,
     tab_id: i64,
     url: String,
     bounds: EmbedBounds,
+    holes: Vec<EmbedBounds>,
     visible: bool,
     transparent: bool,
 ) -> Result<(), String> {
@@ -452,9 +557,6 @@ pub async fn preview_embed_update(
             return Ok(());
         }
         let target = parse_pane_url(&url)?;
-        let window = app
-            .get_window("main")
-            .ok_or_else(|| "main window not found".to_string())?;
         // Lay out against the window size so the headless page matches its
         // eventual on-screen dimensions; clamp to a sane floor.
         let (vw, vh) = window
@@ -467,7 +569,7 @@ pub async fn preview_embed_update(
         let size = PhysicalSize::new(vw, vh);
         // Background create: do NOT grab focus (the user is working elsewhere).
         return spawn_preview_child(
-            &app,
+            &window,
             label,
             target,
             position,
@@ -486,11 +588,41 @@ pub async fn preview_embed_update(
     }
 
     if let Some(wv) = app.get_webview(&label) {
+        // Adopt the webview into the window that is driving it before applying
+        // the rectangle. The webview outlives its React component and can change
+        // windows (floating a pane pops it out, docking brings it back), while
+        // bounds are always relative to the OWNING window - so positioning first
+        // and moving later would paint the page at the caller's coordinates
+        // inside somebody else's window. Failing loudly beats that: a pane that
+        // does not appear is a bug report, a page pasted over the whole UI is
+        // one the user cannot even close.
+        if wv.window().label() != window.label() {
+            wv.reparent(&window).map_err(|e| e.to_string())?;
+        }
         wv.set_bounds(Rect {
             position: position.into(),
             size: size.into(),
         })
         .map_err(|e| e.to_string())?;
+        // After the resize, before the show: the region is in the pane's own
+        // coordinates, so it has to be recomputed against the size just applied,
+        // and a pane must never be revealed still wearing a stale one.
+        apply_clip(
+            &wv,
+            tab_id,
+            size,
+            holes
+                .iter()
+                .map(|h| {
+                    (
+                        h.x.round() as i32,
+                        h.y.round() as i32,
+                        h.width.round() as i32,
+                        h.height.round() as i32,
+                    )
+                })
+                .collect(),
+        );
         wv.show().map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -505,7 +637,7 @@ pub async fn preview_embed_update(
     // foreground pane is created on the spot. This path is a VISIBLE pane the
     // user is looking at, so let it take focus like any browser tab.
     spawn_preview_child(
-        &app,
+        &window,
         label,
         target,
         position,
@@ -628,6 +760,114 @@ pub async fn preview_embed_url(
         .and_then(|wv| wv.url().ok())
         .map(|u| u.to_string())
         .filter(|u| u.starts_with("http") || u.starts_with("file") || u.starts_with("chrome-")))
+}
+
+/// One browser extension as the pane's own engine reports it.
+#[derive(Clone, serde::Serialize)]
+pub struct LoadedExt {
+    id: String,
+    name: String,
+}
+
+/// The extensions the pane's browser engine has ACTUALLY loaded, with the ids it
+/// assigned them.
+///
+/// Two jobs, and nothing else can do either. It is the only source of an
+/// extension's id: the id of an unpacked extension is derived by the engine from
+/// the path it was loaded from, so reading our own install directory cannot tell
+/// us what it is. And that id is exactly what `chrome-extension://<id>/<page>`
+/// needs to open an extension's own settings page, which in a webview is the
+/// ONLY way to configure one at all - the toolbar popup a browser would use has
+/// nowhere to appear here, so an extension whose real behaviour sits behind a
+/// first-run or a mode switch is otherwise stuck on its defaults permanently.
+///
+/// It is also the honest answer to "is this thing actually running". An
+/// extension sitting in the install directory but missing from this list was not
+/// loaded, and no amount of reading our own folders would have revealed that.
+#[tauri::command]
+pub async fn preview_embed_loaded_exts(
+    app: tauri::AppHandle,
+    tab_id: i64,
+) -> Result<Vec<LoadedExt>, String> {
+    let Some(wv) = app.get_webview(&embed_label(tab_id)) else {
+        return Ok(Vec::new()); // no pane open yet; nothing has been loaded
+    };
+    loaded_exts(&wv).await
+}
+
+#[cfg(target_os = "windows")]
+async fn loaded_exts(wv: &Webview) -> Result<Vec<LoadedExt>, String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2BrowserExtensionList, ICoreWebView2Profile7, ICoreWebView2_13,
+    };
+    use webview2_com::{take_pwstr, ProfileGetBrowserExtensionsCompletedHandler};
+    use windows::core::{Interface, PWSTR};
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<Vec<LoadedExt>, String>>();
+    // COM apartment work, so it runs on the UI thread like every other WebView2
+    // call in this file, and the answer comes back over a oneshot.
+    wv.with_webview(move |platform| {
+        let run = || -> Result<Vec<LoadedExt>, String> {
+            let core =
+                unsafe { platform.controller().CoreWebView2() }.map_err(|e| e.to_string())?;
+            let v13 = core.cast::<ICoreWebView2_13>().map_err(|e| e.to_string())?;
+            let profile = unsafe { v13.Profile() }.map_err(|e| e.to_string())?;
+            let profile = profile
+                .cast::<ICoreWebView2Profile7>()
+                .map_err(|_| "this WebView2 runtime is too old for extensions".to_string())?;
+            // The completion callback is fixed to `Result<()>`, so the entries are
+            // collected into a cell it writes through rather than returned. All of
+            // this runs on the one UI thread, so a plain Rc is enough.
+            let collected: std::rc::Rc<std::cell::RefCell<Vec<LoadedExt>>> = Default::default();
+            let sink = collected.clone();
+            ProfileGetBrowserExtensionsCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| unsafe {
+                    profile
+                        .GetBrowserExtensions(&handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(
+                    move |res: windows::core::Result<()>,
+                          list: Option<ICoreWebView2BrowserExtensionList>| {
+                        res?;
+                        let Some(list) = list else { return Ok(()) };
+                        let mut count = 0u32;
+                        unsafe { list.Count(&mut count) }?;
+                        for i in 0..count {
+                            let ext = unsafe { list.GetValueAtIndex(i) }?;
+                            // Both accessors hand back a string the caller owns;
+                            // `take_pwstr` is what frees it.
+                            let mut id = PWSTR::null();
+                            let mut name = PWSTR::null();
+                            unsafe { ext.Id(&mut id) }?;
+                            unsafe { ext.Name(&mut name) }?;
+                            sink.borrow_mut().push(LoadedExt {
+                                id: take_pwstr(id),
+                                name: take_pwstr(name),
+                            });
+                        }
+                        Ok(())
+                    },
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+            let out = collected.borrow().clone();
+            Ok(out)
+        };
+        let _ = tx.send(run());
+    })
+    .map_err(|e| e.to_string())?;
+    match tokio::time::timeout(Duration::from_secs(5), rx).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(_)) => Err("extension list callback dropped".into()),
+        Err(_) => Err("timed out reading the extension list".into()),
+    }
+}
+
+/// No engine-level extension support off Windows, so nothing is ever loaded.
+#[cfg(not(target_os = "windows"))]
+async fn loaded_exts(_wv: &Webview) -> Result<Vec<LoadedExt>, String> {
+    Ok(Vec::new())
 }
 
 /// Move a browser pane's webview to another window, by label.
