@@ -1,5 +1,7 @@
+import { IS_WINDOWS } from "@/lib/platform";
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "@/modules/settings/store";
-import { Terminal } from "@xterm/xterm";
+import { version as osVersion } from "@tauri-apps/plugin-os";
+import { Terminal, type IWindowsPty } from "@xterm/xterm";
 
 export const BACKWARD_KILL_WORD = "\x17";
 export const SHIFT_ENTER = "\x1b\r";
@@ -8,6 +10,49 @@ export const SHIFT_ENTER = "\x1b\r";
 // layout transitions; TUIs break at those sizes. 2x2 is the smallest size
 // every supported TUI tolerates.
 export const MIN_PTY_DIM = 2;
+
+/**
+ * Build xterm's `windowsPty` compatibility block from `plugin-os`'s version
+ * string. Windows reports as `"<major>.<minor>.<build>"`.
+ *
+ * GROWING the row count is the divergence that matters. xterm's default
+ * (Unix) resize pulls scrollback back down into the viewport - `ybase--`,
+ * which also shifts `buffer.y` - because a Unix pty does not repaint on
+ * SIGWINCH. ConPTY DOES repaint its whole viewport, so those pulled-in lines
+ * survive wherever the repaint does not cover them and the cursor row moves
+ * out from under the shell. Inline TUIs that redraw relative to the cursor -
+ * Claude Code and Codex in their default renderers, which never touch the
+ * alternate screen - then paint every later frame into the wrong rows. That is
+ * the "make the pane bigger and the CLI turns to soup" report. Setting
+ * `backend` alone switches xterm to appending blank rows, which is what ConPTY
+ * actually does.
+ *
+ * `buildNumber` gates the other half: reflow stays enabled on ConPTY >= 21376
+ * (which emits real wrap markers) and falls back to xterm's legacy
+ * last-character wrapping heuristic below it. An unparseable version omits the
+ * field rather than passing 0, because a zero build would put a modern ConPTY
+ * on the legacy heuristic - worse than not setting `windowsPty` at all.
+ */
+export function conptyCompat(version: string): IWindowsPty {
+  const build = Number(version.split(".")[2]);
+  return Number.isInteger(build) && build > 0
+    ? { backend: "conpty", buildNumber: build }
+    : { backend: "conpty" };
+}
+
+/**
+ * Host ConPTY compatibility block, resolved once. Undefined off Windows, where
+ * xterm's Unix default is the correct behaviour. Applies to LOCAL terminals
+ * only - an SSH leaf's pty lives on the remote host. See `conptyCompat`.
+ */
+export const WINDOWS_PTY: IWindowsPty | undefined = (() => {
+  if (!IS_WINDOWS) return undefined;
+  try {
+    return conptyCompat(osVersion());
+  } catch {
+    return conptyCompat("");
+  }
+})();
 
 export const LOCAL_URL_RE =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{1,5})?(?:\/[^\s\x1b]*)?/g;

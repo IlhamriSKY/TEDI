@@ -15,6 +15,13 @@ export type FloatLeafParams = {
   path?: string;
   /** editor leaf: private (AI disabled) */
   privateLeaf?: boolean;
+  /**
+   * terminal leaf: the pty lives on a remote host (SSH), not on this machine.
+   * The float builds its own xterm over the SAME byte stream, so it needs the
+   * same ConPTY compatibility decision the pane made (`WINDOWS_PTY`) - and an
+   * SSH leaf must opt OUT of it, because that pty is a Unix one.
+   */
+  remotePty?: boolean;
   /** browser leaf: the address to seed the float's address bar with. The page
    *  itself is NOT reloaded - the same native webview is re-parented into the
    *  float window - so this only tells the float what it is already showing. */

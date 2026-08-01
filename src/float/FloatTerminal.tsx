@@ -3,12 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  b64ToBytes,
-  floatEv,
-  type FloatSize,
-  type FloatSnap,
-} from "@/modules/panes/floatProtocol";
+import { WINDOWS_PTY } from "@/modules/terminal/lib/session-helpers";
+import { b64ToBytes, floatEv, type FloatSize, type FloatSnap } from "@/modules/panes/floatProtocol";
 
 /**
  * A read/write mirror of a main-window terminal leaf. Its own xterm renders the
@@ -16,7 +12,7 @@ import {
  * host, which writes them to the real PTY. Sized to the main pane (the host is
  * the size authority) to avoid resize contention on the shared shell.
  */
-export function FloatTerminal({ leafId }: { leafId: number }) {
+export function FloatTerminal({ leafId, remotePty }: { leafId: number; remotePty?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,6 +28,12 @@ export function FloatTerminal({ leafId }: { leafId: number }) {
       // ignoring a lowered setting doubled the memory the user asked to save.
       scrollback: usePreferencesStore.getState().terminalScrollback,
       allowProposedApi: true,
+      // Same ConPTY compatibility the pane picked - this xterm parses the very
+      // same byte stream, and the host resizes it (the `size` listener below)
+      // whenever the pane changes size. Without it, growing the pane pulls this
+      // buffer's scrollback into the viewport while ConPTY repaints over it. An
+      // SSH leaf's pty is a remote Unix one, so it keeps xterm's default.
+      windowsPty: remotePty ? undefined : WINDOWS_PTY,
     });
     term.open(el);
 
@@ -75,7 +77,9 @@ export function FloatTerminal({ leafId }: { leafId: number }) {
       for (const u of unlisteners) u();
       term.dispose();
     };
-  }, [leafId]);
+    // `remotePty` rides in this window's URL, so it is constant for the window's
+    // life; it is listed only so the xterm option can't silently go stale.
+  }, [leafId, remotePty]);
 
   return <div ref={ref} className="size-full overflow-hidden p-1.5" />;
 }

@@ -67,7 +67,7 @@ export function FloatApp() {
         <ErrorBoundary label="floating pane" resetKeys={[leafId]}>
           <TooltipProvider>
             {params?.kind === "terminal" ? (
-              <FloatTerminal leafId={params.leafId} />
+              <FloatTerminal leafId={params.leafId} remotePty={params.remotePty} />
             ) : params?.kind === "table" && params.markdown ? (
               <FloatTableView markdown={params.markdown} />
             ) : params?.kind === "editor" && params.path ? (

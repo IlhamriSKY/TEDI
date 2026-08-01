@@ -33,6 +33,7 @@ import {
   BACKWARD_KILL_WORD,
   SHIFT_ENTER,
   MIN_PTY_DIM,
+  WINDOWS_PTY,
   isDebugPty,
   readTerminalViewport,
   effectiveTerminalFontSize,
@@ -183,6 +184,10 @@ export function ensureSession(
     // Required so the WebGL renderer honours an rgba `theme.background` and
     // lets the Theme tab's wallpaper bleed through the terminal canvas.
     allowTransparency: true,
+    // ConPTY resize semantics for local Windows shells - see `WINDOWS_PTY`.
+    // An SSH leaf's pty is on the remote host, so it keeps xterm's Unix
+    // default; xterm normalizes the undefined back to that default.
+    windowsPty: sshConnectionId ? undefined : WINDOWS_PTY,
   });
 
   const fitAddon = new FitAddon();
@@ -608,22 +613,30 @@ export function attachSession(
   // Two-stage debounce:
   //  - FIT every frame; local, no IPC.
   //  - PTY_RESIZE (SIGWINCH) throttled:
-  //      Normal buffer: 90ms trailing so prompts don't strobe.
-  //      Alt-screen (TUI active): leading + 40ms trailing so the TUI starts
-  //      redrawing on frame 1 and finishes at the final size.
+  //      Bare prompt: 90ms trailing so prompts don't strobe.
+  //      Full-screen program: leading + 40ms trailing so it starts redrawing
+  //      on frame 1 and finishes at the final size.
   const FIT_DEBOUNCE_MS = 8;
   const PTY_RESIZE_DEBOUNCE_NORMAL_MS = 90;
-  const PTY_RESIZE_DEBOUNCE_ALT_MS = 40;
+  const PTY_RESIZE_DEBOUNCE_FULLSCREEN_MS = 40;
   // Min gap between leading-edge WINCH emits. Caps the SIGWINCH rate during drag.
-  const PTY_RESIZE_ALT_LEADING_THROTTLE_MS = 80;
+  const PTY_RESIZE_LEADING_THROTTLE_MS = 80;
 
   const flushPtyResize = () => {
     s.ptyTimer = null;
     syncPtySize(s);
   };
 
-  let lastAltLeadingAt = 0;
-  const isAltActive = () => {
+  let lastLeadingWinchAt = 0;
+  // "A program is painting whole frames here", which is what should pick the
+  // fast SIGWINCH path - not the alternate screen alone. Claude Code and Codex
+  // render INLINE on the normal buffer (the whole reason
+  // `maybeNudgeOnRendererSwitch` exists), so an alt-screen-only test drops
+  // exactly the CLIs people resize under the 90ms blind window meant for a bare
+  // shell prompt: xterm reflows their frame and they only hear about it once the
+  // drag has stopped.
+  const isFullScreenApp = () => {
+    if (s.aiCliStatus) return true;
     try {
       return s.term.buffer.active.type === "alternate";
     } catch {
@@ -647,16 +660,18 @@ export function attachSession(
       s.lastW = w;
       s.lastH = h;
       s.fitAddon.fit();
-      const alt = isAltActive();
-      // Leading-edge SIGWINCH for TUIs so redraw starts on frame 1. Throttled.
-      if (alt) {
+      const fullScreen = isFullScreenApp();
+      // Leading-edge SIGWINCH so a full-screen program redraws on frame 1. Throttled.
+      if (fullScreen) {
         const now = performance.now();
-        if (now - lastAltLeadingAt >= PTY_RESIZE_ALT_LEADING_THROTTLE_MS) {
-          lastAltLeadingAt = now;
+        if (now - lastLeadingWinchAt >= PTY_RESIZE_LEADING_THROTTLE_MS) {
+          lastLeadingWinchAt = now;
           syncPtySize(s);
         }
       }
-      const debounceMs = alt ? PTY_RESIZE_DEBOUNCE_ALT_MS : PTY_RESIZE_DEBOUNCE_NORMAL_MS;
+      const debounceMs = fullScreen
+        ? PTY_RESIZE_DEBOUNCE_FULLSCREEN_MS
+        : PTY_RESIZE_DEBOUNCE_NORMAL_MS;
       if (s.ptyTimer) clearTimeout(s.ptyTimer);
       s.ptyTimer = setTimeout(flushPtyResize, debounceMs);
     }, FIT_DEBOUNCE_MS);

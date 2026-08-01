@@ -85,7 +85,13 @@ const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default:
  *  reload. NOTE: float windows only run on a real Tauri build, so this path is
  *  build-green but needs a manual smoke test. */
 function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
-  if (node.leafKind === "terminal") return { leafId: node.id, kind: "terminal", title };
+  if (node.leafKind === "terminal")
+    return {
+      leafId: node.id,
+      kind: "terminal",
+      title,
+      remotePty: node.sshConnectionId !== undefined,
+    };
   if (node.leafKind === "browser")
     return { leafId: node.id, kind: "browser", title, url: node.url };
   if (node.leafKind === "editor" && !isRemoteEditorLeaf(node))

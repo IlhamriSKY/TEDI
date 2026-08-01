@@ -349,7 +349,7 @@ export function armNoDataWatchdog(s: Session, epoch: number): void {
  * blank-viewport and alt-exit repaint watchdogs; callers guarantee `s.pty` is
  * live for the current `epoch`.
  */
-function nudgeResizeRoundTrip(s: Session, epoch: number): void {
+export function nudgeResizeRoundTrip(s: Session, epoch: number): void {
   if (!s.pty) return;
   const cols = Math.max(MIN_PTY_DIM, s.term.cols);
   const rows = Math.max(MIN_PTY_DIM, s.term.rows);
@@ -359,9 +359,17 @@ function nudgeResizeRoundTrip(s: Session, epoch: number): void {
   s.lastSentRows = nudgeRows;
   setTimeout(() => {
     if (s.disposed || epoch !== s.ptySpawnEpoch || !s.pty) return;
-    void s.pty.resize(cols, rows);
-    s.lastSentCols = cols;
-    s.lastSentRows = rows;
+    // Re-read the size rather than replaying the one captured above. A tab
+    // switch, font-size change or `visible` flip inside this gap re-fits xterm
+    // and syncs the PTY directly (not through the ResizeObserver), so restoring
+    // the stale numbers would leave the shell wrapping at a width the pane no
+    // longer has - with `lastSent*` agreeing, so `syncPtySize` has nothing left
+    // to correct and the pane stays garbled until the next pixel-size change.
+    const liveCols = Math.max(MIN_PTY_DIM, s.term.cols);
+    const liveRows = Math.max(MIN_PTY_DIM, s.term.rows);
+    void s.pty.resize(liveCols, liveRows);
+    s.lastSentCols = liveCols;
+    s.lastSentRows = liveRows;
   }, REATTACH_REPAINT_NUDGE_GAP_MS);
 }
 
@@ -384,7 +392,9 @@ function armBlankViewportRepaint(s: Session, epoch: number): void {
     // editor (PSReadLine / readline / zle / fish) repaints its prompt. Two
     // spaced resizes so ConPTY can't coalesce them into a net no-op.
     if (isDebugPty()) {
-      console.info("[tedi-pty] blank-viewport repaint nudge: viewport empty after first paint, forcing redraw");
+      console.info(
+        "[tedi-pty] blank-viewport repaint nudge: viewport empty after first paint, forcing redraw",
+      );
     }
     nudgeResizeRoundTrip(s, epoch);
   }, REATTACH_REPAINT_CHECK_MS);
