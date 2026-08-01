@@ -17,6 +17,8 @@ import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
 import { AiChatView } from "./AiChat";
 import { AiInputBar } from "./AiInputBar";
+import { DebugRequestViewer } from "./DebugRequestViewer";
+import { ToolsPicker } from "./ToolsPicker";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
 import { ChevronDown, CircleAlert, ListFilter, Plus, Terminal, Trash2, X } from "lucide-react";
@@ -170,14 +172,16 @@ function Header({
       <div className="flex min-w-0 flex-1 items-center">
         <SessionPicker />
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-0.5">
         {isBusy ? (
           <span className="text-muted-foreground flex min-w-0 items-center gap-1 pr-1 text-[10px]">
             <Spinner className="size-2.5" />
             <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
           </span>
         ) : null}
-        <IconTooltip label="Close (Esc)" side="top">
+        <ToolsPicker />
+        <DebugRequestViewer />
+        <IconTooltip label="Close (Esc)" side="bottom">
           <Button
             type="button"
             size="icon"
