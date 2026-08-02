@@ -309,7 +309,9 @@ export function ExtensionSidebarSection({
                   className={cn(
                     "size-5 rounded",
                     a.danger
-                      ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      ? // Red at rest, not only on hover: a delete has to be
+                        // findable (and avoidable) before the pointer is on it.
+                        "text-destructive/75 hover:bg-destructive/10 hover:text-destructive"
                       : cn("text-muted-foreground", TOOLBAR_HOVER),
                   )}
                 >
@@ -373,7 +375,9 @@ export function ExtensionSidebarSection({
                   className={cn(
                     "size-6",
                     a.danger
-                      ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      ? // Red at rest, not only on hover: a delete has to be
+                        // findable (and avoidable) before the pointer is on it.
+                        "text-destructive/75 hover:bg-destructive/10 hover:text-destructive"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
