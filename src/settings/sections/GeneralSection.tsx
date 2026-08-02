@@ -37,6 +37,7 @@ import {
 } from "@/modules/settings/store";
 import { CONTENT_FONT_OPTIONS } from "@/lib/fonts";
 import { previewNotificationSound } from "@/lib/blockingBeep";
+import { toast, type ToastVariant } from "@/components/ui/toast";
 import { IS_WINDOWS } from "@/lib/platform";
 import { useTheme } from "@/modules/theme";
 import { invoke } from "@tauri-apps/api/core";
@@ -50,6 +51,23 @@ import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
 import { CliAgentsCard } from "./components/CliAgentsCard";
 import { UploadButton } from "../components/UploadButton";
 import { ChevronDown, Download, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+
+/**
+ * One sample per toast variant, so checking that every kind still looks right
+ * is a click instead of a hunt for a git error to reproduce. Must stay
+ * complete: `scripts/toast-verify.ts` fails if a variant has no preview.
+ */
+const TOAST_PREVIEWS: { variant: ToastVariant; label: string; message: string }[] = [
+  { variant: "default", label: "Default", message: "Removed Secondary Folder Tree." },
+  { variant: "success", label: "Success", message: "Committed to main." },
+  { variant: "info", label: "Info", message: "Switched to branch feat/notifications." },
+  { variant: "warning", label: "Warning", message: "Nothing to push - branch is up to date." },
+  { variant: "error", label: "Error", message: "Format failed: unexpected token at line 42." },
+];
+
+/** Wrapping / long-message case: the one that breaks a fixed-height toast. */
+const LONG_TOAST_MESSAGE =
+  'Extension "tedi.remote-access" failed to activate: connect ECONNREFUSED 127.0.0.1:8787. The relay is unreachable, so remote sessions stay local until it comes back.';
 
 type ShimInstallResult =
   | { status: "installed"; path: string; target: string; on_path: boolean }
@@ -474,6 +492,47 @@ export function GeneralSection() {
               value={aiCompletionSound}
               onChange={setAiCompletionSound}
             />
+          </div>
+        </SettingsAccordion>
+        <SettingsAccordion
+          title="Preview notifications"
+          description="Fire a toast of each kind to check how it looks, stacks, and times out."
+          summary={`${TOAST_PREVIEWS.length} kinds`}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {TOAST_PREVIEWS.map((p) => (
+              <Button
+                key={p.variant}
+                size="sm"
+                variant="outline"
+                className="h-8 px-2.5 text-[11px]"
+                onClick={() => toast(p.message, { variant: p.variant })}
+              >
+                {p.label}
+              </Button>
+            ))}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2.5 text-[11px]"
+              onClick={() => toast(LONG_TOAST_MESSAGE, { variant: "error" })}
+            >
+              Long text
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 px-2.5 text-[11px]"
+              // Staggered, so the stack builds up the way it does in real use
+              // instead of appearing in one frame.
+              onClick={() =>
+                TOAST_PREVIEWS.forEach((p, i) =>
+                  window.setTimeout(() => toast(p.message, { variant: p.variant }), i * 140),
+                )
+              }
+            >
+              Show all
+            </Button>
           </div>
         </SettingsAccordion>
       </div>

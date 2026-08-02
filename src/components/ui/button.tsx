@@ -10,8 +10,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // The border reads the theme's own "Button border" token, falling back
+        // to --border for themes that never set one. Without this the token was
+        // written by every preset and read by nothing: a dead knob in Settings.
         outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-muted/50 dark:aria-expanded:bg-muted/50",
+          "border-[color:var(--tedi-button-border,var(--border))] bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-muted/50 dark:aria-expanded:bg-muted/50",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:

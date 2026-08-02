@@ -65,6 +65,10 @@ export type ThemeColors = {
   iconIdle: string;
   /** Icon color when blocked / awaiting approval. */
   iconBlocked: string;
+  /** Icon color for a finished-but-unacknowledged run (the breathing badge
+   *  that clears on focus). Distinct from `iconIdle`, which means "nothing
+   *  happened here". */
+  iconDone: string;
   /** Semantic green for diff additions, "+N" stats, success indicators. */
   diffAdded: string;
   /** Semantic red for diff removals, "-N" stats. Distinct from `destructive`
@@ -196,6 +200,7 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   iconWorking: ["--tedi-icon-working"],
   iconIdle: ["--tedi-icon-idle"],
   iconBlocked: ["--tedi-icon-blocked"],
+  iconDone: ["--tedi-icon-done"],
   diffAdded: ["--tedi-diff-added"],
   diffRemoved: ["--tedi-diff-removed"],
   info: ["--tedi-info"],
@@ -597,6 +602,7 @@ const SAFE_LIGHT_FALLBACK: ThemeColors = {
   iconWorking: "#ca8a04",
   iconIdle: "#059669",
   iconBlocked: "#dc2626",
+  iconDone: "#2563eb",
   diffAdded: "#16a34a",
   diffRemoved: "#dc2626",
   info: "#0284c7",
@@ -653,6 +659,7 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
   iconWorking: "#facc15",
   iconIdle: "#34d399",
   iconBlocked: "#f87171",
+  iconDone: "#60a5fa",
   diffAdded: "#4ade80",
   diffRemoved: "#f87171",
   info: "#38bdf8",
