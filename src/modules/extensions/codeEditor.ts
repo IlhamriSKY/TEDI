@@ -30,6 +30,7 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { mySQL, pgSQL, sqlite, standardSQL } from "@codemirror/legacy-modes/mode/sql";
+import { makeFoldMarker } from "@/modules/editor/lib/foldMarker";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 import {
@@ -152,20 +153,35 @@ const baseTheme = EditorView.theme({
     border: "none",
     borderRight: "1px solid var(--border)",
   },
-  // Fold chevrons stay visible (the main editor reveals them on hover): this
-  // editor is mostly a read-only JSON/response viewer, where a collapsible
-  // object is only useful if you can see it is collapsible.
-  ".cm-foldGutter": { width: "13px" },
+  // Same chevron as the editor pane, but it stays visible instead of appearing
+  // on hover: this editor is mostly a read-only JSON/response viewer, where a
+  // collapsible object is only useful if you can see it is collapsible. A
+  // COLLAPSED marker goes full strength, which is the editor pane's rule too.
+  ".cm-foldGutter": { width: "14px" },
   ".cm-foldGutter .cm-gutterElement": {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     padding: "0",
     cursor: "pointer",
-    opacity: "0.5",
+  },
+  ".cm-foldGutter .cm-foldMarker": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "14px",
+    height: "14px",
+    opacity: "0.55",
     transition: "opacity 120ms ease, color 120ms ease",
   },
-  ".cm-foldGutter .cm-gutterElement:hover": { opacity: "1", color: "var(--foreground)" },
+  ".cm-foldGutter .cm-foldMarker:not(.cm-foldMarker-open)": {
+    opacity: "1",
+    color: "var(--foreground)",
+  },
+  ".cm-foldGutter .cm-gutterElement:hover .cm-foldMarker": {
+    opacity: "1",
+    color: "var(--foreground)",
+  },
   ".cm-foldPlaceholder": {
     backgroundColor: "color-mix(in srgb, var(--foreground) 10%, transparent)",
     color: "var(--muted-foreground)",
@@ -307,8 +323,10 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
       // Collapsible objects/arrays for the languages whose parser reports fold
       // ranges (json, javascript). `plain` and the SQL stream modes report none,
       // so their gutter column simply stays empty. Works in readOnly editors:
-      // a fold is state, not a document change.
-      foldGutter(),
+      // a fold is state, not a document change. The marker is the editor pane's
+      // own chevron, not CodeMirror's default text glyphs, so a fold arrow looks
+      // the same wherever it appears.
+      foldGutter({ markerDOM: makeFoldMarker }),
       history(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       cmdEnterKeymap,

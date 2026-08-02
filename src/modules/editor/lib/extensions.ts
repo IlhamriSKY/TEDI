@@ -12,23 +12,16 @@ import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { colorDecorations, colorLinesField } from "./colorDecorations";
+// VS Code-style fold gutter: chevrons hide until hover, folded markers stay
+// visible so collapsed sections are obvious. The glyph itself is shared with
+// the extension host's editor, so the two never drift apart.
+import { makeFoldMarker } from "./foldMarker";
 
 // Compartments for runtime reconfigure without rebuilding state.
 export const languageCompartment = new Compartment();
 export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
 export const minimapCompartment = new Compartment();
-
-// VS Code-style fold gutter. Chevrons hide until hover; folded markers
-// stay visible so collapsed sections are obvious.
-function makeFoldMarker(open: boolean): HTMLElement {
-  const span = document.createElement("span");
-  span.className = "cm-foldMarker" + (open ? " cm-foldMarker-open" : "");
-  span.innerHTML = open
-    ? '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6 L8 10 L12 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-    : '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M6 4 L10 8 L6 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  return span;
-}
 
 export function minimapExtension(): Extension {
   // Deps: "doc" re-parses on edits; "language" recomputes after async
