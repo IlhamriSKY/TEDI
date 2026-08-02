@@ -32,10 +32,15 @@ export function ExtensionStatusItems() {
 // Progress-bar fill colour per tone. Usage meters read best when a low bar is
 // calm and a full one is alarming, so the extension drives `tone` by severity
 // and the fill follows it.
+//
+// The three severities ride the THEME's status triad (the same tokens the AI
+// CLI badge uses), not fixed Tailwind hues: a Claude/Codex meter in a warm or
+// monochrome preset used to sit at emerald/amber/red no matter what the rest of
+// the window looked like. `error` already matched, via the corner dot below.
 const BAR_FILL: Record<NonNullable<StatusItem["tone"]>, string> = {
-  error: "bg-red-500",
-  warning: "bg-amber-500",
-  success: "bg-emerald-500",
+  error: "bg-icon-blocked",
+  warning: "bg-icon-working",
+  success: "bg-icon-idle",
   default: "bg-foreground/70",
 };
 
@@ -45,8 +50,8 @@ const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 // "about to run out" (amber) and "spent" (red) states pop, so the colour is an
 // at-a-glance indicator alongside the bar.
 function valueColor(tone: StatusItem["tone"]): string {
-  if (tone === "error") return "text-red-500";
-  if (tone === "warning") return "text-amber-500";
+  if (tone === "error") return "text-icon-blocked";
+  if (tone === "warning") return "text-icon-working";
   return "text-muted-foreground";
 }
 
