@@ -4,7 +4,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { Clock, GitCommitHorizontal, GitMerge, Hash, User } from "lucide-react";
 import { gitLog } from "./api";
+import { MetaPill, parseRefs, RefBadge } from "./components/RefBadge";
 import { CommitDetailPane } from "./CommitDetailPane";
 import type { OpenDiffInput } from "./types";
 import type { GitCommit } from "./types";
@@ -148,27 +150,12 @@ function formatRelTime(unix: number): string {
   return `${Math.floor(diff / (86_400 * 365))}y ago`;
 }
 
-type RefChip = { label: string; kind: "head" | "branch" | "remote" | "tag" };
-
-/** Map git's raw `%D` entries into displayable chips. "HEAD -> main" becomes
- * a "HEAD" chip plus a "main" branch chip so both render distinctly. */
-function parseRefs(refs: string[]): RefChip[] {
-  const out: RefChip[] = [];
-  for (const r of refs) {
-    if (r.startsWith("HEAD -> ")) {
-      out.push({ label: "HEAD", kind: "head" });
-      out.push({ label: r.slice("HEAD -> ".length), kind: "branch" });
-    } else if (r === "HEAD") {
-      out.push({ label: "HEAD", kind: "head" });
-    } else if (r.startsWith("tag: ")) {
-      out.push({ label: r.slice("tag: ".length), kind: "tag" });
-    } else if (r.includes("/")) {
-      out.push({ label: r, kind: "remote" });
-    } else {
-      out.push({ label: r, kind: "branch" });
-    }
-  }
-  return out;
+/** The exact stamp the row has no width for; the row only shows "3d ago". */
+function formatAbsTime(unix: number): string {
+  return new Date(unix * 1000).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 export function GitGraphView({
@@ -542,41 +529,73 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
     <li className="contents">
       <Tooltip>
         <TooltipTrigger asChild>{rowEl}</TooltipTrigger>
-        <TooltipContent side="right" className="max-w-xs">
-          <div className="flex flex-col gap-0.5">
-            <span className="font-medium break-words">{commit.subject}</span>
-            <span className="text-muted-foreground text-[10.5px]">
-              {commit.authorName} · {formatRelTime(commit.authorTime)} · {commit.shortSha}
+        {/* A peek, not a second detail card: everything here is already loaded
+            with the row, so hovering costs nothing. It adds what the row has no
+            width for - the exact timestamp behind "3d ago", the author's email,
+            whether this is a merge - and repeats the lane color so the bubble
+            reads as belonging to the dot it points at. */}
+        <TooltipContent
+          side="right"
+          className="max-w-[22rem] flex-col items-start gap-2 px-3 py-2.5"
+        >
+          {refChips.length > 0 ? (
+            <span className="flex flex-wrap items-center gap-1">
+              {refChips.map((chip, i) => (
+                <RefBadge key={`tip-${chip.kind}-${chip.label}-${i}`} chip={chip} />
+              ))}
             </span>
-          </div>
+          ) : null}
+          <span className="flex items-start gap-2">
+            {/* SVG, not a rounded div: globals.css forces border-radius 0 on
+                every element, so only a real circle matches the graph dot. */}
+            <svg width={8} height={8} viewBox="0 0 8 8" aria-hidden className="mt-[3px] shrink-0">
+              <circle cx={4} cy={4} r={3.5} fill={laneColor(lane)} />
+            </svg>
+            <span className="text-[11.5px] leading-snug font-medium break-words">
+              {commit.subject}
+            </span>
+          </span>
+          <span className="border-border/60 flex w-full flex-col gap-1 border-t pt-1.5 text-[10.5px]">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <User size={11} strokeWidth={2} className="text-info shrink-0" />
+              <span className="min-w-0 truncate">
+                {commit.authorName}
+                {commit.authorEmail ? (
+                  <span className="text-muted-foreground"> {commit.authorEmail}</span>
+                ) : null}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Clock size={11} strokeWidth={2} className="text-icon-working shrink-0" />
+              <span>
+                {formatAbsTime(commit.authorTime)}
+                <span className="text-muted-foreground"> ({formatRelTime(commit.authorTime)})</span>
+              </span>
+            </span>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span
+                className="inline-flex items-center gap-1 font-mono tabular-nums"
+                style={{ color: laneColor(lane) }}
+              >
+                <Hash size={11} strokeWidth={2} className="shrink-0" />
+                {commit.shortSha}
+              </span>
+              {commit.parents.length > 1 ? (
+                <MetaPill tone="bg-info/15 text-info border-info/30">
+                  <GitMerge size={9} strokeWidth={2.25} className="shrink-0" />
+                  Merge of {commit.parents.length} parents
+                </MetaPill>
+              ) : commit.parents.length === 0 ? (
+                <MetaPill tone="bg-diff-added/15 text-diff-added border-diff-added/30">
+                  <GitCommitHorizontal size={9} strokeWidth={2.25} className="shrink-0" />
+                  Root commit
+                </MetaPill>
+              ) : null}
+            </span>
+          </span>
+          <span className="text-muted-foreground/70 text-[10px]">Click to see changed files</span>
         </TooltipContent>
       </Tooltip>
     </li>
-  );
-}
-
-function RefBadge({ chip }: { chip: RefChip }) {
-  const tone =
-    chip.kind === "head"
-      ? "bg-diff-added/15 text-diff-added border-diff-added/30"
-      : chip.kind === "tag"
-        ? "bg-icon-working/15 text-icon-working border-icon-working/30"
-        : chip.kind === "remote"
-          ? "bg-info/15 text-info border-info/30"
-          : "bg-primary/15 text-primary border-primary/30";
-  return (
-    <span
-      className={cn(
-        // No fixed micro-height + `leading-none`: the labels have no descenders,
-        // so that combo parks the glyphs at the top of the line box (empty
-        // descender space below) and reads as "stuck to the top". Size to content
-        // with symmetric vertical padding + a balanced line-height so the text
-        // sits optically centered in the pill.
-        "inline-flex items-center rounded-sm border px-1 py-px text-[9.5px] leading-[1.35] font-medium",
-        tone,
-      )}
-    >
-      {chip.label}
-    </span>
   );
 }

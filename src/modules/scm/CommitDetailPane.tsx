@@ -3,7 +3,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { basename, dirname } from "@/lib/path";
 import { cn } from "@/lib/utils";
+import { Clock, GitCommitHorizontal, GitMerge, Hash, User, UserCheck } from "lucide-react";
 import { gitCommitDetail } from "./api";
+import { MetaPill, parseRefs, RefBadge } from "./components/RefBadge";
 import { STATUS_LETTER, STATUS_TONE } from "./statusMeta";
 import type { CommitDetail, CommitFile, OpenDiffInput } from "./types";
 
@@ -83,53 +85,108 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff }: Props) {
       }
     : undefined;
 
+  const refChips = parseRefs(detail.refs);
+  const isMerge = detail.parents.length > 1;
+  const isRoot = detail.parents.length === 0;
+  const TitleIcon = isMerge ? GitMerge : GitCommitHorizontal;
+  const totalAdded = detail.files.reduce((n, f) => n + f.added, 0);
+  const totalRemoved = detail.files.reduce((n, f) => n + f.removed, 0);
+
   return (
     <div className="flex max-h-[min(70vh,520px)] flex-col overflow-y-auto">
-      <div className="border-border/60 border-b px-3 py-2.5">
-        <div className="text-foreground/90 text-[12.5px] leading-snug font-medium break-words">
-          {detail.subject || "(no commit message)"}
-        </div>
-        {detail.body ? (
-          <pre className="text-muted-foreground mt-1.5 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap">
-            {detail.body}
-          </pre>
+      {/* Header sits on its own tinted band so the message reads as the
+          headline of the card rather than the first line of a list. */}
+      <div className="bg-muted/40 border-border/60 border-b px-3 py-2.5">
+        {refChips.length > 0 ? (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1">
+            {refChips.map((chip, i) => (
+              <RefBadge key={`${chip.kind}-${chip.label}-${i}`} chip={chip} />
+            ))}
+          </div>
         ) : null}
-        <div className="text-muted-foreground mt-2 flex flex-col gap-0.5 text-[10.5px]">
-          <span>
-            <span className="text-foreground/70">{detail.authorName}</span>
-            {detail.authorEmail ? (
-              <span className="text-muted-foreground/70"> &lt;{detail.authorEmail}&gt;</span>
+        <div className="flex items-start gap-2">
+          {/* The icon says what KIND of commit this is before the text does:
+              a merge and an ordinary commit no longer look identical. */}
+          <TitleIcon
+            size={14}
+            strokeWidth={2}
+            className={cn(
+              "mt-[3px] shrink-0",
+              isMerge ? "text-info" : isRoot ? "text-diff-added" : "text-primary",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-foreground text-[13px] leading-snug font-semibold break-words">
+              {detail.subject || "(no commit message)"}
+            </div>
+            {detail.body ? (
+              <pre className="text-muted-foreground mt-1.5 font-sans text-[11px] leading-relaxed break-words whitespace-pre-wrap">
+                {detail.body}
+              </pre>
             ) : null}
-            {" · "}
-            {formatTime(detail.authorTime)}
+          </div>
+        </div>
+        <div className="mt-2 flex flex-col gap-1 text-[10.5px]">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <User size={11} strokeWidth={2} className="text-info shrink-0" />
+            <span className="min-w-0 truncate">
+              {detail.authorName}
+              {detail.authorEmail ? (
+                <span className="text-muted-foreground"> {detail.authorEmail}</span>
+              ) : null}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Clock size={11} strokeWidth={2} className="text-icon-working shrink-0" />
+            <span>{formatTime(detail.authorTime)}</span>
           </span>
           {committerDiffers ? (
-            <span className="text-muted-foreground/80">
-              committed by {detail.committerName}
-              {" · "}
-              {formatTime(detail.commitTime)}
+            <span className="text-muted-foreground flex min-w-0 items-center gap-1.5">
+              <UserCheck size={11} strokeWidth={2} className="shrink-0" />
+              <span className="min-w-0 truncate">
+                committed by {detail.committerName} · {formatTime(detail.commitTime)}
+              </span>
             </span>
           ) : null}
-          <span className="text-muted-foreground/70 flex items-center gap-1.5 font-mono">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="tabular-nums">{detail.shortSha}</span>
+                <span className="text-muted-foreground inline-flex cursor-default items-center gap-1 font-mono tabular-nums">
+                  <Hash size={11} strokeWidth={2} className="shrink-0" />
+                  {detail.shortSha}
+                </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">{detail.sha}</TooltipContent>
             </Tooltip>
-            {detail.parents.length > 1 ? (
-              <span className="text-muted-foreground/60">
-                (merge of {detail.parents.length} parents)
-              </span>
+            {isMerge ? (
+              <MetaPill tone="bg-info/15 text-info border-info/30">
+                <GitMerge size={9} strokeWidth={2.25} className="shrink-0" />
+                Merge of {detail.parents.length} parents
+              </MetaPill>
+            ) : isRoot ? (
+              <MetaPill tone="bg-diff-added/15 text-diff-added border-diff-added/30">
+                <GitCommitHorizontal size={9} strokeWidth={2.25} className="shrink-0" />
+                Root commit
+              </MetaPill>
             ) : null}
           </span>
         </div>
       </div>
 
-      <div className="text-muted-foreground/70 px-3 py-1.5 text-[10px] tracking-wide uppercase">
-        {detail.files.length === 0
-          ? "No file changes"
-          : `${detail.files.length} file${detail.files.length === 1 ? "" : "s"} changed`}
+      {/* File count on the left, the commit's total churn on the right in the
+          same green/red the per-file rows use. */}
+      <div className="border-border/60 flex items-center justify-between gap-2 border-b px-3 py-1.5">
+        <span className="text-muted-foreground/80 text-[10px] tracking-wide uppercase">
+          {detail.files.length === 0
+            ? "No file changes"
+            : `${detail.files.length} file${detail.files.length === 1 ? "" : "s"} changed`}
+        </span>
+        {totalAdded > 0 || totalRemoved > 0 ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-medium tabular-nums">
+            {totalAdded > 0 ? <span className="text-diff-added">+{totalAdded}</span> : null}
+            {totalRemoved > 0 ? <span className="text-diff-removed">−{totalRemoved}</span> : null}
+          </span>
+        ) : null}
       </div>
 
       <ul className="pb-1">
@@ -170,9 +227,12 @@ function FileRow({ file, onClick }: { file: CommitFile; onClick?: () => void }) 
             : undefined
         }
       >
+        {/* The status letter as a tinted chip: `current` derives the fill and
+            border from STATUS_TONE, so a new status only ever needs its text
+            colour defined in one place. */}
         <span
           className={cn(
-            "w-3 shrink-0 text-center font-mono text-[10px] font-semibold tabular-nums",
+            "inline-flex size-4 shrink-0 items-center justify-center border border-current/25 bg-current/10 font-mono text-[9.5px] font-semibold",
             STATUS_TONE[file.status],
           )}
         >
