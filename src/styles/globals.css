@@ -104,6 +104,18 @@
   }
 }
 
+/* Toast auto-dismiss countdown (src/components/ui/toast.tsx). The bar drains
+ * over the toast's own durationMs, passed inline; hovering freezes it with
+ * animation-play-state, in step with the JS dismiss timer. */
+@keyframes tedi-toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 :root {
   /* AI CLI status colors. Themable via Settings > Theme. Defaults match the
    * pre-existing emerald/yellow/red pill the codebase shipped with so the

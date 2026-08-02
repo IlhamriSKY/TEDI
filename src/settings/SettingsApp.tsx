@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toast";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { IPC_EVENTS } from "@/lib/ipc";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
@@ -229,6 +230,10 @@ export function SettingsApp() {
             </div>
           </div>
         </main>
+        {/* Each webview owns its own toast listener set, so a window that can
+            fire a toast must render its own Toaster. Without this, every
+            extension install / update / error toast in here was dropped. */}
+        <Toaster />
       </div>
     </TooltipProvider>
   );

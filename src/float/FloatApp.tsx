@@ -7,6 +7,7 @@ import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { decodeFloatParams, floatEv } from "@/modules/panes/floatProtocol";
 import { FloatTableProvider, markdownComponents } from "@/components/ai-elements/markdown-code";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { FloatTerminal } from "./FloatTerminal";
@@ -82,6 +83,9 @@ export function FloatApp() {
           </TooltipProvider>
         </ErrorBoundary>
       </div>
+      {/* Toast listeners are per-webview: without a Toaster here, a floated
+          editor's "Format failed" would fire into nothing. */}
+      <Toaster />
     </div>
   );
 }
