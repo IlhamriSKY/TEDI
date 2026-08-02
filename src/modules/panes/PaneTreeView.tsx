@@ -82,8 +82,12 @@ const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default:
  *  session, so those are gated out. A browser leaf hands off too, but by MOVING
  *  its native webview into the float window rather than re-rendering anything, so
  *  the page, its scroll position and any playing media survive the pop-out with no
- *  reload. NOTE: float windows only run on a real Tauri build, so this path is
- *  build-green but needs a manual smoke test. */
+ *  reload. An extension panel hands off too, by re-running its renderer: panel
+ *  registries are per-webview, so the float ACTIVATES the extension in its own
+ *  context. That makes two live copies against one storage, which is why a panel
+ *  that persists (the API Client's collections) refreshes on mount rather than
+ *  trusting its module state. NOTE: float windows only run on a real Tauri
+ *  build, so this path is build-green but needs a manual smoke test. */
 function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
   if (node.leafKind === "terminal")
     return {
@@ -101,6 +105,14 @@ function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
       title,
       path: node.path,
       privateLeaf: node.private === true,
+    };
+  if (node.leafKind === "extension-panel")
+    return {
+      leafId: node.id,
+      kind: "extension-panel",
+      title,
+      extensionId: node.extensionId,
+      panelId: node.panelId,
     };
   return null;
 }
@@ -551,7 +563,8 @@ function PaneLeafFrame({
   }, [node, sshHosts, sshBindingByConnection, onReconnectSsh]);
 
   // Float the pane into its own always-on-top window (terminals mirror live via
-  // Tauri events; editors open the file). Browser/extension panes can't float.
+  // Tauri events; editors open the file; browsers move their webview; extension
+  // panels re-run their renderer in the float's own context).
   const floatParams = floatParamsFor(node, baseLabel);
   const frameRef = useRef<HTMLDivElement>(null);
   const editorHandleRef = useRef<EditorPaneHandle | null>(null);

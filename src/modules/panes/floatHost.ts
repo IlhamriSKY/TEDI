@@ -153,10 +153,17 @@ export async function floatPane(
   if (params.kind === "terminal") {
     if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
     startTerminalHost(params.leafId);
-  } else if (params.kind === "editor" || params.kind === "browser") {
-    // Both hand off rather than mirror, so they need no output bridge. A browser
+  } else if (
+    params.kind === "editor" ||
+    params.kind === "browser" ||
+    params.kind === "extension-panel"
+  ) {
+    // These hand off rather than mirror, so they need no output bridge. A browser
     // hands off by MOVING its native webview into the float window (see
     // FloatBrowser), which is why the page survives the trip without reloading.
+    // An extension panel hands off by re-running its renderer in the float's own
+    // webview, so the main pane must unmount its copy - which is what registering
+    // a host (and the floating flag it sets) does.
     const alreadyFloating = useFloatStore.getState().floating.has(params.leafId);
     if (!alreadyFloating) hosts.get(params.leafId)?.();
     // A browser pane's webview composites ABOVE the DOM and nothing hides it
