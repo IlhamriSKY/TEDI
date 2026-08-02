@@ -4,6 +4,25 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.4] - 02-08-2026
+
+### Fixed
+
+- **A toast raised from the Settings window or a floated editor went nowhere.** Toast listeners are per-webview, and only the main window rendered a `<Toaster/>`. Every extension install, update and error toast in Settings, and every "Format failed" from a floated editor, was fired into a window with nothing listening. Both render one now. See [SettingsApp.tsx](src/settings/SettingsApp.tsx), [FloatApp.tsx](src/float/FloatApp.tsx).
+- **An extension's status-item meter ignored the theme.** The three severities were hard-coded emerald / amber / red, so an AI-usage meter sat at those colours in a warm or monochrome preset while everything around it did not. They ride the theme's status triad now (`icon-idle` / `icon-working` / `icon-blocked`), the same tokens the AI CLI badge already used, which is why the error tone alone happened to look right. See [ExtensionStatusItems.tsx](src/modules/extensions/components/ExtensionStatusItems.tsx).
+- **Two theme tokens were written by every preset and read by nothing.** `--tedi-button-border` is what the outline Button paints its border with now, so the "Button border" control in Settings finally does something, and `--tedi-icon-done` is themable instead of a fixed hue. See [button.tsx](src/components/ui/button.tsx), [customTheme.ts](src/modules/settings/customTheme.ts).
+
+### Changed
+
+- **Toasts restyled.** Sharp corners, because this app sets `--radius` to 0 and a pill toast was the only rounded thing on screen; a drain bar that runs the toast's own duration and freezes on hover in step with the dismiss timer; tone colours from the theme. See [toast.tsx](src/components/ui/toast.tsx).
+- **The theme presets are a folder, not a 988-line file.** One module per family (base, catppuccin, kanagawa, matrix, monokai, nebula, nord, solarized, tokyoNight) behind an index, so adding a preset touches one small file. A single preset entry still covers app chrome *and* the terminal: the terminal palette is derived off the dark variant and keyed by slug, so a preset can never ship a themed window with an unthemed terminal. See [themePresets/](src/modules/settings/themePresets/).
+- **The branch / tag / HEAD chips are shared between the commit graph and the commit detail pane.** `GitGraphView` owned them privately, so the detail pane could not show them without a second copy. See [RefBadge.tsx](src/modules/scm/components/RefBadge.tsx).
+
+### Added
+
+- **A Nebula theme preset.**
+- **`pnpm verify` gained two guards.** `theme-verify` checks both directions of the token contract: every preset defines every token the app reads, and every token the app reads is defined by every preset. `toast-verify` checks that every window able to raise a toast mounts a `Toaster`, and that the drain bar and the dismiss timer read the same duration. See [theme-verify.ts](scripts/theme-verify.ts), [toast-verify.ts](scripts/toast-verify.ts).
+
 ## [0.4.3] - 02-08-2026
 
 ### Fixed
