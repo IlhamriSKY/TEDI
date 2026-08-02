@@ -4,6 +4,21 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.3] - 02-08-2026
+
+### Fixed
+
+- **An extension that asked for an icon by a name Lucide does not have crashed the call instead of warning.** `ctx.ui.icon` resolves a name and, when the lucide chunk has not landed yet, subscribes to retry once it does. An UNKNOWN name takes that same branch, and by then the chunk is usually cached, so `onIconsReady` ran the callback immediately, inside the `const unsub = ...` it was declared by. The callback's own `unsub()` therefore hit the temporal dead zone and threw `ReferenceError: Cannot access 'unsub' before initialization`, which surfaced as a failed render rather than the intended "unknown icon" console warning. Hoisted to `let`, so a bad name now degrades to a warning and an empty span the way it was meant to. Any extension could hit this; it took one wrong icon name to find. See [host.ts](src/modules/extensions/host.ts).
+- **`ctx.ui.codeEditor` advertised a `json` language and gave you plain text.** The type accepted `json`, the switch returned no language extension at all, and the code comment said to switch to `lang-json` if you wanted real parsing. `@codemirror/lang-json` was already a dependency. It is wired up now, and `javascript` joins it from `@codemirror/lang-javascript`, also already present, so an extension that hosts a request body or a user script gets real highlighting. Additive: a host that predates a language falls back to plain text, so an extension can opt in without raising `engines.tedi`. See [codeEditor.ts](src/modules/extensions/codeEditor.ts).
+
+### Changed
+
+- **The selected tab is now the brand accent surface everywhere, not just in the workspace tab bar.** The tab bar already painted its active entry `bg-accent` / `text-accent-foreground`; the shared `Tabs` primitive did not, so the Settings window, the Debug window and the Source Control panel used its default instead. In dark mode that default was `bg-input/30` sitting on a `bg-muted/40` track: two greys one step apart, which meant you had to hunt across eight Settings tabs for the one you were on. All four surfaces now agree. See [tabs.tsx](src/components/ui/tabs.tsx).
+
+### Added
+
+- **[API Client](https://github.com/IlhamriSKY/TEDI.api-client)**, a Postman-style API workbench, joins the reference extensions. It runs entirely on the host's `http_stream` command, so it ships no sidecar binary: collections that own their own variables and environments, eight verbs plus custom ones, path and query parameters, Bearer / Basic / API-key / OAuth 2.0 auth, every body mode, pre-request and test scripts with a `pm` shim, a collection runner, generated Markdown and OpenAPI docs, and Postman / OpenAPI / cURL import-export. Documented in [TEDI.md](TEDI.md) and the [extension author guide](extensions/README.md).
+
 ## [0.4.2] - 01-08-2026
 
 ### Fixed
