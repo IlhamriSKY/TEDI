@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.6] - 03-08-2026
+
+### Added
+
+- **An extension's sidebar badge can carry a semantic tone.** The badge took the four generic `<Badge>` variants, so every category an extension wanted to mark rendered as the same grey chip: the API Client's request tree showed GET, POST and DELETE identically, on the one field you scan a tree for. `tone` now tints it from an existing theme token (`success` / `warning` / `error` / `info` / `primary` / `muted`), so a tinted badge follows the active theme and travels with an exported one. Deliberately no raw-colour escape hatch. See [registries.ts](src/modules/extensions/registries.ts), [ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx).
+
+### Changed
+
+- **An extension editor's fold arrow is the editor pane's own chevron.** `ctx.ui.codeEditor` shipped CodeMirror's default text glyphs (`⌄` / `›`) while the editor pane draws an SVG chevron, so the same control looked like two different things depending on which pane you were in. The glyph moved into its own tiny module that both import, so they cannot drift apart again, and a collapsed marker now goes full strength here too. See [foldMarker.ts](src/modules/editor/lib/foldMarker.ts), [codeEditor.ts](src/modules/extensions/codeEditor.ts).
+
 ## [0.4.5] - 03-08-2026
 
 ### Added
