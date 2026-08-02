@@ -299,6 +299,7 @@ committed) and holds working copies for local iteration:
 | `tedi.beautify`      | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting. |
 | `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`. |
 | `tedi.sql-explorer`  | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list. |
+| `tedi.api-client`    | Postman-style API workbench. `invoke:http_stream`/`http_abort` as the whole backend (no sidecar), two `ctx.sidebar` sections, `ctx.storage` for bulk data + `ctx.secrets` for secret variables. |
 | `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`. |
 | `tedi.screenshot`    | Status-bar toggle + capture-phase click interception, native sidecar. |
 | `tedi.rtk-bridge`    | `shell:transform` rewriting every AI shell command.            |

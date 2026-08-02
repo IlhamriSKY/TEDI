@@ -44,6 +44,7 @@ doubt, copy the one closest to what you are building.
 | **Discord Rich Presence** | `IlhamriSKY/TEDI.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binary.                                                                                                     |
 | **SQL Explorer**          | `IlhamriSKY/TEDI.sql-explorer`          | `panels[]` with `surface:"tab"` + `tabs:open`, `headerbar:write`, `settings:*`, `secrets:*`, sidecar HTTP server, `ctx.ui.codeEditor` (SQL).                                                                             |
 | **Secondary Folder Tree** | `IlhamriSKY/TEDI.secondary-folder-tree` | `panels[]` `surface:"right"`, `commands` + `keybindings`, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                    |
+| **API Client**            | `IlhamriSKY/TEDI.api-client`            | `invoke:http_stream` / `invoke:http_abort` as the entire backend (no sidecar), two `ctx.sidebar` sections at once, `ctx.storage` for bulk data with `ctx.secrets` for the values that must not hit disk, `ctx.ui.codeEditor` (JSON + JavaScript). |
 | **Screenshot**            | `IlhamriSKY/TEDI.screenshot`            | `panels[]` used only to mint a status-bar toggle, then a capture-phase click interception, native sidecar.                                                                                                               |
 | **RTK Bridge**            | `IlhamriSKY/TEDI.rtk-bridge`            | `shell:transform` rewriting every AI shell command (RTK pattern).                                                                                                                                                        |
 
@@ -844,6 +845,7 @@ type CodeEditorOptions = {
     | "sql:postgres"
     | "sql:sqlite"
     | "json"
+    | "javascript"
     | "plain";
   value?: string;
   readOnly?: boolean;
@@ -860,8 +862,10 @@ type CodeEditorHandle = {
 };
 ```
 
-> Only the four SQL variants get a real syntax mode. `json` and `plain`
-> currently resolve to **no** language extension (plain text today).
+> `sql*` use the CodeMirror legacy stream modes; `json` and `javascript` use
+> `@codemirror/lang-json` / `@codemirror/lang-javascript`. `plain` resolves to
+> no language extension. An older host that predates a language silently falls
+> back to plain text, so opting in never breaks an install.
 
 ### `ctx.ui.icon`: none
 

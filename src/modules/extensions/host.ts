@@ -781,11 +781,17 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         if (resolveExtIcon(ref)) {
           mount();
         } else {
-          const unsub = onIconsReady(() => {
+          // `unsub` must be hoisted, not `const`: an UNKNOWN name also lands
+          // here once the chunk is cached, and `onIconsReady` then invokes the
+          // callback synchronously, so a `const unsub = onIconsReady(...)` that
+          // calls `unsub()` inside itself throws on the temporal dead zone
+          // instead of merely warning about the bad name.
+          let unsub = () => {};
+          unsub = onIconsReady(() => {
             mount();
             unsub();
           });
-          disposers.push(unsub);
+          disposers.push(() => unsub());
         }
         return span;
       },

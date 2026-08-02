@@ -19,6 +19,8 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { javascript } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
 import {
   HighlightStyle,
   StreamLanguage,
@@ -43,6 +45,7 @@ export type CodeEditorLanguage =
   | "sql:postgres"
   | "sql:sqlite"
   | "json"
+  | "javascript"
   | "plain";
 
 /** Single autocomplete suggestion. `type` controls the leading icon CM
@@ -97,9 +100,9 @@ function pickLanguage(name?: CodeEditorLanguage): Extension {
     case "sql:sqlite":
       return StreamLanguage.define(sqlite);
     case "json":
-      // JSON via legacy JS mode keeps the dependency footprint tiny.
-      // Callers wanting strict JSON parsing should switch to lang-json.
-      return [];
+      return json();
+    case "javascript":
+      return javascript();
     case "plain":
     default:
       return [];
