@@ -284,6 +284,14 @@ export type SidebarSectionItem = {
   badge?: {
     text: string;
     variant?: "default" | "secondary" | "destructive" | "outline";
+    /**
+     * Optional semantic colour, for a badge whose TEXT is a category the reader
+     * scans for (an HTTP verb, a severity, an engine). Every value is an
+     * existing theme token, so a badge tinted this way follows the active
+     * theme and travels with an exported one; there is no raw-colour escape
+     * hatch on purpose. Wins over `variant` when both are set.
+     */
+    tone?: "success" | "warning" | "error" | "info" | "primary" | "muted";
   };
   /** Show an expand/collapse caret (a tree node). */
   expandable?: boolean;
