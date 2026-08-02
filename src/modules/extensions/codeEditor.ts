@@ -25,6 +25,8 @@ import {
   HighlightStyle,
   StreamLanguage,
   defaultHighlightStyle,
+  foldGutter,
+  foldKeymap,
   syntaxHighlighting,
 } from "@codemirror/language";
 import { mySQL, pgSQL, sqlite, standardSQL } from "@codemirror/legacy-modes/mode/sql";
@@ -150,6 +152,28 @@ const baseTheme = EditorView.theme({
     border: "none",
     borderRight: "1px solid var(--border)",
   },
+  // Fold chevrons stay visible (the main editor reveals them on hover): this
+  // editor is mostly a read-only JSON/response viewer, where a collapsible
+  // object is only useful if you can see it is collapsible.
+  ".cm-foldGutter": { width: "13px" },
+  ".cm-foldGutter .cm-gutterElement": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0",
+    cursor: "pointer",
+    opacity: "0.5",
+    transition: "opacity 120ms ease, color 120ms ease",
+  },
+  ".cm-foldGutter .cm-gutterElement:hover": { opacity: "1", color: "var(--foreground)" },
+  ".cm-foldPlaceholder": {
+    backgroundColor: "color-mix(in srgb, var(--foreground) 10%, transparent)",
+    color: "var(--muted-foreground)",
+    border: "1px solid var(--border)",
+    borderRadius: "0",
+    padding: "0 4px",
+    margin: "0 2px",
+  },
   ".cm-activeLine": {
     backgroundColor: "color-mix(in srgb, var(--foreground) 4%, transparent)",
   },
@@ -157,8 +181,14 @@ const baseTheme = EditorView.theme({
     backgroundColor: "color-mix(in srgb, var(--foreground) 6%, transparent)",
     color: "var(--foreground)",
   },
-  ".cm-selectionBackground, .cm-content ::selection": {
-    backgroundColor: "color-mix(in srgb, var(--primary, #3b82f6) 25%, transparent)",
+  // `!important` + both selectors on purpose: CodeMirror's own base theme
+  // styles the drawn selection through a 5-class selector
+  // (`&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground`),
+  // and this editor is not tagged dark, so its light default (#d7d4f0) used to
+  // win and paint an opaque pale block over dark-theme text. Same rule the main
+  // editor pane carries.
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
+    backgroundColor: "color-mix(in srgb, var(--foreground) 22%, transparent) !important",
   },
   "&.cm-focused .cm-cursor": {
     borderLeftColor: "var(--foreground)",
@@ -274,8 +304,13 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
       highlightActiveLine(),
       highlightActiveLineGutter(),
       drawSelection(),
+      // Collapsible objects/arrays for the languages whose parser reports fold
+      // ranges (json, javascript). `plain` and the SQL stream modes report none,
+      // so their gutter column simply stays empty. Works in readOnly editors:
+      // a fold is state, not a document change.
+      foldGutter(),
       history(),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       cmdEnterKeymap,
       completionExtension,
       syntaxHighlighting(tediHighlightStyle),
