@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.5] - 03-08-2026
+
+### Added
+
+- **Any extension panel can be floated into its own window.** The pop-out button on a pane header was limited to terminals, editors, browsers and tables; the API Client and SQL Explorer panes had no way out of the main window. An extension panel hands off the way an editor does, but by re-running its renderer: panel registries are per-webview, so the float window activates the extension in its own JS context and mounts the panel there while the main pane unmounts its copy. That makes two live copies against one `ctx.storage`, which is a contract panels have to handle, so both shipped panels now re-read on mount (guarded so a read in flight cannot overwrite a local save). See [floatProtocol.ts](src/modules/panes/floatProtocol.ts), [FloatApp.tsx](src/float/FloatApp.tsx), [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx).
+- **`ctx.ui.codeEditor` folds.** A fold gutter with visible chevrons, plus the fold keymap, so a JSON response or a JavaScript body in an extension pane collapses object by object and array by array. Languages whose parser reports no fold ranges (`plain`, the SQL stream modes) simply keep an empty gutter column. Works in a read-only editor, since a fold is state rather than a document change. See [codeEditor.ts](src/modules/extensions/codeEditor.ts).
+
+### Fixed
+
+- **Selecting text in an extension's code editor made it unreadable.** CodeMirror's own base theme styles the drawn selection through a five-class selector, and this editor is not tagged dark, so its LIGHT default (`#d7d4f0`) beat the theme rule and painted an opaque pale block over dark-theme text. It now carries the same rule the main editor pane does. See [codeEditor.ts](src/modules/extensions/codeEditor.ts).
+- **A delete action in an extension's sidebar section was grey until you hovered it.** A destructive affordance has to be findable, and avoidable, before the pointer lands on it. Both the row and the header variants are red at rest now. See [ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx).
+
 ## [0.4.4] - 02-08-2026
 
 ### Fixed
