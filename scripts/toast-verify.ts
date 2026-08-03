@@ -9,8 +9,6 @@
  *     are a per-webview module Set, so the notification is dropped with no
  *     error anywhere (this is exactly how the Settings and float windows lost
  *     every extension-install and format-failure toast).
- * Plus: every variant stays reachable from Settings > General > Notifications,
- * so "check all the notification kinds" stays a click.
  *
  * Source text, not imports: this file is JSX + a path alias + lucide, none of
  * which is worth booting for four structural facts.
@@ -48,11 +46,13 @@ for (const v of variants) {
   check(`variant "${v}" has a style entry`, new RegExp(`\\b${v}:\\s*\\{\\s*Icon:`).test(toastSrc));
 }
 
-const previews = /const TOAST_PREVIEWS[\s\S]*?\n\];/.exec(generalSrc)?.[0] ?? "";
-check("TOAST_PREVIEWS parsed", previews.length > 0);
-for (const v of variants) {
-  check(`variant "${v}" is spawnable from Settings`, previews.includes(`variant: "${v}"`));
-}
+// The per-variant preview buttons used to live in Settings > General. They were
+// a dev aid shipping in every production build, so they are gone; the style-map
+// check above is what actually caught a broken variant.
+check(
+  "Settings ships no toast preview",
+  !generalSrc.includes("TOAST_PREVIEWS") && !generalSrc.includes("Preview notifications"),
+);
 
 // ---- every toasting webview renders a Toaster -----------------------------
 for (const rootFile of [
