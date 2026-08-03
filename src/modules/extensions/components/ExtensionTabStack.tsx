@@ -28,10 +28,7 @@ type Props = {
 export function ExtensionTabStack({ tabs, activeId }: Props) {
   // Filter once per render. ExtensionTabPane is keyed by tab id so React
   // preserves the mount node across re-renders of the parent.
-  const extTabs = useMemo(
-    () => tabs.filter((t): t is ExtensionTab => t.kind === "ext"),
-    [tabs],
-  );
+  const extTabs = useMemo(() => tabs.filter((t): t is ExtensionTab => t.kind === "ext"), [tabs]);
   if (extTabs.length === 0) return null;
   return (
     <>
@@ -54,7 +51,12 @@ function ExtensionTabPane({ tab, active }: { tab: ExtensionTab; active: boolean 
       )}
       aria-hidden={active ? "false" : "true"}
     >
-      <ExtensionPanelMount extensionId={tab.extensionId} panelId={tab.panelId} surface="tab" />
+      <ExtensionPanelMount
+        extensionId={tab.extensionId}
+        panelId={tab.panelId}
+        surface="tab"
+        reuseKey={tab.reuseKey}
+      />
     </div>
   );
 }

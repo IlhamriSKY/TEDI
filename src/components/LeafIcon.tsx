@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { BrowserFavicon } from "@/modules/browser/BrowserFavicon";
 import { aiCliIconClass, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 import { Database, Lock, Server, SquarePen, SquareTerminal } from "lucide-react";
 
 /** Normalized description of one pane leaf, enough to pick its icon. Built from
@@ -20,6 +21,9 @@ export type LeafIconInfo = {
   browserUrl?: string;
   /** Terminal AI CLI status: tints the glyph idle/working/blocking. */
   aiCliStatus?: AiCliStatus | null;
+  /** Icon hint the extension passed to `openExtensionPane` (`lucide:<Name>`).
+   *  Falls back to the generic database glyph when absent or unresolvable. */
+  extIcon?: string;
 };
 
 /**
@@ -43,6 +47,9 @@ export function LeafIcon({
   size?: number;
   className?: string;
 }) {
+  // Subscribe so the extension-panel glyph re-renders once the lazy lucide
+  // chunk lands and `resolveExtIcon` starts returning a component.
+  useIconsReady();
   const aiTint = info.aiCliStatus ? aiCliIconClass(info.aiCliStatus) : null;
 
   if (info.isPrivate) {
@@ -89,9 +96,10 @@ export function LeafIcon({
   }
 
   if (info.leafKind === "extension-panel") {
-    // Generic glyph for an extension panel hosted in a pane. (The only one
-    // that ships today is the SQL Explorer; the database glyph fits it.)
-    return <Database size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
+    // The extension's own glyph when it hinted one (API Client sends a paper
+    // plane), else the generic database shape the SQL Explorer wants anyway.
+    const Icon = resolveExtIcon(info.extIcon) ?? Database;
+    return <Icon size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
   }
 
   // Terminal: cloud for SSH, local terminal otherwise; tinted by AI CLI status.

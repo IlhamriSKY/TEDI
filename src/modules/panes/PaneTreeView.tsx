@@ -113,6 +113,10 @@ function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
       title,
       extensionId: node.extensionId,
       panelId: node.panelId,
+      // The float re-runs the renderer in its own webview, so it needs the key
+      // to mount the SAME instance: without it a panel with one instance per
+      // key (the API Client's per-collection workbench) floats the wrong one.
+      reuseKey: node.reuseKey,
     };
   return null;
 }
@@ -283,6 +287,7 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
     editorRemote: isRemoteEditorLeaf(node),
     browserUrl: node.leafKind === "browser" ? node.url : undefined,
     aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,
+    extIcon: node.leafKind === "extension-panel" ? node.icon : undefined,
   };
 }
 
@@ -426,7 +431,12 @@ const LeafBody = memo(function LeafBody({
   if (node.leafKind === "extension-panel") {
     return (
       <ErrorBoundary label="extension pane" resetKeys={[node.id]}>
-        <ExtensionPanelMount extensionId={node.extensionId} panelId={node.panelId} surface="pane" />
+        <ExtensionPanelMount
+          extensionId={node.extensionId}
+          panelId={node.panelId}
+          surface="pane"
+          reuseKey={node.reuseKey}
+        />
       </ErrorBoundary>
     );
   }

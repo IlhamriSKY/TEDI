@@ -55,6 +55,7 @@ export function EntryIcon({ entry }: { entry: Entry }) {
           editorRemote: !!entry.remoteHost,
           browserUrl: entry.browserUrl,
           aiCliStatus: entry.aiCliStatus,
+          extIcon: entry.extIcon,
         }}
         size={14}
       />

@@ -47,6 +47,9 @@ export type PaneEntry = EntryBase & {
   /** Lifecycle tone for an extension-panel leaf (mirrors the ext tab). Drives
    *  the label text colour, set via `ctx.tabs.setExtensionTabState(...)`. */
   extState?: ExtensionTabState;
+  /** Icon hint of an extension-panel leaf (`lucide:<Name>`), same field the
+   *  standalone ext tab carries. Drives the tab-strip glyph. */
+  extIcon?: string;
   /** True when `label` is a name the user typed rather than a derived one. Only
    *  drives whether the right-click menu offers "Reset name". */
   renamed?: boolean;
@@ -200,6 +203,7 @@ export function buildEntries(
           remoteHost,
           isPrivate: leaf.private === true,
           extState: leaf.leafKind === "extension-panel" ? leaf.state : undefined,
+          extIcon: leaf.leafKind === "extension-panel" ? leaf.icon : undefined,
           renamed: leaf.customTitle !== undefined,
         });
       }

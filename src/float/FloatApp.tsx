@@ -77,7 +77,11 @@ export function FloatApp() {
             ) : params?.kind === "browser" ? (
               <FloatBrowser leafId={params.leafId} url={params.url ?? ""} />
             ) : params?.kind === "extension-panel" && params.extensionId && params.panelId ? (
-              <FloatExtensionPanel extensionId={params.extensionId} panelId={params.panelId} />
+              <FloatExtensionPanel
+                extensionId={params.extensionId}
+                panelId={params.panelId}
+                reuseKey={params.reuseKey}
+              />
             ) : (
               <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
                 This pane can't be floated.
@@ -132,7 +136,15 @@ function FloatBrowser({ leafId, url }: { leafId: number; url: string }) {
  * same `ctx.storage`, which is the contract panels are expected to handle (the
  * API Client refreshes its tree whenever the panel mounts).
  */
-function FloatExtensionPanel({ extensionId, panelId }: { extensionId: string; panelId: string }) {
+function FloatExtensionPanel({
+  extensionId,
+  panelId,
+  reuseKey,
+}: {
+  extensionId: string;
+  panelId: string;
+  reuseKey?: string;
+}) {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -161,7 +173,14 @@ function FloatExtensionPanel({ extensionId, panelId }: { extensionId: string; pa
       </div>
     );
   }
-  return <ExtensionPanelMount extensionId={extensionId} panelId={panelId} surface="pane" />;
+  return (
+    <ExtensionPanelMount
+      extensionId={extensionId}
+      panelId={panelId}
+      surface="pane"
+      reuseKey={reuseKey}
+    />
+  );
 }
 
 /** A markdown table popped out into a float window. Re-renders the table markdown

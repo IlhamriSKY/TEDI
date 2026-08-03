@@ -19,6 +19,7 @@ export function ExtensionPanelMount({
   extensionId,
   panelId,
   surface = "tab",
+  reuseKey,
 }: {
   extensionId: string;
   panelId: string;
@@ -26,6 +27,9 @@ export function ExtensionPanelMount({
    *  (e.g. drop its own header when it's a split-pane leaf — the pane frame
    *  already provides one). Defaults to "tab". */
   surface?: "tab" | "pane";
+  /** The key this pane/tab was opened with. Handed to the renderer so a panel
+   *  with one instance per key knows which one it is being asked to paint. */
+  reuseKey?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Wrap with `() => fn` so React doesn't call the renderer as a state-updater.
@@ -48,21 +52,15 @@ export function ExtensionPanelMount({
     if (!el) return;
     let cleanup: (() => void) | void;
     try {
-      cleanup = renderer(el, { surface });
+      cleanup = renderer(el, { surface, reuseKey });
     } catch (err) {
-      console.error(
-        `[extensions] panel renderer for "${extensionId}:${panelId}" threw`,
-        err,
-      );
+      console.error(`[extensions] panel renderer for "${extensionId}:${panelId}" threw`, err);
     }
     return () => {
       try {
         cleanup?.();
       } catch (err) {
-        console.error(
-          `[extensions] panel cleanup for "${extensionId}:${panelId}" threw`,
-          err,
-        );
+        console.error(`[extensions] panel cleanup for "${extensionId}:${panelId}" threw`, err);
       }
       if (el.firstChild) {
         try {
@@ -72,7 +70,7 @@ export function ExtensionPanelMount({
         }
       }
     };
-  }, [renderer, extensionId, panelId, surface]);
+  }, [renderer, extensionId, panelId, surface, reuseKey]);
 
   return (
     <div

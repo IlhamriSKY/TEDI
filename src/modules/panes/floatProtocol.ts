@@ -34,6 +34,9 @@ export type FloatLeafParams = {
    *  own JS context and re-runs the renderer - nothing is mirrored. */
   extensionId?: string;
   panelId?: string;
+  /** extension-panel leaf: the key the pane was opened with, so the float
+   *  mounts the same instance a per-key panel would otherwise have to guess. */
+  reuseKey?: string;
 };
 
 /** Encode leaf params for the float window URL (`float.html?p=...`). */

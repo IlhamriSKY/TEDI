@@ -239,14 +239,22 @@ export function useAuxTabs({
   // mounting a duplicate — a second mount would race the panel's module
   // singletons (the SQL Explorer keeps one sidecar + CodeMirror, so a duplicate
   // mount blanks one of them). Returns the focused tab id, or null if not found.
-  const focusExistingExtPaneLeaf = (extensionId: string, panelId: string): number | null => {
+  const focusExistingExtPaneLeaf = (
+    extensionId: string,
+    panelId: string,
+    reuseKey?: string,
+  ): number | null => {
     for (const t of tabsRef.current) {
       if (t.kind !== "pane") continue;
       const leaf = leaves(t.paneTree).find(
         (l) =>
           l.leafKind === "extension-panel" &&
           l.extensionId === extensionId &&
-          l.panelId === panelId,
+          l.panelId === panelId &&
+          // The key is part of the identity: one panel can run an instance per
+          // key (a workbench per collection), and those are different panes,
+          // not a duplicate mount of the same one.
+          (l.reuseKey ?? undefined) === (reuseKey ?? undefined),
       );
       if (leaf) {
         setTabs((curr) =>
@@ -269,7 +277,7 @@ export function useAuxTabs({
       icon?: string;
       reuseKey?: string;
     }) => {
-      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId);
+      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId, opts.reuseKey);
       if (hit !== null) return hit;
       const reuse = opts.reuseKey
         ? tabsRef.current.find(
@@ -318,7 +326,7 @@ export function useAuxTabs({
       icon?: string;
       reuseKey?: string;
     }) => {
-      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId);
+      const hit = focusExistingExtPaneLeaf(opts.extensionId, opts.panelId, opts.reuseKey);
       if (hit !== null) return hit;
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
@@ -380,7 +388,8 @@ export function useAuxTabs({
           }
           if (t.kind === "pane") {
             const leaf = leaves(t.paneTree).find(
-              (l) => l.leafKind === "extension-panel" && matches(l.extensionId, l.panelId, l.reuseKey),
+              (l) =>
+                l.leafKind === "extension-panel" && matches(l.extensionId, l.panelId, l.reuseKey),
             );
             if (!leaf) return t;
             const paneTree = updateExtensionPanelLeafInTree(t.paneTree, leaf.id, {
