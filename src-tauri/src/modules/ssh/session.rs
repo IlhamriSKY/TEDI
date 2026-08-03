@@ -236,6 +236,10 @@ pub struct SshSession {
     /// Lazily-opened SFTP subsystem. Cached so repeated file-tree ops do
     /// not pay the channel-open + handshake roundtrip each time.
     sftp: Mutex<Option<Arc<SftpSession>>>,
+    /// Live `ssh -L` local forwards, keyed by the bound loopback port. Each
+    /// value is the accept loop; aborting it drops the listener and frees the
+    /// port. Torn down with the session in `close` / `Drop`.
+    forwards: Mutex<HashMap<u16, JoinHandle<()>>>,
     /// One-shot signal that fires when the pump task exits. The sender lives
     /// inside the pump's tokio task; `send()` runs at normal exit (Eof/Close,
     /// peer hang-up, wait() returning None) and the Sender simply drops on
@@ -317,6 +321,11 @@ impl SshSession {
     pub async fn close(self: Arc<Self>) {
         let _ = self.write_half.eof().await;
         let _ = self.write_half.close().await;
+        // Drop the forward listeners first so their ports are free again the
+        // moment the tab closes, rather than whenever the last Arc goes.
+        for (_, t) in self.forwards.lock().await.drain() {
+            t.abort();
+        }
         // Drop the SFTP session first so its background reader shuts down
         // before the underlying connection goes away.
         if let Some(sftp) = self.sftp.lock().await.take() {
@@ -345,6 +354,82 @@ impl SshSession {
     /// panicking when a future refactor introduces a second consumer.
     pub fn take_exit_signal(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
         self.exit_signal.lock().ok().and_then(|mut g| g.take())
+    }
+
+    /// Start an `ssh -L` local forward: bind `127.0.0.1:local_port` and pipe
+    /// every accepted connection over its own `direct-tcpip` channel to
+    /// `remote_host:remote_port`, resolved from the SERVER's point of view - so
+    /// a ProxyJump chain and the remote's own private network apply for free.
+    /// `local_port` 0 binds an ephemeral port; the port actually bound is
+    /// returned.
+    ///
+    /// Loopback only, deliberately: a forwarded port re-exports whatever the
+    /// remote endpoint trusts (a database, an admin UI) with no auth step of its
+    /// own, so binding `0.0.0.0` would hand it to the whole LAN. OpenSSH makes
+    /// the same choice by default (`GatewayPorts no`).
+    pub async fn open_forward(
+        self: &Arc<Self>,
+        local_port: u16,
+        remote_host: String,
+        remote_port: u16,
+    ) -> Result<u16, String> {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", local_port))
+            .await
+            .map_err(|e| format!("ssh: bind 127.0.0.1:{local_port} failed: {e}"))?;
+        let bound = listener
+            .local_addr()
+            .map_err(|e| format!("ssh: reading bound port failed: {e}"))?
+            .port();
+        let label = format!("127.0.0.1:{bound} -> {remote_host}:{remote_port}");
+        // Weak, not Arc: the accept loop is owned BY the session, so holding a
+        // strong ref would make the pair immortal and leak the listener.
+        let weak = Arc::downgrade(self);
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut sock, peer) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!("ssh -L {bound}: accept failed, forward closed: {e}");
+                        return;
+                    }
+                };
+                // Hold the session only across the channel open. A long-lived
+                // tunnel that kept the Arc would keep this listener bound after
+                // the session is evicted, so the next reconnect's bind would
+                // fail with "address already in use".
+                let opened = {
+                    let Some(session) = weak.upgrade() else {
+                        return;
+                    };
+                    let guard = session.handle.lock().await;
+                    let Some(handle) = guard.as_ref() else { return };
+                    handle
+                        .channel_open_direct_tcpip(
+                            remote_host.clone(),
+                            u32::from(remote_port),
+                            peer.ip().to_string(),
+                            u32::from(peer.port()),
+                        )
+                        .await
+                };
+                match opened {
+                    Ok(channel) => {
+                        tokio::spawn(async move {
+                            let mut stream = channel.into_stream();
+                            let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+                        });
+                    }
+                    // One refused connection must not kill the listener: the
+                    // remote service may simply not be up yet, and the user
+                    // would have no way to bring the forward back short of
+                    // reconnecting the whole session.
+                    Err(e) => log::warn!("ssh -L {bound}: open tunnel failed: {e}"),
+                }
+            }
+        });
+        self.forwards.lock().await.insert(bound, task);
+        log::info!("ssh -L {label}");
+        Ok(bound)
     }
 
     /// Return the cached SFTP session, opening a fresh subsystem channel on
@@ -475,6 +560,13 @@ impl Drop for SshSession {
         if let Ok(mut g) = self.pump.try_lock() {
             if let Some(j) = g.take() {
                 j.abort();
+            }
+        }
+        // Same for the -L listeners, so a session evicted by the janitor (remote
+        // hangup, never an explicit close) releases its local ports.
+        if let Ok(mut f) = self.forwards.try_lock() {
+            for (_, t) in f.drain() {
+                t.abort();
             }
         }
     }
@@ -850,6 +942,7 @@ pub async fn connect(
             handle: Mutex::new(Some(handle)),
             jump_handles: Mutex::new(jump_handles),
             sftp: Mutex::new(None),
+            forwards: Mutex::new(HashMap::new()),
             exit_signal: std::sync::Mutex::new(None),
             host: input.host.clone(),
             user: input.user.clone(),
@@ -967,6 +1060,7 @@ pub async fn connect(
         handle: Mutex::new(Some(handle)),
         jump_handles: Mutex::new(jump_handles),
         sftp: Mutex::new(None),
+        forwards: Mutex::new(HashMap::new()),
         exit_signal: std::sync::Mutex::new(Some(exit_rx)),
         host: input.host.clone(),
         user: input.user.clone(),
@@ -1035,10 +1129,8 @@ mod chain_tests {
     use crate::modules::ssh::SshJumpHop;
     use tauri::ipc::Channel as IpcChannel;
 
-    /// Live end-to-end check that the REAL `session::connect` reaches a target
-    /// through a ProxyJump chain. Network + a real key + real creds, so it is
-    /// `#[ignore]`d (run with `cargo test --release chain -- --ignored`). All
-    /// inputs come from env vars - nothing about anyone's infra is hard-coded:
+    /// Shared fixture for the live tests below. Every input comes from env vars
+    /// - nothing about anyone's infra is hard-coded:
     ///
     ///   TEDI_IT_KEY_PATH     PEM private key file (used for every hop)
     ///   TEDI_IT_TARGET_HOST  final host, TEDI_IT_TARGET_USER, TEDI_IT_TARGET_FP
@@ -1046,16 +1138,14 @@ mod chain_tests {
     ///
     /// The `*_FP` SHA256 fingerprints pin each hop so the handshake never blocks
     /// on the interactive host-key dialog (there is no GUI in a test). Missing
-    /// required vars => the test prints a skip notice and passes.
-    #[test]
-    #[ignore]
-    fn connects_through_jump_chain() {
+    /// required vars => `None`, and the caller skips.
+    fn it_input(tag: &str) -> Option<SshOpenInput> {
         let (Ok(key_path), Ok(target_host)) = (
             std::env::var("TEDI_IT_KEY_PATH"),
             std::env::var("TEDI_IT_TARGET_HOST"),
         ) else {
-            eprintln!("[chain_tests] skipped: set TEDI_IT_KEY_PATH + TEDI_IT_TARGET_HOST");
-            return;
+            eprintln!("[{tag}] skipped: set TEDI_IT_KEY_PATH + TEDI_IT_TARGET_HOST");
+            return None;
         };
         let key = std::fs::read_to_string(&key_path).expect("read key file");
         let env_opt = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -1074,8 +1164,8 @@ mod chain_tests {
             });
         }
 
-        let input = SshOpenInput {
-            host: target_host.clone(),
+        Some(SshOpenInput {
+            host: target_host,
             port: 22,
             user: env_opt("TEDI_IT_TARGET_USER").unwrap_or_else(|| "ubuntu".into()),
             password: None,
@@ -1085,14 +1175,29 @@ mod chain_tests {
             jumps,
             cols: 80,
             rows: 24,
-        };
+        })
+    }
 
-        let rt = tokio::runtime::Builder::new_multi_thread()
+    fn it_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
-            .unwrap();
-        rt.block_on(async move {
+            .unwrap()
+    }
+
+    /// Live end-to-end check that the REAL `session::connect` reaches a target
+    /// through a ProxyJump chain. Network + a real key + real creds, so it is
+    /// `#[ignore]`d (run with `cargo test --release chain -- --ignored`).
+    #[test]
+    #[ignore]
+    fn connects_through_jump_chain() {
+        let Some(input) = it_input("chain_tests") else {
+            return;
+        };
+        let target_host = input.host.clone();
+
+        it_runtime().block_on(async move {
             let channel = IpcChannel::new(|_msg| Ok(()));
             let session = connect(input, channel).await.expect("chain connect failed");
             let (host, _user, _cols, _rows, alive, _ts) = session.mirror_info();
@@ -1103,6 +1208,66 @@ mod chain_tests {
             );
             session.close().await;
             eprintln!("[chain_tests] OK: connected to {target_host} through chain");
+        });
+    }
+
+    /// Live end-to-end check for `ssh -L`: forward a local port to the remote's
+    /// OWN sshd (the one service we know is listening over there), then read the
+    /// version banner back through the tunnel. `SSH-` on the wire proves the
+    /// listener bound, the `direct-tcpip` channel opened, and bytes copy in both
+    /// directions. Same env fixture as the chain test above; run with
+    /// `cargo test --release forward -- --ignored`.
+    #[test]
+    #[ignore]
+    fn forwards_a_local_port() {
+        use tokio::io::AsyncReadExt;
+
+        let Some(input) = it_input("forward_tests") else {
+            return;
+        };
+        let remote_port = input.port;
+
+        it_runtime().block_on(async move {
+            let channel = IpcChannel::new(|_msg| Ok(()));
+            let session = connect(input, channel).await.expect("connect failed");
+            // 0 = ephemeral, so a busy dev machine can't fail the test on a
+            // port collision that has nothing to do with forwarding.
+            let local = session
+                .open_forward(0, "127.0.0.1".into(), remote_port)
+                .await
+                .expect("open_forward failed");
+            assert_ne!(local, 0, "an ephemeral bind must report its real port");
+
+            let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", local))
+                .await
+                .expect("connect to forwarded port failed");
+            let mut banner = [0u8; 4];
+            tokio::time::timeout(Duration::from_secs(10), sock.read_exact(&mut banner))
+                .await
+                .expect("no bytes came back through the tunnel")
+                .expect("read through tunnel failed");
+            assert_eq!(&banner, b"SSH-", "expected the remote sshd banner");
+
+            session.close().await;
+            // close() must free the port, or every reconnect would fail to bind.
+            // `abort()` only marks the accept loop, so give the runtime a beat
+            // to actually drop the listener before calling it stuck.
+            let mut freed = false;
+            for _ in 0..20 {
+                if tokio::net::TcpListener::bind(("127.0.0.1", local))
+                    .await
+                    .is_ok()
+                {
+                    freed = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(
+                freed,
+                "forward listener still holds port {local} after close"
+            );
+            eprintln!("[forward_tests] OK: localhost:{local} tunneled to the remote sshd");
         });
     }
 }

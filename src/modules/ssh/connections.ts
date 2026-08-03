@@ -18,6 +18,18 @@ const KEY_PASSPHRASE_FIELD = "keyPassphrase";
 
 export type SshAuthMode = "password" | "key";
 
+/**
+ * One `ssh -L` rule. `localPort` is bound on 127.0.0.1 when the session
+ * connects; every connection to it is tunneled to `remoteHost:remotePort` as
+ * resolved from the SERVER, so a host only that machine can reach (a private
+ * database, a bind-to-localhost admin UI) becomes reachable locally.
+ */
+export type SshPortForward = {
+  localPort: number;
+  remoteHost: string;
+  remotePort: number;
+};
+
 export type SshConnection = {
   id: string;
   name: string;
@@ -43,6 +55,11 @@ export type SshConnection = {
    * jump host may itself have a `proxyJumpId`. Absent = direct connection.
    */
   proxyJumpId?: string;
+  /**
+   * Local port forwards (`ssh -L`) opened on every connect to this host and
+   * torn down with the session. Absent/empty = no forwarding.
+   */
+  forwards?: SshPortForward[];
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -223,8 +240,8 @@ export async function resolveJumpHops(
       // Empty/missing secret -> undefined (not "") so the backend's clear
       // "jump host has no password or private key configured" guard fires
       // instead of a confusing "parse private key failed" on an empty string.
-      password: c.authMode === "password" ? (s.password || undefined) : undefined,
-      privateKey: c.authMode === "key" ? (s.privateKey || undefined) : undefined,
+      password: c.authMode === "password" ? s.password || undefined : undefined,
+      privateKey: c.authMode === "key" ? s.privateKey || undefined : undefined,
       privateKeyPassphrase: c.authMode === "key" ? (s.keyPassphrase ?? undefined) : undefined,
       expectedFingerprint: c.lastFingerprint || undefined,
     });
