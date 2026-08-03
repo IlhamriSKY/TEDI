@@ -47,6 +47,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { formatElapsed, useElapsedSince, useLiveNow } from "@/modules/ai/lib/elapsed";
+import { parseHunks, type EditHunk } from "@/modules/ai/lib/lineStats";
 import { useSubagentRunStore, type SubagentRun } from "@/modules/ai/store/subagentRunStore";
 import { resolveSubagentLabel } from "@/modules/ai/agents/resolveSubagent";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
@@ -873,15 +874,29 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     if (ok) {
       const reps = typeof o.replacements === "number" ? o.replacements : null;
       const path = typeof o.path === "string" ? o.path : "";
+      const hunks = parseHunks(o.hunks);
       return (
-        <div className="flex items-center gap-1.5 font-mono text-[11px]">
-          <span className="text-diff-added">✓</span>
-          {reps != null ? (
-            <span className="text-foreground">
-              {reps} replacement{reps === 1 ? "" : "s"}
-            </span>
-          ) : null}
-          {path ? <span className="text-muted-foreground">· {path}</span> : null}
+        <div className="flex flex-col gap-1 font-mono text-[11px]">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="text-diff-added shrink-0">✓</span>
+            {reps != null ? (
+              <span className="text-foreground shrink-0">
+                {reps} replacement{reps === 1 ? "" : "s"}
+              </span>
+            ) : null}
+            {path ? (
+              <span className="text-muted-foreground truncate">· {baseName(path)}</span>
+            ) : null}
+            {/* One replacement is fully described inline, so its line number
+                belongs here rather than in a one-row list below. */}
+            {hunks.length === 1 ? (
+              <span className="text-muted-foreground shrink-0 tabular-nums">
+                · L{hunks[0].line}
+              </span>
+            ) : null}
+            <LineDelta added={o.linesAdded} removed={o.linesRemoved} />
+          </div>
+          <HunkList hunks={hunks} />
         </div>
       );
     }
@@ -890,15 +905,23 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
   if (toolName === "write_file" || toolName === "create_directory") {
     const path = typeof o.path === "string" ? o.path : "";
     const bytes = typeof o.bytesWritten === "number" ? o.bytesWritten : null;
+    const lines = typeof o.linesWritten === "number" ? o.linesWritten : null;
     return (
-      <div className="flex items-center gap-1.5 font-mono text-[11px]">
-        <span className="text-diff-added">✓</span>
-        <span className="text-foreground">
+      <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+        <span className="text-diff-added shrink-0">✓</span>
+        <span className="text-foreground shrink-0">
           {toolName === "create_directory" ? "created" : "wrote"}
         </span>
-        {path ? <span className="text-muted-foreground">· {path}</span> : null}
+        {path ? <span className="text-muted-foreground truncate">· {baseName(path)}</span> : null}
+        {lines != null ? (
+          // A write replaces the file, so every line is new: show it as a
+          // pure addition rather than a misleading `+N -M`.
+          <span className="text-diff-added shrink-0">
+            +{lines} line{lines === 1 ? "" : "s"}
+          </span>
+        ) : null}
         {bytes != null ? (
-          <span className="text-muted-foreground">({formatBytes(bytes)})</span>
+          <span className="text-muted-foreground shrink-0">({formatBytes(bytes)})</span>
         ) : null}
       </div>
     );
@@ -1265,6 +1288,42 @@ function highlightMatch(text: string, pattern: string): ReactNode {
 
 // Last path segment of a (possibly Windows) path, used to keep move/delete
 // summaries compact in the tool header.
+/** `+7 -3` badge. Renders nothing when the tool reported no line counts (an
+ *  older result replayed from history), so the row just loses the badge. */
+function LineDelta({ added, removed }: { added: unknown; removed: unknown }) {
+  const a = typeof added === "number" ? added : 0;
+  const r = typeof removed === "number" ? removed : 0;
+  if (a === 0 && r === 0) return null;
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums">
+      {a > 0 ? <span className="text-diff-added">+{a}</span> : null}
+      {r > 0 ? <span className="text-diff-removed">-{r}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * One row per replacement: which line it landed on and its line delta. The
+ * tool caps the array at MAX_REPORTED_HUNKS, so a replace_all across a big
+ * file says so rather than printing hundreds of rows.
+ */
+function HunkList({ hunks }: { hunks: EditHunk[] }) {
+  if (hunks.length === 0) return null;
+  // A single hunk is already fully described by the summary row's +N -M.
+  if (hunks.length === 1) return null;
+  return (
+    <div className="border-border/60 ml-3 flex flex-col gap-0.5 border-l pl-2">
+      {hunks.map((h, i) => (
+        <div key={`${h.line}-${i}`} className="flex items-center gap-2 tabular-nums">
+          <span className="text-muted-foreground w-12 shrink-0">L{h.line}</span>
+          <span className="text-diff-added">+{h.added}</span>
+          <span className="text-diff-removed">-{h.removed}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function baseName(p: string): string {
   const norm = p.replace(/\\/g, "/").replace(/\/+$/, "");
   const i = norm.lastIndexOf("/");

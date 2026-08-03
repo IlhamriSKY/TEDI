@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { dispatchFsRefreshForFile, dispatchFsRefresh } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
+import { lineSpan } from "../lib/lineStats";
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
 import { notifySkillPathChanged } from "../lib/skillCache";
@@ -52,10 +53,7 @@ type ImageTooLarge = { error: string; path: string; size: number };
  * SVG is deliberately excluded: it is text, so the normal read path describes it
  * better than a rasterless `file-data` part every provider would have to guess at.
  */
-async function readAsImage(
-  abs: string,
-  size: number,
-): Promise<ImageRead | ImageTooLarge | null> {
+async function readAsImage(abs: string, size: number): Promise<ImageRead | ImageTooLarge | null> {
   // Size-gate before reading, but only claim it as an image error when the name
   // says it is one. Otherwise a 5 MB archive would be reported as an oversized
   // image, and every oversized binary would be read in full just to find out.
@@ -353,7 +351,15 @@ export function buildFsTools(
             notifyMemoryPathChanged(abs);
             notifySkillPathChanged(abs);
             dispatchFsRefreshForFile(abs);
-            return { path: abs, bytesWritten: content.length, ok: true };
+            // A write replaces the whole file, so there are no per-hunk line
+            // numbers to report the way `edit` has - just the resulting size.
+            // The ai-diff tab still shows the real before/after.
+            return {
+              path: abs,
+              bytesWritten: content.length,
+              linesWritten: lineSpan(content),
+              ok: true,
+            };
           } catch (e) {
             return { error: scrubErrorPath(e, ctx), path: abs };
           }
