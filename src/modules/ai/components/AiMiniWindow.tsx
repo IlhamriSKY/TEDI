@@ -11,7 +11,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, type ReactNode } from "react";
+import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
@@ -46,7 +47,13 @@ const SUGGESTIONS = [
 
 // Memoised so unrelated parent re-renders (tab open/close, OSC 7 cwd updates,
 // ResizeObserver ticks in TabBar) don't re-render the AI sidebar tree.
-export const AiSidebarPanel = memo(function AiSidebarPanel() {
+export const AiSidebarPanel = memo(function AiSidebarPanel({
+  dragHandle,
+}: {
+  /** Grip + collapse controls from the right column's section stack, rendered
+   *  in the panel header so the AI panel reorders like any other section. */
+  dragHandle?: ReactNode;
+}) {
   const closePanel = useChatStore((s) => s.closePanel);
   const sessionId = useChatStore((s) => s.activeSessionId);
 
@@ -76,16 +83,24 @@ export const AiSidebarPanel = memo(function AiSidebarPanel() {
         className="from-foreground/[0.03] pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent"
       />
       {sessionId ? (
-        <Body sessionId={sessionId} onClose={closePanel} />
+        <Body sessionId={sessionId} onClose={closePanel} dragHandle={dragHandle} />
       ) : (
-        <EmptyShell onClose={closePanel} />
+        <EmptyShell onClose={closePanel} dragHandle={dragHandle} />
       )}
       <PlanDiffReview />
     </div>
   );
 });
 
-function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+function Body({
+  sessionId,
+  onClose,
+  dragHandle,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  dragHandle?: ReactNode;
+}) {
   const focusInput = useChatStore((s) => s.focusInput);
   const step = useChatStore((s) => s.agentMeta.step);
 
@@ -95,7 +110,7 @@ function Body({ sessionId, onClose }: { sessionId: string; onClose: () => void }
 
   return (
     <>
-      <Header step={step} isBusy={isBusy} onClose={onClose} />
+      <Header step={step} isBusy={isBusy} onClose={onClose} dragHandle={dragHandle} />
 
       <PlanModeStrip />
 
@@ -147,10 +162,10 @@ function PlanModeStrip() {
   );
 }
 
-function EmptyShell({ onClose }: { onClose: () => void }) {
+function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?: ReactNode }) {
   return (
     <>
-      <Header step={null} isBusy={false} onClose={onClose} />
+      <Header step={null} isBusy={false} onClose={onClose} dragHandle={dragHandle} />
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-[11px]">
         Loading sessions…
       </div>
@@ -162,37 +177,69 @@ function Header({
   step,
   isBusy,
   onClose,
+  dragHandle,
 }: {
   step: string | null;
   isBusy: boolean;
   onClose: () => void;
+  dragHandle?: ReactNode;
 }) {
+  // Turn clock, mirrored from the chat's own indicator. The header never
+  // scrolls away, so this is the one "still running" signal that survives
+  // scrolling back through a long conversation.
+  const elapsed = useElapsedSince(isBusy);
   return (
-    <div className="border-border/60 relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-0">
-      <div className="flex min-w-0 flex-1 items-center">
+    // A container, so the header can drop what does not fit at the width the
+    // user actually dragged the column to (the panel is resizable, so a media
+    // query would be measuring the wrong box).
+    <div className="border-border/60 @container/ai-header relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-0">
+      <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
+        {dragHandle}
         <SessionPicker />
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      {/* min-w-0 so the busy readout gives way before the buttons do, and pr-2
+          because the header itself is px-0: the SessionPicker is a full-bleed
+          button on the left, but without this the close X sat hard against the
+          panel's right border. */}
+      <div className="flex min-w-0 shrink items-center gap-0.5 pr-2">
         {isBusy ? (
           <span className="text-muted-foreground flex min-w-0 items-center gap-1 pr-1 text-[10px]">
-            <Spinner className="size-2.5" />
-            <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
+            <Spinner className="size-2.5 shrink-0" />
+            {/* The step text is the first thing to go on a narrow column: the
+                chat's own running indicator carries it with room to spare, and
+                it names the step that just FINISHED, not the running one. The
+                clock never goes - it is the proof-of-life that survives
+                scrolling the conversation. */}
+            <span className="hidden max-w-28 truncate @[22rem]/ai-header:block">
+              {step ?? "Working…"}
+            </span>
+            {/* Below ~16rem even the clock costs the session title its last
+                readable pixels, and the spinner alone still says "running".
+                The elapsed time is never lost: the chat's running indicator and
+                every in-flight tool card carry it with room to spare. */}
+            {elapsed >= 1000 ? (
+              <span className="hidden shrink-0 font-mono tabular-nums opacity-70 @[16rem]/ai-header:inline">
+                {formatElapsed(elapsed)}
+              </span>
+            ) : null}
           </span>
         ) : null}
-        <ToolsPicker />
-        <DebugRequestViewer />
-        <IconTooltip label="Close (Esc)" side="bottom">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={onClose}
-            className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
-            aria-label="Close (Esc)"
-          >
-            <X size={11} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
+        <span className="flex shrink-0 items-center gap-0.5">
+          <ToolsPicker />
+          <DebugRequestViewer />
+          <IconTooltip label="Close (Esc)" side="bottom">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={onClose}
+              className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
+              aria-label="Close (Esc)"
+            >
+              <X size={11} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+        </span>
       </div>
     </div>
   );
@@ -225,7 +272,7 @@ function SessionPicker() {
               aria-label="Switch session"
             >
               <span className="truncate">{active.title || "New chat"}</span>
-              <ChevronDown size={10} strokeWidth={2} className="opacity-70" />
+              <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -305,37 +352,43 @@ function SessionRow({
 
 function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-10 text-center">
-      <img src="/icon.png" alt="TEDI" className="size-14 opacity-90" />
-      <div className="space-y-1.5">
-        <p className="text-[14px] font-semibold tracking-tight">Ask TEDI anything</p>
-        <p className="text-muted-foreground max-w-[18rem] text-[11.5px] leading-relaxed">
-          TEDI sees the active terminal: cwd, recent commands, and output.
-        </p>
-      </div>
-      <div className="flex w-full flex-col gap-2.5">
-        {SUGGESTIONS.map((s) => {
-          const Icon = s.icon;
-          return (
-            <button
-              key={s.label}
-              type="button"
-              onClick={() => onPick(s.text)}
-              className={cn(
-                "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
-                "hover:bg-muted/50 hover:text-foreground transition-colors",
-              )}
-            >
-              <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
-                <Icon size={13} strokeWidth={1.75} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-foreground text-[12px] font-medium">{s.label}</div>
-                <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
-              </div>
-            </button>
-          );
-        })}
+    // Scrolls instead of bleeding: the AI panel now shares the right column
+    // with other sections, so it is routinely shorter than this content. The
+    // inner `min-h-full` is what keeps `justify-center` from pushing the top of
+    // an overflowing column out of reach.
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-full flex-col items-center justify-center gap-6 px-8 py-10 text-center">
+        <img src="/icon.png" alt="TEDI" className="size-14 opacity-90" />
+        <div className="space-y-1.5">
+          <p className="text-[14px] font-semibold tracking-tight">Ask TEDI anything</p>
+          <p className="text-muted-foreground max-w-[18rem] text-[11.5px] leading-relaxed">
+            TEDI sees the active terminal: cwd, recent commands, and output.
+          </p>
+        </div>
+        <div className="flex w-full flex-col gap-2.5">
+          {SUGGESTIONS.map((s) => {
+            const Icon = s.icon;
+            return (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => onPick(s.text)}
+                className={cn(
+                  "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
+                  "hover:bg-muted/50 hover:text-foreground transition-colors",
+                )}
+              >
+                <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
+                  <Icon size={13} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-foreground text-[12px] font-medium">{s.label}</div>
+                  <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
