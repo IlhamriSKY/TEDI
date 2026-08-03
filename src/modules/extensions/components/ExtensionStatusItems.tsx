@@ -12,14 +12,38 @@ import { useResolvedExtensionIcon } from "../icon";
 import { statusItemsRegistry, type StatusItem } from "../registries";
 import { useRegistry } from "../useRegistry";
 
-export function ExtensionStatusItems() {
+/**
+ * Which group an item belongs to. An item that displays data is a status, even
+ * when it is clickable; anything else with a click handler is an action. An
+ * extension overrides the guess with `kind` (an icon-only connection state that
+ * opens a dialog is still a status).
+ */
+export function statusItemKind(item: StatusItem): "status" | "action" {
+  if (item.kind) return item.kind;
+  if (item.progress !== undefined || item.label || item.detail) return "status";
+  return item.onClick ? "action" : "status";
+}
+
+export function ExtensionStatusItems({
+  kind,
+  metersOnly,
+}: {
+  /** Render only this group. Omit for every item, as before. */
+  kind?: "status" | "action";
+  /** Only items carrying a meter (`progress`). The compact status bar keeps
+   *  these: a meter is the thing you glance at, an icon is not. */
+  metersOnly?: boolean;
+} = {}) {
   const items = useRegistry(statusItemsRegistry);
-  if (items.length === 0) return null;
   // Sort by extension id then item id so the order is stable.
-  const sorted = [...items].sort((a, b) => {
-    const e = a.extensionId.localeCompare(b.extensionId);
-    return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
-  });
+  const sorted = [...items]
+    .filter(({ item }) => !kind || statusItemKind(item) === kind)
+    .filter(({ item }) => !metersOnly || item.progress !== undefined)
+    .sort((a, b) => {
+      const e = a.extensionId.localeCompare(b.extensionId);
+      return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
+    });
+  if (sorted.length === 0) return null;
   return (
     <div className="flex items-center gap-1.5">
       {sorted.map(({ extensionId, item }) => (

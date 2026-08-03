@@ -82,6 +82,14 @@ const PanelSchema = z
      *  AI / SCM toggles). Chrome is identical either way — every right-panel
      *  toggle is icon-only — so this only affects ordering/placement. */
     compact: z.boolean().optional(),
+    /**
+     * What the status-bar button actually does. `"panel"` (the default) opens
+     * the right-slot panel. `"action"` runs `toggleCommand` and never opens
+     * anything - for a button that just does a thing (Screenshot captures the
+     * window). The bar groups the two apart, and an action-kind button no
+     * longer has to intercept its own click to stop a panel from sliding out.
+     */
+    kind: z.enum(["panel", "action"]).optional(),
   })
   .passthrough();
 

@@ -66,6 +66,18 @@ export type StatusItem = {
    *  runtime through `ctx.statusBar` (they are not a manifest contribution),
    *  so a function on this object is passed in-process and never serialised. */
   onClick?: () => void;
+  /**
+   * Which status-bar group this belongs to. `"status"` is something you read
+   * (a usage meter, a connection state); `"action"` is a button you press to
+   * make something happen. The bar groups them separately so a row of readouts
+   * is not interleaved with a row of buttons.
+   *
+   * Left unset it is inferred: an item that displays data (`label`, `progress`
+   * or `detail`) is a status, anything else with an `onClick` is an action.
+   * Declare it when the inference is wrong - an icon-only connection state with
+   * a click handler (Discord, Remote Access) is a status, not an action.
+   */
+  kind?: "status" | "action";
 };
 
 class Registry<T> {
@@ -418,7 +430,10 @@ export const shellTransformersRegistry = new ShellTransformerRegistry();
  */
 export type PanelRenderer = (
   container: HTMLElement,
-  ctx?: { surface: "tab" | "pane" },
+  /** `reuseKey` is the one the pane was opened with, so a panel that runs one
+   *  instance per key (the API Client runs one workbench per collection) can
+   *  tell its mounts apart. Undefined for a panel opened without a key. */
+  ctx?: { surface: "tab" | "pane"; reuseKey?: string },
 ) => (() => void) | void;
 
 class PanelRendererRegistry {

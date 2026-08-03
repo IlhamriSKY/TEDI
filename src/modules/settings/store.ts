@@ -177,6 +177,13 @@ export type Preferences = {
    */
   terminalEnvPath: TerminalPathEntry[];
   showHiddenFiles: boolean;
+  /**
+   * Fold the status bar's right cluster down to what you glance at: the update
+   * prompt, the AI usage meters and the AI panel button. Everything else (zoom,
+   * the other status icons, the action + panel-toggle groups) hides until it is
+   * switched back off. Default false.
+   */
+  statusBarCompact: boolean;
   /** Show the Source Control panel. Default true. */
   showSourceControl: boolean;
   /**
@@ -374,6 +381,7 @@ const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_TERMINAL_ENV_PATH = "terminalEnvPath";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
+const KEY_STATUS_BAR_COMPACT = "statusBarCompact";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SOURCE_CONTROL_IN_RIGHT_PANEL = "sourceControlInRightPanel";
 const KEY_SSH_IN_RIGHT_PANEL = "sshInRightPanel";
@@ -503,6 +511,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
   terminalEnvPath: [],
   showHiddenFiles: false,
+  statusBarCompact: false,
   showSourceControl: true,
   sourceControlInRightPanel: false,
   sshInRightPanel: false,
@@ -608,6 +617,7 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     terminalEnvPath: normalizeTerminalPathEntries(get<unknown>(KEY_TERMINAL_ENV_PATH)),
     showHiddenFiles: get<boolean>(KEY_SHOW_HIDDEN_FILES) ?? DEFAULT_PREFERENCES.showHiddenFiles,
+    statusBarCompact: get<boolean>(KEY_STATUS_BAR_COMPACT) ?? DEFAULT_PREFERENCES.statusBarCompact,
     showSourceControl:
       get<boolean>(KEY_SHOW_SOURCE_CONTROL) ?? DEFAULT_PREFERENCES.showSourceControl,
     sourceControlInRightPanel:
@@ -911,6 +921,10 @@ export async function setShowHiddenFiles(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_HIDDEN_FILES, value);
 }
 
+export async function setStatusBarCompact(value: boolean): Promise<void> {
+  await writePref(KEY_STATUS_BAR_COMPACT, value);
+}
+
 export async function setShowSourceControl(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_SOURCE_CONTROL, value);
 }
@@ -1160,6 +1174,7 @@ export async function onPreferencesChange(
     terminalScrollback: KEY_TERMINAL_SCROLLBACK,
     terminalEnvPath: KEY_TERMINAL_ENV_PATH,
     showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
+    statusBarCompact: KEY_STATUS_BAR_COMPACT,
     showSourceControl: KEY_SHOW_SOURCE_CONTROL,
     sourceControlInRightPanel: KEY_SOURCE_CONTROL_IN_RIGHT_PANEL,
     sshInRightPanel: KEY_SSH_IN_RIGHT_PANEL,
