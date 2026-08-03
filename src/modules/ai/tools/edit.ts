@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { dispatchFsRefreshForFile } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
+import { lineAt, lineSpan, MAX_REPORTED_HUNKS, totalLines, type EditHunk } from "../lib/lineStats";
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
 import { notifySkillPathChanged } from "../lib/skillCache";
@@ -18,7 +19,16 @@ import {
 import { flexArrayReq, flexBoolOpt } from "./schedule";
 
 type EditResult =
-  | { ok: true; replacements: number; bytesWritten: number; path: string }
+  | {
+      ok: true;
+      replacements: number;
+      bytesWritten: number;
+      path: string;
+      /** Line totals and per-replacement detail for the chat card's diff badge. */
+      linesAdded: number;
+      linesRemoved: number;
+      hunks: EditHunk[];
+    }
   | { error: string; path: string };
 
 function applyEdits(
@@ -50,6 +60,20 @@ async function applyEditsLocked(
   const original = r.content;
   let content = original;
   let totalReplacements = 0;
+  // Every replacement's line footprint, recorded as it lands.
+  // ponytail: a later edit's line number is read off the already-partly-edited
+  // buffer, so in a multi_edit an earlier insertion shifts it. Exact for the
+  // single-edit case, which is nearly all of them; re-diffing the whole file
+  // afterwards is the upgrade if multi_edit line numbers ever matter.
+  const hunks: EditHunk[] = [];
+  const recordHunk = (offset: number, oldS: string, newS: string) => {
+    if (hunks.length >= MAX_REPORTED_HUNKS) return;
+    hunks.push({
+      line: lineAt(content, offset),
+      removed: lineSpan(oldS),
+      added: lineSpan(newS),
+    });
+  };
 
   // read_file strips \r (the model copies LF-only text), but native.readFile
   // preserves the file's CRLF. On a CRLF file, translate each edit's LF newlines
@@ -75,6 +99,7 @@ async function applyEditsLocked(
       let i = 0;
       while ((i = content.indexOf(oldS, i)) !== -1) {
         n++;
+        recordHunk(i, oldS, newS);
         i += oldS.length;
       }
       if (n === 0) {
@@ -101,6 +126,7 @@ async function applyEditsLocked(
           path: abs,
         };
       }
+      recordHunk(first, oldS, newS);
       content = content.slice(0, first) + newS + content.slice(first + oldS.length);
       totalReplacements += 1;
     }
@@ -120,6 +146,8 @@ async function applyEditsLocked(
       replacements: totalReplacements,
       bytesWritten: content.length,
       path: abs,
+      ...totalLines(hunks),
+      hunks,
     };
   }
 
@@ -146,6 +174,8 @@ async function applyEditsLocked(
       replacements: totalReplacements,
       bytesWritten: content.length,
       path: abs,
+      ...totalLines(hunks),
+      hunks,
     };
   } catch (err) {
     return { error: scrubErrorPath(err, ctx), path: abs };
@@ -154,7 +184,11 @@ async function applyEditsLocked(
 
 export function buildEditTools(
   ctx: ToolContext,
-  opts: { autoApprove?: boolean; refuseOutOfScopeMutations?: boolean; ignorePlanMode?: boolean } = {},
+  opts: {
+    autoApprove?: boolean;
+    refuseOutOfScopeMutations?: boolean;
+    ignorePlanMode?: boolean;
+  } = {},
 ) {
   // Normally edit/multi_edit raise an approval card. An autonomous worker
   // subagent has no approver in its generateText loop, so it passes autoApprove
@@ -181,7 +215,10 @@ export function buildEditTools(
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         if (refuseMut && isReadOutsideScope(path, ctx)) {
-          return { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs };
+          return {
+            error: "refused: a subagent may not mutate outside the workspace/cwd",
+            path: abs,
+          };
         }
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -220,7 +257,10 @@ export function buildEditTools(
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
         if (refuseMut && isReadOutsideScope(path, ctx)) {
-          return { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs };
+          return {
+            error: "refused: a subagent may not mutate outside the workspace/cwd",
+            path: abs,
+          };
         }
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
