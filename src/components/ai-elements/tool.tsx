@@ -46,11 +46,12 @@ import { MessageResponse } from "./message";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
+import { formatElapsed, useElapsedSince, useLiveNow } from "@/modules/ai/lib/elapsed";
 import { useSubagentRunStore, type SubagentRun } from "@/modules/ai/store/subagentRunStore";
 import { resolveSubagentLabel } from "@/modules/ai/agents/resolveSubagent";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
-import { isValidElement, memo, useEffect, useMemo, useState } from "react";
+import { isValidElement, memo, useMemo, useState } from "react";
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
@@ -274,6 +275,14 @@ const ToolImpl = ({
     output === undefined &&
     !errorText &&
     liveSubagentRuns.length > 0;
+  // Live "how long has this been running" clock. A tool that takes 90s (an
+  // extension's HTTP call, a big grep) otherwise looks identical to a wedged
+  // app: the breathing icon alone says nothing about elapsed time. Held back
+  // for the first second so quick tools don't flash a counter.
+  // ponytail: measured from mount, so switching sessions away and back mid-call
+  // restarts it. Carry a start stamp on the message part if that ever matters.
+  const running = ACTIVE_STATES.has(state);
+  const elapsed = useElapsedSince(running);
   const heavyInput = HEAVY_INPUT_TOOLS.has(toolName);
   // Hide streamed input body for heavy tools; output always shows since it's
   // the final result, not per-token streaming.
@@ -306,7 +315,7 @@ const ToolImpl = ({
           strokeWidth={1.75}
           className={cn(
             "shrink-0 transition-colors",
-            ACTIVE_STATES.has(state) && "animate-ai-breathe",
+            running && "animate-ai-breathe",
             STATUS_ICON_COLOR[state],
           )}
           aria-label={STATUS_LABEL[state]}
@@ -319,6 +328,11 @@ const ToolImpl = ({
         ) : (
           <span className="flex-1" />
         )}
+        {running && elapsed >= 1000 ? (
+          <span className="text-icon-working shrink-0 font-mono text-[10px] tabular-nums">
+            {formatElapsed(elapsed)}
+          </span>
+        ) : null}
         {isError && (
           <span className="text-destructive shrink-0 text-[10px] font-medium">failed</span>
         )}
@@ -490,17 +504,6 @@ const SubagentRunRow = memo(
   // matters while running, and a finished run's object is referentially stable.
   (a, b) => a.run === b.run && (a.run.status === "running" ? a.now === b.now : true),
 );
-
-function useLiveNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
 
 function matchSubagentRuns(toolName: string, input: unknown, runs: SubagentRun[]): SubagentRun[] {
   const expected = expectedSubagentRuns(toolName, input);

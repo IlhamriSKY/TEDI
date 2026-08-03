@@ -17,6 +17,7 @@ import {
   type ExtractedSelection,
 } from "../lib/messageBody";
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
+import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
 import { SLASH_COMMANDS, skillSlashCommands } from "../lib/slashCommands";
@@ -218,7 +219,6 @@ export function AiChatView({
 }: Props) {
   const isBusy = status === "submitted" || status === "streaming";
   const lastMessage = messages[messages.length - 1];
-  const showSpinner = isBusy && lastMessage?.role === "user";
   const streamingMessageId =
     status === "streaming" && lastMessage?.role === "assistant" ? lastMessage.id : null;
 
@@ -263,7 +263,7 @@ export function AiChatView({
             isLastUser={m.id === lastUserMessageId}
           />
         ))}
-        {showSpinner && <ThinkingIndicator />}
+        {isBusy && <RunningIndicator waiting={status === "submitted"} />}
         {error && (
           <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
             <div className="font-medium">Something went wrong.</div>
@@ -566,7 +566,17 @@ const RenderedTool = memo(function RenderedTool({
   );
 });
 
-function ThinkingIndicator() {
+/**
+ * Proof of life for the whole turn. Mounted for as long as the agent is busy -
+ * NOT only while the last message is the user's, which used to hide it the
+ * moment the assistant replied, so a 90s tool call (an API request, a slow
+ * provider) left a completely static screen with no way to tell running from
+ * hung. The dots animate and the clock ticks: both stop dead if the app does.
+ */
+function RunningIndicator({ waiting }: { waiting: boolean }) {
+  // Mounts when the turn starts and unmounts when it settles, so elapsed is
+  // time-in-turn. `true`: while mounted, the turn is by definition running.
+  const elapsed = useElapsedSince(true);
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -575,14 +585,23 @@ function ThinkingIndicator() {
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       className={cn("text-muted-foreground flex w-fit items-center gap-2 text-[11.5px]")}
       role="status"
-      aria-label="Thinking"
+      aria-label="Agent is running"
     >
       <span className="flex items-center gap-1">
         <ThinkingDot delay={0} />
         <ThinkingDot delay={0.18} />
         <ThinkingDot delay={0.36} />
       </span>
-      <span className="leading-none">Thinking…</span>
+      {/* "Waiting" only until the first byte comes back; after that the model
+          is demonstrably answering, whatever it is doing between tool calls. */}
+      <span className="leading-none">{waiting ? "Waiting for the model…" : "Working…"}</span>
+      {/* aria-hidden: `role="status"` makes this line a live region, and a
+          clock that changes every second would be read out every second. */}
+      {elapsed >= 1000 ? (
+        <span aria-hidden className="font-mono text-[10.5px] tabular-nums opacity-70">
+          {formatElapsed(elapsed)}
+        </span>
+      ) : null}
     </motion.div>
   );
 }
