@@ -73,6 +73,21 @@ export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescript
   return describeTools(all, fromExtension);
 }
 
+/**
+ * The same list minus MCP: built-ins + extension tools only.
+ *
+ * Synchronous and connection-free, deliberately. It exists so the tools picker
+ * can show an on/off count the moment it mounts, without spawning every enabled
+ * MCP server's subprocess just to render a number. The picker folds the MCP
+ * tools in via `listAvailableTools` when the popover actually opens.
+ */
+export function listLocalTools(ctx: ToolContext): ToolDescriptor[] {
+  const extension = buildExtensionTools(ctx);
+  const builtin = buildTools(ctx);
+  const fromExtension = new Set(Object.keys(extension).filter((k) => !(k in builtin)));
+  return describeTools({ ...extension, ...builtin }, fromExtension);
+}
+
 export function buildTools(ctx: ToolContext): ChatTools {
   let built = toolsCache.get(ctx);
   if (!built) {

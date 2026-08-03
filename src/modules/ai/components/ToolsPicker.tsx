@@ -10,9 +10,20 @@ import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setDisabledTools } from "@/modules/settings/store";
 import { groupTools, type ToolDescriptor } from "../tools/catalog";
-import { listAvailableTools } from "../tools/tools";
+import { listAvailableTools, listLocalTools } from "../tools/tools";
 import { getToolContext } from "../store/chatStore";
 import { ChevronRight, Wrench } from "lucide-react";
+
+/**
+ * Last enumerated tool list, kept OUTSIDE the component on purpose.
+ *
+ * The picker lives in the AI panel header, so closing the panel unmounts it and
+ * used to throw the list away: the trigger's count silently disappeared until
+ * the user opened the popover again. Surviving the remount here is what makes
+ * the count permanent, and it also keeps MCP tools in the number without
+ * reconnecting to their servers.
+ */
+let lastToolList: ToolDescriptor[] | null = null;
 
 /**
  * Per-tool on/off, the way Copilot's chat does it: one checkbox per tool,
@@ -27,7 +38,7 @@ export function ToolsPicker() {
   const disabled = usePreferencesStore((s) => s.disabledTools);
   const chatMode = usePreferencesStore((s) => s.chatMode);
   const [open, setOpen] = useState(false);
-  const [tools, setTools] = useState<ToolDescriptor[] | null>(null);
+  const [tools, setToolsState] = useState<ToolDescriptor[] | null>(() => lastToolList);
   const [query, setQuery] = useState("");
   // Collapsed by default: a group header per server is the compact view, and
   // the header already carries the on/off count.
@@ -42,23 +53,37 @@ export function ToolsPicker() {
     });
   }, []);
 
-  // Enumerated on open, not on mount: it awaits the MCP servers, and a user who
-  // never opens the picker should not pay for that.
+  const setTools = useCallback((list: ToolDescriptor[]) => {
+    lastToolList = list;
+    setToolsState(list);
+  }, []);
+
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
     const ctx = getToolContext();
     if (!ctx) {
-      setTools([]);
+      // No session yet. Show the "open a chat first" hint when the popover is
+      // open, but leave the cached count alone: a transient missing context is
+      // not evidence that the tool list is empty.
+      if (open) setToolsState([]);
       return;
     }
+    if (!open) {
+      // Cheap seed so the trigger shows a count straight away. Built-ins +
+      // extension tools only: enumerating MCP here would spawn every enabled
+      // server's subprocess for a user who may never open the picker.
+      if (!lastToolList) setTools(listLocalTools(ctx));
+      return;
+    }
+    // Opened: the full list, MCP included. The connect is deduped with the one
+    // a turn makes, so it costs nothing extra.
+    let cancelled = false;
     void listAvailableTools(ctx).then((list) => {
       if (!cancelled) setTools(list);
     });
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, setTools]);
 
   const disabledSet = useMemo(() => new Set(disabled), [disabled]);
 
@@ -86,12 +111,12 @@ export function ToolsPicker() {
   const groups = useMemo(() => groupTools(filtered), [filtered]);
   const total = tools?.length ?? 0;
   const onCount = tools ? tools.filter((t) => !disabledSet.has(t.name)).length : 0;
-  const someOff = total > 0 && onCount < total;
 
+  const count = total > 0 ? `${onCount} of ${total} on` : null;
   const label = chatMode
-    ? "Tools are off in chat mode"
-    : someOff
-      ? `Tools: ${onCount} of ${total} on`
+    ? `Tools are off in chat mode${count ? ` (${count})` : ""}`
+    : count
+      ? `Tools: ${count}`
       : "Tools";
 
   return (
@@ -109,7 +134,9 @@ export function ToolsPicker() {
             )}
           >
             <Wrench size={12} strokeWidth={1.75} className="shrink-0" />
-            {someOff ? (
+            {/* Always rendered once the list is known, all-on included. Hiding
+                it at 77/77 was read as the count "disappearing". */}
+            {total > 0 ? (
               <span className="tabular-nums">
                 {onCount}/{total}
               </span>
@@ -194,26 +221,26 @@ export function ToolsPicker() {
                   <CollapsibleContent className="pb-0.5">
                     {rows.map((t) => (
                       // One line per tool: the name leads, the description
-                      // trails dimmed and ellipsises. Full text stays in `title`.
-                      <label
-                        key={t.name}
-                        title={t.description}
-                        className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 pl-7"
-                      >
-                        <Checkbox
-                          checked={!disabledSet.has(t.name)}
-                          onCheckedChange={(v) => setDisabled([t.name], v !== true)}
-                          aria-label={t.name}
-                        />
-                        <span className="min-w-0 flex-1 truncate leading-4">
-                          <span className="font-mono text-[11px]">{t.name}</span>
-                          {t.description ? (
-                            <span className="text-muted-foreground/60 ml-1.5 text-[10.5px]">
-                              {t.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
+                      // trails dimmed and ellipsises. The full text lives in the
+                      // app's own tooltip - a native `title` was the odd one out
+                      // here, with OS styling and a second-long delay.
+                      <IconTooltip key={t.name} label={t.description || t.name} side="left">
+                        <label className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 pl-7">
+                          <Checkbox
+                            checked={!disabledSet.has(t.name)}
+                            onCheckedChange={(v) => setDisabled([t.name], v !== true)}
+                            aria-label={t.name}
+                          />
+                          <span className="min-w-0 flex-1 truncate leading-4">
+                            <span className="font-mono text-[11px]">{t.name}</span>
+                            {t.description ? (
+                              <span className="text-muted-foreground/60 ml-1.5 text-[10.5px]">
+                                {t.description}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      </IconTooltip>
                     ))}
                   </CollapsibleContent>
                 </Collapsible>
