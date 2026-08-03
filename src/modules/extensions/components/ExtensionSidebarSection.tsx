@@ -157,10 +157,7 @@ function SectionIcon({
  * the AI tool cards use. Every value is themable, so an extension can colour a
  * category (an HTTP verb, a severity) without a raw-colour escape hatch.
  */
-const BADGE_TONE: Record<
-  NonNullable<NonNullable<SidebarSectionItem["badge"]>["tone"]>,
-  string
-> = {
+const BADGE_TONE: Record<NonNullable<NonNullable<SidebarSectionItem["badge"]>["tone"]>, string> = {
   success: "bg-icon-idle/15 text-icon-idle",
   warning: "bg-icon-working/15 text-icon-working",
   error: "bg-icon-blocked/15 text-icon-blocked",
@@ -209,9 +206,10 @@ export function ExtensionSidebarSection({
   };
   const moveLeft = () => {
     useSidebarPlacementStore.getState().moveLeft(placementKey);
-    useRightPanelStore.getState().close();
+    useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id));
   };
-  const closeRight = () => useRightPanelStore.getState().close();
+  const closeRight = () =>
+    useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id));
   // The header always renders its control cluster when the section is movable
   // (so the move toggle shows even with no header actions) or when hosted right.
   const showControlCluster =
@@ -285,12 +283,16 @@ export function ExtensionSidebarSection({
             // reader scans for (an HTTP verb). Compact override of the host
             // <Badge> so it matches app-wide badge styling at row scale; a
             // `tone` tints it from the theme instead of leaving every category
-            // the same grey chip.
+            // the same grey chip. On a row with hover actions it fades out on
+            // hover, like the spinner below and the workspace tab count: the
+            // actions overlay the row's right edge, and a chip left underneath
+            // them reads as two things printed on top of each other.
             <Badge
               variant={item.badge.tone ? "secondary" : (item.badge.variant ?? "secondary")}
               className={cn(
                 "h-4 shrink-0 rounded px-1.5 text-[9px] leading-none font-medium tracking-wide",
                 item.badge.tone && BADGE_TONE[item.badge.tone],
+                hasActions && "transition-opacity group-hover:opacity-0",
               )}
             >
               {item.badge.text}

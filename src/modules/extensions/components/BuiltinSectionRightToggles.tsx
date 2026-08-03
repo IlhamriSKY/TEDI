@@ -9,7 +9,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { LayoutDashboard, type LucideIcon } from "lucide-react";
 
-import { useRightPanelStore } from "../rightPanelStore";
+import { isRightPanelOpen, useRightPanelStore } from "../rightPanelStore";
 import {
   BUILTIN_SECTION_EXT,
   MOVABLE_BUILTIN_SECTIONS,
@@ -24,7 +24,7 @@ const ICONS: Record<BuiltinSectionId, LucideIcon> = {
 
 export function BuiltinSectionRightToggles() {
   const placement = useSidebarPlacementStore((s) => s.placement);
-  const active = useRightPanelStore((s) => s.active);
+  const panels = useRightPanelStore((s) => s.panels);
   const toggle = useRightPanelStore((s) => s.toggle);
 
   const moved = MOVABLE_BUILTIN_SECTIONS.filter((s) => placement[s.id] === "right");
@@ -34,8 +34,7 @@ export function BuiltinSectionRightToggles() {
     <div className="flex items-center gap-1.5">
       {moved.map(({ id, title }) => {
         const Icon = ICONS[id];
-        const isOpen =
-          active?.extensionId === BUILTIN_SECTION_EXT && active?.panelId === sectionPanelId(id);
+        const isOpen = isRightPanelOpen(panels, BUILTIN_SECTION_EXT, sectionPanelId(id));
         return (
           <IconTooltip key={id} label={`${isOpen ? "Close" : "Open"} ${title}`} side="top">
             <button

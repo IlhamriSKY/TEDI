@@ -14,14 +14,17 @@ import type { Tab } from "@/modules/tabs";
 import { useEffect, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
-/** Snapshot of whichever of the two auto-restorable right surfaces
- *  (AI chat, extension right panel) was open at the moment an extension
- *  asked the right slot to close. `null` means the slot was either empty
- *  or only had Source Control open — SCM is manual-only and is never
- *  auto-restored, so it gets closed alongside the others on hide but is
- *  never recorded for replay. */
-export type RightAuxSnapshot =
-  { kind: "chat" } | { kind: "rightPanel"; extensionId: string; panelId: string } | null;
+/** Snapshot of the auto-restorable right-column surfaces (the AI chat and every
+ *  open extension panel) at the moment an extension asked the column to close.
+ *  The column stacks its surfaces, so this records ALL of them, not just the
+ *  newest — a bare "hide" that came back with one panel out of three would read
+ *  as data loss. `null` means the column was either empty or held only Source
+ *  Control: SCM is manual-only and is never auto-restored, so it gets closed
+ *  alongside the others on hide but is never recorded for replay. */
+export type RightAuxSnapshot = {
+  chat: boolean;
+  panels: Array<{ extensionId: string; panelId: string }>;
+} | null;
 
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
@@ -135,14 +138,9 @@ export function useExtensionSidebarBridges({
       const chat = useChatStore.getState();
       const rightPanel = useRightPanelStore.getState();
       const scm = useScmRightPanelStore.getState();
-      const snapshot: RightAuxSnapshot = chat.panelOpen
-        ? { kind: "chat" }
-        : rightPanel.active
-          ? {
-              kind: "rightPanel",
-              extensionId: rightPanel.active.extensionId,
-              panelId: rightPanel.active.panelId,
-            }
+      const snapshot: RightAuxSnapshot =
+        chat.panelOpen || rightPanel.panels.length > 0
+          ? { chat: chat.panelOpen, panels: rightPanel.panels.map((p) => ({ ...p })) }
           : null;
       if (ownerExtensionId && !visible) {
         if (!rightSidebarHiderRef.current) {
@@ -153,7 +151,7 @@ export function useExtensionSidebarBridges({
       }
       if (!visible) {
         if (chat.panelOpen) chat.closePanel();
-        if (rightPanel.active) rightPanel.close();
+        if (rightPanel.panels.length > 0) rightPanel.close();
         if (scm.open) scm.closePanel();
       }
       // `visible === true` is a no-op: we don't know which of the three
@@ -175,11 +173,12 @@ export function useExtensionSidebarBridges({
     const replay = (): void => {
       const prior = hider.prior;
       if (!prior) return;
-      // SCM is deliberately not in the union: see the setter above. The
+      // SCM is deliberately not in the snapshot: see the setter above. The
       // user must reopen it via the status-bar GitBranch icon.
-      if (prior.kind === "chat") useChatStore.getState().openPanel();
-      else if (prior.kind === "rightPanel")
-        useRightPanelStore.getState().open(prior.extensionId, prior.panelId);
+      if (prior.chat) useChatStore.getState().openPanel();
+      for (const p of prior.panels) {
+        useRightPanelStore.getState().open(p.extensionId, p.panelId);
+      }
     };
     if (!stillOpen) {
       replay();
@@ -192,7 +191,7 @@ export function useExtensionSidebarBridges({
       const rightPanel = useRightPanelStore.getState();
       const scm = useScmRightPanelStore.getState();
       if (chat.panelOpen) chat.closePanel();
-      if (rightPanel.active) rightPanel.close();
+      if (rightPanel.panels.length > 0) rightPanel.close();
       if (scm.open) scm.closePanel();
     } else {
       replay();

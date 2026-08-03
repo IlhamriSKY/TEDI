@@ -34,9 +34,9 @@ import {
 import { Camera, Folder, type LucideIcon } from "lucide-react";
 
 import { useResolvedExtensionIcon } from "../icon";
-import { keybindingsRegistry, panelsRegistry } from "../registries";
+import { commandsRegistry, keybindingsRegistry, panelsRegistry } from "../registries";
 import { useRegistry } from "../useRegistry";
-import { useRightPanelStore } from "../rightPanelStore";
+import { isRightPanelOpen, useRightPanelStore } from "../rightPanelStore";
 
 /**
  * Per-extension icon overrides for the status-bar toggle. Keeps the icon
@@ -48,11 +48,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tedi.secondary-folder-tree": Folder,
 };
 
-function useSortedRightPanels(compactOnly: boolean) {
+function useSortedRightPanels(match: (p: { compact?: boolean; kind?: string }) => boolean) {
   const panels = useRegistry(panelsRegistry);
-  const filtered = panels.filter(
-    (p) => p.item.surface === "right" && (p.item.compact === true) === compactOnly,
-  );
+  const filtered = panels.filter((p) => p.item.surface === "right" && match(p.item));
   return [...filtered].sort((a, b) => {
     const e = a.extensionId.localeCompare(b.extensionId);
     return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
@@ -64,8 +62,12 @@ function useSortedRightPanels(compactOnly: boolean) {
  * the chrome is identical, only the status-bar placement differs (see the
  * two exported wrappers).
  */
-function RightPanelToggleRow({ compactOnly }: { compactOnly: boolean }) {
-  const sorted = useSortedRightPanels(compactOnly);
+function RightPanelToggleRow({
+  match,
+}: {
+  match: (p: { compact?: boolean; kind?: string }) => boolean;
+}) {
+  const sorted = useSortedRightPanels(match);
   if (sorted.length === 0) return null;
   return (
     <div className="flex items-center gap-1.5">
@@ -77,10 +79,20 @@ function RightPanelToggleRow({ compactOnly }: { compactOnly: boolean }) {
           title={item.title}
           icon={item.icon ?? null}
           toggleCommand={item.toggleCommand ?? null}
+          isAction={item.kind === "action"}
         />
       ))}
     </div>
   );
+}
+
+/**
+ * Action-kind buttons (`panel.kind === "action"`): a click runs the panel's
+ * `toggleCommand` and nothing slides out. Its own group in the status bar,
+ * because "do a thing" and "show me a panel" are different promises.
+ */
+export function RightPanelActionToggles() {
+  return <RightPanelToggleRow match={(p) => p.kind === "action"} />;
 }
 
 /**
@@ -89,7 +101,7 @@ function RightPanelToggleRow({ compactOnly }: { compactOnly: boolean }) {
  * so borderless icons (Screenshot, Discord, ...) sit together as one cluster.
  */
 export function RightPanelCompactToggles() {
-  return <RightPanelToggleRow compactOnly />;
+  return <RightPanelToggleRow match={(p) => p.kind !== "action" && p.compact === true} />;
 }
 
 /**
@@ -98,7 +110,7 @@ export function RightPanelCompactToggles() {
  * only the placement differs. The title + shortcut chip appear in the tooltip.
  */
 export function RightPanelDefaultToggles() {
-  return <RightPanelToggleRow compactOnly={false} />;
+  return <RightPanelToggleRow match={(p) => p.kind !== "action" && p.compact !== true} />;
 }
 
 function ToggleButton({
@@ -107,18 +119,22 @@ function ToggleButton({
   title,
   icon,
   toggleCommand,
+  isAction,
 }: {
   extensionId: string;
   panelId: string;
   title: string;
   icon: string | null;
   toggleCommand: string | null;
+  /** Runs `toggleCommand` instead of opening the panel, and never reads as
+   *  "open". */
+  isAction?: boolean;
 }) {
-  const active = useRightPanelStore((s) => s.active);
+  const panels = useRightPanelStore((s) => s.panels);
   const toggle = useRightPanelStore((s) => s.toggle);
   const keybindings = useRegistry(keybindingsRegistry);
   const overrides = usePreferencesStore((s) => s.extensionShortcuts);
-  const isOpen = active?.extensionId === extensionId && active?.panelId === panelId;
+  const isOpen = isRightPanelOpen(panels, extensionId, panelId);
 
   // Resolve the shortcut chip. User overrides win; otherwise parse the
   // manifest's `keybindings[].key`. Surfaces in the tooltip so users can
@@ -139,12 +155,29 @@ function ToggleButton({
   const chipText = chipBinding ? getBindingTokens(chipBinding).join(KEY_SEP) : null;
   const tooltipLabel = (
     <span className="inline-flex items-center gap-1.5">
-      <span>
-        {isOpen ? "Close" : "Open"} {title}
-      </span>
+      <span>{isAction ? title : `${isOpen ? "Close" : "Open"} ${title}`}</span>
       {chipText ? <Kbd className="h-4 min-w-4 px-1">{chipText}</Kbd> : null}
     </span>
   );
+
+  // An action runs its command in place. Before `kind: "action"` the only
+  // button the host offered was a panel toggle, so an extension that just
+  // wanted to DO something had to intercept its own click in the capture phase
+  // to stop a panel sliding out behind it.
+  const onClick = () => {
+    if (!isAction) {
+      toggle(extensionId, panelId);
+      return;
+    }
+    if (!toggleCommand) return;
+    const handler = commandsRegistry.getRuntime(extensionId, toggleCommand);
+    if (typeof handler !== "function") return;
+    try {
+      (handler as () => unknown)();
+    } catch (err) {
+      console.error(`[extensions] command "${extensionId}:${toggleCommand}" threw`, err);
+    }
+  };
 
   // Borderless icon-only button, always present (never removed from the row, so
   // the status bar never reflows). The open state shows as active instead.
@@ -152,12 +185,14 @@ function ToggleButton({
     <IconTooltip label={tooltipLabel} side="top">
       <button
         type="button"
-        onClick={() => toggle(extensionId, panelId)}
+        onClick={onClick}
         aria-label={title}
-        aria-pressed={isOpen}
+        aria-pressed={isAction ? undefined : isOpen}
         className={cn(
           "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-          isOpen ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
+          !isAction && isOpen
+            ? "text-foreground bg-accent/60"
+            : "text-muted-foreground hover:text-foreground",
         )}
       >
         <PanelIcon extensionId={extensionId} icon={icon} alt={title} size={16} />

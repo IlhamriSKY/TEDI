@@ -41,47 +41,48 @@ export function useExtensionPanelDefaults(): void {
       const panels = ext.manifest.contributes.panels ?? [];
       for (const panel of panels) {
         if (panel.surface !== "right" || panel.defaultOpen !== true) continue;
-        if (store.markDefaultOpenHandled(ext.id, panel.id)) {
-          store.open(ext.id, panel.id);
-          // First defaultOpen wins. The user can toggle the rest.
-          return;
-        }
+        // Every defaultOpen panel opens: the right column stacks them, so they
+        // no longer compete for one slot. `markDefaultOpenHandled` keeps it to
+        // once per session, so a panel the user closes stays closed.
+        if (store.markDefaultOpenHandled(ext.id, panel.id)) store.open(ext.id, panel.id);
       }
     }
   }, [extensionsHydrated, extensionsList]);
 
-  // Hide an active right-panel target whose extension is now disabled or
-  // uninstalled, so the slot doesn't show a dead header.
-  const rightPanelActive = useRightPanelStore((s) => s.active);
+  // Drop any open right-column panel whose extension is now disabled or
+  // uninstalled, so the column doesn't show a dead header. Every open panel is
+  // checked, not just the newest: the column stacks them.
+  const rightPanels = useRightPanelStore((s) => s.panels);
   const sidebarSections = useRegistry(sidebarSectionsRegistry);
   useEffect(() => {
-    if (!rightPanelActive) return;
-    // A moved sidebar section (panelId sentinel `__section__:<id>`) is hosted in
-    // the right slot but is NOT a manifest panel. Validate it against the
-    // sidebar-section registry instead — keep it open while still contributed.
-    const sectionId = parseSectionPanelId(rightPanelActive.panelId);
-    if (sectionId !== null) {
-      // Built-in sections (Files/Workspaces) share the `__section__:` sentinel
-      // but live under `BUILTIN_SECTION_EXT`, not the extension registry - so
-      // validate them against the movable-built-ins list instead. Without this
-      // they'd never match `sidebarSections` and get closed the instant they
-      // dock right (the built-in right-dock was dead on arrival otherwise).
-      if (rightPanelActive.extensionId === BUILTIN_SECTION_EXT) {
-        const known = MOVABLE_BUILTIN_SECTIONS.some((b) => b.id === sectionId);
-        if (!known) useRightPanelStore.getState().close();
-        return;
+    for (const panel of rightPanels) {
+      // A moved sidebar section (panelId sentinel `__section__:<id>`) is hosted
+      // in the column but is NOT a manifest panel. Validate it against the
+      // sidebar-section registry instead — keep it open while still contributed.
+      const sectionId = parseSectionPanelId(panel.panelId);
+      if (sectionId !== null) {
+        // Built-in sections (Files/Workspaces) share the `__section__:` sentinel
+        // but live under `BUILTIN_SECTION_EXT`, not the extension registry - so
+        // validate them against the movable-built-ins list instead. Without this
+        // they'd never match `sidebarSections` and get closed the instant they
+        // dock right (the built-in right-dock was dead on arrival otherwise).
+        if (panel.extensionId === BUILTIN_SECTION_EXT) {
+          const known = MOVABLE_BUILTIN_SECTIONS.some((b) => b.id === sectionId);
+          if (!known) useRightPanelStore.getState().close(panel.extensionId, panel.panelId);
+          continue;
+        }
+        const stillThere = sidebarSections.some(
+          (s) => s.extensionId === panel.extensionId && s.item.id === sectionId,
+        );
+        if (!stillThere) useRightPanelStore.getState().close(panel.extensionId, panel.panelId);
+        continue;
       }
-      const stillThere = sidebarSections.some(
-        (s) => s.extensionId === rightPanelActive.extensionId && s.item.id === sectionId,
-      );
-      if (!stillThere) useRightPanelStore.getState().close();
-      return;
+      const owner = extensionsList.find((e) => e.id === panel.extensionId && e.enabled);
+      const hasPanel =
+        owner?.manifest.contributes.panels?.some((p) => p.id === panel.panelId) ?? false;
+      if (!owner || !hasPanel) {
+        useRightPanelStore.getState().close(panel.extensionId, panel.panelId);
+      }
     }
-    const owner = extensionsList.find((e) => e.id === rightPanelActive.extensionId && e.enabled);
-    const hasPanel =
-      owner?.manifest.contributes.panels?.some((p) => p.id === rightPanelActive.panelId) ?? false;
-    if (!owner || !hasPanel) {
-      useRightPanelStore.getState().close();
-    }
-  }, [extensionsList, rightPanelActive, sidebarSections]);
+  }, [extensionsList, rightPanels, sidebarSections]);
 }

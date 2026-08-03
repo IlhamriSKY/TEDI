@@ -494,6 +494,12 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   const storage = await buildStorage(ext.id);
   const declared = ext.manifest.permissions;
   const log = (level: "info" | "warn" | "error", args: unknown[]): void => {
+    // `info` is developer chatter, so it stops at the dev build - the same rule
+    // vite's esbuild `pure` list applies to the app's own console.info. That
+    // list cannot reach this call: `console[level]` is a computed access, which
+    // is how every extension's info logs ended up in a shipped build's console.
+    // warn and error stay: they are the only diagnostics a packaged app has.
+    if (level === "info" && !import.meta.env.DEV) return;
     // eslint-disable-next-line no-console
     console[level](`[ext:${ext.id}]`, ...args);
   };
@@ -906,11 +912,15 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         useRightPanelStore.getState().open(ext.id, panelId);
       },
       close(panelId?: string) {
+        // Scoped to this extension's own panels: the right column stacks
+        // several at once, so a bare `close()` must never take another
+        // extension's (or the AI panel's) surface down with it.
         const store = useRightPanelStore.getState();
-        const active = store.active;
-        if (!active || active.extensionId !== ext.id) return;
-        if (panelId !== undefined && active.panelId !== panelId) return;
-        store.close();
+        for (const p of store.panels) {
+          if (p.extensionId !== ext.id) continue;
+          if (panelId !== undefined && p.panelId !== panelId) continue;
+          store.close(p.extensionId, p.panelId);
+        }
       },
       toggle(panelId: string) {
         requirePermission(ext.id, declared, "panels:register");

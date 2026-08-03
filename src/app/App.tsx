@@ -323,11 +323,10 @@ export default function App() {
   const sshRightOpen = useSshRightPanelStore((s) => s.open);
   const closeSshRight = useSshRightPanelStore((s) => s.closePanel);
 
-  // Extension right-panel, SCM/SSH right panels, and AI sidebar are mutually
-  // exclusive (all want the same ~22% slot). Opening one closes the others.
-  // The exclusion call itself lives after useSshLeafState below, so it can read
-  // hasAnySshLeaf (the SSH panel closes when the last leaf disconnects).
-  const rightPanelActive = useRightPanelStore((s) => s.active);
+  // Extension right-panels, SCM/SSH right panels and the AI sidebar all live in
+  // the right column TOGETHER, stacked like the left sidebar's sections (see
+  // AppRightSlot). This is the list of extension-owned ones.
+  const rightPanels = useRightPanelStore((s) => s.panels);
   // Re-open a sidebar section docked to the right slot on boot (else it would
   // vanish: gone from the left sidebar, closed in the right).
   useDockedSectionAutoOpen();
@@ -481,11 +480,10 @@ export default function App() {
     if (activeLeafIdInTab != null) acknowledgeAiCli(activeLeafIdInTab);
   }, [activeLeafIdInTab, aiCliStatuses]);
 
-  // Mutual exclusion for the shared right slot. Declared here (not up with the
-  // other store reads) because it needs hasAnySshLeaf from useSshLeafState.
+  // Right-column housekeeping (close a docked panel when its enabling pref flips
+  // off). Declared here (not up with the other store reads) because it needs
+  // hasAnySshLeaf from useSshLeafState.
   useRightPanelExclusion(
-    rightPanelActive,
-    panelOpen,
     scmRightOpen,
     sourceControlInRightPanel,
     showSourceControl,
@@ -1004,7 +1002,7 @@ export default function App() {
                 onSplitSizes={setSplitSizes}
               />
               <AppRightSlot
-                rightPanelActive={rightPanelActive}
+                rightPanels={rightPanels}
                 scmRightOpen={scmRightOpen}
                 sshRightOpen={sshRightOpen}
                 keysLoaded={keysLoaded}

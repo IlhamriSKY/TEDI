@@ -31,10 +31,11 @@ export { ExtensionStatusItems } from "./components/ExtensionStatusItems";
 export { ExtensionSidebarSection } from "./components/ExtensionSidebarSection";
 export { RightPanelHost } from "./components/RightPanelHost";
 export {
+  RightPanelActionToggles,
   RightPanelCompactToggles,
   RightPanelDefaultToggles,
 } from "./components/RightPanelToggleButtons";
-export { useRightPanelStore } from "./rightPanelStore";
+export { isRightPanelOpen, useRightPanelStore, type ActivePanel } from "./rightPanelStore";
 export {
   useSidebarPlacementStore,
   sidebarSectionKey,

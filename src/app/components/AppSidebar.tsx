@@ -1,5 +1,4 @@
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { cn } from "@/lib/utils";
+import { ResizablePanel } from "@/components/ui/resizable";
 import { FileExplorer } from "@/modules/explorer";
 import {
   BUILTIN_SECTION_EXT,
@@ -13,30 +12,11 @@ import {
 } from "@/modules/extensions";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import {
-  closestCenter,
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragOverEvent,
-} from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import {
-  Fragment,
-  Suspense,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { Suspense, useMemo, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
-import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { SectionStack, type StackSection } from "./SectionStack";
 
 type Props = {
   sidebarRef: RefObject<PanelImperativeHandle | null>;
@@ -81,8 +61,6 @@ type Props = {
 // exist only while their extension is active.
 const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces"] as const;
 type BuiltinKey = (typeof BUILTIN_KEYS)[number];
-/** A section key: a built-in key or an extension key (`xsec:<extId>:<id>`). */
-type SectionKey = string;
 const BUILTIN_TITLES: Record<BuiltinKey, string> = {
   files: "Files",
   ssh: "Remote",
@@ -100,67 +78,17 @@ const BUILTIN_DEFAULT_SIZE: Record<BuiltinKey, string> = {
 const EXT_DEFAULT_SIZE = "20%";
 
 const EXT_KEY_PREFIX = "xsec:";
-const extSectionKey = (extensionId: string, sectionId: string): SectionKey =>
+const extSectionKey = (extensionId: string, sectionId: string): string =>
   `${EXT_KEY_PREFIX}${extensionId}:${sectionId}`;
-const isBuiltinKey = (k: SectionKey): k is BuiltinKey =>
-  (BUILTIN_KEYS as readonly string[]).includes(k);
-
-// Collapsed (minimized) panel size: the h-8 header (32px) plus the section
-// card's 1px top+bottom border, so a minimized bento card shows its full header
-// without clipping. Min size while expanded keeps a few rows visible and tidy.
-const SECTION_COLLAPSED_SIZE = "34px";
-/** Stays px on purpose. The sidebar panel's minSize had to become a percentage
- *  (see there) to survive a minimize, but the same change here would cap the
- *  sidebar at 100/N sections: the count is 4 built-ins PLUS one per extension
- *  section, all rendered unconditionally, so a fixed percentage overflows once
- *  enough are expanded. A px minimum scales with window height instead, which is
- *  what makes a tall window able to show them all. */
-const SECTION_MIN_SIZE = "100px";
 
 // Persisted in localStorage (sidebar lives in the main window only).
 const ORDER_LS_KEY = "tedi:sidebar:sectionOrder";
 
-/** Read the persisted section order verbatim (built-in + extension keys). The
- *  render-time reconciliation drops keys that no longer exist and appends any
- *  new ones, so an old value (e.g. without "ssh", or with an uninstalled
- *  extension's key) still renders everything sensibly. */
-function readOrder(): SectionKey[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(ORDER_LS_KEY) ?? "null");
-    if (Array.isArray(raw)) {
-      const out = raw.filter((k): k is string => typeof k === "string");
-      if (out.length > 0) return out;
-    }
-  } catch {
-    // Corrupt value: fall through to canonical order.
-  }
-  return [...BUILTIN_KEYS];
-}
-
-/** Reconcile a persisted order against the keys that currently exist: keep
- *  persisted positions for surviving keys, then append any new keys (built-ins
- *  in canonical order, extension keys in registry order). */
-function reconcileOrder(persisted: SectionKey[], allKeys: SectionKey[]): SectionKey[] {
-  const exists = new Set(allKeys);
-  const out = persisted.filter((k) => exists.has(k));
-  const seen = new Set(out);
-  for (const k of allKeys) {
-    if (!seen.has(k)) {
-      out.push(k);
-      seen.add(k);
-    }
-  }
-  return out;
-}
-
 /**
  * The left sidebar column. Sections (Files, Remote/SSH, Source Control,
- * Workspaces) are real resizable panels - same `react-resizable-panels` model
- * as the editor/terminal split panes: drag the divider between two sections to
- * move the boundary. Each panel is collapsible, so its header chevron minimizes
- * it down to just the header (`collapsedSize`); while expanded it stays at least
- * `minSize` so its data is always visible. Sections are drag-reorderable via the
- * grip in each header (order persists to localStorage).
+ * Workspaces) are stacked resizable panels, collapsible to their header and
+ * drag-reorderable by the grip in that header - all of which lives in the
+ * shared `SectionStack`, so the right column behaves identically.
  */
 export function AppSidebar({
   sidebarRef,
@@ -189,22 +117,12 @@ export function AppSidebar({
   openGitDiffTab,
   openScmTab,
 }: Props) {
-  const [order, setOrder] = useState<SectionKey[]>(() => readOrder());
-  const [dragKey, setDragKey] = useState<SectionKey | null>(null);
-  // The section currently hovered as the drop target, so a thin insertion line
-  // can preview where the dragged section will land before release.
-  const [overKey, setOverKey] = useState<SectionKey | null>(null);
-  // Per-section panel handles + their collapsed state (driven by onResize, the
-  // only collapse signal this version of react-resizable-panels exposes).
-  const panelRefs = useRef<Record<SectionKey, PanelImperativeHandle | null>>({});
-  const [collapsed, setCollapsed] = useState<Record<SectionKey, boolean>>({});
-
   // Extension-contributed sections (present only while their extension is
   // active). Keyed `xsec:<extId>:<sectionId>`, mapped back to their descriptor.
   const extEntries = useRegistry(sidebarSectionsRegistry);
   const extByKey = useMemo(() => {
     const m = new Map<
-      SectionKey,
+      string,
       { extensionId: string; section: (typeof extEntries)[number]["item"] }
     >();
     for (const { extensionId, item } of extEntries) {
@@ -213,109 +131,24 @@ export function AppSidebar({
     return m;
   }, [extEntries]);
 
-  // Every key that currently exists: built-ins always, extension sections only
-  // while registered. Reconciled against the persisted order each render so a
-  // newly-active extension appears in a stable spot and a disabled one drops.
-  const allKeys = useMemo<SectionKey[]>(() => [...BUILTIN_KEYS, ...extByKey.keys()], [extByKey]);
-  const effectiveOrder = useMemo(() => reconcileOrder(order, allKeys), [order, allKeys]);
-
-  // Stable per-section ref callbacks (keyed by string) so a panel handle isn't
-  // detached/reattached every render. Cached lazily since keys are dynamic.
-  const panelRefSetterCache = useRef(
-    new Map<SectionKey, (r: PanelImperativeHandle | null) => void>(),
-  );
-  const getPanelRefSetter = (key: SectionKey) => {
-    let fn = panelRefSetterCache.current.get(key);
-    if (!fn) {
-      fn = (r) => {
-        panelRefs.current[key] = r;
-      };
-      panelRefSetterCache.current.set(key, fn);
-    }
-    return fn;
-  };
-
-  const titleFor = (key: SectionKey): string =>
-    isBuiltinKey(key) ? BUILTIN_TITLES[key] : (extByKey.get(key)?.section.title ?? "Section");
-  const defaultSizeFor = (key: SectionKey): string =>
-    isBuiltinKey(key) ? BUILTIN_DEFAULT_SIZE[key] : EXT_DEFAULT_SIZE;
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scmVisible = showSourceControl && !sourceControlInRightPanel;
+  const sshVisible = hasAnySshLeaf && !sshInRightPanel;
   // Extension sections moved to the right slot (placement === "right") leave the
   // left sidebar; they're reachable from a status-bar icon instead.
   const placement = useSidebarPlacementStore((s) => s.placement);
-  // Built-in scm/ssh are conditional; extension sections are always shown when
-  // present (the registry only holds them while the extension is active) unless
-  // the user has moved them to the right slot.
-  const sshVisible = hasAnySshLeaf && !sshInRightPanel;
-  const visible = effectiveOrder.filter(
-    (k) => (k !== "scm" || scmVisible) && (k !== "ssh" || sshVisible) && placement[k] !== "right",
-  );
 
-  const syncCollapsed = (key: SectionKey) => {
-    const isCollapsed = panelRefs.current[key]?.isCollapsed() ?? false;
-    setCollapsed((prev) => (prev[key] === isCollapsed ? prev : { ...prev, [key]: isCollapsed }));
-  };
-  const toggleCollapse = (key: SectionKey) => {
-    const ref = panelRefs.current[key];
-    if (!ref) return;
-    if (ref.isCollapsed()) ref.expand();
-    else ref.collapse();
-  };
-
-  // Track the hovered drop target. Fires only when `over` changes (not per
-  // pixel), and we bail out on no-op updates, so the preview stays cheap.
-  const handleDragOver = (ev: DragOverEvent) => {
-    const next = ev.over ? (ev.over.id as SectionKey) : null;
-    setOverKey((prev) => (prev === next ? prev : next));
-  };
-
-  const handleDragEnd = (ev: DragEndEvent) => {
-    setDragKey(null);
-    setOverKey(null);
-    const { active, over } = ev;
-    if (!over || active.id === over.id) return;
-    const base = effectiveOrder;
-    const from = base.indexOf(active.id as SectionKey);
-    const to = base.indexOf(over.id as SectionKey);
-    if (from < 0 || to < 0) return;
-    const next = base.slice();
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setOrder(next);
-    try {
-      localStorage.setItem(ORDER_LS_KEY, JSON.stringify(next));
-    } catch {
-      // localStorage may be unavailable; order is non-critical, ignore.
-    }
-  };
-
-  // Dock a built-in section (Files / Workspaces) into the shared right slot,
+  // Dock a built-in section (Files / Workspaces) into the right column,
   // mirroring how Source Control / SSH / extension sections move right: persist
-  // the placement (so AppSidebar drops it from the left) and open it in the slot
-  // via the shared right-panel store (which gives mutual exclusion + the
-  // status-bar toggle + boot auto-restore for free).
+  // the placement (so AppSidebar drops it from the left) and open it in the
+  // right column via the shared right-panel store.
   const moveSectionRight = (key: BuiltinSectionId) => {
     useSidebarPlacementStore.getState().moveRight(key);
     useRightPanelStore.getState().open(BUILTIN_SECTION_EXT, sectionPanelId(key));
   };
 
-  const renderSection = (key: SectionKey, controls: ReactNode): ReactNode => {
-    const ext = extByKey.get(key);
-    if (ext) {
-      return (
-        <ExtensionSidebarSection
-          extensionId={ext.extensionId}
-          section={ext.section}
-          dragHandle={controls}
-          collapsed={!!collapsed[key]}
-        />
-      );
-    }
-    // When the panel is collapsed to its header, skip rendering the body so the
-    // virtualized tree / git status stop doing layout work behind the clip.
-    const isCollapsed = !!collapsed[key];
+  const renderBuiltin = (key: BuiltinKey, controls: ReactNode, collapsed: boolean): ReactNode => {
+    // When the panel is collapsed to its header, sections skip rendering the
+    // body so the virtualized tree / git status stop doing layout work.
     switch (key) {
       case "files":
         return (
@@ -328,7 +161,7 @@ export function AppSidebar({
             onAttachToAgent={onAttachToAgent}
             onPreviewInBrowser={onPreviewInBrowser}
             dragHandle={controls}
-            collapsed={isCollapsed}
+            collapsed={collapsed}
             activeFilePath={activeFilePath}
             hideSort
           />
@@ -342,7 +175,7 @@ export function AppSidebar({
               currentCwd={activeSshContext.cwd}
               onOpenFile={onOpenRemoteFile}
               dragHandle={controls}
-              collapsed={isCollapsed}
+              collapsed={collapsed}
             />
           </Suspense>
         );
@@ -355,7 +188,7 @@ export function AppSidebar({
               onOpenDiff={openGitDiffTab}
               onOpenInTab={openScmTab}
               dragHandle={controls}
-              collapsed={isCollapsed}
+              collapsed={collapsed}
               sshSessionId={activeSshContext.fromActiveLeaf ? activeSshContext.sessionId : null}
               sshCwd={activeSshContext.cwd}
             />
@@ -379,6 +212,35 @@ export function AppSidebar({
     }
   };
 
+  const sections: StackSection[] = [];
+  for (const key of BUILTIN_KEYS) {
+    if (key === "scm" && !scmVisible) continue;
+    if (key === "ssh" && !sshVisible) continue;
+    if (placement[key] === "right") continue;
+    sections.push({
+      key,
+      title: BUILTIN_TITLES[key],
+      defaultSize: BUILTIN_DEFAULT_SIZE[key],
+      render: (controls, collapsed) => renderBuiltin(key, controls, collapsed),
+    });
+  }
+  for (const [key, ext] of extByKey) {
+    if (placement[key] === "right") continue;
+    sections.push({
+      key,
+      title: ext.section.title,
+      defaultSize: EXT_DEFAULT_SIZE,
+      render: (controls, collapsed) => (
+        <ExtensionSidebarSection
+          extensionId={ext.extensionId}
+          section={ext.section}
+          dragHandle={controls}
+          collapsed={collapsed}
+        />
+      ),
+    });
+  }
+
   return (
     <ResizablePanel
       id="sidebar"
@@ -398,150 +260,11 @@ export function AppSidebar({
       collapsedSize={0}
     >
       {/* Transparent to the bento tray: each section renders as its own
-          1px-bordered `bg-sidebar` card, stacked with a gap (the vertical group's
-          `gap-1.5`), so the tray shows between them like the reference layout. */}
+          1px-bordered `bg-sidebar` card, stacked with a gap, so the tray shows
+          between them like the reference layout. */}
       <div className="flex h-full flex-col">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={(ev) => setDragKey(ev.active.id as SectionKey)}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => {
-            setDragKey(null);
-            setOverKey(null);
-          }}
-        >
-          <SortableContext items={visible} strategy={verticalListSortingStrategy}>
-            <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 gap-1.5">
-              {(() => {
-                // Insertion preview: the dragged section keeps its slot (no
-                // reflow, so the resizable layout is untouched); instead a thin
-                // line marks the boundary it will drop at. Direction mirrors
-                // handleDragEnd: dragging down lands after the target (bottom
-                // edge), dragging up lands before it (top edge).
-                const dragIdx = dragKey ? visible.indexOf(dragKey) : -1;
-                const overIdx = overKey ? visible.indexOf(overKey) : -1;
-                const showDrop = dragIdx >= 0 && overIdx >= 0 && dragIdx !== overIdx;
-                return visible.map((key, i) => {
-                  const dropEdge: "top" | "bottom" | null =
-                    showDrop && key === overKey ? (dragIdx < overIdx ? "bottom" : "top") : null;
-                  return (
-                    <Fragment key={key}>
-                      {i > 0 && <ResizableHandle withHandle />}
-                      <ResizablePanel
-                        id={`sidebar-${key}`}
-                        defaultSize={defaultSizeFor(key)}
-                        minSize={SECTION_MIN_SIZE}
-                        collapsible
-                        collapsedSize={SECTION_COLLAPSED_SIZE}
-                        panelRef={getPanelRefSetter(key)}
-                        onResize={() => syncCollapsed(key)}
-                      >
-                        <SortableSection
-                          sectionKey={key}
-                          title={titleFor(key)}
-                          collapsed={!!collapsed[key]}
-                          onToggleCollapse={() => toggleCollapse(key)}
-                          dropEdge={dropEdge}
-                        >
-                          {(controls) => renderSection(key, controls)}
-                        </SortableSection>
-                      </ResizablePanel>
-                    </Fragment>
-                  );
-                });
-              })()}
-            </ResizablePanelGroup>
-          </SortableContext>
-          <DragOverlay dropAnimation={null}>
-            {dragKey && (
-              <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium shadow-lg ring-1 backdrop-blur-sm">
-                <GripVertical size={12} strokeWidth={2} />
-                <span className="truncate">{titleFor(dragKey)}</span>
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
+        <SectionStack sections={sections} orderStorageKey={ORDER_LS_KEY} idPrefix="sidebar" />
       </div>
     </ResizablePanel>
-  );
-}
-
-/**
- * Wraps a section's content. Provides a `controls` node (drag grip + a collapse
- * chevron) that the section renders in its own header via `dragHandle`. The grip
- * drag-reorders the section; the chevron minimizes it to its header. `setNodeRef`
- * marks the sortable node for collision detection (the transform is intentionally
- * not applied so it never fights the resizable panel - the DragOverlay carries
- * the visual). `overflow-hidden` clips the body when the panel is collapsed so a
- * minimized section never bleeds over the one below it.
- */
-function SortableSection({
-  sectionKey,
-  title,
-  collapsed,
-  onToggleCollapse,
-  dropEdge,
-  children,
-}: {
-  sectionKey: SectionKey;
-  title: string;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  /** When this section is the hovered drop target, which edge the dragged
-   *  section will land at. `null` otherwise (and for the dragged section). */
-  dropEdge: "top" | "bottom" | null;
-  children: (controls: ReactNode) => ReactNode;
-}) {
-  const { setNodeRef, attributes, listeners, isDragging } = useSortable({ id: sectionKey });
-  const controls = (
-    <span className="-ml-0.5 flex shrink-0 items-center">
-      <button
-        type="button"
-        {...listeners}
-        {...attributes}
-        aria-label={`Reorder ${title} section`}
-        className="text-muted-foreground/40 hover:text-foreground flex size-4 cursor-grab items-center justify-center rounded active:cursor-grabbing"
-      >
-        <GripVertical size={12} strokeWidth={2} />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleCollapse}
-        aria-label={collapsed ? `Expand ${title}` : `Minimize ${title}`}
-        aria-expanded={!collapsed}
-        className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded"
-      >
-        {collapsed ? (
-          <ChevronRight size={11} strokeWidth={2.25} />
-        ) : (
-          <ChevronDown size={11} strokeWidth={2.25} />
-        )}
-      </button>
-    </span>
-  );
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "bg-background tedi-glass-panel relative h-full overflow-hidden rounded-md border",
-        isDragging && "opacity-40",
-      )}
-    >
-      {dropEdge && (
-        // Insertion line: a thin primary bar pinned to the target edge. Purely
-        // decorative and pointer-transparent so it never interferes with the
-        // drag, and absolutely positioned so it adds no layout cost.
-        <span
-          aria-hidden
-          className={cn(
-            "bg-primary shadow-primary/60 pointer-events-none absolute inset-x-0 z-20 h-0.5 shadow-[0_0_4px]",
-            dropEdge === "top" ? "top-0" : "bottom-0",
-          )}
-        />
-      )}
-      {children(controls)}
-    </div>
   );
 }

@@ -11,7 +11,7 @@ import { LayoutDashboard } from "lucide-react";
 
 import { sidebarSectionsRegistry } from "../registries";
 import { useRegistry } from "../useRegistry";
-import { useRightPanelStore } from "../rightPanelStore";
+import { isRightPanelOpen, useRightPanelStore } from "../rightPanelStore";
 import {
   sectionPanelId,
   sidebarSectionKey,
@@ -21,7 +21,7 @@ import {
 export function SidebarSectionRightToggles() {
   const sections = useRegistry(sidebarSectionsRegistry);
   const placement = useSidebarPlacementStore((s) => s.placement);
-  const active = useRightPanelStore((s) => s.active);
+  const panels = useRightPanelStore((s) => s.panels);
 
   const moved = sections.filter(
     ({ extensionId, item }) =>
@@ -38,9 +38,7 @@ export function SidebarSectionRightToggles() {
           sectionId={item.id}
           title={item.title}
           icon={item.icon}
-          isOpen={
-            active?.extensionId === extensionId && active?.panelId === sectionPanelId(item.id)
-          }
+          isOpen={isRightPanelOpen(panels, extensionId, sectionPanelId(item.id))}
         />
       ))}
     </div>
