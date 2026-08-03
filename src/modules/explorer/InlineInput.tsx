@@ -76,7 +76,14 @@ export function InlineInput({ initial, placeholder, onCommit, onCancel }: Props)
         }
         commit();
       }}
-      className="border-border bg-background text-foreground focus:border-ring flex-1 truncate rounded-sm border px-1.5 py-0.5 text-xs ring-0 outline-none"
+      // The field selects its whole value on mount, so without a themed
+      // ::selection every rename opens as a solid slab of the OS highlight
+      // colour. A translucent primary keeps the text readable and matches the
+      // rest of the chrome. `rounded-sm` is omitted deliberately: globals.css
+      // forces `border-radius: 0 !important` on everything.
+      // `min-w-0` lets the field actually shrink inside its flex parent (a tab
+      // caps its width), instead of overflowing it.
+      className="border-border bg-background text-foreground focus:border-ring selection:bg-primary/30 selection:text-foreground min-w-0 flex-1 truncate border px-1.5 py-0.5 text-xs ring-0 outline-none"
     />
   );
 }

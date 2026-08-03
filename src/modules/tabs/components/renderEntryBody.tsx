@@ -218,9 +218,11 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           />
         ) : null}
       </span>
-      {/* Trailing close button. Rotate-split and move-to-group are in the right-click menu. */}
+      {/* Trailing close button. Rotate-split and move-to-group are in the right-click menu.
+          Hidden while renaming: it crowds the field, and clicking it mid-rename would
+          close the very tab being named. */}
       <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
-        {canClose && (
+        {canClose && !renaming && (
           <TrailingIconButton
             icon={X}
             label="Close"
