@@ -15,6 +15,7 @@ import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
 import { applyTerminalThemeFastPath } from "@/modules/settings/terminalPalette";
 import { applyAppOpacityFastPath } from "@/modules/settings/appOpacity";
 import { applyFontFastPath } from "@/lib/fonts";
+import { installFocusRestore } from "./lib/focusRestore";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
@@ -34,6 +35,9 @@ applyAppOpacityFastPath();
 // Content font family + editor font size, so the editor paints with the chosen
 // font on the first frame instead of swapping after hydrate.
 applyFontFastPath();
+// Alt-Tab can leave the webview with focus on <body>, stranding the caret that
+// was in the AI prompt (or a terminal). Put it back where the user left it.
+installFocusRestore();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <ErrorBoundary
