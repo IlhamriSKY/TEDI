@@ -59,6 +59,7 @@ import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
 import { toast } from "@/components/ui/toast";
 import { escapeRegex } from "@/lib/utils";
 import { COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
+import { subscribeFileChange } from "@/modules/explorer/lib/fsRefresh";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -402,8 +403,11 @@ export function EditorPane({
   const extensions = useMemo(
     () => [
       // basicSetup loads before user extensions, so vim needs Prec.highest
-      // to win the keymap.
-      vimCompartment.of(usePreferencesStore.getState().vimMode ? Prec.highest(vim()) : []),
+      // to win the keymap. `status` shows the mode line - without it normal
+      // mode is invisible and reads as "typing and backspace are broken".
+      vimCompartment.of(
+        usePreferencesStore.getState().vimMode ? Prec.highest(vim({ status: true })) : [],
+      ),
       vimHandlersExtension(() => ({
         save: () => {
           void formatAndSaveRef.current();
@@ -426,9 +430,7 @@ export function EditorPane({
             modelId: s.autocompleteModelId,
             // Only hand over a key that was fetched FOR this provider.
             apiKey:
-              apiKeyRef.current?.provider === s.autocompleteProvider
-                ? apiKeyRef.current.key
-                : null,
+              apiKeyRef.current?.provider === s.autocompleteProvider ? apiKeyRef.current.key : null,
             lmstudioBaseURL: s.lmstudioBaseURL,
             openaiCompatibleBaseURL: s.openaiCompatibleBaseURL,
           };
@@ -488,9 +490,23 @@ export function EditorPane({
     const view = cmRef.current?.view;
     if (!view) return;
     view.dispatch({
-      effects: vimCompartment.reconfigure(vimMode ? Prec.highest(vim()) : []),
+      effects: vimCompartment.reconfigure(vimMode ? Prec.highest(vim({ status: true })) : []),
     });
   }, [vimMode]);
+
+  // The AI's file tools (and any other mutator that dispatches an fs refresh)
+  // write straight to disk, so an open editor sat on stale text until it was
+  // closed and reopened. Reload in place instead. `reload()` is a silent no-op
+  // while dirty, so unsaved edits are never clobbered. Remote leaves opt out:
+  // the AI's file tools are local-only, so a remote file that happens to share
+  // the path is a different file entirely.
+  useEffect(() => {
+    if (sshSessionId !== undefined) return;
+    return subscribeFileChange(
+      () => pathRef.current,
+      () => reloadRef.current(),
+    );
+  }, [sshSessionId]);
 
   useEffect(() => {
     const view = cmRef.current?.view;
