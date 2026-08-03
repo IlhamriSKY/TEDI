@@ -4,6 +4,26 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.7] - 03-08-2026
+
+### Added
+
+- **The right column stacks its panels instead of holding one at a time.** It could show exactly one of the AI panel, Source Control, Remote, a docked sidebar section or an extension panel, and opening any of them closed the rest, so "keep the AI open while I watch git" was not a thing you could ask for. Every surface there is now a resizable panel that minimizes to its header and drag-reorders by the grip in that header, with the order remembered per column. Both columns render through one shared stack, so the left sidebar's behaviour and the right column's are the same behaviour rather than two copies. See [SectionStack.tsx](src/app/components/SectionStack.tsx), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx), [rightPanelStore.ts](src/modules/extensions/rightPanelStore.ts).
+- **Live clocks while the agent works, so a long turn cannot be mistaken for a freeze.** During a long tool call (an extension's HTTP request, a slow provider) nothing on screen moved: the chat's busy indicator was gated on the last message still being yours, so it disappeared the moment the assistant replied, which is exactly when tool calling starts. A running tool card now counts its own elapsed time, the chat keeps a running indicator for the whole turn, and the status bar shows a run clock while the AI panel is closed, which was the only place a background turn was invisible entirely. See [elapsed.ts](src/modules/ai/lib/elapsed.ts), [tool.tsx](src/components/ai-elements/tool.tsx), [AgentStatusPill.tsx](src/modules/ai/components/AgentStatusPill.tsx).
+- **The status bar reads in three groups, and folds.** The right cluster was one undifferentiated run of a dozen glyphs; it now goes update prompt, then things you read (agent state, AI meters, Discord, Remote, scheduler), then things you click (actions first, panel toggles after), separated by hairlines. A toggle at the far right folds it down to the update prompt, the AI meters and the AI panel button. See [StatusBar.tsx](src/modules/statusbar/StatusBar.tsx).
+- **An extension button can act instead of opening a panel.** A manifest panel may declare `kind: "action"`, which runs its `toggleCommand` and never slides the right slot out; a status item may declare `kind` to pick its status-bar group. Until now a button that just wanted to DO something had to intercept its own click in the capture phase to stop a panel appearing, and that broke whenever this markup moved. Screenshot 0.5.7 is the first user. See [manifest.ts](src/modules/extensions/manifest.ts), [registries.ts](src/modules/extensions/registries.ts).
+- **An extension pane carries its own icon, and its reuse key is part of its identity.** A pane hosting an extension panel always drew the generic database glyph, and a panel that runs one instance per key opened its second key into the first pane, because the duplicate-mount guard matched on extension plus panel alone. The key travels to the float window too. API Client 0.4.3 uses both to give each collection its own pane. See [useAuxTabs.ts](src/modules/tabs/lib/useAuxTabs.ts), [LeafIcon.tsx](src/components/LeafIcon.tsx).
+
+### Changed
+
+- **An extension's code editor follows the editor pane's theme and font.** `ctx.ui.codeEditor` painted its own surface and a hardcoded 12px, so an extension's editor read as a different tool from the editor pane next to it. It now takes your mono font, editor font size and content zoom, and resolves the same editor theme. See [codeEditor.ts](src/modules/extensions/codeEditor.ts).
+- **The tools picker keeps its count.** The on/off number vanished three ways: it was hidden whenever every tool was on, unknown until you had opened the picker once, and thrown away whenever the AI panel unmounted. It is now seeded on mount, cached across remounts and always shown. Each tool row also drops the OS tooltip for the app's own. See [ToolsPicker.tsx](src/modules/ai/components/ToolsPicker.tsx).
+- **Settings drops the toast preview row** from General. It existed to check every toast variant by clicking rather than hunting for a git error to reproduce; the restyle is done and `scripts/toast-verify.ts` covers the variants. See [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx).
+
+### Fixed
+
+- **The AI panel header is no longer flush against the panel edge, and holds up when the column is narrow.** The close button sat hard against the border. The header is also a container query now, so it drops what does not fit at the width you actually dragged the column to: the step label goes first, then the clock, and the buttons never shrink. The empty state gained a scroll container as well, since the panel now shares the column and its suggestion cards were bleeding over the composer. See [AiMiniWindow.tsx](src/modules/ai/components/AiMiniWindow.tsx).
+
 ## [0.4.6] - 03-08-2026
 
 ### Added
