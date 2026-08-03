@@ -60,6 +60,14 @@ const ORDER_LS_KEY = "tedi:right:sectionOrder";
 const AI_DEFAULT_SIZE = "45%";
 const PANEL_DEFAULT_SIZE = "25%";
 
+/** Move a docked section back to the left sidebar (undocks) vs just closing it
+ *  (keeps the dock; the status-bar toggle reopens it) - mirrors SCM/SSH. Module
+ *  scope because it reads both stores imperatively and closes over nothing. */
+function dockLeft(key: BuiltinSectionId): void {
+  useSidebarPlacementStore.getState().moveLeft(key);
+  useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, sectionPanelId(key));
+}
+
 /**
  * The right column: the AI panel, Source Control, Remote, right-docked sidebar
  * sections and extension panels, STACKED rather than mutually exclusive.
@@ -92,13 +100,6 @@ export function AppRightSlot({
   // right-docked extension sections both name themselves in their manifest.
   const extPanels = useRegistry(panelsRegistry);
   const extSections = useRegistry(sidebarSectionsRegistry);
-
-  // Move a docked section back to the left sidebar (undocks) vs just close it
-  // (keeps the dock; the status-bar toggle reopens it) - mirrors SCM/SSH.
-  const dockLeft = (key: BuiltinSectionId) => {
-    useSidebarPlacementStore.getState().moveLeft(key);
-    useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, sectionPanelId(key));
-  };
 
   const sections: StackSection[] = [];
 

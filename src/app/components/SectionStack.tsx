@@ -85,7 +85,12 @@ export function SectionStack({
 
   // Stable per-section ref callbacks (keyed by string) so a panel handle isn't
   // detached/reattached every render. Cached lazily since keys are dynamic.
-  const panelRefSetterCache = useRef(new Map<string, (r: PanelImperativeHandle | null) => void>());
+  // Lazily initialized (the repo's idiom, see AiInputBar's recall cache): a
+  // `useRef(new Map())` builds and throws away a Map on every render.
+  const panelRefSetterCache = useRef<Map<string, (r: PanelImperativeHandle | null) => void>>(
+    undefined!,
+  );
+  if (!panelRefSetterCache.current) panelRefSetterCache.current = new Map();
   const getPanelRefSetter = (key: string) => {
     let fn = panelRefSetterCache.current.get(key);
     if (!fn) {
