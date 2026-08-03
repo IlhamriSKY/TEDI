@@ -52,7 +52,11 @@ export function RestoreCheckpointButton() {
         <Undo2 size={11} strokeWidth={1.75} />
         <span>Restore</span>
         {fileCount > 0 ? (
-          <span className="text-muted-foreground/70 font-mono">· {fileCount}</span>
+          // Spell out the unit: a bare "· 2" next to an undo arrow reads as a
+          // count of steps to undo, not of files that would be reverted.
+          <span className="text-muted-foreground/70 font-mono">
+            · {fileCount} file{fileCount === 1 ? "" : "s"}
+          </span>
         ) : null}
       </button>
     </IconTooltip>
