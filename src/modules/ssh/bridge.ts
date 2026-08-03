@@ -70,6 +70,21 @@ export function confirmHostKey(promptId: string, accept: boolean): Promise<void>
   return invoke("ssh_confirm_host_key", { promptId, accept });
 }
 
+/**
+ * Start an `ssh -L` local forward on a live session: bind `127.0.0.1:localPort`
+ * and tunnel it to `remoteHost:remotePort` as resolved from the server.
+ * `localPort` 0 picks a free port. Resolves with the port actually bound.
+ * Forwards close with the session, so there is no counterpart teardown call.
+ */
+export function openSshForward(
+  id: number,
+  localPort: number,
+  remoteHost: string,
+  remotePort: number,
+): Promise<number> {
+  return invoke<number>("ssh_forward_open", { id, localPort, remoteHost, remotePort });
+}
+
 export type SshSession = {
   id: number;
   write: (data: string) => Promise<void>;

@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -57,6 +57,8 @@ type Draft = {
   keyPassphrase: string;
   /** Saved-connection id of the jump host, or "" for a direct connection. */
   proxyJumpId: string;
+  /** `ssh -L` rules. Ports stay strings so a half-typed field isn't NaN. */
+  forwards: { localPort: string; remoteHost: string; remotePort: string }[];
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -69,7 +71,13 @@ const EMPTY_DRAFT: Draft = {
   privateKey: "",
   keyPassphrase: "",
   proxyJumpId: "",
+  forwards: [],
 };
+
+function isPort(v: string): boolean {
+  const n = Number.parseInt(v, 10);
+  return Number.isInteger(n) && n > 0 && n <= 65535 && String(n) === v.trim();
+}
 
 type TestState =
   | { kind: "idle" }
@@ -125,6 +133,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       privateKey: "",
       keyPassphrase: "",
       proxyJumpId: editing.proxyJumpId ?? "",
+      forwards: (editing.forwards ?? []).map((f) => ({
+        localPort: String(f.localPort),
+        remoteHost: f.remoteHost,
+        remotePort: String(f.remotePort),
+      })),
     });
     setPinnedFingerprint(editing.lastFingerprint ?? null);
     void getConnectionSecrets(editing.id).then((s) => {
@@ -155,6 +168,11 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       return "Password is required for password auth";
     if (draft.authMode === "key" && !draft.privateKey.trim())
       return "Private key body is required for key auth";
+    for (const f of draft.forwards) {
+      if (!f.remoteHost.trim()) return "Port forward needs a destination host";
+      if (!isPort(f.localPort) || !isPort(f.remotePort))
+        return "Port forward ports must be 1–65535";
+    }
     return null;
   };
 
@@ -335,6 +353,13 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         hasPrivateKey: false,
         hasKeyPassphrase: false,
         proxyJumpId: draft.proxyJumpId || undefined,
+        forwards: draft.forwards.length
+          ? draft.forwards.map((f) => ({
+              localPort: Number.parseInt(f.localPort, 10),
+              remoteHost: f.remoteHost.trim(),
+              remotePort: Number.parseInt(f.remotePort, 10),
+            }))
+          : undefined,
       };
       await upsertConnection(conn, {
         password: draft.authMode === "password" ? draft.password : "",
@@ -556,6 +581,86 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             <span className="text-muted-foreground text-[10.5px]">
               Tunnel through another saved host to reach this one (ProxyJump). Chains transitively
               if the jump host has its own jump host.
+            </span>
+          </Field>
+
+          <Field label="Port forwarding (optional)">
+            <div className="flex flex-col gap-1.5">
+              {draft.forwards.map((f, i) => {
+                const patch = (next: Partial<(typeof draft.forwards)[number]>) =>
+                  setDraft((d) => ({
+                    ...d,
+                    forwards: d.forwards.map((row, j) => (j === i ? { ...row, ...next } : row)),
+                  }));
+                return (
+                  // Index key: rows have no id and are only ever appended or
+                  // removed as a whole, so React never has to match them up.
+                  <div
+                    key={i}
+                    className="grid grid-cols-[4.5rem_auto_1fr_4.5rem_auto] items-center gap-1.5"
+                  >
+                    <Input
+                      value={f.localPort}
+                      onChange={(e) => patch({ localPort: e.target.value })}
+                      placeholder="5432"
+                      inputMode="numeric"
+                      aria-label="Local port"
+                      className="h-8 font-mono text-[12px]"
+                    />
+                    <span className="text-muted-foreground text-[11px]">→</span>
+                    <Input
+                      value={f.remoteHost}
+                      onChange={(e) => patch({ remoteHost: e.target.value })}
+                      placeholder="127.0.0.1 or db.internal"
+                      spellCheck={false}
+                      aria-label="Destination host"
+                      className="h-8 font-mono text-[12px]"
+                    />
+                    <Input
+                      value={f.remotePort}
+                      onChange={(e) => patch({ remotePort: e.target.value })}
+                      placeholder="5432"
+                      inputMode="numeric"
+                      aria-label="Destination port"
+                      className="h-8 font-mono text-[12px]"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-[11px]"
+                      aria-label="Remove port forward"
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          forwards: d.forwards.filter((_, j) => j !== i),
+                        }))
+                      }
+                    >
+                      <X size={13} strokeWidth={2} />
+                    </Button>
+                  </div>
+                );
+              })}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 self-start px-2 text-[11px]"
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    forwards: [...d.forwards, { localPort: "", remoteHost: "", remotePort: "" }],
+                  }))
+                }
+              >
+                Add forward
+              </Button>
+            </div>
+            <span className="text-muted-foreground text-[10.5px]">
+              Like <span className="font-mono">ssh -L</span>: binds the local port on 127.0.0.1 and
+              tunnels it to a host:port reachable <em>from the server</em>. Opened on every connect,
+              closed with the session.
             </span>
           </Field>
 

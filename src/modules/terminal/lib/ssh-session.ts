@@ -7,6 +7,7 @@ import {
 } from "@/modules/ssh/connections";
 import {
   openSsh,
+  openSshForward,
   isHostKeyMismatchError,
   type SshJumpHop,
   type SshSession,
@@ -209,6 +210,25 @@ export async function openSshForSession(
 
   resolvedSessionId = sshSession.id;
   emitConnectedIfReady();
+
+  // Saved `ssh -L` rules, re-opened on this fresh session (including every
+  // reconnect, since the old session's listeners died with it). Each one is
+  // fire-and-forget: a local port that is already taken is worth a line in the
+  // terminal, not a failed shell.
+  for (const f of conn.forwards ?? []) {
+    void openSshForward(sshSession.id, f.localPort, f.remoteHost, f.remotePort).then(
+      (bound) =>
+        writeSshBanner(
+          s,
+          `\x1b[2m[tedi] forwarding localhost:${bound} -> ${f.remoteHost}:${f.remotePort}\x1b[0m\r\n`,
+        ),
+      (e) =>
+        writeSshBanner(
+          s,
+          `\x1b[33m[tedi] port forward ${f.localPort} -> ${f.remoteHost}:${f.remotePort} failed: ${describeError(e)}\x1b[0m\r\n`,
+        ),
+    );
+  }
 
   // Adapter so SSH looks like a PtySession to the rest of the file. SSH
   // sessions are not persisted via daemon UUIDs (`pty_attach` is local

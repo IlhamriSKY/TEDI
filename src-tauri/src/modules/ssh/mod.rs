@@ -189,6 +189,51 @@ pub async fn ssh_close(state: tauri::State<'_, SshState>, id: u32) -> Result<(),
     Ok(())
 }
 
+/// `ssh -L`: bind `127.0.0.1:local_port` on this machine and tunnel every
+/// connection to `remote_host:remote_port` as resolved from the SERVER, over
+/// the live session `id` (so a ProxyJump chain applies for free). `local_port`
+/// 0 picks a free port; the bound port is returned for the caller to report.
+///
+/// No close command on purpose: forwards are declared on the saved connection
+/// and re-opened on every connect, so the session's own teardown is the only
+/// lifecycle they need.
+#[tauri::command]
+pub async fn ssh_forward_open(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> Result<u16, String> {
+    let remote_host = remote_host.trim().to_string();
+    if remote_host.is_empty() {
+        return Err("ssh: port forward needs a remote host".into());
+    }
+    if remote_port == 0 {
+        return Err("ssh: port forward needs a remote port".into());
+    }
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            log::warn!("ssh_forward_open: unknown id={id}");
+            "no session".to_string()
+        })?;
+    // Bind and accept on the SSH runtime, not tauri's: the listener and the
+    // russh channels it feeds must be driven by the same reactor.
+    ssh_runtime()
+        .spawn(async move {
+            session
+                .open_forward(local_port, remote_host, remote_port)
+                .await
+        })
+        .await
+        .map_err(|e| format!("ssh forward task join failed: {e}"))?
+}
+
 /// Answer a first-connect `HostKeyPrompt`. `accept = true` lets the paused
 /// handshake proceed (and the connection pins the fingerprint on success);
 /// `accept = false` aborts the connect before any credential is sent. Called
