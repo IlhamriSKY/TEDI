@@ -4,11 +4,12 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn, maskKey } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import type { ProviderInfo } from "@/modules/ai/config";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "./ProviderIcon";
-import { CircleCheck, Eye, EyeOff, SquarePen, X } from "lucide-react";
+import { CircleCheck, Eye, EyeOff, Pencil, X } from "lucide-react";
 
 type Props = {
   provider: ProviderInfo;
@@ -156,7 +157,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               aria-label="Replace"
               className="size-7"
             >
-              <SquarePen size={12} strokeWidth={1.75} />
+              <Pencil size={12} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
           <IconTooltip label="Remove" side="top">
@@ -165,7 +166,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               variant="ghost"
               onClick={() => void onClear()}
               aria-label="Remove"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+              className={cn(DESTRUCTIVE_ACTION, "size-7")}
             >
               <X size={12} strokeWidth={1.75} />
             </Button>

@@ -85,7 +85,7 @@ export function EntryIcon({ entry }: { entry: Entry }) {
     return <Icon size={14} strokeWidth={2} className="shrink-0" />;
   }
   if (entry.kind === "scm") {
-    return <GitBranch size={14} strokeWidth={2} className="text-icon-working shrink-0" />;
+    return <GitBranch size={14} strokeWidth={2} className="text-icon-branch shrink-0" />;
   }
   return <GitCompare size={14} strokeWidth={2} className="text-icon-working shrink-0" />;
 }

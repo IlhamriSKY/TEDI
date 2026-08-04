@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { useChatStore } from "../store/chatStore";
 import { Plus, Search, X } from "lucide-react";
 
@@ -128,7 +129,10 @@ export function SessionHistoryDialog() {
                           setPendingDelete({ id: s.id, title: s.title || "New chat" });
                         }}
                         aria-label={`Delete ${s.title || "session"}`}
-                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100"
+                        className={cn(
+                          DESTRUCTIVE_ACTION,
+                          "shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100",
+                        )}
                       >
                         <X size={11} strokeWidth={2} />
                       </button>

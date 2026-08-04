@@ -51,6 +51,7 @@ type Props = {
     cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
     onFocusLeaf: (tabId: number, leafId: number) => void;
     onRenameLeaf: (leafId: number, title: string | null) => void;
+    onCloseEntry: (tabId: number, leafId: number | null) => void;
     activeLeafId: number | null;
     sshStatuses: Map<number, SshStatus>;
   };
@@ -202,6 +203,7 @@ export function AppRightSlot({
               cachedTabsByWorkspace={workspacesSection.cachedTabsByWorkspace}
               onFocusLeaf={workspacesSection.onFocusLeaf}
               onRenameLeaf={workspacesSection.onRenameLeaf}
+              onCloseEntry={workspacesSection.onCloseEntry}
               activeLeafId={workspacesSection.activeLeafId}
               sshStatuses={workspacesSection.sshStatuses}
               dragHandle={controls}
@@ -233,11 +235,13 @@ export function AppRightSlot({
       key: `xp:${panel.extensionId}:${panel.panelId}`,
       title,
       defaultSize: PANEL_DEFAULT_SIZE,
-      collapsedSize: sectionId
-        ? undefined
-        : meta?.item.hideHostHeader
-          ? "22px"
-          : TALL_HEADER_COLLAPSED_SIZE,
+      // A `hideHostHeader` panel is collapsed to the stack's default (an h-8
+      // header + the card borders), because that is now what stays visible: it
+      // wears the grip + chevron on its OWN header row via the controls slot.
+      // The old 22px was sized for the slim rail that row replaced, and would
+      // clip the panel's header in half.
+      collapsedSize:
+        sectionId || meta?.item.hideHostHeader ? undefined : TALL_HEADER_COLLAPSED_SIZE,
       render: (controls: ReactNode) => (
         <RightPanelHost
           extensionId={panel.extensionId}

@@ -79,7 +79,7 @@ import { onKeysChanged } from "@/modules/settings/store";
 import { COMPLETION_SYSTEM_PROMPT } from "@/modules/editor/lib/autocomplete/prompt";
 import { COMMIT_SYSTEM_PROMPT } from "@/modules/scm/commitAi";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, RefreshCw, SquarePen } from "lucide-react";
+import { ChevronDown, Pencil, RefreshCw } from "lucide-react";
 
 /** Built-in default text per prompt id. Sourced from the real call-site
  *  constants so the "reset to default" baseline can never drift from runtime. */
@@ -321,7 +321,7 @@ function PromptRow({
             onClick={onEdit}
             aria-label={`Edit ${meta.label}`}
           >
-            <SquarePen size={12} strokeWidth={1.75} />
+            <Pencil size={12} strokeWidth={1.75} />
           </Button>
         </IconTooltip>
         {onReset ? (

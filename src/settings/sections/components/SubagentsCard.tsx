@@ -25,12 +25,13 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, slugify } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { READ_ONLY_TOOLS } from "@/modules/ai/agents/registry";
 import { useSubagentsStore, type CustomSubagentDef } from "@/modules/ai/store/subagentsStore";
 import { PromptModelDropdown } from "@/settings/sections/components/SystemPromptsCard";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setSubagentsEnabled } from "@/modules/settings/store";
-import { Plus, SquarePen, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 /**
  * Sub-agents: a single on/off toggle, plus user-defined custom workers.
@@ -137,14 +138,14 @@ function CustomSubagentsSection() {
                     onClick={() => setEditing(a)}
                     aria-label="Edit"
                   >
-                    <SquarePen size={12} strokeWidth={1.75} />
+                    <Pencil size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Delete" side="top">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+                    className={cn(DESTRUCTIVE_ACTION, "size-7")}
                     onClick={() => setPendingDelete(a)}
                     aria-label="Delete"
                   >

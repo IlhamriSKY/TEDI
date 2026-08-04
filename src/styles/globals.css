@@ -79,6 +79,7 @@
   --color-icon-idle: var(--tedi-icon-idle);
   --color-icon-blocked: var(--tedi-icon-blocked);
   --color-icon-done: var(--tedi-icon-done);
+  --color-icon-branch: var(--tedi-icon-branch);
   /* Smooth "breathing" pulse for the active AI CLI (working / blocking) icon.
    * Gentler and more continuous than Tailwind's default animate-pulse. */
   --animate-ai-breathe: ai-breathe 1.8s ease-in-out infinite;
@@ -125,6 +126,9 @@
   --tedi-icon-blocked: #dc2626;
   /* "done" (finished, unacknowledged): blue, distinct from the green idle. */
   --tedi-icon-done: #2563eb;
+  /* Git branch glyph wherever a branch NAME is shown. Violet so a branch reads
+   * as a branch at a glance and never as an AI/CLI status colour. */
+  --tedi-icon-branch: #7c3aed;
   /* Semantic diff colors (git +/-, SCM status). Themable. Kept distinct
    * from --destructive so destructive remains an actionable-danger token
    * and diff removed stays a "kind of change" indicator. */
@@ -256,6 +260,7 @@
   --tedi-icon-working: #facc15;
   --tedi-icon-blocked: #f87171;
   --tedi-icon-done: #60a5fa;
+  --tedi-icon-branch: #a78bfa;
   /* Brighter diff + info colors for dark mode. */
   --tedi-diff-added: #4ade80;
   --tedi-diff-removed: #f87171;

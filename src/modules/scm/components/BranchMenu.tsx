@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { invalidBranchName } from "../api";
 import type { GitBranch, GitStatus } from "../types";
 import { Check, ChevronDown, Cloud, GitBranch as GitBranchIcon, Plus, Trash2 } from "lucide-react";
@@ -99,7 +100,7 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
             className="text-foreground/80 hover:border-border aria-expanded:border-border h-6 min-w-0 flex-1 justify-start gap-1 rounded-md px-1.5 text-xs font-medium"
             aria-label={`Branch ${label}. Switch branch`}
           >
-            <GitBranchIcon size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
+            <GitBranchIcon size={13} strokeWidth={2} className="text-icon-branch shrink-0" />
             <span className="truncate">{label}</span>
             {/* ml-auto parks the chevron on the right edge the way a select
                 does, so the affordance is where the eye looks for it however
@@ -164,7 +165,10 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
                   role="button"
                   tabIndex={-1}
                   aria-label={`Delete branch ${b.name}`}
-                  className="hover:text-destructive text-muted-foreground shrink-0 opacity-0 group-hover/branch:opacity-100"
+                  className={cn(
+                    DESTRUCTIVE_ACTION,
+                    "shrink-0 opacity-0 group-hover/branch:opacity-100",
+                  )}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();

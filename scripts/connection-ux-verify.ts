@@ -1,0 +1,280 @@
+/**
+ * Self-check for this round of connection-dialog work.
+ * Run: `npx tsx scripts/connection-ux-verify.ts`.
+ *
+ * Four things, each of which failed silently before:
+ *
+ * 1. The outline-button border. The presets were retuned to clear WCAG's 3:1
+ *    and `theme-verify.ts` holds them there - but picking a preset SNAPSHOTS
+ *    its colours into `customTheme`, so a palette saved before the retune keeps
+ *    its old hairline forever and every dialog's Cancel reads as bare text.
+ *    Measured on a real install: `#3a3a3a` on a `#363636` popover = 1.06:1.
+ *    The floor is now enforced when the payload is read, and this exercises the
+ *    REAL function rather than a copy of its arithmetic.
+ *
+ * 2. The git-branch glyph has its own theme token. It used to borrow
+ *    `--muted-foreground` (invisible as a category) in two places and
+ *    `--tedi-icon-working` (which means "an agent is busy") in a third.
+ *
+ * 3. A `hideHostHeader` right panel puts the stack's grip + minimize on its OWN
+ *    header row. Two halves that only work together: the panel renders the slot,
+ *    the host portals into it. Either one alone is a silent no-op.
+ *
+ * 4. The SQL Explorer's connection backup is a TRUST BOUNDARY - the file came
+ *    off a USB stick and what survives the parser gets dialled - and its dialog
+ *    footers must not show two identical primary buttons.
+ */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+import { ensureVisibleButtonBorder, contrastRatio } from "../src/modules/settings/buttonBorder";
+import { THEME_PRESETS } from "../src/modules/settings/themePresets";
+import type { ThemeColors } from "../src/modules/settings/customTheme";
+// The parser is deliberately reachable under plain node (no DOM at module
+// scope), so an import failure here is itself a regression worth failing on.
+import {
+  BACKUP_KIND,
+  parseBackupFile,
+} from "../extensions/tedi.sql-explorer/src/connections/backup.js";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (p: string) => readFileSync(join(root, p), "utf8");
+
+let failed = 0;
+function check(name: string, ok: boolean, detail?: unknown): void {
+  if (ok) {
+    console.log(`  ok: ${name}`);
+    return;
+  }
+  console.error(`  FAIL: ${name}`, detail === undefined ? "" : JSON.stringify(detail));
+  failed++;
+}
+function throws(name: string, fn: () => unknown): void {
+  try {
+    fn();
+    check(name, false, "did not throw");
+  } catch {
+    check(name, true);
+  }
+}
+
+// ---- 1. no saved theme can leave the outline button invisible --------------
+console.log("\na stale saved theme cannot keep an invisible button border");
+
+const base = THEME_PRESETS[0].dark;
+// The exact palette measured on the install that prompted this: current
+// surfaces, pre-retune border.
+const stale: ThemeColors = { ...base, popover: "#363636", buttonBorder: "#3a3a3a" };
+check(
+  "the reported case really was below the floor (so this test can fail)",
+  contrastRatio("#3a3a3a", "#363636") < 3,
+  Number(contrastRatio("#3a3a3a", "#363636").toFixed(2)),
+);
+const repaired = ensureVisibleButtonBorder(stale);
+for (const surface of ["background", "card", "popover"] as const) {
+  const ratio = contrastRatio(repaired.buttonBorder, repaired[surface]);
+  check(`repaired border clears 3:1 on ${surface}`, ratio >= 3, {
+    border: repaired.buttonBorder,
+    surface: repaired[surface],
+    ratio: Number(ratio.toFixed(2)),
+  });
+}
+check(
+  "a light theme darkens instead of lightening",
+  (() => {
+    const light = THEME_PRESETS[0].light;
+    const bad: ThemeColors = { ...light, buttonBorder: "#fbfbfb" };
+    const fixed = ensureVisibleButtonBorder(bad).buttonBorder;
+    return fixed < "#fbfbfb" && contrastRatio(fixed, light.popover) >= 3;
+  })(),
+);
+check(
+  "a border that already passes is returned untouched (idempotent)",
+  ensureVisibleButtonBorder(base) === base &&
+    ensureVisibleButtonBorder(repaired).buttonBorder === repaired.buttonBorder,
+);
+check(
+  "a non-hex value is left alone rather than mangled",
+  ensureVisibleButtonBorder({ ...base, buttonBorder: "var(--border)" }).buttonBorder ===
+    "var(--border)",
+);
+// The repair only helps if the payload actually routes through it.
+const customTheme = read("src/modules/settings/customTheme.ts");
+check(
+  "normalizeCustomTheme applies it to BOTH variants",
+  (customTheme.match(/ensureVisibleButtonBorder\(\{ \.\.\.defaults\./g) ?? []).length === 2,
+);
+
+// ---- 2. the branch glyph is its own token ---------------------------------
+console.log("\nthe git-branch glyph is themable, and purple everywhere but the status bar");
+
+const BRANCH_SITES = [
+  "src/modules/scm/components/BranchMenu.tsx",
+  "src/modules/scm/components/PanelHeader.tsx",
+  "src/modules/workspaces/WorkspacesPanel.tsx",
+  "src/modules/tabs/components/EntryIcon.tsx",
+];
+for (const f of BRANCH_SITES) {
+  const src = read(f);
+  // `size=` pins this to the JSX element. A bare `<GitBranch ` also matches a
+  // TYPE argument (`useState<GitBranch | null>`), which is what this first read.
+  const branchLine = src.split("\n").find((l) => /<GitBranch(Icon)?\s+size=/.test(l)) ?? "";
+  check(
+    `${f} paints its branch glyph with text-icon-branch`,
+    branchLine.includes("text-icon-branch"),
+  );
+}
+check(
+  "the status bar is deliberately NOT painted (that row is monochrome)",
+  !read("src/modules/statusbar/StatusBar.tsx").includes("text-icon-branch"),
+);
+check("the token is declared", read("src/styles/globals.css").includes("--tedi-icon-branch:"));
+check(
+  "and every preset ships one for both variants",
+  THEME_PRESETS.every(
+    (p) => /^#[0-9a-f]{6}$/i.test(p.dark.iconBranch) && /^#[0-9a-f]{6}$/i.test(p.light.iconBranch),
+  ),
+);
+
+// ---- 3. a header-less panel wears the stack controls on its own row -------
+console.log("\nthe secondary folder tree keeps its controls on ONE row");
+
+const shell = read("src/modules/extensions/components/FolderTreeShell.tsx");
+const host = read("src/modules/extensions/components/RightPanelHost.tsx");
+check("the panel renders a controls slot", shell.includes("data-tedi-panel-controls"));
+check("the host looks for that same slot", host.includes("[data-tedi-panel-controls]"));
+check(
+  "and portals into it (not a second React root, which loses dnd-kit context)",
+  host.includes("createPortal(dragHandle, controlsSlot)"),
+);
+check(
+  "the slim rail survives only as the fallback for a panel with no slot",
+  host.includes("dragHandle && !controlsSlot ?"),
+);
+check(
+  "and a header-less panel collapses to the stack default, not the rail's 22px",
+  !read("src/app/components/AppRightSlot.tsx").includes('"22px"'),
+);
+
+// ---- 4. SQL Explorer: distinct footer buttons, and a paranoid importer ----
+console.log("\nSQL Explorer dialogs read clearly, and an import is re-validated");
+
+const dialog = read("extensions/tedi.sql-explorer/src/connections/dialog.js");
+check(
+  "Cancel is a bordered secondary, not an invisible ghost",
+  dialog.includes(`class: "tsql-btn is-outline",\n      text: "Cancel",`),
+);
+check(
+  "Test is secondary too, so only Add/Save reads as THE action",
+  dialog.includes(`class: "tsql-btn is-outline",\n      text: "Test",`),
+);
+check(
+  "exactly one primary button in that footer",
+  (dialog.match(/tsql-btn is-primary/g) ?? []).length === 1,
+);
+check(
+  "the outline variant actually draws a border",
+  /\.tsql-btn\.is-outline \{ border-color: var\(--tedi-button-border/.test(
+    read("extensions/tedi.sql-explorer/src/styles/layout.js"),
+  ),
+);
+check(
+  "and nothing out-specifies it back onto the near-invisible --border",
+  // `.tsql-dialog-confirm .tsql-dialog-actions .tsql-btn:not(...)` is 5 classes
+  // to `.tsql-btn.is-outline`'s 2, so it silently won and the confirm modal's
+  // Cancel stayed a hairline while every other dialog's was fixed.
+  !/\.tsql-btn:not\([^)]*\)[^{]*\{[^}]*border-color/.test(
+    read("extensions/tedi.sql-explorer/src/styles/controls.js"),
+  ),
+);
+check("the SSH-tunnel picker is searchable", dialog.includes("searchable: true"));
+check(
+  "and its popup filters rather than rebuilding (a rebuild loses input focus)",
+  read("extensions/tedi.sql-explorer/src/dom/menus.js").includes(
+    'item.style.display = hit ? "" : "none"',
+  ),
+);
+check(
+  "and a host is findable by address, not just by name",
+  dialog.includes("keywords: `${h.user}@${h.host}"),
+);
+
+const ok = {
+  kind: BACKUP_KIND,
+  version: 1,
+  exportedAt: 1,
+  secrets: { kdf: "pbkdf2-hmac-sha256" },
+  connections: [{ id: "a", kind: "mysql", host: "db.internal", name: "prod", port: 3306 }],
+};
+check("a good file parses", parseBackupFile(ok).connections.length === 1);
+throws("a foreign file is refused", () => parseBackupFile({ ...ok, kind: "tedi-ssh-connections" }));
+throws("a newer version is refused", () => parseBackupFile({ ...ok, version: 99 }));
+throws("a file with no encrypted block is refused", () =>
+  parseBackupFile({ ...ok, secrets: null }),
+);
+throws("a file with nothing usable is refused", () => parseBackupFile({ ...ok, connections: [] }));
+
+const dirty = parseBackupFile({
+  ...ok,
+  connections: [
+    ...ok.connections,
+    { id: "b", kind: "not-a-database", host: "h" }, // unknown engine
+    { id: "", kind: "mysql", host: "h" }, // no id: would collide on save
+    { id: "d", kind: "mysql", host: "" }, // nothing to dial
+    { id: "e", kind: "sqlite" }, // no file either
+  ],
+});
+check("every unusable record is dropped, not imported broken", dirty.skipped === 4, dirty);
+
+const coerced = parseBackupFile({
+  ...ok,
+  connections: [
+    {
+      id: "x",
+      kind: "mysql",
+      host: "h",
+      port: 999999,
+      sslMode: "'; DROP TABLE --",
+      query_timeout_ms: -1,
+      row_limit: "abc",
+      allow_writes: "yes",
+    },
+  ],
+}).connections[0];
+check("an out-of-range port falls back to the dialect default", coerced.port === "");
+check("an unknown TLS mode cannot reach the sidecar", coerced.sslMode === "none");
+check(
+  "a junk timeout / row cap falls back",
+  coerced.query_timeout_ms === 30000 && coerced.row_limit === 10000,
+);
+check("a truthy-string write flag does NOT grant writes", coerced.allow_writes === false);
+
+const file = read("extensions/tedi.sql-explorer/src/connections/backup.js");
+check(
+  "the export strips any password from the plaintext record",
+  file.includes("password: _p, ...rest"),
+);
+check(
+  "a replaced connection whose backup carries no password drops the stale one",
+  file.includes(
+    'else if (conn.kind !== "sqlite" && existing.has(conn.id)) await deleteSecret(conn.id);',
+  ),
+);
+check(
+  "sealing is host-side (crypto.subtle is unavailable to the webview)",
+  file.includes('ctx.invoke("backup_seal"') && file.includes('ctx.invoke("backup_open"'),
+);
+const manifest = JSON.parse(read("extensions/tedi.sql-explorer/manifest.json")) as {
+  permissions: string[];
+};
+check(
+  "and the manifest grants both commands",
+  manifest.permissions.includes("invoke:backup_seal") &&
+    manifest.permissions.includes("invoke:backup_open"),
+);
+
+console.log(
+  failed === 0 ? "\nconnection-ux-verify: OK" : `\nconnection-ux-verify: ${failed} FAILED`,
+);
+process.exit(failed === 0 ? 0 : 1);

@@ -21,6 +21,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { AGENT_ICONS } from "@/modules/ai/components/AgentSwitcher";
 import { BUILTIN_AGENTS, type Agent, type AgentIconId } from "@/modules/ai/lib/agents";
 import { isValidHandle, normalizeHandle, type Snippet } from "@/modules/ai/lib/snippets";
@@ -38,7 +39,7 @@ import { SubagentsCard } from "./components/SubagentsCard";
 import { SkillsCard } from "./components/SkillsCard";
 import { McpServersCard } from "./components/McpServersCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
-import { CircleCheck, Plus, RefreshCw, Sparkles, SquarePen, Trash2 } from "lucide-react";
+import { CircleCheck, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 const ICON_OPTIONS: AgentIconId[] = [
   "coder",
@@ -217,14 +218,14 @@ export function AgentsSection() {
                       onClick={() => setEditingSnippet(s)}
                       aria-label="Edit"
                     >
-                      <SquarePen size={12} strokeWidth={1.75} />
+                      <Pencil size={12} strokeWidth={1.75} />
                     </Button>
                   </IconTooltip>
                   <IconTooltip label="Delete" side="left">
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+                      className={cn(DESTRUCTIVE_ACTION, "size-7")}
                       onClick={() =>
                         setPendingAction({
                           kind: "deleteSnippet",
@@ -401,7 +402,7 @@ function AgentCard({
                 onClick={onEdit}
                 aria-label="Edit"
               >
-                <SquarePen size={11} strokeWidth={1.75} />
+                <Pencil size={11} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           ) : null}
@@ -423,7 +424,7 @@ function AgentCard({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
+                className={cn(DESTRUCTIVE_ACTION, "size-6")}
                 onClick={onDelete}
                 aria-label="Delete"
               >

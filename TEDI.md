@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.9.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.10.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |
@@ -181,8 +181,8 @@ are `terminal` / `editor` / `browser` / `ssh` / `extension-panel`.
 
 ## AI subsystem (`src/modules/ai/`)
 
-BYOK, multi-provider via `@ai-sdk/*`. Ten providers: OpenAI, Anthropic, Google,
-xAI, Cerebras, Groq, DeepSeek, SumoPod, OpenAI-compatible, LM Studio. `config.ts`
+BYOK, multi-provider via `@ai-sdk/*`. Eleven providers: OpenAI, Anthropic, Google,
+xAI, Cerebras, Groq, DeepSeek, SumoPod, AgentRouter, OpenAI-compatible, LM Studio. `config.ts`
 (`PROVIDERS`, `MODELS`, `DEFAULT_MODEL_ID`) is the source of truth; add providers
 there. Keys live only in the keychain via `secrets_*`.
 
@@ -198,6 +198,11 @@ state), `sessions.ts` + `store/chatStore.ts` (sessions at `tedi-sessions.json`,
 global not per-workspace), `security.ts` (symlink-resolved secret deny-list on read
 and write), `cache.ts` (Anthropic cache breakpoints), `compact.ts`, `checkpoint.ts`,
 `errors.ts`, `skills.ts`, `mcpClient.ts` / `mcpTransport.ts`, `prompts.ts`.
+
+**Voice input**: a mic button in the composer and the status bar
+(`hooks/useWhisperRecording.ts`, `AiInputBar.tsx`, `AiStatusBarControls.tsx`)
+records via `MediaRecorder` and transcribes with OpenAI `whisper-1`, so it needs
+an OpenAI API key (`apiKeys.openai` in the chat store).
 
 **Agent loop**: `MAX_AGENT_STEPS = 15` plus two more stop guards, identical
 tool+input three times (`noToolRepetition`) and two consecutive text-only steps
@@ -380,6 +385,8 @@ ${file}`).
 - **Plan mode** (`#plan`) queuing mutations into one review diff.
 - **Autocomplete on any provider**, including local (LM Studio, Ollama, llama.cpp,
   vLLM); a loopback endpoint needs no API key.
+- **Voice input** in the composer and status bar (OpenAI whisper-1 transcription;
+  needs an OpenAI key).
 - **Format-on-save** with built-in Prettier and 30+ external presets.
 - **SSH ProxyJump** chaining, SFTP explorer, and read-only remote source control.
 - **Command Palette** (Ctrl+Shift+P) over a shared command registry.

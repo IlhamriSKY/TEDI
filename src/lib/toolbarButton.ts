@@ -24,3 +24,14 @@ export const TOOLBAR_EXPANDED =
 
 /** Accent fill for a toggle button's active state (markdown preview, word wrap). */
 export const TOOLBAR_ACTIVE = "bg-accent text-accent-foreground";
+
+/**
+ * Delete / remove icon buttons (trash glyphs, and the close X on a workspace or
+ * one of its tabs). Red AT REST, not only on hover: a destructive action has to
+ * be findable - and avoidable - before the pointer is on it. `/75` keeps it from
+ * shouting in a list of otherwise neutral row actions, and full `--destructive`
+ * lands on hover. Import it; never re-type the string, or the next delete button
+ * drifts back to the muted-until-hover look this replaced.
+ */
+export const DESTRUCTIVE_ACTION =
+  "text-destructive/75 hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10 dark:hover:text-destructive";

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { SettingsCard } from "../../components/SettingsCard";
 import {
   getMcpServers,
@@ -24,7 +25,7 @@ import {
   type McpServerConfig,
 } from "@/modules/ai/lib/mcpConfig";
 import { refreshMcpTools, validateMcpServer } from "@/modules/ai/lib/mcpClient";
-import { CirclePlay, Pause, Plus, SquarePen, Trash2 } from "lucide-react";
+import { CirclePlay, Pause, Pencil, Plus, Trash2 } from "lucide-react";
 
 /**
  * Derive a compact server name from a run command, so adding an MCP server
@@ -291,14 +292,14 @@ export function McpServersCard() {
                       setShowEnv(Object.keys(s.env ?? {}).length > 0);
                     }}
                   >
-                    <SquarePen size={12} strokeWidth={1.75} />
+                    <Pencil size={12} strokeWidth={1.75} />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Remove" side="top">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+                    className={cn(DESTRUCTIVE_ACTION, "size-7")}
                     onClick={() => setPendingDelete(s.name)}
                   >
                     <Trash2 size={12} strokeWidth={1.75} />

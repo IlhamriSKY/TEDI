@@ -167,7 +167,12 @@ const HUGEICON_ALIAS: Record<string, string> = {
   Download01Icon: "Download",
   Download04Icon: "Download",
   DragDropVerticalIcon: "GripVertical",
-  Edit02Icon: "SquarePen",
+  // The two GENERIC "edit" names both land on the one rename glyph, so an
+  // extension installed before the Lucide migration draws the same pencil as
+  // everything else in the app. `FileEditIcon` / `FolderEditIcon` below stay on
+  // their file/folder-specific pens - those asked for a specific glyph, not for
+  // "rename this".
+  Edit02Icon: "Pencil",
   EraserIcon: "Eraser",
   EyeIcon: "Eye",
   File01Icon: "File",
@@ -225,7 +230,7 @@ const HUGEICON_ALIAS: Record<string, string> = {
   PaintBrush04Icon: "Paintbrush",
   PauseIcon: "Pause",
   PencilEdit01Icon: "Pencil",
-  PencilEdit02Icon: "SquarePen",
+  PencilEdit02Icon: "Pencil",
   PinIcon: "Pin",
   PlayCircleIcon: "CirclePlay",
   PlaySquareIcon: "SquarePlay",

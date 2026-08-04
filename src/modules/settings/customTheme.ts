@@ -12,6 +12,7 @@
 
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isSecondaryWindow } from "@/lib/platform";
+import { ensureVisibleButtonBorder } from "./buttonBorder";
 
 export type ThemeColors = {
   /** App-wide canvas (`--background`). */
@@ -69,6 +70,12 @@ export type ThemeColors = {
    *  that clears on focus). Distinct from `iconIdle`, which means "nothing
    *  happened here". */
   iconDone: string;
+  /** Git branch glyph, wherever a branch NAME is shown: the Source Control
+   *  header, the branch switcher, a pane's branch line in Workspaces. Its own
+   *  token rather than a reuse of the icon triad, which means AI/CLI activity -
+   *  a branch is not a status. The status bar deliberately does NOT read it;
+   *  that row is monochrome by design. */
+  iconBranch: string;
   /** Semantic green for diff additions, "+N" stats, success indicators. */
   diffAdded: string;
   /** Semantic red for diff removals, "-N" stats. Distinct from `destructive`
@@ -201,6 +208,7 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   iconIdle: ["--tedi-icon-idle"],
   iconBlocked: ["--tedi-icon-blocked"],
   iconDone: ["--tedi-icon-done"],
+  iconBranch: ["--tedi-icon-branch"],
   diffAdded: ["--tedi-diff-added"],
   diffRemoved: ["--tedi-diff-removed"],
   info: ["--tedi-info"],
@@ -603,6 +611,7 @@ const SAFE_LIGHT_FALLBACK: ThemeColors = {
   iconIdle: "#059669",
   iconBlocked: "#dc2626",
   iconDone: "#2563eb",
+  iconBranch: "#7c3aed",
   diffAdded: "#16a34a",
   diffRemoved: "#dc2626",
   info: "#0284c7",
@@ -660,6 +669,7 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
   iconIdle: "#34d399",
   iconBlocked: "#f87171",
   iconDone: "#60a5fa",
+  iconBranch: "#a78bfa",
   diffAdded: "#4ade80",
   diffRemoved: "#f87171",
   info: "#38bdf8",
@@ -724,8 +734,8 @@ export function normalizeCustomTheme(loaded: unknown, defaults: CustomTheme): Cu
 
   return {
     name,
-    light: { ...defaults.light, ...filterStrings(lightFinal ?? {}) },
-    dark: { ...defaults.dark, ...filterStrings(darkFinal ?? {}) },
+    light: ensureVisibleButtonBorder({ ...defaults.light, ...filterStrings(lightFinal ?? {}) }),
+    dark: ensureVisibleButtonBorder({ ...defaults.dark, ...filterStrings(darkFinal ?? {}) }),
     background: {
       enabled: typeof bg.enabled === "boolean" ? bg.enabled : defaults.background.enabled,
       path: typeof bg.path === "string" ? bg.path : defaults.background.path,

@@ -9,6 +9,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import { memo, useEffect, useMemo, type ReactNode } from "react";
 import type { SessionMeta } from "../lib/sessions";
@@ -169,13 +170,7 @@ function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?:
   );
 }
 
-function Header({
-  onClose,
-  dragHandle,
-}: {
-  onClose: () => void;
-  dragHandle?: ReactNode;
-}) {
+function Header({ onClose, dragHandle }: { onClose: () => void; dragHandle?: ReactNode }) {
   return (
     // A container, so the header can drop what does not fit at the width the
     // user actually dragged the column to (the panel is resizable, so a media
@@ -307,7 +302,10 @@ function SessionRow({
             onDelete();
           }}
           aria-label="Delete session"
-          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+          className={cn(
+            DESTRUCTIVE_ACTION,
+            "cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+          )}
         >
           <Trash2 size={11} strokeWidth={1.75} />
         </button>

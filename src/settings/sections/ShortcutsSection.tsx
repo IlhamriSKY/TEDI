@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { cn } from "@/lib/utils";
 import { commandsRegistry, keybindingsRegistry, useExtensionsStore } from "@/modules/extensions";
 import { useRegistry } from "@/modules/extensions/useRegistry";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -249,7 +251,10 @@ function ShortcutRow({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7 opacity-0 transition-opacity group-hover:opacity-100"
+                    className={cn(
+                      DESTRUCTIVE_ACTION,
+                      "size-7 opacity-0 transition-opacity group-hover:opacity-100",
+                    )}
                     onClick={onClear}
                     aria-label="Clear shortcut"
                   >

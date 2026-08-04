@@ -967,6 +967,7 @@ export default function App() {
                 cachedTabsByWorkspace={liveTabsByWorkspace}
                 onFocusLeaf={focusLeafInTab}
                 onRenameLeaf={renameLeaf}
+                onCloseEntry={handleHeaderCloseEntry}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
                 sshStatuses={sshStatuses}
                 openGitDiffTab={openGitDiffTab}
@@ -1026,6 +1027,7 @@ export default function App() {
                   cachedTabsByWorkspace: liveTabsByWorkspace,
                   onFocusLeaf: focusLeafInTab,
                   onRenameLeaf: renameLeaf,
+                  onCloseEntry: handleHeaderCloseEntry,
                   activeLeafId: activePaneTab?.activeLeafId ?? null,
                   sshStatuses,
                 }}

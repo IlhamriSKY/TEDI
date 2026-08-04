@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import {
   ALL_LANGUAGES,
   BUILTIN_LANGUAGES,
@@ -254,7 +255,7 @@ function FormatterRow({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="hover:bg-destructive/10 hover:text-destructive size-7"
+                className={cn(DESTRUCTIVE_ACTION, "size-7")}
                 onClick={() => void patchFormatter(snapshot, language, null)}
                 aria-label="Remove formatter"
               >

@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteConnection,
@@ -317,7 +317,7 @@ function RowIconButton({
         className={cn(
           "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
           danger
-            ? "text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+            ? DESTRUCTIVE_ACTION
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
       >

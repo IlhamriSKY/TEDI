@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IS_WINDOWS } from "@/lib/platform";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   cleanTerminalPath,
@@ -167,7 +169,7 @@ export function AdditionalPathEditor() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-muted-foreground hover:text-destructive size-7 shrink-0"
+                  className={cn(DESTRUCTIVE_ACTION, "size-7 shrink-0")}
                   onClick={() => removeEntry(index)}
                   aria-label="Remove this folder"
                 >

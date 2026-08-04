@@ -19,7 +19,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
 import { explorerIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
@@ -347,11 +347,7 @@ export function ExtensionSidebarSection({
                   size="icon-sm"
                   className={cn(
                     "size-5 rounded",
-                    a.danger
-                      ? // Red at rest, not only on hover: a delete has to be
-                        // findable (and avoidable) before the pointer is on it.
-                        "text-destructive/75 hover:bg-destructive/10 hover:text-destructive"
-                      : cn("text-muted-foreground", TOOLBAR_HOVER),
+                    a.danger ? DESTRUCTIVE_ACTION : cn("text-muted-foreground", TOOLBAR_HOVER),
                   )}
                 >
                   <SectionIcon extensionId={extensionId} icon={a.icon} size={11} />
@@ -413,11 +409,7 @@ export function ExtensionSidebarSection({
                   size="icon"
                   className={cn(
                     "size-6",
-                    a.danger
-                      ? // Red at rest, not only on hover: a delete has to be
-                        // findable (and avoidable) before the pointer is on it.
-                        "text-destructive/75 hover:bg-destructive/10 hover:text-destructive"
-                      : "text-muted-foreground hover:text-foreground",
+                    a.danger ? DESTRUCTIVE_ACTION : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   <SectionIcon extensionId={extensionId} icon={a.icon} size={13} />

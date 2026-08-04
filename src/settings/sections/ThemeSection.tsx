@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, slugify } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   APP_OPACITY_MAX,
@@ -416,7 +417,10 @@ export function ThemeSection() {
                             e.stopPropagation();
                             onDeleteUserPreset(p.name);
                           }}
-                          className="bg-background/90 text-muted-foreground hover:bg-destructive/10 hover:text-destructive border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex"
+                          className={cn(
+                            DESTRUCTIVE_ACTION,
+                            "bg-background/90 border-border/60 absolute top-1 right-1 hidden size-5 cursor-pointer items-center justify-center border transition-colors group-hover:flex",
+                          )}
                           aria-label={`Delete preset ${p.name}`}
                         >
                           <X size={10} strokeWidth={2} />
@@ -578,7 +582,7 @@ export function ThemeSection() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 px-2 text-[11px]"
+                      className={cn(DESTRUCTIVE_ACTION, "h-8 px-2 text-[11px]")}
                       onClick={onClearBackground}
                       aria-label="Clear background"
                     >

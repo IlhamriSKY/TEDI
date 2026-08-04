@@ -56,6 +56,9 @@ type Props = {
   /** Rename a pane leaf from the Workspaces panel (same handler as the tab
    *  strip's right-click Rename, so both write the one `customTitle`). */
   onRenameLeaf: (leafId: number, title: string | null) => void;
+  /** Close a tab listed in the Workspaces panel (same handler as the tab
+   *  strip's X, so both share the busy / unsaved confirms). */
+  onCloseEntry: (tabId: number, leafId: number | null) => void;
   /** Currently focused leaf id, to highlight its row in Workspaces. */
   activeLeafId: number | null;
   /** Live SSH status per leaf, so a connected host is green in Workspaces too. */
@@ -120,6 +123,7 @@ export function AppSidebar({
   cachedTabsByWorkspace,
   onFocusLeaf,
   onRenameLeaf,
+  onCloseEntry,
   activeLeafId,
   sshStatuses,
   openGitDiffTab,
@@ -213,6 +217,7 @@ export function AppSidebar({
             cachedTabsByWorkspace={cachedTabsByWorkspace}
             onFocusLeaf={onFocusLeaf}
             onRenameLeaf={onRenameLeaf}
+            onCloseEntry={onCloseEntry}
             activeLeafId={activeLeafId}
             sshStatuses={sshStatuses}
             dragHandle={controls}

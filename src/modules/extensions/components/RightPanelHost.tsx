@@ -5,7 +5,8 @@
  * comes from `panelsRegistry`, the renderer from `panelRenderersRegistry`. On
  * unmount or target change the renderer's cleanup callback runs.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -22,6 +23,47 @@ import { useRightPanelStore } from "../rightPanelStore";
 import { parseSectionPanelId } from "../sidebarPlacementStore";
 import { ExtensionSidebarSection } from "./ExtensionSidebarSection";
 import { X } from "lucide-react";
+
+/**
+ * Watch `container` for a `[data-tedi-panel-controls]` slot rendered by the
+ * panel's OWN header, so a `hideHostHeader` panel can host the stack's grip +
+ * minimize chevron on its header row instead of wearing a separate rail above
+ * it. Returns the slot element, or null while none exists.
+ *
+ * A portal rather than passing the node down: the panel body is a SECOND React
+ * root (`mountFolderTree` calls `createRoot`), and re-rendering the controls
+ * element there would strand it outside this tree - the dnd-kit context its
+ * drag listeners close over, and the live `collapsed` flag driving the chevron,
+ * both live here. Portaling keeps the node in THIS tree and only its DOM
+ * elsewhere.
+ */
+function useControlsSlot(
+  container: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+): HTMLElement | null {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!enabled) {
+      setSlot(null);
+      return;
+    }
+    const host = container.current;
+    if (!host) return;
+    // The panel mounts asynchronously (and remounts on dispose/mount), so the
+    // slot has to be watched for, not read once. `isConnected` short-circuits
+    // the common case: a file tree mutates constantly as folders expand, and
+    // this observer sees every one of those.
+    const find = () =>
+      setSlot((prev) =>
+        prev?.isConnected ? prev : host.querySelector("[data-tedi-panel-controls]"),
+      );
+    find();
+    const observer = new MutationObserver(find);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [container, enabled]);
+  return slot;
+}
 
 export function RightPanelHost({
   extensionId,
@@ -68,6 +110,9 @@ export function RightPanelHost({
   const meta = panels.find((p) => p.extensionId === extensionId && p.item.id === panelId);
   const title = meta?.item.title ?? "";
   const hideHostHeader = meta?.item.hideHostHeader === true;
+  // Only a header-less panel has a reason to adopt the controls; one with the
+  // host header already shows them there.
+  const controlsSlot = useControlsSlot(containerRef, hideHostHeader && !!dragHandle);
 
   useEffect(() => {
     if (!renderer) return;
@@ -133,9 +178,11 @@ export function RightPanelHost({
       {hideHostHeader ? (
         // The panel asked for no host header, but it is still a member of the
         // right column's stack: without somewhere to put the grip it would be
-        // the one panel that cannot be reordered or minimized. A slim rail is
-        // the smallest thing that keeps it draggable.
-        dragHandle ? (
+        // the one panel that cannot be reordered or minimized. A panel that
+        // renders a `[data-tedi-panel-controls]` slot takes them onto its own
+        // header row (the folder tree does); the slim rail is the fallback for
+        // one that does not, so no panel is ever left undraggable.
+        dragHandle && !controlsSlot ? (
           <div className="border-border/60 flex h-5 shrink-0 items-center border-b px-1.5">
             {dragHandle}
           </div>
@@ -165,6 +212,7 @@ export function RightPanelHost({
       {/* Placeholder sits outside the extension's container so the
           extension's first `replaceChildren()` doesn't wipe it. */}
       <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-auto" />
+      {controlsSlot && dragHandle ? createPortal(dragHandle, controlsSlot) : null}
       {!renderer ? (
         <div className="text-muted-foreground pointer-events-none absolute inset-0 top-11 flex items-center justify-center text-[11px]">
           Loading panel…

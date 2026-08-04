@@ -68,7 +68,7 @@ export function PanelHeader({
         />
       ) : (
         <>
-          <GitBranch size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
+          <GitBranch size={13} strokeWidth={2} className="text-icon-branch shrink-0" />
           <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">
             {status?.isRepo ? (status.branch ?? "HEAD") : "Source Control"}
           </span>

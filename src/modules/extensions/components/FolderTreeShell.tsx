@@ -4,7 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { FileExplorer } from "@/modules/explorer";
-import { FolderPen, House, X } from "lucide-react";
+import { FolderOpen, House, X } from "lucide-react";
 
 /**
  * Owns the effective root: extension-provided `rootPath` or a user pick.
@@ -77,7 +77,7 @@ export function FolderTreeShell({
               aria-label="Open Folder"
               className="text-muted-foreground hover:text-foreground size-6"
             >
-              <FolderPen size={13} strokeWidth={2} />
+              <FolderOpen size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}
@@ -121,6 +121,14 @@ export function FolderTreeShell({
       hideCreateActions
       hideGrep
       headerExtras={extras}
+      // Empty slot at the head of the explorer's own header row. The panel host
+      // portals the section stack's grip + minimize chevron into it, so this
+      // tree wears them on ONE line beside the folder name exactly like the
+      // primary explorer, instead of the extra rail a `hideHostHeader` panel
+      // otherwise gets above its content. Rendered unconditionally: it is a
+      // zero-size span when nothing adopts it (a float window, say), and a
+      // conditional one would have to be told when the host is there.
+      dragHandle={<span data-tedi-panel-controls className="flex shrink-0 items-center" />}
     />
   );
 }

@@ -36,6 +36,7 @@ export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: strin
   { key: "iconIdle", label: "Icon idle", group: "Icons" },
   { key: "iconBlocked", label: "Icon blocked", group: "Icons" },
   { key: "iconDone", label: "Icon done", group: "Icons" },
+  { key: "iconBranch", label: "Icon git branch", group: "Icons" },
   { key: "diffAdded", label: "Diff added (+)", group: "Highlights" },
   { key: "diffRemoved", label: "Diff removed (-)", group: "Highlights" },
   { key: "info", label: "Info", group: "Highlights" },

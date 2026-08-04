@@ -13,7 +13,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
 import { buildEntries, entryLabelClass, type Entry } from "@/modules/tabs/lib/entries";
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
@@ -46,8 +46,8 @@ import {
   LayoutDashboard,
   PanelLeft,
   PanelRight,
+  Pencil,
   Plus,
-  SquarePen,
   X,
 } from "lucide-react";
 
@@ -87,6 +87,13 @@ type Props = {
   /** Rename a live pane leaf, or reset it to the derived name with `null`. Same
    *  handler the tab strip's right-click Rename uses, so both write one field. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
+  /**
+   * Close one listed tab / pane. `leafId` is null for a standalone tab (SCM, a
+   * diff, an extension tab) - the same signature and the same handler the tab
+   * strip's X uses, so a close from here also gets the busy-terminal and
+   * unsaved-editor confirms rather than a second, weaker code path.
+   */
+  onCloseEntry?: (tabId: number, leafId: number | null) => void;
   /** Currently focused leaf id; highlights its row like the file tree. */
   activeLeafId?: number | null;
   /** Live SSH status per leaf. Colors a connected host's label green here
@@ -187,6 +194,7 @@ function WorkspacesPanelInner({
   cachedTabsByWorkspace,
   onFocusLeaf,
   onRenameLeaf,
+  onCloseEntry,
   activeLeafId,
   sshStatuses,
   dragHandle,
@@ -363,6 +371,7 @@ function WorkspacesPanelInner({
                   onToggleExpanded={toggleExpanded}
                   onFocusLeaf={onFocusLeaf}
                   onRenameLeaf={onRenameLeaf}
+                  onCloseEntry={onCloseEntry}
                   renamingLeafId={renamingLeafId}
                   onSetRenamingLeaf={setRenamingLeafId}
                   activeLeafId={activeLeafId}
@@ -403,6 +412,7 @@ type RowProps = {
   onToggleExpanded: (id: string) => void;
   onFocusLeaf?: (tabId: number, leafId: number) => void;
   onRenameLeaf?: (leafId: number, title: string | null) => void;
+  onCloseEntry?: (tabId: number, leafId: number | null) => void;
   renamingLeafId: number | null;
   onSetRenamingLeaf: (leafId: number | null) => void;
   activeLeafId?: number | null;
@@ -434,6 +444,7 @@ function SortableWorkspaceRow({
   onToggleExpanded,
   onFocusLeaf,
   onRenameLeaf,
+  onCloseEntry,
   renamingLeafId,
   onSetRenamingLeaf,
   activeLeafId,
@@ -449,6 +460,19 @@ function SortableWorkspaceRow({
   };
   const hasRows = rows.length > 0;
   const [confirmingClose, setConfirmingClose] = useState(false);
+  // Listed tab/pane awaiting its own close confirmation, or null.
+  const [confirmingEntry, setConfirmingEntry] = useState<Entry | null>(null);
+  /**
+   * Whether the listed tabs get a close button. Two conditions, both load-bearing:
+   *  - `isActive`: an entry's ids address the LIVE tab strip, which exists only
+   *    for the active workspace. Offering the button on an inactive one would
+   *    close nothing (or, worse, whatever shares that id in the live tree).
+   *  - `rows.length > 1`: the tab strip's own rule (`canClose = totalEntries > 1`
+   *    in SortableTabGroup) - never close the last tab, so the window is never
+   *    left empty. Read from the same entry list the strip builds, so the two
+   *    cannot disagree.
+   */
+  const canCloseEntry = isActive && !!onCloseEntry && rows.length > 1;
 
   return (
     <li
@@ -542,7 +566,7 @@ function SortableWorkspaceRow({
               size="icon-sm"
               className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
             >
-              <SquarePen size={11} strokeWidth={1.75} />
+              <Pencil size={11} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
           {canClose && (
@@ -553,7 +577,7 @@ function SortableWorkspaceRow({
                 aria-label="Close workspace"
                 variant="ghost"
                 size="icon-sm"
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-5 rounded"
+                className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
               >
                 <X size={11} strokeWidth={2} />
               </Button>
@@ -575,6 +599,37 @@ function SortableWorkspaceRow({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => onClose(w.id)}>
               Close workspace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* One dialog for the whole row rather than one per listed tab: only ever
+          a single close is pending, and the rows can number in the dozens. */}
+      <AlertDialog
+        open={confirmingEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmingEntry(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close &quot;{confirmingEntry?.label}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This tab and anything running in it will be closed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const e = confirmingEntry;
+                if (e) onCloseEntry?.(e.tabId, e.kind === "pane-leaf" ? e.leafId : null);
+                setConfirmingEntry(null);
+              }}
+            >
+              Close tab
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -604,6 +659,7 @@ function SortableWorkspaceRow({
               }}
               onRename={onRenameLeaf}
               onSetRenaming={onSetRenamingLeaf}
+              onRequestClose={canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined}
             />
           ))}
         </ul>
@@ -624,6 +680,7 @@ function EntryRowItem({
   onOpen,
   onRename,
   onSetRenaming,
+  onRequestClose,
 }: {
   row: EntryRow;
   isActiveLeaf: boolean;
@@ -631,6 +688,9 @@ function EntryRowItem({
   onOpen: () => void;
   onRename?: (leafId: number, title: string | null) => void;
   onSetRenaming: (leafId: number | null) => void;
+  /** Ask the parent row to confirm closing this entry. Absent when closing it
+   *  isn't allowed (not the active workspace, or it's the last tab left). */
+  onRequestClose?: () => void;
 }) {
   const { entry: e, title } = row;
   const isLeaf = e.kind === "pane-leaf";
@@ -638,6 +698,7 @@ function EntryRowItem({
   // an extension tab) has nothing to write to. A cold workspace's ids are
   // display-only, so its rows are read-only too.
   const canRename = row.live && isLeaf && !!onRename;
+  const actionCount = (canRename ? 1 : 0) + (onRequestClose ? 1 : 0);
   const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
   const sshStatus = e.kind === "pane-leaf" ? e.sshStatus : undefined;
   const ai = e.kind === "pane-leaf" ? e.aiCliStatus : undefined;
@@ -692,8 +753,10 @@ function EntryRowItem({
       }}
       className={cn(
         "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
-        // Make room for the hover pencil so it never sits on top of the label.
-        canRename && "group-hover/row:pr-5",
+        // Make room for the hover actions so they never sit on top of the label.
+        // One button reserves 5, both (pencil + close) reserve 10.
+        actionCount === 1 && "group-hover/row:pr-5",
+        actionCount === 2 && "group-hover/row:pr-10",
         isActiveLeaf
           ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
@@ -712,16 +775,16 @@ function EntryRowItem({
           the label, so the branch reads as belonging to the row above it. */}
       {branch ? (
         <span className="text-muted-foreground flex w-full items-center gap-1 pr-1.5 pb-0.5 pl-[1.6rem] text-[10px]">
-          <GitBranch size={9} strokeWidth={2} className="shrink-0 opacity-80" />
+          <GitBranch size={9} strokeWidth={2} className="text-icon-branch shrink-0" />
           <span className="min-w-0 truncate">{branch}</span>
         </span>
       ) : null}
     </button>
   );
 
-  // The pencil is a SIBLING of the row button, not a child: nesting one button
-  // inside another is invalid HTML and the inner one would swallow the row's
-  // own click. Same hover-reveal treatment the workspace row above uses.
+  // The action cluster is a SIBLING of the row button, not a child: nesting one
+  // button inside another is invalid HTML and the inner one would swallow the
+  // row's own click. Same hover-reveal treatment the workspace row above uses.
   return (
     <li className="group/row relative">
       <Tooltip>
@@ -745,27 +808,44 @@ function EntryRowItem({
           </div>
         </TooltipContent>
       </Tooltip>
-      {canRename && (
-        <IconTooltip label="Rename" side="right">
-          <Button
-            onClick={() => {
-              if (e.kind === "pane-leaf") onSetRenaming(e.leafId);
-            }}
-            aria-label={`Rename ${e.label}`}
-            variant="ghost"
-            size="icon-sm"
-            className={cn(
-              // `top-1` (not a centered translate): a row carrying a branch line
-              // is two lines tall, and the pencil belongs beside the NAME it
-              // renames, not floating between the two.
-              "absolute top-1 right-1 opacity-0 transition-opacity group-hover/row:opacity-100",
-              "text-muted-foreground size-4 rounded",
-              TOOLBAR_HOVER,
-            )}
-          >
-            <SquarePen size={10} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
+      {actionCount > 0 && (
+        // `top-1` (not a centered translate): a row carrying a branch line is
+        // two lines tall, and these belong beside the NAME they act on, not
+        // floating between the two.
+        // `pointer-events-none` until the row is hovered, like the workspace row
+        // above: at opacity-0 these are invisible but still hit-testable, and an
+        // invisible close X sitting over a tab name is a click away from a
+        // close nobody asked for.
+        <span className="pointer-events-none absolute top-1 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/row:pointer-events-auto group-hover/row:opacity-100">
+          {canRename && (
+            <IconTooltip label="Rename" side="right">
+              <Button
+                onClick={() => {
+                  if (e.kind === "pane-leaf") onSetRenaming(e.leafId);
+                }}
+                aria-label={`Rename ${e.label}`}
+                variant="ghost"
+                size="icon-sm"
+                className={cn("text-muted-foreground size-4 rounded", TOOLBAR_HOVER)}
+              >
+                <Pencil size={10} strokeWidth={1.75} />
+              </Button>
+            </IconTooltip>
+          )}
+          {onRequestClose && (
+            <IconTooltip label="Close tab" side="right">
+              <Button
+                onClick={onRequestClose}
+                aria-label={`Close ${e.label}`}
+                variant="ghost"
+                size="icon-sm"
+                className={cn(DESTRUCTIVE_ACTION, "size-4 rounded")}
+              >
+                <X size={10} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+          )}
+        </span>
       )}
     </li>
   );

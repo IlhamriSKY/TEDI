@@ -14,6 +14,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import {
   effectiveCliAgents,
   MAX_AGENT_SPAWN,
@@ -208,7 +209,7 @@ function AgentRow({ agent, canReset, onSave, onTogglePin, onReset, onDelete }: R
           <Button
             size="icon"
             variant="ghost"
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-7"
+            className={cn(DESTRUCTIVE_ACTION, "size-7")}
             onClick={onDelete}
             aria-label="Delete"
           >

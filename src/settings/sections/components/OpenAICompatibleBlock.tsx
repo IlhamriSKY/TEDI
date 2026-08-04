@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { cn, maskKey } from "@/lib/utils";
 import {
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
@@ -19,7 +20,7 @@ import { setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
-import { Eye, EyeOff, SquarePen, X } from "lucide-react";
+import { Eye, EyeOff, Pencil, X } from "lucide-react";
 
 /**
  * One OpenAI-compatible endpoint card: label + base URL + API key + presets +
@@ -207,7 +208,14 @@ export function OpenAICompatibleBlock({
             <Button
               size="icon"
               variant="ghost"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-auto size-7"
+              // Same button is "Remove endpoint" on a saved instance and plain
+              // "Cancel" on an unsaved draft; only the destructive one is red.
+              className={cn(
+                "ml-auto size-7",
+                instance
+                  ? DESTRUCTIVE_ACTION
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
               onClick={() => void onRemove()}
               aria-label={instance ? "Remove endpoint" : "Cancel"}
             >
@@ -291,7 +299,7 @@ export function OpenAICompatibleBlock({
                     onClick={() => setEditingKey(true)}
                     aria-label="Replace key"
                   >
-                    <SquarePen size={12} strokeWidth={1.75} />
+                    <Pencil size={12} strokeWidth={1.75} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">Replace key</TooltipContent>
