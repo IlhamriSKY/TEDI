@@ -373,6 +373,33 @@ for (const key of ["xp:tedi.api-client:api", "workspaces", "ai", "xp:broken", ""
   check(`undockTarget("${key}") stays put`, undockTarget(key) === null);
 }
 
+// ---- 7. a row's hover actions never sit on top of its label --------------
+console.log("\na sidebar row's label makes room for its hover actions");
+
+const extSection = read("src/modules/extensions/components/ExtensionSidebarSection.tsx");
+check("the label reserves padding on hover", extSection.includes("actionHoverPad"));
+// The cluster is `absolute` (so an unhovered row is not indented by buttons it
+// is not showing), and absolute means zero width: the API Client's folder rows
+// had Run / Rename / Delete printed straight over "01 - CRUD REST (…)".
+const SPACING_PX = 4; // Tailwind v4's --spacing is .25rem
+const padSteps = [...extSection.matchAll(/return "group-hover:pr-(\d+)"/g)].map((m) =>
+  Number(m[1]),
+);
+check("four padding steps are declared (1, 2, 3, 4+ actions)", padSteps.length === 4, padSteps);
+for (const n of [1, 2, 3, 4]) {
+  // size-5 buttons (20px), gap-0.5 (2px) between them, cluster pinned right-1 (4px).
+  const covered = n * 20 + (n - 1) * 2 + 4;
+  const reserved = (padSteps[Math.min(n, 4) - 1] ?? 0) * SPACING_PX;
+  check(
+    `${n} action${n === 1 ? "" : "s"} cover ${covered}px, label reserves ${reserved}px`,
+    reserved >= covered,
+    {
+      covered,
+      reserved,
+    },
+  );
+}
+
 check(
   "the right column's panel header matches every other section header",
   /size-6 rounded"/.test(read("src/modules/extensions/components/RightPanelHost.tsx")) &&

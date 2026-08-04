@@ -180,6 +180,29 @@ function toneLabelClass(tone: SidebarSectionItem["tone"]): string {
   }
 }
 
+/**
+ * Right padding the row's label reserves WHILE HOVERED, so the action cluster
+ * overlays empty space instead of the text.
+ *
+ * The cluster is `absolute`, which is what keeps the row from being permanently
+ * indented by buttons nobody is looking at, but absolute also means it consumes
+ * no width: a long label simply ran underneath it. The badge and the loading
+ * spinner already handled this by fading out; text cannot.
+ *
+ * Sized from what the cluster actually measures: `size-5` buttons (20px) with a
+ * `gap-0.5` (2px) between them, pinned `right-1` (4px) from the edge, so N
+ * actions cover `N*20 + (N-1)*2 + 4`. Written as literal class strings because
+ * Tailwind only generates the classes it can see in the source; a computed
+ * `pr-${n}` would emit nothing.
+ */
+function actionHoverPadding(count: number): string {
+  // 1 -> 24px, 2 -> 46px, 3 -> 68px. Rounded up to the nearest step.
+  if (count <= 1) return "group-hover:pr-6";
+  if (count === 2) return "group-hover:pr-12";
+  if (count === 3) return "group-hover:pr-18";
+  return "group-hover:pr-24";
+}
+
 export function ExtensionSidebarSection({
   extensionId,
   section,
@@ -222,6 +245,7 @@ export function ExtensionSidebarSection({
   // non-expandable row with no children is a plain leaf (the flat-list case).
   const renderRow = (item: (typeof items)[number], depth: number): ReactNode => {
     const hasActions = !!(item.actions && item.actions.length > 0);
+    const actionHoverPad = hasActions ? actionHoverPadding(item.actions!.length) : undefined;
     const onContextMenu = section.onItemContextMenu;
     const rowContent = (
       <div
@@ -281,7 +305,15 @@ export function ExtensionSidebarSection({
               console.error(`[extensions] sidebar item "${item.id}" threw`, err);
             }
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5 text-left",
+            // Reserve the width the action cluster will cover. The cluster is
+            // absolutely positioned so it takes no layout space, and the badge
+            // and spinner already fade out under it, but the LABEL did not move:
+            // a long folder name ran straight under Run / Rename / Delete and
+            // the two read as printed on top of each other.
+            actionHoverPad,
+          )}
         >
           <SectionIcon
             extensionId={extensionId}
