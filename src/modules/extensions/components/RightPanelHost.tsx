@@ -201,10 +201,10 @@ export function RightPanelHost({
               size="icon"
               variant="ghost"
               onClick={() => close(extensionId, panelId)}
-              className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
+              className="hover:bg-destructive/10 hover:text-destructive size-6 rounded"
               aria-label="Close panel"
             >
-              <X size={11} strokeWidth={1.75} />
+              <X size={13} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         </div>

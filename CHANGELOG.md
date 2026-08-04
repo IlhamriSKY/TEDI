@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.11] - 04-08-2026
+
+### Fixed
+
+- **Sidebar row actions are one size, and the right column's panel header matches the left's.** The rename and close buttons on a tab listed in the Workspaces panel were `size-4` around a 10px glyph, tighter than every other hover-revealed row action in the app, so the hover box hugged the icon instead of reading as a button. They are now `size-5` around 11px, which is what the extension sidebar's row actions already used. The right column's panel header was the only section header on `size-7` with square corners; it is now `size-6` and rounded like every other one. See [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx), [RightPanelHost.tsx](src/modules/extensions/components/RightPanelHost.tsx).
+- **A comment in `globals.css` claimed a contrast guarantee it does not provide.** The `--tedi-button-border` fallback said 50% of the foreground clears the 3:1 floor on every surface. Measured across the presets it bottoms out at 2.08:1 on Kanagawa light's card. The value is unchanged, because the load-time repair added in 0.4.10 is what actually guarantees a visible control boundary and this declaration only covers first paint, but the comment no longer promises something it cannot keep. See [globals.css](src/styles/globals.css).
+
 ## [0.4.10] - 04-08-2026
 
 ### Added

@@ -348,10 +348,16 @@
  * not to draw a control: at #383838 on #1a1a1a it is 1.5:1, and on a dialog
  * (#363636) it is 1.06:1 - the Cancel button was genuinely invisible.
  * Derived from --foreground rather than a fixed hex so one declaration serves
- * light, dark and glass, and so it lightens whatever surface it lands on. 50%
- * is the mix that clears the 3:1 WCAG floor for a control boundary against
- * every surface in the app (see scripts/theme-verify.ts). A theme's own value
- * still wins: applyCustomTheme sets it inline on <html>. */
+ * light, dark and glass, and so it lightens whatever surface it lands on.
+ * A theme's own value still wins: applyCustomTheme sets it inline on <html>,
+ * and normalizeCustomTheme holds THAT to 3:1 (see modules/settings/
+ * buttonBorder.ts), which is what actually guarantees a visible control
+ * boundary. This declaration only covers first paint and a theme missing the
+ * key. It is NOT itself a 3:1 guarantee, contrary to what this comment used to
+ * claim: measured across the presets, a 50% foreground mix bottoms out at
+ * 2.08:1 on Kanagawa light's card. Raising it here would repaint every theme
+ * that sets no buttonBorder, and the repair above already covers the real
+ * cases, so it stays as a floor-of-last-resort rather than a promise. */
 :root {
   --tedi-button-border: color-mix(in srgb, var(--foreground) 50%, transparent);
 }

@@ -173,11 +173,43 @@ check(
   "exactly one primary button in that footer",
   (dialog.match(/tsql-btn is-primary/g) ?? []).length === 1,
 );
+const sqlLayout = read("extensions/tedi.sql-explorer/src/styles/layout.js");
 check(
-  "the outline variant actually draws a border",
-  /\.tsql-btn\.is-outline \{ border-color: var\(--tedi-button-border/.test(
-    read("extensions/tedi.sql-explorer/src/styles/layout.js"),
-  ),
+  "the outline border is derived from --foreground, not read from the theme token",
+  // Reading --tedi-button-border was the first attempt and it shipped invisible:
+  // that token carries the user's SAVED theme, a theme snapshots its palette
+  // when picked, and an older snapshot holds #3a3a3a, which is 1.06:1 on a
+  // #363636 dialog. The host repairs it from 0.4.10, but an extension cannot
+  // assume the host version.
+  /\.tsql-btn\.is-outline \{ border-color: color-mix\(in srgb, var\(--foreground\) 75%/.test(
+    sqlLayout,
+  ) && !/is-outline[^}]*--tedi-button-border/.test(sqlLayout),
+);
+check(
+  "and 75% of the foreground clears 3:1 on the dialog surface in every preset",
+  (() => {
+    // A translucent border composites over whatever is behind it, so the
+    // effective colour is the blend. `.is-outline` is used ONLY in a dialog
+    // footer and `.tsql-dialog` paints --popover, so that is the one surface
+    // this has to hold on. (50% was tried first and bottoms out at 2.08:1 on
+    // Kanagawa light, whose popover sits close to its foreground.)
+    const blend = (fg: string, bg: string, pct: number) =>
+      "#" +
+      [1, 3, 5]
+        .map((i) =>
+          Math.round(
+            parseInt(fg.slice(i, i + 2), 16) * pct + parseInt(bg.slice(i, i + 2), 16) * (1 - pct),
+          )
+            .toString(16)
+            .padStart(2, "0"),
+        )
+        .join("");
+    return THEME_PRESETS.every((p) =>
+      (["dark", "light"] as const).every(
+        (v) => contrastRatio(blend(p[v].foreground, p[v].popover, 0.75), p[v].popover) >= 3,
+      ),
+    );
+  })(),
 );
 check(
   "and nothing out-specifies it back onto the near-invisible --border",
@@ -189,6 +221,41 @@ check(
   ),
 );
 check("the SSH-tunnel picker is searchable", dialog.includes("searchable: true"));
+const sqlControls = read("extensions/tedi.sql-explorer/src/styles/controls.js");
+check(
+  "and its filter wears the host's search chrome (filled box, not a bordered input)",
+  /\.tsql-select-search-box \{[^}]*border: 1px solid transparent/.test(sqlControls) &&
+    /\.tsql-select-search-box \{[^}]*color-mix\(in srgb, var\(--input/.test(sqlControls) &&
+    /\.tsql-select-search-box:focus-within \{ border-color: var\(--ring/.test(sqlControls),
+);
+check(
+  "with a search glyph, like CommandInput",
+  read("extensions/tedi.sql-explorer/src/dom/menus.js").includes(
+    'appendIcon(icon, "lucide:Search"',
+  ),
+);
+
+// ---- 5. one icon-button size per surface ----------------------------------
+console.log("\nsidebar icon buttons are one size, left column and right");
+
+// Two families, and only two: a hover-revealed action on a LIST ROW is size-5
+// with an 11px glyph; a SECTION HEADER button is size-6 with a 13px glyph. The
+// Workspaces entry rows shipped at size-4/10, so the hover box hugged the glyph
+// instead of reading as a button, and the right column's panel header shipped at
+// size-7 with square corners, the only header in the app that did.
+const ROW_ACTION_SURFACES = [
+  "src/modules/workspaces/WorkspacesPanel.tsx",
+  "src/modules/extensions/components/ExtensionSidebarSection.tsx",
+];
+for (const f of ROW_ACTION_SURFACES) {
+  const src = read(f);
+  check(`${f} has no size-4 icon BUTTON left`, !/size-4 rounded"/.test(src));
+}
+check(
+  "the right column's panel header matches every other section header",
+  /size-6 rounded"/.test(read("src/modules/extensions/components/RightPanelHost.tsx")) &&
+    !read("src/modules/extensions/components/RightPanelHost.tsx").includes("size-7"),
+);
 check(
   "and its popup filters rather than rebuilding (a rebuild loses input focus)",
   read("extensions/tedi.sql-explorer/src/dom/menus.js").includes(

@@ -826,9 +826,9 @@ function EntryRowItem({
                 aria-label={`Rename ${e.label}`}
                 variant="ghost"
                 size="icon-sm"
-                className={cn("text-muted-foreground size-4 rounded", TOOLBAR_HOVER)}
+                className={cn("text-muted-foreground size-5 rounded", TOOLBAR_HOVER)}
               >
-                <Pencil size={10} strokeWidth={1.75} />
+                <Pencil size={11} strokeWidth={1.75} />
               </Button>
             </IconTooltip>
           )}
@@ -839,9 +839,9 @@ function EntryRowItem({
                 aria-label={`Close ${e.label}`}
                 variant="ghost"
                 size="icon-sm"
-                className={cn(DESTRUCTIVE_ACTION, "size-4 rounded")}
+                className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
               >
-                <X size={10} strokeWidth={2} />
+                <X size={11} strokeWidth={2} />
               </Button>
             </IconTooltip>
           )}
