@@ -30,6 +30,7 @@ import { dirname, join } from "node:path";
 
 import { ensureVisibleButtonBorder, contrastRatio } from "../src/modules/settings/buttonBorder";
 import { THEME_PRESETS } from "../src/modules/settings/themePresets";
+import { undockTarget } from "../src/modules/extensions/sidebarPlacementStore";
 import type { ThemeColors } from "../src/modules/settings/customTheme";
 // The parser is deliberately reachable under plain node (no DOM at module
 // scope), so an import failure here is itself a regression worth failing on.
@@ -251,6 +252,127 @@ for (const f of ROW_ACTION_SURFACES) {
   const src = read(f);
   check(`${f} has no size-4 icon BUTTON left`, !/size-4 rounded"/.test(src));
 }
+// Every icon BUTTON in a sidebar surface, left column or right: a section
+// header is size-6 with a 13px glyph, a hover-revealed row action is size-5
+// with 11px. Parsed by brace depth, not `<Button[^>]*>` - a naive match ends at
+// the `>` inside an `onClick={() => …}` and reads the wrong tag.
+const SIDEBAR_SURFACES = [
+  "src/modules/explorer/components/ExplorerHeader.tsx",
+  "src/modules/ssh/SshFileExplorer.tsx",
+  "src/modules/scm/components/PanelHeader.tsx",
+  "src/modules/workspaces/WorkspacesPanel.tsx",
+  "src/modules/extensions/components/ExtensionSidebarSection.tsx",
+  "src/modules/extensions/components/RightPanelHost.tsx",
+  "src/modules/extensions/components/FolderTreeShell.tsx",
+];
+function iconButtons(src: string): { box: string; glyph: string }[] {
+  const out: { box: string; glyph: string }[] = [];
+  for (const m of src.matchAll(/<Button/g)) {
+    let i = m.index! + m[0].length;
+    let depth = 0;
+    while (i < src.length) {
+      const ch = src[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      else if (ch === ">" && depth === 0) break;
+      i++;
+    }
+    const tag = src.slice(m.index!, i);
+    const box = /size-(\d+)/.exec(tag)?.[1];
+    if (!box) continue;
+    const glyph = /<[A-Z][A-Za-z0-9]*\s+size=\{(\d+)\}/.exec(src.slice(i, i + 260))?.[1];
+    if (glyph) out.push({ box, glyph });
+  }
+  return out;
+}
+const offSize: string[] = [];
+for (const f of SIDEBAR_SURFACES) {
+  for (const b of iconButtons(read(f))) {
+    const want = b.box === "6" ? "13" : b.box === "5" ? "11" : null;
+    if (want === null) offSize.push(`${f.split("/").pop()}: unexpected size-${b.box} box`);
+    else if (b.glyph !== want)
+      offSize.push(
+        `${f.split("/").pop()}: size-${b.box} box with a ${b.glyph}px glyph, want ${want}`,
+      );
+  }
+}
+check(
+  "size-6 headers carry a 13px glyph, size-5 row actions an 11px one",
+  offSize.length === 0,
+  offSize,
+);
+
+// The accent hover is a TOP-TOOLBAR treatment. A sidebar icon button takes the
+// ghost variant's muted hover, so a row action must not flash --accent while
+// the header button beside it goes grey.
+const TOOLBAR_ONLY = SIDEBAR_SURFACES.filter((f) => read(f).includes("TOOLBAR_HOVER"));
+check(
+  "no sidebar surface paints the toolbar's accent hover",
+  TOOLBAR_ONLY.length === 0,
+  TOOLBAR_ONLY,
+);
+
+// A panel-close X is the same red-at-rest button on every surface. It used to be
+// grey among grey icons at the end of a busy header row, which is how the
+// secondary folder tree's read as "there is no close button" when there was one.
+const GREY_CLOSE =
+  /hover:bg-destructive\/10 hover:text-destructive text-muted-foreground|text-muted-foreground hover:bg-destructive\/10 hover:text-destructive/;
+const greyCloses = [...SIDEBAR_SURFACES, "src/modules/scm/SourceControlPanel.tsx"].filter((f) =>
+  GREY_CLOSE.test(read(f)),
+);
+check(
+  "every panel close is red at rest, not grey until hovered",
+  greyCloses.length === 0,
+  greyCloses,
+);
+
+// ---- 6. a section changes columns by drag, not only by the move button ----
+console.log("\na sidebar section can be dragged between the two columns");
+
+const stack = read("src/app/components/SectionStack.tsx");
+const leftCol = read("src/app/components/AppSidebar.tsx");
+const rightCol = read("src/app/components/AppRightSlot.tsx");
+check(
+  "the column test runs BEFORE the reorder path",
+  // The two columns are separate DndContexts, so a drag that ends in the other
+  // one still reports an `over` from the column it started in. Checking `over`
+  // first would silently reorder instead of handing the section across.
+  stack.indexOf("droppedOnOtherColumn(ev, column)") <
+    stack.indexOf("if (!over || active.id === over.id)"),
+);
+check(
+  "it measures the POINTER, not the dragged section's rect",
+  // A section is a whole panel; its centre sits far from the cursor on a tall
+  // one, so a rect test would fire at the wrong moment.
+  stack.includes("activator.clientX + ev.delta.x"),
+);
+check(
+  "both columns declare themselves and mark a drop box",
+  leftCol.includes('data-section-column="left"') &&
+    leftCol.includes('column="left"') &&
+    rightCol.includes('data-section-column="right"') &&
+    rightCol.includes('column="right"'),
+);
+check(
+  "the primary Files tree is left-only, by drag as well as by button",
+  // sidebarPlacementStore force-reverts a stale files:"right", so the drag must
+  // agree or it would fight the store on every drop.
+  /key === "workspaces" \|\| !!extByKey\.get\(key\)\?\.section\.movableToRight/.test(leftCol),
+);
+for (const [key, want] of [
+  ["xp:__builtin__:__section__:workspaces", "workspaces"],
+  ["xp:tedi.sql-explorer:__section__:db-tree", "xsec:tedi.sql-explorer:db-tree"],
+] as const) {
+  check(
+    `undockTarget("${key}") -> ${want}`,
+    undockTarget(key)?.placement === want,
+    undockTarget(key),
+  );
+}
+for (const key of ["xp:tedi.api-client:api", "workspaces", "ai", "xp:broken", ""]) {
+  check(`undockTarget("${key}") stays put`, undockTarget(key) === null);
+}
+
 check(
   "the right column's panel header matches every other section header",
   /size-6 rounded"/.test(read("src/modules/extensions/components/RightPanelHost.tsx")) &&

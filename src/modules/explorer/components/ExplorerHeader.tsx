@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -192,7 +194,7 @@ export function ExplorerHeader({
               onClick={onRefresh}
               aria-label="Refresh"
             >
-              <RefreshCw size={12} strokeWidth={2} />
+              <RefreshCw size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
           <IconTooltip label="Collapse folders" side="bottom">
@@ -273,11 +275,11 @@ export function ExplorerHeader({
               <Button
                 variant="ghost"
                 size="icon"
-                className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+                className={cn(DESTRUCTIVE_ACTION, "size-6")}
                 onClick={onClose}
                 aria-label="Close Files panel"
               >
-                <X size={12} strokeWidth={2} />
+                <X size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
           ) : null}

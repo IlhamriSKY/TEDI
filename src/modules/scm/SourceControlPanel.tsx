@@ -4,6 +4,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -622,7 +623,7 @@ export function SourceControlPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+                  className={DESTRUCTIVE_ACTION + " size-6"}
                   onClick={onClose}
                   aria-label="Close Source Control panel"
                 >

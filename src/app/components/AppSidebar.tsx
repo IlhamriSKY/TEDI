@@ -158,6 +158,28 @@ export function AppSidebar({
     useRightPanelStore.getState().open(BUILTIN_SECTION_EXT, sectionPanelId(key));
   };
 
+  /**
+   * Drag-to-dock: a section handed to the right column by dragging its grip
+   * across, rather than by its header's "Move to right panel" button. The rule
+   * for WHICH sections may go is read off the same condition that shows that
+   * button, so the two routes can never disagree - and the primary Files tree
+   * answers false, because a right dock collides with the Secondary Folder Tree
+   * extension already living there (see sidebarPlacementStore).
+   */
+  const canDockRight = (key: string): boolean =>
+    key === "workspaces" || !!extByKey.get(key)?.section.movableToRight;
+  const dockRight = (key: string): void => {
+    if (key === "workspaces") {
+      moveSectionRight("workspaces");
+      return;
+    }
+    const ext = extByKey.get(key);
+    if (!ext) return;
+    // Same pair ExtensionSidebarSection's own move button fires.
+    useSidebarPlacementStore.getState().moveRight(key);
+    useRightPanelStore.getState().open(ext.extensionId, sectionPanelId(ext.section.id));
+  };
+
   const renderBuiltin = (key: BuiltinKey, controls: ReactNode, collapsed: boolean): ReactNode => {
     // When the panel is collapsed to its header, sections skip rendering the
     // body so the virtualized tree / git status stop doing layout work.
@@ -277,8 +299,17 @@ export function AppSidebar({
       {/* Transparent to the bento tray: each section renders as its own
           1px-bordered `bg-sidebar` card, stacked with a gap, so the tray shows
           between them like the reference layout. */}
-      <div className="flex h-full flex-col">
-        <SectionStack sections={sections} orderStorageKey={ORDER_LS_KEY} idPrefix="sidebar" />
+      {/* `data-section-column` is the drop target the OTHER stack tests against
+          when a drag ends outside its own column. */}
+      <div data-section-column="left" className="flex h-full flex-col">
+        <SectionStack
+          sections={sections}
+          orderStorageKey={ORDER_LS_KEY}
+          idPrefix="sidebar"
+          column="left"
+          canMoveColumn={canDockRight}
+          onMoveColumn={dockRight}
+        />
       </div>
     </ResizablePanel>
   );

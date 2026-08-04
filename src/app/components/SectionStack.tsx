@@ -56,11 +56,44 @@ const SECTION_MIN_SIZE = "100px";
  * passes `chrome={false}` and the wrapper contributes only the drag/collapse
  * behaviour.
  */
+/**
+ * Did this drag finish over the OTHER column's box?
+ *
+ * The two columns are separate `DndContext`s (each owns its own reorder), so a
+ * drag that leaves one is invisible to the other and `over` still names a
+ * sibling in the column it started in - `closestCenter` always finds a nearest
+ * item, however far away the cursor went. Position is therefore the only honest
+ * signal, and it has to be the POINTER: `active.rect` is the whole dragged
+ * section, whose centre sits far from the cursor on a tall panel.
+ *
+ * The pointer is reconstructed from the activator event plus the drag delta,
+ * because `DragEndEvent` carries no final coordinates of its own.
+ */
+function droppedOnOtherColumn(ev: DragEndEvent, column: SectionColumn): boolean {
+  const activator = ev.activatorEvent as Partial<PointerEvent> | undefined;
+  if (typeof activator?.clientX !== "number" || typeof activator.clientY !== "number") return false;
+  const x = activator.clientX + ev.delta.x;
+  const y = activator.clientY + ev.delta.y;
+  const other = document.querySelector<HTMLElement>(
+    `[data-section-column="${column === "left" ? "right" : "left"}"]`,
+  );
+  // Absent when that column has nothing open, so it renders nothing to aim at.
+  if (!other) return false;
+  const r = other.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return false;
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+export type SectionColumn = "left" | "right";
+
 export function SectionStack({
   sections,
   orderStorageKey,
   idPrefix,
   chrome = true,
+  column,
+  canMoveColumn,
+  onMoveColumn,
 }: {
   sections: StackSection[];
   orderStorageKey: string;
@@ -69,6 +102,17 @@ export function SectionStack({
    *  Control is docked right while an SSH one is left). */
   idPrefix: string;
   chrome?: boolean;
+  /** Which column this stack is. Set it (on BOTH stacks, along with the
+   *  `data-section-column` attribute on their containers) to let a section
+   *  change columns by dragging it across instead of by the header's move
+   *  button. */
+  column?: SectionColumn;
+  /** Whether `key` may change columns at all. Mirror whatever decides the move
+   *  BUTTON, or drag and button will disagree; the primary Files tree is
+   *  left-only and must answer false. */
+  canMoveColumn?: (key: string) => boolean;
+  /** Hand `key` to the other column. Absent = this stack keeps its sections. */
+  onMoveColumn?: (key: string) => void;
 }) {
   const [order, setOrder] = useState<string[]>(() => readSectionOrder(orderStorageKey));
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -126,6 +170,19 @@ export function SectionStack({
     setDragKey(null);
     setOverKey(null);
     const { active, over } = ev;
+    // Column change wins over reorder, and is tested FIRST: a drag that ended in
+    // the other column still reports an `over` from this one (see
+    // droppedOnOtherColumn), so checking `over` first would silently reorder
+    // instead of handing the section over.
+    if (column && onMoveColumn && droppedOnOtherColumn(ev, column)) {
+      const key = String(active.id);
+      if (canMoveColumn?.(key) ?? true) {
+        onMoveColumn(key);
+        return;
+      }
+      // Not movable (the primary Files tree): fall through so the drag still
+      // reorders within this column rather than doing nothing at all.
+    }
     if (!over || active.id === over.id) return;
     const from = visible.indexOf(active.id as string);
     const to = visible.indexOf(over.id as string);

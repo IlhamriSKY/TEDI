@@ -21,6 +21,7 @@ import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemCl
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { humanizeFsError } from "@/lib/fsError";
 import { segmentsFromCwd } from "@/modules/statusbar/lib/pathUtils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -258,7 +259,7 @@ export function SshFileExplorer({
                 onClick={() => tree.refreshAllLoaded()}
                 aria-label="Refresh"
               >
-                <RefreshCw size={12} strokeWidth={2} />
+                <RefreshCw size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
             <IconTooltip label="Collapse folders" side="bottom">
@@ -317,11 +318,11 @@ export function SshFileExplorer({
             <Button
               variant="ghost"
               size="icon"
-              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+              className={cn(DESTRUCTIVE_ACTION, "size-6")}
               onClick={onClose}
               aria-label="Close Remote panel"
             >
-              <X size={12} strokeWidth={2} />
+              <X size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}

@@ -13,7 +13,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION, TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
 import { buildEntries, entryLabelClass, type Entry } from "@/modules/tabs/lib/entries";
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
@@ -329,7 +329,7 @@ function WorkspacesPanelInner({
               aria-label="Close Workspaces panel"
               variant="ghost"
               size="icon"
-              className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+              className={cn(DESTRUCTIVE_ACTION, "size-6")}
             >
               <X size={13} strokeWidth={2} />
             </Button>
@@ -564,7 +564,7 @@ function SortableWorkspaceRow({
               aria-label="Rename workspace"
               variant="ghost"
               size="icon-sm"
-              className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-5 rounded")}
+              className="text-muted-foreground size-5 rounded"
             >
               <Pencil size={11} strokeWidth={1.75} />
             </Button>
@@ -826,7 +826,7 @@ function EntryRowItem({
                 aria-label={`Rename ${e.label}`}
                 variant="ghost"
                 size="icon-sm"
-                className={cn("text-muted-foreground size-5 rounded", TOOLBAR_HOVER)}
+                className="text-muted-foreground size-5 rounded"
               >
                 <Pencil size={11} strokeWidth={1.75} />
               </Button>

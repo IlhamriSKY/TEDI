@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/components/ui/button";
@@ -103,9 +105,9 @@ export function FolderTreeShell({
               variant="ghost"
               onClick={onClose}
               aria-label="Close panel"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
+              className={cn(DESTRUCTIVE_ACTION, "size-6")}
             >
-              <X size={11} strokeWidth={2} />
+              <X size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         ) : null}

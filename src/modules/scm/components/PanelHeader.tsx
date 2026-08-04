@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setSourceControlInRightPanel } from "@/modules/settings/store";
@@ -123,7 +125,7 @@ export function PanelHeader({
           aria-label="Refresh"
           disabled={loading}
         >
-          <RefreshCw size={12} strokeWidth={2} />
+          <RefreshCw size={13} strokeWidth={2} />
         </Button>
       </IconTooltip>
       {onOpenInTab ? (
@@ -135,7 +137,7 @@ export function PanelHeader({
             onClick={onOpenInTab}
             aria-label="Open Source Control in a tab"
           >
-            <ExternalLink size={12} strokeWidth={2} />
+            <ExternalLink size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}
@@ -178,11 +180,11 @@ export function PanelHeader({
           <Button
             variant="ghost"
             size="icon"
-            className="hover:bg-destructive/10 hover:text-destructive text-muted-foreground size-6"
+            className={cn(DESTRUCTIVE_ACTION, "size-6")}
             onClick={onClose}
             aria-label="Close Source Control panel"
           >
-            <X size={12} strokeWidth={2} />
+            <X size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
       ) : null}

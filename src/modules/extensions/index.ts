@@ -39,6 +39,7 @@ export { isRightPanelOpen, useRightPanelStore, type ActivePanel } from "./rightP
 export {
   useSidebarPlacementStore,
   sidebarSectionKey,
+  undockTarget,
   sectionPanelId,
   parseSectionPanelId,
   BUILTIN_SECTION_EXT,

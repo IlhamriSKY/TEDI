@@ -6,6 +6,7 @@ import {
   parseSectionPanelId,
   RightPanelHost,
   sectionPanelId,
+  undockTarget,
   sidebarSectionsRegistry,
   useRegistry,
   useRightPanelStore,
@@ -258,12 +259,20 @@ export function AppRightSlot({
     <>
       <ResizableHandle withHandle />
       <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
-        <div className="flex h-full flex-col">
+        <div data-section-column="right" className="flex h-full flex-col">
           <SectionStack
             sections={sections}
             orderStorageKey={ORDER_LS_KEY}
             idPrefix="right"
             chrome={false}
+            column="right"
+            canMoveColumn={(key) => undockTarget(key) !== null}
+            onMoveColumn={(key) => {
+              const t = undockTarget(key);
+              if (!t) return;
+              useSidebarPlacementStore.getState().moveLeft(t.placement);
+              useRightPanelStore.getState().close(t.extensionId, t.panelId);
+            }}
           />
         </div>
       </ResizablePanel>

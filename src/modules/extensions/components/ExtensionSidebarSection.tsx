@@ -19,7 +19,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION, TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
 import { explorerIconUrl, useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
@@ -347,7 +347,7 @@ export function ExtensionSidebarSection({
                   size="icon-sm"
                   className={cn(
                     "size-5 rounded",
-                    a.danger ? DESTRUCTIVE_ACTION : cn("text-muted-foreground", TOOLBAR_HOVER),
+                    a.danger ? DESTRUCTIVE_ACTION : "text-muted-foreground",
                   )}
                 >
                   <SectionIcon extensionId={extensionId} icon={a.icon} size={11} />
@@ -448,7 +448,7 @@ export function ExtensionSidebarSection({
                     aria-label="Close panel"
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive size-6"
+                    className={cn(DESTRUCTIVE_ACTION, "size-6")}
                   >
                     <X size={13} strokeWidth={2} />
                   </Button>

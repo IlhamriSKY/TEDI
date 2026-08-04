@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 
 import {
   panelRenderersRegistry,
@@ -201,7 +202,7 @@ export function RightPanelHost({
               size="icon"
               variant="ghost"
               onClick={() => close(extensionId, panelId)}
-              className="hover:bg-destructive/10 hover:text-destructive size-6 rounded"
+              className={cn(DESTRUCTIVE_ACTION, "size-6 rounded")}
               aria-label="Close panel"
             >
               <X size={13} strokeWidth={1.75} />

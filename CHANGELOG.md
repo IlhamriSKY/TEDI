@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.12] - 04-08-2026
+
+### Added
+
+- **A sidebar section moves between the columns by dragging it there.** Docking Workspaces or an extension's section into the right column, or bringing it back, meant finding the "Move to right panel" button in that section's header; the grip already dragged, but only within its own column. Dragging a section's grip across now hands it over. Which sections may go is read off the same condition that shows the move button, so the two routes cannot disagree, and the primary Files tree stays left-only: a right dock there collides with the Secondary Folder Tree extension that already lives in that column, and the placement store force-reverts it anyway. The two columns are separate drag contexts, so a drop is matched by POINTER position against the other column's box rather than by drag-and-drop collision, which still reports a neighbour in the column the drag started in. Dragging into an empty right column is not possible (it renders nothing to aim at); the move button still covers that. See [SectionStack.tsx](src/app/components/SectionStack.tsx), [sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts).
+
+### Fixed
+
+- **Every icon button in a sidebar is one size, left column and right.** The box sizes already matched, but the glyphs inside them did not: eight header buttons carried an 11px or 12px icon where the standard is 13px (Refresh and Close in Files, Refresh and Close in Remote, Refresh / open-in-editor / Close in Source Control, and Close in the secondary folder tree). There are exactly two families now, a section-header button at `size-6` with a 13px glyph and a hover-revealed row action at `size-5` with 11px, and `scripts/connection-ux-verify.ts` holds both. See [ExplorerHeader.tsx](src/modules/explorer/components/ExplorerHeader.tsx), [PanelHeader.tsx](src/modules/scm/components/PanelHeader.tsx).
+- **A sidebar row action no longer flashes the toolbar's accent on hover.** The rename and close buttons on a listed tab, and an extension sidebar row's actions, painted `TOOLBAR_HOVER`, which is a saturated `--accent` fill (`#0a2870` under the default dark theme). Every other icon button in a sidebar takes the ghost variant's muted hover, so those rows lit up solid blue while the header button beside them went grey. `TOOLBAR_HOVER` is a top-toolbar treatment and its nine remaining call sites are all toolbar or menu surfaces. See [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx), [ExtensionSidebarSection.tsx](src/modules/extensions/components/ExtensionSidebarSection.tsx).
+- **A panel's close X reads as a close button.** It was `text-muted-foreground` until hovered, which put it at the end of a header row among four or five other grey glyphs with nothing to distinguish it: the secondary folder tree's close was reported as missing when it was there all along. Every panel close is now red at rest across all eight surfaces (Files, Remote, Source Control in both its headers, Workspaces, an extension sidebar section, the right column's panel host, and the secondary folder tree), the same treatment the workspace and tab closes already use. See [toolbarButton.ts](src/lib/toolbarButton.ts), [FolderTreeShell.tsx](src/modules/extensions/components/FolderTreeShell.tsx).
+
 ## [0.4.11] - 04-08-2026
 
 ### Fixed

@@ -54,6 +54,37 @@ export const BUILTIN_SECTION_EXT = "__builtin__";
 export const MOVABLE_BUILTIN_SECTIONS = [{ id: "workspaces", title: "Workspaces" }] as const;
 export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
 
+/**
+ * Drag-to-undock. Only a section that was DOCKED here can go back: its stack key
+ * is `xp:<extensionId>:__section__:<sectionId>`, and the placement key to clear
+ * is the plain built-in id for a built-in, or `xsec:<ext>:<id>` for an
+ * extension's. A manifest right-panel (the API Client, the secondary folder
+ * tree) has no left-sidebar home to return to, so it answers null and stays.
+ *
+ * ponytail: dragging INTO an empty right column is not possible - this whole
+ * component renders nothing when it holds no sections, so there is no box to
+ * aim at. The header's move button still covers that case. Add a persistent
+ * drop strip only if people actually hit it.
+ */
+export function undockTarget(
+  key: string,
+): { extensionId: string; panelId: string; placement: string } | null {
+  if (!key.startsWith("xp:")) return null;
+  const rest = key.slice(3);
+  const cut = rest.indexOf(":");
+  if (cut < 0) return null;
+  const extensionId = rest.slice(0, cut);
+  const panelId = rest.slice(cut + 1);
+  const sectionId = parseSectionPanelId(panelId);
+  if (!sectionId) return null;
+  return {
+    extensionId,
+    panelId,
+    placement:
+      extensionId === BUILTIN_SECTION_EXT ? sectionId : sidebarSectionKey(extensionId, sectionId),
+  };
+}
+
 type Placement = "left" | "right";
 
 type State = {
