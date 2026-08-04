@@ -27,11 +27,22 @@ import {
   onConnectionsChanged,
   type SshConnection,
 } from "./connections";
-import { Pencil, Plus, Server, Trash2, type LucideIcon } from "lucide-react";
+import type { BackupMode } from "./SshBackupDialog";
+import type { FsReadResult } from "@/lib/ipc";
+import { BACKUP_EXTENSION } from "./backupFile";
+import { invoke } from "@tauri-apps/api/core";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { Download, Pencil, Plus, Server, Trash2, Upload, type LucideIcon } from "lucide-react";
 
 // Heavy module. Lazy-load until the user opens the add/edit modal.
 const SshConnectionDialog = lazy(() =>
   import("./SshConnectionDialog").then((m) => ({ default: m.SshConnectionDialog })),
+);
+
+// Same treatment: the backup dialog pulls in the crypto/IO path, which nobody
+// pays for until they actually move machines.
+const SshBackupDialog = lazy(() =>
+  import("./SshBackupDialog").then((m) => ({ default: m.SshBackupDialog })),
 );
 
 type Props = {
@@ -53,6 +64,9 @@ export function SshMenu({ onConnect }: Props) {
   }, [editorOpen]);
   const [editing, setEditing] = useState<SshConnection | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<SshConnection | null>(null);
+  const [backup, setBackup] = useState<BackupMode | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
 
   useEffect(() => {
     void listConnections().then(setConns);
@@ -82,6 +96,38 @@ export function SshMenu({ onConnect }: Props) {
   const onPick = (c: SshConnection) => {
     setMenuOpen(false);
     onConnect(c);
+  };
+
+  const openExport = () => {
+    setPickError(null);
+    setBackup({ kind: "export" });
+    setBackupOpen(true);
+    setMenuOpen(false);
+  };
+
+  // The file is picked and read BEFORE the dialog opens, so an unreadable or
+  // wrong-type file is rejected up front instead of after the user has typed a
+  // passphrase for it.
+  const openImport = async () => {
+    setPickError(null);
+    setMenuOpen(false);
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        filters: [{ name: "TEDI SSH backup", extensions: [BACKUP_EXTENSION, "json"] }],
+      });
+      const path = typeof selected === "string" ? selected : null;
+      if (!path) return;
+      const result = await invoke<FsReadResult>("fs_read_file", { path });
+      if (result.kind !== "text") {
+        setPickError("That file is not a UTF-8 text file.");
+        return;
+      }
+      setBackup({ kind: "import", path, text: result.content });
+      setBackupOpen(true);
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -156,12 +202,44 @@ export function SshMenu({ onConnect }: Props) {
             <Plus size={13} strokeWidth={1.75} />
             <span>Add new connection…</span>
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={openExport}
+            disabled={conns !== null && conns.length === 0}
+            className="gap-2 text-[12px]"
+          >
+            <Download size={13} strokeWidth={1.75} />
+            <span>Export connections…</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void openImport()} className="gap-2 text-[12px]">
+            <Upload size={13} strokeWidth={1.75} />
+            <span>Import connections…</span>
+          </DropdownMenuItem>
+          {pickError ? (
+            <div className="text-destructive px-3 py-1 text-[10.5px]">{pickError}</div>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       {editorMounted ? (
         <Suspense fallback={null}>
           <SshConnectionDialog open={editorOpen} onOpenChange={setEditorOpen} editing={editing} />
+        </Suspense>
+      ) : null}
+
+      {/* Unmounted once closed, unlike the editor above: the dialog holds a
+          passphrase and, for an import, the decrypted file text in state, so
+          there is no reason to keep either resident for a close animation. */}
+      {backup ? (
+        <Suspense fallback={null}>
+          <SshBackupDialog
+            open={backupOpen}
+            onOpenChange={(o) => {
+              setBackupOpen(o);
+              if (!o) setBackup(null);
+            }}
+            mode={backup}
+          />
         </Suspense>
       ) : null}
 

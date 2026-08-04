@@ -13,7 +13,14 @@ import {
   type SshSession,
 } from "@/modules/ssh/bridge";
 import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
-import type { SshStatus } from "@/modules/ssh/status";
+import {
+  allSshHopsUp,
+  buildSshRoute,
+  failPendingSshHops,
+  markSshHop,
+  type SshStatus,
+} from "@/modules/ssh/status";
+import { remotePortOf, toLocalUrl } from "./forwardUrl";
 import type { PtySession } from "./pty-bridge";
 import { sessions, type Session } from "./sessionState";
 import { describeError } from "./session-helpers";
@@ -41,13 +48,22 @@ const TERM_MODE_RESET =
   "\x1b[0m"; // reset SGR
 
 export function writeSshBanner(s: Session, text: string): void {
+  // Several callers are async continuations - a port forward resolving, a
+  // reconnect landing - so the pane can be gone by the time the banner is
+  // written, and xterm throws on a disposed terminal. Guarding here rather
+  // than at each callsite keeps the ones that already exist correct too.
+  if (s.disposed) return;
   const enc = new TextEncoder();
   s.term.write(enc.encode(text));
 }
 
 export function emitSshStatus(s: Session, next: SshStatus): void {
-  s.sshStatus = next;
-  s.callbacks.onSshStatus?.(next);
+  // Carry the route on every status so no emit site has to remember to, and so
+  // the chain stays visible while disconnected/errored - which is exactly when
+  // the user needs to see WHICH hop failed.
+  const withRoute: SshStatus = s.sshRoute ? { ...next, route: s.sshRoute } : next;
+  s.sshStatus = withRoute;
+  s.callbacks.onSshStatus?.(withRoute);
 }
 
 export function canRetrySsh(status: SshStatus): boolean {
@@ -86,9 +102,17 @@ export async function openSshForSession(
     // open time so each reconnect re-reads the current chain + jump secrets.
     jumps = await resolveJumpHops(conn.proxyJumpId, conn.id, list);
   } catch (e) {
+    // Drop the previous attempt's route first. Reaching here means the chain
+    // could not even be resolved (a jump host was deleted, or it is cyclic), so
+    // the hops from last time no longer describe anything.
+    s.sshRoute = null;
     emitSshStatus(s, { kind: "error", message: describeError(e), canRetry: true });
     throw e;
   }
+
+  // Rebuild the route for this attempt, so an edited chain is picked up on
+  // reconnect. Null for a direct connection - see `buildSshRoute`.
+  s.sshRoute = buildSshRoute(jumps, conn);
 
   // `sshReconnectAttempts` is bumped by `scheduleSshReconnect`. 0 means first open.
   const attempt = Math.max(1, s.sshReconnectAttempts);
@@ -109,6 +133,9 @@ export async function openSshForSession(
     // Clear terminal modes the dead program left enabled (mouse tracking, alt
     // screen, ...) so they don't leak into the reconnected shell as garbage.
     s.term.write(TERM_MODE_RESET);
+    // Whichever hop had not come up is where the chain broke; freeze that into
+    // the route so the indicator names the failing link.
+    if (s.sshRoute) s.sshRoute = failPendingSshHops(s.sshRoute);
     if (s.sshUserClose) {
       emitSshStatus(s, {
         kind: "disconnected",
@@ -131,6 +158,10 @@ export async function openSshForSession(
   const emitConnectedIfReady = () => {
     if (resolvedSessionId === null) return;
     s.sshReconnectAttempts = 0;
+    // The shell channel is open, so every hop behind it carried: mark the whole
+    // chain up. `onJumpConnected` covers the hops individually, but a resumed or
+    // reused chain may not re-announce them.
+    if (s.sshRoute) s.sshRoute = allSshHopsUp(s.sshRoute);
     emitSshStatus(s, {
       kind: "connected",
       fingerprint: pendingFingerprint ?? "",
@@ -163,6 +194,22 @@ export async function openSshForSession(
         // Pin each jump host's fingerprint on its own saved connection as the
         // chain authenticates, so the next connect verifies it fail-fast.
         onJumpConnected: (connectionId, fp) => {
+          // Index by position, not by id: the same host can legitimately appear
+          // twice in a chain, and `jumps` is already in connect order. This is
+          // the one place a route change has no status emit of its own, so it
+          // re-emits - and only when the hop actually moved, since `markSshHop`
+          // returns the same array for a hop reporting twice.
+          if (s.sshRoute) {
+            const next = markSshHop(
+              s.sshRoute,
+              jumps.findIndex((j) => j.connectionId === connectionId),
+              "up",
+            );
+            if (next !== s.sshRoute) {
+              s.sshRoute = next;
+              emitSshStatus(s, s.sshStatus);
+            }
+          }
           void markConnected(connectionId, fp).catch(() => {});
         },
         onConnected: (fp) => {
@@ -242,6 +289,62 @@ export async function openSshForSession(
     resize: (cols, rows) => sshSession.resize(cols, rows),
     close: () => sshSession.close(),
   };
+}
+
+/**
+ * Turn a `localhost:PORT` URL printed by a REMOTE shell into one this machine
+ * can actually open: bind a local port, tunnel it to that port as resolved on
+ * the SERVER, and rewrite the URL's authority. Returns null when there is no
+ * live session or the tunnel could not be bound, so the caller can leave the
+ * pill unfired rather than offer a link to a dead (or worse, unrelated local)
+ * port - the reason url detection was disabled for SSH leaves until now.
+ *
+ * The port is picked by the OS (`localPort` 0), not mirrored from the remote:
+ * the remote's 5173 is very often busy on the developer's own machine too, and
+ * quietly binding it would tunnel over their own dev server.
+ *
+ * `cache` is keyed by remote port and owned by the caller's pty spawn, which
+ * is the exact lifetime of these forwards: they die with the SSH session, and
+ * a reconnect runs a fresh `openPtyForSession` with a fresh cache. It holds the
+ * in-flight PROMISE, not the resolved port, because a dev server prints its
+ * banner in bursts: caching only the result would let a second announcement
+ * arrive while the first bind was still in flight, miss the cache, and leave
+ * two tunnels standing for one port. A failed bind drops out of the cache so
+ * the next announcement retries rather than inheriting the failure forever.
+ */
+export async function forwardDetectedUrl(
+  s: Session,
+  url: string,
+  cache: Map<number, Promise<number>>,
+): Promise<string | null> {
+  // On an SSH leaf `pty` is the adapter returned by `openSshForSession`, whose
+  // `id` IS the ssh session id - not a local PTY handle. Only ever reached with
+  // `s.sshConnectionId` set, which is what makes that true. Null while a
+  // reconnect is still resolving, and the caller retries on the next print.
+  const sessionId = s.pty?.id;
+  if (sessionId === undefined) return null;
+  const remotePort = remotePortOf(url);
+  if (remotePort === null) return null;
+  let pending = cache.get(remotePort);
+  if (pending === undefined) {
+    // Always 127.0.0.1 as the tunnel's target: the url's host is whatever the
+    // server calls itself, and a server bound to 0.0.0.0 is on loopback too.
+    pending = openSshForward(sessionId, 0, "127.0.0.1", remotePort).then(
+      (bound) => {
+        writeSshBanner(
+          s,
+          `\x1b[2m[tedi] forwarding localhost:${bound} -> remote localhost:${remotePort}\x1b[0m\r\n`,
+        );
+        return bound;
+      },
+      (e) => {
+        cache.delete(remotePort);
+        throw e;
+      },
+    );
+    cache.set(remotePort, pending);
+  }
+  return toLocalUrl(url, await pending);
 }
 
 export function scheduleSshReconnect(s: Session, reason: string): void {

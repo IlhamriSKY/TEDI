@@ -3,11 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DragChip } from "@/components/DragChip";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import { MAX_PANES_PER_TAB } from "./lib/useTabs";
-import {
-  listConnections,
-  onConnectionsChanged,
-  type SshConnection,
-} from "@/modules/ssh/connections";
+import { useSshHosts } from "@/modules/ssh/connections";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useIconsReady } from "@/lib/iconRegistry";
@@ -152,17 +148,8 @@ export function TabBar({
   useExplorerIconsReady();
   // dnd-kit drag id. `tab:<n>` for whole-group, `leaf:<n>` for in-group reorder. Prefix routes `handleDragEnd`.
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  // Load SSH hosts on mount and on change so leaf `sshConnectionId` resolves for the tooltip.
-  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(() => new Map());
-  useEffect(() => {
-    const load = () =>
-      void listConnections().then((list) => setSshHosts(new Map(list.map((c) => [c.id, c]))));
-    load();
-    const unsub = onConnectionsChanged(load);
-    return () => {
-      void unsub.then((fn) => fn());
-    };
-  }, []);
+  // Resolves a leaf's `sshConnectionId` for the `ssh:<name>` label + tooltip.
+  const sshHosts = useSshHosts();
 
   const entries = useMemo(
     () => buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses),

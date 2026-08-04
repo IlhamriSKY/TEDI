@@ -114,7 +114,7 @@ export function ExtensionCard({
             </Button>
           ) : null}
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             className="text-destructive hover:text-destructive h-8 px-2 text-[11px]"
             onClick={onUninstall}

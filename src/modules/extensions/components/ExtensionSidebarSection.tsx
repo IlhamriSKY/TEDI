@@ -222,11 +222,25 @@ export function ExtensionSidebarSection({
   // non-expandable row with no children is a plain leaf (the flat-list case).
   const renderRow = (item: (typeof items)[number], depth: number): ReactNode => {
     const hasActions = !!(item.actions && item.actions.length > 0);
+    const onContextMenu = section.onItemContextMenu;
     const rowContent = (
       <div
         // Depth indent is dynamic, so it must be inline.
         // eslint-disable-next-line react/forbid-dom-props
         style={{ paddingInlineStart: 6 + depth * 12 }}
+        onContextMenu={
+          onContextMenu
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  onContextMenu(item.id, { x: e.clientX, y: e.clientY });
+                } catch (err) {
+                  console.error(`[extensions] sidebar context menu "${item.id}" threw`, err);
+                }
+              }
+            : undefined
+        }
         className={cn(
           "group relative flex h-7 items-center gap-1 rounded pe-1.5 text-xs",
           item.active

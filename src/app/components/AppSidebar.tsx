@@ -10,6 +10,7 @@ import {
   useSidebarPlacementStore,
   type BuiltinSectionId,
 } from "@/modules/extensions";
+import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { Suspense, useMemo, type ReactNode, type RefObject } from "react";
@@ -52,8 +53,13 @@ type Props = {
   cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
   /** Focus a live terminal leaf from the Workspaces panel. */
   onFocusLeaf: (tabId: number, leafId: number) => void;
-  /** Currently focused leaf id, to highlight its terminal row in Workspaces. */
+  /** Rename a pane leaf from the Workspaces panel (same handler as the tab
+   *  strip's right-click Rename, so both write the one `customTitle`). */
+  onRenameLeaf: (leafId: number, title: string | null) => void;
+  /** Currently focused leaf id, to highlight its row in Workspaces. */
   activeLeafId: number | null;
+  /** Live SSH status per leaf, so a connected host is green in Workspaces too. */
+  sshStatuses: Map<number, SshStatus>;
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
 
 // The reorderable built-in sidebar sections, in canonical order. Extension
@@ -113,7 +119,9 @@ export function AppSidebar({
   liveTabs,
   cachedTabsByWorkspace,
   onFocusLeaf,
+  onRenameLeaf,
   activeLeafId,
+  sshStatuses,
   openGitDiffTab,
   openScmTab,
 }: Props) {
@@ -204,7 +212,9 @@ export function AppSidebar({
             liveTabs={liveTabs}
             cachedTabsByWorkspace={cachedTabsByWorkspace}
             onFocusLeaf={onFocusLeaf}
+            onRenameLeaf={onRenameLeaf}
             activeLeafId={activeLeafId}
+            sshStatuses={sshStatuses}
             dragHandle={controls}
             onMoveToRight={() => moveSectionRight("workspaces")}
           />

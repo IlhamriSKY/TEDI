@@ -91,9 +91,10 @@ function readKeyOfInput(input: unknown): string | null {
   return `${path}#${off}:${lim}`;
 }
 
-function collectMutationPaths(messages: ModelMessage[]): Set<string> {
-  const paths = new Set<string>();
-  for (const m of messages) {
+function collectLastMutationIdxPerPath(messages: ModelMessage[]): Map<string, number> {
+  const paths = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
     if (!Array.isArray(m.content)) continue;
     for (const part of m.content as ToolPart[]) {
       if (part.type !== "tool-call") continue;
@@ -105,7 +106,7 @@ function collectMutationPaths(messages: ModelMessage[]): Set<string> {
         name === "create_directory"
       ) {
         const p = pathOfInput(part.input);
-        if (p) paths.add(p);
+        if (p) paths.set(p, i);
       }
     }
   }
@@ -134,7 +135,7 @@ function dropSupersededReads(messages: ModelMessage[]): {
   out: ModelMessage[];
   touched: boolean;
 } {
-  const mutated = collectMutationPaths(messages);
+  const lastMutationIdx = collectLastMutationIdxPerPath(messages);
   const lastReadKey = collectLastReadIdxPerKey(messages);
 
   // Map toolCallId to (path, readKey) for mutation (path) and supersession (paged key) lookups.
@@ -163,7 +164,10 @@ function dropSupersededReads(messages: ModelMessage[]): {
       if (typeof id !== "string") return part;
       const entry = callIdxToRead.get(id);
       if (!entry) return part;
-      const wasMutated = mutated.has(entry.path);
+      const mutationIdx = lastMutationIdx.get(entry.path);
+      // A read is stale only when the mutation happened after that result. A
+      // fresh post-edit read must remain visible to the model.
+      const wasMutated = mutationIdx !== undefined && mutationIdx > i;
       const wasSuperseded =
         lastReadKey.has(entry.key) && (lastReadKey.get(entry.key) as number) > i;
       if (!wasMutated && !wasSuperseded) return part;

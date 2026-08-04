@@ -587,7 +587,9 @@ export async function runAgentStream(
     fullContextLimit - systemTokenEstimate - ENV_AND_OUTPUT_RESERVE,
   );
   const compact = compactModelMessagesDetailed(history, effectiveContextLimit);
-  if (compact.compacted) {
+  if (compact.compacted && (compact.stages.elided > 0 || compact.stages.dropped > 0)) {
+    // Lossless stale-read cleanup is routine request hygiene, not context
+    // compaction. Keep it out of user-facing badges and history metadata.
     opts.onCompact?.({ droppedCount: compact.droppedCount, stages: compact.stages });
   }
 

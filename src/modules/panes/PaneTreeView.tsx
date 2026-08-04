@@ -56,6 +56,7 @@ import { editorPaneSession, isRemoteEditorLeaf, leaves } from "@/modules/termina
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import { statusLabelClass, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
 import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
+import { leafLabel } from "@/modules/tabs/lib/tabHelpers";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
@@ -248,32 +249,6 @@ function computeEdge(
   const ny = rect.height ? (y - cy) / (rect.height / 2) : 0;
   if (Math.abs(nx) >= Math.abs(ny)) return nx < 0 ? "left" : "right";
   return ny < 0 ? "top" : "bottom";
-}
-
-function leafLabel(node: PaneLeaf, sshHosts?: Map<string, SshConnection>): string {
-  // A name set from the tab's right-click Rename wins here too. This function is
-  // a second derivation of the same label as the tab strip's `entryLabel`, and
-  // the whole point of it is that "tab and pane read identically" - so a rename
-  // that only moved the tab would be exactly the drift it exists to prevent.
-  if (node.customTitle) return node.customTitle;
-  if (node.leafKind === "editor") return basename(node.path);
-  if (node.leafKind === "browser") {
-    if (node.title) return node.title;
-    try {
-      return new URL(node.url).host || node.url || "browser";
-    } catch {
-      return node.url || "browser";
-    }
-  }
-  if (node.leafKind === "extension-panel") return node.title || "panel";
-  // SSH terminal: mirror the tab strip's `ssh:<name>` (falling back to the
-  // host/IP when the connection is unnamed, bare "ssh" if it was deleted), so
-  // tab and pane read identically.
-  if (node.sshConnectionId) {
-    const conn = sshHosts?.get(node.sshConnectionId);
-    return conn ? `ssh:${conn.name.trim() || conn.host}` : "ssh";
-  }
-  return node.cwd ? basename(node.cwd) : "shell";
 }
 
 /** Build the shared {@link LeafIconInfo} for a pane leaf so the header and the

@@ -966,7 +966,9 @@ export default function App() {
                 liveTabs={tabs}
                 cachedTabsByWorkspace={liveTabsByWorkspace}
                 onFocusLeaf={focusLeafInTab}
+                onRenameLeaf={renameLeaf}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
+                sshStatuses={sshStatuses}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
               />
@@ -1023,7 +1025,9 @@ export default function App() {
                   liveTabs: tabs,
                   cachedTabsByWorkspace: liveTabsByWorkspace,
                   onFocusLeaf: focusLeafInTab,
+                  onRenameLeaf: renameLeaf,
                   activeLeafId: activePaneTab?.activeLeafId ?? null,
+                  sshStatuses,
                 }}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
@@ -1040,6 +1044,9 @@ export default function App() {
             hasAnySshLeaf={hasAnySshLeaf}
             activeIsSsh={activeLeafIsSsh}
             sshSessionId={activeLeafIsSsh ? activeSshContext.sessionId : null}
+            sshRoute={
+              activeLeafIdInTab != null ? sshStatuses.get(activeLeafIdInTab)?.route : undefined
+            }
           />
 
           {hasComposer ? (

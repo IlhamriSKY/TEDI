@@ -79,7 +79,7 @@ const MATRIX_LIGHT: ThemeColors = {
   destructive: "#c2185b",
   border: "#bfd9bf",
   input: "#bfd9bf",
-  buttonBorder: "#9ec59e",
+  buttonBorder: "#759275",
   ring: "#006400",
   sidebar: "#e6f5e6",
   sidebarForeground: "#003b00",

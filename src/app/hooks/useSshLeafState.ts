@@ -1,12 +1,18 @@
 import { toast } from "@/components/ui/toast";
-import { dirname } from "@/lib/path";
+import { CliAgentIcon } from "@/components/CliAgentIcon";
+import { resolveSshContext, type SshContext } from "./sshContext";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { activeLeaf, type Tab } from "@/modules/tabs";
-import { isRemoteEditorLeaf, leaves } from "@/modules/terminal";
+import { type Tab } from "@/modules/tabs";
+import { leaves } from "@/modules/terminal";
 import { foldSshBinding, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
-import { toolDisplayName, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import {
+  toolDisplayName,
+  type AiCliKind,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
 import { playBlockingBeep, playCompletionBeep } from "@/lib/blockingBeep";
 import {
+  createElement,
   useCallback,
   useEffect,
   useMemo,
@@ -15,6 +21,11 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+
+/** The agent's own logo for its toast, so "which of my six agents wants me?" is
+ *  answered by the glyph rather than by reading the sentence. `createElement`
+ *  because this is a .ts hook file, not JSX. */
+const agentMark = (tool: AiCliKind) => createElement(CliAgentIcon, { agentId: tool, size: 14 });
 
 type Params = {
   activePaneTab: Tab | null;
@@ -35,12 +46,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
   setAiCliStatuses: Dispatch<SetStateAction<Map<number, AiCliStatus>>>;
   handleSshStatus: (leafId: number, status: SshStatus) => void;
   handleAiCliStatus: (leafId: number, status: AiCliStatus) => void;
-  activeSshContext: {
-    sessionId: number | null;
-    hostLabel: string | null;
-    cwd: string | null;
-    fromActiveLeaf: boolean;
-  };
+  activeSshContext: SshContext;
   sshBindingByConnection: Map<string, SshConnectionBinding>;
   hasAnySshLeaf: boolean;
 } {
@@ -92,110 +98,45 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     });
   }, []);
 
-  // SFTP panel view: prefer the active leaf if it's a connected SSH leaf,
+  /**
+   * The pane tab whose focus decides which repository Source Control targets.
+   *
+   * `activePaneTab` is null for every tab that has no leaves - Settings, a git
+   * or AI diff, and the Source Control tab itself. Reading it directly meant
+   * opening any of those dropped `fromActiveLeaf` to false, which silently
+   * retargeted Source Control from the remote repository the user was working
+   * in back to the LOCAL one: the SSH file tree kept showing the remote while
+   * the panel beside it listed local changes, and a stage or discard aimed at
+   * the remote would have hit local files. Opening a diff is not "switching to
+   * a local pane", so hold the last real pane tab across it.
+   *
+   * Held by ID and re-looked-up rather than kept as an object, so a closed tab
+   * resolves to null instead of leaving a stale leaf behind.
+   */
+  const lastPaneTabIdRef = useRef<number | null>(null);
+  if (activePaneTab) lastPaneTabIdRef.current = activePaneTab.id;
+  const focusPaneTab = useMemo(() => {
+    if (activePaneTab) return activePaneTab;
+    const id = lastPaneTabIdRef.current;
+    if (id === null) return null;
+    const t = tabs.find((x) => x.id === id);
+    return t && t.kind === "pane" ? t : null;
+  }, [activePaneTab, tabs]);
+
+  // SFTP panel view: prefer the focused leaf if it's a connected SSH leaf,
   // else any connected SSH leaf so the panel stays useful while the user
   // is in a local editor. Derived from tracked state, no extra IPC.
-  const activeSshContext = useMemo<{
-    sessionId: number | null;
-    hostLabel: string | null;
-    /** Active SSH leaf's last-known cwd from OSC 7. If set, the SSH file tree roots here instead of $HOME. */
-    cwd: string | null;
-    /** True only when the FOCUSED leaf is this SSH session, i.e. not the
-     *  "any backgrounded session" fallback. Source Control keys off this: the
-     *  file tree is happy to keep showing a background remote, but silently
-     *  swapping the user's local repo for a remote one is not acceptable. */
-    fromActiveLeaf: boolean;
-  }>(() => {
-    type Ctx = {
-      sessionId: number | null;
-      hostLabel: string | null;
-      cwd: string | null;
-      fromActiveLeaf: boolean;
-    };
-    const none: Ctx = { sessionId: null, hostLabel: null, cwd: null, fromActiveLeaf: false };
-    if (sshStatuses.size === 0) return none;
-    const lookupLeafSession = (leafId: number): number | null => {
-      const status = sshStatuses.get(leafId);
-      if (status && status.kind === "connected") return status.sessionId;
-      return null;
-    };
-    const hostLabelForTab = (tab: Tab | undefined): string | null =>
-      tab && tab.kind === "pane" ? tab.title : null;
-    /** Is this russh session still connected on some leaf? Keyed by session id
-     *  rather than leaf id, for consumers that hold one without its leaf. */
-    const sessionIsLive = (sid: number): boolean => {
-      for (const st of sshStatuses.values()) {
-        if (st.kind === "connected" && st.sessionId === sid) return true;
-      }
-      return false;
-    };
-
-    // Active leaf if connected. A live SSH session is keyed in `sshStatuses` by
-    // leaf id; that connected status (not a saved `sshConnectionId`, which an
-    // ad-hoc connection lacks) is what makes a leaf drive the panel.
-    if (activePaneTab) {
-      const leaf = activeLeaf(activePaneTab);
-      if (leaf && leaf.leafKind === "terminal") {
-        const sid = lookupLeafSession(leaf.id);
-        if (sid !== null) {
-          return {
-            sessionId: sid,
-            hostLabel: hostLabelForTab(activePaneTab),
-            cwd: leaf.cwd ?? null,
-            fromActiveLeaf: true,
-          };
-        }
-      } else if (leaf && leaf.leafKind === "editor" && isRemoteEditorLeaf(leaf)) {
-        // Resolve the profile to whatever session is live now; an ad-hoc leaf
-        // falls back to its frozen id. Either way the session must still be
-        // connected: a remote file left open after Disconnect would otherwise
-        // point Source Control at a dead session (a permanent error banner).
-        const sid = leaf.sshConnectionId
-          ? sshBindingByConnection.get(leaf.sshConnectionId)?.sessionId
-          : leaf.sshSessionId;
-        if (sid === undefined || !sessionIsLive(sid)) return none;
-        // A remote file open in the editor counts as "focused on that remote":
-        // opening one from the SSH tree used to hand Source Control straight
-        // back to the LOCAL repo, which is the opposite of what the user is
-        // looking at. Keyed on the leaf's own sshSessionId, so a LOCAL file
-        // still correctly returns to the local repo.
-        //
-        // Its directory is a better repo anchor than the shell's $PWD, too:
-        // the terminal usually still sits in $HOME, which is not a repo.
-        return {
-          sessionId: sid,
-          hostLabel: leaf.sshHostLabel ?? hostLabelForTab(activePaneTab),
-          cwd: dirname(leaf.path),
-          fromActiveLeaf: true,
-        };
-      }
-    }
-    // Else any connected SSH leaf. Walks all pane tabs so a backgrounded
-    // SSH session still drives the panel when the user is in a local tab.
-    // Prefer the session we already served: with two or more SSH sessions,
-    // returning the first in tab order made the remote panel jump to a
-    // different host the moment the user clicked a local tab, which resets the
-    // file tree's navigation and expansion state. Stickiness applies only on
-    // this fallback path - a focused, connected SSH leaf still wins above.
-    let first: Ctx | null = null;
-    for (const t of tabs) {
-      if (t.kind !== "pane") continue;
-      for (const l of leaves(t.paneTree)) {
-        if (l.leafKind !== "terminal") continue;
-        const sid = lookupLeafSession(l.id);
-        if (sid === null) continue;
-        const cand = {
-          sessionId: sid,
-          hostLabel: hostLabelForTab(t),
-          cwd: l.cwd ?? null,
-          fromActiveLeaf: false,
-        };
-        if (sid === lastSessionIdRef.current) return cand;
-        first ??= cand;
-      }
-    }
-    return first ?? none;
-  }, [sshStatuses, activePaneTab, tabs, sshBindingByConnection]);
+  const activeSshContext = useMemo(
+    () =>
+      resolveSshContext({
+        sshStatuses,
+        focusPaneTab,
+        tabs,
+        sshBindingByConnection,
+        lastSessionId: lastSessionIdRef.current,
+      }),
+    [sshStatuses, focusPaneTab, tabs, sshBindingByConnection],
+  );
 
   // Written in an effect so the memo above stays pure. It only needs the value
   // as of the next recompute, so the ref intentionally isn't a memo dep.
@@ -236,6 +177,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
             toast(`${toolDisplayName(status.tool)} needs your approval`, {
               variant: "warning",
               durationMs: 6000,
+              icon: agentMark(status.tool),
             });
             // Only beep on a genuine transition the user is present for. `before`
             // is null on a leaf's FIRST observed status, e.g. when you connect to
@@ -260,6 +202,7 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
             toast(`${toolDisplayName(status.tool)} finished`, {
               variant: "success",
               durationMs: 4000,
+              icon: agentMark(status.tool),
             });
             playCompletionBeep();
           } catch {

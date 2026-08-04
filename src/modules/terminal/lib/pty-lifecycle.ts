@@ -15,7 +15,7 @@ import {
   stripTrailingPunct,
   containsSchemeSeparator,
 } from "./session-helpers";
-import { openSshForSession } from "./ssh-session";
+import { forwardDetectedUrl, openSshForSession, writeSshBanner } from "./ssh-session";
 import { useTerminalTitles } from "./terminalTitles";
 import { createWriteMeter } from "./writeMeter";
 
@@ -58,6 +58,11 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
 
   // Fresh decoder per pty so partial UTF-8 from a prior shell doesn't leak.
   const urlDecoder = new TextDecoder("utf-8", { fatal: false });
+
+  // Auto-opened `ssh -L` tunnels for urls this shell printed, remote port ->
+  // in-flight local bound port. Scoped to the spawn on purpose: the forwards
+  // die with the SSH session, and a reconnect re-enters here with an empty map.
+  const sshUrlForwards = new Map<number, Promise<number>>();
 
   // Diagnostic counters for the live-PTY-but-empty-pane case. Toggle via TEDI_DEBUG_PTY.
   const debug = isDebugPty();
@@ -120,18 +125,40 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
     if (isFirstByte && !s.sshConnectionId) {
       armBlankViewportRepaint(s, myEpoch);
     }
-    // Local PTYs only. A remote `npm run dev` prints `http://localhost:5173`,
-    // but that port lives on the REMOTE host; the pill this fires opens the
-    // URL on THIS machine, where it is either dead or, worse, an unrelated
-    // local service. Detecting it needs a port forward, not a guess.
-    if (containsSchemeSeparator(bytes) && !s.sshConnectionId) {
+    // A remote `npm run dev` prints `http://localhost:5173`, but that port
+    // lives on the REMOTE host, so the pill cannot offer the URL as printed:
+    // on this machine it is either dead or, worse, an unrelated local service.
+    // Over SSH the address is therefore tunnelled first and the pill fires on
+    // the local end of the tunnel.
+    if (containsSchemeSeparator(bytes)) {
       const text = urlDecoder.decode(bytes, { stream: true });
       const matches = text.match(LOCAL_URL_RE);
       if (matches && matches.length > 0) {
         const url = stripTrailingPunct(matches[matches.length - 1]);
         if (url && url !== s.lastDetectedUrl) {
-          s.lastDetectedUrl = url;
-          s.callbacks.onDetectedLocalUrl?.(url);
+          if (!s.sshConnectionId) {
+            s.lastDetectedUrl = url;
+            s.callbacks.onDetectedLocalUrl?.(url);
+          } else {
+            void forwardDetectedUrl(s, url, sshUrlForwards).then(
+              (local) => {
+                // Binding the tunnel is async, so re-check what the synchronous
+                // path above can take for granted: this pane may have been
+                // disposed or respawned while it was in flight.
+                if (!local || s.disposed || myEpoch !== s.ptySpawnEpoch) return;
+                // Only claim the url once it actually resolved, so a failed
+                // tunnel is retried the next time the server prints it rather
+                // than being swallowed by the dedupe.
+                s.lastDetectedUrl = url;
+                s.callbacks.onDetectedLocalUrl?.(local);
+              },
+              (e) =>
+                writeSshBanner(
+                  s,
+                  `\x1b[33m[tedi] could not forward ${url}: ${describeError(e)}\x1b[0m\r\n`,
+                ),
+            );
+          }
         }
       }
     }

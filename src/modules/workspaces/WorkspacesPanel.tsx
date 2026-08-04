@@ -15,8 +15,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
-import { leaves } from "@/modules/terminal/lib/panes";
-import { aiCliIconClass, aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { buildEntries, entryLabelClass, type Entry } from "@/modules/tabs/lib/entries";
+import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
+import { InlineInput } from "@/modules/explorer/InlineInput";
+import { useGitBranch } from "@/modules/scm/branch";
+import { useSshHosts, type SshConnection } from "@/modules/ssh/connections";
+import { statusLabel, statusLabelClass, type SshStatus } from "@/modules/ssh/status";
+import { aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import {
@@ -31,18 +36,18 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
-import { countSavedTabEntries } from "./serialize";
+import { countSavedTabEntries, savedToTab } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
   ChevronDown,
   ChevronRight,
   Folder,
+  GitBranch,
   LayoutDashboard,
   PanelLeft,
   PanelRight,
   Plus,
   SquarePen,
-  SquareTerminal,
   X,
 } from "lucide-react";
 
@@ -75,10 +80,18 @@ type Props = {
    * its persisted snapshot, which carries no live status.
    */
   cachedTabsByWorkspace?: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
-  /** Focus a specific live terminal leaf (active workspace only). */
+  /** Focus a live entry: activates its tab, and the pane inside it for a leaf.
+   *  Standalone tabs (SCM, diffs, extension tabs) pass a leaf id no tree holds,
+   *  which the tab side already ignores, so they just activate. */
   onFocusLeaf?: (tabId: number, leafId: number) => void;
-  /** Currently focused leaf id; highlights its terminal row like the file tree. */
+  /** Rename a live pane leaf, or reset it to the derived name with `null`. Same
+   *  handler the tab strip's right-click Rename uses, so both write one field. */
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
+  /** Currently focused leaf id; highlights its row like the file tree. */
   activeLeafId?: number | null;
+  /** Live SSH status per leaf. Colors a connected host's label green here
+   *  exactly as it does in the tab strip. */
+  sshStatuses?: Map<number, SshStatus>;
   /** Drag handle for sidebar-section reordering, injected by the sidebar. */
   dragHandle?: ReactNode;
   /** Left-sidebar instance: move Workspaces to the shared right panel. */
@@ -90,75 +103,78 @@ type Props = {
   onClosePanel?: () => void;
 };
 
-/** One terminal entry shown under an expanded workspace row. */
-type TermRow = {
-  key: string;
-  ordinal?: number;
-  cwd?: string;
-  /** Program-set terminal title (OSC 2), e.g. a running agent's title. Live only. */
+/**
+ * One row under an expanded workspace: a tab-strip entry, verbatim. The panel
+ * deliberately carries `Entry` rather than a shape of its own, so a pane's name,
+ * icon, ordinal badge and status colour down here are literally the ones the
+ * strip shows for it. This list used to derive its own label from the cwd
+ * basename, which is how a renamed tab and an `ssh:<host>` pane both read wrong
+ * in the panel while reading right in the strip.
+ */
+type EntryRow = {
+  entry: Entry;
+  /** Program-set terminal title (OSC 2), e.g. a running agent's task. */
   title?: string;
-  /** Per-leaf privacy flag; reddens the ordinal badge, matching the tab strip. */
-  private?: boolean;
-  /** Live AI CLI status. Always null for inactive (persisted) workspaces. */
-  status: AiCliStatus;
-  /** Focus target for live terminals; null for persisted ones (click switches). */
-  live: { tabId: number; leafId: number } | null;
+  /** Live rows can be focused and renamed; a cold workspace's cannot (its ids
+   *  are display-only, minted while rehydrating the snapshot). */
+  live: boolean;
 };
 
-/** Trailing path segment, splitting on both separators (Windows + POSIX). */
-function basename(p?: string): string {
-  if (!p) return "";
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? "";
-}
-
-/** Enumerate the active workspace's live terminal leaves with status + title. */
-function liveTermRows(
+/** Rows for a workspace whose tabs are live (active, or visited this session). */
+function liveRows(
   tabs: Tab[],
-  statuses?: Record<number, NonNullable<AiCliStatus>>,
-  titles?: Record<number, string>,
-): TermRow[] {
-  const rows: TermRow[] = [];
-  for (const t of tabs) {
-    if (t.kind !== "pane") continue;
-    for (const leaf of leaves(t.paneTree)) {
-      if (leaf.leafKind !== "terminal") continue;
-      rows.push({
-        key: `live-${leaf.id}`,
-        ordinal: leaf.terminalOrdinal,
-        cwd: leaf.cwd,
-        title: titles?.[leaf.id],
-        private: leaf.private,
-        status: statuses?.[leaf.id] ?? null,
-        live: { tabId: t.id, leafId: leaf.id },
-      });
-    }
-  }
-  return rows;
+  sshHosts: Map<string, SshConnection>,
+  sshStatuses: Map<number, SshStatus> | undefined,
+  aiStatuses: Map<number, AiCliStatus>,
+  titles: Record<number, string>,
+): EntryRow[] {
+  return buildEntries(tabs, sshHosts, sshStatuses, aiStatuses).map((entry) => ({
+    entry,
+    title: entry.kind === "pane-leaf" ? titles[entry.leafId] : undefined,
+    live: true,
+  }));
 }
 
-/** Enumerate a persisted workspace's saved terminal leaves (no live status). */
-function savedTermRows(tabs: SavedTab[]): TermRow[] {
-  const rows: TermRow[] = [];
+/**
+ * Rows for a workspace never opened this session: rehydrate the snapshot into
+ * throwaway tabs and run them through the same builder, so a cold workspace
+ * names its panes exactly like a live one. Ids come from a private NEGATIVE
+ * counter - they are display-only, and staying out of the live id space stops
+ * them ever matching `activeLeafId` and false-highlighting a row.
+ */
+function savedRows(tabs: SavedTab[], sshHosts: Map<string, SshConnection>): EntryRow[] {
+  let next = -1;
+  const allocId = () => next--;
+  const entries = buildEntries(
+    tabs.map((t) => savedToTab(t, allocId)),
+    sshHosts,
+  );
+  const titles = savedTitles(tabs);
+  return entries.map((entry, i) => ({ entry, title: titles[i], live: false }));
+}
+
+/**
+ * Persisted OSC titles in the same depth-first order `buildEntries` emits, to be
+ * zipped onto a cold workspace's rows. Live terminals read their title from the
+ * store by leaf id; a restored one has no live id yet and restore drops the
+ * field (it is live state), so position is what's left to pair them by.
+ */
+function savedTitles(tabs: SavedTab[]): (string | undefined)[] {
+  const out: (string | undefined)[] = [];
   const walk = (node: SavedPaneNode) => {
     if (node.kind === "split") {
       node.children.forEach(walk);
       return;
     }
-    if (node.leafKind === "terminal") {
-      rows.push({
-        key: `saved-${rows.length}`,
-        ordinal: node.terminalOrdinal,
-        cwd: node.cwd,
-        title: node.title,
-        private: node.private,
-        status: null,
-        live: null,
-      });
-    }
+    out.push(node.leafKind === "terminal" ? node.title : undefined);
   };
-  for (const t of tabs) if (t.kind === "pane") walk(t.paneTree);
-  return rows;
+  for (const t of tabs) {
+    // A legacy "preview" tab rehydrates as a single browser leaf, so it still
+    // contributes exactly one slot and the two lists stay aligned.
+    if (t.kind === "pane") walk(t.paneTree);
+    else out.push(undefined);
+  }
+  return out;
 }
 
 // Memoized. Props are stable callbacks plus the counts map, so shallow equality skips re-renders.
@@ -170,7 +186,9 @@ function WorkspacesPanelInner({
   liveTabs,
   cachedTabsByWorkspace,
   onFocusLeaf,
+  onRenameLeaf,
   activeLeafId,
+  sshStatuses,
   dragHandle,
   onMoveToRight,
   onMoveToLeft,
@@ -183,9 +201,13 @@ function WorkspacesPanelInner({
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Leaf whose row is currently showing its rename field, or null. Separate from
+  // `editingId` above (a WORKSPACE name) - the two edit different things and can
+  // never be open at once anyway.
+  const [renamingLeafId, setRenamingLeafId] = useState<number | null>(null);
   // dnd-kit active drag id (workspace id), or null when not dragging.
   const [dragId, setDragId] = useState<string | null>(null);
-  // Which workspace rows are expanded to reveal their terminals (session-only).
+  // Which workspace rows are expanded to reveal their tabs (session-only).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const startEdit = (id: string, current: string) => {
@@ -220,15 +242,25 @@ function WorkspacesPanelInner({
   // Live AI CLI status per leaf, written by every running session's detector
   // regardless of attach state - so a hidden workspace's spinner survives.
   const statuses = useAiCliStatuses((s) => s.statuses);
-  // Terminal rows for any workspace: the active one reads the freshest live
-  // tabs; an inactive-but-cached one reads its cached live tabs (leaf ids still
-  // match running sessions, so status resolves); a cold workspace falls back to
-  // its persisted snapshot, which carries no live status.
-  const termRowsFor = (w: Workspace): TermRow[] => {
-    if (w.id === activeId && liveTabs) return liveTermRows(liveTabs, statuses, titles);
+  // Saved hosts, so an SSH pane reads `ssh:<name>` here as it does in the strip.
+  const sshHosts = useSshHosts();
+  // The strip's entry builder takes a Map; the store keeps a Record so a status
+  // push rewrites one key instead of the whole map.
+  const aiStatuses = useMemo(
+    () => new Map<number, AiCliStatus>(Object.entries(statuses).map(([id, s]) => [Number(id), s])),
+    [statuses],
+  );
+  // Rows for any workspace: the active one reads the freshest live tabs; an
+  // inactive-but-cached one reads its cached live tabs (leaf ids still match
+  // running sessions, so status resolves); a cold workspace rehydrates its
+  // persisted snapshot, which carries no live status.
+  const rowsFor = (w: Workspace): EntryRow[] => {
+    if (w.id === activeId && liveTabs)
+      return liveRows(liveTabs, sshHosts, sshStatuses, aiStatuses, titles);
     const cached = cachedTabsByWorkspace?.current.get(w.id);
-    if (cached && cached.tabs.length > 0) return liveTermRows(cached.tabs, statuses, titles);
-    return savedTermRows(w.tabs);
+    if (cached && cached.tabs.length > 0)
+      return liveRows(cached.tabs, sshHosts, sshStatuses, aiStatuses, titles);
+    return savedRows(w.tabs, sshHosts);
   };
 
   const handleDragEnd = (ev: DragEndEvent) => {
@@ -317,10 +349,11 @@ function WorkspacesPanelInner({
                   isExpanded={expanded.has(w.id)}
                   draft={draft}
                   tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
-                  terminals={termRowsFor(w)}
+                  rows={rowsFor(w)}
                   canClose={workspaces.length > 1}
-                  // Editing a name needs an interactive input, so suspend drag for that row.
-                  sortable={editingId !== w.id}
+                  // Editing a name needs an interactive input, so suspend drag
+                  // for the row - whether it is the workspace name or a tab's.
+                  sortable={editingId !== w.id && renamingLeafId === null}
                   onSwitch={onSwitch}
                   onClose={onClose}
                   onStartEdit={startEdit}
@@ -329,6 +362,9 @@ function WorkspacesPanelInner({
                   onCancelEdit={cancelEdit}
                   onToggleExpanded={toggleExpanded}
                   onFocusLeaf={onFocusLeaf}
+                  onRenameLeaf={onRenameLeaf}
+                  renamingLeafId={renamingLeafId}
+                  onSetRenamingLeaf={setRenamingLeafId}
                   activeLeafId={activeLeafId}
                 />
               ))}
@@ -355,7 +391,7 @@ type RowProps = {
   isExpanded: boolean;
   draft: string;
   tabCount: number;
-  terminals: TermRow[];
+  rows: EntryRow[];
   canClose: boolean;
   sortable: boolean;
   onSwitch: (id: string) => void;
@@ -366,6 +402,9 @@ type RowProps = {
   onCancelEdit: () => void;
   onToggleExpanded: (id: string) => void;
   onFocusLeaf?: (tabId: number, leafId: number) => void;
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
+  renamingLeafId: number | null;
+  onSetRenamingLeaf: (leafId: number | null) => void;
   activeLeafId?: number | null;
 };
 
@@ -373,8 +412,8 @@ type RowProps = {
  * One workspace row. The header line is the drag handle (like a tab), so a
  * plain click still switches and a double-click still renames thanks to the
  * sensor's activation distance. The trailing action buttons and the (optional)
- * terminal sub-list stop pointer propagation so interacting with them never
- * starts a drag.
+ * tab sub-list stop pointer propagation so interacting with them never starts a
+ * drag.
  */
 function SortableWorkspaceRow({
   workspace: w,
@@ -383,7 +422,7 @@ function SortableWorkspaceRow({
   isExpanded,
   draft,
   tabCount,
-  terminals,
+  rows,
   canClose,
   sortable,
   onSwitch,
@@ -394,6 +433,9 @@ function SortableWorkspaceRow({
   onCancelEdit,
   onToggleExpanded,
   onFocusLeaf,
+  onRenameLeaf,
+  renamingLeafId,
+  onSetRenamingLeaf,
   activeLeafId,
 }: RowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -405,7 +447,7 @@ function SortableWorkspaceRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const hasTerminals = terminals.length > 0;
+  const hasRows = rows.length > 0;
   const [confirmingClose, setConfirmingClose] = useState(false);
 
   return (
@@ -429,15 +471,15 @@ function SortableWorkspaceRow({
       >
         <button
           type="button"
-          // Stop the drag listeners; a click only toggles the terminal list.
+          // Stop the drag listeners; a click only toggles the tab list.
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => hasTerminals && onToggleExpanded(w.id)}
-          aria-label={isExpanded ? "Collapse terminals" : "Expand terminals"}
+          onClick={() => hasRows && onToggleExpanded(w.id)}
+          aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
           aria-expanded={isExpanded}
-          disabled={!hasTerminals}
+          disabled={!hasRows}
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded",
-            hasTerminals ? "hover:bg-foreground/10" : "opacity-0",
+            hasRows ? "hover:bg-foreground/10" : "opacity-0",
           )}
         >
           {isExpanded ? (
@@ -538,56 +580,192 @@ function SortableWorkspaceRow({
         </AlertDialogContent>
       </AlertDialog>
 
-      {isExpanded && hasTerminals && (
+      {isExpanded && hasRows && (
         // Not a drag surface: stop pointerdown so scrolling/clicking the list
         // never starts a workspace reorder.
         <ul onPointerDown={(e) => e.stopPropagation()} className="mt-0.5 mb-1 flex flex-col gap-px">
-          {terminals.map((t) => {
-            const isActiveTerminal = activeLeafId != null && t.live?.leafId === activeLeafId;
-            return (
-              <li key={t.key}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (t.live && onFocusLeaf) onFocusLeaf(t.live.tabId, t.live.leafId);
-                    else if (!isActive) onSwitch(w.id);
-                  }}
-                  title={t.status ? `${t.cwd ?? "~"} · ${aiCliLabel(t.status)}` : t.cwd}
-                  className={cn(
-                    "relative flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7 text-left text-[11px] transition-colors",
-                    isActiveTerminal
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
-                      : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
-                  )}
-                >
-                  <SquareTerminal
-                    size={11}
-                    strokeWidth={1.75}
-                    className={cn("shrink-0", t.status ? aiCliIconClass(t.status) : "opacity-70")}
-                  />
-                  {t.ordinal != null && (
-                    <span
-                      className={cn(
-                        "inline-flex shrink-0 items-center rounded px-1 py-[2px] font-mono text-[9px] leading-none font-semibold tabular-nums",
-                        t.private
-                          ? "bg-destructive text-background"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {t.ordinal}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {basename(t.cwd) || "~"}
-                    {t.title && t.title !== basename(t.cwd) && t.title !== t.cwd ? (
-                      <span className="opacity-60"> · {t.title}</span>
-                    ) : null}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+          {rows.map((r) => (
+            <EntryRowItem
+              key={r.entry.key}
+              row={r}
+              isActiveLeaf={
+                activeLeafId != null &&
+                r.live &&
+                r.entry.kind === "pane-leaf" &&
+                r.entry.leafId === activeLeafId
+              }
+              renaming={r.live && r.entry.kind === "pane-leaf" && renamingLeafId === r.entry.leafId}
+              onOpen={() => {
+                if (r.live && onFocusLeaf) {
+                  // Standalone tabs have no leaf; -1 matches none, so the tab
+                  // side activates the tab and leaves its panes alone.
+                  onFocusLeaf(r.entry.tabId, r.entry.kind === "pane-leaf" ? r.entry.leafId : -1);
+                } else if (!isActive) onSwitch(w.id);
+              }}
+              onRename={onRenameLeaf}
+              onSetRenaming={onSetRenamingLeaf}
+            />
+          ))}
         </ul>
+      )}
+    </li>
+  );
+}
+
+/**
+ * One tab/pane row under an expanded workspace. Icon, ordinal badge, label and
+ * label colour all come from the tab-strip entry so this list and the strip
+ * cannot drift; only the layout is the panel's own.
+ */
+function EntryRowItem({
+  row,
+  isActiveLeaf,
+  renaming,
+  onOpen,
+  onRename,
+  onSetRenaming,
+}: {
+  row: EntryRow;
+  isActiveLeaf: boolean;
+  renaming: boolean;
+  onOpen: () => void;
+  onRename?: (leafId: number, title: string | null) => void;
+  onSetRenaming: (leafId: number | null) => void;
+}) {
+  const { entry: e, title } = row;
+  const isLeaf = e.kind === "pane-leaf";
+  // Renaming writes `customTitle` on a LEAF, so a standalone tab (SCM, a diff,
+  // an extension tab) has nothing to write to. A cold workspace's ids are
+  // display-only, so its rows are read-only too.
+  const canRename = row.live && isLeaf && !!onRename;
+  const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
+  const sshStatus = e.kind === "pane-leaf" ? e.sshStatus : undefined;
+  const ai = e.kind === "pane-leaf" ? e.aiCliStatus : undefined;
+  const isPrivate = e.kind === "pane-leaf" && e.isPrivate === true;
+  // The OSC title repeats the label often enough (a shell that titles itself
+  // after its folder) that showing both would just read as a stutter.
+  const showTitle = !!title && title !== e.label && title !== cwd;
+  // A remote pane reads its branch over its OWN session, so the answer is the
+  // branch on that box rather than on this one. An ad-hoc connection has no
+  // saved profile but does have a live session, so it resolves here too.
+  const sshSessionId = sshStatus?.kind === "connected" ? sshStatus.sessionId : undefined;
+  // Only a terminal has a working directory to be "on a branch" in. A LOCAL one
+  // answers from its path alone, so an unopened workspace's panes still show
+  // their branch when you expand it - the row is only mounted while expanded, so
+  // asking is the user's own doing. A pane bound to an SSH host is skipped until
+  // its session is up: without one there is nothing to ask, and asking the local
+  // git about a remote path would answer about the wrong machine.
+  const isSshLeaf = e.kind === "pane-leaf" && !!e.sshConnectionId;
+  const isTerminal = e.kind === "pane-leaf" && e.leafKind === "terminal";
+  const branch = useGitBranch(
+    isTerminal && (!isSshLeaf || sshSessionId !== undefined) ? cwd : undefined,
+    sshSessionId,
+  );
+
+  // While renaming, the field replaces the row's button entirely: an <input>
+  // inside a <button> is invalid, and a click on the field would activate the
+  // row underneath it.
+  if (renaming && e.kind === "pane-leaf") {
+    return (
+      <li className="flex h-6 items-center gap-1.5 pr-1.5 pl-7">
+        <EntryIcon entry={e} />
+        <InlineInput
+          initial={e.label}
+          placeholder="Tab name"
+          onCommit={(value) => {
+            onSetRenaming(null);
+            // Blank means "back to the derived name", not an empty tab.
+            onRename?.(e.leafId, value.trim() ? value : null);
+          }}
+          onCancel={() => onSetRenaming(null)}
+        />
+      </li>
+    );
+  }
+
+  const rowButton = (
+    <button
+      type="button"
+      onClick={onOpen}
+      onDoubleClick={() => {
+        if (canRename && e.kind === "pane-leaf") onSetRenaming(e.leafId);
+      }}
+      className={cn(
+        "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
+        // Make room for the hover pencil so it never sits on top of the label.
+        canRename && "group-hover/row:pr-5",
+        isActiveLeaf
+          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
+          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
+      )}
+    >
+      <span className="flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7">
+        <EntryIcon entry={e} />
+        <span className={cn("min-w-0 flex-1 truncate text-left", entryLabelClass(e))}>
+          {e.label}
+          {showTitle ? <span className="opacity-60"> · {title}</span> : null}
+        </span>
+        {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
+      </span>
+      {/* Branch of this pane's working directory. Absent entirely outside a
+          repository, rather than a placeholder row saying nothing. Indented to
+          the label, so the branch reads as belonging to the row above it. */}
+      {branch ? (
+        <span className="text-muted-foreground flex w-full items-center gap-1 pr-1.5 pb-0.5 pl-[1.6rem] text-[10px]">
+          <GitBranch size={9} strokeWidth={2} className="shrink-0 opacity-80" />
+          <span className="min-w-0 truncate">{branch}</span>
+        </span>
+      ) : null}
+    </button>
+  );
+
+  // The pencil is a SIBLING of the row button, not a child: nesting one button
+  // inside another is invalid HTML and the inner one would swallow the row's
+  // own click. Same hover-reveal treatment the workspace row above uses.
+  return (
+    <li className="group/row relative">
+      <Tooltip>
+        <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+        {/* Styled tooltip, not the native `title` attribute this list used to
+            carry: that renders as an unthemed OS box on its own timing, the one
+            odd tooltip among all the themed ones in this panel. */}
+        <TooltipContent side="right">
+          <div className="flex flex-col gap-0.5">
+            <span>{e.label}</span>
+            {cwd ? <span className="text-muted-foreground">{cwd}</span> : null}
+            {sshStatus ? (
+              <span className={statusLabelClass(sshStatus) || "text-muted-foreground"}>
+                {statusLabel(sshStatus)}
+              </span>
+            ) : null}
+            {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
+            {isPrivate ? (
+              <span className="text-destructive">Not visible to the native AI agent</span>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+      {canRename && (
+        <IconTooltip label="Rename" side="right">
+          <Button
+            onClick={() => {
+              if (e.kind === "pane-leaf") onSetRenaming(e.leafId);
+            }}
+            aria-label={`Rename ${e.label}`}
+            variant="ghost"
+            size="icon-sm"
+            className={cn(
+              // `top-1` (not a centered translate): a row carrying a branch line
+              // is two lines tall, and the pencil belongs beside the NAME it
+              // renames, not floating between the two.
+              "absolute top-1 right-1 opacity-0 transition-opacity group-hover/row:opacity-100",
+              "text-muted-foreground size-4 rounded",
+              TOOLBAR_HOVER,
+            )}
+          >
+            <SquarePen size={10} strokeWidth={1.75} />
+          </Button>
+        </IconTooltip>
       )}
     </li>
   );

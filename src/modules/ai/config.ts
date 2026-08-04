@@ -240,7 +240,9 @@ export function friendlyModelLabel(rawId: string): string {
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  "gpt-5.6-sol": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
+  "gpt-5.6-luna": 1_050_000,
   "gpt-5.4-mini": 400_000,
   "gpt-5.3-codex": 400_000,
   "gpt-5.5": 2_000_000,
@@ -288,7 +290,20 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 // tokens on an un-tabled model.
 const FALLBACK_CONTEXT_LIMIT = 256_000;
 export function getModelContextLimit(id: string | undefined): number {
-  return id ? (MODEL_CONTEXT_LIMITS[id] ?? FALLBACK_CONTEXT_LIMIT) : FALLBACK_CONTEXT_LIMIT;
+  if (!id) return FALLBACK_CONTEXT_LIMIT;
+  // OpenAI-compatible selections are namespaced as instance::raw-model. Context
+  // capability belongs to the raw model, not the configured endpoint id.
+  const raw = parseOpenAICompatibleModelId(id)?.rawModelId ?? id;
+  const exact = MODEL_CONTEXT_LIMITS[id] ?? MODEL_CONTEXT_LIMITS[raw];
+  if (exact) return exact;
+  // Runtime catalogues frequently add snapshots/suffixes not present in the
+  // static table. Infer only model families whose window is known and stable;
+  // unknown families retain the conservative fallback.
+  const normalized = raw.toLowerCase();
+  if (/^gpt-5\.6(?:[-.:]|$)/.test(normalized)) return 1_050_000;
+  if (/^gpt-5\.5(?:[-.:]|$)/.test(normalized)) return 2_000_000;
+  if (/^gpt-5\.[34](?:[-.:]|$)/.test(normalized)) return 400_000;
+  return FALLBACK_CONTEXT_LIMIT;
 }
 
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = ["lmstudio"] as const;

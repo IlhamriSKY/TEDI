@@ -349,7 +349,7 @@ export function ThemeSection() {
                   </Button>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     className="h-7 px-2 text-[11px]"
                     onClick={() => setSavePresetName(null)}
@@ -360,7 +360,7 @@ export function ThemeSection() {
               )}
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="h-7 px-2 text-[11px]"
                 onClick={onResetToDefault}

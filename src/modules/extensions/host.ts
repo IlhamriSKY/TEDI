@@ -24,6 +24,10 @@ import {
   type MountedFolderTree,
   type MountFolderTreeOptions,
 } from "./components/mountFolderTree";
+import {
+  closeForwardForConnection as closeSshForwardForConnection,
+  openForwardForConnection as openSshForwardForConnection,
+} from "@/modules/ssh/tunnel";
 import { mountCodeEditor, type CodeEditorHandle, type CodeEditorOptions } from "./codeEditor";
 import {
   aiToolsRegistry,
@@ -407,6 +411,20 @@ export type ExtensionContext = {
      *  from `ssh_list_sessions`). Lets a remote "close tab" tear down the real
      *  desktop tab, not just the SSH session. Returns true if one was closed. */
     closeConnection(sessionId: number): boolean;
+    /** Tunnel `remoteHost:remotePort` (resolved from the SSH server) to a
+     *  loopback port, over a SAVED connection, and return the bound port. For
+     *  reaching a service only a bastion can see - a database in a private
+     *  subnet - without the extension ever handling the SSH credentials.
+     *  Repeat calls for the same target reuse the forward. Refuses a
+     *  connection with no pinned host key, like `openConnection`. */
+    openForward(
+      connectionId: string,
+      remoteHost: string,
+      remotePort: number,
+    ): Promise<{ localPort: number }>;
+    /** Release a forward opened by `openForward`. The underlying session is
+     *  closed once its last forward goes away. */
+    closeForward(connectionId: string, remoteHost: string, remotePort: number): Promise<void>;
   };
   /** AI shell hook. Registers a synchronous transformer that rewrites
    *  commands before `bash_run`, `bash_background`, `run_in_terminal`, and
@@ -887,6 +905,24 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       closeConnection(sessionId) {
         requirePermission(ext.id, declared, "ssh:connections");
         return closeSshConnectionBridge(Number(sessionId));
+      },
+      // Straight to the ssh module rather than through the App-wired bridge:
+      // a forward needs no React, and credentials stay inside `tunnel.ts`.
+      openForward(connectionId, remoteHost, remotePort) {
+        requirePermission(ext.id, declared, "ssh:connections");
+        return openSshForwardForConnection(
+          String(connectionId),
+          String(remoteHost),
+          Number(remotePort),
+        ).then(({ localPort }) => ({ localPort }));
+      },
+      closeForward(connectionId, remoteHost, remotePort) {
+        requirePermission(ext.id, declared, "ssh:connections");
+        return closeSshForwardForConnection(
+          String(connectionId),
+          String(remoteHost),
+          Number(remotePort),
+        );
       },
     },
     shell: {

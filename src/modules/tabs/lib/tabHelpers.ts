@@ -1,5 +1,6 @@
 import { basename } from "@/lib/path";
 import { findLeaf, type PaneLeaf } from "@/modules/terminal/lib/panes";
+import { type SshConnection } from "@/modules/ssh/connections";
 import { type PaneTab, type Tab } from "./tabTypes";
 
 export function titleFromUrl(url: string): string {
@@ -11,22 +12,39 @@ export function titleFromUrl(url: string): string {
   }
 }
 
-/** Derive a tab title from its active leaf. */
-function titleFromLeaf(leaf: PaneLeaf): string {
-  // A name set from the tab's right-click Rename wins. This is the THIRD place
-  // the same label is derived (the tab strip's `entryLabel` and the pane
-  // header's `leafLabel` are the others), and `tab.title` surfaces in places
-  // those two do not - the "Join Group" submenu, for one - so all three have to
-  // agree or a renamed tab shows its old folder name somewhere.
+/**
+ * THE display label for a pane leaf. Single source for every surface that names
+ * one: the tab strip (`buildEntries`), the pane header, `tab.title` (which the
+ * "Join Group" submenu and friends read), and the Workspaces panel's terminal
+ * list. They all have to agree, or a renamed tab keeps showing its old folder
+ * name somewhere.
+ *
+ * `sshHosts` resolves an SSH leaf to `ssh:<name>`; a caller with no connection
+ * map (`tab.title`, which is recomputed before the map is even loaded) gets the
+ * bare "ssh" interim label. `fallbackCwd` is the owning tab's cwd, used only
+ * when the leaf itself carries none.
+ */
+export function leafLabel(
+  leaf: PaneLeaf,
+  sshHosts?: Map<string, SshConnection>,
+  fallbackCwd?: string,
+): string {
+  // A user-set name wins over every derived one. Renaming exists precisely
+  // because "the folder this opened in" is often not what the tab should say,
+  // so nothing below may override it.
   if (leaf.customTitle) return leaf.customTitle;
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
-  // SSH leaves get a real title via syncPaneMirror/newSshTab. This is the interim fallback.
-  if (leaf.sshConnectionId) return "ssh";
-  // Terminal: cwd basename, falling back to "shell".
-  if (leaf.cwd) {
-    const b = basename(leaf.cwd);
+  // SSH leaves: show "ssh:<name>" when the saved connection has a name, else
+  // fall back to the host/IP. Bare "ssh" if the connection was deleted.
+  if (leaf.sshConnectionId) {
+    const conn = sshHosts?.get(leaf.sshConnectionId);
+    if (!conn) return "ssh";
+    return `ssh:${conn.name.trim() || conn.host}`;
+  }
+  for (const cwd of [leaf.cwd, fallbackCwd]) {
+    const b = cwd ? basename(cwd) : "";
     if (b) return b;
   }
   return "shell";
@@ -38,7 +56,7 @@ export function syncPaneMirror(tab: PaneTab): PaneTab {
   if (!leaf) return tab;
   const next: PaneTab = {
     ...tab,
-    title: titleFromLeaf(leaf),
+    title: leafLabel(leaf),
   };
   if (leaf.leafKind === "terminal") {
     next.cwd = leaf.cwd;

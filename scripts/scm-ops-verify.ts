@@ -8,6 +8,7 @@
  * Run: `npx tsx scripts/scm-ops-verify.ts`.
  */
 import { invalidBranchName, isBranchSwitch, makeOps } from "../src/modules/scm/api";
+import { shouldFetch } from "../src/modules/scm/branch";
 
 type Reply = string | Error;
 
@@ -286,6 +287,30 @@ console.log("\nbranch-switch toast");
   ];
   for (const [label, prev, next, want] of CASES) {
     check(label, isBranchSwitch(prev, next), want);
+  }
+}
+
+/**
+ * The Workspaces panel labels every terminal row with its folder's branch, and
+ * it re-renders constantly (an agent's status flips several times a second).
+ * Without this gate that is a `git branch` process per row per render; with it
+ * too tight, a `git switch` in the terminal never shows up in the panel.
+ */
+{
+  console.log("\nbranch cache: when to shell out to git");
+  const now = 1_000_000;
+  const CASES: [string, number | undefined, boolean, boolean][] = [
+    ["a directory never asked about", undefined, false, true],
+    ["a fresh answer is reused", now - 1_000, false, false],
+    ["an answer just past the TTL is refetched", now - 15_000, false, true],
+    ["a stale answer is refetched", now - 60_000, false, true],
+    // Several panes in one repo render together; without this they would each
+    // launch git for the same directory.
+    ["a call already in flight is not doubled", undefined, true, false],
+    ["not even once it is stale", now - 60_000, true, false],
+  ];
+  for (const [label, at, busy, want] of CASES) {
+    check(label, shouldFetch(now, at, busy), want);
   }
 }
 

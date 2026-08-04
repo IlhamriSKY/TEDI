@@ -13,18 +13,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { MAX_PANES_PER_TAB } from "../lib/useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
-import { statusLabel, statusLabelClass } from "@/modules/ssh/status";
+import { hopDotClass, sshHopDetail, statusLabel } from "@/modules/ssh/status";
 import { aiCliLabel } from "@/modules/terminal/lib/aiCliStatus";
 import { X } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
-import {
-  type Entry,
-  type PaneEntry,
-  extensionStateLabelClass,
-  tabAccentClass,
-} from "../lib/entries";
+import { type Entry, type PaneEntry, entryLabelClass, tabAccentClass } from "../lib/entries";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { EntryIcon } from "./EntryIcon";
 import { TrailingIconButton } from "./TrailingIconButton";
@@ -193,19 +188,9 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
             className={cn(
               "truncate",
               e.italic && "italic",
-              // SSH status colors the label text: pulse yellow while connecting,
-              // emerald when connected, red on disconnect/error. Icon stays sky.
-              e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
-              // Extension-driven lifecycle tone (e.g. SQL Explorer signalling
-              // its DB connection state). Same palette as the SSH label — for
-              // both the standalone ext tab and an extension-panel pane leaf.
-              e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
-              e.kind === "pane-leaf" && e.leafKind === "extension-panel"
-                ? extensionStateLabelClass(e.extState)
-                : null,
-              // Private leaves carry the red on the label (not the icon) so the
-              // icon colour stays free to show AI CLI status. Last = wins.
-              e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",
+              // SSH / extension lifecycle / private tone. Shared with the
+              // Workspaces panel so the same entry is the same colour in both.
+              entryLabelClass(e),
             )}
           >
             {e.label}
@@ -359,6 +344,23 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
             </span>
             {sshStatus ? (
               <span className="text-muted-foreground">{statusLabel(sshStatus)}</span>
+            ) : null}
+            {/* The jump chain, when there is one. A tab labelled "prod-db"
+                otherwise gives no hint that it is reached through a bastion,
+                and the status bar only ever shows the ACTIVE pane's route. */}
+            {sshStatus?.route?.length ? (
+              <span className="text-muted-foreground flex flex-col gap-0.5 pt-0.5">
+                {sshStatus.route.map((hop, i) => (
+                  <span key={`${hop.host}-${i}`} className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className={cn("size-1.5 shrink-0 rounded-full", hopDotClass(hop.state))}
+                    />
+                    <span className="font-mono">{sshHopDetail(hop)}</span>
+                    <span>{hop.isTarget ? "· target" : "· jump"}</span>
+                  </span>
+                ))}
+              </span>
             ) : null}
             {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
             {isPrivate ? <span className="text-destructive">{PRIVATE_HINT}</span> : null}

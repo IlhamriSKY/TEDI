@@ -1,11 +1,11 @@
-import { basename } from "@/lib/path";
+import { cn } from "@/lib/utils";
 import { type PaneLeaf, isRemoteEditorLeaf, leaves } from "@/modules/terminal/lib/panes";
 import { type ExtensionTabState } from "./useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
-import { type SshStatus } from "@/modules/ssh/status";
+import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { Tab } from "./useTabs";
-import { titleFromUrl } from "./tabHelpers";
+import { leafLabel } from "./tabHelpers";
 
 /**
  * Tab strip entries: one per pane for pane tabs, one per tab for preview
@@ -34,6 +34,9 @@ export type PaneEntry = EntryBase & {
   /** 1-based FIFO badge number for terminal + browser leaves. For terminals
    *  this is the same identifier the AI sees in `<env>`. */
   ordinal?: number;
+  /** Working directory of a terminal leaf. Only consumed by hover surfaces (the
+   *  Workspaces panel's tooltip); the label itself is already derived. */
+  cwd?: string;
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
   /** Latest SSH session status. Drives the colored dot. */
@@ -126,34 +129,29 @@ export function extensionStateLabelClass(state: ExtensionTabState | undefined): 
   }
 }
 
-function entryLabel(
-  leaf: PaneLeaf,
-  fallbackCwd: string | undefined,
-  sshHosts: Map<string, SshConnection>,
-): string {
-  // A user-set name wins over every derived one. Renaming exists precisely
-  // because "the folder this opened in" is often not what the tab should say,
-  // so nothing below may override it.
-  if (leaf.customTitle) return leaf.customTitle;
-  if (leaf.leafKind === "editor") return basename(leaf.path);
-  if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
-  if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
-  // SSH leaves: show "ssh:<name>" when the saved connection has a name, else
-  // fall back to the host/IP. Bare "ssh" if the connection was deleted.
-  if (leaf.sshConnectionId) {
-    const conn = sshHosts.get(leaf.sshConnectionId);
-    if (!conn) return "ssh";
-    return `ssh:${conn.name.trim() || conn.host}`;
-  }
-  if (leaf.cwd) {
-    const b = basename(leaf.cwd);
-    if (b) return b;
-  }
-  if (fallbackCwd) {
-    const b = basename(fallbackCwd);
-    if (b) return b;
-  }
-  return "shell";
+/**
+ * Tailwind `text-*` tone for an entry's LABEL: SSH session state, extension
+ * lifecycle state (a SQL Explorer's DB connection, say), then private, which
+ * wins because "the AI cannot see this" outranks any liveness colour.
+ *
+ * Shared by the tab strip and the Workspaces panel so one connected host is
+ * green in both places instead of green in the strip and grey in the panel.
+ */
+export function entryLabelClass(e: Entry): string {
+  return cn(
+    // Pulse yellow while connecting, emerald when connected, red on
+    // disconnect/error. The icon stays sky so the two signals don't collide.
+    e.kind === "pane-leaf" && e.sshConnectionId ? statusLabelClass(e.sshStatus) : null,
+    // Same palette, driven by the extension via `ctx.tabs.setExtensionTabState`,
+    // for both the standalone ext tab and an extension-panel pane leaf.
+    e.kind === "ext" ? extensionStateLabelClass(e.state) : null,
+    e.kind === "pane-leaf" && e.leafKind === "extension-panel"
+      ? extensionStateLabelClass(e.extState)
+      : null,
+    // Private leaves carry the red on the label (not the icon) so the icon
+    // colour stays free for AI CLI status. Last = wins.
+    e.kind === "pane-leaf" && e.isPrivate === true && "text-destructive",
+  );
 }
 
 export function buildEntries(
@@ -166,7 +164,7 @@ export function buildEntries(
   for (const t of tabs) {
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
-        const label = entryLabel(leaf, t.cwd, sshHosts);
+        const label = leafLabel(leaf, sshHosts, t.cwd);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         // FIFO ordinal assigned at leaf creation. Preserved through drag,
         // reorder, move-to-group, and workspace restarts. Terminals use the
@@ -189,6 +187,7 @@ export function buildEntries(
           leafId: leaf.id,
           leafKind: leaf.leafKind,
           browserUrl: leaf.leafKind === "browser" ? leaf.url : undefined,
+          cwd: leaf.leafKind === "terminal" ? leaf.cwd : undefined,
           label,
           ordinal: ord,
           italic:

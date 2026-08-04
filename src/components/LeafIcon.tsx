@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { CliAgentIcon } from "./CliAgentIcon";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { BrowserFavicon } from "@/modules/browser/BrowserFavicon";
 import { aiCliIconClass, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
@@ -102,10 +103,26 @@ export function LeafIcon({
     return <Icon size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
   }
 
-  // Terminal: cloud for SSH, local terminal otherwise; tinted by AI CLI status.
+  // A running agent replaces the terminal shape with its own vendor mark, so a
+  // wall of terminals is readable at a glance: which one is Claude, which is
+  // Codex, which is Gemini. It outranks the SSH cloud - "remote" is already
+  // carried by the `ssh:<host>` label and its status colour, while WHICH agent
+  // is running has nowhere else to show. The status tint still applies, so the
+  // mark keeps breathing green/yellow/red exactly as the terminal glyph did.
+  if (info.aiCliStatus) {
+    return (
+      <CliAgentIcon
+        agentId={info.aiCliStatus.tool}
+        size={size}
+        className={cn("shrink-0", className, aiTint)}
+      />
+    );
+  }
+
+  // Terminal: cloud for SSH, local terminal otherwise.
   return info.isSsh ? (
-    <Server size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />
+    <Server size={size} strokeWidth={2} className={cn("shrink-0", className)} />
   ) : (
-    <SquareTerminal size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />
+    <SquareTerminal size={size} strokeWidth={2} className={cn("shrink-0", className)} />
   );
 }

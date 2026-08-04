@@ -18,6 +18,7 @@ import {
 } from "../lib/messageBody";
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
+import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
 import { SLASH_COMMANDS, skillSlashCommands } from "../lib/slashCommands";
@@ -218,6 +219,7 @@ export function AiChatView({
   addToolApprovalResponse,
 }: Props) {
   const isBusy = status === "submitted" || status === "streaming";
+  const activity = useChatStore((s) => s.agentMeta.step);
   const lastMessage = messages[messages.length - 1];
   const streamingMessageId =
     status === "streaming" && lastMessage?.role === "assistant" ? lastMessage.id : null;
@@ -263,7 +265,9 @@ export function AiChatView({
             isLastUser={m.id === lastUserMessageId}
           />
         ))}
-        {isBusy && <RunningIndicator waiting={status === "submitted"} />}
+        {isBusy && (
+          <RunningIndicator waiting={status === "submitted"} activity={activity} />
+        )}
         {error && (
           <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
             <div className="font-medium">Something went wrong.</div>
@@ -573,32 +577,49 @@ const RenderedTool = memo(function RenderedTool({
  * provider) left a completely static screen with no way to tell running from
  * hung. The dots animate and the clock ticks: both stop dead if the app does.
  */
-function RunningIndicator({ waiting }: { waiting: boolean }) {
+function readableActivity(activity: string | null, waiting: boolean): string {
+  if (waiting) return "Waiting for the model";
+  if (!activity) return "Thinking about the next step";
+  const clean = activity.replace(/…/g, "").replace(/\s+/g, " ").trim();
+  const translations: Array<[RegExp, string]> = [
+    [/^Grepping\s+(.+)$/i, "Searching code for $1"],
+    [/^Globbing\s+(.+)$/i, "Finding files matching $1"],
+    [/^Listing\s+(.+)$/i, "Checking files in $1"],
+    [/^Fetching\s+(.+)$/i, "Loading $1"],
+    [/^Calling\s+(.+)$/i, "Using $1"],
+    [/^Spawning\s+(.+)$/i, "Starting $1"],
+  ];
+  for (const [pattern, replacement] of translations) {
+    if (pattern.test(clean)) return clean.replace(pattern, replacement);
+  }
+  return clean;
+}
+
+function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: string | null }) {
   // Mounts when the turn starts and unmounts when it settles, so elapsed is
   // time-in-turn. `true`: while mounted, the turn is by definition running.
   const elapsed = useElapsedSince(true);
+  const label = readableActivity(activity, waiting);
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-      className={cn("text-muted-foreground flex w-fit items-center gap-2 text-[11.5px]")}
+      className="border-border/50 bg-muted/25 text-muted-foreground flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11.5px] shadow-sm"
       role="status"
-      aria-label="Agent is running"
+      aria-label={`AI status: ${label}`}
     >
-      <span className="flex items-center gap-1">
+      <span className="border-border/60 bg-background flex shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-1 shadow-xs">
         <ThinkingDot delay={0} />
         <ThinkingDot delay={0.18} />
         <ThinkingDot delay={0.36} />
       </span>
-      {/* "Waiting" only until the first byte comes back; after that the model
-          is demonstrably answering, whatever it is doing between tool calls. */}
-      <span className="leading-none">{waiting ? "Waiting for the model…" : "Working…"}</span>
-      {/* aria-hidden: `role="status"` makes this line a live region, and a
-          clock that changes every second would be read out every second. */}
+      <span className="min-w-0 flex-1 truncate leading-none" title={label}>
+        {label}
+      </span>
       {elapsed >= 1000 ? (
-        <span aria-hidden className="font-mono text-[10.5px] tabular-nums opacity-70">
+        <span aria-hidden className="border-border/50 bg-background shrink-0 rounded px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums opacity-80">
           {formatElapsed(elapsed)}
         </span>
       ) : null}

@@ -353,6 +353,12 @@ export type SidebarSection = {
   onItemToggle?: (itemId: string) => void;
   /** Click a row's hover action (`itemId`, `actionId`). */
   onItemAction?: (itemId: string, actionId: string) => void;
+  /** Right-click a row. `at` is the pointer position in viewport coordinates,
+   *  so the extension can open its own menu there. Rows carry only a handful
+   *  of hover actions; a tree (a database schema, a file list) usually needs a
+   *  longer per-node menu than that, and this is how it gets one. The host
+   *  suppresses the native menu when this is set. */
+  onItemContextMenu?: (itemId: string, at: { x: number; y: number }) => void;
   /** Click a header action (`actionId`). */
   onHeaderAction?: (actionId: string) => void;
 };

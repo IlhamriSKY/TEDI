@@ -3,6 +3,13 @@ import { z } from "zod";
 import { dispatchFsRefreshForFile } from "@/modules/explorer/lib/fsRefresh";
 import { recordFileMutation } from "../lib/checkpoint";
 import { lineAt, lineSpan, MAX_REPORTED_HUNKS, totalLines, type EditHunk } from "../lib/lineStats";
+
+const EDIT_PREVIEW_MAX_CHARS = 12_000;
+
+function previewText(value: string): { text: string; clipped: boolean } {
+  if (value.length <= EDIT_PREVIEW_MAX_CHARS) return { text: value, clipped: false };
+  return { text: value.slice(0, EDIT_PREVIEW_MAX_CHARS), clipped: true };
+}
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
 import { notifySkillPathChanged } from "../lib/skillCache";
@@ -68,10 +75,15 @@ async function applyEditsLocked(
   const hunks: EditHunk[] = [];
   const recordHunk = (offset: number, oldS: string, newS: string) => {
     if (hunks.length >= MAX_REPORTED_HUNKS) return;
+    const removedPreview = previewText(oldS);
+    const addedPreview = previewText(newS);
     hunks.push({
       line: lineAt(content, offset),
       removed: lineSpan(oldS),
       added: lineSpan(newS),
+      removedText: removedPreview.text,
+      addedText: addedPreview.text,
+      previewClipped: removedPreview.clipped || addedPreview.clipped,
     });
   };
 

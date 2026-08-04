@@ -152,7 +152,7 @@ export function TerminalThemePanel() {
             </Button>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-7 px-2 text-[11px]"
               onClick={onReset}

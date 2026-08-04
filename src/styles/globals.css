@@ -337,6 +337,20 @@
   --input: color-mix(in srgb, var(--foreground) 26%, transparent);
 }
 
+/* Fallback outline-button border, for the first paint (before applyCustomTheme
+ * writes the theme) and for imported themes predating the `buttonBorder` key.
+ * Both used to land on --border, which is a hairline tuned to separate panels,
+ * not to draw a control: at #383838 on #1a1a1a it is 1.5:1, and on a dialog
+ * (#363636) it is 1.06:1 - the Cancel button was genuinely invisible.
+ * Derived from --foreground rather than a fixed hex so one declaration serves
+ * light, dark and glass, and so it lightens whatever surface it lands on. 50%
+ * is the mix that clears the 3:1 WCAG floor for a control boundary against
+ * every surface in the app (see scripts/theme-verify.ts). A theme's own value
+ * still wins: applyCustomTheme sets it inline on <html>. */
+:root {
+  --tedi-button-border: color-mix(in srgb, var(--foreground) 50%, transparent);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

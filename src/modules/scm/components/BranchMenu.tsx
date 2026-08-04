@@ -215,7 +215,7 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
             <p className="text-destructive text-[11px]">{invalidBranchName(newName)}</p>
           ) : null}
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setCreating(false)}>
+            <Button variant="outline" size="sm" onClick={() => setCreating(false)}>
               Cancel
             </Button>
             <Button
@@ -248,7 +248,7 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
+            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
               Cancel
             </Button>
             <Button

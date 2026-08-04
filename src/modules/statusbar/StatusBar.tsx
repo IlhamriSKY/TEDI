@@ -14,6 +14,8 @@ import {
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
+import { SshRoutePill } from "@/modules/ssh/SshRoutePill";
+import type { SshRouteHop } from "@/modules/ssh/status";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setStatusBarCompact } from "@/modules/settings/store";
 import { UpdaterPill } from "@/modules/updater";
@@ -21,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomControl } from "./ZoomControl";
-import { ChevronsLeft, ChevronsRight, GitBranch, Server } from "lucide-react";
+import { Eye, EyeOff, GitBranch, Server } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -39,6 +41,10 @@ type Props = {
    *  the breadcrumb browse subfolders remotely instead of hitting the local
    *  filesystem with a remote path. */
   sshSessionId?: number | null;
+  /** ProxyJump chain of the active SSH leaf, when it has one. Takes the slot
+   *  the local-OS badge vacates on an SSH pane, which is the honest thing to
+   *  put there: what this shell is actually reached through. */
+  sshRoute?: SshRouteHop[];
 };
 
 /** Hairline between two status-bar groups. Purely a reading aid: the row used
@@ -58,6 +64,7 @@ function StatusBarInner({
   hasAnySshLeaf,
   activeIsSsh,
   sshSessionId,
+  sshRoute,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -66,9 +73,15 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-        {/* Hidden while the active pane is a live SSH session: the breadcrumb
-            already shows the remote path, so the local-OS badge would mislead. */}
-        {activeIsSsh ? null : <OsBadge />}
+        {/* One slot, two readings of "where am I". A jump chain wins whenever
+            there is one - deliberately NOT gated on `activeIsSsh`, which is
+            only true once the session is fully connected: the route is most
+            worth showing while the chain is still coming up, and afterwards if
+            it broke. Otherwise the local-OS badge, except on a connected SSH
+            pane where it would misdescribe the remote shell the breadcrumb
+            points at. A direct connection has no route, so that case is
+            unchanged: an empty slot. */}
+        {sshRoute?.length ? <SshRoutePill route={sshRoute} /> : activeIsSsh ? null : <OsBadge />}
         <CwdBreadcrumb
           cwd={cwd}
           filePath={filePath}
@@ -137,7 +150,7 @@ export const StatusBar = memo(StatusBarInner);
  */
 function CompactToggle({ compact }: { compact: boolean }) {
   const label = compact ? "Show all status bar items" : "Compact status bar";
-  const Icon = compact ? ChevronsLeft : ChevronsRight;
+  const Icon = compact ? Eye : EyeOff;
   return (
     <IconTooltip label={label} side="top">
       <button

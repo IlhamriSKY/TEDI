@@ -14,6 +14,7 @@ import {
   type BuiltinSectionId,
 } from "@/modules/extensions";
 import { WorkspacesPanel } from "@/modules/workspaces";
+import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { Suspense, type ReactNode, type RefObject } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
@@ -49,7 +50,9 @@ type Props = {
     liveTabs: Tab[];
     cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
     onFocusLeaf: (tabId: number, leafId: number) => void;
+    onRenameLeaf: (leafId: number, title: string | null) => void;
     activeLeafId: number | null;
+    sshStatuses: Map<number, SshStatus>;
   };
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
 
@@ -198,7 +201,9 @@ export function AppRightSlot({
               liveTabs={workspacesSection.liveTabs}
               cachedTabsByWorkspace={workspacesSection.cachedTabsByWorkspace}
               onFocusLeaf={workspacesSection.onFocusLeaf}
+              onRenameLeaf={workspacesSection.onRenameLeaf}
               activeLeafId={workspacesSection.activeLeafId}
+              sshStatuses={workspacesSection.sshStatuses}
               dragHandle={controls}
               onMoveToLeft={() => dockLeft("workspaces")}
               onClosePanel={() =>

@@ -673,7 +673,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                   </span>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     className="h-6 shrink-0 px-2 text-[10.5px]"
                     onClick={() => void forgetPinnedKey()}

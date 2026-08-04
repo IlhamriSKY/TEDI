@@ -4,7 +4,7 @@ import type { WebglAddon } from "@xterm/addon-webgl";
 import type { Terminal } from "@xterm/xterm";
 import type { TediOpenInput, TediSpawnTabInput } from "./osc-handlers";
 import type { PtySession } from "./pty-bridge";
-import type { SshStatus } from "@/modules/ssh/status";
+import type { SshRouteHop, SshStatus } from "@/modules/ssh/status";
 import type { AiCliDetector } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
 import type { TerminalPalette } from "@/modules/settings/terminalPalette";
@@ -125,6 +125,13 @@ export type Session = {
   // SSH-only fields. Ignored on local PTY leaves.
   /** Latest emitted SSH status. */
   sshStatus: SshStatus;
+  /**
+   * ProxyJump chain for this leaf, in connect order, rebuilt on every open (so
+   * an edited chain is picked up on reconnect). Attached to every status this
+   * leaf emits by `emitSshStatus`, so the UI never has to ask for it. Null on a
+   * direct connection - see `SshRouteHop`.
+   */
+  sshRoute: SshRouteHop[] | null;
   /** Set when the user closed the SSH session, so auto-reconnect skips. */
   sshUserClose: boolean;
   /** Current reconnect attempt number (1-based). */

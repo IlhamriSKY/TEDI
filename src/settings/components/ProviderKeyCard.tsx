@@ -124,7 +124,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
             {currentKey ? (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="outline"
                 onClick={cancel}
                 disabled={saving}
                 className="h-8 px-2 text-[11px]"

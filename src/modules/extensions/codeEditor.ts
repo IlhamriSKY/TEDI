@@ -85,6 +85,13 @@ export type CodeEditorOptions = {
 export type CodeEditorHandle = {
   setValue(value: string): void;
   getValue(): string;
+  /** The selected text, or `""` when the selection is empty. Lets an
+   *  extension implement "run only what I highlighted", which every SQL /
+   *  script console offers and `getValue()` alone can't express. */
+  getSelection(): string;
+  /** Caret offset in the document. Pairs with `getValue()` so an extension
+   *  can work out which statement the caret sits in. */
+  getCursor(): number;
   focus(): void;
   setLanguage(language: CodeEditorLanguage): void;
   dispose(): void;
@@ -394,6 +401,13 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
     },
     getValue() {
       return view.state.doc.toString();
+    },
+    getSelection() {
+      const { from, to } = view.state.selection.main;
+      return from === to ? "" : view.state.sliceDoc(from, to);
+    },
+    getCursor() {
+      return view.state.selection.main.head;
     },
     focus() {
       view.focus();

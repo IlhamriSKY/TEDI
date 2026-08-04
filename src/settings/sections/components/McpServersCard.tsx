@@ -354,7 +354,7 @@ export function McpServersCard() {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               className="h-7 text-[11px]"
               onClick={() => setEditing(null)}
             >

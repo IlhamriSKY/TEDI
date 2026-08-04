@@ -16,6 +16,10 @@ export type EditHunk = {
   removed: number;
   /** Lines the new text spans. */
   added: number;
+  /** Compact source snippets rendered as red/green diff rows in chat. */
+  removedText?: string;
+  addedText?: string;
+  previewClipped?: boolean;
 };
 
 /** Kept small: this rides in the model's context on every edit. */
@@ -62,11 +66,17 @@ export function parseHunks(value: unknown): EditHunk[] {
     if (typeof h.line !== "number" || !Number.isFinite(h.line) || h.line < 1) continue;
     const added = typeof h.added === "number" && Number.isFinite(h.added) ? h.added : 0;
     const removed = typeof h.removed === "number" && Number.isFinite(h.removed) ? h.removed : 0;
-    out.push({
+    const removedText = typeof h.removedText === "string" ? h.removedText : undefined;
+    const addedText = typeof h.addedText === "string" ? h.addedText : undefined;
+    const parsed: EditHunk = {
       line: Math.floor(h.line),
       added: Math.max(0, added),
       removed: Math.max(0, removed),
-    });
+    };
+    if (removedText !== undefined) parsed.removedText = removedText;
+    if (addedText !== undefined) parsed.addedText = addedText;
+    if (h.previewClipped === true) parsed.previewClipped = true;
+    out.push(parsed);
     if (out.length >= MAX_REPORTED_HUNKS) break;
   }
   return out;

@@ -276,7 +276,9 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
   }
 
   const baselineMessageCount = cp.baselineMessageCount;
-  checkpoints.delete(sessionId);
+  // Keep the checkpoint when any file could not be restored. Clearing it here
+  // made a partial failure irreversible because Retry no longer had snapshots.
+  if (failures.length === 0) checkpoints.delete(sessionId);
   notifyDirectly();
   return { baselineMessageCount, restoredCount, skipped, failures };
 }

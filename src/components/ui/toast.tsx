@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -18,6 +18,7 @@ type ToastItem = {
   message: string;
   variant: ToastVariant;
   durationMs: number;
+  icon?: ReactNode;
 };
 
 const listeners = new Set<(t: ToastItem) => void>();
@@ -31,13 +32,28 @@ const MAX_VISIBLE = 5;
 /** Must match the leave animation duration below. */
 const LEAVE_MS = 160;
 
-export function toast(message: string, options?: { variant?: ToastVariant; durationMs?: number }) {
+export function toast(
+  message: string,
+  options?: {
+    variant?: ToastVariant;
+    durationMs?: number;
+    /**
+     * Replaces the variant's generic glyph, for a toast whose subject has a
+     * mark of its own - an agent's vendor logo on "Claude Code finished" says
+     * WHICH of six running agents wants you far faster than the message text
+     * does. The variant still owns every colour, so the card reads the same.
+     * Build it with `createElement` from a non-JSX caller.
+     */
+    icon?: ReactNode;
+  },
+) {
   const variant = options?.variant ?? "default";
   const item: ToastItem = {
     id: nextId++,
     message,
     variant,
     durationMs: options?.durationMs ?? (variant === "error" ? ERROR_MS : DEFAULT_MS),
+    icon: options?.icon,
   };
   for (const l of listeners) l(item);
 }
@@ -135,7 +151,13 @@ function ToastCard({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
           : "animate-in fade-in slide-in-from-right-3 duration-200 ease-out",
       )}
     >
-      <Icon size={14} strokeWidth={2} className={cn("mt-px shrink-0", fg)} />
+      {/* A caller-supplied mark keeps the variant's colour, so a Claude toast is
+          still the green "success" card - just with Anthropic's glyph on it. */}
+      {item.icon ? (
+        <span className={cn("mt-px flex shrink-0 items-center", fg)}>{item.icon}</span>
+      ) : (
+        <Icon size={14} strokeWidth={2} className={cn("mt-px shrink-0", fg)} />
+      )}
       <span className="min-w-0 flex-1 leading-snug break-words">{item.message}</span>
       <button
         type="button"

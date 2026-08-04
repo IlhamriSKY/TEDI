@@ -205,7 +205,7 @@ export function GeneralSection() {
             </span>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-7 shrink-0 px-2 text-[11px]"
               disabled={zoomDraft === UI_ZOOM_DEFAULT}
@@ -588,7 +588,7 @@ function SoundSetting({
           />
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
             className="h-8 px-2 text-[11px]"
             onClick={() => previewNotificationSound(kind, value)}
             title="Preview"
@@ -598,7 +598,7 @@ function SoundSetting({
           <UploadButton onClick={() => inputRef.current?.click()}>Upload</UploadButton>
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
             className="h-8 px-2 text-[11px]"
             disabled={!isCustom}
             onClick={() => {

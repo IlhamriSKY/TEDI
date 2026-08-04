@@ -4,14 +4,10 @@ import { leaves, type PaneEdge, type SplitDir } from "@/modules/terminal/lib/pan
 import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshConnectionBinding, SshStatus } from "@/modules/ssh/status";
-import {
-  listConnections,
-  onConnectionsChanged,
-  type SshConnection,
-} from "@/modules/ssh/connections";
+import { useSshHosts } from "@/modules/ssh/connections";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
 
 type Props = {
@@ -112,18 +108,9 @@ export function PaneStack({
   );
 
   // Resolve a leaf's `sshConnectionId` to a host for the `ssh:<host>` header
-  // label. Loaded here (not per-leaf) and refreshed on connection changes,
-  // mirroring the tab strip so both read identically.
-  const [sshHosts, setSshHosts] = useState<Map<string, SshConnection>>(() => new Map());
-  useEffect(() => {
-    const load = () =>
-      void listConnections().then((list) => setSshHosts(new Map(list.map((c) => [c.id, c]))));
-    load();
-    const unsub = onConnectionsChanged(load);
-    return () => {
-      void unsub.then((fn) => fn());
-    };
-  }, []);
+  // label. Read here (not per-leaf), from the same hook the tab strip and the
+  // Workspaces panel use, so all three read identically.
+  const sshHosts = useSshHosts();
 
   // Stable refs for per-leaf callbacks. Re-creating bundles would tear down PTY/editor state.
   // Bundles are only invoked from post-commit PTY/editor/async callbacks, so a render-time ref

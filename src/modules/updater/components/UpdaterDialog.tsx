@@ -122,7 +122,7 @@ export function UpdaterDialog({
               <div className="border-border/60 bg-muted/40 flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-[12px]">
                 <span className="flex-1 select-all">$ {activeCommand}</span>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className="h-7 px-2 text-[11px]"
                   onClick={() => void copyCommand()}

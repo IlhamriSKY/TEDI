@@ -146,5 +146,38 @@ for (const p of THEME_PRESETS) {
   }
 }
 
+// An outline button is drawn by its border alone, so that border is the whole
+// affordance - and every preset shipped one tuned as a decorative hairline
+// against nothing in particular. Default/dark was 1.06:1 on a dialog: the
+// Cancel button was invisible. WCAG 1.4.11 puts the floor for a control
+// boundary at 3:1, and the border has to clear it on EVERY surface a button
+// sits on, so it is measured against the worst of them - the lightest under a
+// dark theme, the darkest under a light one.
+const SURFACES = ["background", "card", "popover"] as const;
+const luminance = (hex: string): number =>
+  [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+    .reduce((acc, c, i) => acc + c * [0.2126, 0.7152, 0.0722][i], 0);
+const contrast = (a: string, b: string): number => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+for (const p of THEME_PRESETS) {
+  for (const variant of ["dark", "light"] as const) {
+    const colors = p[variant] as Record<string, string>;
+    const worst = SURFACES.map((s) => colors[s]).sort(
+      (a, b) => contrast(colors.buttonBorder, a) - contrast(colors.buttonBorder, b),
+    )[0];
+    const ratio = contrast(colors.buttonBorder, worst);
+    check(`${p.name} ${variant} button border is visible`, ratio >= 3, {
+      buttonBorder: colors.buttonBorder,
+      worstSurface: worst,
+      ratio: Number(ratio.toFixed(2)),
+    });
+  }
+}
+
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");

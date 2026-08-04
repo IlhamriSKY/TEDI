@@ -744,37 +744,31 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   hydrateSessions: async () => {
     if (get().sessionsHydrated) return;
-    const { sessions } = await loadAll();
+    const { sessions, activeId } = await loadAll();
 
-    // Reuse the most recent untitled "New chat" if present; otherwise prepend a fresh one.
-    const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
-    let nextSessions: SessionMeta[];
-    let freshId: string;
-    if (reusable) {
-      nextSessions = sessions;
-      freshId = reusable.id;
-      // Seed the reused session's persisted messages (mirroring switchSession)
-      // BEFORE it mounts — a "New chat" title can still hold messages (image /
-      // selection-only sends). Without this the chat mounts empty and the
-      // debounced persist overwrites its on-disk conversation with [].
-      const persisted = await loadMessages(reusable.id);
-      if (persisted && persisted.length > 0) seedMessages.set(reusable.id, persisted);
-    } else {
-      freshId = newSessionId();
+    // Resume the last active conversation exactly as it was. Creating a fresh
+    // chat on every launch made history look persisted while hiding the user's
+    // latest turn behind a new session.
+    let nextSessions = sessions;
+    let resumeId = activeId && sessions.some((s) => s.id === activeId) ? activeId : sessions[0]?.id;
+    if (!resumeId) {
+      resumeId = newSessionId();
       const fresh: SessionMeta = {
-        id: freshId,
+        id: resumeId,
         title: "New chat",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      nextSessions = [fresh, ...sessions];
-      void saveSessionsList(nextSessions);
+      nextSessions = [fresh];
+      await saveSessionsList(nextSessions);
     }
-    void saveActiveId(freshId);
+    const persisted = await loadMessages(resumeId);
+    if (persisted && persisted.length > 0) seedMessages.set(resumeId, persisted);
+    await saveActiveId(resumeId);
 
     set({
       sessions: nextSessions,
-      activeSessionId: freshId,
+      activeSessionId: resumeId,
       sessionsHydrated: true,
     });
   },
@@ -1005,6 +999,14 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
 
     const outcome = await restoreCheckpoint(sessionId);
     if (!outcome) return null;
+    if (outcome.failures.length > 0) {
+      toast(`Restore incomplete: ${outcome.failures.join("; ")}`, {
+        variant: "error",
+      });
+      // Preserve this turn so the retained checkpoint stays attached to the
+      // correct prompt and the user can retry safely.
+      return null;
+    }
 
     // Trim history to the pre-user-turn baseline.
     const trimmed = c.messages.slice(0, outcome.baselineMessageCount);
@@ -1012,7 +1014,8 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
     // Persist now so a session switch before the debounced write doesn't
     // lose the truncation.
     flushPersist(sessionId);
-    void saveMessages(sessionId, trimmed);
+    await saveMessages(sessionId, trimmed);
+    await saveNow();
 
     // Clear read-before-edit knowledge. Trimmed history no longer contains
     // the read_file results, so the next turn must re-read.

@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.4.8"
+version = "0.4.9"
 description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -126,6 +126,16 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 # fingerprint in the install-review dialog; not used as a trust anchor).
 sha2 = "0.10"
 hex = "0.4"
+# PBKDF2 + AES-256-GCM + CSPRNG for the passphrase-encrypted SSH connection
+# backup (`modules/backup.rs`). Already in the tree as russh's crypto backend
+# (`features = ["ring"]`), so this only promotes a transitive dependency to a
+# direct one - no new code is compiled and no new supply-chain surface is
+# added. Taken over the RustCrypto stack (aes-gcm + pbkdf2 + hmac, also
+# transitively present) because one audited crate covers the KDF, the AEAD and
+# the random source, so there is a single place to get the nonce handling
+# right. The webview cannot do this itself: `crypto.subtle` is secure-context
+# only and the app origin is plain http.
+ring = "0.17"
 # Arrow-key `Select` prompt for interactive `tedi ext` subcommands when
 # the user omits the target argument. Default features bring `editor` /
 # `history` / `password` / fuzzy which we don't use; the bare Select widget

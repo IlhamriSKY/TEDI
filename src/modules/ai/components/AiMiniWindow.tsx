@@ -7,12 +7,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import { memo, useEffect, useMemo, type ReactNode } from "react";
-import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
@@ -102,15 +100,13 @@ function Body({
   dragHandle?: ReactNode;
 }) {
   const focusInput = useChatStore((s) => s.focusInput);
-  const step = useChatStore((s) => s.agentMeta.step);
 
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
   const helpers = useChat<UIMessage>({ chat });
-  const isBusy = helpers.status === "submitted" || helpers.status === "streaming";
 
   return (
     <>
-      <Header step={step} isBusy={isBusy} onClose={onClose} dragHandle={dragHandle} />
+      <Header onClose={onClose} dragHandle={dragHandle} />
 
       <PlanModeStrip />
 
@@ -165,7 +161,7 @@ function PlanModeStrip() {
 function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?: ReactNode }) {
   return (
     <>
-      <Header step={null} isBusy={false} onClose={onClose} dragHandle={dragHandle} />
+      <Header onClose={onClose} dragHandle={dragHandle} />
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-[11px]">
         Loading sessions…
       </div>
@@ -174,20 +170,12 @@ function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?:
 }
 
 function Header({
-  step,
-  isBusy,
   onClose,
   dragHandle,
 }: {
-  step: string | null;
-  isBusy: boolean;
   onClose: () => void;
   dragHandle?: ReactNode;
 }) {
-  // Turn clock, mirrored from the chat's own indicator. The header never
-  // scrolls away, so this is the one "still running" signal that survives
-  // scrolling back through a long conversation.
-  const elapsed = useElapsedSince(isBusy);
   return (
     // A container, so the header can drop what does not fit at the width the
     // user actually dragged the column to (the panel is resizable, so a media
@@ -202,28 +190,6 @@ function Header({
           button on the left, but without this the close X sat hard against the
           panel's right border. */}
       <div className="flex min-w-0 shrink items-center gap-0.5 pr-2">
-        {isBusy ? (
-          <span className="text-muted-foreground flex min-w-0 items-center gap-1 pr-1 text-[10px]">
-            <Spinner className="size-2.5 shrink-0" />
-            {/* The step text is the first thing to go on a narrow column: the
-                chat's own running indicator carries it with room to spare, and
-                it names the step that just FINISHED, not the running one. The
-                clock never goes - it is the proof-of-life that survives
-                scrolling the conversation. */}
-            <span className="hidden max-w-28 truncate @[22rem]/ai-header:block">
-              {step ?? "Working…"}
-            </span>
-            {/* Below ~16rem even the clock costs the session title its last
-                readable pixels, and the spinner alone still says "running".
-                The elapsed time is never lost: the chat's running indicator and
-                every in-flight tool card carry it with room to spare. */}
-            {elapsed >= 1000 ? (
-              <span className="hidden shrink-0 font-mono tabular-nums opacity-70 @[16rem]/ai-header:inline">
-                {formatElapsed(elapsed)}
-              </span>
-            ) : null}
-          </span>
-        ) : null}
         <span className="flex shrink-0 items-center gap-0.5">
           <ToolsPicker />
           <DebugRequestViewer />

@@ -46,6 +46,8 @@ import { MessageResponse } from "./message";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
+import { requestReveal } from "@/modules/editor/lib/reveal";
+import { getExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { formatElapsed, useElapsedSince, useLiveNow } from "@/modules/ai/lib/elapsed";
 import { parseHunks, type EditHunk } from "@/modules/ai/lib/lineStats";
 import { useSubagentRunStore, type SubagentRun } from "@/modules/ai/store/subagentRunStore";
@@ -885,18 +887,11 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
               </span>
             ) : null}
             {path ? (
-              <span className="text-muted-foreground truncate">· {baseName(path)}</span>
-            ) : null}
-            {/* One replacement is fully described inline, so its line number
-                belongs here rather than in a one-row list below. */}
-            {hunks.length === 1 ? (
-              <span className="text-muted-foreground shrink-0 tabular-nums">
-                · L{hunks[0].line}
-              </span>
+              <FileLineButton path={path} line={hunks[0]?.line} label={baseName(path)} />
             ) : null}
             <LineDelta added={o.linesAdded} removed={o.linesRemoved} />
           </div>
-          <HunkList hunks={hunks} />
+          <HunkList hunks={hunks} path={path} />
         </div>
       );
     }
@@ -1302,22 +1297,81 @@ function LineDelta({ added, removed }: { added: unknown; removed: unknown }) {
   );
 }
 
-/**
- * One row per replacement: which line it landed on and its line delta. The
- * tool caps the array at MAX_REPORTED_HUNKS, so a replace_all across a big
- * file says so rather than printing hundreds of rows.
- */
-function HunkList({ hunks }: { hunks: EditHunk[] }) {
-  if (hunks.length === 0) return null;
-  // A single hunk is already fully described by the summary row's +N -M.
-  if (hunks.length === 1) return null;
+/** Opens a tool result in the editor and centers the changed line. */
+function FileLineButton({ path, line, label }: { path: string; line?: number; label: string }) {
+  const open = () => {
+    if (line != null) requestReveal(path, { line });
+    getExtensionWorkspaceBridge()?.openFile(path, { pin: true });
+  };
   return (
-    <div className="border-border/60 ml-3 flex flex-col gap-0.5 border-l pl-2">
+    <button
+      type="button"
+      onClick={open}
+      title={`Open ${path}${line != null ? ` at line ${line}` : ""}`}
+      className="text-muted-foreground hover:bg-muted hover:text-foreground min-w-0 cursor-pointer truncate rounded px-1 py-0.5 text-left transition-colors"
+    >
+      {label}{line != null ? ` · L${line}` : ""}
+    </button>
+  );
+}
+
+function DiffTextRows({ hunk, path }: { hunk: EditHunk; path: string }) {
+  const rows = (text: string | undefined) => text?.split("\n") ?? [];
+  const removed = rows(hunk.removedText);
+  const added = rows(hunk.addedText);
+  if (removed.length === 0 && added.length === 0) return null;
+  const render = (text: string, kind: "added" | "removed", index: number) => {
+    const line = hunk.line + index;
+    const isAdded = kind === "added";
+    return (
+      <button
+        key={`${kind}-${index}`}
+        type="button"
+        onClick={() => {
+          requestReveal(path, { line });
+          getExtensionWorkspaceBridge()?.openFile(path, { pin: true });
+        }}
+        className={cn(
+          "group/line flex w-full cursor-pointer gap-2 px-2 py-0.5 text-left font-mono text-[11px] leading-5",
+          isAdded ? "bg-diff-added/10 hover:bg-diff-added/20" : "bg-destructive/10 hover:bg-destructive/20",
+        )}
+      >
+        <span className="text-muted-foreground/70 w-8 shrink-0 text-right tabular-nums">{line}</span>
+        <span className={cn("w-3 shrink-0 select-none", isAdded ? "text-diff-added" : "text-diff-removed")}>
+          {isAdded ? "+" : "-"}
+        </span>
+        <span className="text-foreground min-w-0 whitespace-pre-wrap break-all">{text || " "}</span>
+      </button>
+    );
+  };
+  return (
+    <div className="border-border/50 overflow-hidden rounded-md border">
+      {removed.map((text, i) => render(text, "removed", i))}
+      {added.map((text, i) => render(text, "added", i))}
+      {hunk.previewClipped ? (
+        <div className="bg-muted/40 text-muted-foreground px-2 py-1 text-[10.5px]">
+          Preview truncated. Open the file to inspect the complete change.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One card per replacement with clickable line numbers and inline red/green code. */
+function HunkList({ hunks, path }: { hunks: EditHunk[]; path: string }) {
+  if (hunks.length === 0) return null;
+  return (
+    <div className="mt-1 flex max-h-80 flex-col gap-1.5 overflow-auto">
       {hunks.map((h, i) => (
-        <div key={`${h.line}-${i}`} className="flex items-center gap-2 tabular-nums">
-          <span className="text-muted-foreground w-12 shrink-0">L{h.line}</span>
-          <span className="text-diff-added">+{h.added}</span>
-          <span className="text-diff-removed">-{h.removed}</span>
+        <div key={`${h.line}-${i}`} className="space-y-1">
+          <div className="flex items-center gap-2 tabular-nums">
+            <FileLineButton path={path} line={h.line} label={`Change ${i + 1}`} />
+            <span className="ml-auto flex shrink-0 gap-1">
+              {h.added > 0 ? <span className="text-diff-added">+{h.added}</span> : null}
+              {h.removed > 0 ? <span className="text-diff-removed">-{h.removed}</span> : null}
+            </span>
+          </div>
+          <DiffTextRows hunk={h} path={path} />
         </div>
       ))}
     </div>

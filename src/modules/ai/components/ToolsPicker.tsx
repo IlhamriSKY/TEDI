@@ -256,7 +256,7 @@ export function ToolsPicker() {
           <span className="flex gap-0.5">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-5 px-1.5 text-[10.5px]"
               disabled={!tools || onCount === total}
@@ -266,7 +266,7 @@ export function ToolsPicker() {
             </Button>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-5 px-1.5 text-[10.5px]"
               disabled={!tools || onCount === 0}

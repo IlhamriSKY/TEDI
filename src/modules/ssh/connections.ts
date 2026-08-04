@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { useEffect, useState } from "react";
 import type { SshJumpHop } from "./bridge";
 
 // Saved SSH hosts live in a separate LazyStore. Secrets (password, key
@@ -156,6 +157,26 @@ export async function getConnectionSecrets(id: string): Promise<{
 
 export function onConnectionsChanged(cb: () => void): Promise<UnlistenFn> {
   return listen(CHANGED_EVENT, () => cb());
+}
+
+/**
+ * Saved hosts keyed by id, kept fresh across edits. Every surface that renders
+ * an `ssh:<name>` label needs this same map (the tab strip, the pane headers,
+ * the Workspaces panel), and each one loading it by hand is how one of them
+ * ends up showing a stale host name after a rename.
+ */
+export function useSshHosts(): Map<string, SshConnection> {
+  const [hosts, setHosts] = useState<Map<string, SshConnection>>(() => new Map());
+  useEffect(() => {
+    const load = () =>
+      void listConnections().then((list) => setHosts(new Map(list.map((c) => [c.id, c]))));
+    load();
+    const unsub = onConnectionsChanged(load);
+    return () => {
+      void unsub.then((fn) => fn());
+    };
+  }, []);
+  return hosts;
 }
 
 /** Marks a successful SSH handshake. Updates the timestamp and server fingerprint. */

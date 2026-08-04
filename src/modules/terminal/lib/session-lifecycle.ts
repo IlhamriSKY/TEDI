@@ -234,6 +234,7 @@ export function ensureSession(
     firstByteEpoch: 0,
     blankRepaintEpoch: 0,
     sshStatus: { kind: "idle" },
+    sshRoute: null,
     sshUserClose: false,
     sshReconnectAttempts: 0,
     sshReconnectTimer: null,

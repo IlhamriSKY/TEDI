@@ -91,9 +91,7 @@ export function AboutSection() {
         <img src="/icon.png" alt="" className="size-12" draggable={false} />
         <div className="flex min-w-0 flex-col">
           <span className="text-[15px] font-semibold tracking-tight">{name}</span>
-          <span className="text-muted-foreground text-[11px]">
-            Terminal Director
-          </span>
+          <span className="text-muted-foreground text-[11px]">Terminal Director</span>
           <span className="text-muted-foreground mt-1 font-mono text-[11px]">
             v{version || "-"}
           </span>
@@ -223,7 +221,11 @@ export function AboutSection() {
             <BrandIcon brand="github" size={12} />
             View on GitHub
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => void openUrl(`${REPO_URL}/issues/new`)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void openUrl(`${REPO_URL}/issues/new`)}
+          >
             Report an issue
           </Button>
         </div>
