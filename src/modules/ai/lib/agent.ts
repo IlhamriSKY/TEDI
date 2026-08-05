@@ -54,6 +54,7 @@ import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
 import { useDebugStore } from "../store/debugStore";
 import { activeGoalText } from "../store/goalStore";
+import { GOAL_DONE_MARKER } from "./goalRunner";
 
 export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -489,7 +490,7 @@ function buildSystemPrompt(opts: {
   // conversation, and stable across turns until the user changes it, which keeps
   // the cached prefix byte-stable the same way planBlock does.
   const goalBlock = opts.goal?.trim()
-    ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal, and say so when you consider it met. Do not restate it back to the user unprompted.`
+    ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal. Do not restate it back to the user unprompted.\n\nDrive it to completion on your own. You will be asked to continue automatically after each turn, so do not stop to ask whether to proceed, and do not end a turn with a plan you could have executed. Stop early only if you are BLOCKED on something only the user can decide or authorize, and then say plainly what you need.\n\nWhen the goal is fully met AND you have verified it (tests, a build, or reading back what you changed), end that message with this exact line and nothing after it:\n${GOAL_DONE_MARKER}\nNever write that line for any other reason - it is what stops the run.`
     : "";
   return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
 }

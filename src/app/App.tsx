@@ -47,6 +47,7 @@ import {
 } from "@/modules/shortcuts";
 import { StatusBar } from "@/modules/statusbar";
 import {
+  activeLeaf,
   activeLeafKind,
   isEditorLikeTab,
   isTerminalLikeTab,
@@ -187,6 +188,7 @@ export default function App() {
   // Active leaf says what's focused in the current tab. Drives Search,
   // AI selection, CWD wiring, etc.
   const activeLeafIdInTab = activePaneTab?.activeLeafId ?? null;
+  const activeLeafCurrent = activeTab ? activeLeaf(activeTab) : null;
   const activeLeafKindCurrent = activeTab ? activeLeafKind(activeTab) : null;
 
   // -------- shared runtime handles & state owned by the coordinator --------
@@ -821,14 +823,20 @@ export default function App() {
       // every bare-Alt meta sequence (readline M-b / M-f / M-d / M-1..9). On
       // Win/Linux `Mod`=Ctrl, so those chords otherwise fire app actions (close
       // tab, ask AI, word-wrap, …) and the byte never reaches the shell. Let
-      // them fall through. Exception: pane.splitRight (Ctrl+D) is exempt so the
-      // split-pane shortcut fires inside a terminal too - it wins over the
-      // shell's Ctrl+D EOF, matching pane.splitDown (Ctrl+Shift+D), which the
-      // gate already lets through because it carries Shift. Terminal-safe app
-      // chords keep Shift/Meta or add a second modifier (Ctrl+Shift+C copy,
-      // Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay active; Ctrl+Tab /
-      // Ctrl+digit / zoom are not control codes and stay active too.
+      // them fall through. Exceptions: pane.splitRight (Ctrl+D) always fires,
+      // while ai.askSelection (Ctrl+L) fires only when the focused local or SSH
+      // terminal has selected text. With no selection Ctrl+L still reaches the
+      // shell as clear-screen. pane.splitDown already passes because it carries
+      // Shift. Terminal-safe app chords keep Shift/Meta or add a second modifier
+      // (Ctrl+Shift+C copy, Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay
+      // active; Ctrl+Tab / Ctrl+digit / zoom are not control codes either.
       (id !== "pane.splitRight" &&
+        !(
+          id === "ai.askSelection" &&
+          activeLeafIdInTab !== null &&
+          !activeLeafCurrent?.private &&
+          !!terminalRefs.current.get(activeLeafIdInTab)?.getSelection()?.trim()
+        ) &&
         activeLeafKindCurrent === "terminal" &&
         (isTerminalControlChord(e) || isTerminalMetaChord(e))),
   });

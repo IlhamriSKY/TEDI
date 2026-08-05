@@ -165,9 +165,12 @@ export function SshMenu({ onConnect }: Props) {
                 onSelect={() => onPick(c)}
                 // Override Radix's blue focus styling with a muted hover so
                 // the row reads as a list entry, not a primary action.
-                // `**:text-current!` blocks the parent cascade from
-                // recolouring child icons.
-                className="group focus:bg-muted! focus:text-foreground! flex items-center justify-between gap-2 pr-1 text-[12px] focus:**:text-current!"
+                // `[&_span]:text-current!` blocks the parent cascade from
+                // recolouring the label spans (including the muted host line,
+                // which is a grandchild). Scoped to spans on purpose: a bare
+                // `**:` also swept the row's action BUTTONS, and being important
+                // it out-ranked their own colour and greyed out the red trash.
+                className="group focus:bg-muted! focus:text-foreground! flex items-center justify-between gap-2 pr-1 text-[12px] focus:[&_span]:text-current!"
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{c.name}</span>

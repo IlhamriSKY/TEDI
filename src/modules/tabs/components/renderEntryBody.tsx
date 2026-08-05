@@ -173,7 +173,9 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           // that instead of committing an empty name.
           <span className="flex min-w-0 flex-1" onPointerDown={(ev) => ev.stopPropagation()}>
             <InlineInput
-              initial={e.label}
+              // The kind tag ("ssh", "SQL", "API") is core's, not the user's;
+              // it is re-applied around whatever they type.
+              initial={e.renameSeed}
               placeholder="Tab name"
               onCommit={(value) => {
                 onSetRenaming?.(null);

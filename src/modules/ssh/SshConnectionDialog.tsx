@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
@@ -628,7 +629,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 px-2 text-[11px]"
+                      className={cn(DESTRUCTIVE_ACTION, "h-8 px-2 text-[11px]")}
                       aria-label="Remove port forward"
                       onClick={() =>
                         setDraft((d) => ({

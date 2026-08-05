@@ -20,7 +20,7 @@
  * Run: `npx tsx scripts/tab-label-verify.ts`.
  */
 import { buildEntries } from "../src/modules/tabs/lib/entries";
-import { leafLabel } from "../src/modules/tabs/lib/tabHelpers";
+import { leafLabel, leafRenameSeed } from "../src/modules/tabs/lib/tabHelpers";
 import { savedToTab } from "../src/modules/workspaces/serialize";
 import type { SavedPaneNode, SavedTab } from "../src/modules/workspaces/store";
 import type { PaneLeaf, PaneNode } from "../src/modules/terminal/lib/panes";
@@ -86,27 +86,93 @@ console.log("\nleaf labels");
   check("a browser falls back to the url host", leafLabel(browser) === "x.dev");
 }
 
+const extLeaf = (title: string | undefined, customTitle?: string): PaneLeaf =>
+  ({
+    kind: "leaf",
+    id: id(),
+    leafKind: "extension-panel",
+    extensionId: "e",
+    panelId: "p",
+    ...(title === undefined ? {} : { title }),
+    ...(customTitle ? { customTitle } : {}),
+  }) as PaneLeaf;
+
 console.log("\na user-set name outranks every derived one");
 {
   const named = [
     term("/srv/app", { customTitle: "build" }),
-    { kind: "leaf", id: id(), leafKind: "terminal", sshConnectionId: "c1", customTitle: "build" },
     { kind: "leaf", id: id(), leafKind: "editor", path: "/a/main.rs", customTitle: "build" },
     { kind: "leaf", id: id(), leafKind: "browser", url: "https://x.dev", customTitle: "build" },
-    {
-      kind: "leaf",
-      id: id(),
-      leafKind: "extension-panel",
-      extensionId: "e",
-      panelId: "p",
-      title: "SQL",
-      customTitle: "build",
-    },
   ] as PaneLeaf[];
   check(
-    "on terminal, ssh, editor, browser and extension-panel leaves",
+    "on terminal, editor and browser leaves",
     named.every((l) => leafLabel(l, hosts) === "build"),
   );
+}
+
+console.log("\nbut the KIND tag is not the user's to rename away");
+{
+  const ssh = {
+    kind: "leaf",
+    id: id(),
+    leafKind: "terminal",
+    sshConnectionId: "c1",
+    customTitle: "build",
+  } as PaneLeaf;
+  check("a renamed SSH pane keeps its ssh tag", leafLabel(ssh, hosts) === "ssh:build");
+  check("even with no host map to resolve", leafLabel(ssh) === "ssh:build");
+
+  check(
+    "a renamed SQL Explorer panel still says SQL",
+    leafLabel(extLeaf("SQL Explorer · sakila", "build")) === "SQL:build",
+  );
+  check(
+    "a renamed API Client panel still says API",
+    leafLabel(extLeaf("API Client · checkout", "build")) === "API:build",
+  );
+  check(
+    "a detail-less extension title still yields a tag",
+    leafLabel(extLeaf("SQL Explorer", "build")) === "SQL:build",
+  );
+  // A panel that has not published a title yet has nothing to derive a tag
+  // from. It must not invent one, and it must not throw.
+  check(
+    "a title-less panel is renamed bare",
+    leafLabel(extLeaf(undefined, "build")) === "build",
+  );
+  check("and un-renamed panels are untouched", leafLabel(extLeaf("SQL Explorer · sakila")) === "SQL Explorer · sakila");
+}
+
+console.log("\nthe rename field is seeded WITHOUT the tag");
+{
+  const ssh = term(undefined, { sshConnectionId: "c1" }) as PaneLeaf;
+  // The bug this pins: both rename surfaces seeded from `label`, so keeping the
+  // name and pressing Enter stored "ssh:prod-db" and the tab read ssh:ssh:...
+  check("an un-renamed SSH pane seeds the host name only", leafRenameSeed(ssh, hosts) === "prod-db");
+  check(
+    "and re-committing it unchanged is idempotent",
+    leafLabel({ ...ssh, customTitle: leafRenameSeed(ssh, hosts) } as PaneLeaf, hosts) ===
+      leafLabel(ssh, hosts),
+  );
+  check(
+    "a renamed one seeds the name the user typed",
+    leafRenameSeed({ ...ssh, customTitle: "build" } as PaneLeaf, hosts) === "build",
+  );
+  check(
+    "an extension panel seeds only the detail after the separator",
+    leafRenameSeed(extLeaf("SQL Explorer · sakila")) === "sakila",
+  );
+  check(
+    "a detail-less panel seeds empty rather than its own tag",
+    leafRenameSeed(extLeaf("API Client")) === "",
+  );
+  check(
+    "an untagged leaf seeds its plain label",
+    leafRenameSeed(term("/srv/app") as PaneLeaf) === "app",
+  );
+  // A deleted connection reads as a bare "ssh": all tag, no name. Seeding that
+  // back would let a plain Enter commit the tag itself as the name.
+  check("a bare ssh leaf seeds empty, not its own tag", leafRenameSeed(ssh, new Map()) === "");
 }
 
 console.log("\nthe tab strip reads the same function");

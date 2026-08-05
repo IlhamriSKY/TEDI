@@ -18,6 +18,16 @@ import {
   type Goal,
 } from "../src/modules/ai/lib/goal";
 import { activeGoalText, useGoalStore } from "../src/modules/ai/store/goalStore";
+import {
+  GOAL_DONE_MARKER,
+  MAX_GOAL_TURNS,
+  armGoalRun,
+  disarmGoalRun,
+  isGoalRunArmed,
+  nextGoalStep,
+  settleGoal,
+} from "../src/modules/ai/lib/goalRunner";
+import type { UIMessage } from "ai";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -87,6 +97,83 @@ assert(useGoalStore.getState().hidden.has(S), "dismissed");
 useGoalStore.getState().setGoal(S, "second");
 assert(!useGoalStore.getState().hidden.has(S), "a new goal is worth showing again");
 assert(activeGoalText(S) === "second", "and it replaced the old one");
+
+console.log("\n[runner] the loop only fires when it is armed AND a turn just finished");
+{
+  const R = "s-run";
+  const msg = (role: "user" | "assistant", text: string): UIMessage =>
+    ({ id: `${role}-${text}`, role, parts: [{ type: "text", text }] }) as UIMessage;
+  const working = [msg("user", "go"), msg("assistant", "did a thing")];
+
+  useGoalStore.getState().setGoal(R, "ship it");
+  assert(nextGoalStep(R, working) === null, "an un-armed session never auto-continues");
+
+  armGoalRun(R);
+  assert(isGoalRunArmed(R), "arming takes");
+  assert(nextGoalStep(R, [msg("user", "go")])?.kind === undefined, "a user tail is not a settle");
+  assert(nextGoalStep(R, [])?.kind === undefined, "and neither is an empty thread");
+  assert(nextGoalStep(R, working)?.kind === "send", "an assistant tail continues the run");
+  // A turn stopped by the step cap ends on tool parts with no closing text. That
+  // is the case that most needs continuing, so an empty tail must not stall it.
+  const toolOnly = [
+    { id: "t", role: "assistant", parts: [{ type: "dynamic-tool", toolName: "grep" }] },
+  ] as unknown as UIMessage[];
+  assert(nextGoalStep(R, toolOnly)?.kind === "send", "a text-less assistant turn continues too");
+
+  // What the Stop button, Restore and /clear all do: end the RUN while leaving
+  // the goal set. A stopped turn still leaves an assistant message at the tail,
+  // so without disarming the loop would settle and re-send itself instantly.
+  disarmGoalRun(R);
+  assert(nextGoalStep(R, working) === null, "disarming stops the loop");
+  assert(activeGoalText(R) === "ship it", "and the goal itself is untouched");
+
+  // Clearing the goal must stop the loop even though it is still armed: this is
+  // the only thing standing between "/goal clear" and a run that keeps going.
+  armGoalRun(R);
+  useGoalStore.getState().clearGoal(R);
+  assert(nextGoalStep(R, working) === null, "clearing the goal stops the loop");
+  assert(!isGoalRunArmed(R), "and disarms it");
+}
+
+console.log("\n[runner] the done marker has to be its own line");
+{
+  const D = "s-done";
+  const tail = (text: string): UIMessage[] =>
+    [{ id: "a", role: "assistant", parts: [{ type: "text", text }] }] as UIMessage[];
+
+  useGoalStore.getState().setGoal(D, "ship it");
+  armGoalRun(D);
+  assert(
+    !settleGoal(D, tail(`I will print ${GOAL_DONE_MARKER} when I am finished.`)),
+    "merely quoting the marker does not end the run",
+  );
+  assert(isGoalRunArmed(D), "so the run is still armed");
+  assert(settleGoal(D, tail(`Built and tested.\n${GOAL_DONE_MARKER}`)), "its own line does");
+  assert(activeGoalText(D) === null, "the goal is completed, not just stopped");
+  assert(!isGoalRunArmed(D), "and the loop is disarmed");
+  assert(!settleGoal(D, tail(GOAL_DONE_MARKER)), "settling a done goal again is a no-op");
+}
+
+console.log("\n[runner] an unattended run is bounded");
+{
+  const B = "s-budget";
+  const working = [
+    { id: "a", role: "assistant", parts: [{ type: "text", text: "still going" }] },
+  ] as UIMessage[];
+  useGoalStore.getState().setGoal(B, "boil the ocean");
+  armGoalRun(B);
+  let sends = 0;
+  for (let i = 0; i < MAX_GOAL_TURNS + 5; i++) {
+    const step = nextGoalStep(B, working);
+    if (step?.kind === "send") sends++;
+    else break;
+  }
+  assert(sends === MAX_GOAL_TURNS, `it stops after exactly ${MAX_GOAL_TURNS} automatic turns`);
+  assert(nextGoalStep(B, working) === null, "and stays stopped once the budget is spent");
+  assert(activeGoalText(B) === "boil the ocean", "the goal itself survives, so it can be re-run");
+  armGoalRun(B);
+  assert(nextGoalStep(B, working)?.kind === "send", "re-arming refills the budget");
+}
 
 console.log(failed === 0 ? "\nAll goal checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

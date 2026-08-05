@@ -21,7 +21,18 @@ import { resolveRoot } from "./search";
 import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
-const DEFAULT_LINE_LIMIT = 2000;
+/**
+ * Default line budget for one `read_file`. Matches `MAX_LINE_LIMIT` in
+ * `src-tauri/src/modules/fs/file.rs` so the two cannot silently disagree.
+ *
+ * This used to be 2000, which truncated ordinary source files: the largest file
+ * in this repo is 2562 lines / 83KB, so the line cap fired long before the
+ * 200KB byte cap ever could, and the model was handed two thirds of a file plus
+ * a paging round-trip that cost more context than reading it whole. Bytes are
+ * the honest limit on how much of a file can enter a context window; lines are
+ * not, so `AI_READ_CAP` is now the only thing that normally truncates a read.
+ */
+const DEFAULT_LINE_LIMIT = 10_000;
 /** Skip undo snapshot above this size; IPC cost outweighs the value. */
 const SNAPSHOT_SIZE_CAP = 1_000_000;
 /** Largest image handed to the model. Base64 inflates ~4/3 and every provider
@@ -119,14 +130,14 @@ export function buildFsTools(
   return {
     read_file: tool({
       description:
-        "Read a UTF-8 text file, or an image (PNG/JPEG/GIF/WebP/BMP/AVIF) which is returned as a viewable image. Refuses other binaries, oversized, and sensitive files (.env, keys). Text: first 2000 lines (200KB cap); use offset/limit to page. Images cap at 4MB and ignore offset/limit. A path outside the workspace/cwd needs approval.",
+        "Read a UTF-8 text file, or an image (PNG/JPEG/GIF/WebP/BMP/AVIF) which is returned as a viewable image. Refuses other binaries, oversized, and sensitive files (.env, keys). Text: the WHOLE file by default (up to 10000 lines / 200KB); a `truncated` flag plus `nextOffset` come back when it did not fit, so re-call with that offset. Images cap at 4MB and ignore offset/limit. A path outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
         offset: flexIntOpt({ min: 0 }).describe(
           "0-based line offset to start reading from. Default 0.",
         ),
-        limit: flexIntOpt({ min: 1, max: 2000 }).describe(
-          "Max lines to return. Default 2000. Cap is hard - re-call with a larger offset to page through.",
+        limit: flexIntOpt({ min: 1, max: 10_000 }).describe(
+          "Max lines to return. Omit it: the default reads the whole file. Only set this to deliberately read less.",
         ),
       }),
       needsApproval: gateReads

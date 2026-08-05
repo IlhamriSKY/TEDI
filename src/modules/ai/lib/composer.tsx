@@ -8,7 +8,8 @@ import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { loadSkills } from "./skills";
 import { toast } from "@/components/ui/toast";
 import type { FsReadResult } from "@/lib/ipc";
-import { getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
+import { getChat, getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
+import { MAX_GOAL_TURNS, disarmGoalRun, nextGoalStep, settleGoal } from "./goalRunner";
 import { useSnippetsStore } from "../store/snippetsStore";
 
 export type FileAttachment = {
@@ -110,6 +111,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
   // counts as busy, so the queue never bypasses an approval. `firingRef` is a
   // latch because chat status lags `sendMessage` by a few ticks - without it the
   // effect drains the whole queue in one render pass.
+  //
+  // An armed `/goal` rides the SAME settle point (after the queue, which is the
+  // user's own backlog and outranks it). Everything the auto-send needs is
+  // already here: the busy gate, the approval gate and the restore checkpoint.
   const firingRef = useRef(false);
   useEffect(() => {
     if (isBusy) {
@@ -118,20 +123,39 @@ export function AiComposerProvider({ children }: ProviderProps) {
     }
     if (status === "awaiting-approval") return;
     if (firingRef.current) return;
-    if (queueLen === 0) return;
     if (!sessionId) return;
-    // Open the checkpoint first. If the session is mid-restore, leave the
-    // queued item in the queue; consuming before the checkpoint passes
-    // would permanently drop the prompt on a transient race.
-    if (!openSendCheckpoint(sessionId)) {
-      // Re-fires after `restoringSessions` clears via the existing deps.
+    const send = (text: string) => {
+      firingRef.current = true;
+      void getOrCreateChat(sessionId).sendMessage({ text });
+    };
+    if (queueLen > 0) {
+      // Open the checkpoint first. If the session is mid-restore, leave the
+      // queued item in the queue; consuming before the checkpoint passes
+      // would permanently drop the prompt on a transient race.
+      if (!openSendCheckpoint(sessionId)) {
+        // Re-fires after `restoringSessions` clears via the existing deps.
+        return;
+      }
+      const next = consumeNextQueuedPrompt();
+      if (!next) return;
+      send(next.text);
       return;
     }
-    const next = consumeNextQueuedPrompt();
-    if (!next) return;
-    firingRef.current = true;
-    const chat = getOrCreateChat(sessionId);
-    void chat.sendMessage({ text: next.text });
+    const messages = getChat(sessionId)?.messages ?? [];
+    if (settleGoal(sessionId, messages)) {
+      toast("Goal reached", { variant: "success" });
+      return;
+    }
+    const step = nextGoalStep(sessionId, messages);
+    if (!step) return;
+    if (step.kind === "exhausted") {
+      toast(`Goal paused after ${MAX_GOAL_TURNS} automatic turns. Re-run /goal to continue.`, {
+        variant: "warning",
+      });
+      return;
+    }
+    if (!openSendCheckpoint(sessionId)) return;
+    send(step.text);
   }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt]);
 
   const focusSignal = useChatStore((s) => s.focusSignal);
@@ -465,6 +489,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const stop = useCallback(() => {
     if (!sessionId) return;
+    // Stop has to mean stop. A stopped turn still leaves an assistant message at
+    // the tail, so without this an armed `/goal` would settle and immediately
+    // send itself a continuation.
+    disarmGoalRun(sessionId);
     void getOrCreateChat(sessionId).stop();
     // Reset transient agent meta so a stuck error or step label doesn't linger.
     useChatStore.getState().resetAgentMeta();

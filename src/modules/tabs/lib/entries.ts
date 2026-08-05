@@ -5,7 +5,7 @@ import { type SshConnection } from "@/modules/ssh/connections";
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { Tab } from "./useTabs";
-import { leafLabel } from "./tabHelpers";
+import { leafLabel, leafRenameSeed } from "./tabHelpers";
 
 /**
  * Tab strip entries: one per pane for pane tabs, one per tab for preview
@@ -56,6 +56,9 @@ export type PaneEntry = EntryBase & {
   /** True when `label` is a name the user typed rather than a derived one. Only
    *  drives whether the right-click menu offers "Reset name". */
   renamed?: boolean;
+  /** What an inline rename field starts with: `label` minus the kind tag core
+   *  re-applies, so committing it unchanged cannot yield "ssh:ssh:prod". */
+  renameSeed: string;
 };
 
 type StandaloneEntry = EntryBase & {
@@ -204,6 +207,7 @@ export function buildEntries(
           extState: leaf.leafKind === "extension-panel" ? leaf.state : undefined,
           extIcon: leaf.leafKind === "extension-panel" ? leaf.icon : undefined,
           renamed: leaf.customTitle !== undefined,
+          renameSeed: leafRenameSeed(leaf, sshHosts, t.cwd),
         });
       }
       continue;

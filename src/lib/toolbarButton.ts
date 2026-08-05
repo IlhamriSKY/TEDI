@@ -28,10 +28,20 @@ export const TOOLBAR_ACTIVE = "bg-accent text-accent-foreground";
 /**
  * Delete / remove icon buttons (trash glyphs, and the close X on a workspace or
  * one of its tabs). Red AT REST, not only on hover: a destructive action has to
- * be findable - and avoidable - before the pointer is on it. `/75` keeps it from
- * shouting in a list of otherwise neutral row actions, and full `--destructive`
- * lands on hover. Import it; never re-type the string, or the next delete button
- * drifts back to the muted-until-hover look this replaced.
+ * be findable - and avoidable - before the pointer is on it.
+ *
+ * The red never changes shade - hover only lays down a faint destructive wash.
+ *
+ * BOTH colour rules are important (`!`), and the glyph needs its own: these
+ * buttons sit inside rows that repaint every descendant on hover, such as a
+ * `DropdownMenuItem`'s `focus:**:text-accent-foreground` (the delete-branch and
+ * delete-host rows) or a sidebar row's `hover:text-accent-foreground`. Those
+ * rules paint the SVG element itself at a specificity a plain
+ * `hover:text-destructive` cannot beat, so making only the button red leaves the
+ * glyph turning grey the moment the pointer enters the row. Importance beats
+ * specificity, which is what lets a nested delete button opt out of its row.
+ *
+ * Import it; never re-type the string.
  */
 export const DESTRUCTIVE_ACTION =
-  "text-destructive/75 hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10 dark:hover:text-destructive";
+  "text-destructive! [&_svg]:text-destructive! hover:bg-destructive/10 dark:hover:bg-destructive/10";

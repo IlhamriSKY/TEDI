@@ -731,7 +731,8 @@ function EntryRowItem({
       <li className="flex h-6 items-center gap-1.5 pr-1.5 pl-7">
         <EntryIcon entry={e} />
         <InlineInput
-          initial={e.label}
+          // Same seed as the tab strip: the name without the kind tag.
+          initial={e.renameSeed}
           placeholder="Tab name"
           onCommit={(value) => {
             onSetRenaming(null);

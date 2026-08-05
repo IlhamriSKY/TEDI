@@ -31,6 +31,7 @@ import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { useSubagentRunStore } from "./subagentRunStore";
 import { useGoalStore } from "./goalStore";
+import { disarmGoalRun } from "../lib/goalRunner";
 import { useTodosStore } from "./todoStore";
 import { toast } from "@/components/ui/toast";
 import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
@@ -839,6 +840,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void useTodosStore.getState().clearSession(id);
     useSubagentRunStore.getState().clearSession(id);
     useGoalStore.getState().clearGoal(id);
+    disarmGoalRun(id);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -962,6 +964,8 @@ export async function sendMessage(text: string): Promise<boolean> {
 export function stop(): void {
   const id = useChatStore.getState().activeSessionId;
   if (!id) return;
+  // Also cancels an armed `/goal` run; see the composer's own stop for why.
+  disarmGoalRun(id);
   void chats.get(id)?.stop();
 }
 
@@ -998,6 +1002,10 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
   if (restoringSessions.has(sessionId)) return null;
 
   restoringSessions.add(sessionId);
+  // An undo hands control back to the user. Trimming history leaves an older
+  // assistant message at the tail, which an armed `/goal` would read as "a turn
+  // just finished" and continue from, immediately re-doing what was undone.
+  disarmGoalRun(sessionId);
   try {
     // Stop any in-flight stream before mutating its message list.
     try {

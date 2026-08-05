@@ -13,6 +13,7 @@ import {
 import { getModelContextLimit } from "../config";
 import { flushPersist, getChat, useChatStore } from "../store/chatStore";
 import { useGoalStore } from "../store/goalStore";
+import { armGoalRun, disarmGoalRun, isGoalRunArmed } from "./goalRunner";
 import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
@@ -137,7 +138,7 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     invocation: "/goal",
     label: "Session goal",
     description:
-      "Set a standing goal the agent keeps in view, with a timer. `/goal done` to finish, `/goal clear` to drop it.",
+      "Set a goal and let the agent work it end to end, with a timer. `/goal done` to finish, `/goal clear` to stop it.",
     icon: Target,
     argHint: "[text | done | clear]",
   },
@@ -282,6 +283,9 @@ function clearActiveChat(): SlashOutcome {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return { kind: "handled", toast: "No active session" };
+  // A wiped thread has no turn to continue from, so an armed `/goal` run ends
+  // with it. The goal itself stays set.
+  disarmGoalRun(sessionId);
   const chat = getChat(sessionId);
   if (chat) {
     // Optimistic clear so the UI feels instant.
@@ -351,10 +355,14 @@ function compactActiveChat(): SlashOutcome {
 }
 
 /**
- * `/goal <text>` sets it, `/goal done` freezes the timer, `/goal clear` drops
- * it, bare `/goal` reports. The goal rides in the system prompt from the NEXT
- * turn on (see buildSystemPrompt), so setting one is `handled`, not a prompt to
- * send - it is a standing instruction, not a question.
+ * `/goal <text>` sets it AND starts working on it, `/goal done` freezes the
+ * timer, `/goal clear` drops it, bare `/goal` reports.
+ *
+ * Setting a goal used to be `handled`: it wrote a line into the system prompt
+ * and then sat there until the user typed something else, which made `/goal`
+ * read as a no-op. A goal is a job, so it now sends the opening turn and arms
+ * the run loop (see goalRunner), which keeps sending until the model reports
+ * the goal met or the turn ceiling stops it.
  */
 function runGoalCommand(tail: string): SlashOutcome {
   const sessionId = useChatStore.getState().activeSessionId;
@@ -364,6 +372,7 @@ function runGoalCommand(tail: string): SlashOutcome {
   const current = store.bySession[sessionId];
 
   if (arg === "done" || arg === "complete") {
+    disarmGoalRun(sessionId);
     if (!current || current.completedAt !== null) {
       return { kind: "handled", toast: "No active goal", toastVariant: "info" };
     }
@@ -371,6 +380,7 @@ function runGoalCommand(tail: string): SlashOutcome {
     return { kind: "handled", toast: "Goal done", toastVariant: "success" };
   }
   if (arg === "clear" || arg === "off") {
+    disarmGoalRun(sessionId);
     if (!current) return { kind: "handled", toast: "No goal set", toastVariant: "info" };
     store.clearGoal(sessionId);
     return { kind: "handled", toast: "Goal cleared", toastVariant: "info" };
@@ -379,13 +389,23 @@ function runGoalCommand(tail: string): SlashOutcome {
     if (!current) {
       return { kind: "handled", toast: "No goal. Use /goal <text>", toastVariant: "info" };
     }
-    const state = current.completedAt === null ? "Goal" : "Goal (done)";
+    const running = isGoalRunArmed(sessionId) ? ", running" : "";
+    const state = current.completedAt === null ? `Goal${running}` : "Goal (done)";
     return { kind: "handled", toast: `${state}: ${current.text}`, toastVariant: "info" };
   }
-  if (!store.setGoal(sessionId, arg)) {
+  const goal = store.setGoal(sessionId, arg);
+  if (!goal) {
     return { kind: "handled", toast: "Goal text is empty", toastVariant: "warning" };
   }
-  return { kind: "handled", toast: "Goal set", toastVariant: "success" };
+  armGoalRun(sessionId);
+  // The goal itself is already in the system prompt from this turn on; the
+  // prompt below is the "start now" the loop needs to have something to
+  // continue FROM.
+  return {
+    kind: "send-prompt",
+    prompt: `Work on the session goal now, end to end: ${goal.text}`,
+    commandName: "goal",
+  };
 }
 
 export function tryRunSlashCommand(input: string): SlashOutcome {
