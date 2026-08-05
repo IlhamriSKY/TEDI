@@ -38,6 +38,10 @@ import {
   BACKUP_KIND,
   parseBackupFile,
 } from "../extensions/tedi.sql-explorer/src/connections/backup.js";
+import {
+  connectTargetDatabase,
+  scopedDatabases,
+} from "../extensions/tedi.sql-explorer/src/connections/store.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -317,9 +321,13 @@ check(
 // secondary folder tree's read as "there is no close button" when there was one.
 const GREY_CLOSE =
   /hover:bg-destructive\/10 hover:text-destructive text-muted-foreground|text-muted-foreground hover:bg-destructive\/10 hover:text-destructive/;
-const greyCloses = [...SIDEBAR_SURFACES, "src/modules/scm/SourceControlPanel.tsx"].filter((f) =>
-  GREY_CLOSE.test(read(f)),
-);
+const greyCloses = [
+  ...SIDEBAR_SURFACES,
+  "src/modules/scm/SourceControlPanel.tsx",
+  // The AI panel's header was missed by the first sweep, which is how it stayed
+  // the one close X in the app that was neither red nor the standard size.
+  "src/modules/ai/components/AiMiniWindow.tsx",
+].filter((f) => GREY_CLOSE.test(read(f)));
 check(
   "every panel close is red at rest, not grey until hovered",
   greyCloses.length === 0,
@@ -369,9 +377,88 @@ for (const [key, want] of [
     undockTarget(key),
   );
 }
-for (const key of ["xp:tedi.api-client:api", "workspaces", "ai", "xp:broken", ""]) {
+// Keys the right column ACTUALLY pushes, read out of AppRightSlot rather than
+// invented here. Inventing them is how the first version of this test asserted
+// `undockTarget("workspaces") === null` and blessed the bug that made the drag
+// work left-to-right only: the docked Workspaces panel is special-cased with a
+// plain key, not the `xp:` shape everything else uses.
+const rightSlotSrc = read("src/app/components/AppRightSlot.tsx");
+const pushedKeys = [...rightSlotSrc.matchAll(/key: (?:"([^"]+)"|`([^`]+)`)/g)].map(
+  (m) => m[1] ?? m[2],
+);
+check("the right column's key shapes were found", pushedKeys.length >= 5, pushedKeys);
+check(
+  "a docked built-in section is keyed plainly, and undockTarget handles that",
+  pushedKeys.includes("workspaces") && undockTarget("workspaces")?.placement === "workspaces",
+);
+check(
+  "and it resolves to the panel id the right-panel store actually holds",
+  undockTarget("workspaces")?.panelId === "__section__:workspaces",
+  undockTarget("workspaces"),
+);
+for (const key of ["xp:tedi.api-client:api", "ai", "scm", "ssh", "xp:broken", ""]) {
   check(`undockTarget("${key}") stays put`, undockTarget(key) === null);
 }
+
+// ---- 6b. an extension's stylesheet survives an in-place upgrade ----------
+console.log("\nan extension rewrites its <style> instead of bailing on it");
+
+// `if (document.getElementById(STYLE_ID)) return;` shipped NEW markup against
+// OLD css on every in-place upgrade: deactivate does not always remove the
+// element, so the next activate found it and did nothing. That is what made a
+// redesigned dropdown render with its icon stacked above the field, and a
+// button that had just gained `is-outline` draw no border at all.
+for (const ext of ["tedi.sql-explorer", "tedi.api-client"]) {
+  const src = read(`extensions/${ext}/src/styles.js`);
+  check(
+    `${ext} does not early-return on an existing <style>`,
+    !/if \(document\.getElementById\(STYLE_ID\)\) return;/.test(src),
+  );
+  check(`${ext} writes the current CSS every activate`, /style\.textContent !== \w+/.test(src));
+}
+
+// ---- 6c. a connection may scope the tree to SEVERAL databases -----------
+console.log("\na connection can list more than one database, and still connect");
+
+// The `database` field carries two meanings. On MySQL/SQLite it FILTERS the
+// tree and may now name several; on PostgreSQL it is the connect TARGET and a
+// list would be meaningless. The dangerous half is the second: a scope list
+// must never reach the sidecar as `default_database`, or the connection opens
+// against a database literally named "app, shop" and fails.
+const scopeCases: [Record<string, string>, string[]][] = [
+  [{ kind: "mysql", database: "" }, []],
+  [{ kind: "mysql", database: "app" }, ["app"]],
+  [{ kind: "mysql", database: " app , shop ,, blog " }, ["app", "shop", "blog"]],
+  [{ kind: "postgres", database: "postgres" }, []],
+];
+for (const [conn, want] of scopeCases) {
+  const got = scopedDatabases(conn);
+  check(
+    `scopedDatabases(${conn.kind}, ${JSON.stringify(conn.database)}) = ${JSON.stringify(want)}`,
+    JSON.stringify(got) === JSON.stringify(want),
+    got,
+  );
+}
+check(
+  "a scope list never reaches the sidecar verbatim",
+  connectTargetDatabase({ kind: "mysql", database: "app, shop" }) === "app",
+);
+check(
+  "a connect-target engine passes its single value through",
+  connectTargetDatabase({ kind: "postgres", database: "postgres" }) === "postgres",
+);
+check(
+  "and lifecycle uses the helper, not the raw field",
+  read("extensions/tedi.sql-explorer/src/connections/lifecycle.js").includes(
+    "default_database: connectTargetDatabase(form)",
+  ),
+);
+check(
+  "the connection row offers Refresh, not just the right-click menu",
+  read("extensions/tedi.sql-explorer/src/tree/items.js").includes(
+    '{ id: "refresh", icon: "lucide:RefreshCw", tooltip: "Refresh databases" }',
+  ),
+);
 
 // ---- 7. a row's hover actions never sit on top of its label --------------
 console.log("\na sidebar row's label makes room for its hover actions");

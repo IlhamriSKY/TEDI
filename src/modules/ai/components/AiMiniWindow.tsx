@@ -194,10 +194,10 @@ function Header({ onClose, dragHandle }: { onClose: () => void; dragHandle?: Rea
               size="icon"
               variant="ghost"
               onClick={onClose}
-              className="hover:bg-destructive/10 hover:text-destructive size-7 rounded-none"
+              className={cn(DESTRUCTIVE_ACTION, "size-6 rounded")}
               aria-label="Close (Esc)"
             >
-              <X size={11} strokeWidth={1.75} />
+              <X size={13} strokeWidth={1.75} />
             </Button>
           </IconTooltip>
         </span>

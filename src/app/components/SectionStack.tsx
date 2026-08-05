@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -46,18 +47,7 @@ export const TALL_HEADER_COLLAPSED_SIZE = "46px";
 const SECTION_MIN_SIZE = "100px";
 
 /**
- * A column of stacked sections: real resizable panels (same
- * `react-resizable-panels` model as the editor/terminal splits), each
- * collapsible to its header, and drag-reorderable by the grip in that header.
- * The order persists to localStorage under `orderStorageKey`.
- *
- * Both sidebars render through this. The left column ships the bento card
- * itself (`chrome`); the right column's surfaces already draw their own, so it
- * passes `chrome={false}` and the wrapper contributes only the drag/collapse
- * behaviour.
- */
-/**
- * Did this drag finish over the OTHER column's box?
+ * Is the pointer over the OTHER column's box?
  *
  * The two columns are separate `DndContext`s (each owns its own reorder), so a
  * drag that leaves one is invisible to the other and `over` still names a
@@ -69,23 +59,42 @@ const SECTION_MIN_SIZE = "100px";
  * The pointer is reconstructed from the activator event plus the drag delta,
  * because `DragEndEvent` carries no final coordinates of its own.
  */
-function droppedOnOtherColumn(ev: DragEndEvent, column: SectionColumn): boolean {
+function otherColumnEl(column: SectionColumn): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-section-column="${column === "left" ? "right" : "left"}"]`,
+  );
+}
+
+function overOther(
+  ev: { activatorEvent: Event; delta: { x: number; y: number } },
+  column: SectionColumn,
+): boolean {
   const activator = ev.activatorEvent as Partial<PointerEvent> | undefined;
   if (typeof activator?.clientX !== "number" || typeof activator.clientY !== "number") return false;
   const x = activator.clientX + ev.delta.x;
   const y = activator.clientY + ev.delta.y;
-  const other = document.querySelector<HTMLElement>(
-    `[data-section-column="${column === "left" ? "right" : "left"}"]`,
-  );
+  const other = otherColumnEl(column);
   // Absent when that column has nothing open, so it renders nothing to aim at.
   if (!other) return false;
   const r = other.getBoundingClientRect();
+  // Zero-sized when the left sidebar is collapsed shut, which is not a target.
   if (r.width === 0 || r.height === 0) return false;
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
 export type SectionColumn = "left" | "right";
 
+/**
+ * A column of stacked sections: real resizable panels (same
+ * `react-resizable-panels` model as the editor/terminal splits), each
+ * collapsible to its header, and drag-reorderable by the grip in that header.
+ * The order persists to localStorage under `orderStorageKey`.
+ *
+ * Both sidebars render through this. The left column ships the bento card
+ * itself (`chrome`); the right column's surfaces already draw their own, so it
+ * passes `chrome={false}` and the wrapper contributes only the drag/collapse
+ * behaviour.
+ */
 export function SectionStack({
   sections,
   orderStorageKey,
@@ -119,6 +128,10 @@ export function SectionStack({
   // The section currently hovered as the drop target, so a thin insertion line
   // can preview where the dragged section will land before release.
   const [overKey, setOverKey] = useState<string | null>(null);
+  // True while the pointer is over the other column with a movable section in
+  // hand. Suppresses this column's own insertion line, which would otherwise
+  // promise a reorder that is not going to happen.
+  const [overOtherColumn, setOverOtherColumn] = useState(false);
   // Per-section panel handles + their collapsed state (driven by onResize, the
   // only collapse signal this version of react-resizable-panels exposes).
   const panelRefs = useRef<Record<string, PanelImperativeHandle | null>>({});
@@ -166,15 +179,45 @@ export function SectionStack({
     setOverKey((prev) => (prev === next ? prev : next));
   };
 
+  /**
+   * Ring the OTHER column while the pointer is over it, so a cross-column drag
+   * says where it will land instead of only acting on release.
+   *
+   * The attribute is written straight to that column's DOM node rather than
+   * lifted into React state, for two reasons: the node belongs to a sibling
+   * component (AppSidebar / AppRightSlot) with no shared ancestor holding drag
+   * state, and this fires per pointer move, where re-rendering two whole columns
+   * would cost far more than one attribute write. It is cleared on drag end and
+   * cancel, and the drag cannot outlive the pointer, so it never sticks.
+   */
+  const markDropTarget = (on: boolean) => {
+    const el = column ? otherColumnEl(column) : null;
+    if (!el) return;
+    if (on) el.setAttribute("data-drop-target", "");
+    else el.removeAttribute("data-drop-target");
+  };
+
+  const handleDragMove = (ev: DragMoveEvent) => {
+    if (!column || !onMoveColumn) return;
+    const key = String(ev.active.id);
+    // Only promise a landing the drop will honour: an ineligible section (the
+    // primary Files tree) must not light the column up and then stay put.
+    const over = overOther(ev, column) && (canMoveColumn?.(key) ?? true);
+    markDropTarget(over);
+    setOverOtherColumn((prev) => (prev === over ? prev : over));
+  };
+
   const handleDragEnd = (ev: DragEndEvent) => {
     setDragKey(null);
     setOverKey(null);
+    setOverOtherColumn(false);
+    markDropTarget(false);
     const { active, over } = ev;
     // Column change wins over reorder, and is tested FIRST: a drag that ended in
     // the other column still reports an `over` from this one (see
     // droppedOnOtherColumn), so checking `over` first would silently reorder
     // instead of handing the section over.
-    if (column && onMoveColumn && droppedOnOtherColumn(ev, column)) {
+    if (column && onMoveColumn && overOther(ev, column)) {
       const key = String(active.id);
       if (canMoveColumn?.(key) ?? true) {
         onMoveColumn(key);
@@ -200,10 +243,13 @@ export function SectionStack({
       collisionDetection={closestCenter}
       onDragStart={(ev) => setDragKey(ev.active.id as string)}
       onDragOver={handleDragOver}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onDragCancel={() => {
         setDragKey(null);
         setOverKey(null);
+        setOverOtherColumn(false);
+        markDropTarget(false);
       }}
     >
       <SortableContext items={visible} strategy={verticalListSortingStrategy}>
@@ -216,7 +262,8 @@ export function SectionStack({
             // lands before it (top edge).
             const dragIdx = dragKey ? visible.indexOf(dragKey) : -1;
             const overIdx = overKey ? visible.indexOf(overKey) : -1;
-            const showDrop = dragIdx >= 0 && overIdx >= 0 && dragIdx !== overIdx;
+            const showDrop =
+              !overOtherColumn && dragIdx >= 0 && overIdx >= 0 && dragIdx !== overIdx;
             return visible.map((key, i) => {
               const section = byKey.get(key);
               if (!section) return null;

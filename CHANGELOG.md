@@ -4,6 +4,14 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.13] - 05-08-2026
+
+### Fixed
+
+- **Dragging a section between the columns only worked one way.** Left to right handed the section over; right to left did nothing. The right column keys a docked BUILT-IN section by its plain id (`workspaces`) rather than the `xp:<ext>:<panel>` shape everything else there uses, and the undock resolver only understood the latter, so `moveRight` was reachable and `moveLeft` was not for the one section most likely to be dragged. Worse, the check that shipped with it asserted `undockTarget("workspaces") === null` as correct, because it was written against invented keys instead of the ones the column actually pushes; it now reads the key shapes out of the source. See [sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx).
+- **A cross-column drag said nothing about where it would land.** The insertion line only ever previewed a reorder inside one column, so dragging toward the other was a leap of faith, and the source column's line kept promising a reorder that was not going to happen. The target column is now marked while the pointer is over it, and only when the section in hand is actually movable; the source column's line is suppressed. The mark is written to that column's DOM node rather than lifted into React state: it belongs to a sibling component with no shared ancestor holding drag state, and this fires on every pointer move, where re-rendering two whole columns costs far more than one attribute write. See [SectionStack.tsx](src/app/components/SectionStack.tsx).
+- **The AI panel's close X was the odd one out.** Every other panel close is red at rest at `size-6` with a 13px glyph and rounded corners; this one was grey-until-hovered at `size-7` with an 11px glyph and square corners, having been missed by the sweep that unified the rest. See [AiMiniWindow.tsx](src/modules/ai/components/AiMiniWindow.tsx).
+
 ## [0.4.12] - 04-08-2026
 
 ### Added

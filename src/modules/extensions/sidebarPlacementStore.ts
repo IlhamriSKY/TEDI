@@ -69,6 +69,14 @@ export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
 export function undockTarget(
   key: string,
 ): { extensionId: string; panelId: string; placement: string } | null {
+  // The right column keys a docked BUILT-IN section by its plain id, not by the
+  // `xp:` shape everything else uses (AppRightSlot special-cases Workspaces so
+  // it can render the React panel directly). Missing this is what made the drag
+  // work left-to-right and not back: `moveRight` was reachable, `moveLeft` was
+  // not, for the one section most likely to be dragged.
+  if (MOVABLE_BUILTIN_SECTIONS.some((s) => s.id === key)) {
+    return { extensionId: BUILTIN_SECTION_EXT, panelId: sectionPanelId(key), placement: key };
+  }
   if (!key.startsWith("xp:")) return null;
   const rest = key.slice(3);
   const cut = rest.indexOf(":");
