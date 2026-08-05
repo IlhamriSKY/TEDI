@@ -282,7 +282,7 @@ const ToolImpl = ({
   // extension's HTTP call, a big grep) otherwise looks identical to a wedged
   // app: the breathing icon alone says nothing about elapsed time. Held back
   // for the first second so quick tools don't flash a counter.
-  // ponytail: measured from mount, so switching sessions away and back mid-call
+  // Known limit: measured from mount, so switching sessions away and back mid-call
   // restarts it. Carry a start stamp on the message part if that ever matters.
   const running = ACTIVE_STATES.has(state);
   const elapsed = useElapsedSince(running);
@@ -1310,7 +1310,8 @@ function FileLineButton({ path, line, label }: { path: string; line?: number; la
       title={`Open ${path}${line != null ? ` at line ${line}` : ""}`}
       className="text-muted-foreground hover:bg-muted hover:text-foreground min-w-0 cursor-pointer truncate rounded px-1 py-0.5 text-left transition-colors"
     >
-      {label}{line != null ? ` · L${line}` : ""}
+      {label}
+      {line != null ? ` · L${line}` : ""}
     </button>
   );
 }
@@ -1333,14 +1334,23 @@ function DiffTextRows({ hunk, path }: { hunk: EditHunk; path: string }) {
         }}
         className={cn(
           "group/line flex w-full cursor-pointer gap-2 px-2 py-0.5 text-left font-mono text-[11px] leading-5",
-          isAdded ? "bg-diff-added/10 hover:bg-diff-added/20" : "bg-destructive/10 hover:bg-destructive/20",
+          isAdded
+            ? "bg-diff-added/10 hover:bg-diff-added/20"
+            : "bg-destructive/10 hover:bg-destructive/20",
         )}
       >
-        <span className="text-muted-foreground/70 w-8 shrink-0 text-right tabular-nums">{line}</span>
-        <span className={cn("w-3 shrink-0 select-none", isAdded ? "text-diff-added" : "text-diff-removed")}>
+        <span className="text-muted-foreground/70 w-8 shrink-0 text-right tabular-nums">
+          {line}
+        </span>
+        <span
+          className={cn(
+            "w-3 shrink-0 select-none",
+            isAdded ? "text-diff-added" : "text-diff-removed",
+          )}
+        >
           {isAdded ? "+" : "-"}
         </span>
-        <span className="text-foreground min-w-0 whitespace-pre-wrap break-all">{text || " "}</span>
+        <span className="text-foreground min-w-0 break-all whitespace-pre-wrap">{text || " "}</span>
       </button>
     );
   };

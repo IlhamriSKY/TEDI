@@ -28,21 +28,14 @@ import { resolveSubagentDef } from "./resolveSubagent";
 import { useDebugStore } from "../store/debugStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
-/** Sub-agents have no user-facing step cap so they can run a task to completion.
- *  Termination is driven by natural finish plus the same anti-loop guards the
- *  main agent uses (tool-repetition + no-progress); this number is only a
- *  runaway backstop the guards almost always trip well before. Kept modest
- *  because a stuck loop re-sends its whole (now compacted) history every step -
- *  on a cache-less gateway that is pure wasted spend, so the ceiling bounds the
- *  worst case without truncating a normal deep exploration. */
+/** Runaway backstop only: termination normally comes from a natural finish or
+ *  the same tool-repetition / no-progress guards the main agent uses. Kept
+ *  modest because a stuck loop re-sends its history every step. */
 const SUBAGENT_STEP_BUDGET = 60;
 
-/** Subagents retry transient provider failures (429 / 5xx / network) themselves
- *  with JITTERED backoff (see withRateLimitRetry). 4 retries -> ~2/4/8/16s plus
- *  jitter. Jitter is the point: a fan-out of N subagents that all trip a
- *  per-minute rate limit at the same instant would, under the SDK's lockstep
- *  no-jitter retry, back off in unison and collide again; spreading them lets
- *  the batch drain instead of failing together ("Terlalu banyak penggunaan"). */
+/** 4 retries at ~2/4/8/16s. The JITTER is the point: a fan-out that all trips
+ *  one rate limit would, under lockstep no-jitter retry, back off in unison and
+ *  collide again. Spreading them lets the batch drain. */
 const SUBAGENT_MAX_RETRIES = 4;
 const SUBAGENT_RETRY_BASE_MS = 2000;
 
@@ -89,12 +82,10 @@ export async function runSubagent({
   // Odyssey) gets the mutating + shell tools; a read-only agent does not.
   const isWorker = def.tools.some((t) => !READ_ONLY_TOOLS.includes(t));
 
-  // Disable the out-of-scope read approval gate: this generateText loop has no
-  // approval responder, so a gated read would stall instead of running. A
-  // worker additionally gets edit/write/fs-mutation/shell tools with approval
-  // OFF (autoApprove): same no-responder reason. Mutations stay guarded by the
-  // secret/system denylist, writable/deletable checks, scope-root protection,
-  // and checkpoint/restore. run_subagent is never built here, so no recursion.
+  // No approval responder in this generateText loop, so a gated read would stall
+  // rather than run; a worker also gets mutating tools with autoApprove for the
+  // same reason. Still guarded by the denylist, writable/deletable checks,
+  // scope-root protection and checkpoints. No run_subagent here, so no recursion.
   const available: Record<string, unknown> = {
     ...buildFsTools(toolContext, {
       gateOutOfScopeReads: false,
@@ -197,17 +188,12 @@ export async function runSubagent({
         noProgressStop<ToolSet>(2),
       ] as never,
       // Two jobs per step:
-      //  1. Compact the accumulating read pile BETWEEN steps. A subagent runs up
-      //     to SUBAGENT_STEP_BUDGET steps and NEVER compacted before; on a
-      //     cache-less gateway (SumoPod) re-sending every file it has read on
-      //     every step is the single largest token cost of a "study" task.
-      //     compactStepMessages elides the old blocks (elide-only, idempotent,
-      //     pairing-safe) while KEEP_TAIL keeps the freshest reads intact.
-      //  2. Force a tool call on the FIRST step. Handed an agentic brief, some
-      //     models answer with a single text/reasoning-only step and never touch
-      //     a tool. Every sub-agent's job begins by reading or searching, so
-      //     requiring a tool on step 0 is always correct; it reverts to auto
-      //     afterwards. Endpoints that ignore toolChoice simply skip it.
+      //  1. Compact the read pile BETWEEN steps. Re-sending every file read so
+      //     far, on every one of SUBAGENT_STEP_BUDGET steps, is the largest cost
+      //     of a "study" task. KEEP_TAIL leaves the freshest reads intact.
+      //  2. Force a tool call on step 0: some models answer an agentic brief with
+      //     one text-only step. Every sub-agent starts by reading or searching,
+      //     so this is always correct. Auto afterwards.
       prepareStep: ({
         stepNumber,
         messages: stepMessages,
@@ -242,14 +228,11 @@ export async function runSubagent({
   const durationMs = Date.now() - start;
   const stepCount = result.steps?.length ?? 0;
 
-  // Final summary, with a recovery path for the general case where an agentic
-  // run ends with no assistant text. Two ways that happens across providers:
-  // (a) some models/gateways return empty `content` once the conversation holds
-  // tool calls (observed with glm-5-2 via GenFlow, but not unique to it), and
-  // (b) the run is cut off mid-exploration by the step budget. `reasoningText`
-  // first covers models that put the answer in reasoning; when both are empty we
-  // re-summarize in a clean tool-free text turn with the tool activity flattened
-  // into plain text, which reliably yields prose from any chat model.
+  // An agentic run can end with no assistant text: some models return empty
+  // `content` once the conversation holds tool calls (seen on glm-5-2), or the
+  // step budget cut it off mid-exploration. `reasoningText` covers models that
+  // answer in reasoning; if both are empty, re-summarize in a clean tool-free
+  // turn with the activity flattened to text, which any chat model will answer.
   let summary = result.text?.trim() || result.reasoningText?.trim() || "";
   if (!summary) summary = (await summarizeToolRun()) || "(no output)";
 

@@ -29,32 +29,27 @@ import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { READ_ONLY_TOOLS } from "@/modules/ai/agents/registry";
 import { useSubagentsStore, type CustomSubagentDef } from "@/modules/ai/store/subagentsStore";
 import { PromptModelDropdown } from "@/settings/sections/components/SystemPromptsCard";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setSubagentsEnabled } from "@/modules/settings/store";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
 /**
- * Sub-agents: a single on/off toggle, plus user-defined custom workers.
- * When ON, the AI automatically delegates broad explore/review/audit tasks
- * to parallel sub-agents (the AI decides task count, parallelism,
- * and summary depth). When OFF, all work is done inline by the main agent.
+ * Sub-agents: the custom workers a user defines. There is deliberately no on/off
+ * switch here any more - `run_subagent` / `run_subagents` are switched in the
+ * tool picker like every other tool, so there is one control instead of two that
+ * could disagree (the old preference could hide the tools while the picker still
+ * listed them as available).
  */
 export function SubagentsCard() {
-  const enabled = usePreferencesStore((s) => s.subagentsEnabled);
-
   return (
     <>
       <SettingsCard
         title="Sub-agents"
-        description="Workers the AI can spawn in parallel to study, review, and audit the codebase (read-only), plus an autonomous worker (Odyssey) that edits files and runs commands to implement a scoped task. When on, broad work is auto-delegated; the AI decides how many workers, their depth, and summary size. Off means all work is done inline."
-        headerRight={
-          <Switch checked={enabled} onCheckedChange={(v) => void setSubagentsEnabled(v)} />
-        }
+        description="Workers the AI can spawn in parallel to study, review, and audit the codebase (read-only), plus an autonomous worker (Odyssey) that edits files and runs commands to implement a scoped task. When they are available the AI auto-delegates broad work and decides how many workers, their depth, and summary size."
       >
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
-          {enabled
-            ? "Sub-agents are active. The AI auto-delegates broad explore/review/audit work, and can hand a scoped change to the Odyssey worker, which edits files and runs commands directly (no approval card; changes are checkpointed and can be reverted)."
-            : "Sub-agents are off. The AI will handle all tasks inline using its own tools."}
+          Turn sub-agents on or off in the tool picker in the chat input bar, under{" "}
+          <span className="text-foreground font-medium">Sub-agents</span>. Switching{" "}
+          <code className="bg-muted/50 rounded px-1 font-mono">run_subagents</code> off also drops
+          the orchestration prompt, so an unused feature costs no tokens.
         </div>
       </SettingsCard>
 

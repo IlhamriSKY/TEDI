@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type RefObject,
@@ -36,6 +37,9 @@ type Params = {
   tabs: Tab[];
   setActiveSearchAddon: Dispatch<SetStateAction<SearchAddon | null>>;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
+  /** Preference: open the project's url by itself once it is found running. */
+  autoOpenProjectUrl: boolean;
+  openPreviewTab: (url: string, activate?: boolean) => number | null;
 } & Pick<TabsApi, "setBrowserLeafTitle">;
 
 /**
@@ -62,12 +66,19 @@ export function useActiveLeafSurface({
   setActiveSearchAddon,
   setActiveEditorHandle,
   setBrowserLeafTitle,
+  autoOpenProjectUrl,
+  openPreviewTab,
 }: Params): {
   handleSearchReady: (leafId: number, addon: SearchAddon) => void;
   handleDetectedLocalUrl: (leafId: number, url: string) => void;
+  handleProjectUrl: (url: string | null) => void;
   detectedBrowserUrl: string | null;
 } {
   const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
+  // The open project's own url, resolved from its config by `useProjectUrl` and
+  // only set while that port answers. Not per-leaf: it belongs to the workspace,
+  // not to whichever terminal happens to be focused.
+  const [projectUrl, setProjectUrl] = useState<string | null>(null);
 
   // On active leaf or tab change, surface its search addon, editor handle,
   // and detected URL to the chrome.
@@ -98,16 +109,38 @@ export function useActiveLeafSurface({
   );
 
   const detectedBrowserUrl = useMemo(() => {
-    if (!isTerminalLike || !activeDetectedUrl) return null;
+    // A url the focused terminal printed wins over the project's declared one:
+    // it is what the user is looking at right now, and on an SSH leaf it is the
+    // tunnelled address, which the config could not have known.
+    const url = activeDetectedUrl ?? projectUrl;
+    if (!isTerminalLike || !url) return null;
     const alreadyOpen = tabs.some(
       (t) =>
         t.kind === "pane" &&
-        leaves(t.paneTree).some(
-          (l) => l.leafKind === "browser" && sameOrigin(l.url, activeDetectedUrl),
-        ),
+        leaves(t.paneTree).some((l) => l.leafKind === "browser" && sameOrigin(l.url, url)),
     );
-    return alreadyOpen ? null : activeDetectedUrl;
-  }, [isTerminalLike, activeDetectedUrl, tabs]);
+    return alreadyOpen ? null : url;
+  }, [isTerminalLike, activeDetectedUrl, projectUrl, tabs]);
+
+  // Fires for either source: the project's declared url AND one a terminal
+  // printed, so `php artisan serve` / `npm run dev` opens the browser the same
+  // way an already-running server does.
+  //
+  // The ref is what makes the tab closable. `detectedBrowserUrl` goes null once
+  // a browser leaf holds that origin, so it looks like a sufficient guard - but
+  // closing that tab flips it back to non-null and the effect would reopen it
+  // instantly. Remembering what has been opened means each url auto-opens at
+  // most once per session, and a closed tab stays closed.
+  const autoOpened = useRef<Set<string>>(undefined!);
+  if (!autoOpened.current) autoOpened.current = new Set();
+  useEffect(() => {
+    if (!autoOpenProjectUrl || !detectedBrowserUrl) return;
+    if (autoOpened.current.has(detectedBrowserUrl)) return;
+    autoOpened.current.add(detectedBrowserUrl);
+    // Not activated: loaded and waiting, without yanking focus off the terminal
+    // mid-command.
+    openPreviewTab(detectedBrowserUrl, false);
+  }, [autoOpenProjectUrl, detectedBrowserUrl, openPreviewTab]);
 
   // Browser panes report their live document.title via BROWSER_NAV_EVENT,
   // keyed by the browser leaf id. Apply it to the leaf so the tab/pane label
@@ -138,5 +171,10 @@ export function useActiveLeafSurface({
     [activeLeafIdInTab],
   );
 
-  return { handleSearchReady, handleDetectedLocalUrl, detectedBrowserUrl };
+  return {
+    handleSearchReady,
+    handleDetectedLocalUrl,
+    handleProjectUrl: setProjectUrl,
+    detectedBrowserUrl,
+  };
 }

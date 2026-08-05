@@ -30,26 +30,15 @@ export type SentEnvBlocks = Map<string, string>;
  * Prefix each user message with the `<env>` block it was SENT with, and the
  * newest one with a freshly-measured block.
  *
- * The replay is the whole point. Every prompt cache, explicit (Anthropic
- * `cacheControl`) or implicit (OpenAI, xAI, DeepSeek, Gemini, and any gateway
- * doing automatic prefix caching), keys on an exact byte prefix. This used to
- * inject the env into the newest user message ONLY, while the chat store
- * persists the message WITHOUT it (`toUIMessageStream({ originalMessages })`),
- * so on the next turn that same message came back one text part shorter than
- * when it was sent. The prefix therefore diverged at the previous user turn,
- * every single turn, and the divergence point crawled forward with the
- * conversation: nothing after the system prompt could ever be read back from
- * cache, no matter which provider was in use. Replaying the exact block keeps
- * the whole history byte-stable, so a turn pays only for its own delta.
+ * The replay is the whole point. Every prompt cache keys on an exact byte
+ * prefix. Injecting into the newest user message only made the prefix diverge
+ * EVERY turn, because the store persists that message without the env, so it
+ * came back shorter than it was sent. Nothing after the system prompt could ever
+ * be read from cache, on any provider. Replaying the exact block costs one stale
+ * env (~90 tokens) per past turn and keeps the history byte-stable.
  *
- * Cost: one stale env (~90 tokens) per past user turn. That buys not re-paying
- * the entire conversation at full write price on every turn.
- *
- * Deliberately keeps the block INSIDE the user message rather than appending it
- * as a trailing message: a trailing one would be a second consecutive `user`
- * message, which the Google provider emits as two consecutive `contents`
- * entries, and Gemini's alternation rule makes that a risk this fix does not
- * need to take.
+ * The block stays INSIDE the user message: a trailing one would be a second
+ * consecutive `user` message, which Gemini's alternation rule rejects.
  */
 export function injectContext(
   messages: UIMessage[],

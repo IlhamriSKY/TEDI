@@ -1,26 +1,16 @@
 import { native } from "./native";
 
 /**
- * Per-session restore-to-last-checkpoint.
+ * Per-session restore-to-last-checkpoint. One checkpoint, pointing at the most
+ * recent user turn; sending a new message drops the previous one.
  *
- * One checkpoint per session, pointing at the most recent user turn. Sending
- * a new message drops the previous checkpoint; only the last turn is undoable.
- * Mutating tools (`edit`, `multi_edit`, `write_file`, `create_directory`,
- * `move_file`, `copy_file`, `delete_file`) record originals before the on-disk
- * write, so restore can replay them and trim chat history to before the user's
- * last message. Sub-agent edits (the autonomous `odyssey` worker) run under
- * the parent session's context, so they record into the SAME checkpoint and are
- * undoable too.
+ * Mutating fs tools record originals before the write. Sub-agent edits share the
+ * parent session, so they land in the SAME checkpoint. NOT undoable:
+ * `replace_in_files` and `bash_run` side effects - stage git first.
  *
- * Not undoable (no snapshot): `replace_in_files` (multi-file regex; stage git
- * first) and any side effects of `bash_run` / `bash_background` (guarded by the
- * shell denylist instead). Restore is conservative: a file reverts only if
- * on-disk still matches the agent's last write, so manual edits made after are
- * always preserved.
- *
- * Snapshots live in-process only. They're bounded by files touched this turn
- * (typically <= 10), each capped by the read-file 200KB limit. Not persisted
- * across app restarts.
+ * Restore is conservative: a file reverts only if on-disk still matches the
+ * agent's last write, so later manual edits survive. In-process only, not
+ * persisted across restarts.
  */
 
 export type FileSnapshot =

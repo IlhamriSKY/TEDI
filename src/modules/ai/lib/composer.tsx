@@ -106,12 +106,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
     setPickedCommands([]);
   }, [sessionId]);
 
-  // Auto-fire the next queued prompt when the agent settles. Awaiting-approval
-  // counts as busy; we never bypass an approval to drain the queue.
-  //
-  // `firingRef` is a latch: chat status updates lag a few ticks behind
-  // `sendMessage`, so without it the effect could drain the whole queue in
-  // one render pass before isBusy flips to true.
+  // Auto-fire the next queued prompt once the agent settles; awaiting-approval
+  // counts as busy, so the queue never bypasses an approval. `firingRef` is a
+  // latch because chat status lags `sendMessage` by a few ticks - without it the
+  // effect drains the whole queue in one render pass.
   const firingRef = useRef(false);
   useEffect(() => {
     if (isBusy) {
@@ -320,16 +318,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
     )
       return;
 
-    // Slash-command interception.
-    //
-    // Two input shapes feed this:
-    //   - Raw text starting with `/cmd` or `#cmd` (user typed).
-    //   - Hash chips from the # picker accumulated in `pickedCommands`.
-    //     Multiple chips stack and all fire.
-    //
-    // Each source resolves to `handled` (side effect) or `send-prompt`
-    // (rewrites the message body). Every handled source fires; the first
-    // send-prompt wins as the body. Later send-prompts are dropped.
+    // Slash-command interception. Two inputs: raw `/cmd` or `#cmd` text, and
+    // hash chips from the # picker (which stack, and all fire). Each resolves to
+    // `handled` (side effect) or `send-prompt` (rewrites the body). Every handled
+    // one fires; the FIRST send-prompt wins the body, later ones are dropped.
     let effectiveText = trimmed;
     let commandMarker: string | null = null;
     let textConsumedByCommand = false;

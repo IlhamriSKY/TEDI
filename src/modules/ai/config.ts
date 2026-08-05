@@ -281,13 +281,10 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-4.1-mini": 1_000_000,
   "gemini/gemini-2.5-pro": 1_000_000,
 };
-// Unknown ids (most runtime-detected SumoPod / OpenAI-compatible models: glm,
-// qwen, gpt-5.x, ...) fall back to this. Kept conservative on purpose: assume a
-// modest real window so pre-send compaction fires BEFORE the gateway's actual
-// limit is hit, instead of overflowing mid-turn into an OVER_CONTEXT error. A
-// genuinely large unknown model just compacts a little earlier (elide-first, so
-// nearly lossless); a small one stops erroring. Reliability > a few extra kept
-// tokens on an un-tabled model.
+// Fallback for runtime-detected ids. Conservative on purpose so compaction fires
+// BEFORE the gateway's real limit rather than overflowing into OVER_CONTEXT. A
+// large unknown model just compacts slightly early (elide-first, near-lossless);
+// a small one stops erroring.
 const FALLBACK_CONTEXT_LIMIT = 256_000;
 export function getModelContextLimit(id: string | undefined): number {
   if (!id) return FALLBACK_CONTEXT_LIMIT;
@@ -340,14 +337,12 @@ export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 // instead of 404 and the SSE parser silently yields an empty reply.
 export const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1";
 
-// AgentRouter resells Claude Code / Codex access and gates on the User-Agent:
-// anything unrecognised gets 401 `unauthorized_client_error`, which reads like a
-// bad key. Measured 2026-07-31: the check is a PREFIX match, so trailing junk is
-// fine (the AI SDK appends its own agent string and that still passes) but the
-// approved client must come FIRST, and `claude-cli/<v>` alone is rejected
-// without the "(external, cli" part. See scripts/agentrouter-verify.ts.
-// Every AgentRouter request must therefore go through `proxyOnlyFetch`: a
-// WebView `fetch` drops `User-Agent` (forbidden header name) without erroring.
+// AgentRouter gates on User-Agent; anything else 401s `unauthorized_client_error`,
+// which reads like a bad key. Measured 2026-07-31: PREFIX match, so trailing junk
+// is fine (the SDK appends its own), but the approved client must come FIRST and
+// `claude-cli/<v>` alone is rejected without "(external, cli". See
+// scripts/agentrouter-verify.ts. Requests must use `proxyOnlyFetch` - a WebView
+// fetch drops `User-Agent` silently.
 export const AGENTROUTER_USER_AGENT = "claude-cli/1.0.0 (external, cli)";
 export const AGENTROUTER_HEADERS: Readonly<Record<string, string>> = {
   "User-Agent": AGENTROUTER_USER_AGENT,
@@ -358,13 +353,11 @@ export function normalizeOpenAICompatibleBaseURL(raw: string): string {
   const t = raw.trim().replace(/\/+$/, "");
   return t.replace(/^(https?:\/\/)localhost(?=[:/?#]|$)/i, "$1127.0.0.1");
 }
-// Local inference servers (Ollama, llama.cpp, vLLM, text-generation-webui) accept
-// any bearer token or none, so demanding a key would block a valid local-only
-// BYOK setup. Remote endpoints still require one, keeping the actionable
-// "add a key" error for cloud gateways instead of a bare 401.
-// Strictly loopback, matching the name: a LAN or mDNS (`.local`) host is someone
-// else's machine as far as this process knows, so it keeps the key requirement.
-// `URL.hostname` returns IPv6 hosts bracketed, hence "[::1]" and not "::1".
+// Local inference servers accept any bearer token or none, so demanding a key
+// would block a valid local-only BYOK setup; remote endpoints still need one so
+// cloud gateways keep the actionable "add a key" error. Strictly loopback: a LAN
+// or `.local` host is someone else's machine. `URL.hostname` brackets IPv6,
+// hence "[::1]".
 export function isLoopbackBaseURL(raw: string): boolean {
   try {
     const h = new URL(raw).hostname.toLowerCase();

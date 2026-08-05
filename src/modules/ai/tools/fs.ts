@@ -47,11 +47,9 @@ type ImageRead = {
 type ImageTooLarge = { error: string; path: string; size: number };
 
 /**
- * Read `abs` as an image. Returns null when it is not one, so the caller can
- * fall through to the generic binary refusal.
- *
- * SVG is deliberately excluded: it is text, so the normal read path describes it
- * better than a rasterless `file-data` part every provider would have to guess at.
+ * Read `abs` as an image, or null so the caller falls through to the binary
+ * refusal. SVG is excluded: it is text, and the normal read path describes it
+ * better than a rasterless `file-data` part.
  */
 async function readAsImage(abs: string, size: number): Promise<ImageRead | ImageTooLarge | null> {
   // Size-gate before reading, but only claim it as an image error when the name
@@ -511,13 +509,10 @@ export function buildFsTools(
         if (!sTo.ok) return { error: sTo.reason, path: absTo };
         try {
           await native.copy(absFrom, absTo);
-          // Checkpoint the copy so it's undoable (best-effort, file-only).
-          // copy_file refuses to overwrite, so the destination is always new ->
-          // create-file semantics. A directory copy or a binary/oversized file
-          // is skipped (no safe content to restore from). Matters now that the
-          // autonomous worker can copy files without an approval card.
-          // No probe needed — the file just created is known to exist; read it
-          // directly to snapshot (one IPC instead of probe+read).
+          // Best-effort undo, files only. copy_file refuses to overwrite, so the
+          // destination is always new -> create-file semantics; directories and
+          // binaries are skipped. No probe: the file just created exists, so one
+          // read snapshots it.
           const sessionId = ctx.getSessionId();
           if (sessionId) {
             try {

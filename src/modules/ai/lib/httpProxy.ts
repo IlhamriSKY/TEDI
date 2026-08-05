@@ -3,22 +3,14 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 /**
  * CORS-bypassing HTTP fetch for AI provider calls.
  *
- * The WebView enforces CORS: a `fetch` from the app origin
- * (`http://tauri.localhost` on Windows, `tauri://localhost` elsewhere) to a
- * cross-origin OpenAI-compatible gateway that does NOT return an
- * `Access-Control-Allow-Origin` header is blocked before JS can read the
- * response, surfacing as a bare `TypeError: Failed to fetch` with no status.
- * Self-hosted / tunnelled routers (e.g. 9Router over Tailscale, some local
- * llama.cpp / LM Studio setups) typically don't send CORS headers, so the
- * native `fetch` fails for them even when the endpoint is perfectly reachable.
+ * A gateway that sends no `Access-Control-Allow-Origin` is blocked by the
+ * WebView as a bare `TypeError: Failed to fetch`, with no status. Self-hosted
+ * and tunnelled routers usually send no CORS headers, so native `fetch` fails
+ * even when the endpoint is fine.
  *
- * `corsFallbackFetch` tries the WebView's native `fetch` first - cloud gateways
- * that already send CORS headers (OpenAI, OpenRouter, ...) keep the fast native
- * path with zero behaviour change - and only on a `Failed to fetch` (a
- * `TypeError`) falls back to a Rust/reqwest proxy (`http_stream`), which runs in
- * the native HTTP stack and is not subject to browser CORS. The proxy streams
- * the response body back over an IPC `Channel`, so SSE chat keeps its
- * token-by-token rendering.
+ * `corsFallbackFetch` keeps the native path for CORS-friendly clouds and falls
+ * back to the Rust/reqwest proxy (`http_stream`) only on that `TypeError`. The
+ * proxy streams the body over an IPC `Channel`, so SSE stays token-by-token.
  */
 
 type StreamEvent =
@@ -199,19 +191,14 @@ async function rustProxyFetch(input: RequestInfo | URL, init?: RequestInit): Pro
 /**
  * Drop-in `fetch` that ALWAYS goes through the Rust proxy, never the WebView.
  *
- * Needed when a request must carry a header the browser refuses to hand over.
- * The case in hand is `User-Agent`: AgentRouter allowlists an exact UA string
- * (it resells Claude Code / Codex access and 401s `unauthorized_client_error`
- * for anything else), and a WebView `fetch` cannot set one - it is a forbidden
- * header name, so the value is dropped silently rather than rejected. reqwest
- * has no such rule and forwards our headers verbatim.
+ * For requests carrying a header the browser refuses to send. `User-Agent` is
+ * the case: AgentRouter allowlists an exact UA and 401s otherwise, but it is a
+ * forbidden header name so the WebView drops it silently. reqwest forwards it.
  *
- * `corsFallbackFetch` is NOT enough here: it only falls back on a `TypeError`,
- * and a gateway that sends `Access-Control-Allow-Origin: *` (AgentRouter does)
- * makes the native call succeed, so the fallback would never run and the UA
- * would never be sent. Going straight to the proxy also sidesteps CORS
- * preflight entirely, which matters because `Authorization` is not covered by a
- * wildcard `Access-Control-Allow-Headers`.
+ * `corsFallbackFetch` is NOT enough: AgentRouter sends `A-C-A-O: *`, so the
+ * native call succeeds and the fallback never runs. Going straight to the proxy
+ * also skips preflight, which a wildcard `A-C-A-Headers` would not cover for
+ * `Authorization`.
  */
 export const proxyOnlyFetch = async (
   input: RequestInfo | URL,
@@ -241,21 +228,15 @@ export const corsFallbackFetch = async (
 const STREAM_IDLE_TIMEOUT_MS = 300_000;
 
 /**
- * Wrap a `fetch` so a request that connects but then produces no body bytes for
- * `idleMs` is aborted, surfacing a clear retryable error instead of hanging the
- * turn forever. The timer measures ONLY time spent waiting on the upstream (it
- * is armed around each `reader.read()` and cleared once bytes arrive), so a slow
- * consumer / backpressure never trips it, and a legitimately slow-but-live SSE
- * stream is unaffected - only a truly wedged connection.
+ * Abort a request that connects but then goes `idleMs` without a body byte,
+ * instead of hanging the turn forever. The timer is armed around each
+ * `reader.read()` and cleared once bytes arrive, so backpressure and slow-but-
+ * live SSE never trip it - only a wedged connection.
  *
- * The Rust proxy (`net.rs`) already guards its own path; this covers the NATIVE
- * `fetch` path that SumoPod and cloud OpenAI-compatible gateways take (the Rust
- * guard never runs for those because native fetch succeeds first). The error
- * message carries "idle timeout" so `classifyError` maps it to
- * PROVIDER_UNAVAILABLE (retryable) rather than a user abort.
- *
- * Also rejects an HTML body on a 2xx (see below). Every call site is an
- * OpenAI-wire JSON/SSE endpoint, so this is the one place all of them share.
+ * Covers the NATIVE fetch path; the Rust proxy guards its own (net.rs). The
+ * message says "idle timeout" so `classifyError` maps it to PROVIDER_UNAVAILABLE
+ * (retryable), not a user abort. Also rejects an HTML body on a 2xx - every call
+ * site here is an OpenAI-wire JSON/SSE endpoint.
  */
 export function withStreamIdleTimeout(
   baseFetch: typeof globalThis.fetch,
@@ -309,12 +290,11 @@ export function withStreamIdleTimeout(
       throw e;
     }
     clear();
-    // A 2xx carrying HTML is never an API response: it's the gateway's own site
-    // answering because the base URL is missing its `/v1` (or points at the site
-    // rather than the API). AgentRouter is the worst shape of this - its SPA
-    // catch-all answers `POST /chat/completions` with 200 + the landing page, so
-    // the SSE parser finds no `data:` lines and the turn ends as a SILENT EMPTY
-    // REPLY with no error at all. Fail loudly and name the fix instead.
+    // A 2xx carrying HTML is the gateway's own site answering, usually a base
+    // URL missing `/v1`. AgentRouter's SPA catch-all answers
+    // `POST /chat/completions` with 200 + the landing page, so the SSE parser
+    // finds no `data:` lines and the turn ends as a SILENT EMPTY REPLY. Fail
+    // loudly and name the fix instead.
     if (res.ok && /^\s*text\/html/i.test(res.headers.get("content-type") ?? "")) {
       void res.body?.cancel().catch(() => {});
       const reqUrl = input instanceof Request ? input.url : String(input);

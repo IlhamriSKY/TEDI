@@ -6,11 +6,10 @@ import { SHARED_TARGET_SCHEMA, flexBoolOpt, flexIntOpt, normalizeTargetExternal 
 import { applyShellTransformers } from "./shell";
 
 /**
- * Reject non-web URLs (file://, etc.) and obvious cloud-metadata / link-local
- * hosts before the AI opens or navigates the in-app browser. Stops a
- * prompt-injected agent from reading local files via `file://`, or reaching the
- * cloud-metadata endpoint through a real webview and exfiltrating via
- * read_browser. Returns an error string, or null when the URL is safe to open.
+ * Reject non-web URLs and cloud-metadata / link-local hosts before the AI opens
+ * the in-app browser: otherwise a prompt-injected agent could read local files
+ * via `file://` or hit the metadata endpoint and exfiltrate through
+ * read_browser. Error string, or null when safe.
  */
 function unsafeBrowserUrl(url: string): string | null {
   let u: URL;
@@ -37,12 +36,11 @@ export function buildTerminalTools(ctx: ToolContext) {
   // whenever the agent opens or drives a browser; reused by `open_browser`.
   let researchBrowserLeafId: number | null = null;
 
-  // Pick a browser pane for a default (non-`new_tab`) `open_browser` to reuse:
-  //  1. the agent's tracked research pane, if it's still open;
-  //  2. else the only open browser (a single pane is unambiguously the one to
-  //     reuse - "the tab it opened or the one that already exists");
-  //  3. else null - 2+ untracked panes are ambiguous (one may be the user's own
-  //     browser), so the caller opens a fresh research tab rather than hijack one.
+  // Which pane a default `open_browser` reuses:
+  //  1. the agent's tracked research pane, if still open;
+  //  2. else the only open browser;
+  //  3. else null - with 2+ untracked panes one may be the user's own, so the
+  //     caller opens a fresh tab rather than hijack it.
   const pickReuseLeaf = (): number | null => {
     const browsers = ctx.listBrowsers();
     if (browsers.length === 0) return null;
@@ -101,12 +99,10 @@ export function buildTerminalTools(ctx: ToolContext) {
           return { command: trimmed, explanation, injected: true };
         }
 
-        // Active terminal is busy. Open a fresh split (fall back to a new
-        // tab if the per-tab pane cap is hit) and tell the model to retry
-        // next step. The new terminal becomes active so the retry targets
-        // it. We don't auto-inject here: the new TerminalPane needs a render
-        // tick to mount and the PTY a moment more to open, so writes done in
-        // this same tick land in the void.
+        // Busy: open a fresh split (new tab if the pane cap is hit) and have the
+        // model retry next step against it, now active. No auto-inject - the new
+        // pane needs a render tick and the PTY longer still, so a write in this
+        // tick lands in the void.
         let spawn = ctx.openTerminalAdvanced({ mode: "split", splitDir: "row" });
         if (!spawn.ok) spawn = ctx.openTerminalAdvanced({ mode: "tab" });
         if (!spawn.ok)
@@ -422,12 +418,10 @@ export function buildTerminalTools(ctx: ToolContext) {
           return { command: trimmed, submitted: true };
         }
 
-        // Active terminal is busy. Open a fresh split (fall back to a new
-        // tab if the per-tab pane cap is hit) and report; the new terminal
-        // becomes active so the retry targets it. We don't auto-submit here:
-        // the new TerminalPane needs a render tick to mount and the PTY a
-        // moment more to open, so writes done in this same tick land in
-        // the void.
+        // Busy: open a fresh split (new tab if the pane cap is hit) and report,
+        // with the new pane active so the retry targets it. No auto-submit - the
+        // pane needs a render tick and the PTY longer still, so a write in this
+        // tick lands in the void.
         let spawn = ctx.openTerminalAdvanced({ mode: "split", splitDir: "row" });
         if (!spawn.ok) spawn = ctx.openTerminalAdvanced({ mode: "tab" });
         if (!spawn.ok)

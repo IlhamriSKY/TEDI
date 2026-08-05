@@ -1,10 +1,8 @@
 /**
- * Structured error codes for AI agent failures. Surfaces enough detail so
- * the UI can show user-friendly messages and developers can trace issues.
- *
- * Error payloads carry a `TediErrorCode` enum + optional `correlationId`
- * that ties back to the originating transport send. Correlation ids are
- * short (8-char hex) and reset per session so they don't leak state.
+ * Structured error codes for AI agent failures, detailed enough for a friendly
+ * UI message and a traceable log. Payloads carry a `TediErrorCode` plus an
+ * optional `correlationId` tying back to the transport send: 8-char hex, reset
+ * per session so it leaks no state.
  */
 
 // Regular (not `const`) enum: `isolatedModules: true` rejects ambient const
@@ -75,12 +73,11 @@ const RETRYABLE_CODES = new Set<TediErrorCode>([
   TediErrorCode.PROVIDER_UNAVAILABLE,
 ]);
 
-/** Pull an HTTP status off a provider error, walking the AI SDK's wrappers
- *  (RetryError carries `.lastError` / `.errors[]`; APICallError exposes
- *  `.statusCode`, and may sit on `.cause`). The status is the only reliable,
- *  language-agnostic signal: a provider whose 429 body is non-English (e.g.
- *  GenFlow's "Terlalu banyak penggunaan dalam 1 menit") carries no "429" or
- *  "rate limit" text for the string heuristics below to catch. */
+/** Pull an HTTP status off a provider error, walking the SDK's wrappers
+ *  (RetryError `.lastError`/`.errors[]`, APICallError `.statusCode`, `.cause`).
+ *  The status is the only language-agnostic signal: a non-English 429 body
+ *  ("Terlalu banyak penggunaan dalam 1 menit") has nothing for the string
+ *  heuristics below to match. */
 function extractHttpStatus(err: unknown): number | undefined {
   const seen = new Set<unknown>();
   const visit = (e: unknown): number | undefined => {
@@ -171,10 +168,9 @@ export function newCorrelationId(): string {
  * Map a raw provider error message to a clearer, actionable one for the chat
  * error card. Falls back to the original message when nothing matches.
  *
- * The image case is the common surprise: a gateway (e.g. SumoPod) returns
- * "No endpoints found that support image input" when the selected model's
- * routing is text-only. There is no client-side fix — the user must pick a
- * vision-capable model — so we say exactly that instead of a raw gateway string.
+ * The image case is the common surprise: a gateway answers "No endpoints found
+ * that support image input" when the model's routing is text-only. No
+ * client-side fix exists, so say "pick a vision model" rather than echo it.
  */
 export function humanizeChatErrorMessage(raw: string): string {
   const msg = raw.toLowerCase();

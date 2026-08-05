@@ -200,7 +200,7 @@ export function useSshFileTree(
   // visible, and re-read immediately on focus/visibility so alt-tabbing back
   // shows current data. Mirrors the local tree, but at a slower cadence because
   // each pass is a network round trip per open folder.
-  // ponytail: fixed interval; switch to an inotify-backed push if a busy remote
+  // Known limit: fixed interval; switch to an inotify-backed push if a busy remote
   // ever makes the polling cost visible.
   useEffect(() => {
     if (!rootPath || sessionId === null) return;

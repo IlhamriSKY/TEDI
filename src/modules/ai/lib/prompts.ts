@@ -4,20 +4,13 @@ import type { ProviderId } from "../config";
 /**
  * User-editable system prompts for every hard-coded AI agent in TEDI.
  *
- * The chat personas (Coder, Architect, …) already have their own override
- * system in `agents.ts`. THIS module covers the other, previously-uneditable
- * prompts: the core agent prompt (full + compact), the plan-mode appendix, the
- * built-in sub-agents, the inline-completion prompt, and the
- * commit-message prompt.
+ * Chat personas have their own override system in `agents.ts`. This covers the
+ * rest: the core prompt, the plan-mode appendix, built-in sub-agents, inline
+ * completion, and commit messages.
  *
- * Every entry is hidden behind a "Show all" toggle in settings, since editing
- * any of them changes deep agent behaviour.
- *
- * Built-in defaults live at their original call sites; this module only stores
- * OVERRIDES keyed by a stable id, plus optional per-agent model/temperature
- * where meaningful. The resolver returns `override ?? default` so an empty
- * store == stock behaviour. Persisted in its own LazyStore so it can't collide
- * with agents or preferences.
+ * Defaults stay at their call sites; this only stores OVERRIDES by stable id, so
+ * an empty store means stock behaviour. Own LazyStore, so it cannot collide with
+ * agents or preferences.
  */
 
 /** Stable ids for every editable prompt. Used as override-map keys. */

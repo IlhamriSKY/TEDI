@@ -204,7 +204,7 @@ export function McpServersCard() {
         />
         <Button
           size="sm"
-          variant="secondary"
+          variant="outline"
           className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px]"
           disabled={busy || !cmd.trim()}
           onClick={() => void handleAdd()}

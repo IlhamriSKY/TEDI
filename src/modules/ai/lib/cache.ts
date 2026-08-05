@@ -3,22 +3,12 @@ import { findLastIndex } from "@/lib/utils";
 import type { ProviderId } from "../config";
 
 /**
- * Provider-aware prompt-cache adapter.
+ * Provider-aware prompt-cache adapter. A new provider needs only a case here.
  *
- * Anthropic uses explicit `cacheControl` markers (up to 4). OpenAI, xAI, and
- * DeepSeek do implicit prefix caching at >= 1024 tokens; the system prompt and
- * per-turn <env> placement keep the prefix byte-stable so those hits land.
- * Google's Gemini 2.5+ also has implicit caching; explicit `cachedContent`
- * is skipped because it adds round-trip cost.
- * Third-party gateways (SumoPod and other OpenAI-compatible endpoints): whether
- * the upstream caches is UNVERIFIED and endpoint-specific - the SDK sends no
- * cache hint, so any hit depends entirely on the gateway/model doing automatic
- * prefix caching AND reporting it. Do not assume a discount here; the real
- * defence against re-send cost on these is per-step compaction (see
- * compactStepMessages), not caching.
- * Groq, Cerebras, and LM Studio have no prompt cache.
- *
- * Adding a provider only needs a new case in `applyCacheBreakpoints`.
+ * Anthropic: explicit `cacheControl`, 4 markers max. OpenAI/xAI/DeepSeek/Gemini
+ * 2.5+: implicit prefix caching, nothing to inject. Groq/Cerebras/LM Studio:
+ * none. Gateways (SumoPod, openai-compatible): unverified, assume none - the
+ * defence there is `compactStepMessages`, not caching.
  */
 export function applyCacheBreakpoints(
   messages: ModelMessage[],
@@ -39,32 +29,22 @@ export function applyCacheBreakpoints(
 const observedPromptCache = new Set<ProviderId>();
 
 /**
- * Record that a provider actually returned cached input tokens.
+ * Record that a provider really returned cached input tokens.
  *
- * Third-party gateways (agentrouter, sumopod, any openai-compatible endpoint)
- * are assumed cache-less below, because their upstream is arbitrary and betting
- * on a discount that is not there is the expensive mistake. That assumption has
- * a cost of its own though: it makes `compactStepMessages` rewrite history on
- * EVERY step, and a rewritten old message is exactly what invalidates a prefix
- * the gateway did cache. So stop guessing the moment the meter disagrees - the
- * usage report is ground truth, and every gateway here is built with
- * `includeUsage: true` so the report actually arrives.
- *
- * One-way on purpose: a single turn that happens not to hit (a cold prefix, an
- * expired TTL) must not flip the provider back to "cache-less" and restart the
- * rewriting that caused the miss.
+ * Gateways are assumed cache-less below, which makes `compactStepMessages`
+ * rewrite history every step - and that rewriting is itself what invalidates a
+ * prefix the gateway did cache. The usage report is ground truth, so stop
+ * guessing once it disagrees. One-way: a single cold miss must not restart the
+ * rewriting that caused it.
  */
 export function noteProviderCacheRead(provider: ProviderId): void {
   observedPromptCache.add(provider);
 }
 
 /**
- * Does this provider cache the prompt prefix at all?
- *
- * Callers use it to decide whether rewriting history mid-turn is worth it:
- * on a caching provider an edit to an old message invalidates everything after
- * it, so shrinking the payload can cost more than it saves. On a cache-less
- * gateway there is no prefix to protect and shrinking is a pure win.
+ * Does this provider cache the prompt prefix at all? Decides whether rewriting
+ * history mid-turn pays: on a caching provider editing an old message
+ * invalidates everything after it, on a cache-less one shrinking is free.
  */
 export function providerHasPromptCache(provider: ProviderId): boolean {
   // Measured beats tabled: a gateway that reported a cache read has one.
@@ -84,22 +64,16 @@ export function providerHasPromptCache(provider: ProviderId): boolean {
 }
 
 function applyAnthropicBreakpoints(messages: ModelMessage[]): ModelMessage[] {
-  // Strip marks we set on a previous pass FIRST. Re-applying per step is what
-  // makes BP3 a rolling write, but the SDK accumulator hands back the messages
-  // we already marked, so without this the marks pile up (step 2 marks T1,
-  // step 3 marks T2, ...) and blow through Anthropic's 4-breakpoint ceiling.
-  // Dropping a mark does not invalidate anything: cacheControl only designates
-  // where a write happens, reads still match on the longest cached prefix.
+  // Strip our own marks first: the SDK hands back messages we already marked, so
+  // they would pile up past Anthropic's 4-breakpoint ceiling. Dropping a mark
+  // invalidates nothing - reads still match the longest cached prefix.
   const out = messages.map(withoutAnthropicCacheMark);
 
-  // Anthropic allows 4 breakpoints; we use 3:
-  //   BP1 system - caches system + tool schemas (5-min TTL, re-warmed).
-  //   BP2 last user - caches prefix up to the current user turn; tool-loop
-  //       steps share it, so step 2+ pays only for appended deltas.
-  //   BP3 last tool result - rolling write. Step N writes, step N+1 hits it
-  //       and pays only the new delta. Compounds on long tool loops. Only lands
-  //       when this runs per step (see applyStepCacheBreakpoints); at turn start
-  //       the last message is always the user turn, so BP3 has nothing to mark.
+  // 3 of Anthropic's 4 breakpoints:
+  //   BP1 system     - system + tool schemas.
+  //   BP2 last user  - tool-loop steps share it, so step 2+ pays only deltas.
+  //   BP3 last tool result - rolling write, only lands when run per step
+  //       (applyStepCacheBreakpoints); at turn start there is no tool tail yet.
 
   const systemIdx = out.findIndex((m) => m.role === "system");
   if (systemIdx >= 0) out[systemIdx] = withAnthropicCacheMark(out[systemIdx]);
@@ -119,10 +93,8 @@ function applyAnthropicBreakpoints(messages: ModelMessage[]): ModelMessage[] {
 
 /**
  * Re-apply breakpoints for ONE step of the tool loop. This is what activates
- * BP3: at turn start the newest message is the user turn, so the rolling
- * tool-result breakpoint never had anything to mark, and every step re-sent the
- * whole accumulated tool tail at full write price (quadratic over a long loop).
- * A no-op for providers without explicit markers.
+ * BP3; without it every step re-sent the whole tool tail at full write price.
+ * No-op for providers without explicit markers.
  */
 export function applyStepCacheBreakpoints(
   messages: ModelMessage[],

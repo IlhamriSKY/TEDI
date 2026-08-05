@@ -39,7 +39,7 @@ import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
-import { applyToolFilter } from "../tools/catalog";
+import { applyToolFilter, subagentsAvailable } from "../tools/catalog";
 import type { Tool } from "ai";
 import { applyCacheBreakpoints, applyStepCacheBreakpoints, noteProviderCacheRead } from "./cache";
 import {
@@ -53,6 +53,7 @@ import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
 import { useDebugStore } from "../store/debugStore";
+import { activeGoalText } from "../store/goalStore";
 
 export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -173,15 +174,10 @@ export async function buildLanguageModel(
   const key = keys[provider] ?? "";
   const baseURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
   const oaiCompatBase = options.openaiCompatibleBaseURL ?? "";
-  // For openai-compatible, fold the resolved instance's base URL + key into the
-  // cache key so rotating one instance's key (or editing its URL) invalidates
-  // its cached client without disturbing other instances.
-  // Resolved AGAINST THE POST-GATE PROVIDER, deliberately not reusing the
-  // pre-gate value above: the `alt` fallback can reroute *into*
-  // openai-compatible (namespaced ids live under this provider in the dynamic
-  // registry), and the pre-gate ternary short-circuited on the original
-  // provider, so it is null exactly when it matters. It is an indexOf plus a
-  // Map lookup; sharing it across these ten lines would only risk that case.
+  // Fold the resolved instance's base URL + key into the cache key so rotating
+  // one instance's key invalidates only its client.
+  // Resolved against the POST-gate provider on purpose: the `alt` fallback can
+  // reroute INTO openai-compatible, and the pre-gate value is null exactly then.
   const oaiCompatResolved =
     provider === "openai-compatible" ? resolveOpenAICompatibleModel(resolvedModelId) : null;
   const oaiCompatCacheTag = oaiCompatResolved
@@ -262,28 +258,22 @@ export async function buildLanguageModel(
         name: "agentrouter",
         baseURL: AGENTROUTER_BASE_URL,
         apiKey: key,
-        // The whole reason this is a provider of its own rather than an
-        // OpenAI-Compatible endpoint: AgentRouter allowlists an exact
-        // User-Agent and 401s everything else. `proxyOnlyFetch` is REQUIRED,
-        // not an optimisation - a WebView fetch drops `User-Agent` silently, so
-        // on the native path this header would never leave the process and the
-        // request would fail as `unauthorized_client_error`. Idle-timeout it so
-        // a wedged stream still fails with a retryable error.
+        // Why this is its own provider and not an OpenAI-Compatible endpoint:
+        // AgentRouter allowlists an exact User-Agent and 401s everything else,
+        // and a WebView fetch drops that header silently. `proxyOnlyFetch` is
+        // REQUIRED, not an optimisation.
         headers: { ...AGENTROUTER_HEADERS },
         fetch: withStreamIdleTimeout(proxyOnlyFetch),
-        // Surface streaming usage so the context/cache indicator reflects real
-        // spend rather than showing zero for every turn.
+        // Real spend in the context/cache indicator instead of zero every turn.
         includeUsage: true,
       })(resolvedModelId);
       break;
     }
     case "openai-compatible": {
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      // Resolve the concrete endpoint for this model. Namespaced ids
-      // (`<instanceId>::<rawId>`) carry their instance; the resolver returns
-      // that instance's base URL + key and the raw model id to send upstream.
-      // A plain (non-namespaced) id falls back to the legacy single-endpoint
-      // base URL + the `openai-compatible` key, preserving old behaviour.
+      // A namespaced id (`<instanceId>::<rawId>`) carries its instance, so the
+      // resolver returns that instance's URL/key plus the raw upstream id. A
+      // plain id falls back to the legacy single endpoint.
       const resolved = oaiCompatResolved;
       const url = (resolved?.baseURL ?? oaiCompatBase ?? "").replace(/\/$/, "");
       if (!url) {
@@ -297,12 +287,9 @@ export async function buildLanguageModel(
         name: "openai-compatible",
         baseURL: url,
         apiKey,
-        // Route chat through the native-first CORS fallback so self-hosted /
-        // tunnelled endpoints (9Router, local routers) that don't send CORS
-        // headers still stream, while cloud gateways keep the native path.
-        // Idle-timeout it so a CORS-friendly cloud gateway (which takes the
-        // native path, bypassing the Rust proxy's own guard) can't stall the
-        // turn forever.
+        // Native-first CORS fallback so self-hosted endpoints without CORS
+        // headers still stream. Idle-timeout because a cloud gateway takes the
+        // native path and so bypasses the Rust proxy's own guard.
         fetch: withStreamIdleTimeout(corsFallbackFetch),
         // Ask for streaming usage so token/cache accounting works for custom
         // OpenAI-compatible endpoints too.
@@ -448,6 +435,8 @@ function buildSystemPrompt(opts: {
   mcpSummary?: string | null;
   planMode?: boolean;
   chatMode?: boolean;
+  /** Standing session goal from `/goal`, or null. */
+  goal?: string | null;
 }): string {
   const overrides = getPromptOverrides();
   const personaBlock = opts.agentPersona?.instructions.trim()
@@ -457,11 +446,9 @@ function buildSystemPrompt(opts: {
     ? `\n\n## USER CUSTOM INSTRUCTIONS - follow unless they conflict with safety rules above\n${opts.customInstructions.trim()}`
     : "";
 
-  // Plain chat: no tools go out this turn, so the agent prompt, project memory,
-  // skills, MCP summary, and orchestration nudge are all instructions about
-  // capabilities the model does not have - paid for on every message. Persona
-  // and custom instructions stay: the user wrote those, and dropping them
-  // silently would be a surprise, not a saving.
+  // Plain chat sends no tools, so memory/skills/MCP/orchestration text describes
+  // capabilities the model does not have, billed every message. Persona and
+  // custom instructions stay - the user wrote those.
   if (opts.chatMode) {
     return `${resolvePromptText(overrides, "chat", CHAT_MODE_PROMPT)}${personaBlock}${customBlock}`;
   }
@@ -488,17 +475,23 @@ function buildSystemPrompt(opts: {
   const mcpBlock = opts.mcpSummary?.trim() ? `\n\n${opts.mcpSummary.trim()}` : "";
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
-  // Auto-orchestration nudge: appended whenever sub-agents are enabled (the
-  // single on/off now covers orchestration too). Read live (like the overrides
-  // above); the flag is stable across a turn so the prefix stays byte-stable for
-  // caching until the setting changes. Lite models get a compact prompt.
-  const subPrefs = usePreferencesStore.getState();
-  const orchestrationOn = subPrefs.subagentsEnabled;
+  // Auto-orchestration nudge, appended only when the spawn tool will actually be
+  // sent. Reading the picker rather than a separate preference is the point: a
+  // prompt telling the model to delegate, next to a tool set that has no spawn
+  // tool, is pure wasted tokens and a guaranteed failed call. Stable across a
+  // turn, so the cached prefix holds until the user changes the picker.
+  const orchestrationOn = subagentsAvailable(new Set(usePreferencesStore.getState().disabledTools));
   const orchestrationDefault =
     variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
   const orchestrationBody = resolvePromptText(overrides, "orchestration", orchestrationDefault);
   const orchestrationBlock = orchestrationOn ? `\n\n${orchestrationBody}` : "";
-  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}`;
+  // Standing goal from `/goal`. Last, so it is the final thing read before the
+  // conversation, and stable across turns until the user changes it, which keeps
+  // the cached prefix byte-stable the same way planBlock does.
+  const goalBlock = opts.goal?.trim()
+    ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal, and say so when you consider it met. Do not restate it back to the user unprompted.`
+    : "";
+  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
 }
 
 /** Appended for the turn when the user writes "ultrathink": a provider-agnostic
@@ -560,25 +553,48 @@ export async function runAgentStream(
       mcpSummary: opts.mcpSummary,
       planMode: opts.planMode,
       chatMode,
+      goal: activeGoalText(opts.toolContext.getSessionId()),
     }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
 
   // Optional main-agent temperature override. Only sent when the user set one,
   // so reasoning models that reject sampling params stay untouched by default.
   const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
-  const rawHistory = await convertToModelMessages(opts.uiMessages);
+  // The SDK only aborts the HTTP fetch, so tools need the signal too. Mutate the
+  // stable ctx rather than spreading a fresh one: tools read `abortSignal`
+  // lazily, and the same identity keeps buildTools' WeakMap cache hitting.
+  opts.toolContext.abortSignal = opts.abortSignal;
+
+  // Built-ins spread LAST so an extension/MCP can never shadow one (bash_run).
+  // Chat mode builds none: ~77 schemas is the biggest fixed per-step cost and a
+  // conversation cannot use them. Filtering here, after every source is merged,
+  // is the only place a picker-disabled tool cannot slip through another path.
+  // Built before the history conversion below, which needs it - see there.
+  const tools = chatMode
+    ? undefined
+    : applyToolFilter(
+        {
+          ...buildExtensionTools(opts.toolContext),
+          ...opts.mcpTools,
+          ...buildTools(opts.toolContext),
+        },
+        new Set(usePreferencesStore.getState().disabledTools),
+      );
+
+  // `tools` is what applies each tool's `toModelOutput` to REPLAYED history, not
+  // just to this turn's live results. Without it the SDK re-sends the raw
+  // `execute` return for every past call. An unknown tool name (uninstalled
+  // extension, dropped MCP server) just misses the lookup, so old sessions load.
+  const rawHistory = await convertToModelMessages(opts.uiMessages, { tools });
   // Chat mode declares no tools, so a history still carrying tool calls and
   // results is both the bulk of the payload and, on Anthropic, a hard error
   // ("tool_use without tools"). Strip it whenever the toggle is flipped
   // mid-session; the text of the conversation survives.
   const history = chatMode ? stripToolTraffic(rawHistory) : rawHistory;
-  // The system prompt is prepended *after* compaction (see baseMessages below)
-  // and the transport injects a per-turn <env> block into the latest user
-  // message - neither is visible to the history compactor. Reserve their
-  // approximate token cost so the 60/80% thresholds reflect the real request
-  // size. This matters most on small-context models and when a large
-  // project-memory file (TEDI.md) inflates the system prompt. The floor keeps
-  // us from reserving more than half the window if the system prompt is huge.
+  // The system prompt and the per-turn <env> block are both added AFTER
+  // compaction, so the compactor cannot see them. Reserve their cost or the
+  // thresholds understate the real request. The floor caps the reservation at
+  // half the window in case the system prompt is huge (a big TEDI.md).
   const fullContextLimit = getModelContextLimit(modelInfo.id);
   const systemTokenEstimate = Math.ceil(systemText.length / 4);
   const ENV_AND_OUTPUT_RESERVE = 2000;
@@ -598,14 +614,6 @@ export async function runAgentStream(
     ...compact.messages,
   ];
   const finalMessages = applyCacheBreakpoints(baseMessages, provider);
-
-  // Thread the abort signal into the ToolContext so tools can fast-fail on
-  // Stop/session-delete. The SDK only aborts the HTTP fetch by default.
-  // Mutate the stable session ctx instead of spreading a fresh object: tools
-  // read `abortSignal` lazily (throwIfAborted / per-tool execute), so a new
-  // signal per turn is picked up, and keeping the same ctx identity lets
-  // buildTools' per-ctx WeakMap cache actually hit (no zod schema rebuilds).
-  opts.toolContext.abortSignal = opts.abortSignal;
 
   let stepsSeen = 0;
   // Three stop predicates (any trip ends the loop):
@@ -640,42 +648,13 @@ export async function runAgentStream(
       return false;
     },
   ];
-  // Extension-contributed AI tools first, then MCP tools, then built-ins.
-  // Built-ins spread AFTER so an extension/MCP can never shadow a built-in
-  // tool name (e.g. bash_run).
-  // Chat mode sends none: ~77 schemas is the single biggest fixed cost per
-  // step, and a plain conversation cannot use one. Not built either, so the
-  // extension/MCP/zod work is skipped too.
-  //
-  // Otherwise the user's tool picker decides. Filtering here rather than in the
-  // builders is deliberate: this is the ONE place every source (built-in, MCP,
-  // extension) has been merged, so a tool cannot be off in the picker and still
-  // reach the model through another path.
-  const tools = chatMode
-    ? undefined
-    : applyToolFilter(
-        {
-          ...buildExtensionTools(opts.toolContext),
-          ...opts.mcpTools,
-          ...buildTools(opts.toolContext),
-        },
-        new Set(usePreferencesStore.getState().disabledTools),
-      );
-
-  // Forced spawn: a soft orchestration mandate in the prompt is unreliable -
-  // many models start reading files inline instead of calling run_subagents.
-  // opencode's orchestrator solves this by DENYING inline tools so the model can
-  // only delegate; we apply the same idea per-turn, model-agnostically: when the
-  // request matches the mandate's intent and the feature is on, pin step 0 to
-  // run_subagents only and require a tool call. Endpoints that honor toolChoice
-  // then emit a well-formed multi-task spawn; those that don't are unaffected.
-  // Only step 0 is constrained, so the model still synthesizes the summaries
-  // itself afterwards (TEDI's run_subagents fans out the whole batch in one go).
-  const forceSpawnStep0 =
-    !!tools &&
-    usePreferencesStore.getState().subagentsEnabled &&
-    "run_subagents" in tools &&
-    wantsForcedFanout(latestUserText);
+  // A prompt-level orchestration mandate is unreliable: many models read files
+  // inline instead of calling run_subagents. So pin step 0 to run_subagents and
+  // require a tool call (opencode's trick, applied per-turn). Endpoints ignoring
+  // toolChoice are unaffected. Only step 0, so the model still synthesizes.
+  // `"run_subagents" in tools` already covers the picker: applyToolFilter ran
+  // before this, so a switched-off spawn tool is simply absent.
+  const forceSpawnStep0 = !!tools && "run_subagents" in tools && wantsForcedFanout(latestUserText);
 
   // Debug capture: snapshot the assembled request (no secrets) when the user
   // turned Debug on, so they can inspect / download exactly what TEDI sends.
@@ -708,14 +687,10 @@ export async function runAgentStream(
     // a structural cast is safe.
     stopWhen: trackingStopWhen as never,
     // Two jobs per step:
-    //  1. Compact the accumulating tool-result pile BETWEEN steps. The main agent
-    //     only compacts once, at turn start (baseMessages above); within the
-    //     15-step loop a fan-out summary bundle or verification reads pile up and
-    //     are re-sent in full every subsequent step. compactStepMessages elides
-    //     the old blocks (idempotent + pairing-safe, see its doc). This is the
-    //     lever that shrinks re-send cost on caches-less providers (SumoPod).
-    //  2. Pin the first step to a run_subagents call when the user explicitly
-    //     asked for sub-agents (see forceSpawnStep0). Cast as stopWhen above.
+    //  1. Compact BETWEEN steps. The turn-start pass cannot see the tool results
+    //     the loop then piles up, and those are re-sent every later step. This is
+    //     the main lever on cache-less providers.
+    //  2. Pin step 0 to run_subagents when asked (forceSpawnStep0).
     prepareStep: (({
       stepNumber,
       messages: stepMessages,
@@ -727,10 +702,8 @@ export async function runAgentStream(
       // payload is genuinely large, because eliding an old result invalidates
       // the cached prefix after it.
       const compacted = compactStepMessages(stepMessages, provider);
-      // Re-mark breakpoints per step so the rolling tool-result one (BP3) has
-      // something to land on. At turn start the newest message is always the
-      // user turn, so without this the intra-turn tool tail was re-sent
-      // uncached on every step (quadratic over a long loop).
+      // Re-mark per step so the rolling BP3 has a tool tail to land on; at turn
+      // start there is none, and the tail was re-sent uncached every step.
       const messages = applyStepCacheBreakpoints(compacted, provider);
       return forceSpawnStep0 && stepNumber === 0
         ? { messages, activeTools: ["run_subagents"], toolChoice: "required" }

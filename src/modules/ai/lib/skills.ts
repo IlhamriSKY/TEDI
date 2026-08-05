@@ -16,11 +16,9 @@ import {
  *
  *   .tedi/skills/<slug>/SKILL.md
  *
- * Two roots are scanned: the user-global `~/.tedi/skills` (what the Settings
- * installer writes to) and the workspace `<root>/.tedi/skills` (project skills,
- * committed like `.github`). The name + description are injected into the system
- * prompt; the agent loads the full SKILL.md on demand via its existing
- * `read_file` tool (progressive disclosure), so no new tool is needed.
+ * Two roots: global `~/.tedi/skills` and workspace `<root>/.tedi/skills`
+ * (committed like `.github`). Only name + description go in the system prompt;
+ * the agent reads the full SKILL.md on demand with `read_file`, so no new tool.
  */
 export type SkillMeta = {
   name: string;
@@ -320,12 +318,9 @@ export async function loadSkills(workspaceRoot: string | null): Promise<SkillMet
   for (const root of roots) {
     for (const s of await scanDir(root)) byId.set(`${s.group}\x1f${skillSlug(s)}`, s);
   }
-  // Assign a disambiguating invocation slug only when two survivors share a bare
-  // leaf. Unique leaves keep their bare slug (the common case, no UX change);
-  // collisions get a stable `-2`/`-3` suffix in sorted-dir order so assignment is
-  // deterministic across runs.
-  // Note: numeric suffix, not group-qualified `group:leaf`; bump to qualified
-  // if users want readable disambiguated commands.
+  // Only disambiguate when two survivors share a bare leaf; unique leaves keep
+  // their slug. Collisions get `-2`/`-3` in sorted-dir order, so assignment is
+  // deterministic across runs. Numeric, not `group:leaf` - bump if users ask.
   const survivors = Array.from(byId.values()).sort((a, b) => a.dir.localeCompare(b.dir));
   const taken = new Set<string>();
   for (const s of survivors) {
@@ -505,12 +500,10 @@ const COFETCH_MAX_FILES = 50;
 const COFETCH_MAX_BYTES = 512 * 1024;
 
 /**
- * Write a skill's bundled sibling files (scripts, reference docs) from the
- * already-downloaded repo file map so a multi-file skill isn't installed
- * half-broken (the agent's read_file on a referenced script would otherwise
- * fail at runtime). The backend already dropped binaries (text-only archive),
- * so this is a pure in-memory walk — no network. Bounded so a misshaped repo
- * can't write an unbounded tree; untrusted paths that escape the dir are rejected.
+ * Write a skill's bundled siblings (scripts, docs) from the downloaded file map,
+ * so a multi-file skill is not installed half-broken. Pure in-memory walk, no
+ * network; binaries were already dropped backend-side. Bounded against a
+ * misshaped repo, and paths escaping the dir are rejected.
  */
 async function writeSkillSiblings(
   skillMdPath: string,
@@ -539,13 +532,10 @@ async function writeSkillSiblings(
 }
 
 /**
- * Install every `SKILL.md` found in a GitHub repo into a skills root. Targets
- * the workspace `.tedi/skills` when `workspaceRoot` is given, else the global
- * `~/.tedi/skills`. The whole repo is downloaded once via codeload (no GitHub
- * API, no rate limit, no token); SKILL.md files and their bundled text siblings
- * are written from that in-memory archive (binaries were dropped backend-side).
- *
- * Also saves metadata (SHA, version, requires, install date) to skillState store.
+ * Install every `SKILL.md` in a GitHub repo into a skills root: the workspace
+ * when `workspaceRoot` is given, else global. The repo is fetched once via
+ * codeload (no API, no rate limit, no token) and written from that in-memory
+ * archive. Metadata (SHA, version, requires, date) goes to the skillState store.
  */
 export async function installSkillsFromGithub(
   ref: string,
@@ -650,12 +640,10 @@ function splitSkillDir(dir: string): { base: string; group: string } | null {
 }
 
 /**
- * Check if an installed skill group has updates available.
- * Returns null when the group is not update-tracked or already current; THROWS
- * on a real fetch failure (network) so callers don't mistake an unreachable
- * check for "up to date". Resolves the repo's current HEAD off git smart-HTTP
- * (no API, no rate limit) and compares its SHA — a renamed default branch is
- * handled automatically since HEAD always points at whatever is current.
+ * Check an installed skill group for updates. Null when untracked or current;
+ * THROWS on a fetch failure, so an unreachable check is never read as "up to
+ * date". Compares HEAD's SHA off git smart-HTTP, which also survives a renamed
+ * default branch.
  */
 export async function checkSkillUpdate(group: string): Promise<{
   hasUpdate: boolean;
@@ -733,11 +721,9 @@ export async function checkAllSkillUpdates(): Promise<SkillUpdateCheck> {
 }
 
 /**
- * Update a skill group by re-downloading from the source repo (via codeload, no
- * API/rate limit). Updates EVERY root that holds the group (a repo installed
- * both globally and into a project updates both, not just the first match).
- * A renamed default branch is handled automatically (HEAD is always current),
- * writes bundled text siblings, and reports per-skill failures.
+ * Re-download a skill group from its source repo. Updates EVERY root holding it,
+ * not just the first match, writes bundled siblings, and reports per-skill
+ * failures.
  */
 export async function updateSkillGroup(group: string): Promise<{
   updated: string[];

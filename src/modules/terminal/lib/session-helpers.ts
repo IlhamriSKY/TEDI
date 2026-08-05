@@ -54,9 +54,6 @@ export const WINDOWS_PTY: IWindowsPty | undefined = (() => {
   }
 })();
 
-export const LOCAL_URL_RE =
-  /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{1,5})?(?:\/[^\s\x1b]*)?/g;
-
 // PTY exits within this window after spawn are treated as init crashes
 // (ConPTY race, profile script error) rather than user `exit`. Hold the
 // leaf with a retry banner instead of closing the pane.
@@ -195,18 +192,4 @@ export function isShiftEnter(event: KeyboardEvent): boolean {
     !event.altKey &&
     !event.metaKey
   );
-}
-
-export function stripTrailingPunct(url: string): string {
-  return url.replace(/[.,);\]]+$/, "");
-}
-
-export function containsSchemeSeparator(bytes: Uint8Array): boolean {
-  const n = bytes.length;
-  for (let i = 0; i < n - 2; i++) {
-    if (bytes[i] === 0x3a && bytes[i + 1] === 0x2f && bytes[i + 2] === 0x2f) {
-      return true;
-    }
-  }
-  return false;
 }

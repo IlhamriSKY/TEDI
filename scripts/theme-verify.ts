@@ -13,8 +13,8 @@
  *     the app theme (COLOR_VAR_MAP) or the terminal palette,
  *   - every `--tedi-*` var a theme WRITES is read by some CSS/component, so a
  *     colour picker in Settings can never be a knob that moves nothing
- *     (`--tedi-button-border` was exactly that until the outline button
- *     started reading it),
+ *     (the button token was exactly that until the neutral button started
+ *     reading it),
  *   - every non-ANSI key is editable in the Settings colour editor
  *     (ANSI 16 live under Settings > Terminal instead),
  *   - preset names and their derived terminal-preset slugs are unique
@@ -27,6 +27,12 @@ import { dirname, join } from "node:path";
 import { THEME_PRESETS } from "../src/modules/settings/themePresets";
 import { COLOR_FIELDS } from "../src/settings/sections/theme/colorFields";
 import { slugify } from "../src/lib/utils";
+import {
+  contrastRatio,
+  ensureVisibleButtonFace,
+  MIN_FACE_CONTRAST,
+  MIN_FACE_TEXT_CONTRAST,
+} from "../src/modules/settings/buttonFace";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -68,6 +74,10 @@ const NON_THEMABLE = new Set([
   // Follow the EDITOR theme, not the app theme (see modules/editor/lib/diffColors.ts).
   "--tedi-editor-diff-added",
   "--tedi-editor-diff-removed",
+  // Derived in globals.css from --tedi-button-face, so it tracks whatever the
+  // theme sets without needing a knob of its own. Giving it one would let a
+  // theme pick a hover that is darker than the rest state on a dark theme.
+  "--tedi-button-face-hover",
 ]);
 
 const declared = new Set([...css.matchAll(/^\s*(--tedi-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
@@ -80,7 +90,7 @@ for (const v of declared) {
 
 // The reverse direction, and the other half of the same bug: a theme token that
 // nothing reads is a dead knob - the Settings colour picker changes it and the
-// UI never moves. `--tedi-button-border` was exactly that.
+// UI never moves. `--tedi-button-face`'s predecessor was exactly that.
 const sources = collectSources(join(root, "src"));
 for (const v of appVars) {
   if (!v.startsWith("--tedi-")) continue;
@@ -146,37 +156,120 @@ for (const p of THEME_PRESETS) {
   }
 }
 
-// An outline button is drawn by its border alone, so that border is the whole
-// affordance - and every preset shipped one tuned as a decorative hairline
-// against nothing in particular. Default/dark was 1.06:1 on a dialog: the
-// Cancel button was invisible. WCAG 1.4.11 puts the floor for a control
-// boundary at 3:1, and the border has to clear it on EVERY surface a button
-// sits on, so it is measured against the worst of them - the lightest under a
-// dark theme, the darkest under a light one.
+// The neutral button is drawn by its fill alone, so it fails two silent ways -
+// both of which happened while building it:
+//   - face blending into the surface (the border version measured 1.06:1 on a
+//     dialog). Checked against the WORST surface, since a dialog is a popover
+//     and on several presets the popover IS the background.
+//   - label unreadable ON the face: deriving for surface contrast alone left
+//     Solarized dark at 2.64:1, hence `buttonFaceForeground`.
+// Floors are imported, not restated, so they cannot drift from the app.
 const SURFACES = ["background", "card", "popover"] as const;
-const luminance = (hex: string): number =>
-  [1, 3, 5]
-    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
-    .reduce((acc, c, i) => acc + c * [0.2126, 0.7152, 0.0722][i], 0);
-const contrast = (a: string, b: string): number => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
 
 for (const p of THEME_PRESETS) {
   for (const variant of ["dark", "light"] as const) {
     const colors = p[variant] as Record<string, string>;
     const worst = SURFACES.map((s) => colors[s]).sort(
-      (a, b) => contrast(colors.buttonBorder, a) - contrast(colors.buttonBorder, b),
+      (a, b) => contrastRatio(colors.buttonFace, a) - contrastRatio(colors.buttonFace, b),
     )[0];
-    const ratio = contrast(colors.buttonBorder, worst);
-    check(`${p.name} ${variant} button border is visible`, ratio >= 3, {
-      buttonBorder: colors.buttonBorder,
-      worstSurface: worst,
+    const ratio = contrastRatio(colors.buttonFace, worst);
+    check(
+      `${p.name} ${variant} button face is distinct from its surfaces`,
+      ratio >= MIN_FACE_CONTRAST,
+      {
+        buttonFace: colors.buttonFace,
+        worstSurface: worst,
+        ratio: Number(ratio.toFixed(2)),
+      },
+    );
+    const text = contrastRatio(colors.buttonFaceForeground, colors.buttonFace);
+    check(
+      `${p.name} ${variant} button label is readable on that face`,
+      text >= MIN_FACE_TEXT_CONTRAST,
+      {
+        buttonFaceForeground: colors.buttonFaceForeground,
+        buttonFace: colors.buttonFace,
+        ratio: Number(text.toFixed(2)),
+      },
+    );
+  }
+}
+
+// ---- a SAVED theme cannot leave the neutral button unusable ----------------
+// Picking a preset SNAPSHOTS its palette into `customTheme`, so retuning a
+// preset file never reaches an existing install. The floors are re-applied when
+// the payload is read, and this is the only check on that repair.
+// (Salvaged from connection-ux-verify.ts, which imported a gitignored extension
+// and so could not run on a fresh checkout.)
+console.log("\na stale saved theme cannot leave the neutral button unusable");
+{
+  const base = THEME_PRESETS[0].dark;
+  // The exact palette measured on the install that prompted the original bug:
+  // current surfaces, and a face that has sunk into the popover behind it.
+  const stale = { ...base, popover: "#363636", buttonFace: "#3a3a3a" };
+  check(
+    "the reported case really was below the floor (so this test can fail)",
+    contrastRatio("#3a3a3a", "#363636") < MIN_FACE_CONTRAST,
+    Number(contrastRatio("#3a3a3a", "#363636").toFixed(2)),
+  );
+  const repaired = ensureVisibleButtonFace(stale);
+  for (const surface of ["background", "card", "popover"] as const) {
+    const ratio = contrastRatio(repaired.buttonFace, repaired[surface]);
+    check(`repaired face clears the floor on ${surface}`, ratio >= MIN_FACE_CONTRAST, {
+      face: repaired.buttonFace,
+      surface: repaired[surface],
       ratio: Number(ratio.toFixed(2)),
     });
   }
+  check(
+    "and the label is still readable on the repaired face",
+    contrastRatio(repaired.buttonFaceForeground, repaired.buttonFace) >= MIN_FACE_TEXT_CONTRAST,
+    {
+      text: repaired.buttonFaceForeground,
+      face: repaired.buttonFace,
+      ratio: Number(contrastRatio(repaired.buttonFaceForeground, repaired.buttonFace).toFixed(2)),
+    },
+  );
+  check(
+    "a light theme darkens instead of lightening",
+    (() => {
+      const light = THEME_PRESETS[0].light;
+      const fixed = ensureVisibleButtonFace({ ...light, buttonFace: "#fbfbfb" }).buttonFace;
+      return fixed < "#fbfbfb" && contrastRatio(fixed, light.popover) >= MIN_FACE_CONTRAST;
+    })(),
+  );
+  // The second floor alone: a face visible against the dialog whose label is
+  // not. Repairing only the first is the bug this pairing prevents.
+  check(
+    "a readable face with an unreadable label is repaired too",
+    (() => {
+      const visibleButUnreadable = {
+        ...base,
+        buttonFace: "#5d5d5d",
+        buttonFaceForeground: "#6a6a6a",
+      };
+      const fixed = ensureVisibleButtonFace(visibleButUnreadable);
+      return (
+        fixed.buttonFace === "#5d5d5d" &&
+        contrastRatio(fixed.buttonFaceForeground, fixed.buttonFace) >= MIN_FACE_TEXT_CONTRAST
+      );
+    })(),
+  );
+  check(
+    "a theme that already passes is returned untouched (idempotent)",
+    ensureVisibleButtonFace(base) === base &&
+      ensureVisibleButtonFace(repaired).buttonFace === repaired.buttonFace,
+  );
+  check(
+    "a non-hex value is left alone rather than mangled",
+    ensureVisibleButtonFace({ ...base, buttonFace: "var(--border)" }).buttonFace ===
+      "var(--border)",
+  );
+  // The repair only helps if the payload actually routes through it.
+  check(
+    "normalizeCustomTheme applies it to BOTH variants",
+    (customThemeSrc.match(/ensureVisibleButtonFace\(\{ \.\.\.defaults\./g) ?? []).length === 2,
+  );
 }
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);

@@ -30,6 +30,7 @@ import {
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { useSubagentRunStore } from "./subagentRunStore";
+import { useGoalStore } from "./goalStore";
 import { useTodosStore } from "./todoStore";
 import { toast } from "@/components/ui/toast";
 import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
@@ -370,7 +371,19 @@ let switchSeq = 0;
 // Trailing debounce for per-token persistence. Without it we'd serialize the
 // full message array and round-trip to the store on every token. Flush on
 // idle via `flushPersist`.
-const PERSIST_DEBOUNCE_MS = 300;
+//
+// 2s, not 300ms, because ONE `set()` here rewrites the WHOLE store file: every
+// session lives in one `tedi-sessions.json` under `messages:<id>` (see
+// sessions.ts), so the plugin's autoSave serializes all of them on any change.
+// Measured at 1.6 MB / 9 sessions, 300ms meant ~3 full-file writes a second for
+// the entire length of every reply, and it grows with history.
+//
+// Safe because the tail never depends on this timer: AgentRunBridge flushes the
+// moment status leaves streaming, on session switch, and on unmount, and
+// hibernateOldestChat writes through before evicting. The only exposure is a
+// hard crash mid-reply, which now costs ~2s of streamed text instead of ~300ms.
+// The real fix is one file per session; this is the cheap 7x until then.
+const PERSIST_DEBOUNCE_MS = 2000;
 const pendingPersist = new Map<
   string,
   { latest: UIMessage[]; timer: ReturnType<typeof setTimeout> }
@@ -480,13 +493,11 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   // connection. Keyed like `chats` and dropped alongside it.
   toolContexts.set(sessionId, toolContext);
 
-  // `agentMeta` is a single global field the UI renders for the ACTIVE session
-  // only (switchSession resets it). These transport callbacks keep firing while
-  // a non-active session streams in the background, so every write/toast must
-  // be gated by the producing session id, or switching away mid-turn corrupts
-  // the now-active session's step label, token counter, compaction badge, and
-  // error pill. An error on a background session is not lost: AgentRunBridge
-  // re-derives status from that chat when the user switches back to it.
+  // `agentMeta` is ONE global field, rendered for the active session only, but
+  // these callbacks keep firing for background sessions. Every write must be
+  // gated by the producing session id or switching away mid-turn corrupts the
+  // now-active session's step label, counters and badges. A background error is
+  // not lost: AgentRunBridge re-derives it when the user switches back.
   const isActiveSession = () => useChatStore.getState().activeSessionId === sessionId;
 
   const transport = createContextAwareTransport({
@@ -601,12 +612,9 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: ({ messages }) => {
-      // Queue the completed turn for disk regardless of which session is
-      // active. AgentRunBridge only mirrors the ACTIVE session, so a turn
-      // that finished in the background would otherwise never be persisted
-      // and would be lost on eviction/restart. persistMessages is debounced,
-      // so when this session is active the active-session bridge path just
-      // shares the same debounce entry (no duplicate write).
+      // Persist regardless of which session is active: AgentRunBridge mirrors
+      // only the active one, so a background turn would be lost on restart.
+      // persistMessages is debounced, so the active path shares this entry.
       useChatStore.getState().persistMessages(sessionId, messages);
     },
     onError: (e) => {
@@ -830,6 +838,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
     useSubagentRunStore.getState().clearSession(id);
+    useGoalStore.getState().clearGoal(id);
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {

@@ -17,6 +17,11 @@ import type {
   ContributedPanel,
   ContributedSetting,
 } from "./manifest";
+import {
+  SUBAGENT_TOOL_NAMES,
+  subagentsAvailable,
+  withSubagentsDisabled,
+} from "@/modules/ai/tools/catalog";
 import { PermissionDeniedError, isInvokeAllowed, requirePermission } from "./permissions";
 import { useRightPanelStore } from "./rightPanelStore";
 import {
@@ -188,6 +193,9 @@ export type AiStateSnapshot = {
   activeSessionId: string | null;
   /** The user's safety posture. Read-only by design; see `ctx.ai` below. */
   approvalMode: "ask" | "semi" | "yolo";
+  /** Can the AI delegate to sub-agents? Kept in the API after the preference of
+   *  the same name was removed; it is now derived from the tool picker, so the
+   *  meaning is unchanged for extensions reading it. */
   subagentsEnabled: boolean;
   /** Whether a key is configured for `modelId`'s provider. False means a run
    *  would fail; the key itself is never exposed. */
@@ -568,7 +576,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       usage: { ...c.agentMeta.usage },
       activeSessionId: c.activeSessionId,
       approvalMode: p.approvalMode,
-      subagentsEnabled: p.subagentsEnabled,
+      subagentsEnabled: subagentsAvailable(new Set(p.disabledTools)),
       hasKey: chatMod.hasKeyForModel(c.selectedModelId),
     };
   };
@@ -600,8 +608,9 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     ai: {
       getState: () => readAiState(),
       onStateChange: (cb) => {
-        // Fan-in: model/run state lives in chatStore, approvalMode and
-        // subagentsEnabled in preferences. Either can move independently.
+        // Fan-in: model/run state lives in chatStore, while approvalMode and the
+        // disabledTools that `subagentsEnabled` is derived from live in
+        // preferences. Either can move independently.
         const emit = (): void => cb(readAiState());
         const unsubs = [
           chatMod.useChatStore.subscribe(emit),
@@ -626,10 +635,19 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         const known = PROVIDERS.find((p) => p.id === provider)?.id;
         chatMod.useChatStore.getState().setSelectedModelId(String(modelId ?? ""), known);
       },
+      // Kept in the extension API after the preference was removed: it now
+      // switches the spawn tools in the picker, which is the same user-visible
+      // effect. Only those two names are touched, so an extension calling this
+      // cannot clobber the rest of the user's picker choices.
       async setSubagentsEnabled(enabled: boolean): Promise<void> {
         requirePermission(ext.id, declared, "ai:configure");
         const mod = await import("@/modules/settings/store");
-        await mod.setSubagentsEnabled(!!enabled);
+        const current = prefsMod.usePreferencesStore.getState().disabledTools;
+        await mod.setDisabledTools(
+          enabled
+            ? current.filter((n) => !(SUBAGENT_TOOL_NAMES as readonly string[]).includes(n))
+            : withSubagentsDisabled(current),
+        );
       },
       async sendPrompt(text: string): Promise<boolean> {
         requirePermission(ext.id, declared, "ai:prompt");

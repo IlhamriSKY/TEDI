@@ -342,24 +342,22 @@
   --input: color-mix(in srgb, var(--foreground) 26%, transparent);
 }
 
-/* Fallback outline-button border, for the first paint (before applyCustomTheme
- * writes the theme) and for imported themes predating the `buttonBorder` key.
- * Both used to land on --border, which is a hairline tuned to separate panels,
- * not to draw a control: at #383838 on #1a1a1a it is 1.5:1, and on a dialog
- * (#363636) it is 1.06:1 - the Cancel button was genuinely invisible.
- * Derived from --foreground rather than a fixed hex so one declaration serves
- * light, dark and glass, and so it lightens whatever surface it lands on.
- * A theme's own value still wins: applyCustomTheme sets it inline on <html>,
- * and normalizeCustomTheme holds THAT to 3:1 (see modules/settings/
- * buttonBorder.ts), which is what actually guarantees a visible control
- * boundary. This declaration only covers first paint and a theme missing the
- * key. It is NOT itself a 3:1 guarantee, contrary to what this comment used to
- * claim: measured across the presets, a 50% foreground mix bottoms out at
- * 2.08:1 on Kanagawa light's card. Raising it here would repaint every theme
- * that sets no buttonBorder, and the repair above already covers the real
- * cases, so it stays as a floor-of-last-resort rather than a promise. */
+/* Fallback fill for the neutral button (`<Button variant="outline">`), covering
+ * first paint and themes imported before the `buttonFace` key existed. Derived
+ * from --foreground, not a fixed hex, so one declaration serves light, dark and
+ * glass: being translucent it composites over whatever surface it lands on.
+ * A theme's own value wins, and normalizeCustomTheme is what guarantees the
+ * contrast floor (modules/settings/buttonFace.ts) - this is only a last resort. */
 :root {
-  --tedi-button-border: color-mix(in srgb, var(--foreground) 50%, transparent);
+  --tedi-button-face: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --tedi-button-face-foreground: var(--foreground);
+}
+
+/* Hover derived from the face, so it is lighter on a dark theme and darker on a
+ * light one without either saying so - and a theme (or an extension) that sets
+ * the face gets a matching hover for free. */
+:root {
+  --tedi-button-face-hover: color-mix(in srgb, var(--tedi-button-face) 86%, var(--foreground));
 }
 
 @layer base {

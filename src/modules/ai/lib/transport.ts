@@ -22,13 +22,11 @@ const TEDI_MD_PRELOAD_BYTES = 12 * 1024;
 const PROJECT_MEMORY_TRUNCATION_NOTE =
   "\n\n[TEDI.md is large; only its header is preloaded here. Full architecture reference (backend/frontend internals, PTY daemon, module layout) is on disk - use read_file on TEDI.md when a task needs subsystem depth.]";
 
-/** Bound the preloaded project-memory doc so it does not dominate the prompt.
- *  Under budget: return trimmed as-is. Over budget: cut at the last markdown
- *  section header (\n#{1,6} ) at or before the budget so it never severs a table
- *  or sentence, then append a read-on-demand pointer. Falls back to a paragraph
- *  break, then a hard slice, when no header sits in range.
- *  Note: head-truncation, not section-aware pruning; good enough because the
- *  useful head (identity, stack, commands, backend map) leads the doc. */
+/** Bound the preloaded project-memory doc so it cannot dominate the prompt. Over
+ *  budget, cut at the last markdown header at or before it so a table or
+ *  sentence is never severed, then append a read-on-demand pointer; falls back
+ *  to a paragraph break, then a hard slice. Head-truncation, not section-aware
+ *  pruning - fine because the useful head leads the doc. */
 function boundProjectMemory(content: string, budget = TEDI_MD_PRELOAD_BYTES): string {
   const trimmed = content.trim();
   if (trimmed.length <= budget) return trimmed;
@@ -278,12 +276,9 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
     async sendMessages({ messages, abortSignal }) {
       const correlationId = newCorrelationId();
 
-      // Snapshot every per-turn knob ONCE, BEFORE any await, so a mid-turn
-      // settings change (model/provider swap, key rotation, persona switch,
-      // plan toggle) can't leak into a retry attempt or even into the first
-      // attempt of this same turn. The whole turn, including every backoff
-      // retry, runs against the values that were live when the user pressed
-      // Send. New values take effect on the next user prompt.
+      // Snapshot every per-turn knob ONCE, before any await, so a mid-turn
+      // settings change cannot leak into this turn or its retries. The whole
+      // turn runs against what was live at Send; new values apply next prompt.
       const snapshot = {
         keys: deps.getKeys(),
         modelId: deps.getModelId(),
@@ -297,12 +292,11 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       };
 
       const live = deps.getLive();
-      // Pin cwd + workspace root to this turn's snapshot so a mid-turn tab
-      // switch can't move the agent (or its sub-agents) into another folder:
-      // every tool resolves paths through `ctx.getCwd()`, which otherwise reads
-      // the *currently active* terminal live. Mutate the stable session context
-      // (re-pinned each turn) rather than cloning, so buildTools' per-ctx cache
-      // keeps hitting. The UI/<env> read live cwd directly, so they stay live.
+      // Pin cwd + workspace root for the turn so a mid-turn tab switch cannot
+      // move the agent into another folder - every tool resolves through
+      // `ctx.getCwd()`, which otherwise reads the active terminal live. Mutate
+      // the stable ctx rather than clone, to keep buildTools' cache hitting.
+      // UI and <env> read live cwd directly, so they stay live.
       deps.toolContext.pinTurnCwd?.(live.cwd, live.workspaceRoot);
       // Memory reads and MCP loading are independent, so race them together in
       // one batch rather than awaiting memory then MCP - shaves a round of

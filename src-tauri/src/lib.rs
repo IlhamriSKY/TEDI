@@ -735,6 +735,7 @@ pub fn run() {
             backup::backup_open,
             clipboard::clipboard_read_text,
             net::http_ping,
+            net::port_is_open,
             net::http_stream,
             net::http_abort,
             mcp::mcp_spawn,

@@ -24,6 +24,7 @@ import {
   setAiNotificationsEnabled,
   setAiBlockingSound,
   setAiCompletionSound,
+  setAutoOpenProjectUrl,
   setAutostart,
   setRestoreWindowState,
   setSearchEngine,
@@ -84,6 +85,7 @@ export function GeneralSection() {
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
   const customSoundCount = [aiBlockingSound, aiCompletionSound].filter(Boolean).length;
   const searchEngine = usePreferencesStore((s) => s.searchEngine);
+  const autoOpenProjectUrl = usePreferencesStore((s) => s.autoOpenProjectUrl);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
   const fontFamily = usePreferencesStore((s) => s.fontFamily);
   // Local mirror for live drag. Persisted on slider release so we don't
@@ -364,6 +366,15 @@ export function GeneralSection() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        </SettingRow>
+        <SettingRow
+          title="Open a dev server's URL automatically"
+          description="Load it in a background preview tab as soon as it is detected, either from the project's own config (.env APP_URL, a vite port, a package.json dev script) when the port already answers, or printed by a terminal running npm run dev / php artisan serve. Off, the same URL just lights the globe button in the toolbar. Only this machine's addresses are ever opened."
+        >
+          <Switch
+            checked={autoOpenProjectUrl}
+            onCheckedChange={(v) => void setAutoOpenProjectUrl(v)}
+          />
         </SettingRow>
       </div>
 

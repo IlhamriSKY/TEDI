@@ -2,10 +2,9 @@
  * Line-level shape of an applied edit, so the chat tool card can say WHICH
  * lines changed instead of only "1 replacement".
  *
- * This is computed where the edit is applied, because that is the only place
- * that holds both the file text and the offset the replacement landed at. The
- * card cannot re-derive it: the tool result travels through the model's context
- * and back, long after the buffer is gone.
+ * Computed where the edit is applied, the only place holding both the file text
+ * and the offset the replacement landed at. The card cannot re-derive it: the
+ * result travels through the model's context and back, long after the buffer.
  */
 
 /** One replacement, in line terms. */

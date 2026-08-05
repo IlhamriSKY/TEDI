@@ -112,6 +112,64 @@ pub(crate) async fn reject_metadata_ssrf(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Only covers a host that silently drops packets; loopback answers or refuses
+/// immediately.
+const PORT_PROBE_TIMEOUT: Duration = Duration::from_millis(600);
+
+/// Whether something is listening on `url`'s host and port. A TCP connect only:
+/// no request, no TLS handshake.
+///
+/// Not `http_ping`: reqwest is built with rustls and its bundled roots, so a
+/// Laragon/Herd vhost's self-signed cert fails the handshake and a live server
+/// reads as dead - while the browser pane, on the OS store, loads it fine.
+///
+/// Loopback only. Every resolved address must be loopback, which keeps this
+/// from being a port scanner over IPC and confirms what the hosts file claims.
+#[tauri::command]
+pub async fn port_is_open(url: String) -> Result<bool, String> {
+    let parsed = url::Url::parse(&url).map_err(|_| "invalid url".to_string())?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(format!("blocked: unsupported url scheme '{scheme}'"));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "url has no host".to_string())?
+        .to_string();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "url has no port".to_string())?;
+    // DNS resolution blocks; run it off the async runtime. IP literals resolve
+    // to themselves without a lookup.
+    let addrs = tokio::task::spawn_blocking(move || {
+        use std::net::ToSocketAddrs;
+        (host.as_str(), port)
+            .to_socket_addrs()
+            .map(|it| it.collect::<Vec<std::net::SocketAddr>>())
+    })
+    .await
+    .map_err(|e| format!("dns task failed: {e}"))?
+    .map_err(|e| format!("dns resolve failed: {e}"))?;
+    if addrs.is_empty() {
+        return Err("dns returned no address".to_string());
+    }
+    // Every candidate: a name resolving to both loopback and a routable address
+    // must not be probed at all.
+    if let Some(bad) = addrs.iter().find(|a| !a.ip().is_loopback()) {
+        return Err(format!("blocked: {} is not a loopback address", bad.ip()));
+    }
+    for addr in addrs {
+        // `localhost` resolves to both ::1 and 127.0.0.1 while a server may bind
+        // only one, so a refusal on the first is not an answer.
+        if let Ok(Ok(_)) =
+            tokio::time::timeout(PORT_PROBE_TIMEOUT, tokio::net::TcpStream::connect(addr)).await
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[tauri::command]
 pub async fn http_ping(url: String, auth: Option<String>) -> Result<u16, String> {
     reject_metadata_ssrf(&url).await?;

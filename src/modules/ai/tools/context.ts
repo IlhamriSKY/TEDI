@@ -165,12 +165,10 @@ export function scrubErrorPath(e: unknown, ctx: ToolContext): string {
 }
 
 /**
- * Clamp a long string that a tool feeds back into the model's context every
- * step (shell output, background logs, subagent summaries). Keeps the head and
- * the tail - errors usually land at the end, setup/context at the start - so a
- * chatty build or dev server doesn't flood the window. The native layer already
- * hard-caps these; this is the smaller model-facing trim. Returns the input
- * unchanged when it's within `max`.
+ * Clamp a long string a tool re-feeds into context every step (shell output,
+ * logs, subagent summaries). Keeps head AND tail, since setup lands at the start
+ * and errors at the end, so a chatty build cannot flood the window. The native
+ * layer hard-caps these already; this is the smaller model-facing trim.
  */
 export function clampForModel(s: string, max = 48 * 1024): string {
   if (s.length <= max) return s;
@@ -219,11 +217,10 @@ function normForScope(p: string): string {
 
 /**
  * True when `rawPath` resolves OUTSIDE both the workspace root and the active
- * terminal cwd. Read tools (read_file / list_directory / grep / glob) use it as
- * a `needsApproval` predicate so an out-of-project read prompts the user for
- * consent - a prompt-injection exfil guard - while in-project reads stay auto.
- * Errs toward in-scope (no approval) when scope is undefined or the path can't
- * resolve; the read's own secret deny-list still applies regardless.
+ * cwd. Read tools use it as a `needsApproval` predicate, so an out-of-project
+ * read asks for consent (an exfil guard) while in-project reads stay automatic.
+ * Errs toward in-scope when scope is undefined or the path will not resolve; the
+ * secret deny-list still applies either way.
  */
 export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
   try {
@@ -244,12 +241,10 @@ export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
 }
 
 /**
- * True when `rawPath` resolves to a directory that IS, or CONTAINS, the
- * workspace root or the active terminal cwd - i.e. a destructive op on it would
- * wipe or relocate the project you're working in (or a parent of it). Used by
- * `delete_file`/`move_file` to refuse clobbering the working tree's own roots,
- * even though such a path passes the secret/system-dir guards. Errs toward
- * `false` (allow) only when scope is undefined or the path can't resolve.
+ * True when `rawPath` IS, or CONTAINS, the workspace root or active cwd - a
+ * destructive op there would wipe or relocate the project itself. Used by
+ * `delete_file`/`move_file`, since such a path passes the secret/system guards.
+ * Errs toward allow only when scope is undefined or the path will not resolve.
  */
 export function isScopeRootOrAncestor(rawPath: string, ctx: ToolContext): boolean {
   try {

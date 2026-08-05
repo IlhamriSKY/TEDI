@@ -10,6 +10,7 @@ function previewText(value: string): { text: string; clipped: boolean } {
   if (value.length <= EDIT_PREVIEW_MAX_CHARS) return { text: value, clipped: false };
   return { text: value.slice(0, EDIT_PREVIEW_MAX_CHARS), clipped: true };
 }
+
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
 import { notifySkillPathChanged } from "../lib/skillCache";
@@ -24,6 +25,27 @@ import {
   type ToolContext,
 } from "./context";
 import { flexArrayReq, flexBoolOpt } from "./schedule";
+
+/**
+ * Model-facing view of an edit result. `removedText`/`addedText` only feed the
+ * chat card's diff; the model already holds both strings from its own tool call,
+ * so echoing them bills the same text twice - up to 240K chars from one
+ * multi_edit. Line counts stay, being the part it cannot derive.
+ *
+ * `execute`'s return is untouched, so the card still renders.
+ */
+export function leanEditOutput(output: unknown): string {
+  if (!output || typeof output !== "object" || !("hunks" in output)) {
+    // `JSON.stringify(undefined)` is `undefined`, not a string, and this value
+    // goes straight onto the wire as a text part.
+    return JSON.stringify(output) ?? "null";
+  }
+  const { hunks, ...rest } = output as { hunks?: EditHunk[] } & Record<string, unknown>;
+  return JSON.stringify({
+    ...rest,
+    hunks: (hunks ?? []).map((h) => ({ line: h.line, removed: h.removed, added: h.added })),
+  });
+}
 
 type EditResult =
   | {
@@ -68,7 +90,7 @@ async function applyEditsLocked(
   let content = original;
   let totalReplacements = 0;
   // Every replacement's line footprint, recorded as it lands.
-  // ponytail: a later edit's line number is read off the already-partly-edited
+  // Known limit: a later edit's line number is read off the already-partly-edited
   // buffer, so in a multi_edit an earlier insertion shifts it. Exact for the
   // single-edit case, which is nearly all of them; re-diffing the whole file
   // afterwards is the upgrade if multi_edit line numbers ever matter.
@@ -249,6 +271,7 @@ export function buildEditTools(
           ignorePlan,
         );
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: leanEditOutput(output) }),
     }),
 
     multi_edit: tool({
@@ -284,6 +307,7 @@ export function buildEditTools(
         }
         return applyEdits(abs, edits, "multi_edit", ctx.getSessionId(), ctx, ignorePlan);
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: leanEditOutput(output) }),
     }),
   } as const;
 }

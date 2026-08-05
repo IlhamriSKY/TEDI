@@ -94,7 +94,7 @@ export function AgentsSection() {
     <div className="flex flex-col gap-6">
       <SectionHeader
         title="Agents"
-        description="Pick a persona and toggle sub-agents. Switch agents from the input bar. Every prompt stays editable under Advanced & debugging."
+        description="Pick a persona and define sub-agents. Switch agents from the input bar; switch tools, including sub-agents, from the tool picker there. Every built-in prompt stays editable under System prompts."
       />
 
       <section className="flex flex-col gap-2">
@@ -245,27 +245,32 @@ export function AgentsSection() {
         </div>
       </SettingsAccordion>
 
+      {/* Three siblings, not one accordion wrapping another. "Advanced &
+          debugging" used to hold the debug switch, custom instructions AND
+          SystemPromptsCard - which renders its own accordion, so prompts sat two
+          levels deep and the section summary had to describe three unrelated
+          things at once. Each of these names exactly what it holds. */}
       <SettingsAccordion
-        title="Advanced & debugging"
-        description="Personal instructions and every built-in prompt: core, plan mode, orchestration, each sub-agent, autocomplete, and commit. For power users and debugging; defaults are fine for everyone else."
-        summary={
-          debugEnabled
-            ? "Debug on"
-            : customInstructions.trim()
-              ? "Custom instructions on"
-              : "Defaults"
-        }
+        title="Custom instructions"
+        description="Your own standing instructions, appended to every prompt. Applies to the main agent and every sub-agent."
+        summary={customInstructions.trim() ? "Set" : "None"}
       >
-        <div className="flex flex-col gap-4">
-          <SettingRow
-            title="Debug"
-            description="Capture every request sent to the provider (system prompt, messages, model, params, tool list). View and download each as JSON from the Debug button in the chat input bar. No API keys are captured."
-          >
-            <Switch checked={debugEnabled} onCheckedChange={(v) => void setDebugEnabled(v)} />
-          </SettingRow>
-          <CustomInstructionsBlock value={customInstructions} />
-          <SystemPromptsCard />
-        </div>
+        <CustomInstructionsBlock value={customInstructions} />
+      </SettingsAccordion>
+
+      <SystemPromptsCard />
+
+      <SettingsAccordion
+        title="Debugging"
+        description="Inspect exactly what TEDI sends to the provider. For diagnosing a bad reply or a rejected request; off is right for everyone else."
+        summary={debugEnabled ? "On" : "Off"}
+      >
+        <SettingRow
+          title="Capture requests"
+          description="Record every request (system prompt, messages, model, params, tool list) and view or download it as JSON from the Debug button in the chat input bar. Kept in memory only, last 30 requests. API keys and auth headers are never captured."
+        >
+          <Switch checked={debugEnabled} onCheckedChange={(v) => void setDebugEnabled(v)} />
+        </SettingRow>
       </SettingsAccordion>
 
       <AgentEditorDialog

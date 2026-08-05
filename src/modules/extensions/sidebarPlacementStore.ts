@@ -61,7 +61,7 @@ export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
  * extension's. A manifest right-panel (the API Client, the secondary folder
  * tree) has no left-sidebar home to return to, so it answers null and stays.
  *
- * ponytail: dragging INTO an empty right column is not possible - this whole
+ * Known limit: dragging INTO an empty right column is not possible - this whole
  * component renders nothing when it holds no sections, so there is no box to
  * aim at. The header's move button still covers that case. Add a persistent
  * drop strip only if people actually hit it.

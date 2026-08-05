@@ -22,6 +22,7 @@ import {
   type TerminalPalette,
   type TerminalThemeMode,
 } from "./terminalPalette";
+import { withSubagentsDisabled } from "@/modules/ai/tools/catalog";
 import { DEFAULT_CONTENT_FONT_ID, isValidContentFontId } from "@/lib/fonts";
 import { DEFAULT_SEARCH_ENGINE_ID, searchEngineById, type SearchEngineId } from "./searchEngines";
 import { DEFAULT_CUSTOM_THEME } from "./themePresets";
@@ -111,11 +112,10 @@ export type Preferences = {
   /** Terminal palette applied when `terminalThemeMode === "custom"`. */
   terminalCustomPalette: TerminalPalette;
   customInstructions: string;
-  /** Master on/off for sub-agent delegation. On exposes the run_subagent /
-   *  run_subagents tools AND injects the auto-orchestration nudge, so broad work
-   *  is delegated to parallel sub-agents and `depends_on` (scatter -> gather) is
-   *  honored. Off hides the tools entirely (zero sub-agent token spend). */
-  subagentsEnabled: boolean;
+  // Sub-agents used to have a master on/off here. They are now switched in the
+  // tool picker like every other tool, so there is one switch instead of two
+  // that could disagree. `loadPreferences` migrates an old `false` into
+  // `disabledTools`.
   /** Plain-chat mode. On sends a one-line system prompt and NO tools, and skips
    *  the project memory, .tedi/memory, skills, MCP, and per-turn <env> loads
    *  entirely. The agent prompt plus ~77 tool schemas cost ~12K input tokens on
@@ -276,6 +276,14 @@ export type Preferences = {
    */
   searchEngine: SearchEngineId;
   /**
+   * Open a detected dev-server url in a background preview tab instead of only
+   * lighting the toolbar button. Covers both sources: the url the project
+   * declares (found running at open time) and one a terminal prints, so
+   * `npm run dev` and `php artisan serve` behave the same. Always restricted to
+   * this machine. Default false: opening tabs should be asked for.
+   */
+  autoOpenProjectUrl: boolean;
+  /**
    * User-saved theme presets. Appear in the Theme settings preset grid
    * alongside the built-in `THEME_PRESETS`. The user "saves" the current
    * custom-theme state as a preset (with a chosen name); subsequent
@@ -361,7 +369,9 @@ const KEY_TERMINAL_THEME_MODE = "terminalThemeMode";
 const KEY_TERMINAL_THEME_ID = "terminalThemeId";
 const KEY_TERMINAL_CUSTOM_PALETTE = "terminalCustomPalette";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
-const KEY_SUBAGENTS_ENABLED = "subagentsEnabled";
+/** Removed preference, read once so an existing `false` can be migrated into
+ *  `disabledTools`, then deleted. See `loadPreferences`. */
+const LEGACY_KEY_SUBAGENTS_ENABLED = "subagentsEnabled";
 const KEY_CHAT_MODE = "chatMode";
 const KEY_DISABLED_TOOLS = "disabledTools";
 const KEY_DEBUG_ENABLED = "debugEnabled";
@@ -401,6 +411,7 @@ const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
 const KEY_APP_OPACITY = "appOpacity";
 const KEY_SEARCH_ENGINE = "searchEngine";
+const KEY_AUTO_OPEN_PROJECT_URL = "autoOpenProjectUrl";
 const KEY_USER_THEME_PRESETS = "userThemePresets";
 const KEY_FORMAT_ON_SAVE = "formatOnSave";
 const KEY_FORMATTERS = "formatters";
@@ -491,7 +502,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalThemeId: DEFAULT_TERMINAL_THEME_ID,
   terminalCustomPalette: DEFAULT_TERMINAL_PALETTE,
   customInstructions: "",
-  subagentsEnabled: true,
   chatMode: false,
   disabledTools: [],
   debugEnabled: false,
@@ -531,6 +541,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customTheme: DEFAULT_CUSTOM_THEME,
   appOpacity: APP_OPACITY_DEFAULT,
   searchEngine: DEFAULT_SEARCH_ENGINE_ID,
+  autoOpenProjectUrl: false,
   userThemePresets: [],
   formatOnSave: false,
   formatters: DEFAULT_FORMATTERS,
@@ -554,6 +565,29 @@ const SELF_LABEL = getCurrentWebviewWindow().label;
 async function writePref<T>(key: string, value: T): Promise<void> {
   await store.set(key, value);
   await Promise.all([store.save(), emit(PREFS_CHANGED_EVENT, { key, value, source: SELF_LABEL })]);
+}
+
+/**
+ * Carry a removed `subagentsEnabled: false` over to the tool picker, which is
+ * now the only switch. Without this, dropping the preference would silently turn
+ * sub-agents back ON for anyone who had deliberately turned them off.
+ *
+ * Deleting the legacy key is what makes it one-time: leave it and re-enabling
+ * the tools in the picker would be undone on the next load. The write is
+ * fire-and-forget - the returned value already reflects it, so a failure only
+ * means the migration runs again next boot, which is why it must not reject.
+ */
+function migrateSubagentsPref(map: Map<string, unknown>, disabledTools: string[]): string[] {
+  if (map.get(LEGACY_KEY_SUBAGENTS_ENABLED) !== false) return disabledTools;
+  const merged = withSubagentsDisabled(disabledTools);
+  void (async () => {
+    await store.set(KEY_DISABLED_TOOLS, merged);
+    await store.delete(LEGACY_KEY_SUBAGENTS_ENABLED);
+    await store.save();
+  })().catch(() => {
+    // Retried on the next load; a boot must not fail over a preference write.
+  });
+  return merged;
 }
 
 export async function loadPreferences(): Promise<Preferences> {
@@ -583,12 +617,13 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     customInstructions:
       get<string>(KEY_CUSTOM_INSTRUCTIONS) ?? DEFAULT_PREFERENCES.customInstructions,
-    subagentsEnabled: get<boolean>(KEY_SUBAGENTS_ENABLED) ?? DEFAULT_PREFERENCES.subagentsEnabled,
     chatMode: get<boolean>(KEY_CHAT_MODE) ?? DEFAULT_PREFERENCES.chatMode,
-    disabledTools:
+    disabledTools: migrateSubagentsPref(
+      map,
       (get<unknown>(KEY_DISABLED_TOOLS) as string[] | undefined)?.filter(
         (t): t is string => typeof t === "string",
       ) ?? DEFAULT_PREFERENCES.disabledTools,
+    ),
     debugEnabled: get<boolean>(KEY_DEBUG_ENABLED) ?? DEFAULT_PREFERENCES.debugEnabled,
     autostart: get<boolean>(KEY_AUTOSTART) ?? DEFAULT_PREFERENCES.autostart,
     restoreWindowState: get<boolean>(KEY_RESTORE_WINDOW) ?? DEFAULT_PREFERENCES.restoreWindowState,
@@ -648,6 +683,8 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     appOpacity: clampOpacity(get<number>(KEY_APP_OPACITY) ?? DEFAULT_PREFERENCES.appOpacity),
     searchEngine: searchEngineById(get<string>(KEY_SEARCH_ENGINE)).id,
+    autoOpenProjectUrl:
+      get<boolean>(KEY_AUTO_OPEN_PROJECT_URL) ?? DEFAULT_PREFERENCES.autoOpenProjectUrl,
     userThemePresets: (() => {
       const raw = get<unknown>(KEY_USER_THEME_PRESETS);
       if (!Array.isArray(raw)) return DEFAULT_PREFERENCES.userThemePresets;
@@ -807,6 +844,10 @@ export async function setSearchEngine(value: SearchEngineId): Promise<void> {
   await writePref(KEY_SEARCH_ENGINE, value);
 }
 
+export async function setAutoOpenProjectUrl(value: boolean): Promise<void> {
+  await writePref(KEY_AUTO_OPEN_PROJECT_URL, value);
+}
+
 export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
   await writePref(KEY_DEFAULT_MODEL, value);
   // Pair provider with id so boot restore picks the right entry when two
@@ -842,10 +883,6 @@ export async function setTerminalCustomPalette(value: TerminalPalette): Promise<
 
 export async function setCustomInstructions(value: string): Promise<void> {
   await writePref(KEY_CUSTOM_INSTRUCTIONS, value);
-}
-
-export async function setSubagentsEnabled(value: boolean): Promise<void> {
-  await writePref(KEY_SUBAGENTS_ENABLED, value);
 }
 
 export async function setChatMode(value: boolean): Promise<void> {
@@ -1154,7 +1191,6 @@ export async function onPreferencesChange(
     terminalThemeId: KEY_TERMINAL_THEME_ID,
     terminalCustomPalette: KEY_TERMINAL_CUSTOM_PALETTE,
     customInstructions: KEY_CUSTOM_INSTRUCTIONS,
-    subagentsEnabled: KEY_SUBAGENTS_ENABLED,
     chatMode: KEY_CHAT_MODE,
     disabledTools: KEY_DISABLED_TOOLS,
     debugEnabled: KEY_DEBUG_ENABLED,
@@ -1195,6 +1231,7 @@ export async function onPreferencesChange(
     // Written from the Settings window, consumed live by the main window.
     appOpacity: KEY_APP_OPACITY,
     searchEngine: KEY_SEARCH_ENGINE,
+    autoOpenProjectUrl: KEY_AUTO_OPEN_PROJECT_URL,
     userThemePresets: KEY_USER_THEME_PRESETS,
     formatOnSave: KEY_FORMAT_ON_SAVE,
     formatters: KEY_FORMATTERS,

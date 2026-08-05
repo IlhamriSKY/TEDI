@@ -7,10 +7,12 @@ import {
   Minimize2,
   Plus,
   Sparkles,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import { getModelContextLimit } from "../config";
 import { flushPersist, getChat, useChatStore } from "../store/chatStore";
+import { useGoalStore } from "../store/goalStore";
 import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
@@ -129,6 +131,15 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     description: "Schedule a terminal command to run at a specific time.",
     icon: CalendarPlus,
     argHint: "[time] [command]",
+  },
+  goal: {
+    name: "goal",
+    invocation: "/goal",
+    label: "Session goal",
+    description:
+      "Set a standing goal the agent keeps in view, with a timer. `/goal done` to finish, `/goal clear` to drop it.",
+    icon: Target,
+    argHint: "[text | done | clear]",
   },
 };
 
@@ -339,6 +350,44 @@ function compactActiveChat(): SlashOutcome {
   };
 }
 
+/**
+ * `/goal <text>` sets it, `/goal done` freezes the timer, `/goal clear` drops
+ * it, bare `/goal` reports. The goal rides in the system prompt from the NEXT
+ * turn on (see buildSystemPrompt), so setting one is `handled`, not a prompt to
+ * send - it is a standing instruction, not a question.
+ */
+function runGoalCommand(tail: string): SlashOutcome {
+  const sessionId = useChatStore.getState().activeSessionId;
+  if (!sessionId) return { kind: "handled", toast: "No active chat", toastVariant: "warning" };
+  const store = useGoalStore.getState();
+  const arg = tail.trim();
+  const current = store.bySession[sessionId];
+
+  if (arg === "done" || arg === "complete") {
+    if (!current || current.completedAt !== null) {
+      return { kind: "handled", toast: "No active goal", toastVariant: "info" };
+    }
+    store.completeGoal(sessionId);
+    return { kind: "handled", toast: "Goal done", toastVariant: "success" };
+  }
+  if (arg === "clear" || arg === "off") {
+    if (!current) return { kind: "handled", toast: "No goal set", toastVariant: "info" };
+    store.clearGoal(sessionId);
+    return { kind: "handled", toast: "Goal cleared", toastVariant: "info" };
+  }
+  if (!arg) {
+    if (!current) {
+      return { kind: "handled", toast: "No goal. Use /goal <text>", toastVariant: "info" };
+    }
+    const state = current.completedAt === null ? "Goal" : "Goal (done)";
+    return { kind: "handled", toast: `${state}: ${current.text}`, toastVariant: "info" };
+  }
+  if (!store.setGoal(sessionId, arg)) {
+    return { kind: "handled", toast: "Goal text is empty", toastVariant: "warning" };
+  }
+  return { kind: "handled", toast: "Goal set", toastVariant: "success" };
+}
+
 export function tryRunSlashCommand(input: string): SlashOutcome {
   const trimmed = input.trim();
   const lead = trimmed[0];
@@ -391,6 +440,8 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
         prompt: INIT_PROMPT,
         commandName: "init",
       };
+    case "goal":
+      return runGoalCommand(tail);
     case "schedule": {
       if (!tail) return { kind: "none" };
       return {

@@ -1,19 +1,13 @@
-/** Orchestration-intent detection: should step 0 be pinned to a `run_subagents`
- *  fan-out for a given user message? Pinning is the model-agnostic way to get
- *  RELIABLE auto-delegation: a soft prompt mandate is followed by strong
- *  instruction-tuned models but ignored by many others, which reach for the easy
- *  inline tools (read/grep/list) instead. Restricting step 0 to the spawn tool
- *  removes that choice - the same principle as opencode's orchestrator.
+/** Should step 0 be pinned to a `run_subagents` fan-out? Pinning is the
+ *  model-agnostic way to get reliable delegation: a soft prompt mandate is
+ *  ignored by many models, which reach for the inline tools instead.
  *
- *  A study VERB alone is deliberately NOT enough: it fired on single-file work
- *  ("pahami fungsi ini", "explain this line") and forcing a multi-subagent
- *  fan-out there was the biggest latency complaint. Force it only when the user
- *  EXPLICITLY asks for sub-agents, or pairs a study verb with a BREADTH cue (the
- *  mandate's own "more than one file" bar). Otherwise the model decides - the
- *  soft prompt mandate still nudges capable models to delegate.
+ *  A study VERB alone is NOT enough - it fired on single-file work ("explain
+ *  this line") and forcing a fan-out there was the biggest latency complaint.
+ *  Force only on an EXPLICIT sub-agent ask, or a study verb plus a BREADTH cue.
  *
- *  Pure (regex only, no imports) so it stays unit-testable under node/tsx.
- *  Note: keyword heuristic, not intent parsing; EN + ID; tighten if it misfires. */
+ *  Pure regex, no imports, so it stays testable under node/tsx. Keyword
+ *  heuristic (EN + ID), not intent parsing; tighten if it misfires. */
 
 const EXPLICIT_SUBAGENT_INTENT = /sub[-\s]?agents?|orchestrat\w*/i;
 

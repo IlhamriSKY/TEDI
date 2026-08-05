@@ -476,7 +476,7 @@ impl SshSession {
 
         // Bounded so a pathological remote can neither exhaust memory nor hang
         // the caller. All three are far above a `git status` on a large repo.
-        // ponytail: fixed 4 MiB stdout / 4 KiB stderr / 15s ceiling; make them
+        // Known limit: fixed 4 MiB stdout / 4 KiB stderr / 15s ceiling; make them
         // parameters only if a second caller needs a different budget.
         const CAP: usize = 4 * 1024 * 1024;
         const ERR_CAP: usize = 4096;

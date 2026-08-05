@@ -13,14 +13,12 @@ import { proxyOnlyFetch } from "./httpProxy";
 /**
  * AgentRouter model detection.
  *
- * Deliberately hits the SAME endpoint and the SAME fetch as chat
- * (`proxyOnlyFetch` + the spoofed `User-Agent`), so a green detection is proof
- * the chat path reaches the API rather than just proof the host is up. The
- * older mistake here was a reachability check that passed on a response chat
- * could never use.
+ * Uses the SAME endpoint and fetch as chat, so a green detection proves the chat
+ * path reaches the API, not just that the host is up. The old mistake was a
+ * reachability check that passed on a response chat could never use.
  *
- * No curated default list: unlike SumoPod there is no published catalogue to
- * hard-code, and inventing ids would put models in the picker that 404 on send.
+ * No curated default list: there is no published catalogue, and invented ids
+ * would put models in the picker that 404 on send.
  */
 
 type FetchState = {
@@ -54,13 +52,11 @@ export function subscribeAgentRouterModels(cb: (s: FetchState) => void): () => v
 }
 
 /**
- * Turn AgentRouter's two 401 shapes into messages that name the real cause.
- * They look identical to a user (both are "401") but mean opposite things:
+ * AgentRouter's two 401 shapes look identical but mean opposite things:
  *
- *  - `unauthorized_client_error` ("unauthorized client detected") is the
- *    User-Agent gate, NOT the key. Seeing it here means the allowlist moved,
- *    since we always send an approved UA. Saying "check your key" for this is
- *    what sent the last investigation down the wrong path.
+ *  - `unauthorized_client_error` is the User-Agent gate, NOT the key. Since we
+ *    always send an approved UA, seeing it means the allowlist moved. Calling
+ *    this "check your key" is what misdirected the last investigation.
  *  - `new_api_error` / 无效的令牌 is a genuinely bad or expired key.
  */
 function describeAuthFailure(status: number, body: string): string {

@@ -3,10 +3,8 @@ import type { ToolSet } from "ai";
 /**
  * Grouping and filtering for the tool picker.
  *
- * Kept apart from `tools.ts` (which builds the executable tools and pulls in
- * every builder) so the pure parts - which group a tool belongs to, and which
- * tools survive the user's off-list - are testable on their own:
- * `scripts/tool-picker-verify.ts`.
+ * Kept out of `tools.ts`, which pulls in every builder, so the pure parts stay
+ * testable on their own: `scripts/tool-picker-verify.ts`.
  */
 
 /** One row in the picker. */
@@ -23,10 +21,9 @@ const MCP_PREFIX = "mcp__";
 /**
  * Which group a BUILT-IN tool belongs to.
  *
- * Derived from the name, not from a hand-kept list, so a tool added later lands
- * in a group without anyone remembering to register it. The browser rule exists
- * because the browser tools live in `terminal.ts` for historical reasons while
- * being the group users actually reach for by name.
+ * Derived from the name, not a hand-kept list, so a new tool is grouped without
+ * anyone remembering to register it. The browser rule exists because those tools
+ * live in `terminal.ts` for historical reasons.
  */
 export function builtinGroup(name: string): string {
   if (name.includes("browser") || name === "navigate_and_read") return "Browser";
@@ -109,13 +106,35 @@ export function groupTools(
     .sort((a, b) => rank(a.group) - rank(b.group) || a.group.localeCompare(b.group));
 }
 
+/** The tools that spawn sub-agents. */
+export const SUBAGENT_TOOL_NAMES = ["run_subagent", "run_subagents"] as const;
+
+/**
+ * Are sub-agents available this turn?
+ *
+ * Replaces the old `subagentsEnabled` preference: the tool picker is now the
+ * only switch, so "the feature is on" and "the tool is sent" cannot disagree.
+ * Keyed on the BATCH tool because that is what the orchestration prompt tells
+ * the model to call and what `forceSpawnStep0` pins; keeping `run_subagent`
+ * alone is a narrower choice the user is free to make.
+ */
+export function subagentsAvailable(disabled: ReadonlySet<string>): boolean {
+  return !disabled.has("run_subagents");
+}
+
+/** The off-list that switching sub-agents off implies. Order-stable and
+ *  idempotent, so re-running it can neither duplicate nor reorder entries.
+ *  Used by the settings migration off the removed `subagentsEnabled` preference
+ *  and by the extension API's `setSubagentsEnabled`. */
+export function withSubagentsDisabled(disabled: readonly string[]): string[] {
+  return [...new Set([...disabled, ...SUBAGENT_TOOL_NAMES])].sort();
+}
+
 /**
  * Drop the tools the user switched off.
  *
- * Returns `undefined` rather than `{}` when nothing is left: an empty tool list
- * is not universally accepted (some endpoints reject `tools: []`), and "no
- * tools" is a state the request should express by omitting the field, exactly
- * as chat mode does.
+ * Returns `undefined`, not `{}`, when nothing survives: some endpoints reject
+ * `tools: []`, so "no tools" must be expressed by omitting the field.
  */
 export function applyToolFilter(
   tools: ToolSet | undefined,

@@ -20,6 +20,7 @@ import { AiInputBar } from "./AiInputBar";
 import { DebugRequestViewer } from "./DebugRequestViewer";
 import { ToolsPicker } from "./ToolsPicker";
 import { PlanDiffReview } from "./PlanDiffReview";
+import { GoalStrip } from "./GoalStrip";
 import { TodoStrip } from "./TodoStrip";
 import { ChevronDown, CircleAlert, ListFilter, Plus, Terminal, Trash2, X } from "lucide-react";
 
@@ -128,6 +129,7 @@ function Body({
         )}
       </div>
 
+      <GoalStrip sessionId={sessionId} />
       <TodoStrip sessionId={sessionId} />
 
       <AiInputBar messages={helpers.messages} />

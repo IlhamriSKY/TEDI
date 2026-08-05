@@ -355,12 +355,11 @@ function applyEditsLocally(
   edits: EditOp[],
 ): { ok: true; content: string } | { ok: false } {
   let content = original;
-  // Mirror `applyEditsLocked` (ai/tools/edit.ts): the model emits LF-only text
-  // while `native.readFile` preserves the file's CRLF, so a multi-line
-  // old_string only matches after translation. Without this every multi-line
-  // edit to a CRLF file (the norm on Windows) returned !ok, the caller
-  // `continue`d, and the side-by-side review tab silently never opened - the
-  // user approved the write having seen no diff.
+  // Mirror `applyEditsLocked`: the model emits LF while `native.readFile` keeps
+  // the file's CRLF, so a multi-line old_string matches only after translation.
+  // Without it every multi-line edit to a CRLF file returned !ok, the caller
+  // `continue`d, and the review tab never opened - the user approved a write
+  // having seen no diff.
   const crlf = original.includes("\r\n");
   const norm = (s: string) => (crlf ? s.replace(/\r?\n/g, "\r\n") : s);
   for (const e of edits) {
@@ -381,14 +380,13 @@ function applyEditsLocally(
   return { ok: true, content };
 }
 
-/** Read-only shell prefixes auto-approved in "semi" mode. Anything that pipes,
- *  chains, or redirects falls back to asking, and the whole command still has
- *  to clear `checkShellCommand` (see `shouldAutoApprove`).
+/** Read-only shell prefixes auto-approved in "semi" mode. Piping, chaining or
+ *  redirecting falls back to asking, and the command still has to clear
+ *  `checkShellCommand`.
  *
- *  `find` is deliberately NOT here: `-delete`, `-exec` and friends make it a
- *  mutation tool wearing a read-only name, and neither the metachar filter
- *  (`find . -delete` has none) nor the secret denylist would stop it. The
- *  auto-approved `glob` / `grep` tools already cover the read-only use. */
+ *  `find` is deliberately absent: `-delete`/`-exec` make it a mutation tool with
+ *  a read-only name, and neither the metachar filter (`find . -delete` has none)
+ *  nor the denylist would stop it. `glob`/`grep` cover the read-only use. */
 const READ_ONLY_BASH_PREFIXES = [
   "ls",
   "pwd",
@@ -445,13 +443,10 @@ function shouldAutoApprove(
   if (toolName === "bash_run") {
     const cmd = typeof input?.command === "string" ? input.command : "";
     if (!isReadOnlyBashCommand(cmd)) return false;
-    // A prefix match alone said nothing about the ARGUMENT, so `cat` and
-    // `head` auto-ran on `~/.ssh/id_rsa` or `.env` with the secret denylist
-    // never consulted. Auto-approving is exactly the no-approver situation
-    // `unattended` exists for, so run that same pass: the secret-basename /
-    // protected-directory check on every path token, plus the destructive
-    // -command heuristics. Failing it only downgrades to asking, so the user
-    // can still approve a deliberate `cat .env` from the card.
+    // A prefix match says nothing about the ARGUMENT, so `cat`/`head` auto-ran
+    // on `~/.ssh/id_rsa` with the denylist never consulted. Auto-approval IS the
+    // no-approver case `unattended` exists for, so run that same pass. Failing
+    // it only downgrades to asking, so a deliberate `cat .env` still works.
     return checkShellCommand(cmd, { unattended: true }).ok;
   }
   // File mutations and bash_background still need explicit approval in semi.

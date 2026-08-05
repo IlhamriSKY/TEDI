@@ -2,12 +2,11 @@
  * Path-safety guards for AI tool calls.
  *
  * Blocks reads of common secret files (.env*, *.pem, id_rsa*, .aws/credentials,
- * .ssh/, .git/, kube/azure config) and writes/exec into the same set plus a
- * few high-risk directories.
+ * .ssh/, .git/, kube/azure config) and writes into the same set plus a few
+ * high-risk directories.
  *
- * A defense layer, not a sandbox. The user-confirmation UI is the primary
- * safety net; these checks stop read tools (which auto-approve) from
- * silently exfiltrating obvious secrets.
+ * A layer, not a sandbox: the approval UI is the primary net, and these stop the
+ * AUTO-approving read tools from silently exfiltrating an obvious secret.
  */
 
 import { basename, toForwardSlash } from "@/lib/path";
@@ -116,13 +115,11 @@ export function checkWritable(path: string): SafetyResult {
 }
 
 /**
- * Extra guard for recursive destructive ops (delete, move-source). On top of
- * the write restrictions, it refuses the catastrophic targets a single bad path
- * could wipe: the filesystem root, a Windows drive root, or a bare top-level
- * directory (e.g. "/home", "C:/Users"). `delete_file` recurses, so a slip here
- * is unrecoverable - this is the path-only equivalent of the `rm -rf /` block in
- * `checkShellCommand`. Workspace/cwd-ancestor protection is layered on top by
- * the tool via `isScopeRootOrAncestor`.
+ * Extra guard for recursive destructive ops (delete, move-source): refuses the
+ * targets one bad path could wipe - filesystem root, drive root, or a bare
+ * top-level dir ("/home", "C:/Users"). `delete_file` recurses, so a slip is
+ * unrecoverable; this is the path-only twin of the `rm -rf /` block in
+ * `checkShellCommand`. Scope-ancestor protection is layered on by the tool.
  */
 export function checkDeletable(path: string): SafetyResult {
   const w = checkWritable(path);
@@ -148,19 +145,11 @@ export function checkDeletable(path: string): SafetyResult {
 // ─── Symlink-resolved guards ───────────────────────────────────────────
 
 /**
- * Run the secret deny-list against the symlink-resolved real target, not the
- * literal path string. A string-only check is blind to an innocuously-named
- * symlink (notes.txt -> ~/.ssh/id_rsa); the backend follows symlinks on read,
- * so without this an auto-approved read could exfiltrate the target. Falls
- * back to the literal path if canonicalization fails (e.g. the path does not
- * exist yet) - the read itself surfaces any real error.
- */
-/**
  * Canonicalize the nearest EXISTING ancestor of a not-yet-created path, then
- * re-append the unresolved tail. fs_canonicalize requires the full path to
- * exist, so for a brand-new file it throws and only the literal string would be
- * checked — letting a symlinked parent (workspace/link -> /etc) redirect the
- * write outside scope. Returns null if no ancestor resolves.
+ * re-append the unresolved tail. `fs_canonicalize` needs the whole path to
+ * exist, so a brand-new file would fall back to the literal string and let a
+ * symlinked parent (workspace/link -> /etc) redirect the write out of scope.
+ * Null if no ancestor resolves.
  */
 async function resolveExistingAncestor(abs: string): Promise<string | null> {
   const parts = toForwardSlash(abs).replace(/\/+$/, "").split("/");
@@ -180,6 +169,12 @@ async function resolveExistingAncestor(abs: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Deny-list the symlink-RESOLVED target, not the path string. A string check is
+ * blind to an innocent-looking link (notes.txt -> ~/.ssh/id_rsa) and the backend
+ * follows symlinks, so an auto-approved read could otherwise exfiltrate it.
+ * Falls back to the literal path when canonicalization fails.
+ */
 export async function checkReadableResolved(
   abs: string,
 ): Promise<ReturnType<typeof checkReadable>> {
@@ -195,11 +190,10 @@ export async function checkReadableResolved(
 }
 
 /**
- * Write-side counterpart of checkReadableResolved: resolve symlinks before the
- * secret + system-dir check so an innocuously-named symlink can't redirect a
- * write into a protected target (e.g. notes.txt -> /etc/hosts, or a link into
- * C:\Windows). Falls back to the literal check when the path doesn't exist yet
- * (the common brand-new-file case).
+ * Write-side twin of checkReadableResolved: resolve symlinks first so an
+ * innocent-looking link cannot redirect a write into a protected target
+ * (notes.txt -> /etc/hosts). Falls back to the literal check for a path that
+ * does not exist yet, the common new-file case.
  */
 export async function checkWritableResolved(
   abs: string,
@@ -222,10 +216,10 @@ export async function checkWritableResolved(
 /**
  * Path-looking tokens in a shell command, for the unattended checks below.
  *
- * Heuristic by nature: a shell string is not parseable without a shell. It
- * splits on whitespace and the common separators, strips quotes and a leading
- * `VAR=`, and keeps anything that looks like a path OR whose basename matches a
- * secret pattern (so a bare `.env` is caught, not just `./.env`).
+ * Heuristic by nature - a shell string is not parseable without a shell. Splits
+ * on whitespace and the usual separators, strips quotes and a leading `VAR=`,
+ * and keeps anything path-shaped OR whose basename matches a secret pattern, so
+ * a bare `.env` is caught and not just `./.env`.
  */
 function extractPathTokens(cmd: string): string[] {
   const out: string[] = [];
@@ -252,20 +246,15 @@ function extractPathTokens(cmd: string): string[] {
 }
 
 /**
- * Heuristic block for destructive shell commands even after user approval.
- * The approval UI is the primary gate; this catches obvious model mistakes.
+ * Heuristic block for destructive shell commands even after approval. The
+ * approval UI is the primary gate; this catches obvious model mistakes.
  *
- * `unattended` turns on the extra checks that matter when there is NO approver:
- * an autonomous worker sub-agent runs `bash_run` with auto-approval, so without
- * these its shell was the one hole in the scope model that `fs`/`edit` enforce.
- * It refuses commands that name a secret path (`~/.ssh/id_rsa`, `.env`) or an
- * absolute path outside the workspace, via the same deny-list and scope
- * predicate the file tools use.
+ * `unattended` adds the checks that matter with NO approver: a worker sub-agent
+ * auto-approves `bash_run`, which was the one hole in the scope model fs/edit
+ * enforce. It refuses secret paths and absolute paths outside the workspace.
  *
- * Still a defense layer, not a sandbox: a shell cannot be scoped by inspecting
- * a string, and an obfuscated command (variable indirection, base64, a helper
- * script) will get through. It raises the bar against the realistic case, a
- * prompt-injected worker reading a file and following its instructions.
+ * A layer, not a sandbox - obfuscation (indirection, base64, a helper script)
+ * gets through. It raises the bar against a prompt-injected worker.
  */
 export function checkShellCommand(
   cmd: string,

@@ -57,12 +57,10 @@ function coerceBool(v: unknown): unknown {
 }
 
 /**
- * Coerce loose model input into ARRAY shape before zod validates. Distinct from
- * `coerceJsonObject` (which only un-stringifies JSON): models routinely send a
- * single value where the schema wants a list - e.g. grep `glob: "**\/*.ts"` or
- * `glob: "\n**\/*.{ts,tsx}\n"` instead of `["**\/*.ts"]`. Without this the SDK
- * rejects the tool call with `expected: array` and the turn can cascade into a
- * "service error" before the model gets a chance to retry. Rules:
+ * Coerce loose model input into ARRAY shape before zod validates. Models
+ * routinely send a bare value where the schema wants a list (`glob: "**\/*.ts"`),
+ * and the SDK then rejects the call with `expected: array`, which can cascade
+ * into a "service error" before the model gets to retry. Rules:
  *   - null / "" -> undefined (let `.optional()` decide)
  *   - already an array -> unchanged
  *   - JSON array/object string -> parsed (object wrapped as a single element)

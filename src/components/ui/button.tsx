@@ -10,11 +10,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80",
-        // The border reads the theme's own "Button border" token, falling back
-        // to --border for themes that never set one. Without this the token was
-        // written by every preset and read by nothing: a dead knob in Settings.
+        // The neutral button: drawn by a fill, not a border. A hairline vanished
+        // whenever it lost contrast against the surface (1.06:1 on a dialog), so
+        // Cancel read as bare text. Both tokens are held to a contrast floor by
+        // normalizeCustomTheme. The base keeps its transparent 1px border so
+        // focus-visible still draws without shifting the layout.
         outline:
-          "border-[color:var(--tedi-button-border,var(--border))] bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-muted/50 dark:aria-expanded:bg-muted/50",
+          "bg-[var(--tedi-button-face)] text-[color:var(--tedi-button-face-foreground)] hover:bg-[var(--tedi-button-face-hover)] aria-expanded:bg-[var(--tedi-button-face-hover)]",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:

@@ -111,11 +111,10 @@ function hintFor(raw: { owned_by?: string }, label?: string): string {
 }
 
 /**
- * Can this instance be detected and used? A base URL is always required. A key
- * is required only for remote endpoints: local servers (Ollama, llama.cpp,
- * vLLM) authenticate with nothing, and gating them on a key made a working
- * local setup look unconfigured - the instance was cleared before it could
- * register, so its models never appeared and its namespaced ids never resolved.
+ * Can this instance be detected and used? A base URL always; a key only for
+ * REMOTE endpoints. Local servers authenticate with nothing, and gating them on
+ * a key cleared the instance before it could register, so its models never
+ * appeared and its namespaced ids never resolved.
  */
 export function isOpenAICompatibleInstanceReady(baseURL: string, key: string | null): boolean {
   if (!baseURL) return false;
@@ -123,11 +122,10 @@ export function isOpenAICompatibleInstanceReady(baseURL: string, key: string | n
 }
 
 /**
- * Fetch one instance's `/models` catalogue and publish it into the dynamic
- * registry under namespaced ids (`<instanceId>::<rawId>`) so models from
- * different endpoints never collide. Also records the instance's base URL + key
- * in the runtime resolver so the agent can build the right client for a picked
- * model. Safe to call repeatedly. Pass `signal` to cancel.
+ * Publish one instance's `/models` into the dynamic registry under namespaced
+ * ids (`<instanceId>::<rawId>`), so endpoints never collide, and record its URL
+ * + key in the runtime resolver so the agent can build the right client.
+ * Idempotent; `signal` cancels.
  */
 export async function refreshOpenAICompatibleInstance(
   instanceId: string,

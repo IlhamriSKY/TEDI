@@ -97,6 +97,7 @@ import { useSelectionAskAi } from "./hooks/useSelectionAskAi";
 import { useSessionDisposal } from "./hooks/useSessionDisposal";
 import { useAdoptDaemonSessions } from "./hooks/useAdoptDaemonSessions";
 import { useActiveLeafSurface } from "./hooks/useActiveLeafSurface";
+import { useProjectUrl } from "./hooks/useProjectUrl";
 import { useChromeDerivations } from "./hooks/useChromeDerivations";
 import { useTabSideEffects } from "./hooks/useTabSideEffects";
 import { CommandPalette } from "@/modules/commandPalette";
@@ -315,6 +316,7 @@ export default function App() {
   // The workspace pane counter-zooms back to 1 (see WorkspaceArea) so terminal /
   // editor / preview keep native resolution and their own `--content-zoom`.
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
+  const autoOpenProjectUrl = usePreferencesStore((s) => s.autoOpenProjectUrl);
   // Apply --content-zoom (CSS var) and body.zoom from the prefs values.
   useApplyZoom(contentZoom, uiZoom);
 
@@ -673,19 +675,26 @@ export default function App() {
 
   // On active leaf/tab change, surface the focused leaf's search addon,
   // editor handle, and detected URL to the chrome; track browser-pane titles.
-  const { handleSearchReady, handleDetectedLocalUrl, detectedBrowserUrl } = useActiveLeafSurface({
-    searchAddons,
-    editorRefs,
-    detectedUrls,
-    activeId,
-    activeLeafIdInTab,
-    activeLeafKindCurrent,
-    isTerminalLike,
-    tabs,
-    setActiveSearchAddon,
-    setActiveEditorHandle,
-    setBrowserLeafTitle,
-  });
+  const { handleSearchReady, handleDetectedLocalUrl, handleProjectUrl, detectedBrowserUrl } =
+    useActiveLeafSurface({
+      searchAddons,
+      editorRefs,
+      detectedUrls,
+      activeId,
+      activeLeafIdInTab,
+      activeLeafKindCurrent,
+      isTerminalLike,
+      tabs,
+      setActiveSearchAddon,
+      setActiveEditorHandle,
+      setBrowserLeafTitle,
+      autoOpenProjectUrl,
+      openPreviewTab,
+    });
+
+  // The other half of the open-in-browser pill: finds a server the terminal
+  // never saw start by reading the url the project declares for itself.
+  useProjectUrl(explorerRoot, handleProjectUrl);
 
   const {
     askPopup,

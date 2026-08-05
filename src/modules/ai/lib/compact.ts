@@ -204,22 +204,19 @@ export type CompactResult = {
  *  and let the provider error than to lose the user's most recent turn. */
 const MIN_TAIL = Math.min(KEEP_TAIL, 8);
 
-/** Three-stage compaction. Masking observations beats LLM summarisation
- *  on tokens and quality.
+/** Three-stage compaction. Masking observations beats LLM summarisation on both
+ *  tokens and quality.
  *
- *  1. Always: elide superseded read_file results. Lossless and doubles as
- *     anti-loop. The freshest read or the mutation is still in history.
- *  2. At 72% of context: elide older tool-result blocks (oldest first)
- *     until back under 60%. Preserves the last KEEP_TAIL and system messages.
- *  3. Still over 85% after Stage 2: hard-drop oldest non-system messages
- *     until under 72%, preserving the last KEEP_TAIL. Only path that loses info.
+ *  1. Always: elide superseded read_file results. Lossless, and doubles as an
+ *     anti-loop guard - the freshest read is still in history.
+ *  2. At 72% of context: elide older tool results, oldest first, until under
+ *     60%. Keeps the last KEEP_TAIL and all system messages.
+ *  3. Still over 85%: hard-drop oldest non-system messages until under 72%. The
+ *     only stage that loses information.
  *
- *  Callers can pass a smaller contextLimit to trigger compaction sooner.
- *  `skipHardDrop` disables Stage 3: used by between-step compaction inside a
- *  live tool loop (see compactStepMessages), where dropping whole messages could
- *  orphan a subagent's task brief or leave an assistant-first prompt some
- *  providers reject. Stages 1-2 only rewrite tool-result OUTPUT (every message +
- *  toolCallId preserved), so they are always pairing-safe. */
+ *  `skipHardDrop` disables stage 3 for between-step compaction, where dropping a
+ *  message could orphan a subagent brief or leave an assistant-first prompt.
+ *  Stages 1-2 only rewrite tool-result OUTPUT, so they stay pairing-safe. */
 export function compactModelMessagesDetailed(
   messages: ModelMessage[],
   contextLimit: number,
@@ -380,20 +377,12 @@ export function compactUiMessages<
   };
 }
 
-/** Absolute token budget for BETWEEN-step compaction inside a single agent turn.
- *  Deliberately decoupled from the model's context window: an unknown model
- *  (e.g. glm-5.2) falls back to a 512K limit, so window-based compaction never
- *  fires mid-loop and the growing tool-result pile is re-sent in full every step
- *  - the dominant cost on gateways with no prompt cache (SumoPod). This bounds
- *  the per-step payload to ~this budget instead. Tune down for cheaper (lossier)
- *  runs, up for more fidelity. Note: one constant, not a per-model table. */
 /**
- * Drop every tool call, result, and approval from a model history, keeping the
- * text. For chat mode, which declares no tools: a leftover `tool_use` block with
- * no matching tool definition is a 400 on Anthropic and an unpaired orphan
- * everywhere else, so the strip is a correctness fix as much as a saving (the
- * tool pile is most of the payload). Assistant messages left with no content
- * are dropped whole so no empty message reaches the provider.
+ * Drop every tool call, result, and approval from a history, keeping the text.
+ * For chat mode, which declares no tools: a leftover `tool_use` with no matching
+ * definition is a 400 on Anthropic and an orphan elsewhere, so this is a
+ * correctness fix as much as a saving. Assistant messages left empty are dropped
+ * whole rather than sent blank.
  */
 export function stripToolTraffic(messages: ModelMessage[]): ModelMessage[] {
   const out: ModelMessage[] = [];
@@ -412,6 +401,10 @@ export function stripToolTraffic(messages: ModelMessage[]): ModelMessage[] {
   return out;
 }
 
+/** Token budget for BETWEEN-step compaction within one turn. Decoupled from the
+ *  model's context window on purpose: an unknown model falls back to a 512K
+ *  limit, so window-based compaction never fires mid-loop and the tool pile is
+ *  re-sent whole every step. One constant, not a per-model table. */
 export const RESEND_COMPACTION_BUDGET = 80_000;
 
 /** Below this fraction of the budget, per-step compaction is not worth doing on

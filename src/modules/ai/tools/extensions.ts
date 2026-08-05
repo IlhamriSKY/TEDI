@@ -9,21 +9,13 @@ type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unkn
  * Tools contributed by installed extensions via `contributes.aiTools[]` +
  * `ctx.registerAiToolHandler(name, handler)`.
  *
- * Built FRESH each turn (not memoised) so enabling/disabling an extension is
- * reflected on the next model call - a disabled extension's slice is cleared
- * from `aiToolsRegistry`, so its tools simply disappear.
+ * Built FRESH each turn, not memoised, so toggling an extension takes effect on
+ * the next model call.
  *
- * Design notes:
- *   - Each tool's arg schema is the extension-declared JSON Schema, wrapped via
- *     the AI SDK `jsonSchema()` helper. `approval: "needsApproval"` maps to the
- *     SDK's `needsApproval`, so the user approves the call through the very same
- *     card built-in mutating tools use.
- *   - The handler is dispatched by the exact `(extensionId, name)` pair (not a
- *     global name lookup), so two extensions declaring the same tool name can't
- *     be confused, and a stale/cleared handler degrades to a clean error.
- *   - The caller (agent.ts) spreads the BUILT-IN tools AFTER these, so an
- *     extension can never shadow a built-in tool (e.g. `bash_run`). Within this
- *     set, the first registration of a name wins.
+ * Handlers dispatch on the exact `(extensionId, name)` pair, never a global name
+ * lookup, so two extensions can declare the same tool name safely and a cleared
+ * handler degrades to a clean error. agent.ts spreads built-ins AFTER these, so
+ * an extension can never shadow one; within this set first registration wins.
  */
 export function buildExtensionTools(ctx: import("./context").ToolContext): ToolSet {
   const out: ToolSet = {};

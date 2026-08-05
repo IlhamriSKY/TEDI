@@ -15,14 +15,7 @@ import { registerDescriptionCacheInvalidator } from "../lib/skills";
 import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
 import { coerceInt, flexArrayOpt, flexIntOpt } from "./schedule";
 
-const DISABLED_MSG =
-  "Sub-agents are disabled in Settings -> Agents. Toggle on to use this tool.";
-
-function summaryCapFor(
-  requestedKb: number | undefined,
-  defaultKb: number,
-  maxKb: number,
-): number {
+function summaryCapFor(requestedKb: number | undefined, defaultKb: number, maxKb: number): number {
   const kb = Math.min(requestedKb ?? defaultKb, maxKb);
   return Math.max(1024, kb * 1024);
 }
@@ -30,7 +23,6 @@ function summaryCapFor(
 function subagentConfig() {
   const p = usePreferencesStore.getState();
   return {
-    enabled: p.subagentsEnabled,
     defaultSummaryKb: SUBAGENT_SUMMARY_KB_DEFAULT,
     maxSummaryKb: SUBAGENT_SUMMARY_KB_MAX,
     maxConcurrency: SUBAGENT_MAX_CONCURRENCY_DEFAULT,
@@ -111,14 +103,11 @@ export function buildSubagentTools(ctx: ToolContext) {
         summary_kb?: number;
       }) => {
         const cfg = subagentConfig();
-        if (!cfg.enabled) return { error: DISABLED_MSG, type };
         const apiKeys = ctx.getApiKeys();
         const selectedModelId = ctx.getSelectedModelId();
         const sessionId = ctx.getSessionId();
         const runStore = useSubagentRunStore.getState();
-        const runId = sessionId
-          ? runStore.start(sessionId, { type, label: description })
-          : null;
+        const runId = sessionId ? runStore.start(sessionId, { type, label: description }) : null;
         try {
           const r = await runSubagent({
             type,
@@ -201,7 +190,6 @@ export function buildSubagentTools(ctx: ToolContext) {
         summary_kb?: number;
       }) => {
         const cfg = subagentConfig();
-        if (!cfg.enabled) return { error: DISABLED_MSG, count: 0 };
 
         if (!tasks || tasks.length === 0) {
           return { error: "no tasks provided", count: 0 };
@@ -293,7 +281,10 @@ export function buildSubagentTools(ctx: ToolContext) {
           settled[i] = true;
           bad[i] = true;
           if (sessionId) {
-            const runId = runStore.start(sessionId, { type: batch[i].type, label: batch[i].description });
+            const runId = runStore.start(sessionId, {
+              type: batch[i].type,
+              label: batch[i].description,
+            });
             runStore.fail(sessionId, runId, "cycle detected");
           }
           skipDependentsOf(i);
@@ -394,11 +385,9 @@ export function buildSubagentTools(ctx: ToolContext) {
                 const txt = (r.summary ?? "").slice(0, Math.max(each, 512));
                 // A summary is model output built from files the sub-agent read,
                 // so treat it as hostile. Blocklisting `</result>` alone left
-                // three ways out: closing `</dependency_results>` to escape the
-                // container entirely, forging a sibling `<result from="system">`,
-                // and breaking out through the unescaped `from=` attribute.
-                // Escaping every `<` closes all of them at once, which is both
-                // shorter and complete, and the attribute is sanitized too.
+                // three escapes: closing `</dependency_results>`, forging a
+                // sibling `<result from="system">`, and the unescaped `from=`
+                // attribute. Escaping every `<` closes all three at once.
                 const neutralized = txt.replace(/</g, "&lt;");
                 const from = `${r.type}: ${batch[r.index].description ?? "task"}`.replace(
                   /[<>"]/g,

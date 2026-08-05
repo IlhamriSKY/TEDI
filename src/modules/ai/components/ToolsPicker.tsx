@@ -17,22 +17,20 @@ import { ChevronRight, Wrench } from "lucide-react";
 /**
  * Last enumerated tool list, kept OUTSIDE the component on purpose.
  *
- * The picker lives in the AI panel header, so closing the panel unmounts it and
- * used to throw the list away: the trigger's count silently disappeared until
- * the user opened the popover again. Surviving the remount here is what makes
- * the count permanent, and it also keeps MCP tools in the number without
- * reconnecting to their servers.
+ * The picker lives in the panel header, so closing the panel unmounts it and
+ * used to throw the list away, blanking the trigger's count until the popover
+ * was reopened. Surviving the remount also keeps MCP tools in that number
+ * without reconnecting to their servers.
  */
 let lastToolList: ToolDescriptor[] | null = null;
 
 /**
- * Per-tool on/off, the way Copilot's chat does it: one checkbox per tool,
- * grouped, covering built-ins, every installed MCP server, and extension tools
- * alike. The turn applies the result in ONE place (`applyToolFilter` in
- * agent.ts), so what is unchecked here is what the model does not receive.
+ * Per-tool on/off: one grouped checkbox each, covering built-ins, MCP servers
+ * and extension tools alike. The turn applies the result in ONE place
+ * (`applyToolFilter`), so unchecked here is what the model never receives.
  *
- * The list is read from the live session's ToolContext rather than a static
- * table, so it always shows exactly what this session would send.
+ * Read from the live session's ToolContext, not a static table, so it always
+ * shows exactly what this session would send.
  */
 export function ToolsPicker() {
   const disabled = usePreferencesStore((s) => s.disabledTools);

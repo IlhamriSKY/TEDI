@@ -1291,7 +1291,7 @@ pub async fn preview_embed_screenshot(
         // either reports the pane as off-screen (the containment test compares
         // physical against logical) or crops the wrong region, off by the scale
         // factor. Accessors are fallible, so resolve each rect up front.
-        // ponytail: assumes a uniform scale factor across monitors; a mixed-DPI
+        // Known limit: assumes a uniform scale factor across monitors; a mixed-DPI
         // multi-monitor layout can still pick the wrong origin. Per-monitor
         // physical origins would need the platform APIs xcap does not expose.
         let mut chosen: Option<(xcap::Monitor, i32, i32)> = None;

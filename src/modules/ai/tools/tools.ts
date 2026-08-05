@@ -1,4 +1,3 @@
-import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildEditTools } from "./edit";
 import { buildFetchTools } from "./fetch";
 import { buildFsTools } from "./fs";
@@ -22,13 +21,9 @@ export { buildMcpToolsAsync, getMcpToolsSummary };
 /**
  * AI tool definitions.
  *
- * Read-only tools (`Read File`, `List Directory`, `Grep`, `Glob`) auto-execute
- * through the security guard. Mutating tools (`Write File`, `Edit`,
- * `Multi Edit`, `Create Directory`, `Bash Run`) require approval; the SDK
- * surfaces a tool-approval-request that the UI renders as a card.
- * `Edit` and `Multi Edit` also require a prior `Read File` on the path.
- *
- * Paths are resolved against the active terminal cwd via `getCwd`.
+ * Read-only tools auto-execute through the security guard; mutating ones raise
+ * an approval card. Edit / Multi Edit additionally require a prior Read File on
+ * the path. Relative paths resolve against the active terminal cwd (`getCwd`).
  */
 function buildToolsRaw(ctx: ToolContext) {
   return {
@@ -55,10 +50,10 @@ const toolsCache = new WeakMap<ToolContext, ChatTools>();
 /**
  * Every tool this session WOULD send, before the user's off-list is applied.
  *
- * Uses the same three sources in the same merge order as `runAgentStream`, so
- * the picker can never offer a tool the turn would not send, nor miss one it
- * would. Async because MCP tools come from live servers (the connect is deduped
- * with the one a turn makes, so opening the picker costs nothing extra).
+ * Same three sources in the same merge order as `runAgentStream`, so the picker
+ * can neither offer a tool the turn would not send nor miss one it would. Async
+ * because MCP tools come from live servers; that connect is deduped with the
+ * turn's, so opening the picker costs nothing extra.
  */
 export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescriptor[]> {
   const extension = buildExtensionTools(ctx);
@@ -76,10 +71,9 @@ export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescript
 /**
  * The same list minus MCP: built-ins + extension tools only.
  *
- * Synchronous and connection-free, deliberately. It exists so the tools picker
- * can show an on/off count the moment it mounts, without spawning every enabled
- * MCP server's subprocess just to render a number. The picker folds the MCP
- * tools in via `listAvailableTools` when the popover actually opens.
+ * Synchronous and connection-free on purpose, so the picker can show an on/off
+ * count on mount without spawning every MCP server just to render a number. It
+ * folds MCP in via `listAvailableTools` once the popover opens.
  */
 export function listLocalTools(ctx: ToolContext): ToolDescriptor[] {
   const extension = buildExtensionTools(ctx);
@@ -103,11 +97,9 @@ export function buildTools(ctx: ToolContext): ChatTools {
     ...buildSubagentTools(ctx),
     ...buildSkillTools(ctx),
   } as Record<string, unknown>;
-  // Sub-agent tools cost zero tokens on turns where the feature is off.
-  if (!usePreferencesStore.getState().subagentsEnabled) {
-    delete fresh.run_subagent;
-    delete fresh.run_subagents;
-  }
+  // Sub-agent tools are no longer gated here: the tool picker switches them off
+  // like any other tool, and `applyToolFilter` drops them before they are sent.
+  // Building them unconditionally is what lets the picker LIST them at all.
   // Drop the `skill` tool when nothing is installed (no noise, no tokens).
   if (getLoadedSkills().length === 0) delete fresh.skill;
   return fresh as ChatTools;

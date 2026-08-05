@@ -1,14 +1,12 @@
 import { create } from "zustand";
 
 /**
- * Live, in-memory status of spawned sub-agents so the user can watch a
- * `run_subagent` / `run_subagents` fan-out as it happens. Updated straight from
- * the tool `execute` (which runs in this same webview) via `getState()` - no
- * persistence, no React import, and crucially NO imports from `../lib` or
- * `../tools`, so wiring it into `tools/subagent.ts` can't create a cycle.
+ * Live in-memory status of spawned sub-agents, so a fan-out can be watched as it
+ * happens. Written straight from the tool `execute` via `getState()`. No
+ * persistence, no React, and crucially NO imports from `../lib` or `../tools`,
+ * so wiring it into `tools/subagent.ts` cannot create a cycle.
  *
- * Mirrors `todoStore`'s strip conventions: a per-session `hidden` set the user
- * can toggle, auto-revealed when a fresh run starts.
+ * Follows `todoStore`: a per-session `hidden` set, auto-revealed on a new run.
  */
 export type SubagentRunStatus = "running" | "done" | "error";
 
@@ -95,12 +93,10 @@ export const useSubagentRunStore = create<SubagentRunState>((set) => ({
       const appended = [...list, run];
       let next = appended;
       if (appended.length > MAX_RUNS_PER_SESSION) {
-        // Over the cap: evict OLDEST FINISHED runs first so a long-lived
-        // "running" row is never dropped before its finish()/fail() lands
-        // (which would make that update a silent no-op). Only fall back to
-        // dropping live rows if every slot is occupied by running ones - which
-        // the concurrency cap (<= 8) keeps far below MAX_RUNS_PER_SESSION (24),
-        // so it is effectively unreachable.
+        // Evict oldest FINISHED runs first, so a running row is never dropped
+        // before its finish()/fail() lands and turns into a silent no-op. Live
+        // rows go only if every slot is running, which the concurrency cap (8)
+        // keeps well below MAX_RUNS_PER_SESSION (24).
         let over = appended.length - MAX_RUNS_PER_SESSION;
         next = appended.filter((r) => {
           if (over > 0 && r.status !== "running") {

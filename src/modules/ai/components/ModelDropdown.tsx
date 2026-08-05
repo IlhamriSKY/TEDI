@@ -64,8 +64,15 @@ export function ModelDropdown() {
   const oaiCompatModels = getDetectedModels("openai-compatible");
   const pinnedModelIds = usePreferencesStore((s) => s.pinnedModelIds);
   const [query, setQuery] = useState("");
-  // Sections start expanded; component-local state resets each open.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Sections default to COLLAPSED: with every provider expanded the list ran to
+  // hundreds of rows and the current model was somewhere off-screen. Only the
+  // two worth landing on open themselves - Pinned, and the group holding the
+  // model in use.
+  //
+  // This holds ONLY sections the user toggled by hand, never the default, so
+  // picking a model in another provider still moves the auto-opened group. It is
+  // cleared when the dropdown closes, so every open starts tidy again.
+  const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
   // Resolve against the SELECTED provider, not id-lookup: an id shared by two
   // providers (e.g. deepseek-v4-pro on native DeepSeek + SumoPod) must report the
   // key status of the one actually picked, else the trigger shows a false "no key"
@@ -97,13 +104,8 @@ export function ModelDropdown() {
     void setPinnedModelIds([k, ...withoutLegacy]);
   }, []);
 
-  const toggleSection = useCallback((key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggleSection = useCallback((key: string, isOpen: boolean) => {
+    setOpenOverrides((prev) => ({ ...prev, [key]: !isOpen }));
   }, []);
 
   const modelTooltip = currentProviderHasKey
@@ -178,10 +180,32 @@ export function ModelDropdown() {
 
   const totalMatches = pinnedFiltered.length + sections.reduce((n, s) => n + s.filtered.length, 0);
 
+  // Which section holds the model in use. Provider-matched first: an id served by
+  // two providers (deepseek-v4-pro on native DeepSeek and on SumoPod) would
+  // otherwise open whichever section happens to come first. `current.provider` is
+  // the resolved one, so it agrees with the trigger label and the send path.
+  const selectedSectionKey = useMemo(() => {
+    const holdsSelected = (s: (typeof sections)[number]): boolean =>
+      s.all.some((m) => m.id === selected);
+    return (
+      sections.find((s) => s.provider.id === current.provider && holdsSelected(s)) ??
+      sections.find(holdsSelected)
+    )?.sectionKey;
+  }, [sections, selected, current.provider]);
+
+  // A search must never hide its own matches, so a query opens everything;
+  // sections with no match are dropped from the list entirely below.
+  const isSectionOpen = (key: string): boolean =>
+    query ? true : (openOverrides[key] ?? (key === "__pinned" || key === selectedSectionKey));
+
   return (
     <DropdownMenu
       onOpenChange={(open) => {
-        if (!open) setQuery("");
+        if (open) return;
+        setQuery("");
+        // Drop hand-toggled sections too, so the next open is back to just
+        // Pinned + the current model's group rather than however it was left.
+        setOpenOverrides({});
       }}
     >
       <Tooltip>
@@ -250,8 +274,8 @@ export function ModelDropdown() {
                 provider,
                 hasKey: providerNeedsKey(provider.id) ? !!apiKeys[provider.id] : true,
               }))}
-              collapsed={collapsed.has("__pinned")}
-              onToggle={() => toggleSection("__pinned")}
+              collapsed={!isSectionOpen("__pinned")}
+              onToggle={() => toggleSection("__pinned", isSectionOpen("__pinned"))}
               query={query}
               selectedId={selected}
               selectedProviderId={selectedProvider}
@@ -317,8 +341,8 @@ export function ModelDropdown() {
                   provider: p,
                   hasKey,
                 }))}
-                collapsed={collapsed.has(s.sectionKey)}
-                onToggle={() => toggleSection(s.sectionKey)}
+                collapsed={!isSectionOpen(s.sectionKey)}
+                onToggle={() => toggleSection(s.sectionKey, isSectionOpen(s.sectionKey))}
                 query={query}
                 selectedId={selected}
                 selectedProviderId={selectedProvider}

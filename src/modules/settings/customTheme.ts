@@ -12,7 +12,7 @@
 
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isSecondaryWindow } from "@/lib/platform";
-import { ensureVisibleButtonBorder } from "./buttonBorder";
+import { ensureVisibleButtonFace } from "./buttonFace";
 
 export type ThemeColors = {
   /** App-wide canvas (`--background`). */
@@ -45,10 +45,14 @@ export type ThemeColors = {
   destructive: string;
   /** Default border color across panels (`--border`). */
   border: string;
-  /** Input field border (`--input`). Also the button outline base. */
+  /** Input field border (`--input`). */
   input: string;
-  /** Button border (visible 1px around buttons). */
-  buttonBorder: string;
+  /** Fill of the neutral (`outline`) button. It carries no border, so this is
+   *  the whole affordance; held to a contrast floor by `buttonFace.ts`. */
+  buttonFace: string;
+  /** Label on `buttonFace`, held to WCAG AA. Its own key because a face with
+   *  good surface contrast can still leave `foreground` unreadable. */
+  buttonFaceForeground: string;
   /** Focus bar / focus ring on tab and inputs (`--ring`, also `::after` on active tab). */
   ring: string;
   /** Sidebar surface. */
@@ -197,7 +201,8 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   destructive: ["--destructive"],
   border: ["--border"],
   input: ["--input"],
-  buttonBorder: ["--tedi-button-border"],
+  buttonFace: ["--tedi-button-face"],
+  buttonFaceForeground: ["--tedi-button-face-foreground"],
   ring: ["--ring", "--sidebar-ring"],
   sidebar: ["--sidebar"],
   sidebarForeground: ["--sidebar-foreground"],
@@ -600,7 +605,8 @@ const SAFE_LIGHT_FALLBACK: ThemeColors = {
   destructive: "#dc2626",
   border: "#e4e7ec",
   input: "#dce1e7",
-  buttonBorder: "#8c8f93",
+  buttonFace: "#b8babd",
+  buttonFaceForeground: "#1f2328",
   ring: "#0057fe",
   sidebar: "#eef0f3",
   sidebarForeground: "#1f2328",
@@ -658,7 +664,8 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
   destructive: "#f14c4c",
   border: "#383838",
   input: "#3f3f3f",
-  buttonBorder: "#7f7f7f",
+  buttonFace: "#5d5d5d",
+  buttonFaceForeground: "#e6e6e6",
   ring: "#0057fe",
   sidebar: "#141414",
   sidebarForeground: "#cccccc",
@@ -734,8 +741,8 @@ export function normalizeCustomTheme(loaded: unknown, defaults: CustomTheme): Cu
 
   return {
     name,
-    light: ensureVisibleButtonBorder({ ...defaults.light, ...filterStrings(lightFinal ?? {}) }),
-    dark: ensureVisibleButtonBorder({ ...defaults.dark, ...filterStrings(darkFinal ?? {}) }),
+    light: ensureVisibleButtonFace({ ...defaults.light, ...filterStrings(lightFinal ?? {}) }),
+    dark: ensureVisibleButtonFace({ ...defaults.dark, ...filterStrings(darkFinal ?? {}) }),
     background: {
       enabled: typeof bg.enabled === "boolean" ? bg.enabled : defaults.background.enabled,
       path: typeof bg.path === "string" ? bg.path : defaults.background.path,

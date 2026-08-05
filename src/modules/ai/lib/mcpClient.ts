@@ -134,12 +134,10 @@ export class McpClient {
 }
 
 /**
- * Cache of active MCP client connections, keyed by `name + " " + cwd` (a server
- * name carries no spaces, so the prefix match in refreshMcpTools is unambiguous)
- * so two workspaces or concurrent subagents rooted in different dirs don't share
- * one server
- * process pinned to the first caller's cwd. Idle clients are reclaimed by both an
- * on-call sweep and the timed sweeper below.
+ * Active MCP connections, keyed `name + " " + cwd` so two workspaces or
+ * concurrent subagents never share one server pinned to the first caller's cwd.
+ * A server name has no spaces, so refreshMcpTools' prefix match is unambiguous.
+ * Idle clients are reclaimed on-call and by the timed sweeper below.
  */
 const activeClients = new Map<string, { client: McpClient; lastUsed: number }>();
 // In-flight connects keyed the same way so concurrent callers (transport.ts runs
@@ -245,12 +243,11 @@ export type McpValidation =
   | { ok: false; reason: "spawn" | "handshake"; error: string };
 
 /**
- * Validates a server config by spawning the process and completing the MCP
- * handshake, letting callers distinguish a working server from an arbitrary
- * command. Runs against a throwaway client rather than the shared connection
- * cache and races the handshake against a timeout, so a process that starts but
- * never speaks MCP cannot stall the check or pollute the cache. Resolves with
- * the advertised tool count, or a typed failure reason.
+ * Validate a server config by spawning it and completing the MCP handshake, so
+ * a working server is distinguishable from an arbitrary command. Uses a
+ * throwaway client and races a timeout, so a process that starts but never
+ * speaks MCP can neither stall the check nor pollute the cache. Resolves with
+ * the tool count or a typed failure.
  */
 export async function validateMcpServer(
   config: McpServerConfig,

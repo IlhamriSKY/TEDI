@@ -20,6 +20,9 @@ import {
   describeTools,
   groupTools,
   mcpGroup,
+  SUBAGENT_TOOL_NAMES,
+  subagentsAvailable,
+  withSubagentsDisabled,
 } from "../src/modules/ai/tools/catalog";
 
 let failed = 0;
@@ -154,6 +157,62 @@ check(
   "an off-list naming a tool that no longer exists is harmless",
   JSON.stringify(applyToolFilter(full, new Set(["gone"]))) === JSON.stringify(full),
 );
+
+// The `subagentsEnabled` preference is gone; the picker is the only switch. The
+// risk in that swap is a HALF disable: the tool stops being sent but the
+// orchestration prompt still tells the model to call it, which burns tokens on a
+// guaranteed failure. Both must move together, off the same source of truth.
+console.log("\n[sub-agents] the picker is the only switch, and it moves both halves");
+const SPAWN: ToolSet = {
+  run_subagent: { description: "" } as never,
+  run_subagents: { description: "" } as never,
+  grep: { description: "" } as never,
+};
+check(
+  "both spawn tools are named in one shared list",
+  [...SUBAGENT_TOOL_NAMES].sort().join(",") === "run_subagent,run_subagents",
+  SUBAGENT_TOOL_NAMES,
+);
+check("nothing off -> sub-agents available", subagentsAvailable(new Set()));
+check(
+  "spawn tool off -> orchestration prompt is dropped too",
+  !subagentsAvailable(new Set(["run_subagents"])),
+);
+const spawnOff = applyToolFilter(SPAWN, new Set(SUBAGENT_TOOL_NAMES));
+check(
+  "and the tools really leave the request, not just the UI",
+  spawnOff !== undefined && !("run_subagent" in spawnOff) && !("run_subagents" in spawnOff),
+  spawnOff,
+);
+check("while unrelated tools survive", spawnOff !== undefined && "grep" in spawnOff);
+check(
+  "disabling only the single-spawn tool keeps delegation on",
+  subagentsAvailable(new Set(["run_subagent"])),
+);
+check(
+  "both spawn tools group under Sub-agents in the picker",
+  SUBAGENT_TOOL_NAMES.every((n) => builtinGroup(n) === "Sub-agents"),
+);
+
+// Dropping the old preference must not silently switch sub-agents back ON for
+// someone who had deliberately turned them off, so an existing `false` moves
+// into the off-list on first load.
+console.log("\n[migration] a legacy `subagentsEnabled: false` becomes an off-list");
+const migrated = withSubagentsDisabled([]);
+check(
+  "an empty off-list gains both spawn tools",
+  migrated.join(",") === "run_subagent,run_subagents",
+  migrated,
+);
+check(
+  "existing choices are kept, not replaced",
+  withSubagentsDisabled(["fetch"]).join(",") === "fetch,run_subagent,run_subagents",
+);
+check(
+  "idempotent: running it twice adds nothing",
+  withSubagentsDisabled(migrated).join(",") === migrated.join(","),
+);
+check("and the result really disables them", !subagentsAvailable(new Set(migrated)));
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");
