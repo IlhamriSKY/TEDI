@@ -33,6 +33,7 @@ export type SshJumpHop = {
   host: string;
   port: number;
   user: string;
+  useAgent?: boolean;
   password?: string;
   privateKey?: string;
   privateKeyPassphrase?: string;
@@ -43,6 +44,9 @@ export type SshOpenInput = {
   host: string;
   port: number;
   user: string;
+  /** Authenticate through the local ssh-agent. The private key stays in the
+   *  agent; only signatures cross the wire, so no secret is read or stored. */
+  useAgent?: boolean;
   password?: string;
   privateKey?: string;
   privateKeyPassphrase?: string;
@@ -53,6 +57,19 @@ export type SshOpenInput = {
   cols: number;
   rows: number;
 };
+
+/** One key held by the local ssh-agent, as `ssh-add -l` would list it. */
+export type SshAgentKey = {
+  algorithm: string;
+  comment: string;
+  fingerprint: string;
+};
+
+/** Keys the local ssh-agent is holding. Rejects with a message naming what to
+ *  start (`ssh-agent` service / `SSH_AUTH_SOCK`) when no agent answers. */
+export function listSshAgentKeys(): Promise<SshAgentKey[]> {
+  return invoke<SshAgentKey[]>("ssh_agent_keys");
+}
 
 /** Prefix used by the Rust side for host-key-mismatch errors. Callers check for this to offer a "trust new key" prompt instead of auto-reconnecting. */
 export const HOST_KEY_MISMATCH_PREFIX = "ssh: host key mismatch:";
@@ -137,6 +154,7 @@ export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promi
       host: input.host,
       port: input.port,
       user: input.user,
+      useAgent: input.useAgent ?? false,
       password: input.password ?? null,
       privateKey: input.privateKey ?? null,
       privateKeyPassphrase: input.privateKeyPassphrase ?? null,
@@ -146,6 +164,7 @@ export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promi
         host: j.host,
         port: j.port,
         user: j.user,
+        useAgent: j.useAgent ?? false,
         password: j.password ?? null,
         privateKey: j.privateKey ?? null,
         privateKeyPassphrase: j.privateKeyPassphrase ?? null,

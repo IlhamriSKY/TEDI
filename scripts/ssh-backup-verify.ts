@@ -22,6 +22,7 @@ import {
   sanitizeConnection,
   sanitizeSecrets,
 } from "../src/modules/ssh/backupFile";
+import { authFields } from "../src/modules/ssh/connections";
 
 let failed = 0;
 function check(label: string, got: unknown, want: unknown): void {
@@ -246,6 +247,37 @@ check("both hosts survive", real.file.connections.length, 2);
 check("nothing skipped", real.skipped, 0);
 check("the jump chain is intact", real.file.connections[1].proxyJumpId, "bastion");
 check("the forward is intact", real.file.connections[1].forwards?.[0].remotePort, 5432);
+
+console.log("\n[auth mode] every mode survives an import and maps to the right wire fields");
+check(
+  "agent auth is preserved (it was coerced to password before the mode existed)",
+  sanitizeConnection({ id: "a", host: "h", port: 22, authMode: "agent" })?.authMode,
+  "agent",
+);
+check(
+  "an unknown mode still falls back to password",
+  sanitizeConnection({ id: "a", host: "h", port: 22, authMode: "totp" })?.authMode,
+  "password",
+);
+// `authFields` is the ONE place that turns a saved mode into credentials on the
+// wire (terminal session, tunnel, jump hops and the dialog's Test all call it).
+// The agent case matters most: it must send the flag and NOTHING else, or a
+// stale key from a previous mode would ride along.
+const secrets = { password: "pw", privateKey: "KEY", keyPassphrase: "pp" };
+check("password mode sends only the password", authFields("password", secrets), {
+  password: "pw",
+});
+check("key mode sends the key and its passphrase", authFields("key", secrets), {
+  privateKey: "KEY",
+  privateKeyPassphrase: "pp",
+});
+check("agent mode sends no secret at all", authFields("agent", secrets), { useAgent: true });
+check("agent mode ignores leftovers in the keychain", authFields("agent", {}), { useAgent: true });
+check(
+  "a missing secret becomes undefined, not an empty string",
+  JSON.stringify(authFields("password", { password: "" })),
+  "{}",
+);
 
 console.log(failed === 0 ? "\nAll ssh-backup checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

@@ -17,7 +17,55 @@ const PASSWORD_FIELD = "password";
 const PRIVATE_KEY_FIELD = "privateKey";
 const KEY_PASSPHRASE_FIELD = "keyPassphrase";
 
-export type SshAuthMode = "password" | "key";
+/**
+ * How a connection proves who it is.
+ * - `password`: sent to the server, stored in the OS keychain.
+ * - `key`: the private key itself lives in the keychain and is handed to the
+ *   handshake.
+ * - `agent`: the local ssh-agent signs the handshake. TEDI never sees, stores or
+ *   backs up the key, so there is nothing here to leak: one copy, in the agent.
+ */
+export type SshAuthMode = "password" | "key" | "agent";
+
+/** Secrets as they come out of the keychain (or straight off the dialog draft). */
+export type SshSecrets = {
+  password?: string | null;
+  privateKey?: string | null;
+  keyPassphrase?: string | null;
+};
+
+/**
+ * The credential half of an `openSsh` input for one auth mode. ONE place, on
+ * purpose: this mapping used to be spelled out at four call sites (terminal
+ * session, tunnel, jump-hop resolution, the dialog's Test button), so a new auth
+ * mode meant finding all four and any that was missed would silently connect
+ * with no credentials at all.
+ *
+ * Everything empty becomes `undefined` rather than `""`, so a connection with a
+ * missing secret fails the backend's explicit "no credentials" guard instead of
+ * attempting an empty password or an unparseable key.
+ */
+export function authFields(
+  authMode: SshAuthMode,
+  secrets: SshSecrets,
+): {
+  useAgent?: boolean;
+  password?: string;
+  privateKey?: string;
+  privateKeyPassphrase?: string;
+} {
+  switch (authMode) {
+    case "agent":
+      return { useAgent: true };
+    case "key":
+      return {
+        privateKey: secrets.privateKey || undefined,
+        privateKeyPassphrase: secrets.keyPassphrase || undefined,
+      };
+    case "password":
+      return { password: secrets.password || undefined };
+  }
+}
 
 /**
  * One `ssh -L` rule. `localPort` is bound on 127.0.0.1 when the session
@@ -252,18 +300,15 @@ export async function resolveJumpHops(
 
   const hops: SshJumpHop[] = [];
   for (const c of chain) {
+    // Agent hops read nothing from the keychain, but the call is cheap and
+    // keeping one path means the hop is built the same way regardless of mode.
     const s = await getConnectionSecrets(c.id);
     hops.push({
       connectionId: c.id,
       host: c.host,
       port: c.port,
       user: c.user,
-      // Empty/missing secret -> undefined (not "") so the backend's clear
-      // "jump host has no password or private key configured" guard fires
-      // instead of a confusing "parse private key failed" on an empty string.
-      password: c.authMode === "password" ? s.password || undefined : undefined,
-      privateKey: c.authMode === "key" ? s.privateKey || undefined : undefined,
-      privateKeyPassphrase: c.authMode === "key" ? (s.keyPassphrase ?? undefined) : undefined,
+      ...authFields(c.authMode, s),
       expectedFingerprint: c.lastFingerprint || undefined,
     });
   }

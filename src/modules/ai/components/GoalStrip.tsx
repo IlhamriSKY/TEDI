@@ -59,34 +59,40 @@ export function GoalStrip({ sessionId }: Props) {
         >
           {formatElapsed(elapsed)}
         </span>
+        {/* Both controls are for a goal still in flight: mark it done by hand,
+            or get the strip out of the way. A finished goal needs neither - it
+            closed itself - so the done state is just the text and what it took.
+            Clearing it is `/goal clear`, or setting the next goal. */}
         {running && (
-          <IconTooltip label="Mark goal done" side="top">
-            <button
-              type="button"
-              onClick={() => completeGoal(sessionId)}
-              aria-label="Mark goal done"
-              className={cn(
-                "text-muted-foreground flex size-4 cursor-pointer items-center justify-center rounded",
-                "hover:bg-foreground/10 hover:text-foreground transition-colors",
-              )}
-            >
-              <Check size={10} strokeWidth={2} />
-            </button>
-          </IconTooltip>
+          <>
+            <IconTooltip label="Mark goal done" side="top">
+              <button
+                type="button"
+                onClick={() => completeGoal(sessionId)}
+                aria-label="Mark goal done"
+                className={cn(
+                  "text-muted-foreground flex size-4 cursor-pointer items-center justify-center rounded",
+                  "hover:bg-foreground/10 hover:text-foreground transition-colors",
+                )}
+              >
+                <Check size={10} strokeWidth={2} />
+              </button>
+            </IconTooltip>
+            <IconTooltip label="Hide goal" side="top">
+              <button
+                type="button"
+                onClick={() => hideStrip(sessionId)}
+                aria-label="Hide goal"
+                className={cn(
+                  "text-muted-foreground flex size-4 cursor-pointer items-center justify-center rounded",
+                  "hover:bg-destructive/10 hover:text-destructive transition-colors",
+                )}
+              >
+                <X size={10} strokeWidth={2} />
+              </button>
+            </IconTooltip>
+          </>
         )}
-        <IconTooltip label="Hide goal" side="top">
-          <button
-            type="button"
-            onClick={() => hideStrip(sessionId)}
-            aria-label="Hide goal"
-            className={cn(
-              "text-muted-foreground flex size-4 cursor-pointer items-center justify-center rounded",
-              "hover:bg-destructive/10 hover:text-destructive transition-colors",
-            )}
-          >
-            <X size={10} strokeWidth={2} />
-          </button>
-        </IconTooltip>
       </div>
     </div>
   );

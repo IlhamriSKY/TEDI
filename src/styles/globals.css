@@ -896,3 +896,26 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
      that washed out on a light-theme / custom-theme gold. */
   color: var(--background);
 }
+
+/* ===== Status-bar groups (StatusBar.tsx right cluster) =====
+ * Each group draws its own leading hairline instead of the row rendering a
+ * standalone divider element. The separator was unconditional, so a group whose
+ * every child returned null (no update, zoom at 100%, no extension items, agent
+ * idle) still left a line with nothing on one side of it - and in compact mode
+ * two lines landed back to back.
+ *
+ * `:empty` is the check because the host can't know what an extension registry
+ * will render without duplicating its filtering; the DOM already knows. The
+ * sibling combinator is what makes the FIRST visible group borderless: a group
+ * shows its hairline only when a non-empty group actually precedes it. */
+.sb-group:empty {
+  display: none;
+}
+.sb-group:not(:empty) ~ .sb-group:not(:empty)::before {
+  content: "";
+  align-self: center;
+  flex: none;
+  width: 1px;
+  height: 0.875rem;
+  background-color: color-mix(in srgb, var(--border) 70%, transparent);
+}

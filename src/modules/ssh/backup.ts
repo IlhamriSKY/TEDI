@@ -71,7 +71,9 @@ export type ImportResult = {
   replaced: number;
   /** Entries dropped because they could not be a working connection. */
   skipped: number;
-  /** Connections whose credentials did not travel (none were saved for them). */
+  /** Connections whose credentials did not travel (none were saved for them).
+   *  Agent-auth hosts are NOT counted: they have no secret by design, so
+   *  reporting them as missing one would read as a broken import. */
   withoutSecrets: number;
 };
 
@@ -117,7 +119,7 @@ export async function applyBackup(text: string, passphrase: string): Promise<Imp
   let withoutSecrets = 0;
   for (const conn of incoming) {
     const s = secrets[conn.id];
-    if (!s) withoutSecrets++;
+    if (!s && conn.authMode !== "agent") withoutSecrets++;
     await upsertConnection(conn as SshConnection, {
       // undefined means "leave whatever is already in the keychain", which is
       // the non-destructive choice when re-importing over a host whose

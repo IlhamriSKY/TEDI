@@ -47,10 +47,13 @@ type Props = {
   sshRoute?: SshRouteHop[];
 };
 
-/** Hairline between two status-bar groups. Purely a reading aid: the row used
- *  to be one undifferentiated run of a dozen glyphs. */
-function GroupDivider() {
-  return <span aria-hidden className="bg-border/70 mx-0.5 h-3.5 w-px shrink-0" />;
+/** One status-bar group. The hairline that separates it from the group before
+ *  it is drawn by `.sb-group` in globals.css, which hides an empty group and
+ *  only gives a group its divider when a non-empty one precedes it - so a group
+ *  whose children all render null (zoom at 100%, no extension items, agent
+ *  idle) never leaves a dangling line behind. */
+function Group({ children }: { children: React.ReactNode }) {
+  return <div className="sb-group flex shrink-0 items-center gap-1.5">{children}</div>;
 }
 
 // Memoized. Callbacks are stable and props are primitives, so shallow equality
@@ -97,45 +100,45 @@ function StatusBarInner({
       <div className="flex shrink-0 items-center gap-1.5">
         {/* 1. Update. Leftmost and alone: it is the one thing here that asks
             something of you, and it is absent the rest of the time. */}
-        <UpdaterPill />
+        <Group>
+          <UpdaterPill />
+        </Group>
 
         {/* 2. Status: read-only readouts. The agent pill leads (a pending
             approval or an error has to read first), then the AI usage meters,
             Discord, Remote Access and the scheduler. */}
-        <GroupDivider />
-        <AgentStatusPill onClick={onOpenMini} />
-        <ExtensionStatusItems kind="status" metersOnly={compact} />
-        {compact ? null : (
-          <>
-            <SchedulerStatusPill />
-          </>
-        )}
+        <Group>
+          <AgentStatusPill onClick={onOpenMini} />
+          <ExtensionStatusItems kind="status" metersOnly={compact} />
+          {compact ? null : <SchedulerStatusPill />}
+        </Group>
 
         {/* 3a. Actions: a click does the thing, nothing slides out. */}
         {compact ? null : (
-          <>
-            <GroupDivider />
+          <Group>
             <ZoomControl />
             <ExtensionStatusItems kind="action" />
             <RightPanelActionToggles />
-          </>
+          </Group>
         )}
 
-        {/* 3b. Panel triggers: a click opens (or closes) a side panel. */}
-        <GroupDivider />
-        {compact ? null : (
-          <>
-            <RightPanelCompactToggles />
-            <SidebarSectionRightToggles />
-            <BuiltinSectionRightToggles />
-            <RightPanelDefaultToggles />
-            <ScmRightOpenButton />
-            <SshRightOpenButton hasAnySshLeaf={hasAnySshLeaf} />
-          </>
-        )}
-        <AiOpenButton onToggle={togglePanel} active={panelOpen} />
-
-        <CompactToggle compact={compact} />
+        {/* 3b. Panel triggers: a click opens (or closes) a side panel. Always
+            has content (the AI button), so it always carries the last divider
+            when anything precedes it. */}
+        <Group>
+          {compact ? null : (
+            <>
+              <RightPanelCompactToggles />
+              <SidebarSectionRightToggles />
+              <BuiltinSectionRightToggles />
+              <RightPanelDefaultToggles />
+              <ScmRightOpenButton />
+              <SshRightOpenButton hasAnySshLeaf={hasAnySshLeaf} />
+            </>
+          )}
+          <AiOpenButton onToggle={togglePanel} active={panelOpen} />
+          <CompactToggle compact={compact} />
+        </Group>
       </div>
     </footer>
   );

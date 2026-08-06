@@ -1,11 +1,18 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use russh::client::{self, Config, Handle, Handler, KeyboardInteractiveAuthResponse, Msg};
-use russh::keys::{Algorithm, EcdsaCurve, HashAlg, PrivateKeyWithHashAlg};
+use russh::client::{
+    self, AuthResult, Config, Handle, Handler, KeyboardInteractiveAuthResponse, Msg,
+};
+use russh::keys::agent::client::{AgentClient, AgentStream};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::{Algorithm, EcdsaCurve, HashAlg, PrivateKeyWithHashAlg, PublicKey};
+use russh::AgentAuthError;
 use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
@@ -717,20 +724,162 @@ async fn open_tunnel(
     }
 }
 
-/// Authenticate a hop with its private key (preferred when present) or password
-/// (with a keyboard-interactive fallback for PAM-only servers). Shared by every
-/// jump hop and the final target so the auth posture stays identical down the
-/// whole chain. `host` only labels error messages, so a failing jump names
-/// itself instead of reading as if it were the target.
+/// A live ssh-agent connection with its transport erased, so the Windows named
+/// pipe and the Unix socket are the same type to everything downstream.
+type Agent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
+
+/// What to do about it, per platform. Appended to every agent failure because
+/// none of them are actionable on their own ("early eof" is what a user with no
+/// agent at all actually gets).
+#[cfg(windows)]
+const NO_AGENT_HINT: &str = "Start the OpenSSH agent with `Start-Service ssh-agent` \
+     (set it to Automatic to keep it), or run Pageant, then add a key with `ssh-add`.";
+#[cfg(not(windows))]
+const NO_AGENT_HINT: &str = "Start one with `eval $(ssh-agent)`, then add a key with `ssh-add`.";
+
+/// An agent that takes longer than this to answer is treated as absent. Also
+/// bounds russh's named-pipe connect, which retries a BUSY pipe forever, so a
+/// wedged agent cannot hang a connect (or the dialog's agent panel) for good.
+const AGENT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Open the agent transport.
+///
+/// Windows: the OpenSSH agent's named pipe, unless `SSH_AUTH_SOCK` points
+/// somewhere else (Git Bash, 1Password and gpg-agent all set it), then Pageant,
+/// which is what PuTTY and Bitvise expose. Everywhere else: `SSH_AUTH_SOCK`.
+///
+/// Success here is NOT proof of an agent: the Pageant transport constructs
+/// happily with nothing listening on the other end. `agent_keys` is what
+/// actually settles it, which is why nothing calls this directly.
+#[cfg(windows)]
+async fn open_agent() -> Result<Agent, String> {
+    let pipe = std::env::var("SSH_AUTH_SOCK")
+        .unwrap_or_else(|_| r"\\.\pipe\openssh-ssh-agent".to_string());
+    if let Ok(c) = AgentClient::connect_named_pipe(&pipe).await {
+        return Ok(c.dynamic());
+    }
+    AgentClient::connect_pageant()
+        .await
+        .map(|c| c.dynamic())
+        .map_err(|e| format!("no ssh-agent at {pipe} and no Pageant ({e}). {NO_AGENT_HINT}"))
+}
+
+#[cfg(not(windows))]
+async fn open_agent() -> Result<Agent, String> {
+    AgentClient::connect_env()
+        .await
+        .map(|c| c.dynamic())
+        .map_err(|e| format!("no ssh-agent on SSH_AUTH_SOCK ({e}). {NO_AGENT_HINT}"))
+}
+
+/// The agent, plus the public keys it holds. Connecting and listing are one
+/// operation on purpose: a transport that opens proves nothing (see
+/// `open_agent`), so the listing is the real handshake and the caller gets one
+/// unambiguous error either way. The connection is returned because agent auth
+/// then signs over that same connection.
+///
+/// Certificates are dropped from the list: they need
+/// `authenticate_certificate_with`, a flow TEDI does not implement, and offering
+/// them as plain keys would only burn the server's auth attempts.
+pub(crate) async fn agent_keys() -> Result<(Agent, Vec<PublicKey>), String> {
+    let probe = async {
+        let mut agent = open_agent().await?;
+        let identities = agent
+            .request_identities()
+            .await
+            .map_err(|e| format!("no ssh-agent answered ({e}). {NO_AGENT_HINT}"))?;
+        let keys = identities
+            .into_iter()
+            .filter_map(|i| match i {
+                AgentIdentity::PublicKey { key, .. } => Some(key),
+                AgentIdentity::Certificate { .. } => None,
+            })
+            .collect();
+        Ok::<_, String>((agent, keys))
+    };
+    match tokio::time::timeout(AGENT_TIMEOUT, probe).await {
+        Ok(res) => res,
+        Err(_) => Err(format!(
+            "ssh-agent did not answer within {}s. {NO_AGENT_HINT}",
+            AGENT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+/// RSA must say which SHA-2 variant it is signing with (`rsa-sha2-256`); every
+/// other algorithm carries its hash in the algorithm name and must pass `None`.
+fn agent_hash_alg(key: &PublicKey) -> Option<HashAlg> {
+    match key.algorithm() {
+        Algorithm::Rsa { .. } => Some(HashAlg::Sha256),
+        _ => None,
+    }
+}
+
+/// Public-key auth where the private key NEVER LEAVES THE AGENT: the agent signs
+/// each challenge and TEDI only ever sees the signature. That is the whole point
+/// of this mode - nothing to paste, nothing in the keychain, nothing that can
+/// leak from here.
+async fn authenticate_agent(
+    handle: &mut Handle<HostKeyVerifier>,
+    host: &str,
+    user: &str,
+) -> Result<bool, String> {
+    let (mut agent, keys) = agent_keys()
+        .await
+        .map_err(|e| format!("ssh: [{host}] {e}"))?;
+    if keys.is_empty() {
+        return Err(format!(
+            "ssh: [{host}] ssh-agent is running but holds no usable key. Add one with `ssh-add`."
+        ));
+    }
+    // Offered in the agent's own order, like OpenSSH does, stopping at the first
+    // one the server takes. A server's MaxAuthTries (6 by default) is the real
+    // ceiling; an agent holding more keys than that will be cut off by the
+    // server, and the error below says so rather than looking like a bad key.
+    for key in &keys {
+        // Type-annotated `Box::pin`, not a plain `.await`. russh's `Signer`
+        // returns an opaque future, and the compiler cannot generalize its
+        // `Send`-ness over the borrows this call holds - the failure surfaces as
+        // "implementation of Send is not general enough" at the `ssh_open`
+        // spawn, in another file, naming an internal russh type. Coercing to a
+        // `dyn Future + Send` here proves it once, locally.
+        let attempt: Pin<Box<dyn Future<Output = Result<AuthResult, AgentAuthError>> + Send + '_>> =
+            Box::pin(handle.authenticate_publickey_with(
+                user,
+                key.clone(),
+                agent_hash_alg(key),
+                &mut agent,
+            ));
+        let accepted = attempt
+            .await
+            .map_err(|e| format!("ssh: [{host}] ssh-agent auth error: {e}"))?;
+        if accepted.success() {
+            return Ok(true);
+        }
+    }
+    Err(format!(
+        "ssh: [{host}] the server accepted none of the {} key(s) held by ssh-agent",
+        keys.len()
+    ))
+}
+
+/// Authenticate a hop with the ssh-agent, its private key, or its password (with
+/// a keyboard-interactive fallback for PAM-only servers). Shared by every jump
+/// hop and the final target so the auth posture stays identical down the whole
+/// chain. `host` only labels error messages, so a failing jump names itself
+/// instead of reading as if it were the target.
 async fn authenticate_hop(
     handle: &mut Handle<HostKeyVerifier>,
     host: &str,
     user: &str,
+    use_agent: bool,
     password: Option<&str>,
     private_key: Option<&str>,
     passphrase: Option<&str>,
 ) -> Result<bool, String> {
-    if let Some(pk_text) = private_key {
+    if use_agent {
+        authenticate_agent(handle, host, user).await
+    } else if let Some(pk_text) = private_key {
         let key = russh::keys::decode_secret_key(pk_text, passphrase)
             .map_err(|e| format!("ssh: [{host}] parse private key failed: {e}"))?;
         let pk = PrivateKeyWithHashAlg::new(Arc::new(key), Some(HashAlg::Sha256));
@@ -763,8 +912,8 @@ pub async fn connect(
     input: SshOpenInput,
     on_event: IpcChannel<SshEvent>,
 ) -> Result<Arc<SshSession>, String> {
-    if input.password.is_none() && input.private_key.is_none() {
-        return Err("ssh: either password or private_key must be provided".into());
+    if !input.use_agent && input.password.is_none() && input.private_key.is_none() {
+        return Err("ssh: no credentials: set use_agent, password, or private_key".into());
     }
 
     // --- Jump chain (ProxyJump / Termius-style "host chaining") -------------
@@ -777,9 +926,9 @@ pub async fn connect(
     // riding on it (including the target), so they must outlive the session.
     let mut jump_handles: Vec<Handle<HostKeyVerifier>> = Vec::new();
     for hop in &input.jumps {
-        if hop.password.is_none() && hop.private_key.is_none() {
+        if !hop.use_agent && hop.password.is_none() && hop.private_key.is_none() {
             return Err(format!(
-                "ssh: jump host {} has no password or private key configured",
+                "ssh: jump host {} has no ssh-agent, password or private key configured",
                 hop.host
             ));
         }
@@ -814,6 +963,7 @@ pub async fn connect(
             &mut handle,
             &hop.host,
             &hop.user,
+            hop.use_agent,
             hop.password.as_deref(),
             hop.private_key.as_deref(),
             hop.private_key_passphrase.as_deref(),
@@ -868,6 +1018,7 @@ pub async fn connect(
         &mut handle,
         &input.host,
         &input.user,
+        input.use_agent,
         input.password.as_deref(),
         input.private_key.as_deref(),
         input.private_key_passphrase.as_deref(),
@@ -1157,6 +1308,7 @@ mod chain_tests {
                 host: jump_host,
                 port: 22,
                 user: env_opt("TEDI_IT_JUMP_USER").unwrap_or_else(|| "ubuntu".into()),
+                use_agent: false,
                 password: None,
                 private_key: Some(key.clone()),
                 private_key_passphrase: None,
@@ -1168,6 +1320,7 @@ mod chain_tests {
             host: target_host,
             port: 22,
             user: env_opt("TEDI_IT_TARGET_USER").unwrap_or_else(|| "ubuntu".into()),
+            use_agent: false,
             password: None,
             private_key: Some(key),
             private_key_passphrase: None,
@@ -1268,6 +1421,36 @@ mod chain_tests {
                 "forward listener still holds port {local} after close"
             );
             eprintln!("[forward_tests] OK: localhost:{local} tunneled to the remote sshd");
+        });
+    }
+
+    /// Talks to the REAL ssh-agent on this machine, which is the only way to
+    /// check the transport at all: the named pipe (Windows) and the socket
+    /// (everywhere else) are picked per platform and neither can be faked from a
+    /// unit test. Prints what it found, or the message a user would get, so a
+    /// missing agent reads as an unhelpful string here before it does in the
+    /// dialog. `#[ignore]`d because a machine with no agent is not a failure.
+    /// Run with `cargo test agent_lists_its_keys -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn agent_lists_its_keys() {
+        it_runtime().block_on(async {
+            match agent_keys().await {
+                Ok((_agent, keys)) => {
+                    eprintln!("[agent_tests] agent holds {} key(s)", keys.len());
+                    for k in &keys {
+                        eprintln!(
+                            "  {} {} {}",
+                            k.algorithm(),
+                            k.fingerprint(HashAlg::Sha256),
+                            k.comment()
+                        );
+                    }
+                }
+                // The no-agent path is the one users hit first, so read the
+                // message and make sure it says what to start.
+                Err(e) => eprintln!("[agent_tests] {e}"),
+            }
         });
     }
 }

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { FsReadResult } from "@/lib/ipc";
 import {
+  authFields,
   clearFingerprint,
   getConnectionSecrets,
   listConnections,
@@ -21,7 +22,7 @@ import {
   type SshAuthMode,
   type SshConnection,
 } from "@/modules/ssh/connections";
-import { openSsh } from "@/modules/ssh/bridge";
+import { listSshAgentKeys, openSsh, type SshAgentKey } from "@/modules/ssh/bridge";
 import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import {
   Command,
@@ -36,7 +37,7 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
 type Props = {
@@ -89,12 +90,22 @@ type TestState =
 type ImportState =
   { kind: "idle" } | { kind: "loaded"; path: string } | { kind: "error"; message: string };
 
+/** What the local ssh-agent answered. Agent auth has no field to fill in, so
+ *  this IS the form validation for that mode: it says up front whether an agent
+ *  is running and holding a key, instead of failing at dial time. */
+type AgentState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "ok"; keys: SshAgentKey[] }
+  | { kind: "error"; message: string };
+
 export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Props) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [imported, setImported] = useState<ImportState>({ kind: "idle" });
+  const [agent, setAgent] = useState<AgentState>({ kind: "idle" });
   // Mirrors editing.lastFingerprint, but the user can clear it via "Forget".
   // Local state so the in-dialog Test sees the current pin without waiting
   // for a parent re-render.
@@ -151,6 +162,23 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     });
   }, [open, editing]);
 
+  // Ask the agent what it holds whenever this mode is on screen. Cheap enough
+  // to re-run on every open and every switch into the tab, which is also what
+  // makes "start the agent, then come back" show the right answer.
+  const checkAgent = useCallback(async () => {
+    setAgent({ kind: "checking" });
+    try {
+      setAgent({ kind: "ok", keys: await listSshAgentKeys() });
+    } catch (e) {
+      setAgent({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open || draft.authMode !== "agent") return;
+    void checkAgent();
+  }, [open, draft.authMode, checkAgent]);
+
   const forgetPinnedKey = async () => {
     if (!editing) return;
     await clearFingerprint(editing.id);
@@ -169,6 +197,10 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
       return "Password is required for password auth";
     if (draft.authMode === "key" && !draft.privateKey.trim())
       return "Private key body is required for key auth";
+    // Agent mode has nothing to require here on purpose: the agent may be
+    // started (or the key added) after this host is saved, so a down agent must
+    // not block saving. The panel reports its state, and a connect attempt fails
+    // with the backend's message naming what to start.
     for (const f of draft.forwards) {
       if (!f.remoteHost.trim()) return "Port forward needs a destination host";
       if (!isPort(f.localPort) || !isPort(f.remotePort))
@@ -213,10 +245,13 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             host: draft.host.trim(),
             port,
             user: draft.user.trim(),
-            password: draft.authMode === "password" ? draft.password : undefined,
-            privateKey: draft.authMode === "key" ? draft.privateKey : undefined,
-            privateKeyPassphrase:
-              draft.authMode === "key" ? draft.keyPassphrase || undefined : undefined,
+            // Same mapping the real connect uses, straight off the draft, so
+            // Test can never authenticate differently from what Save produces.
+            ...authFields(draft.authMode, {
+              password: draft.password,
+              privateKey: draft.privateKey,
+              keyPassphrase: draft.keyPassphrase,
+            }),
             // Pin against the previously recorded fingerprint so Test cannot
             // silently re-anchor on a different key. New connections leave
             // this unset and use TOFU on first connect.
@@ -387,8 +422,9 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         <DialogHeader>
           <DialogTitle>{editing ? "Edit SSH connection" : "New SSH connection"}</DialogTitle>
           <DialogDescription>
-            Credentials are stored in your OS keychain (Windows Credential Manager / macOS
-            Keychain).
+            {draft.authMode === "agent"
+              ? "Nothing to store: the local ssh-agent holds the key and signs each handshake."
+              : "Credentials are stored in your OS keychain (Windows Credential Manager / macOS Keychain)."}
           </DialogDescription>
         </DialogHeader>
 
@@ -451,10 +487,18 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
               >
                 Private key
               </AuthTab>
+              <AuthTab
+                active={draft.authMode === "agent"}
+                onClick={() => setDraft({ ...draft, authMode: "agent" })}
+              >
+                SSH agent
+              </AuthTab>
             </div>
           </Field>
 
-          {draft.authMode === "password" ? (
+          {draft.authMode === "agent" ? (
+            <AgentPanel state={agent} onRecheck={() => void checkAgent()} />
+          ) : draft.authMode === "password" ? (
             <Field label="Password">
               <Input
                 type="password"
@@ -736,6 +780,70 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{label}</span>
       {children}
     </div>
+  );
+}
+
+/**
+ * The whole of the agent auth "form": there is nothing to type, so the panel
+ * answers the only question that matters - is an agent running and does it hold
+ * a key. The error text comes from the backend, which names the exact service to
+ * start per platform.
+ */
+function AgentPanel({ state, onRecheck }: { state: AgentState; onRecheck: () => void }) {
+  return (
+    <Field label="SSH agent">
+      <div className="border-border/60 bg-muted/30 flex flex-col gap-1.5 rounded-md border px-2.5 py-2">
+        <div className="flex items-start justify-between gap-2">
+          {state.kind === "checking" ? (
+            <span className="text-muted-foreground text-[11px]">Checking ssh-agent…</span>
+          ) : state.kind === "error" ? (
+            <span className="text-destructive text-[11px]">{state.message}</span>
+          ) : state.kind === "ok" && state.keys.length === 0 ? (
+            <span className="text-[11px]">
+              Agent is running but holds no key. Add one with{" "}
+              <span className="font-mono">ssh-add</span>.
+            </span>
+          ) : state.kind === "ok" ? (
+            <span className="text-[11px]">
+              {state.keys.length} key{state.keys.length === 1 ? "" : "s"} available
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-[11px]">Not checked yet</span>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 shrink-0 px-2 text-[10.5px]"
+            onClick={onRecheck}
+            disabled={state.kind === "checking"}
+          >
+            Recheck
+          </Button>
+        </div>
+        {state.kind === "ok" && state.keys.length > 0 ? (
+          <ul className="flex flex-col gap-0.5">
+            {state.keys.map((k) => (
+              <li
+                key={k.fingerprint}
+                className="flex min-w-0 items-center gap-2 font-mono text-[10.5px]"
+                title={k.fingerprint}
+              >
+                <span className="text-muted-foreground shrink-0">{k.algorithm}</span>
+                <span className="truncate">{k.comment || k.fingerprint}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <span className="text-muted-foreground text-[10.5px]">
+        The key never leaves the agent: TEDI asks it to sign each handshake and stores nothing, so
+        this connection carries no secret to keep, back up or leak. The server must already have the
+        matching public key. Windows uses the OpenSSH Authentication Agent service (or Pageant, or
+        whatever <span className="font-mono">SSH_AUTH_SOCK</span> points at); macOS and Linux use{" "}
+        <span className="font-mono">SSH_AUTH_SOCK</span>.
+      </span>
+    </Field>
   );
 }
 

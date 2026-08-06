@@ -86,7 +86,8 @@ export function sanitizeConnection(raw: unknown): SshConnection | null {
   const p = port(raw.port);
   if (!id || !host || p === null) return null;
 
-  const authMode: SshAuthMode = raw.authMode === "key" ? "key" : "password";
+  const authMode: SshAuthMode =
+    raw.authMode === "key" || raw.authMode === "agent" ? raw.authMode : "password";
   const description = str(raw.description).trim();
   const proxyJumpId = str(raw.proxyJumpId).trim();
   const lastFingerprint = str(raw.lastFingerprint).trim();

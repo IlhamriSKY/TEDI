@@ -67,10 +67,28 @@ function lastAssistantText(messages: UIMessage[]): string {
     .trim();
 }
 
+/**
+ * The sign-off line, allowing for how models actually write a line: bolded,
+ * fenced in backticks, as a heading or a bullet, with a full stop after it.
+ * Requiring a byte-exact line meant a model that wrote `**GOAL COMPLETE**` was
+ * never heard - the run kept going and the strip kept counting until the turn
+ * budget ran out, which is what "it finished but the clock didn't" looks like.
+ *
+ * Still line-anchored, so the marker inside a sentence ("I will print GOAL
+ * COMPLETE when done") does not end the run on turn one. Blockquote `>` is
+ * deliberately NOT accepted: quoting the instruction back is exactly the shape
+ * that misfires, and nothing signs off in a blockquote.
+ *
+ * Spells out `GOAL_DONE_MARKER` rather than building itself from it. Drift is
+ * caught: `goal-verify.ts` feeds the constant through `settleGoal`, so changing
+ * one without the other fails the check instead of silently never matching.
+ */
+const DONE_LINE = /^[\s*_`#-]*GOAL\s*COMPLETE[\s*_`.!:]*$/;
+
 /** True when the model signed off with the marker on its own line. Substring
  *  matching would fire on the model merely QUOTING the instruction. */
 function declaredDone(text: string): boolean {
-  return text.split("\n").some((line) => line.trim() === GOAL_DONE_MARKER);
+  return text.split("\n").some((line) => DONE_LINE.test(line));
 }
 
 /**

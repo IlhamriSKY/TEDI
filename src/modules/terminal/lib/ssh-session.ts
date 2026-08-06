@@ -1,4 +1,5 @@
 import {
+  authFields,
   getConnectionSecrets,
   listConnections,
   markConnected,
@@ -180,10 +181,7 @@ export async function openSshForSession(
         host: conn.host,
         port: conn.port,
         user: conn.user,
-        password: conn.authMode === "password" ? (secrets.password ?? "") : undefined,
-        privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
-        privateKeyPassphrase:
-          conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
+        ...authFields(conn.authMode, secrets),
         // Pin against the last recorded fingerprint. First connect is TOFU; later connects fail fast on mismatch.
         expectedFingerprint: conn.lastFingerprint || undefined,
         jumps,

@@ -14,7 +14,7 @@
  */
 
 import { openSsh, openSshForward, type SshJumpHop, type SshSession } from "./bridge";
-import { getConnectionSecrets, listConnections, resolveJumpHops } from "./connections";
+import { authFields, getConnectionSecrets, listConnections, resolveJumpHops } from "./connections";
 
 export type SshForward = {
   /** Runtime SSH session id, as used by `ssh_list_sessions` / `ssh_close`. */
@@ -58,10 +58,7 @@ async function sessionFor(connectionId: string): Promise<SshSession> {
       host: conn.host,
       port: conn.port,
       user: conn.user,
-      password: conn.authMode === "password" ? (secrets.password ?? "") : undefined,
-      privateKey: conn.authMode === "key" ? (secrets.privateKey ?? "") : undefined,
-      privateKeyPassphrase:
-        conn.authMode === "key" ? (secrets.keyPassphrase ?? undefined) : undefined,
+      ...authFields(conn.authMode, secrets),
       // Always pinned here: an unpinned connection was rejected above, so a
       // changed host key fails the handshake instead of prompting.
       expectedFingerprint: conn.lastFingerprint,

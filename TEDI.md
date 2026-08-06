@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.15.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.16.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |
@@ -97,7 +97,7 @@ src/                            Frontend (React webview), alias @/* -> src/*
 | `fs/`         | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`. |
 | `shell/`      | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs. |
 | `git/`        | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                   |
-| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining. |
+| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`). |
 | `extensions/` | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`. |
 | `preview/`    | `preview_embed_*` native-webview compositing (update/navigate/dispatch/read/act/console/screenshot/set_bg/close); `tedi-frame://` proxy for remote marketplace icons. Every pane gets a document-start script that records console errors, uncaught exceptions, and unhandled rejections into a capped ring, drained by `preview_embed_console`. |
 | `format.rs`   | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).          |
@@ -170,7 +170,7 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `theme/`      | `next-themes` provider.                                                                |
 | `ai/`         | AI agent subsystem (below).                                                            |
 | `scm/`        | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance. |
-| `ssh/`        | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (passwords in keychain); ProxyJump chain resolution. |
+| `ssh/`        | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution. |
 | `scheduler/`  | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs). |
 | `updater/`    | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.       |
 | `extensions/` | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions). |

@@ -2,8 +2,10 @@
 //!
 //! Mirrors the local PTY module's command shape (`ssh_open`/`ssh_write`/
 //! `ssh_resize`/`ssh_close`) so the frontend can swap a local PTY for a
-//! remote shell with minimal plumbing. Auth supports password or private
-//! key. Host-key handling: SHA-256 fingerprint pinning. The first connect to
+//! remote shell with minimal plumbing. Auth supports the local ssh-agent (the
+//! private key stays inside the agent; TEDI only ever sees signatures), a
+//! private key, or a password.
+//! Host-key handling: SHA-256 fingerprint pinning. The first connect to
 //! a new host is trust-on-first-use (the seen fingerprint is reported to the
 //! frontend, which persists it as `lastFingerprint` in the connection store).
 //! Every later connect passes that fingerprint as `expected_fingerprint`; a
@@ -18,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tokio::runtime::Runtime;
 
@@ -70,6 +72,10 @@ pub struct SshJumpHop {
     pub host: String,
     pub port: u16,
     pub user: String,
+    /// Authenticate this hop through the local ssh-agent. Takes precedence over
+    /// the two fields below, which are then absent.
+    #[serde(default)]
+    pub use_agent: bool,
     pub password: Option<String>,
     pub private_key: Option<String>,
     pub private_key_passphrase: Option<String>,
@@ -82,7 +88,12 @@ pub struct SshOpenInput {
     pub host: String,
     pub port: u16,
     pub user: String,
-    /// Plain password. Either this or `private_key` must be set.
+    /// Authenticate through the local ssh-agent: the agent signs the handshake
+    /// and the private key never reaches TEDI. One of this, `password` or
+    /// `private_key` must be set.
+    #[serde(default)]
+    pub use_agent: bool,
+    /// Plain password.
     pub password: Option<String>,
     /// PEM-encoded private key text (OpenSSH or PKCS8). Optional passphrase
     /// in `private_key_passphrase`.
@@ -100,6 +111,42 @@ pub struct SshOpenInput {
     pub jumps: Vec<SshJumpHop>,
     pub cols: u16,
     pub rows: u16,
+}
+
+/// One key the local ssh-agent is holding. Read-only: the agent never hands out
+/// the private half, so this is everything TEDI can know about it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshAgentKey {
+    /// Wire algorithm name, e.g. `ssh-ed25519`.
+    pub algorithm: String,
+    /// The comment the key was added with, usually `user@machine`. Often empty.
+    pub comment: String,
+    /// `SHA256:...`, the same form `ssh-add -l` prints.
+    pub fingerprint: String,
+}
+
+/// Keys currently loaded in the local ssh-agent. Backs the connection dialog's
+/// agent panel: with no field to fill in, "is the agent up and does it hold a
+/// key" IS the validation for agent auth, so it is answered before saving
+/// rather than at dial time.
+#[tauri::command]
+pub async fn ssh_agent_keys() -> Result<Vec<SshAgentKey>, String> {
+    ssh_runtime()
+        .spawn(async {
+            let (_agent, keys) = session::agent_keys().await?;
+            Ok::<_, String>(
+                keys.iter()
+                    .map(|k| SshAgentKey {
+                        algorithm: k.algorithm().to_string(),
+                        comment: k.comment().to_string(),
+                        fingerprint: k.fingerprint(russh::keys::HashAlg::Sha256).to_string(),
+                    })
+                    .collect(),
+            )
+        })
+        .await
+        .map_err(|e| format!("ssh agent task join failed: {e}"))?
 }
 
 #[tauri::command]

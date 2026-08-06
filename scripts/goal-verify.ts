@@ -152,6 +152,38 @@ console.log("\n[runner] the done marker has to be its own line");
   assert(activeGoalText(D) === null, "the goal is completed, not just stopped");
   assert(!isGoalRunArmed(D), "and the loop is disarmed");
   assert(!settleGoal(D, tail(GOAL_DONE_MARKER)), "settling a done goal again is a no-op");
+
+  // How models actually write that line. A byte-exact match left every one of
+  // these running until the turn budget ran out, with the strip still ticking.
+  const decorated = [
+    `**${GOAL_DONE_MARKER}**`,
+    `\`${GOAL_DONE_MARKER}\``,
+    `${GOAL_DONE_MARKER}.`,
+    `## ${GOAL_DONE_MARKER}`,
+    `- ${GOAL_DONE_MARKER}`,
+    `  ${GOAL_DONE_MARKER}  `,
+  ];
+  for (const line of decorated) {
+    const id = `s-done-${line}`;
+    useGoalStore.getState().setGoal(id, "ship it");
+    armGoalRun(id);
+    assert(settleGoal(id, tail(`Done and verified.\n${line}`)), `sign-off "${line}" ends the run`);
+  }
+
+  // ...and what must still NOT end it.
+  const notDone = [
+    `I will print ${GOAL_DONE_MARKER} when I am finished.`,
+    `> ${GOAL_DONE_MARKER}`,
+    "goal complete",
+    `NOT ${GOAL_DONE_MARKER}`,
+  ];
+  for (const line of notDone) {
+    const id = `s-open-${line}`;
+    useGoalStore.getState().setGoal(id, "ship it");
+    armGoalRun(id);
+    assert(!settleGoal(id, tail(`Working on it.\n${line}`)), `"${line}" does NOT end the run`);
+    assert(isGoalRunArmed(id), "  (still armed)");
+  }
 }
 
 console.log("\n[runner] an unattended run is bounded");
