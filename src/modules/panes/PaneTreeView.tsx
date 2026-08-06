@@ -655,7 +655,7 @@ function PaneLeafFrame({
               <IconTooltip
                 label={
                   isFloating
-                    ? "Floating — click to focus its window"
+                    ? "Floating, click to focus its window"
                     : "Float pane in its own window"
                 }
                 side="bottom"

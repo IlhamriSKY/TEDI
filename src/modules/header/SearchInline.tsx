@@ -3,7 +3,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import type { EditorPaneHandle } from "@/modules/editor";
+import type { EditorPaneHandle, MatchPos } from "@/modules/editor";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { shortcutHint } from "@/modules/shortcuts/shortcuts";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -17,7 +17,16 @@ import {
   useState,
   type Ref,
 } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
+
+const NO_MATCHES: MatchPos = { current: 0, total: 0 };
+
+// Shared look for the prev/next/clear buttons crowded into the field's right edge.
+const FIELD_BUTTON = cn(
+  "shrink-0 cursor-pointer rounded p-0.5 transition-colors",
+  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+  "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+);
 
 /**
  * Resolves xterm search decoration colours from the active theme. xterm's
@@ -69,6 +78,7 @@ type Props = {
 
 export function SearchInline({ target, compact, ref }: Props) {
   const [q, setQ] = useState("");
+  const [matches, setMatches] = useState<MatchPos>(NO_MATCHES);
   // Compact mode hides the field behind an icon until activated.
   const [openInCompact, setOpenInCompact] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -112,7 +122,26 @@ export function SearchInline({ target, compact, ref }: Props) {
   // Drop highlights when target switches or is removed.
   useEffect(() => clearTarget, [clearTarget]);
 
+  // "{current}/{total}", VS Code style. Both engines push it: xterm fires
+  // onDidChangeResults (decorations are always on), and the editor pane feeds
+  // CodeMirror's count — or the markdown preview's, when previewing.
+  useEffect(() => {
+    setMatches(NO_MATCHES);
+    if (!target) return;
+    if (target.kind === "editor") {
+      const handle = target.handle;
+      handle.setMatchListener(setMatches);
+      return () => handle.setMatchListener(null);
+    }
+    // resultIndex is -1 once xterm's highlight threshold is exceeded.
+    const sub = target.addon.onDidChangeResults(({ resultIndex, resultCount }) =>
+      setMatches({ current: resultIndex + 1, total: resultCount }),
+    );
+    return () => sub.dispose();
+  }, [target]);
+
   const applyIncremental = (next: string) => {
+    if (!next) setMatches(NO_MATCHES);
     if (!target) return;
     if (target.kind === "terminal") {
       if (next) {
@@ -140,11 +169,15 @@ export function SearchInline({ target, compact, ref }: Props) {
     }
   };
 
+  // The match counter and its nav arrows only exist once something is typed,
+  // so the field widens then rather than reserving the space up front.
+  const noMatches = q.length > 0 && matches.total === 0;
+
   return (
     <motion.div
       layout
       initial={false}
-      animate={{ width: expanded ? 168 : 28 }}
+      animate={{ width: expanded ? (q ? 268 : 168) : 28 }}
       transition={{ type: "spring", stiffness: 380, damping: 34 }}
       className="relative h-7 shrink-0"
     >
@@ -167,7 +200,11 @@ export function SearchInline({ target, compact, ref }: Props) {
               ref={setInputRef}
               value={q}
               placeholder={placeholder}
-              className="bg-muted/80 border-border placeholder:text-muted-foreground/70 h-7 w-full pr-12 pl-7 text-[12.5px]! focus-visible:ring-0"
+              className={cn(
+                "bg-muted/80 border-border placeholder:text-muted-foreground/70 h-7 w-full pl-7 text-[12.5px]! focus-visible:ring-0",
+                q ? "pr-[86px]" : "pr-12",
+                noMatches && "border-destructive/60",
+              )}
               onChange={(e) => {
                 const next = e.target.value;
                 setQ(next);
@@ -184,6 +221,7 @@ export function SearchInline({ target, compact, ref }: Props) {
                   e.preventDefault();
                   clearTarget();
                   setQ("");
+                  setMatches(NO_MATCHES);
                   if (compact) {
                     setOpenInCompact(false);
                   }
@@ -192,18 +230,54 @@ export function SearchInline({ target, compact, ref }: Props) {
               }}
             />
             {q ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setQ("");
-                  clearTarget();
-                  inputRef.current?.focus();
-                }}
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-1.5 -translate-y-1/2 cursor-pointer rounded p-0.5"
-                aria-label="Clear search"
-              >
-                <X size={11} strokeWidth={2} />
-              </button>
+              <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
+                <span
+                  className={cn(
+                    "px-0.5 font-mono text-[10px] tabular-nums",
+                    noMatches ? "text-destructive" : "text-muted-foreground",
+                  )}
+                  aria-live="polite"
+                >
+                  {matches.total === 0 ? "0/0" : `${matches.current}/${matches.total}`}
+                </span>
+                <button
+                  type="button"
+                  // Keep the caret in the field so Enter keeps stepping matches.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => findDirection(false)}
+                  disabled={matches.total === 0}
+                  className={FIELD_BUTTON}
+                  aria-label="Previous match"
+                  title="Previous match (Shift+Enter)"
+                >
+                  <ChevronUp size={11} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => findDirection(true)}
+                  disabled={matches.total === 0}
+                  className={FIELD_BUTTON}
+                  aria-label="Next match"
+                  title="Next match (Enter)"
+                >
+                  <ChevronDown size={11} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQ("");
+                    clearTarget();
+                    setMatches(NO_MATCHES);
+                    inputRef.current?.focus();
+                  }}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-0.5"
+                  aria-label="Clear search"
+                  title="Clear (Esc)"
+                >
+                  <X size={11} strokeWidth={2} />
+                </button>
+              </div>
             ) : shortcutText ? (
               // Shortcut hint as a kbd badge pinned to the far right (hidden once
               // the user starts typing, where the clear button takes its place).

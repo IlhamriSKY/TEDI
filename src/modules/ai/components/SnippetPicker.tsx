@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
+import { Terminal } from "lucide-react";
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import type { TerminalInfo } from "@/modules/scheduler/types";
 import type { SlashCommandMeta } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
 
 export type PickerItem =
+  | { kind: "terminal"; terminal: TerminalInfo }
   | { kind: "snippet"; snippet: Snippet }
   | { kind: "command"; command: SlashCommandMeta };
 
@@ -18,9 +21,10 @@ type Props = {
 };
 
 export function SnippetPickerContent({ items, activeIndex, onPick, onHover, emptyText }: Props) {
-  // Built-in commands, installed skills, and snippets render in separate
-  // sections (Claude-Code style). Order matches the flat `items` array so the
-  // running `cursor` stays in sync with keyboard nav.
+  // Open terminals, built-in commands, installed skills, and snippets render in
+  // separate sections (Claude-Code style). Order matches the flat `items` array
+  // so the running `cursor` stays in sync with keyboard nav.
+  const terminals = items.filter((it) => it.kind === "terminal");
   const builtinCommands = items.filter((it) => it.kind === "command" && !it.command.isSkill);
   const skillCommands = items.filter((it) => it.kind === "command" && it.command.isSkill);
   const snippets = items.filter((it) => it.kind === "snippet");
@@ -58,9 +62,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
             {c.argHint ? (
               <span className="text-icon-working font-mono text-[10.5px]">{c.argHint}</span>
             ) : null}
-            {c.label && c.label !== c.name ? (
-              <span className="font-medium">{c.label}</span>
-            ) : null}
+            {c.label && c.label !== c.name ? <span className="font-medium">{c.label}</span> : null}
           </span>
           <span className="text-muted-foreground line-clamp-2 pl-[18px] text-[10.5px]">
             {c.description}
@@ -86,6 +88,51 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
         </div>
       ) : (
         <div className="max-h-72 overflow-y-auto py-1">
+          {terminals.length > 0 && (
+            <>
+              <SectionHeader label="Terminals" />
+              <ul>
+                {terminals.map((it) => {
+                  cursor += 1;
+                  const i = cursor;
+                  if (it.kind !== "terminal") return null;
+                  const t = it.terminal;
+                  return (
+                    <li key={`term-${t.leafId}`}>
+                      <button
+                        ref={(el) => {
+                          itemRefs.current[i] = el;
+                        }}
+                        type="button"
+                        onMouseEnter={() => onHover(i)}
+                        onClick={() => onPick(it)}
+                        className={cn(
+                          "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1.5 text-left text-[12px]",
+                          i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
+                        )}
+                      >
+                        <Terminal
+                          size={13}
+                          strokeWidth={1.75}
+                          className="text-muted-foreground shrink-0"
+                        />
+                        {/* Same `#<ordinal>` the model sees in `<env>` and writes
+                            back in its replies, so the two notations match. */}
+                        <span className="text-primary font-mono font-medium">#{t.ordinal}</span>
+                        <span className="font-medium">{t.title || "shell"}</span>
+                        {t.isActive ? (
+                          <span className="text-icon-working text-[10.5px]">active</span>
+                        ) : null}
+                        <span className="text-muted-foreground ml-auto truncate pl-2 text-[10.5px]">
+                          {t.cwd ?? ""}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
           {builtinCommands.length > 0 && (
             <>
               <SectionHeader label="Commands" />
@@ -132,7 +179,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
                         )}
                       >
                         <span className="flex w-full items-center gap-1.5">
-                          <span className="text-muted-foreground font-mono">#{s.handle}</span>
+                          <span className="text-muted-foreground font-mono">&gt;{s.handle}</span>
                           <span className="font-medium">{s.name}</span>
                         </span>
                         {s.description ? (

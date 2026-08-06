@@ -330,7 +330,7 @@ export function McpServersCard() {
               <Textarea
                 value={envText}
                 onChange={(e) => setEnvText(e.target.value)}
-                placeholder="Credentials — one KEY=value per line (e.g. GITHUB_TOKEN=ghp_…)"
+                placeholder="Credentials, one KEY=value per line (e.g. GITHUB_TOKEN=ghp_…)"
                 className="min-h-[3.5rem] resize-y font-mono text-[10.5px] leading-relaxed"
                 spellCheck={false}
               />

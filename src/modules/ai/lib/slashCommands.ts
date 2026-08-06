@@ -48,12 +48,12 @@ export type SlashCommandMeta = {
   label: string;
   description: string;
   icon: LucideIcon;
-  /** Optional argument hint, e.g. `[off]` for `#plan`. */
+  /** Optional argument hint, e.g. `[off]` for `>plan`. */
   argHint?: string;
-  /** Show in the `#` picker only, not the `/` picker. For tag-like commands
+  /** Show in the `>` picker only, not the `/` picker. For tag-like commands
    *  (`init`, `plan`) that persist on a message or the session. Ephemeral
    *  actions stay slash-only. */
-  hashOnly?: boolean;
+  tagOnly?: boolean;
   /** True for installed-skill commands so the picker groups them separately. */
   isSkill?: boolean;
 };
@@ -110,20 +110,20 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
   },
   init: {
     name: "init",
-    invocation: "#init",
+    invocation: ">init",
     label: "Initialize workspace",
     description: "Scan the workspace and write TEDI.md project memory.",
     icon: Sparkles,
-    hashOnly: true,
+    tagOnly: true,
   },
   plan: {
     name: "plan",
-    invocation: "#plan",
+    invocation: ">plan",
     label: "Plan mode",
-    description: "Queue mutations for batch review. `#plan off` to disable.",
+    description: "Queue mutations for batch review. `>plan off` to disable.",
     icon: ListChecks,
     argHint: "[off]",
-    hashOnly: true,
+    tagOnly: true,
   },
   schedule: {
     name: "schedule",
@@ -144,14 +144,14 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
   },
 };
 
-/** Commands shown in the `/` picker. Excludes hash-only tag commands. */
+/** Commands shown in the `/` picker. Excludes tag-only commands. */
 export const VISIBLE_SLASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
-  (c) => !c.hashOnly,
+  (c) => !c.tagOnly,
 );
 
-/** Commands shown in the `#` picker alongside snippets (tag-style commands). */
-export const HASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
-  (c) => c.hashOnly,
+/** Commands shown in the `>` picker alongside terminals and snippets. */
+export const TAG_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
+  (c) => c.tagOnly,
 );
 
 /** Installed skills surfaced as `/` commands (one per skill, named after it) so
@@ -182,7 +182,7 @@ function showHelp(): void {
     id: "slash-help",
     title: "Composer commands",
     subtitle:
-      "Type `/` for one-shot commands, `#` for tag commands & snippets, `@` for files. Tab or Enter to insert.",
+      "Type `/` for one-shot commands, `>` for terminals, tag commands & snippets, `@` for files. Tab or Enter to insert.",
     sections: [
       {
         title: "Slash commands (one-shot actions)",
@@ -193,8 +193,8 @@ function showHelp(): void {
         })),
       },
       {
-        title: "Hash commands (tag the message / session)",
-        rows: HASH_COMMANDS.map((c) => ({
+        title: "Tag commands (tag the message / session)",
+        rows: TAG_COMMANDS.map((c) => ({
           kbd: c.argHint ? `${c.invocation} ${c.argHint}` : c.invocation,
           label: c.label,
           desc: c.description,
@@ -209,7 +209,12 @@ function showHelp(): void {
             desc: "Workspace files & folders (fuzzy search, scrollable).",
           },
           {
-            kbd: "#handle",
+            kbd: ">",
+            label: "Terminal picker",
+            desc: "Insert a reference to an open terminal, e.g. #392. Click one in a reply to jump to it.",
+          },
+          {
+            kbd: ">handle",
             label: "Snippets",
             desc: "Reusable snippet handles from Settings → Agents.",
           },
@@ -411,11 +416,11 @@ function runGoalCommand(tail: string): SlashOutcome {
 export function tryRunSlashCommand(input: string): SlashOutcome {
   const trimmed = input.trim();
   const lead = trimmed[0];
-  if (lead !== "/" && lead !== "#") return { kind: "none" };
+  if (lead !== "/" && lead !== ">") return { kind: "none" };
   const [headRaw, ...rest] = trimmed.slice(1).split(/\s+/);
   const head = headRaw.toLowerCase();
-  // Hash trigger only fires for registered commands; `#tag` stays free.
-  if (lead === "#" && !SLASH_COMMANDS[head]) return { kind: "none" };
+  // Tag trigger only fires for registered commands; `>anything-else` stays free.
+  if (lead === ">" && !SLASH_COMMANDS[head]) return { kind: "none" };
   const tail = rest.join(" ").trim();
 
   switch (head) {

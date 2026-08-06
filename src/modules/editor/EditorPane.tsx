@@ -1,4 +1,10 @@
-import { findNext, findPrevious, SearchQuery, setSearchQuery } from "@codemirror/search";
+import {
+  findNext,
+  findPrevious,
+  getSearchQuery,
+  SearchQuery,
+  setSearchQuery,
+} from "@codemirror/search";
 import { EditorView, keymap } from "@codemirror/view";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
@@ -47,7 +53,12 @@ import { inlineCompletion } from "./lib/autocomplete/inlineExtension";
 import { providerNeedsKey, type ProviderId } from "@/modules/ai/config";
 import { getKey } from "@/modules/ai/lib/keyring";
 import { onKeysChanged } from "@/modules/settings/store";
-import { EditorFindReplace, type EditorFindReplaceHandle } from "./EditorFindReplace";
+import {
+  EditorFindReplace,
+  matchState,
+  type EditorFindReplaceHandle,
+  type MatchPos,
+} from "./EditorFindReplace";
 import { MarkdownFindBar, type MarkdownFindBarHandle } from "./MarkdownFindBar";
 import {
   formatDocument,
@@ -66,6 +77,10 @@ export type EditorPaneHandle = {
   findNext: () => void;
   findPrevious: () => void;
   clearQuery: () => void;
+  /** Register a listener for "{current}/{total}" match updates, so an outside
+   *  search box (the header field) can show the same position VS Code does.
+   *  Pass `null` to unsubscribe. One listener at a time — only the header uses it. */
+  setMatchListener: (cb: ((pos: MatchPos) => void) | null) => void;
   focus: () => void;
   getSelection: () => string | null;
   getPath: () => string;
@@ -225,6 +240,17 @@ export function EditorPane({
   const mdScrollRef = useRef<HTMLDivElement>(null);
   const mdFindRef = useRef<MarkdownFindBarHandle>(null);
   const getMdContainer = useCallback(() => mdScrollRef.current, []);
+  // Header search box's match-position listener. Fed by CodeMirror after every
+  // find op, and by <MarkdownFindBar> (which computes its own ranges) in preview.
+  const matchCbRef = useRef<((pos: MatchPos) => void) | null>(null);
+  const emitMatches = useCallback(() => {
+    const cb = matchCbRef.current;
+    if (!cb) return;
+    const view = cmRef.current?.view;
+    if (!view) return cb({ current: 0, total: 0 });
+    cb(matchState(view, getSearchQuery(view.state)));
+  }, []);
+  const emitMdMatches = useCallback((pos: MatchPos) => matchCbRef.current?.(pos), []);
   // Stable identity so EditorFindReplace's effect (which lists getView in its
   // deps) doesn't re-run on every scroll/selection while the find bar is open.
   // cmRef is itself stable, so the closure never needs to change.
@@ -640,6 +666,7 @@ export function EditorPane({
           effects: setSearchQuery.of(new SearchQuery({ search: q, caseSensitive: false })),
         });
         if (q) findNext(view);
+        emitMatches();
       },
       findNext: () => {
         if (mdPreviewActiveRef.current) {
@@ -648,6 +675,7 @@ export function EditorPane({
         }
         const view = cmRef.current?.view;
         if (view) findNext(view);
+        emitMatches();
       },
       findPrevious: () => {
         if (mdPreviewActiveRef.current) {
@@ -656,6 +684,7 @@ export function EditorPane({
         }
         const view = cmRef.current?.view;
         if (view) findPrevious(view);
+        emitMatches();
       },
       clearQuery: () => {
         if (mdPreviewActiveRef.current) {
@@ -667,6 +696,10 @@ export function EditorPane({
         view.dispatch({
           effects: setSearchQuery.of(new SearchQuery({ search: "" })),
         });
+        emitMatches();
+      },
+      setMatchListener: (cb) => {
+        matchCbRef.current = cb;
       },
       focus: () => {
         cmRef.current?.view?.focus();
@@ -721,7 +754,7 @@ export function EditorPane({
         onSavedRef.current?.();
       },
     }),
-    [path],
+    [path, emitMatches],
   );
 
   // ── Context-menu editor commands ──────────────────────────────────────────
@@ -977,7 +1010,12 @@ export function EditorPane({
             </Streamdown>
           </div>
           {/* Find bar lives OUTSIDE the scroller so its own text isn't searched. */}
-          <MarkdownFindBar ref={mdFindRef} getContainer={getMdContainer} content={liveContent} />
+          <MarkdownFindBar
+            ref={mdFindRef}
+            getContainer={getMdContainer}
+            content={liveContent}
+            onMatches={emitMdMatches}
+          />
         </div>
       )}
     </div>

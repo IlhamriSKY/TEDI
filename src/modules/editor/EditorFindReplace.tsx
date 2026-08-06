@@ -32,12 +32,12 @@ type Props = {
 // Cap match counting so a query like "a" on a huge file doesn't freeze the UI.
 const MAX_MATCH_COUNT = 999;
 
-type MatchPos = { current: number; total: number };
+export type MatchPos = { current: number; total: number };
 
 // VS Code-style "{current} of {total}". `current` is the 1-indexed match that
 // the editor's selection currently sits on (0 when the selection isn't on a
 // match). Counting stops at MAX_MATCH_COUNT so a huge file never freezes the UI.
-function matchState(view: EditorView, query: SearchQuery): MatchPos {
+export function matchState(view: EditorView, query: SearchQuery): MatchPos {
   if (!query.valid) return { current: 0, total: 0 };
   try {
     const cursor = query.getCursor(view.state, 0, view.state.doc.length);

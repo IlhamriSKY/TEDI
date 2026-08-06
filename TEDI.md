@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.16.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.17.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |
@@ -206,7 +206,7 @@ an OpenAI API key (`apiKeys.openai` in the chat store).
 
 **Agent loop**: `MAX_AGENT_STEPS = 15` plus two more stop guards, identical
 tool+input three times (`noToolRepetition`) and two consecutive text-only steps
-(`noProgressStop`); whichever trips is surfaced as a `stopReason`. `#plan` toggles
+(`noProgressStop`); whichever trips is surfaced as a `stopReason`. `>plan` toggles
 **plan mode**, which queues mutations into `planStore` for one review diff.
 Typing `ultrathink` appends a deeper-reasoning directive for that turn.
 
@@ -382,7 +382,7 @@ ${file}`).
   which closes the run-it, see-it-break, fix-it loop.
 - **Skills** (`SKILL.md` folders, progressive disclosure) and **MCP** (stdio).
 - **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`), ten agents.
-- **Plan mode** (`#plan`) queuing mutations into one review diff.
+- **Plan mode** (`>plan`) queuing mutations into one review diff.
 - **Autocomplete on any provider**, including local (LM Studio, Ollama, llama.cpp,
   vLLM); a loopback endpoint needs no API key.
 - **Voice input** in the composer and status bar (OpenAI whisper-1 transcription;

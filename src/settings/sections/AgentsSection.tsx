@@ -157,7 +157,7 @@ export function AgentsSection() {
         description={
           <>
             Reusable instructions you can drop into any prompt with{" "}
-            <code className="bg-muted/50 rounded px-1 font-mono">#handle</code>.
+            <code className="bg-muted/50 rounded px-1 font-mono">&gt;handle</code>.
           </>
         }
         summary={
@@ -190,7 +190,7 @@ export function AgentsSection() {
           {snippets.length === 0 ? (
             <div className="border-border/60 bg-card/30 text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-[11px]">
               No snippets yet. Create one and insert it with{" "}
-              <code className="font-mono">#handle</code> in the AI input.
+              <code className="font-mono">&gt;handle</code> in the AI input.
             </div>
           ) : (
             <ul className="flex flex-col gap-1.5">
@@ -200,7 +200,7 @@ export function AgentsSection() {
                   className="border-border/60 bg-card flex items-center gap-2 rounded-lg border px-3 py-2"
                 >
                   <code className="bg-muted/50 text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">
-                    #{s.handle}
+                    &gt;{s.handle}
                   </code>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[12px] font-medium">{s.name}</span>
@@ -230,7 +230,7 @@ export function AgentsSection() {
                         setPendingAction({
                           kind: "deleteSnippet",
                           id: s.id,
-                          name: s.name || `#${s.handle}`,
+                          name: s.name || `>${s.handle}`,
                         })
                       }
                       aria-label="Delete"
@@ -608,7 +608,7 @@ function SnippetEditorDialog({
             <Input
               value={draft.description}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              placeholder="One line - shown in the # picker"
+              placeholder="One line - shown in the > picker"
               className="h-8 text-[12px]"
             />
           </div>
@@ -617,7 +617,7 @@ function SnippetEditorDialog({
             <Textarea
               value={draft.content}
               onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-              placeholder="Inserted into the prompt as a <snippet> block when you use #handle."
+              placeholder="Inserted into the prompt as a <snippet> block when you use >handle."
               className="min-h-72 resize-y font-mono text-[11.5px] leading-relaxed"
             />
           </div>

@@ -234,7 +234,7 @@ function FormatterRow({
                   !builtinAvailable && "text-muted-foreground",
                 )}
               >
-                {builtinAvailable ? "Built-in (Prettier)" : "Built-in — not supported"}
+                {builtinAvailable ? "Built-in (Prettier)" : "Built-in (not supported)"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => setType("external")}

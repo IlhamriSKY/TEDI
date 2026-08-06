@@ -38,7 +38,7 @@ export function ChipsRow({
                   className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
                 >
                   <CmdIcon size={11} strokeWidth={1.75} className="text-muted-foreground" />
-                  <span className="font-medium">#{cmd.name}</span>
+                  <span className="font-medium">&gt;{cmd.name}</span>
                   <button
                     type="button"
                     onClick={() => onRemoveCommand(cmd.name)}

@@ -2,7 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type Snippet = {
   id: string;
-  /** Composer handle (`#handle`). Lowercase, `[a-z0-9-]+`. */
+  /** Composer handle (`>handle`). Lowercase, `[a-z0-9-]+`. */
   handle: string;
   name: string;
   description: string;
@@ -44,7 +44,7 @@ export function isValidHandle(h: string): boolean {
 }
 
 /**
- * Replace `#handle` tokens with snippet bodies wrapped in `<snippet>` blocks.
+ * Replace `>handle` tokens with snippet bodies wrapped in `<snippet>` blocks.
  * Unknown handles are left in place. Returns the rewritten body and the
  * blocks to prepend.
  */
@@ -54,8 +54,8 @@ export function expandSnippetTokens(
 ): { body: string; blocks: string[] } {
   const byHandle = new Map(snippets.map((s) => [s.handle, s]));
   const matched = new Map<string, Snippet>();
-  // (^|\s)#handle where handle is [a-z0-9][a-z0-9-]*
-  const re = /(^|\s)#([a-z0-9][a-z0-9-]*)\b/gi;
+  // (^|\s)>handle where handle is [a-z0-9][a-z0-9-]*
+  const re = /(^|\s)>([a-z0-9][a-z0-9-]*)\b/gi;
   const body = text.replace(re, (full, lead: string, raw: string) => {
     const h = raw.toLowerCase();
     const snip = byHandle.get(h);

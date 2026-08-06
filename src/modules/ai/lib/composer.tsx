@@ -342,8 +342,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
     )
       return;
 
-    // Slash-command interception. Two inputs: raw `/cmd` or `#cmd` text, and
-    // hash chips from the # picker (which stack, and all fire). Each resolves to
+    // Slash-command interception. Two inputs: raw `/cmd` or `>cmd` text, and
+    // tag chips from the `>` picker (which stack, and all fire). Each resolves to
     // `handled` (side effect) or `send-prompt` (rewrites the body). Every handled
     // one fires; the FIRST send-prompt wins the body, later ones are dropped.
     let effectiveText = trimmed;
@@ -353,7 +353,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     let toastMsg: string | undefined;
     let toastVariant: "success" | "info" | "warning" | "error" | undefined;
 
-    if (trimmed.startsWith("/") || trimmed.startsWith("#")) {
+    if (trimmed.startsWith("/") || trimmed.startsWith(">")) {
       // Warm the skill cache (cached ~30s, near-instant when warm) so a cold
       // `/<skill>` submit resolves to its prompt instead of leaking the literal
       // command text to the model.
@@ -376,7 +376,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     }
 
     for (const cmd of pickedCommands) {
-      const outcome = tryRunSlashCommand(`#${cmd.name}`);
+      const outcome = tryRunSlashCommand(`>${cmd.name}`);
       if (outcome.kind === "handled") {
         if (outcome.toast) toastMsg = outcome.toast;
         if (outcome.toastVariant) toastVariant = outcome.toastVariant;
@@ -394,7 +394,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       }
     }
 
-    // All side effects, nothing to send. Covers `/clear` alone and `#plan`-only chips.
+    // All side effects, nothing to send. Covers `/clear` alone and `>plan`-only chips.
     const anyCommandRan = textConsumedByCommand || pickedCommands.length > 0;
     if (
       anyCommandRan &&

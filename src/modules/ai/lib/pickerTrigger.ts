@@ -2,8 +2,9 @@ export type PickerTrigger = {
   start: number;
   end: number;
   query: string;
-  /** Sigil that triggered the picker. `slash` is commands-only, `hash` is snippets plus commands, `mention` is file/folder. */
-  kind: "slash" | "hash" | "mention";
+  /** Sigil that triggered the picker. `slash` is commands-only, `tag` is
+   *  terminals plus snippets plus tag commands, `mention` is file/folder. */
+  kind: "slash" | "tag" | "mention";
 };
 
 /** Mention scanner. Allows path chars (`/`, `.`, `_`, `-`) so `@src/foo/bar` works.
@@ -23,12 +24,14 @@ function detectMentionTrigger(value: string, caret: number): PickerTrigger | nul
   return null;
 }
 
-/** Command scanner. `/` or `#` followed by `[a-z0-9-]*`. Returns null on any
- *  non-command char so it never collides with the mention scanner. */
+/** Command scanner. `/` or `>` followed by `[a-z0-9-]*`. Returns null on any
+ *  non-command char so it never collides with the mention scanner.
+ *  `>` (not `#`) is the tag sigil so `#392` stays free as a terminal reference
+ *  - the same notation the model writes back in its answers. */
 function detectCommandTrigger(value: string, caret: number): PickerTrigger | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i];
-    if (ch === "#" || ch === "/") {
+    if (ch === ">" || ch === "/") {
       const prev = i === 0 ? " " : value[i - 1];
       if (!/\s/.test(prev)) return null;
       const slice = value.slice(i + 1, caret);
@@ -37,7 +40,7 @@ function detectCommandTrigger(value: string, caret: number): PickerTrigger | nul
         start: i,
         end: caret,
         query: slice.toLowerCase(),
-        kind: ch === "/" ? "slash" : "hash",
+        kind: ch === "/" ? "slash" : "tag",
       };
     }
     if (/\s/.test(ch)) return null;

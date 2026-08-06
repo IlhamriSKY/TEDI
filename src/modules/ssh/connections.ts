@@ -173,6 +173,35 @@ export async function upsertConnection(
   });
 }
 
+/**
+ * Copy a saved host, credentials included, under a new id. For the case it was
+ * asked for: the same key / password / agent against a different host or port,
+ * without retyping or re-importing anything.
+ *
+ * The pinned server key is deliberately NOT copied. It belongs to the machine
+ * that presented it, and a copy exists to be pointed somewhere else; carrying it
+ * over would fail the next connect as a key MISMATCH, which reads as an attack
+ * rather than as a copy. The copy takes one first-connect prompt instead.
+ */
+export async function duplicateConnection(id: string): Promise<SshConnection | null> {
+  const source = (await listConnections()).find((c) => c.id === id);
+  if (!source) return null;
+  const secrets = await getConnectionSecrets(id);
+  const copy: SshConnection = {
+    ...source,
+    id: newConnectionId(),
+    name: `${source.name} (copy)`,
+    lastFingerprint: undefined,
+    lastConnectedAt: undefined,
+  };
+  await upsertConnection(copy, {
+    password: secrets.password ?? "",
+    privateKey: secrets.privateKey ?? "",
+    keyPassphrase: secrets.keyPassphrase ?? "",
+  });
+  return copy;
+}
+
 export async function deleteConnection(id: string): Promise<void> {
   return enqueueWrite(async () => {
     await Promise.all([
@@ -227,19 +256,51 @@ export function useSshHosts(): Map<string, SshConnection> {
   return hosts;
 }
 
-/** Marks a successful SSH handshake. Updates the timestamp and server fingerprint. */
-export async function markConnected(id: string, fingerprint: string): Promise<void> {
+/**
+ * Read-modify-write one saved connection, through the serialized write queue so
+ * a chained connect firing several of these at once cannot lose an update.
+ * `patch` receives the current row and returns the fields to change, or null to
+ * write nothing. A missing id is a no-op: the connection was deleted mid-flight.
+ */
+async function patchConnection(
+  id: string,
+  patch: (current: SshConnection) => Partial<SshConnection> | null,
+): Promise<void> {
   return enqueueWrite(async () => {
     const list = await listConnections();
     const idx = list.findIndex((c) => c.id === id);
     if (idx < 0) return;
-    list[idx] = {
-      ...list[idx],
-      lastConnectedAt: Date.now(),
-      lastFingerprint: fingerprint || list[idx].lastFingerprint,
-    };
+    const next = patch(list[idx]);
+    if (!next) return;
+    list[idx] = { ...list[idx], ...next };
     await persist(list);
   });
+}
+
+/** Marks a successful SSH handshake. Updates the timestamp and server fingerprint. */
+export async function markConnected(id: string, fingerprint: string): Promise<void> {
+  return patchConnection(id, (c) => ({
+    lastConnectedAt: Date.now(),
+    lastFingerprint: fingerprint || c.lastFingerprint,
+  }));
+}
+
+/**
+ * Records a server key the user just verified in the first-connect dialog.
+ *
+ * Separate from `markConnected` because trusting a key and connecting are two
+ * different steps, and only the first one has happened here: `openssh` writes
+ * `known_hosts` the moment you answer yes, before it ever sends a credential.
+ * Pinning only on a fully successful connect meant a wrong password re-asked the
+ * host-key question on every retry, and a key trusted during the dialog's Test
+ * was forgotten by the time the connection was saved. `lastConnectedAt` is
+ * deliberately not touched: nothing has connected yet.
+ */
+export async function pinFingerprint(id: string, fingerprint: string): Promise<void> {
+  if (!fingerprint) return;
+  return patchConnection(id, (c) =>
+    c.lastFingerprint === fingerprint ? null : { lastFingerprint: fingerprint },
+  );
 }
 
 /**
@@ -247,13 +308,7 @@ export async function markConnected(id: string, fingerprint: string): Promise<vo
  * Use after the user has verified a legitimate server key rotation.
  */
 export async function clearFingerprint(id: string): Promise<void> {
-  return enqueueWrite(async () => {
-    const list = await listConnections();
-    const idx = list.findIndex((c) => c.id === id);
-    if (idx < 0) return;
-    list[idx] = { ...list[idx], lastFingerprint: undefined };
-    await persist(list);
-  });
+  return patchConnection(id, () => ({ lastFingerprint: undefined }));
 }
 
 /** Hard cap so a malformed/looping chain can't spin forever building hops. */

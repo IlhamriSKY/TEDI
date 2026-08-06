@@ -2,6 +2,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn, escapeRegex } from "@/lib/utils";
+import type { MatchPos } from "./EditorFindReplace";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
@@ -25,6 +26,9 @@ type Props = {
   getContainer: () => HTMLElement | null;
   /** Live markdown source. Re-runs the search when the rendered output changes. */
   content: string;
+  /** Reports the match position so an outside search box (the header field)
+   *  can show the same "{current}/{total}" the overlay does. */
+  onMatches?: (pos: MatchPos) => void;
   ref?: Ref<MarkdownFindBarHandle>;
 };
 
@@ -156,7 +160,7 @@ function scrollRangeIntoView(container: HTMLElement | null, range: Range): void 
   container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
 }
 
-export function MarkdownFindBar({ getContainer, content, ref }: Props) {
+export function MarkdownFindBar({ getContainer, content, onMatches, ref }: Props) {
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -214,6 +218,14 @@ export function MarkdownFindBar({ getContainer, content, ref }: Props) {
 
   // Drop highlights when the preview is toggled off or the pane is closed.
   useEffect(() => () => clearHighlights(), []);
+
+  // Mirror the position outward (header search box). Ranges land one render
+  // after the query changes, so this has to push rather than be polled.
+  const onMatchesRef = useRef(onMatches);
+  onMatchesRef.current = onMatches;
+  useEffect(() => {
+    onMatchesRef.current?.({ current: matchCount === 0 ? 0 : currentIndex + 1, total: matchCount });
+  }, [matchCount, currentIndex]);
 
   const goNext = useCallback(() => focusMatch(currentIndex + 1), [focusMatch, currentIndex]);
   const goPrev = useCallback(() => focusMatch(currentIndex - 1), [focusMatch, currentIndex]);

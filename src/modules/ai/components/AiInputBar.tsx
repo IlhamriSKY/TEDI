@@ -10,11 +10,12 @@ import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
 import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
 import {
-  HASH_COMMANDS,
+  TAG_COMMANDS,
   VISIBLE_SLASH_COMMANDS,
   skillSlashCommands,
   type SlashCommandMeta,
 } from "../lib/slashCommands";
+import type { TerminalInfo } from "@/modules/scheduler/types";
 import { loadSkills } from "../lib/skills";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
@@ -30,13 +31,13 @@ import { QueueRow } from "./QueueRow";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
 
-/** Paint only the leading `/command` or `#tag` token in the theme accent; the
+/** Paint only the leading `/command` or `>tag` token in the theme accent; the
  *  rest of the message stays the normal text color. Only the color differs from
  *  the textarea (same font / size / weight), so the mirror layer stays
  *  glyph-aligned with the caret. */
 function renderInputHighlight(value: string) {
   if (!value) return null;
-  const m = /^([/#][A-Za-z0-9_-]+)([\s\S]*)$/.exec(value);
+  const m = /^([/>][A-Za-z0-9_-]+)([\s\S]*)$/.exec(value);
   if (!m) return value;
   return (
     <>
@@ -154,12 +155,23 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     openFiles: openEditorFiles,
   });
 
+  // Open terminals for the `>` picker. Snapshotted when the picker opens (the
+  // live bridge isn't a reactive store), which is fresh enough - the list can't
+  // change while the popover has focus.
+  const tagPickerOpen = trigger?.kind === "tag";
+  const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
+  useEffect(() => {
+    if (!tagPickerOpen) return;
+    setTerminals(useChatStore.getState().live.listTerminals());
+  }, [tagPickerOpen]);
+
   const filteredItems = useMemo<PickerItem[]>(() => {
     if (!trigger || trigger.kind === "mention") return [];
     const q = trigger.query.toLowerCase();
     //   `/` -> every command
-    //   `#` -> snippets plus tag-style commands (`init`, `plan`); they behave
-    //          like persistent session tags, not one-shot actions.
+    //   `>` -> open terminals, snippets, plus tag-style commands (`init`,
+    //          `plan`); they behave like persistent session tags, not one-shot
+    //          actions.
     if (trigger.kind === "slash") {
       return [...VISIBLE_SLASH_COMMANDS, ...skillCmds].flatMap((command) =>
         !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
@@ -167,8 +179,17 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
           : [],
       );
     }
-    // trigger.kind === "hash"
-    const hashCmds: PickerItem[] = HASH_COMMANDS.flatMap((command) =>
+    // trigger.kind === "tag". Section order here must match SnippetPickerContent's
+    // render order, or keyboard nav lands on the wrong row.
+    const termItems: PickerItem[] = terminals.flatMap((terminal) =>
+      !q ||
+      String(terminal.ordinal).startsWith(q) ||
+      terminal.title.toLowerCase().includes(q) ||
+      (terminal.cwd ?? "").toLowerCase().includes(q)
+        ? [{ kind: "terminal", terminal }]
+        : [],
+    );
+    const tagCmds: PickerItem[] = TAG_COMMANDS.flatMap((command) =>
       !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
         ? [{ kind: "command", command }]
         : [],
@@ -181,8 +202,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         ? [{ kind: "snippet", snippet }]
         : [],
     );
-    return [...hashCmds, ...snipItems];
-  }, [trigger, snippets, skillCmds]);
+    return [...termItems, ...tagCmds, ...snipItems];
+  }, [trigger, snippets, skillCmds, terminals]);
 
   /** Length of the navigable list. Drives ArrowUp/Down/Tab/Enter for any picker. */
   const navLength = isMention ? mention.items.length : filteredItems.length;
@@ -198,9 +219,15 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     const before = c.value.slice(0, trigger.start);
     const afterRaw = c.value.slice(trigger.end);
     let insert = "";
-    if (item.kind === "snippet") {
+    if (item.kind === "terminal") {
+      // Insert the reference itself, not an attachment: `#392` is exactly how
+      // the model already addresses terminals in the `<env>` block, so nothing
+      // extra has to be sent for it to resolve.
       const needsSpace = afterRaw.length === 0 || !/^\s/.test(afterRaw);
-      insert = `#${item.snippet.handle}${needsSpace ? " " : ""}`;
+      insert = `#${item.terminal.ordinal}${needsSpace ? " " : ""}`;
+    } else if (item.kind === "snippet") {
+      const needsSpace = afterRaw.length === 0 || !/^\s/.test(afterRaw);
+      insert = `>${item.snippet.handle}${needsSpace ? " " : ""}`;
       c.addSnippet(item.snippet);
     } else if (trigger.kind === "slash") {
       // `/cmd ` lets the user type args and hit Enter, or hit Enter for no-arg
@@ -210,7 +237,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       c.addCommand(item.command);
     }
     const after =
-      item.kind === "command" && trigger.kind === "hash" ? afterRaw.replace(/^\s+/, "") : afterRaw;
+      item.kind === "command" && trigger.kind === "tag" ? afterRaw.replace(/^\s+/, "") : afterRaw;
     c.setValue(`${before}${insert}${after}`);
     setTrigger(null);
     setActiveIndex(0);
@@ -400,7 +427,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
             const snip = c.pickedSnippets.find((s) => s.id === id);
             c.removeSnippet(id);
             if (!snip) return;
-            const re = new RegExp(`(^|\\s)#${snip.handle}\\b ?`);
+            const re = new RegExp(`(^|\\s)>${snip.handle}\\b ?`);
             c.setValue((v) => v.replace(re, (_m, lead: string) => lead));
           }}
           commands={c.pickedCommands}
@@ -560,8 +587,8 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                     ? `No commands match "/${trigger.query}"`
                     : "Type a command name…"
                   : trigger?.query
-                    ? `No snippets match "#${trigger.query}". Add snippets in Settings → Agents.`
-                    : "Type a snippet handle, or add one in Settings → Agents."
+                    ? `Nothing matches ">${trigger.query}". Try a terminal number, or a snippet handle from Settings → Agents.`
+                    : "Pick an open terminal, or type a snippet handle."
               }
             />
           )}

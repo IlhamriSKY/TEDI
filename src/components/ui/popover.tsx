@@ -26,7 +26,15 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground ring-foreground/5 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 flex w-72 origin-(--radix-popover-content-transform-origin) flex-col gap-4 rounded-3xl p-4 text-sm shadow-lg ring-1 outline-hidden duration-100",
+          // `pointer-events-auto` is load-bearing inside a modal Dialog. The
+          // content is portaled to `body`, and a modal layer sets
+          // `pointer-events: none` there, so the popover inherits it and its
+          // items stop answering the mouse while the keyboard still works. The
+          // obvious cure, `modal` on the Popover, buys that by making everything
+          // ELSE inert: the form behind freezes and even clicking away cannot
+          // close it, because the click reaches nothing that listens. This
+          // restores the popover alone and leaves the page interactive.
+          "bg-popover text-popover-foreground ring-foreground/5 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 pointer-events-auto z-50 flex w-72 origin-(--radix-popover-content-transform-origin) flex-col gap-4 rounded-3xl p-4 text-sm shadow-lg ring-1 outline-hidden duration-100",
           className,
         )}
         {...props}

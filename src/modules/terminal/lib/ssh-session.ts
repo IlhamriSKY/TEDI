@@ -3,6 +3,7 @@ import {
   getConnectionSecrets,
   listConnections,
   markConnected,
+  pinFingerprint,
   resolveJumpHops,
   type SshConnection,
 } from "@/modules/ssh/connections";
@@ -13,7 +14,7 @@ import {
   type SshJumpHop,
   type SshSession,
 } from "@/modules/ssh/bridge";
-import { useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
+import { hostKeyOwners, useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import {
   allSshHopsUp,
   buildSshRoute,
@@ -223,9 +224,21 @@ export async function openSshForSession(
         },
         // First connect to a new host: pause for the user to verify the server
         // fingerprint before credentials are sent (shown by the global dialog).
+        // Trusting it pins it right away, on whichever saved host the key
+        // actually belongs to - the prompt can come from any hop in the chain,
+        // so it is matched by host rather than assumed to be the target. Waiting
+        // for a successful connect instead meant a rejected password re-asked
+        // the same question on every retry.
         onHostKeyPrompt: (prompt) => {
           hostKeyPromptId = prompt.promptId;
-          useHostKeyPrompt.getState().enqueue(prompt);
+          const owners = hostKeyOwners(
+            prompt.host,
+            { host: conn.host, connectionId: sshConnectionId },
+            jumps,
+          );
+          useHostKeyPrompt.getState().enqueue(prompt, () => {
+            for (const id of owners) void pinFingerprint(id, prompt.fingerprint).catch(() => {});
+          });
         },
         onData,
         onExit: (code) => {

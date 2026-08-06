@@ -41,6 +41,7 @@ export interface LiveContext {
   inheritedCwdForNewTab: () => string | undefined;
   splitActivePane: TabsApi["splitActivePane"];
   setActiveId: TabsApi["setActiveId"];
+  focusPane: TabsApi["focusPane"];
   moveLeafToTab: TabsApi["moveLeafToTab"];
   rotateLeafSplit: TabsApi["rotateLeafSplit"];
   closePaneByLeaf: TabsApi["closePaneByLeaf"];
@@ -250,6 +251,17 @@ export function buildLiveContext(deps: LiveContextDeps) {
       return true;
     },
     listTerminals: () => snapshotTerminals(liveContextRef.current),
+    /** Activate the tab owning terminal `ordinal` and focus its leaf. Backs the
+     *  clickable `#392` references in AI output. Private leaves never appear in
+     *  the snapshot, so they can't be reached from here. */
+    focusTerminal: (ordinal: number): boolean => {
+      const hit = snapshotTerminals(liveContextRef.current).find((t) => t.ordinal === ordinal);
+      if (!hit) return false;
+      const { setActiveId, focusPane } = liveContextRef.current;
+      setActiveId(hit.tabId);
+      focusPane(hit.tabId, hit.leafId);
+      return true;
+    },
     injectIntoTerminal: (target: TerminalTarget, text: string) => {
       const leafId = resolveTerminalLeaf(target, liveContextRef.current);
       if (leafId === null) return false;

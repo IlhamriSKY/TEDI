@@ -877,6 +877,7 @@ export default function App() {
     inheritedCwdForNewTab,
     splitActivePane,
     setActiveId,
+    focusPane,
     moveLeafToTab,
     rotateLeafSplit,
     closePaneByLeaf,

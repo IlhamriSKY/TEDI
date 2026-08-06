@@ -6,12 +6,17 @@ import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
+import type { ComponentProps, HTMLAttributes, ReactElement, ReactNode } from "react";
 import { createContext, memo, use, useCallback, useEffect, useMemo, useState } from "react";
-import { Streamdown } from "streamdown";
+import { Streamdown, defaultRehypePlugins } from "streamdown";
 import { safeUrlTransform } from "@/lib/markdownSafety";
+import { toast } from "@/components/ui/toast";
+// Deep path, not the `@/modules/ai` barrel: the barrel re-exports components
+// that import this file. Same import `chat-code` and `tool` already use.
+import { useChatStore } from "@/modules/ai/store/chatStore";
 import { ChatStreamingProvider } from "./chat-code";
 import { markdownComponents } from "./markdown-code";
+import { rehypeTerminalRefs, TERM_REF_TAG } from "./terminal-refs";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -265,16 +270,62 @@ export const MessageBranchPage = ({ className, ...props }: MessageBranchPageProp
   );
 };
 
+/** The `#392` chip. The ordinal rides in the element's own text (see
+ *  `terminal-refs`), so this parses it back out of the label. A chip is only
+ *  minted for a terminal that was live when the message rendered, so the miss
+ *  case means it has been closed since - say so rather than no-op. */
+function TerminalRefChip({ children }: { children?: ReactNode }) {
+  const label = Array.isArray(children) ? children.join("") : String(children ?? "");
+  const ordinal = Number(label.replace("#", ""));
+  return (
+    <button
+      type="button"
+      title={`Go to terminal ${ordinal}`}
+      onClick={() => {
+        if (!useChatStore.getState().live.focusTerminal(ordinal)) {
+          toast(`Terminal ${ordinal} is no longer open`, { variant: "info" });
+        }
+      }}
+      className="bg-primary/12 text-primary hover:bg-primary/25 cursor-pointer rounded px-1 font-mono font-medium"
+    >
+      {label}
+    </button>
+  );
+}
+
+/** Streamdown's own rehype set plus terminal-reference linkification. Passing
+ *  `rehypePlugins` REPLACES the defaults, so they are re-spread here. Both are
+ *  module-level so Streamdown sees stable identities. */
+const REHYPE_PLUGINS = [
+  ...Object.values(defaultRehypePlugins),
+  rehypeTerminalRefs(
+    () =>
+      new Set(
+        useChatStore
+          .getState()
+          .live.listTerminals()
+          .map((t) => t.ordinal),
+      ),
+  ),
+];
+const MD_COMPONENTS = { ...markdownComponents, [TERM_REF_TAG]: TerminalRefChip };
+
 export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
   streaming?: boolean;
 };
 
+/**
+ * Every surface that renders model-written markdown (chat replies AND tool
+ * summaries). The terminal-ref wiring lives here, not at the call sites, so the
+ * two cannot drift apart - `components` and `rehypePlugins` only work as a pair.
+ */
 export const MessageResponse = memo(
   ({ className, streaming = false, ...props }: MessageResponseProps) => (
     <ChatStreamingProvider value={streaming}>
       <Streamdown
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-        components={markdownComponents}
+        components={MD_COMPONENTS}
+        rehypePlugins={REHYPE_PLUGINS}
         controls={{ table: false }}
         urlTransform={safeUrlTransform}
         {...props}

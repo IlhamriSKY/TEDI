@@ -33,7 +33,7 @@ export class NoFormatterError extends Error {
     super(
       language
         ? `No formatter configured for "${language}". Set one in Settings → Code Editor → Formatters.`
-        : "No formatter — file extension not recognised.",
+        : "No formatter: file extension not recognised.",
     );
     this.name = "NoFormatterError";
   }
@@ -100,7 +100,7 @@ export async function formatDocument(args: { path: string; content: string }): P
   // stdin) would otherwise blank the file and the save would persist "". The
   // throw makes the save flow fall through to writing the original content.
   if (args.content.trim() !== "" && formatted.trim() === "") {
-    throw new Error("Formatter returned empty output — refusing to blank the file.");
+    throw new Error("Formatter returned empty output, refusing to blank the file.");
   }
   return formatted;
 }

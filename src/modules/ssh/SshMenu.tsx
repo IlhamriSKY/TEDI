@@ -23,6 +23,7 @@ import { DESTRUCTIVE_ACTION, TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolb
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteConnection,
+  duplicateConnection,
   listConnections,
   onConnectionsChanged,
   type SshConnection,
@@ -32,7 +33,18 @@ import type { FsReadResult } from "@/lib/ipc";
 import { BACKUP_EXTENSION } from "./backupFile";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Pencil, Plus, Server, Trash2, Upload, type LucideIcon } from "lucide-react";
+// `CopyPlus`, not `Copy`: plain Copy already means copy-to-clipboard everywhere
+// else in the app (code blocks, chat), and one glyph per action is the rule.
+import {
+  CopyPlus,
+  Download,
+  Pencil,
+  Plus,
+  Server,
+  Trash2,
+  Upload,
+  type LucideIcon,
+} from "lucide-react";
 
 // Heavy module. Lazy-load until the user opens the add/edit modal.
 const SshConnectionDialog = lazy(() =>
@@ -84,6 +96,17 @@ export function SshMenu({ onConnect }: Props) {
 
   const openEdit = (c: SshConnection) => {
     setEditing(c);
+    setEditorOpen(true);
+    setMenuOpen(false);
+  };
+
+  // Copy, then open the copy: what a duplicate is for is changing the one field
+  // that differs, usually the host or the port. The list refreshes itself off
+  // the store's change event.
+  const openDuplicate = async (c: SshConnection) => {
+    const copy = await duplicateConnection(c.id);
+    if (!copy) return;
+    setEditing(copy);
     setEditorOpen(true);
     setMenuOpen(false);
   };
@@ -189,6 +212,11 @@ export function SshMenu({ onConnect }: Props) {
                     label={`Edit ${c.name}`}
                     onClick={() => openEdit(c)}
                     icon={Pencil}
+                  />
+                  <RowIconButton
+                    label={`Duplicate ${c.name}`}
+                    onClick={() => void openDuplicate(c)}
+                    icon={CopyPlus}
                   />
                   <RowIconButton
                     label={`Delete ${c.name}`}

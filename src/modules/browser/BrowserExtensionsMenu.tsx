@@ -262,7 +262,7 @@ export function BrowserExtensionsMenu({ paneId, url, onNavigate }: Props) {
                       }`}
                     >
                       {ext.enabled && !live
-                        ? "Not loaded yet — open a new browser tab"
+                        ? "Not loaded yet, open a new browser tab"
                         : ext.version}
                     </span>
                   </div>

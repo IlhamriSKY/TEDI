@@ -31,7 +31,7 @@ import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePar
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
-import { ChevronUp, Code, Hash, Terminal } from "lucide-react";
+import { ChevronRight, ChevronUp, Code, Terminal } from "lucide-react";
 
 function CommandSnippet({ name }: { name: string }) {
   // Built-in command first, then an installed skill (`/my-skill` etc.) so
@@ -72,11 +72,11 @@ function UserAttachmentChips({
         <Tooltip key={`s-${i}-${handle}`}>
           <TooltipTrigger asChild>
             <span className="border-primary/30 bg-primary/10 text-primary flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
-              <Hash size={11} strokeWidth={2} className="opacity-80" />
+              <ChevronRight size={11} strokeWidth={2} className="opacity-80" />
               <span className="font-medium">{handle}</span>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="top">{`Snippet #${handle}`}</TooltipContent>
+          <TooltipContent side="top">{`Snippet >${handle}`}</TooltipContent>
         </Tooltip>
       ))}
       {selections.map((sel, i) => (
@@ -265,9 +265,7 @@ export function AiChatView({
             isLastUser={m.id === lastUserMessageId}
           />
         ))}
-        {isBusy && (
-          <RunningIndicator waiting={status === "submitted"} activity={activity} />
-        )}
+        {isBusy && <RunningIndicator waiting={status === "submitted"} activity={activity} />}
         {error && (
           <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
             <div className="font-medium">Something went wrong.</div>
@@ -619,7 +617,10 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
         {label}
       </span>
       {elapsed >= 1000 ? (
-        <span aria-hidden className="border-border/50 bg-background shrink-0 rounded px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums opacity-80">
+        <span
+          aria-hidden
+          className="border-border/50 bg-background shrink-0 rounded px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums opacity-80"
+        >
           {formatElapsed(elapsed)}
         </span>
       ) : null}

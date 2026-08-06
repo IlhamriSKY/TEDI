@@ -542,7 +542,7 @@ export function ThemeSection() {
                     onImportBackgroundUrl();
                   }
                 }}
-                placeholder="Paste an image, video (.mp4/.webm), or YouTube URL — or Browse for a local image"
+                placeholder="Paste an image, video (.mp4/.webm), or YouTube URL, or Browse for a local image"
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"

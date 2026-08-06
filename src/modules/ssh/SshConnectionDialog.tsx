@@ -17,6 +17,7 @@ import {
   getConnectionSecrets,
   listConnections,
   newConnectionId,
+  pinFingerprint,
   resolveJumpHops,
   upsertConnection,
   type SshAuthMode,
@@ -94,10 +95,7 @@ type ImportState =
  *  this IS the form validation for that mode: it says up front whether an agent
  *  is running and holding a key, instead of failing at dial time. */
 type AgentState =
-  | { kind: "idle" }
-  | { kind: "checking" }
-  | { kind: "ok"; keys: SshAgentKey[] }
-  | { kind: "error"; message: string };
+  { kind: "checking" } | { kind: "ok"; keys: SshAgentKey[] } | { kind: "error"; message: string };
 
 export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Props) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -105,10 +103,12 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [imported, setImported] = useState<ImportState>({ kind: "idle" });
-  const [agent, setAgent] = useState<AgentState>({ kind: "idle" });
-  // Mirrors editing.lastFingerprint, but the user can clear it via "Forget".
-  // Local state so the in-dialog Test sees the current pin without waiting
-  // for a parent re-render.
+  const [agent, setAgent] = useState<AgentState>({ kind: "checking" });
+  // The server key this connection trusts, as of right now: seeded from the
+  // saved one, cleared by "Forget", set by trusting a new one during Test. It is
+  // the single source of truth for the pin - what Test verifies against AND what
+  // Save writes - so a key trusted here cannot be lost, and a forgotten one
+  // cannot come back from the stale `editing` prop.
   const [pinnedFingerprint, setPinnedFingerprint] = useState<string | null>(null);
   // Other saved hosts, offered as jump-host (ProxyJump) options.
   const [allConns, setAllConns] = useState<SshConnection[]>([]);
@@ -270,7 +270,15 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             onHostKeyPrompt: (prompt) => {
               testPromptId = prompt.promptId;
               clearTimeout(timer);
-              useHostKeyPrompt.getState().enqueue(prompt);
+              // Trusting the key here counts, whatever the rest of the test
+              // does. A saved host records it on the spot; a brand-new one has
+              // no id yet, so Save writes it from the same state. Both used to
+              // be forgotten, which is why testing a new server and then saving
+              // it asked the very same question again.
+              useHostKeyPrompt.getState().enqueue(prompt, () => {
+                setPinnedFingerprint(prompt.fingerprint);
+                if (editing) void pinFingerprint(editing.id, prompt.fingerprint).catch(() => {});
+              });
             },
             onConnected: (fingerprint) => {
               if (resolved) return;
@@ -373,6 +381,13 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
     setSaving(true);
     try {
       const id = editing?.id ?? newConnectionId();
+      const host = draft.host.trim();
+      // A pinned key belongs to the machine that presented it. Re-pointing this
+      // connection at a different host makes it stale, and keeping it would fail
+      // the next connect as a key MISMATCH, which reads as an attack rather than
+      // as an edit. The port is not part of that: one sshd presents the same
+      // host key on every port it listens on.
+      const keepPin = !editing || editing.host === host;
       const conn: SshConnection = {
         // Spread the existing record first so an edit preserves fields the form
         // doesn't own (lastFingerprint, lastConnectedAt, description) instead of
@@ -381,13 +396,18 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         ...(editing ?? {}),
         id,
         name: draft.name.trim(),
-        host: draft.host.trim(),
+        host,
         port,
         user: draft.user.trim(),
         authMode: draft.authMode,
         hasPassword: false,
         hasPrivateKey: false,
         hasKeyPassphrase: false,
+        // Written from the dialog's own pin state, not carried over by the
+        // spread above: `editing` is a snapshot from when the dialog opened, so
+        // a key trusted during Test would be dropped and a key just cleared with
+        // "Forget" would come back.
+        lastFingerprint: (keepPin && pinnedFingerprint) || undefined,
         proxyJumpId: draft.proxyJumpId || undefined,
         forwards: draft.forwards.length
           ? draft.forwards.map((f) => ({
@@ -556,10 +576,16 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           )}
 
           <Field label="Jump host (optional)">
-            {/* `modal` is required because this Popover lives inside a modal
-                Dialog: without it the Dialog's focus trap swallows the pointer
-                interaction so cmdk items only respond to Enter, not a click. */}
-            <Popover open={jumpPickerOpen} onOpenChange={setJumpPickerOpen} modal>
+            {/* NOT `modal`. It looks like the fix for "cmdk items only answer
+                Enter, never a click" inside a Dialog, but it buys that by making
+                the whole page inert: every field behind it freezes and clicking
+                away cannot even close it, since the click lands on nothing that
+                listens. The click was never a focus problem - the portaled
+                content was inheriting `pointer-events: none` from the body,
+                which `PopoverContent` now overrides for itself. Focus is fine
+                either way: any mounted FocusScope pauses the Dialog's, trapped
+                or not. */}
+            <Popover open={jumpPickerOpen} onOpenChange={setJumpPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
                   type="button"
@@ -792,23 +818,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function AgentPanel({ state, onRecheck }: { state: AgentState; onRecheck: () => void }) {
   return (
     <Field label="SSH agent">
-      <div className="border-border/60 bg-muted/30 flex flex-col gap-1.5 rounded-md border px-2.5 py-2">
-        <div className="flex items-start justify-between gap-2">
+      {/* Same box and same secondary button as "Recorded server key" below, so
+          the two read-only status blocks in this dialog look like one thing. */}
+      <div className="border-border/60 bg-muted/30 flex flex-col gap-1.5 rounded-md border px-2 py-1.5">
+        <div className="flex items-center justify-between gap-2">
           {state.kind === "checking" ? (
             <span className="text-muted-foreground text-[11px]">Checking ssh-agent…</span>
           ) : state.kind === "error" ? (
             <span className="text-destructive text-[11px]">{state.message}</span>
-          ) : state.kind === "ok" && state.keys.length === 0 ? (
+          ) : state.keys.length === 0 ? (
             <span className="text-[11px]">
               Agent is running but holds no key. Add one with{" "}
               <span className="font-mono">ssh-add</span>.
             </span>
-          ) : state.kind === "ok" ? (
+          ) : (
             <span className="text-[11px]">
               {state.keys.length} key{state.keys.length === 1 ? "" : "s"} available
             </span>
-          ) : (
-            <span className="text-muted-foreground text-[11px]">Not checked yet</span>
           )}
           <Button
             type="button"
@@ -837,11 +863,9 @@ function AgentPanel({ state, onRecheck }: { state: AgentState; onRecheck: () => 
         ) : null}
       </div>
       <span className="text-muted-foreground text-[10.5px]">
-        The key never leaves the agent: TEDI asks it to sign each handshake and stores nothing, so
-        this connection carries no secret to keep, back up or leak. The server must already have the
-        matching public key. Windows uses the OpenSSH Authentication Agent service (or Pageant, or
-        whatever <span className="font-mono">SSH_AUTH_SOCK</span> points at); macOS and Linux use{" "}
-        <span className="font-mono">SSH_AUTH_SOCK</span>.
+        The key never leaves the agent: TEDI asks it to sign each handshake and stores nothing · the
+        server must already have the matching public key · Windows uses the OpenSSH Authentication
+        Agent service or Pageant, elsewhere <span className="font-mono">SSH_AUTH_SOCK</span>.
       </span>
     </Field>
   );

@@ -108,6 +108,9 @@ type Live = {
   runInActiveTerminal: (command: string) => boolean;
   /** Snapshot every terminal leaf with ordinal/title/cwd. */
   listTerminals: () => TerminalInfo[];
+  /** Activate the tab owning that terminal ordinal and focus its leaf.
+   *  False when no live terminal carries the ordinal. */
+  focusTerminal: (ordinal: number) => boolean;
   /** Snapshot every open in-app browser pane with its current URL. */
   listBrowsers: () => BrowserInfo[];
   /** Navigate an existing browser pane (by leaf id) to a URL. False if that leaf isn't a browser. */
@@ -286,6 +289,7 @@ const NOOP_LIVE: Live = {
   closeTerminalLeaf: () => ({ ok: false, error: "live bridge not ready" }),
   runInActiveTerminal: () => false,
   listTerminals: () => [],
+  focusTerminal: () => false,
   listBrowsers: () => [],
   navigateBrowser: () => false,
   dispatchBrowser: () => false,
