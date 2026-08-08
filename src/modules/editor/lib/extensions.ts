@@ -76,6 +76,10 @@ export function buildSharedExtensions(opts?: {
         // (set by `applyMonoFontVar` / `applyEditorFontSizeVar`). The inline
         // fallbacks keep the first paint sane before prefs hydrate.
         fontFamily: `var(--tedi-mono-font, ${MONO_FONT_CSS_FALLBACK})`,
+        // `normal` fallback = the browser default, so an unset var (float and
+        // settings windows, first paint) keeps the ligatures the font already
+        // drew. Settings > Code Editor > Font ligatures flips it to `none`.
+        fontVariantLigatures: "var(--tedi-editor-ligatures, normal)",
         // Editor base size scales with `--content-zoom` (set by App.tsx).
         fontSize: "calc(var(--tedi-editor-font-size, 13px) * var(--content-zoom, 1))",
         lineHeight: "1.55",

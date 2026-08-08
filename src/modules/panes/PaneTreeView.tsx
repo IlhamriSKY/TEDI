@@ -63,7 +63,15 @@ import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import { closeFloat, floatPane } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
-import { Cloud, GripVertical, Settings, SquareArrowOutUpRight, X } from "lucide-react";
+import {
+  BookOpen,
+  Cloud,
+  FileCode,
+  GripVertical,
+  Settings,
+  SquareArrowOutUpRight,
+  X,
+} from "lucide-react";
 
 // Lazy so the ~1.5MB editor stack (CodeMirror + streamdown + markdown + katex)
 // is only fetched+parsed when an editor leaf actually renders, not on every
@@ -162,6 +170,9 @@ type Props = {
   /** Set (or clear, with `null`) a terminal leaf's per-pane theme override.
    *  `themeId` is a `TERMINAL_PRESETS` id. Backs the header "Terminal theme" menu. */
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
+  /** Flip a markdown editor leaf between source and preview. Backs the pane
+   *  header's book/code toggle (it used to live in the app toolbar). */
+  onToggleMdPreview?: (leafId: number) => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
@@ -189,6 +200,7 @@ type PaneDndValue = {
   extTabs?: { id: number; title: string }[];
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
+  onToggleMdPreview?: (leafId: number) => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
@@ -486,8 +498,15 @@ function PaneLeafFrame({
   mdPreview: boolean;
   onFocusLeaf: (leafId: number) => void;
 }) {
-  const { drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme } =
-    use(PaneDndContext);
+  const {
+    drag,
+    leafCount,
+    onCloseLeaf,
+    extTabs,
+    onSplitWithExtTab,
+    onSetTerminalTheme,
+    onToggleMdPreview,
+  } = use(PaneDndContext);
   const { sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh } =
     use(PaneMetaContext);
   const draggable = leafCount > 1;
@@ -651,6 +670,36 @@ function PaneLeafFrame({
             {node.leafKind === "editor" && node.dirty && (
               <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
             )}
+            {/* Markdown source/preview toggle. Lives here rather than in the app
+                toolbar so it sits on the pane it acts on - with a split, the
+                toolbar version could only ever address the focused one. */}
+            {node.leafKind === "editor" &&
+              onToggleMdPreview &&
+              /\.(md|markdown|mdx)$/i.test(node.path) && (
+                <IconTooltip label={mdPreview ? "Show source" : "Preview markdown"} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={mdPreview ? "Show source" : "Preview markdown"}
+                    aria-pressed={mdPreview}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleMdPreview(node.id);
+                    }}
+                    className={cn(
+                      "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+                      mdPreview
+                        ? "text-primary hover:bg-muted"
+                        : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    {mdPreview ? (
+                      <FileCode size={12} strokeWidth={2} />
+                    ) : (
+                      <BookOpen size={12} strokeWidth={2} />
+                    )}
+                  </button>
+                </IconTooltip>
+              )}
             {floatParams && (
               <IconTooltip
                 label={
@@ -906,6 +955,7 @@ export function PaneTreeView({
   extTabs,
   onSplitWithExtTab,
   onSetTerminalTheme,
+  onToggleMdPreview,
   onSplitSizes,
   sshHosts,
   sshStatuses,
@@ -981,8 +1031,24 @@ export function PaneTreeView({
   };
 
   const ctxValue = useMemo<PaneDndValue>(
-    () => ({ drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme }),
-    [drag, leafCount, onCloseLeaf, extTabs, onSplitWithExtTab, onSetTerminalTheme],
+    () => ({
+      drag,
+      leafCount,
+      onCloseLeaf,
+      extTabs,
+      onSplitWithExtTab,
+      onSetTerminalTheme,
+      onToggleMdPreview,
+    }),
+    [
+      drag,
+      leafCount,
+      onCloseLeaf,
+      extTabs,
+      onSplitWithExtTab,
+      onSetTerminalTheme,
+      onToggleMdPreview,
+    ],
   );
   const metaValue = useMemo<PaneMetaValue>(
     () => ({ sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh }),

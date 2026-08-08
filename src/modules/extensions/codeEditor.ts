@@ -150,6 +150,9 @@ const baseTheme = EditorView.theme({
   },
   ".cm-scroller": {
     fontFamily: `var(--tedi-mono-font, ${MONO_FONT_CSS_FALLBACK})`,
+    // Same var the main editor reads, so an extension's editor can't disagree
+    // with it about whether `=>` renders as an arrow.
+    fontVariantLigatures: "var(--tedi-editor-ligatures, normal)",
     fontSize: "calc(var(--tedi-editor-font-size, 13px) * var(--content-zoom, 1))",
     lineHeight: "1.55",
     backgroundColor: "transparent !important",

@@ -157,6 +157,10 @@ export type Preferences = {
   lineWrap: boolean;
   /** Show the code editor minimap. Default true. */
   showMinimap: boolean;
+  /** Render the coding font's ligatures in the editor (`=>` as an arrow, `!=`
+   *  as `≠`). Default true, which is what an unset `font-variant-ligatures`
+   *  already did - the pref exists so the fused glyphs can be turned off. */
+  editorLigatures: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
   /**
@@ -386,6 +390,7 @@ const KEY_OPENAI_COMPATIBLE_INSTANCES = "openaiCompatibleInstances";
 const KEY_VIM_MODE = "vimMode";
 const KEY_LINE_WRAP = "lineWrap";
 const KEY_SHOW_MINIMAP = "showMinimap";
+const KEY_EDITOR_LIGATURES = "editorLigatures";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
@@ -516,6 +521,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   vimMode: false,
   lineWrap: false,
   showMinimap: true,
+  editorLigatures: true,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
@@ -644,6 +650,7 @@ export async function loadPreferences(): Promise<Preferences> {
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     lineWrap: get<boolean>(KEY_LINE_WRAP) ?? DEFAULT_PREFERENCES.lineWrap,
     showMinimap: get<boolean>(KEY_SHOW_MINIMAP) ?? DEFAULT_PREFERENCES.showMinimap,
+    editorLigatures: get<boolean>(KEY_EDITOR_LIGATURES) ?? DEFAULT_PREFERENCES.editorLigatures,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ?? DEFAULT_PREFERENCES.terminalWebglEnabled,
     terminalFontSize: get<number>(KEY_TERMINAL_FONT_SIZE) ?? DEFAULT_PREFERENCES.terminalFontSize,
@@ -950,6 +957,10 @@ export async function setShowMinimap(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_MINIMAP, value);
 }
 
+export async function setEditorLigatures(value: boolean): Promise<void> {
+  await writePref(KEY_EDITOR_LIGATURES, value);
+}
+
 export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
@@ -1205,6 +1216,7 @@ export async function onPreferencesChange(
     vimMode: KEY_VIM_MODE,
     lineWrap: KEY_LINE_WRAP,
     showMinimap: KEY_SHOW_MINIMAP,
+    editorLigatures: KEY_EDITOR_LIGATURES,
     terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,
     terminalFontSize: KEY_TERMINAL_FONT_SIZE,
     terminalScrollback: KEY_TERMINAL_SCROLLBACK,

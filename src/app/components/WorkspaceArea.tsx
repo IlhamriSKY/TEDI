@@ -32,6 +32,8 @@ type Props = {
   /** Open an SSH session for a saved connection (remote editor reconnect). */
   onReconnectSsh: (connectionId: string, title: string) => void;
   mdPreviewLeafIds: ReadonlySet<number>;
+  /** Flip a markdown editor leaf between source and preview, from its pane header. */
+  onToggleMdPreview: (leafId: number) => void;
   hasAiDiffTab: boolean;
   hasGitDiffTab: boolean;
   hasScmTab: boolean;
@@ -74,6 +76,7 @@ export function WorkspaceArea({
   sshBindingByConnection,
   onReconnectSsh,
   mdPreviewLeafIds,
+  onToggleMdPreview,
   hasAiDiffTab,
   hasGitDiffTab,
   hasScmTab,
@@ -122,6 +125,7 @@ export function WorkspaceArea({
               onCloseLeaf={paneHandles.handleEditorCloseLeaf}
               onBrowserUrlChange={setBrowserLeafUrl}
               mdPreviewLeafIds={mdPreviewLeafIds}
+              onToggleMdPreview={onToggleMdPreview}
               onFocusLeaf={paneHandles.handleFocusLeaf}
               onMovePaneLeaf={movePaneLeafToEdge}
               onCloseLeafRequest={paneHandles.handlePaneHeaderClose}

@@ -13,6 +13,7 @@ import {
   EDITOR_THEME_LABELS,
   EDITOR_THEMES,
   setEditorFontSize,
+  setEditorLigatures,
   setEditorTheme,
   setFormatOnSave,
   setShowMinimap,
@@ -30,6 +31,7 @@ export function CodeEditorSection() {
   const editorTheme = usePreferencesStore((s) => s.editorTheme);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
+  const editorLigatures = usePreferencesStore((s) => s.editorLigatures);
   const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
   const editorFontSize = usePreferencesStore((s) => s.editorFontSize);
   const formatterCount = usePreferencesStore((s) => Object.keys(s.formatters).length);
@@ -98,6 +100,12 @@ export function CodeEditorSection() {
           description="Display the code minimap on the right side of the editor."
         >
           <Switch checked={showMinimap} onCheckedChange={(v) => void setShowMinimap(v)} />
+        </SettingRow>
+        <SettingRow
+          title="Font ligatures"
+          description="Let the coding font fuse character pairs into one glyph, so => draws as an arrow and != as ≠. Turn off to see every character exactly as typed."
+        >
+          <Switch checked={editorLigatures} onCheckedChange={(v) => void setEditorLigatures(v)} />
         </SettingRow>
       </div>
 

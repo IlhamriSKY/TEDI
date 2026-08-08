@@ -16,16 +16,7 @@ import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionH
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import {
-  BookOpen,
-  FileCode,
-  FolderOpen,
-  Globe,
-  PanelLeft,
-  Puzzle,
-  Settings,
-  WrapText,
-} from "lucide-react";
+import { FolderOpen, Globe, PanelLeft, Puzzle, Settings, WrapText } from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -73,8 +64,6 @@ type Props = {
   aiCliStatuses?: Map<number, AiCliStatus>;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
-  /** Markdown-preview toggle. `null` hides the button when not a markdown editor. */
-  mdPreviewToggle: { active: boolean; toggle: () => void } | null;
   /** Word-wrap toggle. `null` hides the button when not an editor, or when previewing markdown. */
   lineWrapToggle: { active: boolean; toggle: () => void } | null;
   /** Detected local URL for the "open preview" globe. `null` hides the button. */
@@ -97,6 +86,12 @@ function onHeaderMouseDown(e: React.MouseEvent<HTMLElement>) {
   if (e.button !== 0) return;
   const target = e.target as HTMLElement;
   if (!target?.closest) return;
+  // Portaled content (the SshMenu dialogs, dropdown/context menus, tooltips)
+  // renders into `document.body`, but React still bubbles its events up the
+  // *React* tree - straight into this handler. Without this guard, selecting
+  // text in one of those dialogs drags the window instead, and double-clicking
+  // a word maximizes it. Only real DOM descendants of the header row drag.
+  if (!e.currentTarget.contains(target)) return;
   if (target.closest(INTERACTIVE_SELECTOR)) return;
   const w = getCurrentWindow();
   if (e.detail === 2) {
@@ -134,7 +129,6 @@ function HeaderImpl({
   aiCliStatuses,
   searchTarget,
   searchRef,
-  mdPreviewToggle,
   lineWrapToggle,
   detectedBrowserUrl,
   onOpenPreview,
@@ -245,32 +239,10 @@ function HeaderImpl({
         )}
 
         {/* Extension buttons that opt-in to `placement: "left"`. Sits in the
-            file-view-mode cluster, before the markdown-preview toggle, so
-            "format / view as X" actions group with the other view toggles. */}
+            file-view-mode cluster so "format / view as X" actions group with
+            the other view toggles. (The markdown source/preview toggle moved
+            out of here onto the pane header, beside its float button.) */}
         <ExtensionHeaderItems placement="left" />
-
-        {mdPreviewToggle && (
-          <IconTooltip label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={mdPreviewToggle.toggle}
-              aria-label={mdPreviewToggle.active ? "Show source" : "Preview markdown"}
-              aria-pressed={mdPreviewToggle.active}
-              className={cn(
-                TOOLBAR_HOVER,
-                "size-7 shrink-0 rounded-md",
-                mdPreviewToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
-              )}
-            >
-              {mdPreviewToggle.active ? (
-                <FileCode size={15} strokeWidth={1.75} />
-              ) : (
-                <BookOpen size={15} strokeWidth={1.75} />
-              )}
-            </Button>
-          </IconTooltip>
-        )}
 
         {lineWrapToggle && (
           <IconTooltip

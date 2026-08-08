@@ -16,7 +16,7 @@ import {
   type TerminalThemeMode,
 } from "@/modules/settings/terminalPalette";
 import { applyEditorDiffColors } from "@/modules/editor/lib/diffColors";
-import { applyMonoFontVar, applyEditorFontSizeVar } from "@/lib/fonts";
+import { applyMonoFontVar, applyEditorFontSizeVar, applyEditorLigaturesVar } from "@/lib/fonts";
 import {
   applyBrandColor,
   applyBrandColorFastPath,
@@ -133,6 +133,7 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         // useTerminalSession; this drives the editor CSS vars).
         applyMonoFontVar(p.fontFamily);
         applyEditorFontSizeVar(p.editorFontSize);
+        applyEditorLigaturesVar(p.editorLigatures);
         // Wallpaper image is independent of the colour theme so it always
         // paints when set (won't vanish when the custom theme is off).
         applyBackground(p.customTheme.background);
@@ -191,6 +192,8 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
         applyMonoFontVar(value);
       } else if (key === "editorFontSize" && typeof value === "number") {
         applyEditorFontSizeVar(value);
+      } else if (key === "editorLigatures" && typeof value === "boolean") {
+        applyEditorLigaturesVar(value);
       }
     });
     // Live drag preview from the settings opacity slider (transient, applies

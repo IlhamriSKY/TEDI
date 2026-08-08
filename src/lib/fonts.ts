@@ -131,6 +131,7 @@ export function buildContentFontFamily(id: string): string {
 
 const MONO_FONT_VAR = "--tedi-mono-font";
 const EDITOR_FONT_SIZE_VAR = "--tedi-editor-font-size";
+const EDITOR_LIGATURES_VAR = "--tedi-editor-ligatures";
 const MONO_FONT_SHADOW = "tedi-mono-font-shadow";
 const EDITOR_FONT_SIZE_SHADOW = "tedi-editor-font-size-shadow";
 
@@ -144,6 +145,19 @@ export function applyMonoFontVar(id: string): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Apply the editor ligature preference (`--tedi-editor-ligatures`). JetBrains
+ * Mono fuses `=>` into an arrow, `!=` into `≠`, `===` into a triple bar. That
+ * is on by default (an unset `font-variant-ligatures` already did it); the pref
+ * exists so it can be turned off when the fused glyph is harder to read than
+ * the characters. Consumed by every CodeMirror surface: the editor, the diff
+ * panes, and the extension host's editor.
+ */
+export function applyEditorLigaturesVar(on: boolean): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty(EDITOR_LIGATURES_VAR, on ? "normal" : "none");
 }
 
 /** Apply the editor base font size (`--tedi-editor-font-size`, in px). */

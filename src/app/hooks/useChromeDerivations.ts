@@ -19,7 +19,6 @@ type Params = {
   activePaneTab: PaneTab | null;
   activeTab: Tab | undefined;
   mdPreviewLeafIds: ReadonlySet<number>;
-  toggleMdPreviewForLeaf: (leafId: number) => void;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
   /** Local workspace root. The StatusBar breadcrumb falls back to it for local
    *  terminals before OSC 7 lands, but never for an SSH leaf (a local path
@@ -42,12 +41,10 @@ export function useChromeDerivations({
   activePaneTab,
   activeTab,
   mdPreviewLeafIds,
-  toggleMdPreviewForLeaf,
   terminalRefs,
   explorerRoot,
 }: Params): {
   searchTarget: SearchTarget;
-  mdPreviewToggle: HeaderToggle;
   lineWrapToggle: HeaderToggle;
   activeCwd: string | null;
   activeFilePath: string | null;
@@ -70,22 +67,9 @@ export function useChromeDerivations({
     return null;
   }, [isTerminalLike, isEditorLike, activeLeafIdInTab, activeSearchAddon, activeEditorHandle]);
 
-  /** Markdown-preview toggle for the Header. Non-null only when the active leaf is an editor on a `.md`/`.markdown`/`.mdx` file. */
-  const mdPreviewToggle = useMemo<HeaderToggle>(() => {
-    if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
-      return null;
-    }
-    const leaf = activeLeaf(activePaneTab);
-    if (!leaf || leaf.leafKind !== "editor") return null;
-    if (!/\.(md|markdown|mdx)$/i.test(leaf.path)) return null;
-    const leafId = activeLeafIdInTab;
-    return {
-      active: mdPreviewLeafIds.has(leafId),
-      toggle: () => toggleMdPreviewForLeaf(leafId),
-    };
-  }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, toggleMdPreviewForLeaf]);
-
-  /** Word-wrap toggle for the Header. Non-null when the active leaf is an editor and not in markdown preview. */
+  /** Word-wrap toggle for the Header. Non-null when the active leaf is an editor and not in markdown preview.
+   *  (The markdown source/preview toggle used to live here too; it now sits in
+   *  the pane's own header, next to the float button, in `PaneTreeView`.) */
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const lineWrapToggle = useMemo<HeaderToggle>(() => {
     if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
@@ -133,5 +117,5 @@ export function useChromeDerivations({
     return null;
   }, [activeTab]);
 
-  return { searchTarget, mdPreviewToggle, lineWrapToggle, activeCwd, activeFilePath };
+  return { searchTarget, lineWrapToggle, activeCwd, activeFilePath };
 }

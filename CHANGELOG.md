@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.18] - 08-08-2026
+
+### Added
+
+- **The code editor's font ligatures can be turned off.** A coding font fuses `=>` into an arrow and `!=` into `≠`. That is a font feature and not an edit, but it reads as one when you are hunting for the characters you actually typed. `Settings > Code Editor > Font ligatures` now switches it, on by default so nothing changes for anyone who likes them. A single CSS variable drives the editor, the diff panes and an extension's own editor together, so the three cannot disagree about whether a pair is drawn as one glyph. See [fonts.ts](src/lib/fonts.ts), [extensions.ts](src/modules/editor/lib/extensions.ts), [CodeEditorSection.tsx](src/settings/sections/CodeEditorSection.tsx).
+
+### Changed
+
+- **The markdown preview toggle moved out of the toolbar onto the pane it acts on.** It sat in the app header beside the word-wrap button, so two markdown files open side by side shared one button, and it could only ever address whichever pane had focus. It now lives in each pane's own header next to the float button, which lets two panes sit in different modes and puts the control beside the text it switches. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [Header.tsx](src/modules/header/Header.tsx).
+
+### Fixed
+
+- **Selecting text in a dialog no longer drags the whole window.** Dragging across the text of an SSH connection dialog moved the app, and double-clicking a word maximised it. The window-drag handler lives on the header row, and the SSH menu that owns those dialogs is inside that row: React sends an event up the component tree rather than the document tree, so a mousedown on a dialog portaled to `body` still arrived at the header. The `data-tauri-drag-region="false"` markers that already guard the tab strip could not help, because they are found by walking the DOM and a portaled dialog has no header in its DOM ancestry. The handler now ignores anything not genuinely inside the row it is attached to, which covers the dropdown menus, tab context menus and tooltips the header opens as well. Tauri's own drag region was never involved: it walks the composed path, so a portal can never match it. See [Header.tsx](src/modules/header/Header.tsx).
+
 ## [0.4.17] - 06-08-2026
 
 ### Added

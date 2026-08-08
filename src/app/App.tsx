@@ -742,20 +742,18 @@ export default function App() {
     [openPreviewTab],
   );
 
-  const { searchTarget, mdPreviewToggle, lineWrapToggle, activeCwd, activeFilePath } =
-    useChromeDerivations({
-      isTerminalLike,
-      isEditorLike,
-      activeSearchAddon,
-      activeEditorHandle,
-      activeLeafIdInTab,
-      activePaneTab,
-      activeTab,
-      mdPreviewLeafIds,
-      toggleMdPreviewForLeaf,
-      terminalRefs,
-      explorerRoot: explorerRoot ?? null,
-    });
+  const { searchTarget, lineWrapToggle, activeCwd, activeFilePath } = useChromeDerivations({
+    isTerminalLike,
+    isEditorLike,
+    activeSearchAddon,
+    activeEditorHandle,
+    activeLeafIdInTab,
+    activePaneTab,
+    activeTab,
+    mdPreviewLeafIds,
+    terminalRefs,
+    explorerRoot: explorerRoot ?? null,
+  });
 
   const commandPaletteHandler = useCallback(() => {
     setCommandPaletteOpen((prev) => !prev);
@@ -949,7 +947,6 @@ export default function App() {
             aiCliStatuses={aiCliStatuses}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
-            mdPreviewToggle={mdPreviewToggle}
             lineWrapToggle={lineWrapToggle}
             detectedBrowserUrl={detectedBrowserUrl}
             onOpenPreview={handleOpenDetectedPreview}
@@ -1009,6 +1006,7 @@ export default function App() {
                 sshBindingByConnection={sshBindingByConnection}
                 onReconnectSsh={handleReconnectSshForEditor}
                 mdPreviewLeafIds={mdPreviewLeafIds}
+                onToggleMdPreview={toggleMdPreviewForLeaf}
                 hasAiDiffTab={hasAiDiffTab}
                 hasGitDiffTab={hasGitDiffTab}
                 hasScmTab={hasScmTab}
