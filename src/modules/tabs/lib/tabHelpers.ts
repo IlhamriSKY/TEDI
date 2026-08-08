@@ -96,6 +96,7 @@ export function leafLabel(
   if (leaf.leafKind === "editor") return basename(leaf.path);
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
+  if (leaf.leafKind === "board") return "Board";
   // SSH leaves: show "ssh:<name>" when the saved connection has a name, else
   // fall back to the host/IP. Bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
@@ -147,10 +148,10 @@ export function activeLeaf(tab: Tab): PaneLeaf | null {
 export function activeLeafKind(tab: Tab): "terminal" | "editor" | "browser" | null {
   const leaf = activeLeaf(tab);
   if (!leaf) return null;
-  // Extension-panel leaves aren't one of the terminal/editor/browser kinds the
-  // chrome derivations branch on; report null so callers fall to their
-  // defaults instead of every one having to special-case it.
-  return leaf.leafKind === "extension-panel" ? null : leaf.leafKind;
+  // Extension-panel and board leaves aren't one of the terminal/editor/browser
+  // kinds the chrome derivations branch on; report null so callers fall to
+  // their defaults instead of every one having to special-case them.
+  return leaf.leafKind === "extension-panel" || leaf.leafKind === "board" ? null : leaf.leafKind;
 }
 
 export function isTerminalLikeTab(tab: Tab): boolean {

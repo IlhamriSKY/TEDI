@@ -1,14 +1,9 @@
 import { type EditorPaneHandle } from "@/modules/editor";
 import { type SearchTarget } from "@/modules/header";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setLineWrap } from "@/modules/settings/store";
 import { activeLeaf, type PaneTab, type Tab } from "@/modules/tabs";
 import { isRemoteEditorLeaf, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useMemo, type RefObject } from "react";
-
-/** Toggle descriptor for the Header's markdown-preview / word-wrap buttons. */
-type HeaderToggle = { active: boolean; toggle: () => void } | null;
 
 type Params = {
   isTerminalLike: boolean;
@@ -18,7 +13,6 @@ type Params = {
   activeLeafIdInTab: number | null;
   activePaneTab: PaneTab | null;
   activeTab: Tab | undefined;
-  mdPreviewLeafIds: ReadonlySet<number>;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
   /** Local workspace root. The StatusBar breadcrumb falls back to it for local
    *  terminals before OSC 7 lands, but never for an SSH leaf (a local path
@@ -27,10 +21,11 @@ type Params = {
 };
 
 /**
- * Derived values for the chrome (Header search box, md-preview/word-wrap
- * toggles, StatusBar cwd + breadcrumb). All are pure memos over the active
- * leaf/tab; moved verbatim from App with identical dependency arrays. `lineWrap`
- * is read from preferences here since only these toggles use it.
+ * Derived values for the chrome (Header search box, StatusBar cwd +
+ * breadcrumb). All are pure memos over the active leaf/tab; moved verbatim from
+ * App with identical dependency arrays. (The word-wrap and markdown
+ * source/preview toggles used to be derived here too; both now live on the
+ * pane's own header, next to its float button, in `PaneTreeView`.)
  */
 export function useChromeDerivations({
   isTerminalLike,
@@ -40,12 +35,10 @@ export function useChromeDerivations({
   activeLeafIdInTab,
   activePaneTab,
   activeTab,
-  mdPreviewLeafIds,
   terminalRefs,
   explorerRoot,
 }: Params): {
   searchTarget: SearchTarget;
-  lineWrapToggle: HeaderToggle;
   activeCwd: string | null;
   activeFilePath: string | null;
 } {
@@ -66,23 +59,6 @@ export function useChromeDerivations({
       };
     return null;
   }, [isTerminalLike, isEditorLike, activeLeafIdInTab, activeSearchAddon, activeEditorHandle]);
-
-  /** Word-wrap toggle for the Header. Non-null when the active leaf is an editor and not in markdown preview.
-   *  (The markdown source/preview toggle used to live here too; it now sits in
-   *  the pane's own header, next to the float button, in `PaneTreeView`.) */
-  const lineWrap = usePreferencesStore((s) => s.lineWrap);
-  const lineWrapToggle = useMemo<HeaderToggle>(() => {
-    if (!isEditorLike || activeLeafIdInTab === null || !activePaneTab) {
-      return null;
-    }
-    const leaf = activeLeaf(activePaneTab);
-    if (!leaf || leaf.leafKind !== "editor") return null;
-    if (mdPreviewLeafIds.has(activeLeafIdInTab)) return null;
-    return {
-      active: lineWrap,
-      toggle: () => void setLineWrap(!lineWrap),
-    };
-  }, [isEditorLike, activeLeafIdInTab, activePaneTab, mdPreviewLeafIds, lineWrap]);
 
   const activeCwd = useMemo(() => {
     if (!activePaneTab) return explorerRoot;
@@ -117,5 +93,5 @@ export function useChromeDerivations({
     return null;
   }, [activeTab]);
 
-  return { searchTarget, lineWrapToggle, activeCwd, activeFilePath };
+  return { searchTarget, activeCwd, activeFilePath };
 }

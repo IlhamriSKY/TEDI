@@ -8,7 +8,7 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { PANE_HEADER_HOVER, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
 import { useResolvedExtensionIcon } from "../icon";
@@ -17,7 +17,8 @@ import { useRegistry } from "../useRegistry";
 
 export function ExtensionHeaderItems({
   placement = "right",
-}: { placement?: "left" | "right" } = {}) {
+  compact = false,
+}: { placement?: "left" | "right"; compact?: boolean } = {}) {
   const items = useRegistry(headerItemsRegistry);
   // Subscribe so the icon row re-renders once the lazy icon chunk arrives.
   useIconsReady();
@@ -30,13 +31,28 @@ export function ExtensionHeaderItems({
   return (
     <>
       {sorted.map(({ extensionId, item }) => (
-        <HeaderItemView key={`${extensionId}:${item.id}`} extensionId={extensionId} item={item} />
+        <HeaderItemView
+          key={`${extensionId}:${item.id}`}
+          extensionId={extensionId}
+          item={item}
+          compact={compact}
+        />
       ))}
     </>
   );
 }
 
-function HeaderItemView({ extensionId, item }: { extensionId: string; item: HeaderItem }) {
+/** `compact` shrinks the button to the 20px scale of a pane header's own
+ *  buttons (grip / float / gear), where `placement: "left"` items now live. */
+function HeaderItemView({
+  extensionId,
+  item,
+  compact,
+}: {
+  extensionId: string;
+  item: HeaderItem;
+  compact: boolean;
+}) {
   // `lucide:<Name>` / legacy `hugeicon:<Name>` short-circuits the asset loader
   // and renders a Lucide icon (line-art, current-color, parity with the host's
   // SSH / Extensions / Settings buttons). Falls back to file / data: URL
@@ -67,14 +83,14 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
           }
         }}
         className={cn(
-          TOOLBAR_HOVER,
-          "size-7 shrink-0 rounded-md",
+          compact ? PANE_HEADER_HOVER : TOOLBAR_HOVER,
+          compact ? "size-5 shrink-0 rounded" : "size-7 shrink-0 rounded-md",
           Icon && toneColorClass,
           tone === "warning" && "animate-pulse",
         )}
       >
         {Icon ? (
-          <Icon size={15} strokeWidth={1.75} />
+          <Icon size={compact ? 12 : 15} strokeWidth={compact ? 2 : 1.75} />
         ) : iconUrl ? (
           isSvg ? (
             <span
@@ -84,7 +100,8 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
                 WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
               }}
               className={cn(
-                "size-[15px] transition-colors duration-200",
+                compact ? "size-3" : "size-[15px]",
+                "transition-colors duration-200",
                 tone === "success"
                   ? "bg-foreground"
                   : tone === "error"
@@ -97,7 +114,8 @@ function HeaderItemView({ extensionId, item }: { extensionId: string; item: Head
               src={iconUrl}
               alt=""
               className={cn(
-                "size-[15px] object-contain transition-opacity duration-200",
+                compact ? "size-3" : "size-[15px]",
+                "object-contain transition-opacity duration-200",
                 tone === "success" ? "opacity-100" : "opacity-80",
               )}
               loading="lazy"

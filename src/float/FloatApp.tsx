@@ -4,7 +4,9 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { Streamdown } from "streamdown";
 import { BrowserPane, previewEmbedReparent } from "@/modules/browser";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
-import { decodeFloatParams, floatEv } from "@/modules/panes/floatProtocol";
+import { decodeFloatParams, floatEv, type FloatCards } from "@/modules/panes/floatProtocol";
+import { BoardColumns } from "@/modules/workspaces/WorkspaceBoard";
+import type { PaneEntry } from "@/modules/tabs/lib/entries";
 import { FloatTableProvider, markdownComponents } from "@/components/ai-elements/markdown-code";
 import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -76,6 +78,8 @@ export function FloatApp() {
               <EditorPane ref={editorRef} path={params.path} aiDisabled={params.privateLeaf} />
             ) : params?.kind === "browser" ? (
               <FloatBrowser leafId={params.leafId} url={params.url ?? ""} />
+            ) : params?.kind === "board" ? (
+              <FloatBoard leafId={params.leafId} />
             ) : params?.kind === "extension-panel" && params.extensionId && params.panelId ? (
               <FloatExtensionPanel
                 extensionId={params.extensionId}
@@ -123,6 +127,48 @@ function FloatBrowser({ leafId, url }: { leafId: number; url: string }) {
         // showing whatever page it was popped out on.
         void emit(floatEv.url(leafId), u);
       }}
+    />
+  );
+}
+
+/**
+ * The workspace Board popped out into a float window.
+ *
+ * Unlike every other floated kind this one is neither a re-parented webview nor
+ * a self-contained view it can rebuild: the board IS the tab tree, and this
+ * window has no tab tree. So it mirrors like a terminal - the main-window board
+ * stays mounted and pushes its cards over on every change, and this end renders
+ * them through the SAME `BoardColumns` the pane uses, so the two windows cannot
+ * drift apart.
+ *
+ * HELLO is sent twice for the same host-not-ready race the terminal float has
+ * (the window can be up before the main window has registered its listener).
+ * Re-sending is harmless here: the payload is a full snapshot, not a delta.
+ */
+function FloatBoard({ leafId }: { leafId: number }) {
+  const [cards, setCards] = useState<FloatCards>({ entries: [], titles: {} });
+  useEffect(() => {
+    const un = listen<FloatCards>(floatEv.cards(leafId), (e) => {
+      if (e.payload) setCards(e.payload);
+    });
+    void emit(floatEv.hello(leafId));
+    const retry = window.setTimeout(() => void emit(floatEv.hello(leafId)), 250);
+    return () => {
+      window.clearTimeout(retry);
+      void un.then((fn) => fn());
+      // Tell the host to drop its mirror; the Rust `Destroyed` event is the
+      // guaranteed fallback when the window dies without getting here.
+      void emit(floatEv.bye(leafId));
+    };
+  }, [leafId]);
+
+  return (
+    <BoardColumns
+      cards={cards.entries as PaneEntry[]}
+      titles={cards.titles}
+      onOpen={(tabId, focusLeafId) =>
+        void emit(floatEv.focus(leafId), { tabId, leafId: focusLeafId })
+      }
     />
   );
 }

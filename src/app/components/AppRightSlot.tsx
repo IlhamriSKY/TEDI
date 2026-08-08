@@ -56,7 +56,7 @@ type Props = {
     activeLeafId: number | null;
     sshStatuses: Map<number, SshStatus>;
   };
-} & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
+} & Pick<TabsApi, "openGitDiffTab" | "openScmTab" | "openBoardTab">;
 
 // Persisted in localStorage, alongside the left sidebar's own order key.
 const ORDER_LS_KEY = "tedi:right:sectionOrder";
@@ -100,6 +100,7 @@ export function AppRightSlot({
   workspacesSection,
   openGitDiffTab,
   openScmTab,
+  openBoardTab,
 }: Props) {
   // Titles for the stack's drag overlay + aria labels. Extension panels and
   // right-docked extension sections both name themselves in their manifest.
@@ -205,6 +206,7 @@ export function AppRightSlot({
               onFocusLeaf={workspacesSection.onFocusLeaf}
               onRenameLeaf={workspacesSection.onRenameLeaf}
               onCloseEntry={workspacesSection.onCloseEntry}
+              onOpenBoard={openBoardTab}
               activeLeafId={workspacesSection.activeLeafId}
               sshStatuses={workspacesSection.sshStatuses}
               dragHandle={controls}

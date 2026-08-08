@@ -5,7 +5,7 @@
  * WebView2 windows). Leaf params travel in the float window's URL query.
  */
 
-export type FloatKind = "terminal" | "editor" | "table" | "browser" | "extension-panel";
+export type FloatKind = "terminal" | "editor" | "table" | "browser" | "extension-panel" | "board";
 
 export type FloatLeafParams = {
   leafId: number;
@@ -72,10 +72,32 @@ export const floatEv = {
   bye: (id: number) => `tedi://float-bye:${id}`, // client -> host: closing
   close: (id: number) => `tedi://float-close:${id}`, // host -> client: please close (dock back)
   url: (id: number) => `tedi://float-url:${id}`, // client -> host: browser navigated
+  cards: (id: number) => `tedi://float-cards:${id}`, // host -> client: board cards
+  focus: (id: number) => `tedi://float-focus:${id}`, // client -> host: focus a pane
 };
 
 export type FloatSnap = { text: string; cols: number; rows: number };
 export type FloatSize = { cols: number; rows: number };
+
+/**
+ * Board float payload. Unlike a terminal (a byte stream) or a browser (a
+ * re-parented webview), a board is just a list, so it mirrors as plain data
+ * re-sent whenever it changes. The entries are `PaneEntry` objects verbatim -
+ * already serializable, and sending them whole is what lets the float render
+ * with the SAME `EntryIcon` the main window uses instead of a lookalike.
+ *
+ * Typed loosely here on purpose: `floatProtocol` is imported by the float
+ * entry bundle, and pulling the tabs module's types in would drag the tab
+ * machinery along with it.
+ */
+export type FloatCards = {
+  entries: unknown[];
+  /** Program-set terminal titles (OSC 2), keyed by leaf id. */
+  titles: Record<number, string>;
+};
+
+/** Which pane a board card asked to focus. */
+export type FloatFocus = { tabId: number; leafId: number };
 
 // Events serialize as JSON, so raw bytes ride as base64.
 export function bytesToB64(bytes: Uint8Array): string {

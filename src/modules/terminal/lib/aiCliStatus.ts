@@ -46,11 +46,12 @@ export function aiCliLabel(s: NonNullable<AiCliStatus>): string {
 }
 
 /**
- * Just the themable text color for the terminal-leaf icon, WITHOUT any
- * animation. The building block for {@link aiCliIconClass}.
+ * Themable text color for a state on its own, for surfaces that label a state
+ * without holding a terminal's status object (the workspace board's column
+ * headers). {@link aiCliIconColorClass} is this keyed by a live status.
  */
-export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
-  switch (s.state) {
+export function aiCliStateColorClass(state: AiCliState): string {
+  switch (state) {
     case "idle":
       return "text-[color:var(--tedi-icon-idle)]";
     case "working":
@@ -60,6 +61,14 @@ export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
     case "done":
       return "text-[color:var(--tedi-icon-done)]";
   }
+}
+
+/**
+ * Just the themable text color for the terminal-leaf icon, WITHOUT any
+ * animation. The building block for {@link aiCliIconClass}.
+ */
+export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
+  return aiCliStateColorClass(s.state);
 }
 
 /**

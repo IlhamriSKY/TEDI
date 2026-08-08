@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.19] - 08-08-2026
+
+### Added
+
+- **A Board that shows every terminal in the workspace by what its AI agent is doing.** Running several agents at once meant checking each tab to find the one waiting on you. The Workspaces panel now offers a kanban icon on the active workspace: it opens a Board of four columns, Idle, Working, Blocked and Done, with one card per terminal. Clicking a card focuses that pane. The Board is an ordinary pane, so it has the same header, close button and split behaviour as any terminal, it can be popped out into its own always-on-top window, and it survives a restart. Each card carries the pane's own icon and number, the agent running in it, its folder and its git branch. See [WorkspaceBoard.tsx](src/modules/workspaces/WorkspaceBoard.tsx), [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [floatHost.ts](src/modules/panes/floatHost.ts).
+- **A Board card shows the agent's todo list.** A card for a terminal running Claude Code carries a `todo 3/7` line that expands into the items, ticked ones struck through. The list is read from the agent's own session record rather than scraped off the screen, so it does not vanish when the terminal scrolls and it still shows the finished items after the agent has moved on. Terminals running something with no adapter simply show no todo line at all. See [agentTodos.ts](src/modules/terminal/lib/agentTodos.ts).
+
+### Changed
+
+- **The per-file toolbar buttons moved onto the pane they act on.** The detected-URL globe, the word-wrap switch and the Beautify wand all sat in the app toolbar, which meant that with two panes open they could only ever address whichever one had focus. They now sit in each pane's own header next to the float button, fenced off from the float, theme and close buttons by a rule so the two groups read apart. On a narrow pane the group steps aside instead of pushing the close button off the edge. The toolbar keeps only what is genuinely global: search, SSH, extensions and settings. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx), [Header.tsx](src/modules/header/Header.tsx).
+- **An extension's `placement: "left"` header button now belongs to the editor pane.** It used to sit in the app toolbar; it renders in the focused editor pane's header instead, at that row's smaller scale, and shows nothing while a terminal or browser pane has focus. Extensions that want an always-visible button should use the default `"right"` placement. See [extensions/README.md](extensions/README.md).
+
 ## [0.4.18] - 08-08-2026
 
 ### Added

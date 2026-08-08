@@ -89,10 +89,26 @@ export type SavedBrowserLeaf = {
   customTitle?: string;
 };
 
+/**
+ * The workspace Board pane. Holds nothing: its columns are rebuilt from the
+ * live tab tree, so existence is the whole of its saved state. That is what
+ * lets a pane tab containing one be persisted normally, unlike an
+ * extension-panel leaf (which needs a live host and takes its whole tab down
+ * with it).
+ */
+export type SavedBoardLeaf = {
+  kind: "leaf";
+  leafKind: "board";
+  private?: boolean;
+  /** User-chosen tab name from the tab's right-click "Rename". */
+  customTitle?: string;
+};
+
 export type SavedPaneNode =
   | SavedTerminalLeaf
   | SavedEditorLeaf
   | SavedBrowserLeaf
+  | SavedBoardLeaf
   | {
       kind: "split";
       dir: "row" | "col";

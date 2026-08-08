@@ -41,6 +41,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TERMINAL_PRESETS, type TerminalPalette } from "@/modules/settings/terminalPalette";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setLineWrap } from "@/modules/settings/store";
+import { shortcutHint } from "@/modules/shortcuts/shortcuts";
+import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon, type LeafIconInfo } from "@/components/LeafIcon";
@@ -49,27 +53,31 @@ import { type EditorPaneHandle } from "@/modules/editor";
 import { useExplorerIconsReady } from "@/modules/explorer/lib/iconResolver";
 import { BrowserPane, setPaneDragActive } from "@/modules/browser";
 import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
+import { WorkspaceBoard } from "@/modules/workspaces/WorkspaceBoard";
 import { TerminalPane, type TerminalPaneHandle } from "@/modules/terminal";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { PaneEdge, PaneLeaf, PaneNode, SplitDir } from "@/modules/terminal/lib/panes";
 import { editorPaneSession, isRemoteEditorLeaf, leaves } from "@/modules/terminal/lib/panes";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import { statusLabelClass, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
-import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
+import { extensionStateLabelClass, type PaneEntry } from "@/modules/tabs/lib/entries";
+import type { Tab } from "@/modules/tabs";
 import { leafLabel } from "@/modules/tabs/lib/tabHelpers";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
-import { closeFloat, floatPane } from "./floatHost";
+import { closeFloat, floatPane, pushBoardCards } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
 import {
   BookOpen,
   Cloud,
   FileCode,
+  Globe,
   GripVertical,
   Settings,
   SquareArrowOutUpRight,
+  WrapText,
   X,
 } from "lucide-react";
 
@@ -115,6 +123,10 @@ function floatParamsFor(node: PaneLeaf, title: string): FloatLeafParams | null {
       path: node.path,
       privateLeaf: node.private === true,
     };
+  // A board mirrors like a terminal rather than handing off: it is a list, so
+  // the main-window pane stays mounted (it owns the tab tree the float has no
+  // copy of) and pushes its cards over.
+  if (node.leafKind === "board") return { leafId: node.id, kind: "board", title };
   if (node.leafKind === "extension-panel")
     return {
       leafId: node.id,
@@ -173,6 +185,11 @@ type Props = {
   /** Flip a markdown editor leaf between source and preview. Backs the pane
    *  header's book/code toggle (it used to live in the app toolbar). */
   onToggleMdPreview?: (leafId: number) => void;
+  /** Detected local URL for the "open preview" globe, already resolved against
+   *  the *active* leaf. Shown on the focused pane's header (it used to sit in
+   *  the app toolbar); `null` hides it. */
+  detectedBrowserUrl?: string | null;
+  onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
@@ -185,6 +202,10 @@ type Props = {
   sshBindingByConnection?: Map<string, SshConnectionBinding>;
   /** Open an SSH session for a saved connection (remote editor reconnect). */
   onReconnectSsh?: (connectionId: string, title: string) => void;
+  /** Every tab in the workspace, for a board leaf. */
+  boardTabs?: Tab[];
+  /** Focus any leaf in any tab, for a board leaf's cards. */
+  onFocusEntry?: (tabId: number, leafId: number) => void;
 };
 
 type PaneDragState = {
@@ -201,6 +222,8 @@ type PaneDndValue = {
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   onToggleMdPreview?: (leafId: number) => void;
+  detectedBrowserUrl?: string | null;
+  onOpenPreview?: () => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
@@ -233,11 +256,44 @@ type PaneMetaValue = {
   aiCliStatuses?: Map<number, AiCliStatus>;
   sshBindingByConnection?: Map<string, SshConnectionBinding>;
   onReconnectSsh?: (connectionId: string, title: string) => void;
+  /** Every tab in the workspace, for a board leaf - the only leaf kind whose
+   *  content is the OTHER leaves. Rides this context rather than `LeafBundle`
+   *  because a bundle is per-leaf and this is workspace-wide. */
+  boardTabs?: Tab[];
+  /** Focus any leaf in any tab. A board leaf's cards address panes outside
+   *  their own tab, which the per-tab `onFocusLeaf` cannot express. */
+  onFocusEntry?: (tabId: number, leafId: number) => void;
 };
 
 // SSH host/status lives in its own context so status pushes re-render only the
 // leaf headers (not the memoized split tree or xterm/CodeMirror bodies).
 const PaneMetaContext = createContext<PaneMetaValue>({});
+
+/**
+ * A board leaf's body. Its own component, and deliberately NOT part of the
+ * memoized `LeafBody`: it is the one leaf that must re-render on every AI status
+ * push, and subscribing `LeafBody` to that context would drag every xterm and
+ * CodeMirror in the workspace along with it.
+ */
+function BoardLeafBody({ leafId }: { leafId: number }) {
+  const { boardTabs, sshStatuses, aiCliStatuses, onFocusEntry } = use(PaneMetaContext);
+  // Feed the float window. Stable so the board's mirror effect isn't re-run by
+  // this callback's identity alone.
+  const mirrorToFloat = useCallback(
+    (cards: PaneEntry[], titles: Record<number, string>) =>
+      pushBoardCards(leafId, { entries: cards, titles }),
+    [leafId],
+  );
+  return (
+    <WorkspaceBoard
+      tabs={boardTabs ?? []}
+      sshStatuses={sshStatuses}
+      aiCliStatuses={aiCliStatuses}
+      onFocusLeaf={onFocusEntry}
+      mirrorToFloat={mirrorToFloat}
+    />
+  );
+}
 
 const DRAG_PREFIX = "pane-drag:";
 const DROP_PREFIX = "pane-drop:";
@@ -427,6 +483,13 @@ const LeafBody = memo(function LeafBody({
       </ErrorBoundary>
     );
   }
+  if (node.leafKind === "board") {
+    return (
+      <ErrorBoundary label="board pane" resetKeys={[node.id]}>
+        <BoardLeafBody leafId={node.id} />
+      </ErrorBoundary>
+    );
+  }
   // Editor - while floating it's handed off to the float window; unmount here so
   // two live CodeMirror views can't race and save-stomp the same file (the parent
   // overlays a "floating" indicator in its place).
@@ -506,9 +569,17 @@ function PaneLeafFrame({
     onSplitWithExtTab,
     onSetTerminalTheme,
     onToggleMdPreview,
+    detectedBrowserUrl,
+    onOpenPreview,
   } = use(PaneDndContext);
-  const { sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh } =
-    use(PaneMetaContext);
+  const {
+    sshHosts,
+    sshStatuses,
+    aiCliStatuses,
+    sshBindingByConnection,
+    onReconnectSsh,
+    onFocusEntry,
+  } = use(PaneMetaContext);
   const draggable = leafCount > 1;
   const {
     listeners,
@@ -523,6 +594,17 @@ function PaneLeafFrame({
   // Re-render the header once the catppuccin file-icon set lands so editor
   // leaves swap from the pencil fallback to the real file-type glyph.
   useExplorerIconsReady();
+
+  // Word wrap is a global preference, so every editor pane shows the same
+  // switch and toggles the same value - no need to know which one is focused.
+  const lineWrap = usePreferencesStore((s) => s.lineWrap);
+  const userShortcuts = usePreferencesStore((s) => s.shortcuts);
+
+  // Header buttons that act on whatever leaf is *active* (the Beautify
+  // extension's wand, the detected-URL globe) must render exactly once. Every
+  // pane tab keeps a focused leaf even while hidden, so `focused` alone would
+  // mount one copy per background tab.
+  const onlyHere = tabVisible && focused;
 
   const isSource = drag.sourceLeafId === node.id;
   const isOver = drag.overLeafId === node.id && drag.sourceLeafId !== node.id && drag.edge !== null;
@@ -583,7 +665,12 @@ function PaneLeafFrame({
     // Browser hand-off: the float owns the page, so let it push navigation back
     // into this leaf. The leaf's url is what the tab title and the AI's browser
     // list read, and both would otherwise freeze at the pop-out address.
-    void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 }, b.onBrowserUrlChange);
+    void floatPane(
+      floatParams,
+      { w: r?.width ?? 720, h: r?.height ?? 480 },
+      b.onBrowserUrlChange,
+      onFocusEntry,
+    );
   };
 
   return (
@@ -613,7 +700,9 @@ function PaneLeafFrame({
           when there is nothing to show, so the header never opens an empty box. */}
       {(() => {
         const headerBar = (
-          <div className="border-border/60 bg-card flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
+          // `@container` so the per-file cluster below can shed itself on a
+          // narrow pane instead of pushing the close button out of the frame.
+          <div className="border-border/60 bg-card @container flex h-7 shrink-0 items-center gap-1 border-b px-1 select-none">
             {(() => {
               const dragHandle = (
                 <button
@@ -670,36 +759,104 @@ function PaneLeafFrame({
             {node.leafKind === "editor" && node.dirty && (
               <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
             )}
-            {/* Markdown source/preview toggle. Lives here rather than in the app
+            {/* Everything this pane's *content* can do (view mode, wrap,
+                format, open in a browser), fenced off by a rule from the three
+                that act on the pane itself (float / theme / close).
+                `empty:hidden` retires the rule with the group: only some leaf
+                kinds fill it, and `ExtensionHeaderItems` renders nothing at all
+                unless a `placement: "left"` extension is installed - a JS
+                check could not see that second case. Under ~17rem the label has
+                nothing left to give, so the whole group steps aside rather than
+                shove the close button off the frame. */}
+            <div className="border-border flex shrink-0 items-center gap-1 border-r pr-1 empty:hidden @max-[17rem]:hidden">
+              {/* Markdown source/preview toggle. Lives here rather than in the app
                 toolbar so it sits on the pane it acts on - with a split, the
                 toolbar version could only ever address the focused one. */}
-            {node.leafKind === "editor" &&
-              onToggleMdPreview &&
-              /\.(md|markdown|mdx)$/i.test(node.path) && (
-                <IconTooltip label={mdPreview ? "Show source" : "Preview markdown"} side="bottom">
+              {node.leafKind === "editor" &&
+                onToggleMdPreview &&
+                /\.(md|markdown|mdx)$/i.test(node.path) && (
+                  <IconTooltip label={mdPreview ? "Show source" : "Preview markdown"} side="bottom">
+                    <button
+                      type="button"
+                      aria-label={mdPreview ? "Show source" : "Preview markdown"}
+                      aria-pressed={mdPreview}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMdPreview(node.id);
+                      }}
+                      className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+                        mdPreview
+                          ? "text-primary hover:bg-muted"
+                          : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      {mdPreview ? (
+                        <FileCode size={12} strokeWidth={2} />
+                      ) : (
+                        <BookOpen size={12} strokeWidth={2} />
+                      )}
+                    </button>
+                  </IconTooltip>
+                )}
+              {/* Word wrap. Same reasoning as the markdown toggle: it belongs on
+                the editor it wraps, and the toolbar copy could only ever
+                address the focused pane. Hidden in markdown preview (nothing
+                to wrap). */}
+              {node.leafKind === "editor" && !mdPreview && (
+                <IconTooltip
+                  label={(() => {
+                    const t = shortcutHint("editor.toggleWordWrap", userShortcuts);
+                    return `${lineWrap ? "Disable" : "Enable"} word wrap${t ? ` (${t})` : ""}`;
+                  })()}
+                  side="bottom"
+                >
                   <button
                     type="button"
-                    aria-label={mdPreview ? "Show source" : "Preview markdown"}
-                    aria-pressed={mdPreview}
+                    aria-label={lineWrap ? "Disable word wrap" : "Enable word wrap"}
+                    aria-pressed={lineWrap}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onToggleMdPreview(node.id);
+                      void setLineWrap(!lineWrap);
                     }}
                     className={cn(
                       "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
-                      mdPreview
+                      lineWrap
                         ? "text-primary hover:bg-muted"
                         : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
                     )}
                   >
-                    {mdPreview ? (
-                      <FileCode size={12} strokeWidth={2} />
-                    ) : (
-                      <BookOpen size={12} strokeWidth={2} />
-                    )}
+                    <WrapText size={12} strokeWidth={2} />
                   </button>
                 </IconTooltip>
               )}
+              {/* Extension buttons that opt-in to `placement: "left"` (Beautify).
+                They act on the *active* editor's buffer, so they ride the
+                focused editor pane rather than the app toolbar - one copy, on
+                the pane they format. */}
+              {onlyHere && node.leafKind === "editor" && (
+                <ExtensionHeaderItems placement="left" compact />
+              )}
+              {/* "Open preview" for a detected local URL (a printed dev-server
+                address, or a running port found from the project's config).
+                `detectedBrowserUrl` is already resolved against the active
+                leaf, so it rides the focused pane. */}
+              {onlyHere && detectedBrowserUrl && onOpenPreview && (
+                <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenPreview();
+                    }}
+                    className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+                  >
+                    <Globe size={12} strokeWidth={2} />
+                  </button>
+                </IconTooltip>
+              )}
+            </div>
             {floatParams && (
               <IconTooltip
                 label={
@@ -956,12 +1113,16 @@ export function PaneTreeView({
   onSplitWithExtTab,
   onSetTerminalTheme,
   onToggleMdPreview,
+  detectedBrowserUrl,
+  onOpenPreview,
   onSplitSizes,
   sshHosts,
   sshStatuses,
   aiCliStatuses,
   sshBindingByConnection,
   onReconnectSsh,
+  boardTabs,
+  onFocusEntry,
 }: Props) {
   const leafList = useMemo(() => leaves(node), [node]);
   const leafCount = leafList.length;
@@ -1039,6 +1200,8 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
+      detectedBrowserUrl,
+      onOpenPreview,
     }),
     [
       drag,
@@ -1048,11 +1211,29 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
+      detectedBrowserUrl,
+      onOpenPreview,
     ],
   );
   const metaValue = useMemo<PaneMetaValue>(
-    () => ({ sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh }),
-    [sshHosts, sshStatuses, aiCliStatuses, sshBindingByConnection, onReconnectSsh],
+    () => ({
+      sshHosts,
+      sshStatuses,
+      aiCliStatuses,
+      sshBindingByConnection,
+      onReconnectSsh,
+      boardTabs,
+      onFocusEntry,
+    }),
+    [
+      sshHosts,
+      sshStatuses,
+      aiCliStatuses,
+      sshBindingByConnection,
+      onReconnectSsh,
+      boardTabs,
+      onFocusEntry,
+    ],
   );
 
   // Re-render the overlay once the file-icon set lands so a dragged editor leaf

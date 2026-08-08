@@ -63,7 +63,7 @@ type Props = {
   activeLeafId: number | null;
   /** Live SSH status per leaf, so a connected host is green in Workspaces too. */
   sshStatuses: Map<number, SshStatus>;
-} & Pick<TabsApi, "openGitDiffTab" | "openScmTab">;
+} & Pick<TabsApi, "openGitDiffTab" | "openScmTab" | "openBoardTab">;
 
 // The reorderable built-in sidebar sections, in canonical order. Extension
 // sections (keyed `xsec:<extId>:<sectionId>`) are appended dynamically — they
@@ -128,6 +128,7 @@ export function AppSidebar({
   sshStatuses,
   openGitDiffTab,
   openScmTab,
+  openBoardTab,
 }: Props) {
   // Extension-contributed sections (present only while their extension is
   // active). Keyed `xsec:<extId>:<sectionId>`, mapped back to their descriptor.
@@ -240,6 +241,7 @@ export function AppSidebar({
             onFocusLeaf={onFocusLeaf}
             onRenameLeaf={onRenameLeaf}
             onCloseEntry={onCloseEntry}
+            onOpenBoard={openBoardTab}
             activeLeafId={activeLeafId}
             sshStatuses={sshStatuses}
             dragHandle={controls}

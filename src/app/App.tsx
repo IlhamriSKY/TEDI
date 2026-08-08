@@ -126,6 +126,7 @@ export default function App() {
     setAiDiffStatus,
     openGitDiffTab,
     openScmTab,
+    openBoardTab,
     closeTab,
     selectByIndex,
     setLeafCwd,
@@ -742,7 +743,7 @@ export default function App() {
     [openPreviewTab],
   );
 
-  const { searchTarget, lineWrapToggle, activeCwd, activeFilePath } = useChromeDerivations({
+  const { searchTarget, activeCwd, activeFilePath } = useChromeDerivations({
     isTerminalLike,
     isEditorLike,
     activeSearchAddon,
@@ -750,7 +751,6 @@ export default function App() {
     activeLeafIdInTab,
     activePaneTab,
     activeTab,
-    mdPreviewLeafIds,
     terminalRefs,
     explorerRoot: explorerRoot ?? null,
   });
@@ -947,9 +947,6 @@ export default function App() {
             aiCliStatuses={aiCliStatuses}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
-            lineWrapToggle={lineWrapToggle}
-            detectedBrowserUrl={detectedBrowserUrl}
-            onOpenPreview={handleOpenDetectedPreview}
           />
 
           {/* Bento tray: the deep `bg-sidebar` well holds the three body columns
@@ -987,6 +984,7 @@ export default function App() {
                 sshStatuses={sshStatuses}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
+                openBoardTab={openBoardTab}
               />
               <ResizableHandle withHandle />
               <WorkspaceArea
@@ -1007,6 +1005,8 @@ export default function App() {
                 onReconnectSsh={handleReconnectSshForEditor}
                 mdPreviewLeafIds={mdPreviewLeafIds}
                 onToggleMdPreview={toggleMdPreviewForLeaf}
+                detectedBrowserUrl={detectedBrowserUrl}
+                onOpenPreview={handleOpenDetectedPreview}
                 hasAiDiffTab={hasAiDiffTab}
                 hasGitDiffTab={hasGitDiffTab}
                 hasScmTab={hasScmTab}
@@ -1049,6 +1049,7 @@ export default function App() {
                 }}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
+                openBoardTab={openBoardTab}
               />
             </ResizablePanelGroup>
           </main>

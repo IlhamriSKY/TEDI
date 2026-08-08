@@ -922,8 +922,13 @@ type HeaderItem = {
   icon: string; // a Lucide name or "lucide:<Name>", or a file/data: asset
   tooltip: string;
   tone?: "default" | "success" | "warning" | "error";
-  placement?: "left" | "right"; // default "right" (near Extensions/Settings);
-  // "left" sits in the file-view-mode area near the markdown-preview toggle
+  placement?: "left" | "right"; // default "right" (top header, near Extensions/Settings);
+  // "left" is NOT the top header: it renders in the focused editor pane's own
+  // header, beside the markdown-preview / word-wrap toggles and the float
+  // button, at that row's smaller 20px scale. Only one copy exists at a time,
+  // on the pane whose buffer `ctx.editor` reads - and nothing shows while a
+  // terminal, browser or extension pane has focus. Use it for actions on the
+  // active file (format, lint, view-as); anything global belongs on "right".
   onClick: (event: MouseEvent) => void; // REQUIRED; host wraps in try/catch
 };
 ```

@@ -9,7 +9,7 @@ import { Database, Lock, Server, SquarePen, SquareTerminal } from "lucide-react"
 /** Normalized description of one pane leaf, enough to pick its icon. Built from
  *  a tab-strip `Entry` or a `PaneLeaf` so both feed the same renderer. */
 export type LeafIconInfo = {
-  leafKind: "terminal" | "editor" | "browser" | "extension-panel";
+  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board";
   /** Private leaf (AI cannot read it): forces a lock glyph over kind/ssh. */
   isPrivate?: boolean;
   /** Terminal bound to a saved SSH host: cloud glyph instead of local terminal. */

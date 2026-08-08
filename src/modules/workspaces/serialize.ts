@@ -83,6 +83,18 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
     // extension-panel leaf, so this is never reached. Guard for exhaustiveness.
     throw new Error("extension-panel leaves are not serialized");
   }
+  if (leaf.leafKind === "board") {
+    // Restorable from nothing but its own existence: the columns are rebuilt
+    // from the live tab tree. Unlike an extension panel it needs no host, so
+    // the pane tab holding it is saved whole rather than dropped - which
+    // matters when a board is split next to a terminal worth keeping.
+    return {
+      kind: "leaf",
+      leafKind: "board",
+      ...(leaf.private ? { private: true } : {}),
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
+    };
+  }
   return {
     kind: "leaf",
     leafKind: "browser",
@@ -248,6 +260,15 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         // unbound remote path can never reach the local filesystem.
         ...(node.sshConnectionId ? { sshConnectionId: node.sshConnectionId } : {}),
         ...(node.sshHostLabel ? { sshHostLabel: node.sshHostLabel } : {}),
+        ...(node.private ? { private: true } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
+      };
+    }
+    if (node.leafKind === "board") {
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "board",
         ...(node.private ? { private: true } : {}),
         ...(node.customTitle ? { customTitle: node.customTitle } : {}),
       };

@@ -15,7 +15,14 @@ import {
   terminalSize,
   writeTerminalInput,
 } from "@/modules/terminal";
-import { bytesToB64, encodeFloatParams, floatEv, type FloatLeafParams } from "./floatProtocol";
+import {
+  bytesToB64,
+  encodeFloatParams,
+  floatEv,
+  type FloatCards,
+  type FloatFocus,
+  type FloatLeafParams,
+} from "./floatProtocol";
 
 const hosts = new Map<number, () => void>();
 
@@ -133,6 +140,53 @@ function startPassiveHost(leafId: number, onUrl?: (url: string) => void): void {
 }
 
 /**
+ * Latest board cards per floated board leaf, and the resend hook. The board
+ * mirrors like a terminal rather than handing off: the main-window board is the
+ * only thing with a tab tree, so it stays mounted and keeps pushing.
+ *
+ * The last payload is retained because HELLO can arrive before or after the
+ * first push - a float window that opened faster than the next React commit
+ * would otherwise sit empty until something changed.
+ */
+const boardCards = new Map<number, FloatCards>();
+
+/** Push the current cards to a floated board. No-op when it isn't floating. */
+export function pushBoardCards(leafId: number, cards: FloatCards): void {
+  boardCards.set(leafId, cards);
+  if (useFloatStore.getState().floating.has(leafId)) void emit(floatEv.cards(leafId), cards);
+}
+
+/**
+ * Host for a board leaf: answers HELLO with the latest cards and turns a card
+ * click in the float into a focus in THIS window. The main pane keeps rendering
+ * (it is the data source), so unlike the editor/browser hosts this one must not
+ * be treated as a hand-off.
+ */
+function startBoardHost(leafId: number, onFocus?: (tabId: number, leafId: number) => void): void {
+  if (hosts.has(leafId)) return;
+  let torn = false;
+  const unlisteners: UnlistenFn[] = [];
+  const teardown = () => {
+    if (torn) return;
+    torn = true;
+    for (const u of unlisteners) u();
+    hosts.delete(leafId);
+    boardCards.delete(leafId);
+    useFloatStore.getState().setFloating(leafId, false);
+  };
+  void listen(floatEv.hello(leafId), () => {
+    const cards = boardCards.get(leafId);
+    if (cards) void emit(floatEv.cards(leafId), cards);
+  }).then((u) => (torn ? u() : unlisteners.push(u)));
+  void listen<FloatFocus>(floatEv.focus(leafId), (e) => {
+    if (!torn && e.payload) onFocus?.(e.payload.tabId, e.payload.leafId);
+  }).then((u) => (torn ? u() : unlisteners.push(u)));
+  void listen(floatEv.bye(leafId), teardown).then((u) => (torn ? u() : unlisteners.push(u)));
+  hosts.set(leafId, teardown);
+  useFloatStore.getState().setFloating(leafId, true);
+}
+
+/**
  * Float a pane into its own always-on-top window. For terminals this also wires
  * the live mirror; editors hand off (main pane unmounts while floating). Safe to
  * call again for an already-floated leaf (the Rust side reveals the window).
@@ -144,6 +198,8 @@ export async function floatPane(
    *  the leaf's url (its tab title, and the browser list the AI reads) tracks the
    *  page while it is popped out. */
   onBrowserUrl?: (url: string) => void,
+  /** Board leaves only: a card clicked in the float focuses that pane here. */
+  onBoardFocus?: (tabId: number, leafId: number) => void,
 ): Promise<void> {
   ensureDestroyedListener();
   // If not currently floating but a host is still registered, it's stale (the
@@ -153,6 +209,9 @@ export async function floatPane(
   if (params.kind === "terminal") {
     if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
     startTerminalHost(params.leafId);
+  } else if (params.kind === "board") {
+    if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
+    startBoardHost(params.leafId, onBoardFocus);
   } else if (
     params.kind === "editor" ||
     params.kind === "browser" ||

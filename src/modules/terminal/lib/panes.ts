@@ -155,8 +155,25 @@ export type ExtensionPanelLeafState = {
   customTitle?: string;
 };
 
+/**
+ * Kanban of the workspace's terminals, in columns of what their AI CLI is
+ * doing. A leaf rather than a standalone tab so it gets the ordinary pane
+ * chrome - drag handle, close, split, the lot - from `PaneLeafFrame` instead of
+ * a second copy of that header.
+ *
+ * Carries no state at all: the columns are rebuilt from the live tab tree on
+ * every render, so this leaf is restorable from nothing but its own existence.
+ */
+export type BoardLeafState = {
+  leafKind: "board";
+  /** Privacy flag kept for uniformity with the other leaf kinds. */
+  private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
+};
+
 export type LeafState =
-  TerminalLeafState | EditorLeafState | BrowserLeafState | ExtensionPanelLeafState;
+  TerminalLeafState | EditorLeafState | BrowserLeafState | ExtensionPanelLeafState | BoardLeafState;
 
 export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
 
@@ -496,6 +513,10 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       ...(leaf.state ? { state: leaf.state } : {}),
       ...(leaf.private ? { private: true } : {}),
     };
+  }
+  if (leaf.leafKind === "board") {
+    // No state of its own: the columns are rebuilt from the live tab tree.
+    return { leafKind: "board", ...(leaf.private ? { private: true } : {}) };
   }
   return {
     leafKind: "browser",

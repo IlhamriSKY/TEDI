@@ -2,11 +2,9 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { cn } from "@/lib/utils";
-import { TOOLBAR_ACTIVE, TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import { shortcutHint, type ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
@@ -16,7 +14,7 @@ import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionH
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import { FolderOpen, Globe, PanelLeft, Puzzle, Settings, WrapText } from "lucide-react";
+import { FolderOpen, PanelLeft, Puzzle, Settings } from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -64,11 +62,6 @@ type Props = {
   aiCliStatuses?: Map<number, AiCliStatus>;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
-  /** Word-wrap toggle. `null` hides the button when not an editor, or when previewing markdown. */
-  lineWrapToggle: { active: boolean; toggle: () => void } | null;
-  /** Detected local URL for the "open preview" globe. `null` hides the button. */
-  detectedBrowserUrl?: string | null;
-  onOpenPreview?: () => void;
 };
 
 const COMPACT_WIDTH = 720;
@@ -129,17 +122,9 @@ function HeaderImpl({
   aiCliStatuses,
   searchTarget,
   searchRef,
-  lineWrapToggle,
-  detectedBrowserUrl,
-  onOpenPreview,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
-  const userShortcuts = usePreferencesStore((s) => s.shortcuts);
-
-  const tokensFor = (id: ShortcutId): string => shortcutHint(id, userShortcuts);
-
-  const wordWrapTokens = tokensFor("editor.toggleWordWrap");
 
   useEffect(() => {
     const el = rootRef.current;
@@ -221,52 +206,11 @@ function HeaderImpl({
         {/* Drag spacer between the left and right icon clusters. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
 
-        {/* "Open preview" for a detected local URL, pinned just left of the
-            beautify wand / view toggles as an icon-only button (URL in the
-            tooltip + aria-label). */}
-        {detectedBrowserUrl && onOpenPreview && (
-          <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`}>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onOpenPreview}
-              aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
-              className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
-            >
-              <Globe size={16} strokeWidth={1.75} />
-            </Button>
-          </IconTooltip>
-        )}
-
-        {/* Extension buttons that opt-in to `placement: "left"`. Sits in the
-            file-view-mode cluster so "format / view as X" actions group with
-            the other view toggles. (The markdown source/preview toggle moved
-            out of here onto the pane header, beside its float button.) */}
-        <ExtensionHeaderItems placement="left" />
-
-        {lineWrapToggle && (
-          <IconTooltip
-            label={`${lineWrapToggle.active ? "Disable" : "Enable"} word wrap${
-              wordWrapTokens ? ` (${wordWrapTokens})` : ""
-            }`}
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={lineWrapToggle.toggle}
-              aria-label={lineWrapToggle.active ? "Disable word wrap" : "Enable word wrap"}
-              aria-pressed={lineWrapToggle.active}
-              className={cn(
-                TOOLBAR_HOVER,
-                "size-7 shrink-0 rounded-md",
-                lineWrapToggle.active ? TOOLBAR_ACTIVE : "text-muted-foreground",
-              )}
-            >
-              <WrapText size={15} strokeWidth={1.75} />
-            </Button>
-          </IconTooltip>
-        )}
-
+        {/* The per-file cluster that used to sit here - detected-URL globe,
+            `placement: "left"` extension buttons (Beautify), word wrap, and
+            before them the markdown source/preview toggle - all moved onto the
+            pane header beside its float button. Each acts on one pane, and the
+            toolbar copy could only ever address the focused one. */}
         <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
 
         {/* Divider before the trailing cluster. */}

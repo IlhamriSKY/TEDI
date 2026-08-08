@@ -56,6 +56,9 @@ type Props = {
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   /** Flip a markdown editor leaf between source and preview, from its pane header. */
   onToggleMdPreview?: (leafId: number) => void;
+  /** Detected local URL for the focused pane header's "open preview" globe. */
+  detectedBrowserUrl?: string | null;
+  onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Live SSH status per terminal leaf id. Colors the SSH header label, mirroring the tab strip. */
@@ -94,6 +97,8 @@ export function PaneStack({
   onSplitWithExtTab,
   onSetTerminalTheme,
   onToggleMdPreview,
+  detectedBrowserUrl,
+  onOpenPreview,
   onSplitSizes,
   sshStatuses,
   aiCliStatuses,
@@ -229,6 +234,14 @@ export function PaneStack({
               }
               onSetTerminalTheme={onSetTerminalTheme}
               onToggleMdPreview={onToggleMdPreview}
+              detectedBrowserUrl={detectedBrowserUrl}
+              onOpenPreview={onOpenPreview}
+              // A board leaf charts the WHOLE workspace, so it gets every tab,
+              // not just the one it happens to live in.
+              boardTabs={tabs}
+              // Already the two-arg form: a board card focuses a pane in ANOTHER
+              // tab, which the per-tab wrapper below cannot address.
+              onFocusEntry={onFocusLeaf}
               onSplitSizes={onSplitSizes}
               sshHosts={sshHosts}
               sshStatuses={sshStatuses}

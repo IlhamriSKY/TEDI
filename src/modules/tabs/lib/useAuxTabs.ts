@@ -177,6 +177,38 @@ export function useAuxTabs({
     return id;
   }, []);
 
+  /**
+   * Open (or focus) the workspace Board. A board is a pane LEAF, not a
+   * standalone tab, so it arrives as a pane tab holding one - which is what
+   * gives it the ordinary pane header (drag, close, split) rather than a second
+   * hand-rolled copy of it. Same single-instance dedup as `openScmTab`: two
+   * boards would chart the same workspace twice.
+   */
+  const openBoardTab = useCallback(() => {
+    const existing = tabsRef.current.find(
+      (t) => t.kind === "pane" && leaves(t.paneTree).some((l) => l.leafKind === "board"),
+    );
+    if (existing) {
+      setActiveId(existing.id);
+      return existing.id;
+    }
+    const tabId = nextIdRef.current++;
+    const leafId = nextIdRef.current++;
+    const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "board" };
+    setTabs((curr) => [
+      ...curr,
+      syncPaneMirror({
+        id: tabId,
+        kind: "pane",
+        title: "Board",
+        paneTree: leaf,
+        activeLeafId: leafId,
+      }),
+    ]);
+    setActiveId(tabId);
+    return tabId;
+  }, []);
+
   const newBrowserTab = useCallback((url: string, activate = true) => {
     // A browser is a pane leaf like terminal/editor, so a "browser tab" is just
     // a pane tab whose tree is a single browser leaf - splittable and joinable.
@@ -439,6 +471,7 @@ export function useAuxTabs({
     setAiDiffStatus,
     openGitDiffTab,
     openScmTab,
+    openBoardTab,
     newBrowserTab,
     openExtensionTab,
     openExtensionPane,
