@@ -117,8 +117,8 @@ export function SectionStack({
    *  button. */
   column?: SectionColumn;
   /** Whether `key` may change columns at all. Mirror whatever decides the move
-   *  BUTTON, or drag and button will disagree; the primary Files tree is
-   *  left-only and must answer false. */
+   *  BUTTON, or drag and button will disagree (an extension section that never
+   *  opted into `movableToRight` must answer false). */
   canMoveColumn?: (key: string) => boolean;
   /** Hand `key` to the other column. Absent = this stack keeps its sections. */
   onMoveColumn?: (key: string) => void;
@@ -200,8 +200,8 @@ export function SectionStack({
   const handleDragMove = (ev: DragMoveEvent) => {
     if (!column || !onMoveColumn) return;
     const key = String(ev.active.id);
-    // Only promise a landing the drop will honour: an ineligible section (the
-    // primary Files tree) must not light the column up and then stay put.
+    // Only promise a landing the drop will honour: an ineligible section must
+    // not light the column up and then stay put.
     const over = overOther(ev, column) && (canMoveColumn?.(key) ?? true);
     markDropTarget(over);
     setOverOtherColumn((prev) => (prev === over ? prev : over));
@@ -223,8 +223,8 @@ export function SectionStack({
         onMoveColumn(key);
         return;
       }
-      // Not movable (the primary Files tree): fall through so the drag still
-      // reorders within this column rather than doing nothing at all.
+      // Not movable: fall through so the drag still reorders within this
+      // column rather than doing nothing at all.
     }
     if (!over || active.id === over.id) return;
     const from = visible.indexOf(active.id as string);

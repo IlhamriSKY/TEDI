@@ -16,6 +16,11 @@
  *     without disturbing the arrangement the user dragged into place.
  */
 import { isRightPanelOpen, useRightPanelStore } from "../src/modules/extensions/rightPanelStore";
+import {
+  sectionPanelId,
+  undockTarget,
+  useSidebarPlacementStore,
+} from "../src/modules/extensions/sidebarPlacementStore";
 import { reconcileSectionOrder } from "../src/app/lib/sectionOrder";
 
 let failed = 0;
@@ -86,6 +91,22 @@ check(
   reconcileSectionOrder(["ai", "ai"], ["ai", "scm"]).join(",") === "ai,scm",
   reconcileSectionOrder(["ai", "ai"], ["ai", "scm"]),
 );
+
+console.log("\n[placement] a built-in section docks right and comes back");
+for (const key of ["files", "workspaces"]) {
+  const placement = useSidebarPlacementStore;
+  placement.getState().moveRight(key);
+  check(`${key}: moveRight marks it right`, placement.getState().placement[key] === "right");
+  check(`${key}: docking starts it open`, placement.getState().rightOpen[key] === true);
+  // The drag back is keyed by the PLAIN built-in id (the right column renders
+  // built-ins directly, not under the `xp:` shape) - miss this and the section
+  // drags left-to-right but not back.
+  const back = undockTarget(key);
+  check(`${key}: undockTarget resolves`, back?.placement === key, back);
+  check(`${key}: undocks the same panel it docked`, back?.panelId === sectionPanelId(key), back);
+  placement.getState().moveLeft(key);
+  check(`${key}: moveLeft marks it left`, placement.getState().placement[key] === "left");
+}
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");

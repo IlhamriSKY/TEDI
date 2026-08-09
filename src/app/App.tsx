@@ -1034,6 +1034,14 @@ export default function App() {
                 activeSshContext={activeSshContext}
                 onOpenRemoteFile={handleOpenRemoteFile}
                 onAddProviderKey={handleAddProviderKey}
+                filesSection={{
+                  onOpenFile: handleOpenFile,
+                  onPathRenamed: handlePathRenamed,
+                  onRevealInTerminal: cdInNewTab,
+                  onAttachToAgent: handleAttachFileToAgent,
+                  onPreviewInBrowser: handlePreviewFileInBrowser,
+                  activeFilePath,
+                }}
                 workspacesSection={{
                   onSwitch: switchToWorkspace,
                   onCreate: createNewWorkspace,

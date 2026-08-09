@@ -3,6 +3,7 @@ import { FileExplorer } from "@/modules/explorer";
 import {
   BUILTIN_SECTION_EXT,
   ExtensionSidebarSection,
+  MOVABLE_BUILTIN_SECTIONS,
   sectionPanelId,
   sidebarSectionsRegistry,
   useRegistry,
@@ -90,6 +91,10 @@ const EXT_KEY_PREFIX = "xsec:";
 const extSectionKey = (extensionId: string, sectionId: string): string =>
   `${EXT_KEY_PREFIX}${extensionId}:${sectionId}`;
 
+/** The built-in section `key` is, when it is one that may be docked right. */
+const movableBuiltin = (key: string): BuiltinSectionId | null =>
+  MOVABLE_BUILTIN_SECTIONS.find((s) => s.id === key)?.id ?? null;
+
 // Persisted in localStorage (sidebar lives in the main window only).
 const ORDER_LS_KEY = "tedi:sidebar:sectionOrder";
 
@@ -162,16 +167,16 @@ export function AppSidebar({
   /**
    * Drag-to-dock: a section handed to the right column by dragging its grip
    * across, rather than by its header's "Move to right panel" button. The rule
-   * for WHICH sections may go is read off the same condition that shows that
-   * button, so the two routes can never disagree - and the primary Files tree
-   * answers false, because a right dock collides with the Secondary Folder Tree
-   * extension already living there (see sidebarPlacementStore).
+   * for WHICH sections may go is read off the same list the move BUTTON uses
+   * (`MOVABLE_BUILTIN_SECTIONS` / the section's `movableToRight`), so the two
+   * routes can never disagree.
    */
   const canDockRight = (key: string): boolean =>
-    key === "workspaces" || !!extByKey.get(key)?.section.movableToRight;
+    movableBuiltin(key) !== null || !!extByKey.get(key)?.section.movableToRight;
   const dockRight = (key: string): void => {
-    if (key === "workspaces") {
-      moveSectionRight("workspaces");
+    const builtin = movableBuiltin(key);
+    if (builtin) {
+      moveSectionRight(builtin);
       return;
     }
     const ext = extByKey.get(key);
@@ -198,6 +203,7 @@ export function AppSidebar({
             dragHandle={controls}
             collapsed={collapsed}
             activeFilePath={activeFilePath}
+            onMoveToRight={() => moveSectionRight("files")}
             hideSort
           />
         );

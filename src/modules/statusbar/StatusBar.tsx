@@ -93,8 +93,10 @@ function StatusBarInner({
           sshSessionId={sshSessionId}
         />
       </div>
-      {/* Three groups, left to right: the update prompt, things you READ, then
-          things you CLICK (actions first, panel toggles after). Compact mode
+      {/* Left to right: the update prompt, the zoom pill, things you READ, then
+          things you CLICK (actions first, panel toggles after). Zoom sits ahead
+          of the AI usage meters rather than with the other actions: it is only
+          on screen while zoomed, and that is where it is wanted. Compact mode
           keeps only what you glance at - the update prompt, the AI meters and
           the AI panel - and folds the rest away. */}
       <div className="flex shrink-0 items-center gap-1.5">
@@ -104,7 +106,16 @@ function StatusBarInner({
           <UpdaterPill />
         </Group>
 
-        {/* 2. Status: read-only readouts. The agent pill leads (a pending
+        {/* 2. Zoom, immediately left of the AI usage meters. Its own group so
+            the hairline keeps it off them; it renders null at 100%, and
+            `.sb-group:empty` drops the divider with it. */}
+        {compact ? null : (
+          <Group>
+            <ZoomControl />
+          </Group>
+        )}
+
+        {/* 3. Status: read-only readouts. The agent pill leads (a pending
             approval or an error has to read first), then the AI usage meters,
             Discord, Remote Access and the scheduler. */}
         <Group>
@@ -113,16 +124,15 @@ function StatusBarInner({
           {compact ? null : <SchedulerStatusPill />}
         </Group>
 
-        {/* 3a. Actions: a click does the thing, nothing slides out. */}
+        {/* 4a. Actions: a click does the thing, nothing slides out. */}
         {compact ? null : (
           <Group>
-            <ZoomControl />
             <ExtensionStatusItems kind="action" />
             <RightPanelActionToggles />
           </Group>
         )}
 
-        {/* 3b. Panel triggers: a click opens (or closes) a side panel. Always
+        {/* 4b. Panel triggers: a click opens (or closes) a side panel. Always
             has content (the AI button), so it always carries the last divider
             when anything precedes it. */}
         <Group>

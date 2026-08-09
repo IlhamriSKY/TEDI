@@ -47,11 +47,14 @@ export const BUILTIN_SECTION_EXT = "__builtin__";
 /** Built-in sidebar sections the user can dock to the right slot, mirroring the
  *  extension sections that opt in via `movableToRight`. `id` is both the
  *  AppSidebar section key and the placement key.
- *  Files is intentionally NOT here: the primary folder tree is left-only because
- *  the Secondary Folder Tree extension already provides a right-slot folder tree,
- *  and docking the primary one there errors. `load()` force-reverts any stale
- *  `files: "right"` back to the left. */
-export const MOVABLE_BUILTIN_SECTIONS = [{ id: "workspaces", title: "Workspaces" }] as const;
+ *  Files is movable again: the right column STACKS its surfaces now, so the
+ *  primary tree no longer contests the slot with the Secondary Folder Tree
+ *  extension, and the built-in `__section__:` guard that used to close it on
+ *  dock is fixed (see useExtensionPanelDefaults). */
+export const MOVABLE_BUILTIN_SECTIONS = [
+  { id: "files", title: "Files" },
+  { id: "workspaces", title: "Workspaces" },
+] as const;
 export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
 
 /**
@@ -70,8 +73,8 @@ export function undockTarget(
   key: string,
 ): { extensionId: string; panelId: string; placement: string } | null {
   // The right column keys a docked BUILT-IN section by its plain id, not by the
-  // `xp:` shape everything else uses (AppRightSlot special-cases Workspaces so
-  // it can render the React panel directly). Missing this is what made the drag
+  // `xp:` shape everything else uses (AppRightSlot special-cases Files and
+  // Workspaces so it can render the React panel directly). Missing this made the drag
   // work left-to-right and not back: `moveRight` was reachable, `moveLeft` was
   // not, for the one section most likely to be dragged.
   if (MOVABLE_BUILTIN_SECTIONS.some((s) => s.id === key)) {
@@ -118,13 +121,6 @@ function load(): Record<string, Placement> {
       const out: Record<string, Placement> = {};
       for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
         if (v === "right" || v === "left") out[k] = v;
-      }
-      // Force the primary Files tree back to the left: it is left-only (a right
-      // dock conflicts with the Secondary Folder Tree extension already there),
-      // so a user who moved it right on an older build is auto-reverted + cleaned.
-      if (out.files === "right") {
-        delete out.files;
-        persist(out);
       }
       return out;
     }

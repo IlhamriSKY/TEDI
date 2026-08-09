@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.20] - 09-08-2026
+
+### Added
+
+- **The Files tree can move to the right panel, and back.** Every other sidebar section, Source Control, Remote, Workspaces and the ones extensions contribute, could be handed to the right column by the button in its header or by dragging its grip across, but the primary folder tree was pinned to the left. Two things had kept it there: the right column used to hold one surface at a time, so the tree would have contested that slot with the Secondary Folder Tree extension, and a guard written for extension panels closed a docked built-in section the instant it opened. The column stacks its surfaces now, and that guard knows about built-in sections, so neither reason survives. Files moves by the same "Move to right panel" button and the same drag as its neighbours, comes back by the "Move to left sidebar" button on the docked copy, closes to a status-bar icon that reopens it, and remembers where you left it across a restart. Note the tree draws no header until a folder is open, so the move button appears with the folder. See [sidebarPlacementStore.ts](src/modules/extensions/sidebarPlacementStore.ts), [AppSidebar.tsx](src/app/components/AppSidebar.tsx), [AppRightSlot.tsx](src/app/components/AppRightSlot.tsx).
+
+### Changed
+
+- **The zoom pill sits to the left of the AI usage meters.** It was grouped with the status bar's action buttons, which left it stranded after the meters, the extension icons and a divider, away from the corner the eye goes to when the zoom level is the thing being read. It now has a group of its own immediately before the usage meters. It still appears only while the zoom is away from 100%, and its divider goes with it. See [StatusBar.tsx](src/modules/statusbar/StatusBar.tsx).
+
 ## [0.4.19] - 08-08-2026
 
 ### Added

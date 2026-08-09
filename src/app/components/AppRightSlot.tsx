@@ -14,6 +14,7 @@ import {
   type ActivePanel,
   type BuiltinSectionId,
 } from "@/modules/extensions";
+import { FileExplorer } from "@/modules/explorer";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -42,6 +43,16 @@ type Props = {
   };
   onOpenRemoteFile: (path: string, sessionId: number, hostLabel: string | null) => void;
   onAddProviderKey: () => void;
+  /** Files-section props, so a right-docked Files section renders in the column
+   *  (same values App passes to AppSidebar). */
+  filesSection: {
+    onOpenFile: (path: string, pin?: boolean) => void;
+    onPathRenamed: (from: string, to: string) => void;
+    onRevealInTerminal: (path: string) => void;
+    onAttachToAgent: (path: string) => void;
+    onPreviewInBrowser: (path: string) => void;
+    activeFilePath: string | null;
+  };
   /** Workspaces-section props, for a right-docked Workspaces section. */
   workspacesSection: {
     onSwitch: (id: string) => void;
@@ -97,6 +108,7 @@ export function AppRightSlot({
   activeSshContext,
   onOpenRemoteFile,
   onAddProviderKey,
+  filesSection,
   workspacesSection,
   openGitDiffTab,
   openScmTab,
@@ -183,12 +195,41 @@ export function AppRightSlot({
   }
 
   for (const panel of rightPanels) {
-    // A built-in section (Workspaces) docked into the column is flagged by the
-    // sentinel extensionId; it is a plain React panel, not an extension one.
+    // A built-in section (Files / Workspaces) docked into the column is flagged
+    // by the sentinel extensionId; it is a plain React panel, not an extension one.
     const builtin =
       panel.extensionId === BUILTIN_SECTION_EXT
         ? (parseSectionPanelId(panel.panelId) as BuiltinSectionId | null)
         : null;
+    if (builtin === "files") {
+      sections.push({
+        key: "files",
+        title: "Files",
+        defaultSize: PANEL_DEFAULT_SIZE,
+        render: (controls, collapsed) => (
+          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
+            <FileExplorer
+              rootPath={explorerRoot}
+              onOpenFile={filesSection.onOpenFile}
+              onPathRenamed={filesSection.onPathRenamed}
+              onPathDeleted={onPathDeleted}
+              onRevealInTerminal={filesSection.onRevealInTerminal}
+              onAttachToAgent={filesSection.onAttachToAgent}
+              onPreviewInBrowser={filesSection.onPreviewInBrowser}
+              activeFilePath={filesSection.activeFilePath}
+              dragHandle={controls}
+              collapsed={collapsed}
+              onMoveToLeft={() => dockLeft("files")}
+              onClose={() =>
+                useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, panel.panelId)
+              }
+              hideSort
+            />
+          </div>
+        ),
+      });
+      continue;
+    }
     if (builtin === "workspaces") {
       sections.push({
         key: "workspaces",
