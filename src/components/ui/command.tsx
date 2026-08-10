@@ -32,12 +32,17 @@ function CommandDialog({
   className,
   showCloseButton = false,
   onCloseAutoFocus,
+  shouldFilter,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string;
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  /** Forwarded to cmdk. Pass `false` when the list is already ranked by
+   *  something else (a server-side fuzzy search) - cmdk would otherwise filter
+   *  those results a second time against the raw query and hide them. */
+  shouldFilter?: boolean;
   /** Forwarded to DialogContent. Radix restores focus on close (after the exit
    *  animation); a consumer can preventDefault here to keep focus it moved. */
   onCloseAutoFocus?: (e: Event) => void;
@@ -56,7 +61,9 @@ function CommandDialog({
         {/* cmdk's Input/List/Item read their state from this root store via
             context; without it they hit `store.subscribe` on `undefined` and
             throw "Cannot read properties of undefined (reading 'subscribe')". */}
-        <Command className="rounded-none bg-transparent">{children}</Command>
+        <Command className="rounded-none bg-transparent" shouldFilter={shouldFilter}>
+          {children}
+        </Command>
       </DialogContent>
     </Dialog>
   );

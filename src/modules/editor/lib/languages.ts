@@ -16,7 +16,7 @@
  * losing language stays reachable through the picker. `scripts/languages-verify.ts`
  * asserts every row is reachable, so a new row cannot silently shadow an old one.
  */
-import { StreamLanguage, type StreamParser } from "@codemirror/language";
+import { Language, LanguageSupport, StreamLanguage, type StreamParser } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 
 type LoaderResult = Extension | StreamParser<unknown>;
@@ -655,11 +655,69 @@ function isStreamParser(v: unknown): v is StreamParser<unknown> {
   );
 }
 
+/**
+ * Comment syntax for the languages whose CodeMirror mode ships none, keyed by
+ * the row id above. `Mod-/` (CodeMirror's own `toggleComment`, bound by
+ * `defaultKeymap`) reads `commentTokens` off the language and does NOTHING when
+ * it is absent, which is how these ended up silently un-commentable while the
+ * other 143 languages worked. `toggleComment` prefers `line` and falls back to
+ * `block`, so a block-only entry is the correct shape for a language that has
+ * no line comment at all.
+ *
+ * Deliberately absent: `http`, `diff`, `asciiarmor`, `mbox`, `brainfuck` and
+ * `textile` have no comment syntax to give, so Ctrl+/ stays a no-op there
+ * rather than inserting something that is not a comment.
+ * `scripts/languages-verify.ts` checks every id here exists in the registry.
+ */
+const COMMENT_TOKENS: Record<string, { line?: string; block?: { open: string; close: string } }> = {
+  apl: { line: "⍝" },
+  cmake: { line: "#" },
+  cobol: { line: "*>" },
+  cypher: { line: "//", block: { open: "/*", close: "*/" } },
+  dtd: { block: { open: "<!--", close: "-->" } },
+  ebnf: { block: { open: "(*", close: "*)" } },
+  ecl: { line: "//", block: { open: "/*", close: "*/" } },
+  forth: { line: "\\" },
+  fortran: { line: "!" },
+  gherkin: { line: "#" },
+  ini: { line: ";" },
+  // JSON has no comments in the spec, but every editor comments .json as JSONC.
+  json: { line: "//" },
+  livescript: { line: "#", block: { open: "/*", close: "*/" } },
+  mirc: { line: ";" },
+  nginx: { line: "#" },
+  ntriples: { line: "#" },
+  pegjs: { line: "//", block: { open: "/*", close: "*/" } },
+  pig: { line: "--", block: { open: "/*", close: "*/" } },
+  protobuf: { line: "//", block: { open: "/*", close: "*/" } },
+  pug: { line: "//" },
+  puppet: { line: "#" },
+  rpmspec: { line: "#" },
+  sieve: { line: "#", block: { open: "/*", close: "*/" } },
+  smalltalk: { block: { open: '"', close: '"' } },
+  tiddlywiki: { block: { open: "<!--", close: "-->" } },
+  troff: { line: '.\\"' },
+  vbscript: { line: "'" },
+  wast: { line: ";;", block: { open: "(;", close: ";)" } },
+  webidl: { line: "//", block: { open: "/*", close: "*/" } },
+  z80: { line: ";" },
+};
+
+/** Every id in {@link COMMENT_TOKENS}, for the registry verify script. */
+export const COMMENT_TOKEN_IDS = Object.keys(COMMENT_TOKENS);
+
 /** Load a language's CodeMirror extension, wrapping stream parsers. */
 export async function loadLanguageExtension(def: LanguageDef): Promise<Extension> {
   const result = await def.load();
-  if (isStreamParser(result)) return StreamLanguage.define(result);
-  return result;
+  const ext = isStreamParser(result) ? StreamLanguage.define(result) : result;
+  const tokens = COMMENT_TOKENS[def.id];
+  if (!tokens) return ext;
+  // `data.of` scopes the tokens to this language, so they reach `toggleComment`
+  // without leaking into whatever else the document embeds. A stream parser
+  // resolves to a Language; a real language pack to a LanguageSupport.
+  const language =
+    ext instanceof LanguageSupport ? ext.language : ext instanceof Language ? ext : null;
+  return language ? [ext, language.data.of({ commentTokens: tokens })] : ext;
 }
 
 /** Resolve a language id (manual override) to a CodeMirror extension. */

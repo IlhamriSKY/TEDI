@@ -1082,7 +1082,12 @@ export default function App() {
 
           <Toaster />
 
-          <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+          <CommandPalette
+            open={commandPaletteOpen}
+            onOpenChange={setCommandPaletteOpen}
+            explorerRoot={explorerRoot ?? null}
+            onOpenFile={handleOpenFile}
+          />
 
           <AppDialogs
             askPopup={askPopup}

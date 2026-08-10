@@ -21,7 +21,11 @@
  */
 import { StringStream } from "@codemirror/language";
 import type { StreamParser } from "@codemirror/language";
-import { LANGUAGES, detectLanguageId } from "../src/modules/editor/lib/languages";
+import {
+  COMMENT_TOKEN_IDS,
+  LANGUAGES,
+  detectLanguageId,
+} from "../src/modules/editor/lib/languages";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -328,6 +332,13 @@ async function main(): Promise<void> {
   const covered = Object.keys(SAMPLES).filter((id) => ids.has(id)).length;
   for (const id of Object.keys(SAMPLES)) {
     assert(ids.has(id), `SAMPLES has "${id}" but the registry does not`);
+  }
+
+  // 5. COMMENT TOKENS - a typo'd id in COMMENT_TOKENS attaches the tokens to
+  // nothing, and Ctrl+/ goes back to being a silent no-op for that language
+  // with no error anywhere.
+  for (const id of COMMENT_TOKEN_IDS) {
+    assert(ids.has(id), `COMMENT_TOKENS has "${id}" but the registry does not`);
   }
   console.log(
     `Loaded ${LANGUAGES.length} languages (${streamCount} stream parsers), tokenized ${covered} samples`,

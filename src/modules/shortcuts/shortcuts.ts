@@ -35,6 +35,7 @@ export type ShortcutId =
   | "view.zoomReset"
   | "editor.toggleWordWrap"
   | "editor.formatDocument"
+  | "editor.toggleComment"
   | "terminal.copy"
   | "terminal.paste"
   | "terminal.close"
@@ -313,6 +314,19 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Format document",
     group: "Editor",
     defaultBindings: [{ shift: true, alt: true, key: "f" }],
+  },
+  {
+    // CodeMirror's own `defaultKeymap` binds this, so it is documentation, not
+    // a command we dispatch - listing it is what puts it in Settings >
+    // Shortcuts. `readOnly` matters for more than the label: an entry with no
+    // handler makes `useGlobalShortcuts` bail BEFORE `preventDefault`, so the
+    // keystroke still reaches the editor. The comment syntax comes from the
+    // language itself, see `COMMENT_TOKENS` in editor/lib/languages.ts.
+    id: "editor.toggleComment",
+    label: "Toggle comment",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, key: "/" }],
+    readOnly: true,
   },
   {
     // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C on Linux/Windows.

@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.22] - 10-08-2026
+
+### Added
+
+- **The Command Palette finds files: type `@`.** `Ctrl+Shift+P` listed commands and nothing else, so opening a file by name meant leaving it for the explorer's own search box. Typing `@` as the first character switches the palette to the files in the open folder, and Enter opens the one you picked. It runs the same search the explorer's "Go to file" already used, so the ranking, the ignore rules and the show-hidden-files preference are identical in both places rather than two implementations drifting apart. Folders are left out, since a folder is not something the editor can open, and each row carries the file tree's own icon and the path relative to the root so two files with the same name stay tellable apart. With no folder open it says so instead of showing an empty list. See [CommandPalette.tsx](src/modules/commandPalette/CommandPalette.tsx).
+
+### Fixed
+
+- **`Ctrl+/` now comments in 30 more languages.** The shortcut itself was never missing, and in most languages it was already correct: `//` in JavaScript, `#` in Python, `/* */` in CSS. But it reads the comment syntax off the language, and 36 of the bundled languages shipped none at all, so in those the key did nothing whatsoever and gave no clue why. JSON, INI, nginx, CMake, Protobuf, Puppet, Fortran, COBOL, VBScript, Gherkin, Pug, WebAssembly text, Smalltalk, APL and 16 more now carry their own syntax and toggle properly. Six are deliberately left alone, `http`, `diff`, `asciiarmor`, `mbox`, `brainfuck` and `textile` have no comment syntax to use, so the key stays inert there rather than inserting something that is not a comment. The registry's self-check now fails if this table ever names a language that does not exist, which is the one way the table could quietly stop working again. `Ctrl+/` is also listed in Settings > Shortcuts now, so it is findable. See [languages.ts](src/modules/editor/lib/languages.ts), [shortcuts.ts](src/modules/shortcuts/shortcuts.ts).
+
 ## [0.4.21] - 10-08-2026
 
 ### Changed
