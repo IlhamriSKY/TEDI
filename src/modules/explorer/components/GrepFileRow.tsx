@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { basename } from "@/lib/path";
-import { ChevronDown, ChevronRight, ReplaceAll } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ChevronRight, ReplaceAll } from "lucide-react";
 import { fileIconUrl } from "../lib/iconResolver";
 
 type GrepFileRowProps = {
@@ -31,14 +32,16 @@ export function GrepFileRow({
           <button
             type="button"
             onClick={onToggle}
-            className="text-muted-foreground hover:bg-accent/40 flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px]"
+            className="text-muted-foreground hover:bg-accent/40 flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px] transition-colors"
             aria-expanded={!isCollapsed}
           >
-            {isCollapsed ? (
-              <ChevronRight size={11} strokeWidth={2} className="shrink-0" />
-            ) : (
-              <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
-            )}
+            {/* One chevron that rotates, not two that swap: a ternary between
+                two icons replaces the DOM node, so it can never animate. */}
+            <ChevronRight
+              size={11}
+              strokeWidth={2}
+              className={cn("shrink-0 transition-transform", !isCollapsed && "rotate-90")}
+            />
             {url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null}
             <span className="text-foreground/80 shrink truncate">{name}</span>
             <span className="hidden min-w-0 shrink truncate text-[10px] opacity-70 @[200px]:inline">

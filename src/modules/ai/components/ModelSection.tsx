@@ -131,7 +131,10 @@ export function ModelSection({
                       onPointerDown={(e) => e.stopPropagation()}
                       aria-label={pinned ? `Unpin ${m.label}` : `Pin ${m.label}`}
                       className={cn(
-                        "shrink-0 cursor-pointer rounded p-1 transition-colors",
+                        // opacity is in the list because the unpinned variant
+                        // is revealed by row hover; `transition-colors` alone
+                        // would pop it in.
+                        "shrink-0 cursor-pointer rounded p-1 transition-[color,background-color,opacity]",
                         pinned
                           ? "text-foreground hover:bg-accent"
                           : "text-muted-foreground/60 hover:bg-accent hover:text-accent-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",

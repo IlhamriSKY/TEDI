@@ -937,7 +937,7 @@ function PaneLeafFrame({
                   }}
                   className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
                 >
-                  <X size={13} strokeWidth={2} />
+                  <X size={12} strokeWidth={2} />
                 </button>
               </IconTooltip>
             )}

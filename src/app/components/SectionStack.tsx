@@ -15,7 +15,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { readSectionOrder, reconcileSectionOrder, writeSectionOrder } from "../lib/sectionOrder";
-import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { ChevronRight, GripVertical } from "lucide-react";
 
 /** One section in the stack. `render` receives the controls node (drag grip +
  *  collapse chevron) that the section is expected to place in its own header,
@@ -355,13 +355,15 @@ function SortableSection({
         onClick={onToggleCollapse}
         aria-label={collapsed ? `Expand ${title}` : `Minimize ${title}`}
         aria-expanded={!collapsed}
-        className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded"
+        className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded transition-colors"
       >
-        {collapsed ? (
-          <ChevronRight size={11} strokeWidth={2.25} />
-        ) : (
-          <ChevronDown size={11} strokeWidth={2.25} />
-        )}
+        {/* One chevron that rotates, not two that swap: a ternary between two
+            icons replaces the DOM node, so it can never animate. */}
+        <ChevronRight
+          size={11}
+          strokeWidth={2.25}
+          className={cn("transition-transform", !collapsed && "rotate-90")}
+        />
       </button>
     </span>
   );

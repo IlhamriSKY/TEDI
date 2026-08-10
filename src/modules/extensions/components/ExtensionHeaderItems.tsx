@@ -90,7 +90,15 @@ function HeaderItemView({
         )}
       >
         {Icon ? (
-          <Icon size={compact ? 12 : 15} strokeWidth={compact ? 2 : 1.75} />
+          // The `size` prop only sets width/height *attributes*, which the
+          // Button's `[&_svg:not([class*='size-'])]:size-4` rule overrides -
+          // compact needs the class so it matches the pane header's own 12px
+          // icons instead of rendering 16px.
+          <Icon
+            className={compact ? "size-3" : undefined}
+            size={compact ? 12 : 15}
+            strokeWidth={compact ? 2 : 1.75}
+          />
         ) : iconUrl ? (
           isSvg ? (
             <span

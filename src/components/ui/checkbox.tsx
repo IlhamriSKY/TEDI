@@ -18,7 +18,13 @@ function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxP
       )}
       {...props}
     >
-      <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
+      {/* Radix mounts the indicator only once the box is checked, so the mark
+          arrived with no animation at all. `animate-in` is a keyframe on mount,
+          which is the only hook available here - a transition cannot run on an
+          element that did not exist a frame ago. The dash/tick swap below stays
+          instant on purpose: both states keep the indicator mounted, and a bar
+          morphing into a tick is not legible at 10px. */}
+      <CheckboxPrimitive.Indicator className="animate-in zoom-in-75 flex items-center justify-center text-current">
         {props.checked === "indeterminate" ? (
           <Minus size={10} strokeWidth={3} />
         ) : (

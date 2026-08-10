@@ -4,7 +4,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import type { GitChange } from "../types";
 import { ChangeRow } from "./ChangeRow";
-import { ChevronDown, ChevronRight, CornerUpLeft, Minus, Plus } from "lucide-react";
+import { ChevronRight, CornerUpLeft } from "lucide-react";
 
 type Props = {
   title: string;
@@ -59,15 +59,17 @@ export function ChangeSection({
         ) : null}
         <button
           type="button"
-          className="hover:text-foreground flex min-w-0 flex-1 items-center gap-0.5 text-left uppercase"
+          className="hover:text-foreground flex min-w-0 flex-1 items-center gap-0.5 text-left uppercase transition-colors"
           onClick={onToggleCollapse}
           aria-expanded={!collapsed}
         >
-          {collapsed ? (
-            <ChevronRight size={11} strokeWidth={2.5} />
-          ) : (
-            <ChevronDown size={11} strokeWidth={2.5} />
-          )}
+          {/* One chevron that rotates, not two that swap: a ternary between two
+              icons replaces the DOM node, so it can never animate. */}
+          <ChevronRight
+            size={11}
+            strokeWidth={2.5}
+            className={cn("transition-transform", !collapsed && "rotate-90")}
+          />
           <span className="truncate">{title}</span>
           <span className="ml-1 tabular-nums">({changes.length})</span>
         </button>
@@ -76,16 +78,29 @@ export function ChangeSection({
             <Button
               variant="ghost"
               size="icon"
-              className="hover:text-foreground size-5 opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
+              // `transition-[color,opacity]` rather than the Button's own
+              // `transition-colors`, which does not cover opacity - without it
+              // the row-hover reveal pops in. Deliberately not plain
+              // `transition`, which would also drag out the `active:` press.
+              className="hover:text-foreground size-5 opacity-0 transition-[color,opacity] group-hover/sec:opacity-100 focus-visible:opacity-100"
               onClick={() => onSetStaged(changes, !allStaged)}
               disabled={busy}
               aria-label={allStaged ? "Unstage all" : "Stage all"}
             >
-              {allStaged ? (
-                <Minus size={11} strokeWidth={2.5} />
-              ) : (
-                <Plus size={11} strokeWidth={2.5} />
-              )}
+              {/* Plus losing its vertical bar to become a Minus. Both glyphs
+                  share the horizontal stroke, so animating only the stroke that
+                  differs reads as one motion where an icon swap reads as a
+                  flicker. Geometry is lucide's at size 11 / strokeWidth 2.5:
+                  bar 14/24 long, stroke 2.5/24 thick. */}
+              <span className="grid size-[11px] place-items-center">
+                <span className="col-start-1 row-start-1 h-[1.15px] w-[6.4px] rounded-full bg-current" />
+                <span
+                  className={cn(
+                    "col-start-1 row-start-1 h-[6.4px] w-[1.15px] rounded-full bg-current transition-[scale] duration-200 ease-out motion-reduce:transition-none",
+                    allStaged && "scale-y-0",
+                  )}
+                />
+              </span>
             </Button>
           </IconTooltip>
         ) : null}
@@ -94,7 +109,7 @@ export function ChangeSection({
             <Button
               variant="ghost"
               size="icon"
-              className="hover:text-destructive size-5 opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100"
+              className="hover:text-destructive size-5 opacity-0 transition-[color,opacity] group-hover/sec:opacity-100 focus-visible:opacity-100"
               onClick={() => onDiscard(changes)}
               disabled={busy}
               aria-label={`Discard all ${title.toLowerCase()}`}

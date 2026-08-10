@@ -33,7 +33,6 @@ import {
   useSidebarPlacementStore,
 } from "../sidebarPlacementStore";
 import {
-  ChevronDown,
   ChevronRight,
   LayoutDashboard,
   LoaderCircle,
@@ -285,13 +284,15 @@ export function ExtensionSidebarSection({
                 console.error(`[extensions] sidebar toggle "${item.id}" threw`, err);
               }
             }}
-            className="hover:bg-foreground/10 flex size-4 shrink-0 items-center justify-center rounded"
+            className="hover:bg-foreground/10 flex size-4 shrink-0 items-center justify-center rounded transition-colors"
           >
-            {item.expanded ? (
-              <ChevronDown size={11} strokeWidth={2.25} />
-            ) : (
-              <ChevronRight size={11} strokeWidth={2.25} />
-            )}
+            {/* One chevron that rotates, not two that swap: a ternary between
+                two icons replaces the DOM node, so it can never animate. */}
+            <ChevronRight
+              size={11}
+              strokeWidth={2.25}
+              className={cn("transition-transform", item.expanded && "rotate-90")}
+            />
           </button>
         ) : (
           <span className="size-4 shrink-0" aria-hidden />

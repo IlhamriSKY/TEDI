@@ -9,7 +9,8 @@ import type { ProviderInfo } from "@/modules/ai/config";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "./ProviderIcon";
-import { CircleCheck, Eye, EyeOff, Pencil, X } from "lucide-react";
+import { RevealKeyButton } from "./RevealKeyButton";
+import { CircleCheck, Pencil, X } from "lucide-react";
 
 type Props = {
   provider: ProviderInfo;
@@ -106,19 +107,7 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               }}
               className="h-8 pr-8 font-mono text-[11.5px]"
             />
-            <button
-              type="button"
-              onClick={() => setReveal((v) => !v)}
-              tabIndex={-1}
-              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
-              aria-label={reveal ? "Hide key" : "Show key"}
-            >
-              {reveal ? (
-                <EyeOff size={12} strokeWidth={1.75} />
-              ) : (
-                <Eye size={12} strokeWidth={1.75} />
-              )}
-            </button>
+            <RevealKeyButton reveal={reveal} onToggle={() => setReveal((v) => !v)} />
           </div>
           {error ? <p className="text-destructive text-[10.5px]">{error}</p> : null}
           <div className="flex justify-end gap-1.5">

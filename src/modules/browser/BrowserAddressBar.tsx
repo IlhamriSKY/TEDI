@@ -193,7 +193,14 @@ export function BrowserAddressBar({
             aria-label={loading ? "Stop loading" : "Reload"}
             className={`text-muted-foreground ${TOOLBAR_HOVER} size-7 shrink-0 rounded-md`}
           >
-            {loading ? <X size={15} strokeWidth={2} /> : <RefreshCw size={14} strokeWidth={1.75} />}
+            {/* Both render at 16px regardless of `size` (the Button's
+                `[&_svg:not([class*='size-'])]:size-4` beats the attribute), so
+                only strokeWidth has to be kept in step. */}
+            {loading ? (
+              <X size={15} strokeWidth={1.75} />
+            ) : (
+              <RefreshCw size={14} strokeWidth={1.75} />
+            )}
           </Button>
         </IconTooltip>
         {/* Icon + URL share one rounded field (Edge-style): the wrapper carries

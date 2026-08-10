@@ -39,7 +39,6 @@ import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { countSavedTabEntries, savedToTab } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
-  ChevronDown,
   ChevronRight,
   Folder,
   GitBranch,
@@ -521,15 +520,17 @@ function SortableWorkspaceRow({
           aria-expanded={isExpanded}
           disabled={!hasRows}
           className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded",
+            "flex size-4 shrink-0 items-center justify-center rounded transition-colors",
             hasRows ? "hover:bg-foreground/10" : "opacity-0",
           )}
         >
-          {isExpanded ? (
-            <ChevronDown size={11} strokeWidth={2.25} />
-          ) : (
-            <ChevronRight size={11} strokeWidth={2.25} />
-          )}
+          {/* One chevron that rotates, not two that swap: a ternary between two
+              icons replaces the DOM node, so it can never animate. */}
+          <ChevronRight
+            size={11}
+            strokeWidth={2.25}
+            className={cn("transition-transform", isExpanded && "rotate-90")}
+          />
         </button>
         <Folder size={13} strokeWidth={1.75} className="shrink-0" />
         {isEditing ? (

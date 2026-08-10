@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomControl } from "./ZoomControl";
-import { Eye, EyeOff, GitBranch, Server } from "lucide-react";
+import { GitBranch, Server } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -163,7 +163,6 @@ export const StatusBar = memo(StatusBarInner);
  */
 function CompactToggle({ compact }: { compact: boolean }) {
   const label = compact ? "Show all status bar items" : "Compact status bar";
-  const Icon = compact ? Eye : EyeOff;
   return (
     <IconTooltip label={label} side="top">
       <button
@@ -173,11 +172,31 @@ function CompactToggle({ compact }: { compact: boolean }) {
         aria-pressed={compact}
         className="text-muted-foreground hover:text-foreground flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors"
       >
-        <Icon size={15} strokeWidth={1.75} className="shrink-0" />
+        {/* Three bars that morph: spread apart they read as a menu glyph
+            (items hidden, click to bring them back), folded together and
+            crossed they read as an X (click to fold the bars away). Drawn as
+            spans rather than swapping two lucide icons so the transition is a
+            continuous motion instead of a cross-fade. The geometry copies
+            lucide at size 15 / strokeWidth 1.75 so it sits at the same weight
+            as the glyphs beside it: 10.5px long (Menu's 16/24, and X's arm is
+            12*sqrt(2)/24 - near enough the same), 1.1px thick (1.75*15/24),
+            spread +-3.75px (Menu's y=6/18 of 24). */}
+        <span className="relative block size-[15px] shrink-0">
+          <span className={cn(BAR, compact ? "-translate-y-[3.75px]" : "rotate-45")} />
+          <span className={cn(BAR, !compact && "scale-x-0 opacity-0")} />
+          <span className={cn(BAR, compact ? "translate-y-[3.75px]" : "-rotate-45")} />
+        </span>
       </button>
     </IconTooltip>
   );
 }
+
+// The transition names `translate`/`rotate`/`scale` and NOT `transform`:
+// Tailwind v4's translate-* / rotate-* / scale-* utilities set the INDIVIDUAL
+// transform properties, so `transition-transform` would leave every one of them
+// snapping and animate nothing.
+const BAR =
+  "absolute top-[6.95px] left-[2.25px] h-[1.1px] w-[10.5px] rounded-full bg-current transition-[translate,rotate,scale,opacity] duration-200 ease-out motion-reduce:transition-none";
 
 function OsBadge() {
   const label = IS_WINDOWS ? "Windows" : IS_MAC ? "macOS" : IS_LINUX ? "Linux" : null;

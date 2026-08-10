@@ -20,7 +20,8 @@ import { setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
-import { Eye, EyeOff, Pencil, X } from "lucide-react";
+import { RevealKeyButton } from "../../components/RevealKeyButton";
+import { Pencil, X } from "lucide-react";
 
 /**
  * One OpenAI-compatible endpoint card: label + base URL + API key + presets +
@@ -332,19 +333,7 @@ export function OpenAICompatibleBlock({
                 spellCheck={false}
                 className="h-7 pr-8 font-mono text-[11px]"
               />
-              <button
-                type="button"
-                onClick={() => setRevealKey((v) => !v)}
-                tabIndex={-1}
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer"
-                aria-label={revealKey ? "Hide key" : "Show key"}
-              >
-                {revealKey ? (
-                  <EyeOff size={12} strokeWidth={1.75} />
-                ) : (
-                  <Eye size={12} strokeWidth={1.75} />
-                )}
-              </button>
+              <RevealKeyButton reveal={revealKey} onToggle={() => setRevealKey((v) => !v)} />
             </div>
           )}
         </div>

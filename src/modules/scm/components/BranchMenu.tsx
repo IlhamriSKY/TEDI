@@ -167,7 +167,7 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
                   aria-label={`Delete branch ${b.name}`}
                   className={cn(
                     DESTRUCTIVE_ACTION,
-                    "shrink-0 opacity-0 group-hover/branch:opacity-100",
+                    "shrink-0 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100",
                   )}
                   onClick={(e) => {
                     e.preventDefault();
