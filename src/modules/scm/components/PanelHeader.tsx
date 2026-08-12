@@ -35,6 +35,7 @@ type PanelHeaderProps = {
   loadBranches?: () => Promise<GitBranchRef[]>;
   onCheckout?: (name: string, create?: boolean) => Promise<void>;
   onDeleteBranch?: (name: string, force?: boolean) => Promise<void>;
+  onRenameBranch?: (from: string, to: string) => Promise<void>;
   /** True while a git operation is in flight; blocks a branch switch on top. */
   busy?: boolean;
 };
@@ -52,11 +53,13 @@ export function PanelHeader({
   loadBranches,
   onCheckout,
   onDeleteBranch,
+  onRenameBranch,
   busy,
 }: PanelHeaderProps) {
   // No change count here: each section header already carries its own, and the
   // one that mattered sat right of the branch name where it read as part of it.
-  const switchable = status?.isRepo && loadBranches && onCheckout && onDeleteBranch;
+  const switchable =
+    status?.isRepo && loadBranches && onCheckout && onDeleteBranch && onRenameBranch;
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 px-2">
       {dragHandle}
@@ -66,6 +69,7 @@ export function PanelHeader({
           loadBranches={loadBranches}
           onCheckout={onCheckout}
           onDeleteBranch={onDeleteBranch}
+          onRenameBranch={onRenameBranch}
           disabled={busy}
         />
       ) : (

@@ -9,6 +9,7 @@
  */
 import { invalidBranchName, isBranchSwitch, makeOps } from "../src/modules/scm/api";
 import { shouldFetch } from "../src/modules/scm/branch";
+import { authorHue, dayLabel, initials } from "../src/modules/scm/historyMeta";
 
 type Reply = string | Error;
 
@@ -312,6 +313,162 @@ console.log("\nbranch-switch toast");
   for (const [label, at, busy, want] of CASES) {
     check(label, shouldFetch(now, at, busy), want);
   }
+}
+
+console.log("\nstash");
+{
+  const { calls, ops } = recorder();
+  await ops.stash("wip", false);
+  // `--include-untracked` is the whole point: a new file is part of "my work
+  // in progress" to everyone except git, and a stash without it silently
+  // leaves that file behind in the tree.
+  check("stashing everything includes untracked", calls, [
+    ["stash", "push", "--include-untracked", "-m", "wip"],
+  ]);
+}
+{
+  const { calls, ops } = recorder();
+  await ops.stash("", true);
+  check("staged-only stash, no message", calls, [["stash", "push", "--staged"]]);
+}
+{
+  const { calls, ops } = recorder();
+  await ops.stashApply("stash@{1}", false);
+  await ops.stashApply("stash@{0}", true);
+  await ops.stashDrop("stash@{2}");
+  check("apply keeps the entry", calls[0], ["stash", "apply", "stash@{1}"]);
+  check("pop removes it", calls[1], ["stash", "pop", "stash@{0}"]);
+  check("drop deletes it", calls[2], ["stash", "drop", "stash@{2}"]);
+}
+{
+  // A stash subject is free text full of colons and spaces ("On main: WIP"),
+  // so the tab is the only safe separator.
+  const { ops } = recorder({
+    "stash list": "stash@{0}\tOn main: WIP: fix: the thing\nstash@{1}\tOn dev: other\n",
+  });
+  check("stash list splits on the first tab only", await ops.stashes(), [
+    { ref: "stash@{0}", subject: "On main: WIP: fix: the thing" },
+    { ref: "stash@{1}", subject: "On dev: other" },
+  ]);
+}
+
+console.log("\ntags");
+{
+  const { calls, ops } = recorder();
+  await ops.createTag("v1.0.0", "Release 1.0.0");
+  await ops.createTag("v1.0.1", "");
+  await ops.deleteTag("v1.0.0");
+  await ops.pushTag("v1.0.0");
+  check("a message makes it annotated", calls[0], ["tag", "-a", "v1.0.0", "-m", "Release 1.0.0"]);
+  check("no message makes it lightweight", calls[1], ["tag", "v1.0.1"]);
+  check("delete is local", calls[2], ["tag", "-d", "v1.0.0"]);
+  // `refs/tags/` and not the bare name: a branch and a tag can share a name,
+  // and git would refuse the ambiguous push rather than guess.
+  check("push is unambiguous", calls[3], ["push", "origin", "refs/tags/v1.0.0"]);
+}
+{
+  const { ops } = recorder();
+  // A tag is a ref, so a name git would read as an option must never reach
+  // the command line.
+  await ops.createTag("-rf", "").then(
+    () => check("a tag named -rf is refused", "resolved", "rejected"),
+    () => check("a tag named -rf is refused", "rejected", "rejected"),
+  );
+}
+
+console.log("\nbranch and history operations");
+{
+  const { calls, ops } = recorder();
+  await ops.merge("feature");
+  await ops.rebase("main");
+  await ops.abort("rebase");
+  await ops.continueOp("merge");
+  // `--no-edit` or a merge with no terminal stops to write a message forever.
+  check("merge never opens an editor", calls[0], ["merge", "--no-edit", "feature"]);
+  check("rebase takes the target", calls[1], ["rebase", "main"]);
+  check("abort names the operation", calls[2], ["rebase", "--abort"]);
+  check("continue names the operation", calls[3], ["merge", "--continue"]);
+}
+{
+  const { calls, ops } = recorder();
+  await ops.renameBranch("old", "new");
+  await ops.branchAt("fix", "abc123");
+  await ops.tagAt("v2", "abc123");
+  check("rename moves the branch", calls[0], ["branch", "-m", "old", "new"]);
+  // `checkout -b <name> <sha>` and not plain checkout: branching from a commit
+  // in the history is exactly what HEAD-only branching cannot express.
+  check("branch at a commit takes the sha", calls[1], ["checkout", "-b", "fix", "abc123"]);
+  check("tag at a commit takes the sha", calls[2], ["tag", "v2", "abc123"]);
+}
+{
+  const { calls, ops } = recorder();
+  await ops.undoLastCommit();
+  await ops.revert("abc123");
+  await ops.cherryPick("def456");
+  // `--soft`: Undo puts the work back in the index. `--mixed` would unstage it
+  // and `--hard` would destroy it, and neither is what "undo" means.
+  check("undo keeps the work staged", calls[0], ["reset", "--soft", "HEAD~1"]);
+  check("revert never opens an editor", calls[1], ["revert", "--no-edit", "abc123"]);
+  check("cherry-pick takes the sha", calls[2], ["cherry-pick", "def456"]);
+}
+{
+  const { calls, ops } = recorder();
+  await ops.resetTo("abc", "soft");
+  await ops.resetTo("abc", "mixed");
+  await ops.resetTo("abc", "hard");
+  check("reset modes map to flags", calls, [
+    ["reset", "--soft", "abc"],
+    ["reset", "--mixed", "abc"],
+    ["reset", "--hard", "abc"],
+  ]);
+}
+
+console.log("\nsync");
+{
+  const { calls, ops } = recorder();
+  await ops.sync("feature");
+  check("sync pulls before it pushes", calls, [
+    ["pull"],
+    ["rev-parse", "--abbrev-ref", "@{u}"],
+    ["push"],
+  ]);
+}
+{
+  // Sync on a branch that was never pushed has to publish it, not fail. This
+  // is the same rule Push follows, and getting it wrong makes Sync useless on
+  // exactly the branches that need it most.
+  const { calls, ops } = recorder({ "rev-parse --abbrev-ref @{u}": NO_HEAD });
+  await ops.sync("feature");
+  check("sync publishes a branch with no upstream", calls[2], ["push", "-u", "origin", "feature"]);
+}
+
+console.log("\nhistory day separators");
+{
+  // Fixed "now" so the boundaries are testable at all: Today/Yesterday are
+  // relative, and a naive `diff < 86400` would call 23:00 yesterday "today".
+  const now = new Date(2026, 7, 12, 9, 0, 0); // Wed 12 Aug 2026, 09:00 local
+  const at = (y: number, m: number, d: number, h = 12) =>
+    Math.floor(new Date(y, m, d, h).getTime() / 1000);
+
+  check("same calendar day is Today", dayLabel(at(2026, 7, 12, 1), now), "Today");
+  check("late last night is Yesterday, not Today", dayLabel(at(2026, 7, 11, 23), now), "Yesterday");
+  // 10 hours earlier than `now`, but a different calendar day: an elapsed-time
+  // check would get this wrong, a date-bucket check cannot.
+  check("early yesterday is still Yesterday", dayLabel(at(2026, 7, 11, 0), now), "Yesterday");
+  check("this year omits the year", dayLabel(at(2026, 7, 9), now).includes("2026"), false);
+  check("another year includes it", dayLabel(at(2025, 11, 9), now).includes("2025"), true);
+}
+
+console.log("\nauthor dots");
+{
+  check("two names give two initials", initials("Ilham Riski"), "IR");
+  check("one name gives two letters", initials("ilhamrisky"), "IL");
+  check("middle names are skipped, first and last kept", initials("Ada B C Lovelace"), "AL");
+  check("an empty name never crashes the row", initials("   "), "?");
+  // Stable across calls, or the same person changes colour on every render.
+  check("the hue is deterministic", authorHue("dev@t.t"), authorHue("dev@t.t"));
+  check("different people differ", authorHue("dev@t.t") === authorHue("dewi@t.t"), false);
+  check("the hue is a legal degree", authorHue("x".repeat(200)) < 360, true);
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

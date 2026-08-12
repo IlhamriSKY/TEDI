@@ -409,6 +409,7 @@ pub async fn ssh_git_status(
         ahead: 0,
         behind: 0,
         changes: Vec::new(),
+        in_progress: None,
     };
 
     let cd = if cwd.is_empty() {
@@ -465,6 +466,10 @@ pub async fn ssh_git_status(
         // `root.join(rel)` on a Windows host yields a mixed separator, which
         // the parser's `to_forward` normalizes back to a POSIX path.
         changes: parse_porcelain_v1(std::path::Path::new(root), entries),
+        // Reading the remote's `.git` markers would cost another round trip on
+        // a poll that already runs every 2.5s. A half-finished merge still
+        // shows up as conflicted files, which is the part the user acts on.
+        in_progress: None,
     })
 }
 

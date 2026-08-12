@@ -12,15 +12,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { GitStatus } from "../types";
 import {
+  Archive,
   ChevronDown,
   CloudDownload,
   CloudUpload,
+  FolderGit2,
   GitCommitHorizontal,
+  GitMerge,
+  GitPullRequestArrow,
+  RefreshCcwDot,
   RefreshCw,
   Sparkles,
+  Tag,
+  Undo2,
 } from "lucide-react";
 
 export type ScmBusy = null | "commit" | "push" | "pull" | "fetch" | "ai" | "stage" | "branch";
+
+/**
+ * Repository-level actions the overflow menu offers. One string union rather
+ * than seven more callbacks: every one of them opens a dialog the panel owns,
+ * so the menu only has to name which.
+ */
+export type ScmMoreAction =
+  "sync" | "undo" | "stashes" | "tags" | "merge" | "rebase" | "publishGithub";
 
 type CommitBoxProps = {
   status: GitStatus;
@@ -36,6 +51,9 @@ type CommitBoxProps = {
   doPush: (force?: boolean) => Promise<void> | void;
   doPull: () => Promise<void> | void;
   doFetch: () => Promise<void> | void;
+  onMore: (action: ScmMoreAction) => void;
+  /** Hides the GitHub entry on a remote repo, where `gh` cannot reach. */
+  canUseGithub?: boolean;
 };
 
 export function CommitBox({
@@ -50,12 +68,14 @@ export function CommitBox({
   doPush,
   doPull,
   doFetch,
+  onMore,
+  canUseGithub = false,
 }: CommitBoxProps) {
   const commitAll = stagedCount === 0;
   const canCommit = message.trim().length > 0 && changeCount > 0 && busy === null;
   return (
     <div
-      className="border-border/60 flex shrink-0 flex-col gap-1.5 border-b px-2 py-2"
+      className="border-border/60 flex shrink-0 flex-col gap-1.5 border-b p-2"
       aria-busy={busy !== null}
     >
       <div className="relative">
@@ -141,7 +161,7 @@ export function CommitBox({
               <ChevronDown size={12} strokeWidth={2.5} />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem
               disabled={!message.trim() || busy !== null}
               onSelect={() => void doCommit(true)}
@@ -149,7 +169,15 @@ export function CommitBox({
               <GitCommitHorizontal size={12} strokeWidth={2} />
               Amend last commit
             </DropdownMenuItem>
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("undo")}>
+              <Undo2 size={12} strokeWidth={2} />
+              Undo last commit
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("sync")}>
+              <RefreshCcwDot size={12} strokeWidth={2} />
+              Sync (pull, then push)
+            </DropdownMenuItem>
             <DropdownMenuItem disabled={busy !== null} onSelect={() => void doPull()}>
               <CloudDownload size={12} strokeWidth={2} />
               Pull
@@ -177,6 +205,38 @@ export function CommitBox({
               <RefreshCw size={12} strokeWidth={2} />
               Fetch (prune)
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("stashes")}>
+              <Archive size={12} strokeWidth={2} />
+              Stashes…
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("tags")}>
+              <Tag size={12} strokeWidth={2} />
+              Tags…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("merge")}>
+              <GitMerge size={12} strokeWidth={2} />
+              Merge a branch…
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("rebase")}>
+              <GitPullRequestArrow size={12} strokeWidth={2} />
+              Rebase onto…
+            </DropdownMenuItem>
+            {/* Only when gh can actually reach this repo. A remote (SSH) repo
+                runs its git elsewhere, so there is nothing here to publish.
+                Whether this repo is ALREADY on GitHub is the dialog's job to
+                find out - `status.upstream` answers a different question (a
+                fresh branch on a published repo has no upstream either). */}
+            {canUseGithub ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("publishGithub")}>
+                  <FolderGit2 size={12} strokeWidth={2} />
+                  Publish to GitHub…
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
         <IconTooltip

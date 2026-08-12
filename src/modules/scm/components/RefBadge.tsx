@@ -1,31 +1,7 @@
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
-
-export type RefChip = { label: string; kind: "head" | "branch" | "remote" | "tag" };
-
-/**
- * Map git's raw `%D` entries into displayable chips. "HEAD -> main" becomes
- * a "HEAD" chip plus a "main" branch chip so both render distinctly.
- */
-export function parseRefs(refs: string[]): RefChip[] {
-  const out: RefChip[] = [];
-  for (const r of refs) {
-    if (r.startsWith("HEAD -> ")) {
-      out.push({ label: "HEAD", kind: "head" });
-      out.push({ label: r.slice("HEAD -> ".length), kind: "branch" });
-    } else if (r === "HEAD") {
-      out.push({ label: "HEAD", kind: "head" });
-    } else if (r.startsWith("tag: ")) {
-      out.push({ label: r.slice("tag: ".length), kind: "tag" });
-    } else if (r.includes("/")) {
-      out.push({ label: r, kind: "remote" });
-    } else {
-      out.push({ label: r, kind: "branch" });
-    }
-  }
-  return out;
-}
+import type { RefChip } from "../historyMeta";
 
 /** The one pill shape across the history: ref chips on a graph row, the
  *  merge/root markers in the hover peek and in the commit card. */

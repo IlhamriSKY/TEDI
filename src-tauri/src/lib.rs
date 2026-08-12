@@ -688,6 +688,7 @@ pub fn run() {
             git::commands::git_diff_full,
             git::commands::git_log,
             git::commands::git_commit_detail,
+            git::gh::gh_run,
             pty::path_probe::terminal_probe_path,
             shell::shell_run_command,
             shell::shell_session_open,
