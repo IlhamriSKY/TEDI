@@ -22,7 +22,15 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { invalidBranchName } from "../api";
 import type { GitBranch, GitStatus } from "../types";
-import { Check, ChevronDown, Cloud, GitBranch as GitBranchIcon, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Cloud,
+  GitBranch as GitBranchIcon,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 type Props = {
   status: GitStatus;
@@ -31,10 +39,18 @@ type Props = {
   loadBranches: () => Promise<GitBranch[]>;
   onCheckout: (name: string, create?: boolean) => Promise<void>;
   onDeleteBranch: (name: string, force?: boolean) => Promise<void>;
+  onRenameBranch: (from: string, to: string) => Promise<void>;
   disabled?: boolean;
 };
 
-export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, disabled }: Props) {
+export function BranchMenu({
+  status,
+  loadBranches,
+  onCheckout,
+  onDeleteBranch,
+  onRenameBranch,
+  disabled,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<GitBranch[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,6 +59,9 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
   const [newName, setNewName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<GitBranch | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  /** Branch being renamed, and the name being typed for it. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameTo, setRenameTo] = useState("");
   // Dropped rather than applied when the menu is reopened for another repo.
   const reqRef = useRef(0);
 
@@ -160,6 +179,23 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
                 className={cn("shrink-0", !b.current && "invisible")}
               />
               <span className="min-w-0 flex-1 truncate">{b.name}</span>
+              {/* Rename works on the current branch too - it is the one you
+                  most often want to rename, right after realising the name was
+                  wrong. Delete stays off it, because git refuses that anyway. */}
+              <span
+                role="button"
+                tabIndex={-1}
+                aria-label={`Rename branch ${b.name}`}
+                className="hover:bg-muted hover:text-foreground shrink-0 rounded-md p-0.5 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRenameTo(b.name);
+                  setRenaming(b.name);
+                }}
+              >
+                <Pencil size={11} strokeWidth={2} />
+              </span>
               {!b.current ? (
                 <span
                   role="button"
@@ -231,6 +267,64 @@ export function BranchMenu({ status, loadBranches, onCheckout, onDeleteBranch, d
               }}
             >
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renaming !== null}
+        onOpenChange={(o) => {
+          if (!o) setRenaming(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename branch</DialogTitle>
+            <DialogDescription>
+              Renames {renaming} locally. A branch already pushed keeps its old name on the remote
+              until you push the new one.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            placeholder="branch-name"
+            value={renameTo}
+            onChange={(e) => setRenameTo(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                renaming &&
+                renameTo.trim() &&
+                !invalidBranchName(renameTo)
+              ) {
+                e.preventDefault();
+                const from = renaming;
+                setRenaming(null);
+                void onRenameBranch(from, renameTo.trim()).then(refresh);
+              }
+            }}
+          />
+          {renameTo.trim() && invalidBranchName(renameTo) ? (
+            <p className="text-destructive text-[11px]">{invalidBranchName(renameTo)}</p>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRenaming(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={
+                !renameTo.trim() || !!invalidBranchName(renameTo) || renameTo.trim() === renaming
+              }
+              onClick={() => {
+                const from = renaming;
+                if (!from) return;
+                setRenaming(null);
+                void onRenameBranch(from, renameTo.trim()).then(refresh);
+              }}
+            >
+              Rename
             </Button>
           </DialogFooter>
         </DialogContent>

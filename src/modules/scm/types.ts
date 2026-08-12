@@ -17,6 +17,9 @@ export type GitChange = {
   binary: boolean;
 };
 
+/** A multi-step git operation the repo is sitting in the middle of. */
+export type GitInProgress = "merge" | "rebase" | "cherry-pick" | "revert";
+
 export type GitStatus = {
   isRepo: boolean;
   root: string | null;
@@ -25,6 +28,18 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   changes: GitChange[];
+  /** Set while a merge/rebase/cherry-pick/revert is half-finished, so the panel
+   *  can offer Abort and Continue only when they mean something. Always null
+   *  over SSH, where the marker files are not read. */
+  inProgress: GitInProgress | null;
+};
+
+/** One entry of `git stash list`. */
+export type GitStash = {
+  /** Reflog selector, e.g. `stash@{0}`. What every stash command takes. */
+  ref: string;
+  /** Reflog subject, e.g. "On main: WIP before the refactor". */
+  subject: string;
 };
 
 /** One entry from `git for-each-ref` over refs/heads + refs/remotes. */

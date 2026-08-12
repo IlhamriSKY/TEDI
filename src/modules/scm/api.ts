@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CommitDetail, GitBranch, GitCommit, GitStatus } from "./types";
+import type {
+  CommitDetail,
+  GitBranch,
+  GitCommit,
+  GitInProgress,
+  GitStash,
+  GitStatus,
+} from "./types";
 import type { FsReadResult } from "@/lib/ipc";
 
 /** Mirrors Rust `fs::file::ReadResult` (git_file_head / git_file_at reuse it). */
@@ -79,6 +86,41 @@ export type GitOps = {
    *  ref checks out (or creates) the local branch that follows it. */
   checkout(name: string, create?: boolean): Promise<void>;
   deleteBranch(name: string, force?: boolean): Promise<void>;
+  renameBranch(from: string, to: string): Promise<void>;
+  /** Pull then push, the one button VSCode calls Sync. */
+  sync(branch: string | null): Promise<void>;
+  /** Merge `name` INTO the current branch. Never opens an editor. */
+  merge(name: string): Promise<void>;
+  /** Replay the current branch on top of `name`. */
+  rebase(name: string): Promise<void>;
+  /** Abandon a half-finished merge/rebase/cherry-pick/revert. */
+  abort(op: GitInProgress): Promise<void>;
+  /** Resume one after its conflicts were staged. */
+  continueOp(op: GitInProgress): Promise<void>;
+  /** Move HEAD back one commit, keeping the change staged. */
+  undoLastCommit(): Promise<void>;
+  revert(sha: string): Promise<void>;
+  cherryPick(sha: string): Promise<void>;
+  /** `soft` keeps the work staged, `mixed` unstages it, `hard` destroys it. */
+  resetTo(sha: string, mode: "soft" | "mixed" | "hard"): Promise<void>;
+  stashes(): Promise<GitStash[]>;
+  /** `staged` stashes only the index; otherwise everything, untracked included. */
+  stash(message: string, staged?: boolean): Promise<void>;
+  /** `pop` drops the entry after restoring it; otherwise it is kept. */
+  stashApply(ref: string, pop: boolean): Promise<void>;
+  stashDrop(ref: string): Promise<void>;
+  tags(): Promise<string[]>;
+  /** Annotated when a message is given, lightweight otherwise. */
+  createTag(name: string, message: string): Promise<void>;
+  deleteTag(name: string): Promise<void>;
+  pushTag(name: string): Promise<void>;
+  /** Create `name` pointing at `sha` and switch to it. `checkout` only ever
+   *  branches from HEAD, so branching off a commit in the history needs this. */
+  branchAt(name: string, sha: string): Promise<void>;
+  /** Tag an arbitrary commit rather than HEAD. */
+  tagAt(name: string, sha: string): Promise<void>;
+  /** Turn the folder into a repository. The only op that runs outside one. */
+  init(): Promise<void>;
 };
 
 /**
@@ -115,6 +157,22 @@ export function isBranchSwitch(
 ): boolean {
   if (!next.branch || !next.key || prev === null) return false;
   return prev.key === next.key && prev.branch !== next.branch;
+}
+
+/**
+ * `git stash list --format=%gd%x09%gs` rows. Tab-separated because a stash
+ * subject is free text that routinely contains colons and spaces ("On main:
+ * WIP"), so splitting on anything narrower would truncate it.
+ */
+export function parseStashes(raw: string): GitStash[] {
+  const out: GitStash[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    out.push({ ref: line.slice(0, tab), subject: line.slice(tab + 1) });
+  }
+  return out;
 }
 
 /** `git for-each-ref` rows: refname, short name, `*` for HEAD, upstream. */
@@ -243,6 +301,84 @@ export function makeOps(run: Runner): GitOps {
       if (bad) throw new Error(bad);
       await ok(["branch", force ? "-D" : "-d", name]);
     },
+    renameBranch: async (from, to) => {
+      const bad = invalidBranchName(to);
+      if (bad) throw new Error(bad);
+      await ok(["branch", "-m", from, to]);
+    },
+
+    sync: async (branch) => {
+      await ok(["pull"]);
+      // Reuses the publish path rather than a bare `push`, so a Sync on a
+      // branch that has no upstream yet sets one instead of failing.
+      const flags: string[] = [];
+      if (await succeeds(["rev-parse", "--abbrev-ref", "@{u}"])) {
+        await ok(["push", ...flags]);
+        return;
+      }
+      if (!branch) throw new Error("No current branch to publish (detached HEAD).");
+      await ok(["push", "-u", "origin", branch]);
+    },
+    // `--no-edit` on top of GIT_EDITOR=true: belt and braces, because a merge
+    // that stops to write a message would hang a worker with no terminal.
+    merge: (name) => ok(["merge", "--no-edit", name]),
+    rebase: (name) => ok(["rebase", name]),
+    abort: (op) => ok([op, "--abort"]),
+    continueOp: (op) => ok([op, "--continue"]),
+    // `--soft`, so the commit's content lands back in the index rather than
+    // being thrown away. This is Undo, not Discard.
+    undoLastCommit: () => ok(["reset", "--soft", "HEAD~1"]),
+    revert: (sha) => ok(["revert", "--no-edit", sha]),
+    cherryPick: (sha) => ok(["cherry-pick", sha]),
+    resetTo: (sha, mode) => ok(["reset", `--${mode}`, sha]),
+
+    stashes: async () => parseStashes(await run(["stash", "list", "--format=%gd%x09%gs"])),
+    stash: (message, staged) =>
+      ok([
+        "stash",
+        "push",
+        // Untracked files are part of "my work in progress" to everyone except
+        // git; leaving them behind is how a stash silently loses a new file.
+        ...(staged ? ["--staged"] : ["--include-untracked"]),
+        ...(message.trim() ? ["-m", message.trim()] : []),
+      ]),
+    stashApply: (ref, pop) => ok(["stash", pop ? "pop" : "apply", ref]),
+    stashDrop: (ref) => ok(["stash", "drop", ref]),
+
+    tags: async () =>
+      (await run(["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags"]))
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    createTag: async (name, message) => {
+      // A tag is a ref, so it is held to the same name rules as a branch.
+      const bad = invalidBranchName(name);
+      if (bad) throw new Error(bad);
+      await ok(message.trim() ? ["tag", "-a", name, "-m", message.trim()] : ["tag", name]);
+    },
+    deleteTag: async (name) => {
+      const bad = invalidBranchName(name);
+      if (bad) throw new Error(bad);
+      await ok(["tag", "-d", name]);
+    },
+    pushTag: async (name) => {
+      const bad = invalidBranchName(name);
+      if (bad) throw new Error(bad);
+      await ok(["push", "origin", `refs/tags/${name}`]);
+    },
+
+    branchAt: async (name, sha) => {
+      const bad = invalidBranchName(name);
+      if (bad) throw new Error(bad);
+      await ok(["checkout", "-b", name, sha]);
+    },
+    tagAt: async (name, sha) => {
+      const bad = invalidBranchName(name);
+      if (bad) throw new Error(bad);
+      await ok(["tag", name, sha]);
+    },
+
+    init: () => ok(["init"]),
   };
 }
 

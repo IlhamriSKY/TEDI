@@ -6,8 +6,18 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { Clock, GitCommitHorizontal, GitMerge, Hash, User } from "lucide-react";
 import { gitLog } from "./api";
-import { MetaPill, parseRefs, RefBadge } from "./components/RefBadge";
-import { CommitDetailPane } from "./CommitDetailPane";
+import {
+  authorHue,
+  dayKey,
+  dayLabel,
+  formatAbsTime,
+  formatClock,
+  formatRelTime,
+  initials,
+  parseRefs,
+} from "./historyMeta";
+import { MetaPill, RefBadge } from "./components/RefBadge";
+import { CommitDetailPane, type CommitAction } from "./CommitDetailPane";
 import type { OpenDiffInput } from "./types";
 import type { GitCommit } from "./types";
 
@@ -24,12 +34,22 @@ type Props = {
    * (side panel); "mouse" floats it at the cursor (the spacious tab view).
    */
   anchorMode?: "row" | "mouse";
+  /** Acts on the commit shown in the detail card (revert, cherry-pick, reset,
+   *  branch, tag). Omitted leaves the card read-only. */
+  onCommitAction?: (action: CommitAction, sha: string, shortSha: string) => void;
 };
 
-const ROW_H = 26;
+const ROW_H = 28;
 const LANE_W = 14;
-const DOT_R = 3.5;
+const DOT_R = 4;
 const LANE_PAD_X = 8;
+/** Height of a day separator. The lanes are redrawn across it so the graph
+ *  stays one continuous tree instead of breaking at every date. */
+const DAY_H = 24;
+/** Ref chips past this many collapse into a `+N` pill. Without a cap the HEAD
+ *  commit (HEAD + branch + tag + remote) took 60% of the row and squeezed the
+ *  commit subject to literally zero width. */
+const MAX_CHIPS = 3;
 // Beyond this many concurrent lanes the graph would eat the subject/time
 // columns (there's no horizontal scrollbar), so lanes compress toward
 // MIN_LANE_W. Keeps a busy history readable instead of shoving text off-screen.
@@ -139,31 +159,13 @@ function laneX(lane: number, laneW: number): number {
   return LANE_PAD_X + lane * laneW;
 }
 
-function formatRelTime(unix: number): string {
-  const now = Date.now() / 1000;
-  const diff = Math.max(0, now - unix);
-  if (diff < 60) return `${Math.floor(diff)}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86_400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 86_400 * 30) return `${Math.floor(diff / 86_400)}d ago`;
-  if (diff < 86_400 * 365) return `${Math.floor(diff / (86_400 * 30))}mo ago`;
-  return `${Math.floor(diff / (86_400 * 365))}y ago`;
-}
-
-/** The exact stamp the row has no width for; the row only shows "3d ago". */
-function formatAbsTime(unix: number): string {
-  return new Date(unix * 1000).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
 export function GitGraphView({
   rootPath,
   isRepo,
   refreshToken = 0,
   onOpenDiff,
   anchorMode = "row",
+  onCommitAction,
 }: Props) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -238,6 +240,35 @@ export function GitGraphView({
 
   const { rows, laneCount } = useMemo(() => layoutCommits(commits), [commits]);
 
+  /**
+   * Rows with a day separator inserted whenever the date changes. Each
+   * separator carries the `laneIn` of the row below it - the lane state
+   * immediately above that row - so the graph can be drawn straight through
+   * the gap and the tree reads as continuous.
+   */
+  const items = useMemo(() => {
+    const out: (
+      | { kind: "day"; key: string; label: string; lanes: (string | null)[] }
+      | { kind: "row"; row: LaidOut }
+    )[] = [];
+    const now = new Date();
+    let last = "";
+    for (const row of rows) {
+      const key = dayKey(row.commit.authorTime);
+      if (key !== last) {
+        last = key;
+        out.push({
+          kind: "day",
+          key,
+          label: dayLabel(row.commit.authorTime, now),
+          lanes: row.laneIn,
+        });
+      }
+      out.push({ kind: "row", row });
+    }
+    return out;
+  }, [rows]);
+
   if (!rootPath) return null;
   if (!isRepo) {
     return (
@@ -281,18 +312,28 @@ export function GitGraphView({
         {/* @container: rows drop the author/sha columns as the sidebar narrows
             (see GraphRow) so the history stays legible at any width. */}
         <ul className="@container py-0.5">
-          {rows.map((row) => (
-            <GraphRow
-              key={row.commit.sha}
-              row={row}
-              graphWidth={graphWidth}
-              laneW={laneW}
-              dotR={dotR}
-              selected={openSha === row.commit.sha}
-              anchorMode={anchorMode}
-              onSelect={(point) => toggle(row.commit.sha, point)}
-            />
-          ))}
+          {items.map((item) =>
+            item.kind === "day" ? (
+              <DaySeparator
+                key={`day-${item.key}`}
+                label={item.label}
+                lanes={item.lanes}
+                graphWidth={graphWidth}
+                laneW={laneW}
+              />
+            ) : (
+              <GraphRow
+                key={item.row.commit.sha}
+                row={item.row}
+                graphWidth={graphWidth}
+                laneW={laneW}
+                dotR={dotR}
+                selected={openSha === item.row.commit.sha}
+                anchorMode={anchorMode}
+                onSelect={(point) => toggle(item.row.commit.sha, point)}
+              />
+            ),
+          )}
         </ul>
       </ScrollArea>
       {/* "mouse" mode anchors the card to a 0-size element pinned at the
@@ -330,10 +371,75 @@ export function GitGraphView({
             repoPath={rootPath}
             sha={openSha}
             onOpenDiff={onOpenDiff ? handleOpenDiff : undefined}
+            onAction={
+              onCommitAction
+                ? (action, sha, shortSha) => {
+                    // Close the card first: every action changes HEAD or the
+                    // ref list, so leaving it open would show a stale commit
+                    // over a history that has already moved.
+                    setOpen(null);
+                    onCommitAction(action, sha, shortSha);
+                  }
+                : undefined
+            }
           />
         </PopoverContent>
       ) : null}
     </Popover>
+  );
+}
+
+/**
+ * Date heading between two days of commits.
+ *
+ * The lane lines are redrawn across its full height so the graph never breaks:
+ * a bare header row would leave a gap in every branch line and the tree would
+ * read as a stack of disconnected fragments. Deliberately not `sticky` - a
+ * pinned heading would keep showing lanes from the row it was built for while
+ * hovering over rows with a different lane layout.
+ */
+function DaySeparator({
+  label,
+  lanes,
+  graphWidth,
+  laneW,
+}: {
+  label: string;
+  lanes: (string | null)[];
+  graphWidth: number;
+  laneW: number;
+}) {
+  return (
+    <li className="flex items-center pr-4 select-none">
+      <div className="shrink-0" style={{ width: graphWidth, height: DAY_H }}>
+        <svg
+          width={graphWidth}
+          height={DAY_H}
+          viewBox={`0 0 ${graphWidth} ${DAY_H}`}
+          className="block"
+        >
+          {lanes.map((sha, i) =>
+            sha ? (
+              <line
+                key={i}
+                x1={laneX(i, laneW)}
+                y1={0}
+                x2={laneX(i, laneW)}
+                y2={DAY_H}
+                stroke={laneColor(i)}
+                strokeWidth={1.4}
+              />
+            ) : null,
+          )}
+        </svg>
+      </div>
+      <span className="text-muted-foreground/80 shrink-0 pr-2 text-[10px] font-medium tracking-wide uppercase">
+        {label}
+      </span>
+      {/* Hairline to the right edge, so the date reads as a divider rather than
+          as a very short commit subject. */}
+      <span className="bg-border/60 h-px min-w-0 flex-1" aria-hidden />
+    </li>
   );
 }
 
@@ -355,6 +461,8 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
   const midY = ROW_H / 2;
   const myX = laneX(lane, laneW);
   const refChips = useMemo(() => parseRefs(commit.refs), [commit.refs]);
+  const isHead = refChips.some((c) => c.kind === "head");
+  const isMerge = commit.parents.length > 1;
 
   // Build SVG segments. Top half = incoming lines (above the dot), bottom
   // half = outgoing lines (below the dot). Lanes that pass through unchanged
@@ -479,38 +587,71 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
           className="block"
         >
           {segments}
+          {/* The checked-out commit gets a halo so "where am I" is answerable
+              without reading the badges. */}
+          {isHead ? (
+            <circle
+              cx={myX}
+              cy={midY}
+              r={dotR + 2.5}
+              fill="none"
+              stroke={laneColor(lane)}
+              strokeWidth={1.2}
+              opacity={0.45}
+            />
+          ) : null}
+          {/* Hollow for a merge, solid otherwise - the same convention every
+              other git UI uses, and it tells the two apart at a glance where
+              previously every dot looked identical. The background-coloured
+              stroke on a normal dot punches it out of lines crossing behind. */}
           <circle
             cx={myX}
             cy={midY}
             r={dotR}
-            fill={laneColor(lane)}
-            stroke="var(--background)"
-            strokeWidth={1.5}
+            fill={isMerge ? "var(--background)" : laneColor(lane)}
+            stroke={isMerge ? laneColor(lane) : "var(--background)"}
+            strokeWidth={1.6}
           />
         </svg>
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-1.5 py-1">
+        {/* Capped and allowed to shrink. Both matter: the cap keeps a
+            heavily-tagged commit from filling the row, and dropping `shrink-0`
+            is what stops the chips squeezing the subject out of existence. */}
         {refChips.length > 0 ? (
-          <span className="flex shrink-0 items-center gap-1">
-            {refChips.map((chip, i) => (
+          <span className="flex max-w-[45%] min-w-0 shrink items-center gap-1 overflow-hidden">
+            {refChips.slice(0, MAX_CHIPS).map((chip, i) => (
               <RefBadge key={`${chip.kind}-${chip.label}-${i}`} chip={chip} />
             ))}
+            {refChips.length > MAX_CHIPS ? (
+              <MetaPill tone="bg-muted text-muted-foreground border-border">
+                +{refChips.length - MAX_CHIPS}
+              </MetaPill>
+            ) : null}
           </span>
         ) : null}
         <span className="text-foreground/90 min-w-0 flex-1 truncate text-[11.5px]">
           {commit.subject}
         </span>
-        {/* Author + sha are progressively dropped on narrow sidebars (both
-            still live in the row tooltip + detail card), so subject + time
-            always stay readable. */}
-        <span className="text-muted-foreground hidden max-w-24 min-w-0 shrink truncate text-[10px] @[15rem]:block">
-          {commit.authorName}
+        {/* A coloured initial instead of the author's name: one glyph rather
+            than a string repeated down every row, and it frees the width the
+            subject needed. The full name and email stay in the row tooltip. */}
+        <span
+          className="hidden size-4 shrink-0 place-items-center rounded-full text-[7.5px] font-semibold text-white @[13rem]:grid"
+          style={{
+            backgroundColor: `hsl(${authorHue(commit.authorEmail || commit.authorName)} 42% 42%)`,
+          }}
+          aria-hidden
+        >
+          {initials(commit.authorName)}
         </span>
         <span className="text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] tabular-nums @[12rem]:block">
           {commit.shortSha}
         </span>
-        <span className="text-muted-foreground/70 w-14 shrink-0 text-right text-[10px] tabular-nums">
-          {formatRelTime(commit.authorTime)}
+        {/* Clock time, not "7d ago": the day separator above already says which
+            day, so this can be exact instead of repeating itself. */}
+        <span className="text-muted-foreground/70 w-10 shrink-0 text-right text-[10px] tabular-nums">
+          {formatClock(commit.authorTime)}
         </span>
       </div>
     </div>

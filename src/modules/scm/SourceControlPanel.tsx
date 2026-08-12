@@ -15,17 +15,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { basename } from "@/lib/path";
 import { useSshBrowseStore } from "@/modules/ssh/sshBrowseStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { gitStatus, gitStatusSsh, isBranchSwitch, localOps, remoteOps, type GitOps } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
+import type { CommitAction } from "./CommitDetailPane";
+import { PullRequestsView } from "./PullRequestsView";
 import { ChangeSection } from "./components/ChangeSection";
-import { CommitBox, type ScmBusy } from "./components/CommitBox";
+import { CommitBox, type ScmBusy, type ScmMoreAction } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
-import type { GitChange, GitChangeStatus, GitStatus, OpenDiffInput } from "./types";
-import { X } from "lucide-react";
+import {
+  BranchOpDialog,
+  CommitRefDialog,
+  PublishGithubDialog,
+  StashDialog,
+  TagDialog,
+} from "./components/RepoDialogs";
+import { friendlyGhError, ghFor } from "./gh";
+import type { GitChange, GitChangeStatus, GitInProgress, GitStatus, OpenDiffInput } from "./types";
+import { cn } from "@/lib/utils";
+import { CircleAlert, FolderGit2, X } from "lucide-react";
 import { coalesceResume } from "@/lib/windowResume";
 
 type Props = {
@@ -83,7 +95,26 @@ const STATUS_ORDER: Record<GitChangeStatus, number> = {
 
 const AUTO_REFRESH_MS = 2500;
 
-type GitOp = "commit" | "push" | "pull" | "fetch" | "discard" | "stage" | "branch";
+type GitOp =
+  | "commit"
+  | "push"
+  | "pull"
+  | "fetch"
+  | "discard"
+  | "stage"
+  | "branch"
+  | "stash"
+  | "tag"
+  | "merge"
+  | "init";
+
+/** Human name for the operation a repository is stuck in the middle of. */
+const IN_PROGRESS_LABEL: Record<GitInProgress, string> = {
+  merge: "Merge",
+  rebase: "Rebase",
+  "cherry-pick": "Cherry-pick",
+  revert: "Revert",
+};
 
 /** Map raw git stderr to actionable text. Common cases get plain-language hints; unknown errors fall through unchanged. */
 function friendlyGitError(e: unknown, op: GitOp): string {
@@ -180,7 +211,7 @@ export function SourceControlPanel({
   const [confirmDiscard, setConfirmDiscard] = useState<GitChange[] | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<ScmBusy>(null);
-  const [tab, setTab] = useState<"changes" | "graph">("changes");
+  const [tab, setTab] = useState<"changes" | "graph" | "prs">("changes");
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   // Bumped after commit/push and on manual refresh so the Graph tab refetches
   // without us wiring a direct ref into the child.
@@ -555,7 +586,166 @@ export function SourceControlPanel({
     [ops, fetchStatus, bumpGraph],
   );
 
+  const doRenameBranch = useCallback(
+    async (from: string, to: string) => {
+      const ok = await runOp("branch", "branch", (o) => o.renameBranch(from, to));
+      if (ok) toast(`Renamed ${from} to ${to}`, { variant: "success" });
+    },
+    [runOp],
+  );
+
   const loadBranches = useCallback(async () => (ops ? ops.branches() : []), [ops]);
+
+  // Which repo dialog is open. One piece of state rather than four booleans:
+  // they are mutually exclusive, all opened from the same menu.
+  const [dialog, setDialog] = useState<ScmMoreAction | null>(null);
+  const inProgress = status?.inProgress ?? null;
+
+  const doSync = useCallback(async () => {
+    const ok = await runOp("push", "push", (o) => o.sync(status?.branch ?? null));
+    if (ok) toast("Synced with the remote.", { variant: "success" });
+  }, [runOp, status?.branch]);
+
+  const doUndoCommit = useCallback(async () => {
+    const ok = await runOp("commit", "commit", (o) => o.undoLastCommit());
+    // Says where the work went: `--soft` puts it back in the index, so the
+    // user sees their files reappear staged rather than think they vanished.
+    if (ok) toast("Undid the last commit. Its changes are staged again.", { variant: "success" });
+  }, [runOp]);
+
+  const doMergeOrRebase = useCallback(
+    async (mode: "merge" | "rebase", name: string) => {
+      setDialog(null);
+      const ok = await runOp("merge", "branch", (o) =>
+        mode === "merge" ? o.merge(name) : o.rebase(name),
+      );
+      if (ok) {
+        toast(mode === "merge" ? `Merged ${name}.` : `Rebased onto ${name}.`, {
+          variant: "success",
+        });
+      }
+    },
+    [runOp],
+  );
+
+  const doResolve = useCallback(
+    async (op: GitInProgress, action: "abort" | "continue") => {
+      const ok = await runOp("merge", "branch", (o) =>
+        action === "abort" ? o.abort(op) : o.continueOp(op),
+      );
+      if (ok) {
+        toast(
+          action === "abort"
+            ? `${IN_PROGRESS_LABEL[op]} aborted.`
+            : `${IN_PROGRESS_LABEL[op]} continued.`,
+          { variant: "success" },
+        );
+      }
+    },
+    [runOp],
+  );
+
+  const doInit = useCallback(async () => {
+    // Not through `runOp`: that refuses when `status.isRepo` is false, which is
+    // the only situation in which init makes any sense at all.
+    const root = rootPath;
+    if (!root) return;
+    setBusy("branch");
+    try {
+      await localOps(root).init();
+      toast("Initialized an empty repository.", { variant: "success" });
+      await fetchStatus(true);
+      bumpGraph();
+    } catch (e) {
+      toast(friendlyGitError(e, "init"), { variant: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, [rootPath, fetchStatus, bumpGraph]);
+
+  const doPublishGithub = useCallback(
+    async (name: string, isPrivate: boolean, description: string) => {
+      setDialog(null);
+      if (!status?.root) return;
+      setBusy("push");
+      try {
+        const url = await ghFor(status.root).createRepo(name, isPrivate, description);
+        toast(`Published ${name} to GitHub.`, { variant: "success" });
+        if (url) void openUrl(url);
+        await fetchStatus(true);
+      } catch (e) {
+        toast(friendlyGhError(e), { variant: "error" });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [status?.root, fetchStatus],
+  );
+
+  /** Branch/tag name being asked for, and the commit it will point at. */
+  const [commitPrompt, setCommitPrompt] = useState<{
+    kind: "branch" | "tag";
+    sha: string;
+    shortSha: string;
+  } | null>(null);
+  const [commitPromptName, setCommitPromptName] = useState("");
+  /** A hard reset destroys uncommitted work, so it asks first. */
+  const [confirmReset, setConfirmReset] = useState<{ sha: string; shortSha: string } | null>(null);
+
+  const onCommitAction = useCallback(
+    (action: CommitAction, sha: string, shortSha: string) => {
+      if (action === "branch" || action === "tag") {
+        setCommitPromptName("");
+        setCommitPrompt({ kind: action, sha, shortSha });
+        return;
+      }
+      if (action === "reset-hard") {
+        setConfirmReset({ sha, shortSha });
+        return;
+      }
+      void (async () => {
+        const ok = await runOp("merge", "branch", (o) => {
+          if (action === "revert") return o.revert(sha);
+          if (action === "cherry-pick") return o.cherryPick(sha);
+          return o.resetTo(sha, action === "reset-soft" ? "soft" : "mixed");
+        });
+        if (!ok) return;
+        toast(
+          action === "revert"
+            ? `Reverted ${shortSha}.`
+            : action === "cherry-pick"
+              ? `Cherry-picked ${shortSha}.`
+              : `Reset to ${shortSha}.`,
+          { variant: "success" },
+        );
+      })();
+    },
+    [runOp],
+  );
+
+  const onMore = useCallback(
+    (action: ScmMoreAction) => {
+      if (action === "sync") return void doSync();
+      if (action === "undo") return void doUndoCommit();
+      setDialog(action);
+    },
+    [doSync, doUndoCommit],
+  );
+
+  /**
+   * Publish `name` so a pull request can be opened for it. Rethrows rather
+   * than toasting: the PR flow needs to stop before calling gh if the branch
+   * never reached the remote. `ops.push` already handles a branch with no
+   * upstream, so this is the same publish the header button performs.
+   */
+  const publishBranch = useCallback(
+    async (name: string) => {
+      if (!ops) throw new Error("Not a git repository.");
+      await ops.push(name);
+      await fetchStatus(true);
+    },
+    [ops, fetchStatus],
+  );
 
   const doGenerate = useCallback(async () => {
     if (busy !== null) return;
@@ -700,6 +890,7 @@ export function SourceControlPanel({
         loadBranches={loadBranches}
         onCheckout={doCheckout}
         onDeleteBranch={doDeleteBranch}
+        onRenameBranch={doRenameBranch}
         busy={busy !== null}
       />
 
@@ -709,13 +900,59 @@ export function SourceControlPanel({
 
           <Separator className="bg-border" />
 
+          {/* A half-finished merge or rebase is the one state where the normal
+              controls are all wrong: git refuses almost everything until it is
+              resolved, so the way out gets its own strip above the file list
+              instead of hiding in a menu. */}
+          {inProgress ? (
+            <div className="border-border/60 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
+              <CircleAlert size={13} strokeWidth={2} className="text-icon-working shrink-0" />
+              <span className="min-w-0 flex-1 text-[11px]">
+                {IN_PROGRESS_LABEL[inProgress]} in progress
+                {conflicts.length > 0
+                  ? ` - ${conflicts.length} conflicted`
+                  : " - nothing conflicted"}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                disabled={busy !== null || conflicts.length > 0}
+                onClick={() => void doResolve(inProgress, "continue")}
+                aria-label={`Continue the ${inProgress}`}
+              >
+                Continue
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(DESTRUCTIVE_ACTION, "h-6 px-2 text-[11px]")}
+                disabled={busy !== null}
+                onClick={() => void doResolve(inProgress, "abort")}
+                aria-label={`Abort the ${inProgress}`}
+              >
+                Abort
+              </Button>
+            </div>
+          ) : null}
+
           {!status?.isRepo ? (
-            <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
-              {!remote
-                ? "Not a git repository."
-                : error
-                  ? "Could not read the remote repository."
-                  : "Not a git repository on the remote."}
+            <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 text-center text-[11px]">
+              <p>
+                {!remote
+                  ? "This folder is not a git repository."
+                  : error
+                    ? "Could not read the remote repository."
+                    : "Not a git repository on the remote."}
+              </p>
+              {/* The dead end this used to be. Initializing is the one thing a
+                  user wants here, and it is a local-only operation. */}
+              {!remote && rootPath ? (
+                <Button variant="outline" size="sm" disabled={busy !== null} onClick={doInit}>
+                  <FolderGit2 size={12} strokeWidth={2} />
+                  Initialize repository
+                </Button>
+              ) : null}
             </div>
           ) : historyOnly ? (
             <div className="flex min-h-0 flex-1 flex-col">
@@ -725,6 +962,7 @@ export function SourceControlPanel({
                 refreshToken={graphRefreshToken}
                 anchorMode="mouse"
                 onOpenDiff={onOpenDiff}
+                onCommitAction={onCommitAction}
               />
             </div>
           ) : remote ? (
@@ -744,13 +982,15 @@ export function SourceControlPanel({
                 doPush={doPush}
                 doPull={doPull}
                 doFetch={doFetch}
+                onMore={onMore}
+                canUseGithub={!remote}
               />
               {sections}
             </div>
           ) : (
             <Tabs
               value={tab}
-              onValueChange={(v) => setTab(v as "changes" | "graph")}
+              onValueChange={(v) => setTab(v as "changes" | "graph" | "prs")}
               className="flex min-h-0 flex-1 flex-col gap-0"
             >
               <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
@@ -759,6 +999,12 @@ export function SourceControlPanel({
                 </TabsTrigger>
                 <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
                   History
+                </TabsTrigger>
+                {/* "PRs" rather than "Pull Requests": three full words do not
+                    fit this row at sidebar width, and a truncated tab label is
+                    worse than the abbreviation GitHub itself uses. */}
+                <TabsTrigger value="prs" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  PRs
                 </TabsTrigger>
               </TabsList>
 
@@ -775,6 +1021,8 @@ export function SourceControlPanel({
                   doPush={doPush}
                   doPull={doPull}
                   doFetch={doFetch}
+                  onMore={onMore}
+                  canUseGithub={!remote}
                 />
                 {sections}
               </TabsContent>
@@ -786,12 +1034,150 @@ export function SourceControlPanel({
                   refreshToken={graphRefreshToken}
                   anchorMode="row"
                   onOpenDiff={onOpenDiff}
+                  onCommitAction={onCommitAction}
                 />
+              </TabsContent>
+
+              {/* Mounted only while selected. Every gh call is a subprocess and
+                  a network round trip, so the tab must not load itself behind
+                  the Changes view the user is actually looking at. */}
+              <TabsContent value="prs" className="flex min-h-0 flex-1 flex-col">
+                {tab === "prs" && status.root ? (
+                  <PullRequestsView
+                    repoPath={status.root}
+                    branch={status.branch}
+                    onPublish={publishBranch}
+                    onRefresh={refresh}
+                    loadBranches={loadBranches}
+                    busy={busy !== null}
+                  />
+                ) : null}
               </TabsContent>
             </Tabs>
           )}
         </>
       )}
+
+      {/* Every repo dialog reads and writes through `ops`, so they work
+          identically against a local repository and an SSH one. */}
+      <StashDialog
+        open={dialog === "stashes"}
+        onOpenChange={(o) => setDialog(o ? "stashes" : null)}
+        changeCount={sorted.length}
+        stagedCount={staged.length}
+        load={async () => (ops ? ops.stashes() : [])}
+        onStash={async (msg, stagedOnly) => {
+          await runOp("stash", "stage", (o) => o.stash(msg, stagedOnly));
+        }}
+        onApply={async (ref, pop) => {
+          await runOp("stash", "stage", (o) => o.stashApply(ref, pop));
+        }}
+        onDrop={async (ref) => {
+          await runOp("stash", "stage", (o) => o.stashDrop(ref));
+        }}
+      />
+
+      <TagDialog
+        open={dialog === "tags"}
+        onOpenChange={(o) => setDialog(o ? "tags" : null)}
+        branch={status?.branch ?? null}
+        load={async () => (ops ? ops.tags() : [])}
+        onCreate={async (name, msg) => {
+          await runOp("tag", "branch", (o) => o.createTag(name, msg));
+        }}
+        onDelete={async (name) => {
+          await runOp("tag", "branch", (o) => o.deleteTag(name));
+        }}
+        onPush={async (name) => {
+          const ok = await runOp("push", "push", (o) => o.pushTag(name));
+          if (ok) toast(`Pushed tag ${name}.`, { variant: "success" });
+        }}
+      />
+
+      <BranchOpDialog
+        mode={dialog === "merge" ? "merge" : dialog === "rebase" ? "rebase" : null}
+        onOpenChange={(o) => {
+          if (!o) setDialog(null);
+        }}
+        branch={status?.branch ?? null}
+        loadBranches={loadBranches}
+        onSubmit={(name) => void doMergeOrRebase(dialog === "rebase" ? "rebase" : "merge", name)}
+      />
+
+      <PublishGithubDialog
+        open={dialog === "publishGithub"}
+        onOpenChange={(o) => setDialog(o ? "publishGithub" : null)}
+        suggestedName={status?.root ? basename(status.root) : ""}
+        loadExisting={async () => (status?.root ? ghFor(status.root).repoInfo() : null)}
+        onPublish={(name, isPrivate, description) =>
+          void doPublishGithub(name, isPrivate, description)
+        }
+        onOpenExisting={(url) => {
+          setDialog(null);
+          void openUrl(url);
+        }}
+      />
+
+      <CommitRefDialog
+        prompt={commitPrompt}
+        name={commitPromptName}
+        setName={setCommitPromptName}
+        onClose={() => setCommitPrompt(null)}
+        onSubmit={(kind, sha, shortSha, name) => {
+          setCommitPrompt(null);
+          void (async () => {
+            const ok = await runOp(kind === "branch" ? "branch" : "tag", "branch", (o) =>
+              // A branch AT a commit is `checkout -b <name> <sha>`, which
+              // `ops.checkout` cannot express - it only ever branches from
+              // HEAD - so this goes through the primitives directly.
+              kind === "branch" ? o.branchAt(name, sha) : o.tagAt(name, sha),
+            );
+            if (ok) {
+              toast(
+                kind === "branch"
+                  ? `Created branch ${name} at ${shortSha}`
+                  : `Tagged ${shortSha} as ${name}`,
+                { variant: "success" },
+              );
+            }
+          })();
+        }}
+      />
+
+      <AlertDialog
+        open={confirmReset !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmReset(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hard reset to {confirmReset?.shortSha}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Moves {status?.branch ?? "HEAD"} to this commit and throws away every change after it,
+              staged or not. Commits stay reachable through the reflog for a while; uncommitted work
+              does not. This cannot be undone from here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const target = confirmReset;
+                setConfirmReset(null);
+                if (!target) return;
+                void (async () => {
+                  const ok = await runOp("merge", "branch", (o) => o.resetTo(target.sha, "hard"));
+                  if (ok) toast(`Hard reset to ${target.shortSha}.`, { variant: "success" });
+                })();
+              }}
+            >
+              Reset and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
         <AlertDialogContent>

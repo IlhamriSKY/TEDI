@@ -89,6 +89,34 @@ pub struct GitStatus {
     /// Commits behind upstream (upstream has but HEAD lacks).
     pub behind: u32,
     pub changes: Vec<GitChange>,
+    /// "merge", "rebase", "cherry-pick", "revert" while one is half-finished,
+    /// else `None`. Lets the panel offer Abort / Continue only when there is
+    /// something to abort, instead of a menu entry that usually just errors.
+    pub in_progress: Option<String>,
+}
+
+/// Which multi-step operation the repository is sitting in the middle of.
+/// These are the marker paths git itself checks; reading them is three stat
+/// calls, which is why this can ride along on the 2.5s status poll.
+fn operation_in_progress(root: &Path) -> Option<String> {
+    let git_dir = root.join(".git");
+    // A worktree or submodule has a `.git` FILE pointing elsewhere, so the
+    // markers are not under it and the honest answer is "cannot tell".
+    if !git_dir.is_dir() {
+        return None;
+    }
+    for (marker, name) in [
+        ("MERGE_HEAD", "merge"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("REVERT_HEAD", "revert"),
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
+    ] {
+        if git_dir.join(marker).exists() {
+            return Some(name.to_string());
+        }
+    }
+    None
 }
 
 fn to_forward(s: &str) -> String {
@@ -120,7 +148,7 @@ fn classify(code: u8) -> &'static str {
     }
 }
 
-fn require_root(repo_path: &str) -> Result<PathBuf, String> {
+pub(super) fn require_root(repo_path: &str) -> Result<PathBuf, String> {
     find_repo_root(&PathBuf::from(repo_path)).ok_or_else(|| "not a git repository".into())
 }
 
@@ -427,6 +455,7 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
             ahead: 0,
             behind: 0,
             changes: Vec::new(),
+            in_progress: None,
         });
     };
 
@@ -521,6 +550,7 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         ahead,
         behind,
         changes,
+        in_progress: operation_in_progress(&root),
     })
 }
 
@@ -637,26 +667,41 @@ fn git_file_at_inner(
     Ok(show_blob(&root, &rev, &relative))
 }
 
-/// Git subcommands the Source Control panel may drive. An argument vector
-/// arrives over IPC, so the subcommand is the boundary worth pinning down:
-/// everything the panel needs is here and nothing that rewrites shared history
-/// or edits persistent config is.
+/// Git subcommands the Source Control panel may drive.
+///
+/// An argument vector arrives over IPC, and this is the boundary that matters:
+/// the extension permission gate is NOT one, because extension JS runs in the
+/// main webview and can import `invoke` directly (see the module doc in
+/// `src/modules/extensions/permissions.ts`). So the rule here is what the panel
+/// needs, and nothing whose blast radius reaches outside this repository.
+///
+/// Everything below is local and reflog-recoverable. `remote` is deliberately
+/// absent: rewriting `.git/config` outlives any one operation. Note that
+/// `push` already accepts an explicit URL, so this list is not an
+/// exfiltration boundary and was never able to be one.
 const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "add",
     "branch",
     "checkout",
+    "cherry-pick",
     "clean",
     "commit",
     "diff",
     "fetch",
     "for-each-ref",
+    "init",
     "ls-tree",
+    "merge",
     "pull",
     "push",
+    "rebase",
     "reset",
     "rev-parse",
+    "revert",
     "rm",
     "show-ref",
+    "stash",
+    "tag",
 ];
 
 /// git's transport options take the name of a program to run
@@ -721,7 +766,18 @@ pub async fn git_run(repo_path: String, args: Vec<String>) -> Result<String, Str
 
 fn git_run_inner(repo_path: String, args: Vec<String>) -> Result<String, String> {
     check_args(&args)?;
-    let root = require_root(&repo_path)?;
+    // `init` is the one subcommand that runs where there is no repository yet,
+    // so it resolves against the folder it was handed rather than a root that
+    // by definition cannot be found.
+    let root = if args[0] == "init" {
+        let p = PathBuf::from(&repo_path);
+        if !p.is_dir() {
+            return Err(format!("not a directory: {repo_path}"));
+        }
+        p
+    } else {
+        require_root(&repo_path)?
+    };
     let mut cmd = git(&root);
     cmd.args(&args);
     run(cmd)

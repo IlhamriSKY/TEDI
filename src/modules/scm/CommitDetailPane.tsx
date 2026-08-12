@@ -1,13 +1,36 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { basename, dirname } from "@/lib/path";
 import { cn } from "@/lib/utils";
-import { Clock, GitCommitHorizontal, GitMerge, Hash, User, UserCheck } from "lucide-react";
+import {
+  Cherry,
+  Clock,
+  GitBranch,
+  GitCommitHorizontal,
+  GitMerge,
+  Hash,
+  Tag,
+  Undo2,
+  User,
+  UserCheck,
+} from "lucide-react";
 import { gitCommitDetail } from "./api";
-import { MetaPill, parseRefs, RefBadge } from "./components/RefBadge";
+import { MetaPill, RefBadge } from "./components/RefBadge";
+import { parseRefs } from "./historyMeta";
 import { STATUS_LETTER, STATUS_TONE } from "./statusMeta";
 import type { CommitDetail, CommitFile, OpenDiffInput } from "./types";
+
+/** What the card can do TO the commit it is showing. */
+export type CommitAction =
+  "revert" | "cherry-pick" | "branch" | "tag" | "reset-soft" | "reset-mixed" | "reset-hard";
 
 type Props = {
   repoPath: string;
@@ -15,6 +38,9 @@ type Props = {
   /** Open a per-commit file diff in a tab. When omitted, the changed-file
    *  list is shown read-only (no diff). */
   onOpenDiff?: (input: OpenDiffInput) => void;
+  /** Enables the actions row. Omitted in read-only hosts (a remote repo, or
+   *  the history-only tab where there is no panel to refresh afterwards). */
+  onAction?: (action: CommitAction, sha: string, shortSha: string) => void;
 };
 
 function formatTime(unix: number): string {
@@ -25,7 +51,7 @@ function formatTime(unix: number): string {
   }
 }
 
-export function CommitDetailPane({ repoPath, sha, onOpenDiff }: Props) {
+export function CommitDetailPane({ repoPath, sha, onOpenDiff, onAction }: Props) {
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +152,82 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff }: Props) {
             ) : null}
           </div>
         </div>
+        {/* Acts on this commit. Lives on the card rather than a right-click
+            menu because the card is already the thing you open to decide, and
+            the graph row's trigger is spoken for by the popover and tooltip. */}
+        {onAction ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[10.5px]"
+              onClick={() => onAction("revert", detail.sha, detail.shortSha)}
+            >
+              <Undo2 size={11} strokeWidth={2} />
+              Revert
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[10.5px]"
+              onClick={() => onAction("cherry-pick", detail.sha, detail.shortSha)}
+            >
+              <Cherry size={11} strokeWidth={2} />
+              Cherry-pick
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[10.5px]"
+              onClick={() => onAction("branch", detail.sha, detail.shortSha)}
+            >
+              <GitBranch size={11} strokeWidth={2} />
+              Branch
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[10.5px]"
+              onClick={() => onAction("tag", detail.sha, detail.shortSha)}
+            >
+              <Tag size={11} strokeWidth={2} />
+              Tag
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[10.5px]"
+                  aria-label="Reset this branch to this commit"
+                >
+                  Reset…
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuItem
+                  onSelect={() => onAction("reset-soft", detail.sha, detail.shortSha)}
+                >
+                  Soft
+                  <span className="text-muted-foreground ml-auto">keeps changes staged</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => onAction("reset-mixed", detail.sha, detail.shortSha)}
+                >
+                  Mixed
+                  <span className="text-muted-foreground ml-auto">keeps changes unstaged</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => onAction("reset-hard", detail.sha, detail.shortSha)}
+                >
+                  Hard
+                  <span className="ml-auto">discards changes</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : null}
         <div className="mt-2 flex flex-col gap-1 text-[10.5px]">
           <span className="flex min-w-0 items-center gap-1.5">
             <User size={11} strokeWidth={2} className="text-info shrink-0" />

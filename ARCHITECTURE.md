@@ -96,7 +96,7 @@ subsystems, flat files for single-purpose ones).
 | `pty_daemon/`   | Sidecar process that owns PTYs across GUI restarts (see Section 6). Same binary, `--pty-daemon`. |
 | `fs/`           | Explorer and editor IO, fuzzy finder, content search (`ignore` + `grep-*` crates).               |
 | `shell/`        | One-shot exec for AI tools, a persistent agent shell, and bounded-log background processes.      |
-| `git/`          | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads.           |
+| `git/`          | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs. |
 | `ssh/`          | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                    |
 | `extensions/`   | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).     |
 | `cli_ext/`      | Headless `tedi ext` CLI (list/install/update against the public registry).                       |
@@ -131,7 +131,7 @@ lives in 19 self-contained modules.
 | `settings/`   | Shared settings store and preferences (state layer read by both windows).             |
 | `theme/`      | `next-themes` provider.                                                                |
 | `ai/`         | The AI agent subsystem (Section 5), the largest module.                               |
-| `scm/`        | Source-control panel and diffs (frontend for the Rust `git_*` commands).              |
+| `scm/`        | Source-control panel, diffs, and the pull-request / stacked-PR view (frontend for the Rust `git_*` and `gh_run` commands). |
 | `ssh/`        | SSH connection manager and remote SFTP explorer.                                       |
 | `scheduler/`  | In-conversation task/timer surface used by the AI agent.                              |
 | `updater/`    | In-app updater UI on top of `tauri-plugin-updater`.                                    |
