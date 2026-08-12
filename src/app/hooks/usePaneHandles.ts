@@ -9,7 +9,14 @@ import {
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "@/modules/terminal";
-import { useCallback, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import { isQuitting } from "./useQuitGuard";
 import { type TabsApi } from "./tabsApi";
 
@@ -71,6 +78,28 @@ export function usePaneHandles({
   const registerTerminalHandle = useCallback((leafId: number, h: TerminalPaneHandle | null) => {
     if (h) terminalRefs.current.set(leafId, h);
     else terminalRefs.current.delete(leafId);
+  }, []);
+
+  // The driver's only way to SEE a terminal: xterm renders to a WebGL canvas, so
+  // nothing in the DOM carries the text and `d.text()` returns nothing for a
+  // terminal pane. Every handle in this map already knows how to read its own
+  // buffer and whether a command is still running, which is what a human waits
+  // for instead of guessing a sleep. Gated on `TEDI_DEBUG_PORT` like the rest of
+  // `window.__tedi` (see `shortcuts/lib/commandRegistry.ts`); read-only on
+  // purpose, since typing is already reachable through real key events.
+  useEffect(() => {
+    if (!(window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) return;
+    const w = window as unknown as { __tedi?: Record<string, unknown> };
+    w.__tedi = {
+      ...w.__tedi,
+      terminals: (maxLines = 200) =>
+        [...terminalRefs.current.entries()].map(([leafId, h]) => ({
+          leafId,
+          atPrompt: h.isAtPrompt(),
+          running: h.isProcessRunning(),
+          text: h.getBuffer(maxLines) ?? "",
+        })),
+    };
   }, []);
 
   const registerEditorHandle = useCallback(

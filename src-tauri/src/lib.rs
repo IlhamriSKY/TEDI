@@ -527,6 +527,32 @@ pub fn run() {
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
 
+    // Automation surface, on the SAME switch as the debug port itself. The
+    // frontend's `window.__tedi` (command registry + terminal buffer reads, see
+    // `scripts/director/`) keys off this flag, so one env var turns on both
+    // halves and neither exists without it - in a dev build or a released one.
+    //
+    // It has to be an initialization script rather than an `eval` after launch:
+    // the main window is declared in `tauri.conf.json`, and the modules that
+    // read the flag run as the page's first scripts. This runs before them.
+    //
+    // A plugin's init script reaches every webview the app creates, so during an
+    // automation session a previewed third-party page sees the flag too. It is a
+    // bare boolean carrying no capability, and the session already has a
+    // DevTools port open, so that is a fair trade for not racing the page.
+    let builder = match std::env::var("TEDI_DEBUG_PORT") {
+        // Both type parameters spelled out: `C` (the plugin's own config, which
+        // this one does not have) is otherwise unconstrained and will not fall
+        // back to its default, so inference fails with a `DeserializeOwned` note
+        // that reads as if the script were the problem.
+        Ok(port) if port.trim().parse::<u16>().is_ok() => builder.plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("tedi-automation")
+                .js_init_script("window.__TEDI_AUTOMATION__ = true;")
+                .build(),
+        ),
+        _ => builder,
+    };
+
     // Second-invocation forwarding: when `tedi <path>` runs while an instance
     // is already up, the new process forwards its argv and exits. Desktop-only
     // (the plugin does not build for android/ios). Skipped in debug builds so

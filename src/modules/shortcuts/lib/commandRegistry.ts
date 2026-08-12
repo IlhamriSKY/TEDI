@@ -53,3 +53,34 @@ export function runCommand(id: ShortcutId): boolean {
   stack[0](new KeyboardEvent("keydown"));
   return true;
 }
+
+/**
+ * Automation surface for tooling driving TEDI over the WebView2 DevTools
+ * Protocol (`TEDI_DEBUG_PORT`, see `scripts/director/`). Running a command by id
+ * is deterministic where fuzzy-typing into the Command Palette is not, and
+ * `listCommands` tells the driver what this build actually has registered.
+ *
+ * Present only when TEDI was started with `TEDI_DEBUG_PORT`, in a dev build and
+ * a released one alike: Rust injects `window.__TEDI_AUTOMATION__` from the same
+ * env var that opens the port (see `lib.rs`), so one switch governs both halves
+ * and neither exists without it. Not gated on the build profile, because the app
+ * worth automating is often the one that shipped.
+ *
+ * That it is gated at all is about surface, not privilege: a DevTools client
+ * could reach all of this anyway, and extension code shares this realm already
+ * (see `extensions/permissions.ts` on the v1 trust model). But `usePaneHandles`
+ * hangs terminal-buffer reads off the same object, and nothing here has any
+ * reason to exist in a session that never asked to be driven.
+ *
+ * Merged, not assigned: `usePaneHandles` adds to the same object and neither
+ * file may clobber the other, whichever evaluates first.
+ */
+if ((window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) {
+  const w = window as unknown as { __tedi?: Record<string, unknown> };
+  w.__tedi = {
+    ...w.__tedi,
+    runCommand,
+    hasCommand,
+    listCommands: () => [...registry.keys()].sort(),
+  };
+}

@@ -370,6 +370,14 @@ ${file}`).
   is the console-subsystem launcher in `tedi-cli/`. A PATH shim
   (`~/.local/bin/tedi` on macOS/Linux) is installed from Settings and self-heals
   on launch.
+- **Director** (`scripts/director/`, Windows): start with `TEDI_DEBUG_PORT=9222`
+  to open the WebView2 DevTools Protocol, then `pnpm director <verb>` drives the
+  window with real keys and mouse, any command id, and reads it back (`state`,
+  `term`: terminals have no DOM text, so this is the only way to see one). Screen
+  capture is expected to come from an external recorder; the built-in screencast
+  (`rec`) stays for silent b-roll. One switch governs it: the env var opens the
+  port AND injects the flag that `window.__tedi` keys off, in dev and release
+  builds alike, so an ordinary launch has neither.
 - **Release**: tag push triggers `.github/workflows/release.yml`, which builds
   signed updates (`TAURI_SIGNING_PRIVATE_KEY*` secrets) and a draft GitHub Release.
 

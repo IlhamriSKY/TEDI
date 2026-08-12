@@ -686,7 +686,6 @@ export default function App() {
       activeId,
       activeLeafIdInTab,
       activeLeafKindCurrent,
-      isTerminalLike,
       tabs,
       setActiveSearchAddon,
       setActiveEditorHandle,

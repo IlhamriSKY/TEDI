@@ -43,7 +43,14 @@ autobins = false
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "tedi_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# `rlib` only. The Tauri template also lists `staticlib` (iOS) and `cdylib`
+# (Android), but this app ships desktop targets exclusively - there is no
+# `gen/android` or `gen/apple`, and nothing in the tree or in CI consumes
+# `tedi_lib.lib` / `tedi_lib.dll`. Keeping them made every single `cargo build`
+# link the entire dependency graph two extra times and write ~3GB of artifacts
+# nothing reads: a 1.5GB `tedi_lib.lib` plus 1.3GB `tmp.a` intermediates.
+# Re-add them here if mobile targets are ever added back.
+crate-type = ["rlib"]
 
 # Main GUI binary. `windows_subsystem = "windows"` (set in main.rs) detaches
 # stdio on Windows so the binary cannot synchronously print to the parent
@@ -210,6 +217,22 @@ tauri-plugin-single-instance = "2"
 
 [profile.dev]
 incremental = true
+
+# Dependencies are compiled once and then cached, so the dev profile's defaults
+# are the wrong trade for them on both counts:
+#
+# `debug = false` - full debug info for ~700 dependency crates is what made
+# target/debug reach 262GB (125GB of it in .o files alone). We never step into
+# russh or regex internals; our own crate keeps its debug info from
+# `[profile.dev]` above, which is the only part a breakpoint ever lands in.
+#
+# `opt-level = 1` - unoptimized dependency code is why the dev build feels
+# sluggish next to a release build: the crypto (ring/russh), the search stack
+# (grep-regex/globset) and mimalloc all run an order of magnitude slower at
+# opt-level 0. Costs one slower cold build, then it is cached.
+[profile.dev.package."*"]
+debug = false
+opt-level = 1
 
 [profile.release]
 codegen-units = 1

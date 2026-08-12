@@ -33,7 +33,6 @@ type Params = {
   activeId: number;
   activeLeafIdInTab: number | null;
   activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
-  isTerminalLike: boolean;
   tabs: Tab[];
   setActiveSearchAddon: Dispatch<SetStateAction<SearchAddon | null>>;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
@@ -61,7 +60,6 @@ export function useActiveLeafSurface({
   activeId,
   activeLeafIdInTab,
   activeLeafKindCurrent,
-  isTerminalLike,
   tabs,
   setActiveSearchAddon,
   setActiveEditorHandle,
@@ -100,27 +98,43 @@ export function useActiveLeafSurface({
     );
   }, [activeId, activeLeafIdInTab, activeLeafKindCurrent]);
 
+  // The newest url printed by *any* terminal, kept so the globe rides detection
+  // rather than focus: moving to an editor pane, or to a second terminal that
+  // printed nothing, must not hide a server that is still running. State, not
+  // the `detectedUrls` ref, because a non-active leaf's detection has to
+  // re-render. The leaf id travels with it so a closed leaf drops its url.
+  const [lastDetected, setLastDetected] = useState<{ leafId: number; url: string } | null>(null);
+
   const handleDetectedLocalUrl = useCallback(
     (leafId: number, url: string) => {
       detectedUrls.current.set(leafId, url);
+      setLastDetected({ leafId, url });
       if (leafId === activeLeafIdInTab) setActiveDetectedUrl(url);
     },
     [activeLeafIdInTab],
   );
 
   const detectedBrowserUrl = useMemo(() => {
-    // A url the focused terminal printed wins over the project's declared one:
-    // it is what the user is looking at right now, and on an SSH leaf it is the
+    // A url the focused terminal printed wins over one another leaf printed,
+    // which in turn wins over the project's declared one: the focused pane is
+    // what the user is looking at right now, and on an SSH leaf it is the
     // tunnelled address, which the config could not have known.
-    const url = activeDetectedUrl ?? projectUrl;
-    if (!isTerminalLike || !url) return null;
+    const fromAnyLeaf =
+      lastDetected &&
+      tabs.some(
+        (t) => t.kind === "pane" && leaves(t.paneTree).some((l) => l.id === lastDetected.leafId),
+      )
+        ? lastDetected.url
+        : null;
+    const url = activeDetectedUrl ?? fromAnyLeaf ?? projectUrl;
+    if (!url) return null;
     const alreadyOpen = tabs.some(
       (t) =>
         t.kind === "pane" &&
         leaves(t.paneTree).some((l) => l.leafKind === "browser" && sameOrigin(l.url, url)),
     );
     return alreadyOpen ? null : url;
-  }, [isTerminalLike, activeDetectedUrl, projectUrl, tabs]);
+  }, [activeDetectedUrl, lastDetected, projectUrl, tabs]);
 
   // Fires for either source: the project's declared url AND one a terminal
   // printed, so `php artisan serve` / `npm run dev` opens the browser the same

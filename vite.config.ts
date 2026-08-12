@@ -98,7 +98,10 @@ export default defineConfig(async ({ mode }) => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // `recordings/**` and `scripts/**` are outside the app's module graph, and
+      // a write there during a `scripts/director` screen recording must not risk
+      // reloading the window mid-take. A recording writes a file per frame.
+      ignored: ["**/src-tauri/**", "**/recordings/**", "**/scripts/**"],
     },
   },
 }));
