@@ -839,8 +839,9 @@ function PaneLeafFrame({
               )}
               {/* "Open preview" for a detected local URL (a printed dev-server
                 address, or a running port found from the project's config).
-                `detectedBrowserUrl` is already resolved against the active
-                leaf, so it rides the focused pane. */}
+                Detection, not focus, decides whether it shows: any leaf kind
+                can host it, and it rides the focused pane only so that it is
+                drawn exactly once. */}
               {onlyHere && detectedBrowserUrl && onOpenPreview && (
                 <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`} side="bottom">
                   <button

@@ -27,6 +27,7 @@
     "link:ext": "node scripts/link-dev-extensions.mjs",
     "relink:ext": "node scripts/link-dev-extensions.mjs --force",
     "unlink:ext": "node scripts/link-dev-extensions.mjs --unlink",
+    "director": "node scripts/director/cli.mjs",
     "typecheck": "tsc --noEmit",
     "lint:imports": "node scripts/check-imports.mjs",
     "verify": "node scripts/verify-all.mjs",

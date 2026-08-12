@@ -70,3 +70,11 @@ FEATURE-STUDY.md
 # to the TEDI main repo.
 /extensions/*/
 !/extensions/README.md
+# Director screen recordings: frame sequences plus their take.json timeline.
+/recordings/
+# Local linker override (rust-lld instead of MSVC link.exe). It belongs to a
+# machine, not to the repo: committing it would also decide the linker for CI
+# and for the signed release installers, and CI only ever builds in debug, so a
+# release built that way would reach users untested. Keep it local until one
+# release build has been through it deliberately.
+/src-tauri/.cargo/

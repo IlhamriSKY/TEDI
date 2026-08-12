@@ -365,9 +365,27 @@ const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmart
 /// Must run once at startup, before the first webview is created.
 #[cfg(target_os = "windows")]
 pub fn apply_webview2_browser_args_env() {
+    // Opt-in automation port. `TEDI_DEBUG_PORT=9222` additionally opens the
+    // WebView2 DevTools Protocol on loopback so external tooling (see
+    // `scripts/director/`) can evaluate JS, dispatch real input, and pull
+    // screencast frames for screen recordings. Absent the env var nothing
+    // changes, so shipped builds keep no listening socket.
+    //
+    // It has to be appended HERE, to the shared environment, for the very reason
+    // the flags above are process-wide: per-webview args that differ from the
+    // main webview's blank the child (tauri#13092).
+    let args = match std::env::var("TEDI_DEBUG_PORT") {
+        Ok(port) if port.trim().parse::<u16>().is_ok() => {
+            format!(
+                "{EMBED_BROWSER_ARGS} --remote-debugging-port={}",
+                port.trim()
+            )
+        }
+        _ => EMBED_BROWSER_ARGS.to_string(),
+    };
     // Edition 2021: `set_var` is safe. Called on the main thread at startup before
     // any webview (or other thread) exists.
-    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", EMBED_BROWSER_ARGS);
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
 }
 
 /// Build + attach an embedded browser child webview for `tab_id` at the given
