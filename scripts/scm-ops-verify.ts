@@ -9,7 +9,13 @@
  */
 import { invalidBranchName, isBranchSwitch, makeOps } from "../src/modules/scm/api";
 import { shouldFetch } from "../src/modules/scm/branch";
-import { authorHue, dayLabel, initials } from "../src/modules/scm/historyMeta";
+import {
+  authorHue,
+  dayLabel,
+  githubAvatar,
+  initials,
+  parseRefs,
+} from "../src/modules/scm/historyMeta";
 
 type Reply = string | Error;
 
@@ -469,6 +475,50 @@ console.log("\nauthor dots");
   check("the hue is deterministic", authorHue("dev@t.t"), authorHue("dev@t.t"));
   check("different people differ", authorHue("dev@t.t") === authorHue("dewi@t.t"), false);
   check("the hue is a legal degree", authorHue("x".repeat(200)) < 360, true);
+
+  check(
+    "a bare noreply address resolves to the account",
+    githubAvatar("ilhamrisky@users.noreply.github.com", 32),
+    "https://avatars.githubusercontent.com/ilhamrisky?s=32",
+  );
+  // The id form outlives a rename, so it wins when git recorded one.
+  check(
+    "the id form is preferred over the login",
+    githubAvatar("18723904+ilhamrisky@users.noreply.github.com", 32),
+    "https://avatars.githubusercontent.com/u/18723904?s=32",
+  );
+  // Everything below must stay null: the row falls back to the initials dot
+  // rather than firing a request that can only 404, and a real address is
+  // never handed to a third party.
+  check("a real address is not sent anywhere", githubAvatar("dev@example.com"), null);
+  check("a lookalike host is rejected", githubAvatar("x@users.noreply.github.com.evil.co"), null);
+  check("an empty email never builds a URL", githubAvatar(""), null);
+}
+
+console.log("\nref chips");
+{
+  const labels = (refs: string[]) => parseRefs(refs).map((c) => `${c.kind}:${c.label}`);
+
+  check("HEAD -> main splits into two chips", labels(["HEAD -> main"]), [
+    "head:HEAD",
+    "branch:main",
+  ]);
+  check("a tag keeps its own kind", labels(["tag: v0.4.23"]), ["tag:v0.4.23"]);
+  // The row overflowed because git lists a pushed branch twice. They can only
+  // share a commit when they are in sync, so the remote copy adds nothing.
+  check(
+    "a pushed branch shows once, not local + remote",
+    labels(["HEAD -> feat/x", "origin/feat/x"]),
+    ["head:HEAD", "branch:feat/x"],
+  );
+  // Unpushed work: the remote is behind on a different commit, so nothing is
+  // collapsed and the remote chip still gets its own row.
+  check("a remote with no local twin survives", labels(["origin/feat/x"]), [
+    "remote:origin/feat/x",
+  ]);
+  check("a symref is always a duplicate", labels(["origin/HEAD", "origin/main"]), [
+    "remote:origin/main",
+  ]);
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

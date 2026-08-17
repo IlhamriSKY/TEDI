@@ -37,4 +37,6 @@ export const IPC_EVENTS = {
   OPEN_CLI_TARGET: "tedi:open-cli-target",
   /** Rust -> main window: the `tedi --update` shim asks the UI to start updating. */
   TRIGGER_UPDATE: "tedi:trigger-update",
+  /** Rust -> main window: run a command registry id passed to `tedi cmd <id>` (single-instance forward). */
+  RUN_COMMAND: "tedi:run-command",
 } as const;

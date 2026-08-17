@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { gitCommitDetail } from "./api";
 import { MetaPill, RefBadge } from "./components/RefBadge";
-import { parseRefs } from "./historyMeta";
+import { githubAvatar, parseRefs } from "./historyMeta";
 import { STATUS_LETTER, STATUS_TONE } from "./statusMeta";
 import type { CommitDetail, CommitFile, OpenDiffInput } from "./types";
 
@@ -112,6 +112,7 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff, onAction }: Props)
     : undefined;
 
   const refChips = parseRefs(detail.refs);
+  const avatar = githubAvatar(detail.authorEmail);
   const isMerge = detail.parents.length > 1;
   const isRoot = detail.parents.length === 0;
   const TitleIcon = isMerge ? GitMerge : GitCommitHorizontal;
@@ -230,7 +231,25 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff, onAction }: Props)
         ) : null}
         <div className="mt-2 flex flex-col gap-1 text-[10.5px]">
           <span className="flex min-w-0 items-center gap-1.5">
-            <User size={11} strokeWidth={2} className="text-info shrink-0" />
+            {/* The author's picture over the generic glyph, which stays as the
+                fallback: no state, and no request at all when the email names
+                no public account. Same URL the graph rows use, so it is
+                already in cache by the time this card opens. */}
+            <span className="relative inline-flex size-4 shrink-0 items-center justify-center overflow-hidden">
+              <User size={11} strokeWidth={2} className="text-info" />
+              {avatar ? (
+                <img
+                  src={avatar}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="absolute inset-0 size-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : null}
+            </span>
             <span className="min-w-0 truncate">
               {detail.authorName}
               {detail.authorEmail ? (

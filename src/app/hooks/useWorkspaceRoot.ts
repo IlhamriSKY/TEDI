@@ -1,4 +1,6 @@
+import { toast } from "@/components/ui/toast";
 import { IPC_EVENTS } from "@/lib/ipc";
+import { runCommand, type ShortcutId } from "@/modules/shortcuts";
 import { activeLeaf, type PaneTab, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import { useWorkspacesStore } from "@/modules/workspaces";
@@ -149,6 +151,28 @@ export function useWorkspaceRoot({ tabs, activePaneTab, newTab, openFileTab }: P
       void unlistenP.then((fn) => fn());
     };
   }, [openCliTarget]);
+
+  // `tedi cmd <id>` arrives down the same forward. It is the only automation
+  // channel that works on a session already running: `TEDI_DEBUG_PORT` has to
+  // be set before launch, so reaching a window that is already open otherwise
+  // means restarting it. No new capability - a local process can already
+  // synthesise the keystroke this runs - and no listening socket.
+  //
+  // Toast on a miss because the caller's shell cannot see the result: the
+  // forwarding process exits the moment it hands over argv, so a typo'd id
+  // would otherwise be a silent no-op on both ends.
+  useEffect(() => {
+    const unlistenP = listen<string>(IPC_EVENTS.RUN_COMMAND, (e) => {
+      const id = e.payload;
+      if (!id) return;
+      if (!runCommand(id as ShortcutId)) {
+        toast(`tedi cmd: no command registered for "${id}"`, { variant: "error" });
+      }
+    });
+    return () => {
+      void unlistenP.then((fn) => fn());
+    };
+  }, []);
 
   return { home, pickedRoot, setPickedRoot, openWorkspaceFolder };
 }

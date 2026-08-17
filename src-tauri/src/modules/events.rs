@@ -12,3 +12,9 @@ pub const OPEN_CLI_TARGET: &str = "tedi:open-cli-target";
 
 /// Rust -> main window: the `tedi --update` shim asks the UI to start updating.
 pub const TRIGGER_UPDATE: &str = "tedi:trigger-update";
+
+/// Rust -> main window: run a command registry id passed to `tedi cmd <id>`
+/// (single-instance forward). Lets external tooling drive the running window
+/// without the `TEDI_DEBUG_PORT` DevTools channel, which cannot be turned on
+/// after launch (WebView2 fixes its browser arguments at environment creation).
+pub const RUN_COMMAND: &str = "tedi:run-command";

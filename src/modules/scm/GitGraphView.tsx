@@ -13,6 +13,7 @@ import {
   formatAbsTime,
   formatClock,
   formatRelTime,
+  githubAvatar,
   initials,
   parseRefs,
 } from "./historyMeta";
@@ -461,6 +462,9 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
   const midY = ROW_H / 2;
   const myX = laneX(lane, laneW);
   const refChips = useMemo(() => parseRefs(commit.refs), [commit.refs]);
+  // One URL per author, so 500 rows share a handful of cache entries; `lazy`
+  // keeps the off-screen ones from being requested at all.
+  const avatar = useMemo(() => githubAvatar(commit.authorEmail), [commit.authorEmail]);
   const isHead = refChips.some((c) => c.kind === "head");
   const isMerge = commit.parents.length > 1;
 
@@ -568,6 +572,10 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
         "group hover:bg-accent/40 flex cursor-pointer items-stretch pr-4",
         selected && "bg-accent/60",
       )}
+      // Pinned, not "however tall the content turns out": the SVG beside it
+      // draws exactly ROW_H of lane line, so anything that grows the text
+      // column (a wrapping ref chip did) opens a gap in every branch line.
+      style={{ height: ROW_H }}
       role="button"
       tabIndex={0}
       onClick={(e) => onSelect({ x: e.clientX, y: e.clientY })}
@@ -588,15 +596,17 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
         >
           {segments}
           {/* The checked-out commit gets a halo so "where am I" is answerable
-              without reading the badges. */}
+              without reading the badges. Kept tight (+1.5, not +2.5): at
+              LANE_PAD_X=8 the wider ring left under a pixel of air and read as
+              touching the panel edge. */}
           {isHead ? (
             <circle
               cx={myX}
               cy={midY}
-              r={dotR + 2.5}
+              r={dotR + 1.5}
               fill="none"
               stroke={laneColor(lane)}
-              strokeWidth={1.2}
+              strokeWidth={1.1}
               opacity={0.45}
             />
           ) : null}
@@ -617,14 +627,22 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
       <div className="flex min-w-0 flex-1 items-center gap-1.5 py-1">
         {/* Capped and allowed to shrink. Both matter: the cap keeps a
             heavily-tagged commit from filling the row, and dropping `shrink-0`
-            is what stops the chips squeezing the subject out of existence. */}
+            is what stops the chips squeezing the subject out of existence.
+            Gone entirely below 22rem: three chips sharing 45% of a narrow row
+            render as unreadable two-pixel slivers ("HE…", "m…", "v0…") AND
+            leave the subject one character wide. Measured, not guessed - 19rem
+            was tried first and the HEAD row was still slivers at 310px. The
+            hover peek still lists every ref, and the HEAD halo on the dot
+            still answers "where am I". */}
         {refChips.length > 0 ? (
-          <span className="flex max-w-[45%] min-w-0 shrink items-center gap-1 overflow-hidden">
+          <span className="hidden max-w-[45%] min-w-0 shrink items-center gap-1 overflow-hidden @[22rem]:flex">
             {refChips.slice(0, MAX_CHIPS).map((chip, i) => (
-              <RefBadge key={`${chip.kind}-${chip.label}-${i}`} chip={chip} />
+              <RefBadge key={`${chip.kind}-${chip.label}-${i}`} chip={chip} maxW="max-w-24" />
             ))}
             {refChips.length > MAX_CHIPS ? (
-              <MetaPill tone="bg-muted text-muted-foreground border-border">
+              // `shrink-0`: the count is the whole message, and MetaPill's
+              // `min-w-0` would otherwise let a crowded row clip it to "+".
+              <MetaPill tone="bg-muted text-muted-foreground border-border shrink-0">
                 +{refChips.length - MAX_CHIPS}
               </MetaPill>
             ) : null}
@@ -633,19 +651,42 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
         <span className="text-foreground/90 min-w-0 flex-1 truncate text-[11.5px]">
           {commit.subject}
         </span>
-        {/* A coloured initial instead of the author's name: one glyph rather
-            than a string repeated down every row, and it frees the width the
-            subject needed. The full name and email stay in the row tooltip. */}
+        {/* The author's picture when the email names a public account, over a
+            coloured initial when it doesn't - one glyph either way, rather than
+            a name repeated down every row. Full name and email stay in the row
+            tooltip. */}
         <span
-          className="hidden size-4 shrink-0 place-items-center rounded-full text-[7.5px] font-semibold text-white @[13rem]:grid"
+          className="relative hidden size-4 shrink-0 place-items-center overflow-hidden text-[7.5px] font-semibold text-white @[15rem]:grid"
           style={{
             backgroundColor: `hsl(${authorHue(commit.authorEmail || commit.authorName)} 42% 42%)`,
           }}
           aria-hidden
         >
           {initials(commit.authorName)}
+          {avatar ? (
+            <img
+              src={avatar}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="absolute inset-0 size-full object-cover"
+              // Hidden straight on the node, not via state: offline or a
+              // deleted account would otherwise re-render every row it
+              // appears on, and the initials are already sitting underneath.
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          ) : null}
         </span>
-        <span className="text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] tabular-nums @[12rem]:block">
+        {/* Columns drop cheapest-first as the sidebar narrows: the sha (48px,
+            and both the hover peek and the detail card repeat it) before the
+            chips, the chips before the avatar, the clock never. Tuned against
+            rendered pixels - the old 12rem/13rem gates predate the avatar and
+            left three columns fighting over a 300px row. 25rem, not 26rem:
+            the side panel's list measures exactly 416px, so a 26rem gate would
+            sit on the boundary and flicker this column on any 1px resize. */}
+        <span className="text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] tabular-nums @[25rem]:block">
           {commit.shortSha}
         </span>
         {/* Clock time, not "7d ago": the day separator above already says which

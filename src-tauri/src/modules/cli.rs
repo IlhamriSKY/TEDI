@@ -53,6 +53,7 @@ pub fn help_text() -> String {
          {usage}\n  \
          {tedi} {path}               Open folder or file in the running window\n  \
          {tedi} {flag}               Show a flag-action below\n  \
+         {tedi} cmd {id_req}             Run a command id in the running window\n  \
          {tedi} ext {sub}      Manage extensions   {dim_more}\n  \
          {tedi} theme {sub}    Theme + wallpaper   {dim_more_t}\n\
          \n\
@@ -243,6 +244,29 @@ where
     S: AsRef<str>,
 {
     args.into_iter().skip(1).any(|a| is_update_flag(a.as_ref()))
+}
+
+/// Returns the id following a bare `cmd` verb (`tedi cmd tab.new`), or `None`.
+///
+/// Read by single-instance forwarding so external tooling can run a command
+/// against the window that is ALREADY open. That matters because the other
+/// automation channel, `TEDI_DEBUG_PORT`, has to be set before launch - WebView2
+/// fixes its browser arguments when it creates its environment - so it can never
+/// be turned on for a session already in progress.
+///
+/// The verb also lands in [`first_positional`], where it would classify as a
+/// path if a folder named `cmd` happened to sit in the caller's cwd. Callers
+/// resolve that by preferring the command over the target, never both.
+pub fn command_requested_in<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut rest = args.into_iter().skip(1);
+    rest.find(|a| a.as_ref() == "cmd")?;
+    rest.next()
+        .map(|s| s.as_ref().to_string())
+        .filter(|id| !id.is_empty())
 }
 
 /// Capture the startup target. Call before any `set_current_dir` could shift
@@ -503,6 +527,21 @@ pub fn cli_install_path_shim() -> Result<ShimInstall, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_requested_reads_the_id_after_the_verb() {
+        let cmd = |argv: &[&str]| command_requested_in(argv.iter().copied());
+        assert_eq!(cmd(&["tedi", "cmd", "tab.new"]).as_deref(), Some("tab.new"));
+        assert_eq!(cmd(&["tedi"]), None);
+        assert_eq!(cmd(&["tedi", "."]), None);
+        // Verb present but no id after it, and an empty id, are both a miss
+        // rather than an emit the frontend would have to reject.
+        assert_eq!(cmd(&["tedi", "cmd"]), None);
+        assert_eq!(cmd(&["tedi", "cmd", ""]), None);
+        // argv[0] is skipped: a launcher living at a path ending in `cmd`
+        // must not read its own name as the verb.
+        assert_eq!(cmd(&["cmd", "tab.new"]), None);
+    }
 
     /// Lock the `--plain` flag out of the help text and ensure the new
     /// section headers stay present. Tests run with stdout piped, so

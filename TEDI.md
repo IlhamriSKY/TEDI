@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.23.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.24.
 
 |                  |                                                                    |
 | ---------------- | ------------------------------------------------------------------ |
@@ -364,6 +364,11 @@ ${file}`).
   `TEDI_PTYD_IDLE_SECS=60` when iterating on daemon code.
 - **`tedi` CLI** (`cli.rs`): `tedi .` / `tedi <path>` opens a folder or file in
   the running window (single-instance forward, `tedi:open-cli-target` event).
+  `tedi cmd <id>` rides the same forward to run a command registry id
+  (`tedi:run-command`) - the only automation channel that reaches a session
+  already running, since `TEDI_DEBUG_PORT` (below) must be set before launch.
+  Fire-and-forget: the forwarding process exits on handover, so a miss reports
+  as a toast in the window, not on the caller's stdout.
   `--version` / `--help` print and exit before Tauri boots. `tedi ext <sub>`
   (`cli_ext`), `tedi theme <sub>` (`cli_theme`), and `tedi --update` (`cli_update`,
   headless updater) each short-circuit GUI boot. On Windows the user-facing `tedi`

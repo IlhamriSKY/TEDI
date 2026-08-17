@@ -29,6 +29,7 @@ import {
   foldKeymap,
   syntaxHighlighting,
 } from "@codemirror/language";
+import { http } from "@codemirror/legacy-modes/mode/http";
 import { mySQL, pgSQL, sqlite, standardSQL } from "@codemirror/legacy-modes/mode/sql";
 import { makeFoldMarker } from "@/modules/editor/lib/foldMarker";
 import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
@@ -47,7 +48,7 @@ import {
 } from "@codemirror/view";
 
 export type CodeEditorLanguage =
-  "sql" | "sql:mysql" | "sql:postgres" | "sql:sqlite" | "json" | "javascript" | "plain";
+  "sql" | "sql:mysql" | "sql:postgres" | "sql:sqlite" | "json" | "javascript" | "http" | "plain";
 
 /** Single autocomplete suggestion. `type` controls the leading icon CM
  *  paints (keyword / variable / property / type / function / etc - see
@@ -111,6 +112,11 @@ function pickLanguage(name?: CodeEditorLanguage): Extension {
       return json();
     case "javascript":
       return javascript();
+    // `.http` documents: a request line, headers, then a body. The API Client's
+    // Code tab writes one, and it is the same grammar VS Code REST Client and
+    // the JetBrains HTTP Client read.
+    case "http":
+      return StreamLanguage.define(http);
     case "plain":
     default:
       return [];

@@ -85,6 +85,22 @@ export function authorHue(seed: string): number {
   return h;
 }
 
+/**
+ * Profile picture for a commit author, or null when the email doesn't name a
+ * public account. Derived from the GitHub noreply address alone - both the
+ * bare `user@` and the newer `1234+user@` form - so it costs no API call, no
+ * hashing, and never sends a real email address anywhere. Anything else falls
+ * back to the coloured initials dot, which is what the row already drew.
+ */
+export function githubAvatar(email: string, size = 32): string | null {
+  const m = /^(?:(\d+)\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i.exec(email.trim());
+  if (!m) return null;
+  // The numeric id survives a username change, so prefer it when present.
+  return m[1]
+    ? `https://avatars.githubusercontent.com/u/${m[1]}?s=${size}`
+    : `https://avatars.githubusercontent.com/${m[2]}?s=${size}`;
+}
+
 export type RefChip = { label: string; kind: "head" | "branch" | "remote" | "tag" };
 
 /**
@@ -111,5 +127,11 @@ export function parseRefs(refs: string[]): RefChip[] {
       out.push({ label: r, kind: "branch" });
     }
   }
-  return out;
+  // A remote ref sitting on the same commit as its local branch says nothing
+  // the branch chip doesn't - they are in sync by definition, or git would
+  // have listed them on different commits. Same reasoning as the `*/HEAD` drop
+  // above, and it's what made the row overflow: `origin/feat/x` beside
+  // `feat/x` is one long label twice.
+  const branches = new Set(out.filter((c) => c.kind === "branch").map((c) => c.label));
+  return out.filter((c) => !(c.kind === "remote" && branches.has(c.label.replace(/^[^/]+\//, ""))));
 }

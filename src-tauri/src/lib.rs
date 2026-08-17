@@ -561,12 +561,19 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let cwd_path = std::path::PathBuf::from(&cwd);
         let update_requested = cli::update_requested_in(argv.iter().map(|s| s.as_str()));
+        // Read before `parse` takes ownership of argv.
+        let command = cli::command_requested_in(argv.iter().map(|s| s.as_str()));
         let target = cli::parse(argv, &cwd_path);
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
-            if let Some(t) = target {
+            // A command wins over a target rather than firing both: the `cmd`
+            // verb is itself the first positional, so `tedi cmd tab.new` would
+            // otherwise ALSO open a folder named `cmd` if one sat in the cwd.
+            if let Some(id) = command {
+                let _ = window.emit(crate::modules::events::RUN_COMMAND, id);
+            } else if let Some(t) = target {
                 let _ = window.emit(crate::modules::events::OPEN_CLI_TARGET, t);
             }
             if update_requested {

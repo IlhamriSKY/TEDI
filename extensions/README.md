@@ -846,6 +846,7 @@ type CodeEditorOptions = {
     | "sql:sqlite"
     | "json"
     | "javascript"
+    | "http"
     | "plain";
   value?: string;
   readOnly?: boolean;
@@ -862,10 +863,11 @@ type CodeEditorHandle = {
 };
 ```
 
-> `sql*` use the CodeMirror legacy stream modes; `json` and `javascript` use
-> `@codemirror/lang-json` / `@codemirror/lang-javascript`. `plain` resolves to
-> no language extension. An older host that predates a language silently falls
-> back to plain text, so opting in never breaks an install.
+> `sql*` and `http` use the CodeMirror legacy stream modes; `json` and
+> `javascript` use `@codemirror/lang-json` / `@codemirror/lang-javascript`.
+> `plain` resolves to no language extension. An older host that predates a
+> language silently falls back to plain text, so opting in never breaks an
+> install.
 
 ### `ctx.ui.icon`: none
 
