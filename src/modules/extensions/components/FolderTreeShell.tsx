@@ -6,7 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { FileExplorer } from "@/modules/explorer";
-import { FolderOpen, House, X } from "lucide-react";
+import { House, X } from "lucide-react";
 
 /**
  * Owns the effective root: extension-provided `rootPath` or a user pick.
@@ -66,23 +66,15 @@ export function FolderTreeShell({
 
   // Action row appended to FileExplorer's header (after Search/Refresh/Collapse).
   // Folder name + icon come from FileExplorer.
+  //
+  // "Open a folder to browse" is NOT here any more: it is the folder icon left
+  // of the name (`onPickFolder` below). That icon already stands for the folder
+  // this tree is showing, so making it the thing you click to change it costs
+  // the row nothing, where a separate FolderOpen button cost a whole slot in a
+  // header that runs out of room at the sidebar's default width.
   const extras = useMemo(
     () => (
       <>
-        {showOpenFolder ? (
-          <IconTooltip label="Open a folder to browse" side="bottom">
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={() => void handlePick()}
-              aria-label="Open Folder"
-              className="text-muted-foreground hover:text-foreground size-6"
-            >
-              <FolderOpen size={13} strokeWidth={2} />
-            </Button>
-          </IconTooltip>
-        ) : null}
         {pickedPath ? (
           <IconTooltip label="Back to workspace folder" side="bottom">
             <Button
@@ -113,7 +105,7 @@ export function FolderTreeShell({
         ) : null}
       </>
     ),
-    [showOpenFolder, pickedPath, onClose, handlePick, handleReset],
+    [pickedPath, onClose, handleReset],
   );
 
   return (
@@ -123,6 +115,7 @@ export function FolderTreeShell({
       hideCreateActions
       hideGrep
       headerExtras={extras}
+      onPickFolder={showOpenFolder ? () => void handlePick() : undefined}
       // Empty slot at the head of the explorer's own header row. The panel host
       // portals the section stack's grip + minimize chevron into it, so this
       // tree wears them on ONE line beside the folder name exactly like the

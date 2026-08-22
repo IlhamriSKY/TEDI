@@ -411,6 +411,109 @@
   }
 }
 
+@layer components {
+  /* The one header strip for every dockable surface in the left sidebar and the
+   * right column - Files, Remote, Source Control, Workspaces, AI, extension
+   * sections and extension right panels. Before this each drew its own, at three
+   * different heights and with the border optional, so "header" and "body" were
+   * only sometimes distinguishable.
+   *
+   * Height is 2rem on purpose: `SectionStack` minimizes a section to exactly
+   * that plus the card's 1px borders, so a header of any other height is clipped
+   * the moment it is minimized.
+   *
+   * `--card` over the section body's `--background` is the app shell's OWN
+   * header/body pair (the toolbar is `bg-card`, the tab strip below it
+   * `bg-background`), which is why it needs no token of its own: every preset
+   * already themes both, including a saved theme that snapshotted its palette
+   * before this existed and would never have picked up a new key.
+   *
+   * In `@layer components` so a call site can still override e.g. the padding
+   * with a Tailwind utility. */
+  .tedi-panel-header {
+    display: flex;
+    height: 2rem;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 0.5rem;
+    background-color: var(--card);
+    border-bottom: 1px solid var(--border);
+    /* Lets the actions below answer to the COLUMN's width. A media query would
+     * measure the window, which is the wrong box: these columns are resizable,
+     * and the same window holds one at 180px and one at 400px. */
+    container-type: inline-size;
+  }
+
+  /* The hairline between a header's IDENTITY (grip, chevron, icon, title) and
+   * its ACTIONS. Every panel header draws one, so it doubles as the boundary
+   * marker the collapse rule below needs - no component has to be told it is
+   * minimized, and no `collapsed` prop has to be drilled to a header for it. */
+  .tedi-header-divider {
+    flex-shrink: 0;
+    width: 1px;
+    height: 1.25rem;
+    margin-inline: 0.25rem;
+    background-color: var(--border);
+  }
+
+  /* The column a cross-column section drag is currently hovering.
+   * `SectionStack` writes this attribute straight onto the other column's DOM
+   * node - that node belongs to a sibling component with no shared ancestor
+   * holding drag state, and the write happens per pointer move, where
+   * re-rendering two whole columns would cost far more. It had no rule at all
+   * until now, so the drag promised feedback it never drew. Outline, not border:
+   * a border would resize the column mid-drag. */
+  [data-section-column][data-drop-target] {
+    outline: 2px dashed var(--primary);
+    outline-offset: -2px;
+    background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+  }
+}
+
+/* Header actions that give way first when the column is dragged narrow.
+ *
+ * A header clips from the right, so without a priority the TRAILING buttons go
+ * first - and those are Move-to-other-column and Close, the two you most need.
+ * That was not hypothetical: the Files header wants ~252px of fixed chrome (grip
+ * 16 + chevron 16 + icon 27 + divider 9 + seven 24px buttons + 16 padding) while
+ * the sidebar's default width is 225px, so it shipped with the move button
+ * already sliced in half at the DEFAULT size.
+ *
+ * 17rem is where the full set genuinely fits beside a readable title. Under it
+ * the row keeps grip, chevron, icon, title and the always-useful few (search /
+ * refresh / move / close); everything marked optional is either duplicated in a
+ * context menu or a convenience, never the only way to do the thing.
+ *
+ * UNLAYERED on purpose: `<Button>` carries `inline-flex` from its cva base, and
+ * a utility beats anything in `@layer components`, while unlayered beats every
+ * layer. That is what lets this hide without an `!important`. */
+@container (max-width: 17rem) {
+  .tedi-header-optional {
+    display: none;
+  }
+}
+
+/* A minimized section is a LABEL ROW: grip, chevron, icon, title, nothing else.
+ * `SortableSection` stamps `data-section-collapsed` on the card, and everything
+ * from the divider rightward goes.
+ *
+ * One rule for all seven headers. Files and Remote used to do this in their own
+ * JSX (`collapsed ? null : ...`) and the other five did not do it at all, so a
+ * minimized Workspaces kept a New / Move / Close cluster while a minimized Files
+ * kept nothing. Doing it here also means no header needs to be TOLD it is
+ * minimized: the AI panel and the extension right-panel host never received a
+ * `collapsed` prop, and now they do not need one.
+ *
+ * Unlayered for the same reason as the rule above: it has to beat `<Button>`'s
+ * `inline-flex`, and layer order outranks specificity. */
+[data-section-collapsed] .tedi-panel-header .tedi-header-divider,
+[data-section-collapsed] .tedi-panel-header .tedi-header-divider ~ * {
+  display: none;
+}
+
 /* Editor + terminal canvas transparency under the single "App opacity"
  * glass mode (`data-tedi-glass`). Only `.cm-editor` carries the alpha tint;
  * inner scrollers, content, and gutters go fully transparent so the layers
@@ -562,6 +665,14 @@ html[data-tedi-glass="on"] {
  * tint because this rule is gated on the glass attribute. */
 html[data-tedi-glass="on"] .tedi-glass-panel {
   background-color: var(--tedi-glass-surface) !important;
+}
+/* Under glass, `--card` is floored to the same `--tedi-glass-surface` the panel
+ * BEHIND the header is pinned to by the rule above, so a section header painted
+ * with it would come out exactly the colour of its own body and the header/body
+ * split would collapse to the hairline. Fall back to a relative tint, which is
+ * a step against whatever is showing through rather than a fixed colour. */
+html[data-tedi-glass="on"] .tedi-panel-header {
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
 /* Top header bar: more opaque than the rest (still follows the slider) so it
  * reads as a solid title/drag bar. `bg-card` makes it inherit the translucent

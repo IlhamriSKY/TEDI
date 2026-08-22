@@ -285,11 +285,11 @@ function WorkspacesPanelInner({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+      <div className="tedi-panel-header">
         {dragHandle}
         <LayoutDashboard size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
-        <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
+        <span className="tedi-header-divider" aria-hidden />
         <IconTooltip label="New workspace" side="bottom">
           <Button
             onClick={onCreate}

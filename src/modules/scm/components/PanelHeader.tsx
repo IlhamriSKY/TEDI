@@ -3,7 +3,8 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { setSourceControlInRightPanel } from "@/modules/settings/store";
+import { setColumnPlacement } from "@/modules/settings/preferences";
+import { revealColumn } from "@/lib/sectionDrag";
 import { useScmRightPanelStore } from "../scmRightPanelStore";
 import type { GitBranch as GitBranchRef, GitStatus } from "../types";
 import { BranchMenu } from "./BranchMenu";
@@ -61,7 +62,7 @@ export function PanelHeader({
   const switchable =
     status?.isRepo && loadBranches && onCheckout && onDeleteBranch && onRenameBranch;
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+    <div className="tedi-panel-header">
       {dragHandle}
       {switchable ? (
         <BranchMenu
@@ -106,13 +107,13 @@ export function PanelHeader({
           </TooltipContent>
         </Tooltip>
       ) : null}
-      <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
+      <span className="tedi-header-divider" aria-hidden />
       {onDiscardAll && !historyOnly && status?.isRepo && changeCount > 0 ? (
         <IconTooltip label="Discard all changes" side="bottom">
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-destructive size-6"
+            className="tedi-header-optional text-muted-foreground hover:text-destructive size-6"
             onClick={onDiscardAll}
             aria-label="Discard all changes"
           >
@@ -137,7 +138,7 @@ export function PanelHeader({
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-foreground size-6"
+            className="tedi-header-optional text-muted-foreground hover:text-foreground size-6"
             onClick={onOpenInTab}
             aria-label="Open Source Control in a tab"
           >
@@ -145,15 +146,19 @@ export function PanelHeader({
           </Button>
         </IconTooltip>
       ) : null}
-      {/* Left-sidebar instance: move Source Control to the right panel. */}
-      {dragHandle && !historyOnly ? (
+      {/* Left-sidebar instance: move Source Control to the right panel. `!onClose`
+          is what says "left": the right column passes one and the sidebar does
+          not. Gating on `dragHandle` alone put BOTH move buttons on the
+          right-column copy, which now has a grip too. */}
+      {dragHandle && !historyOnly && !onClose ? (
         <IconTooltip label="Move to right panel" side="bottom">
           <Button
             variant="ghost"
             size="icon"
             className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => {
-              void setSourceControlInRightPanel(true);
+              revealColumn("right");
+              setColumnPlacement("scm", true);
               useScmRightPanelStore.getState().openPanel();
             }}
             aria-label="Move Source Control to the right panel"
@@ -170,7 +175,8 @@ export function PanelHeader({
             size="icon"
             className="text-muted-foreground hover:text-foreground size-6"
             onClick={() => {
-              void setSourceControlInRightPanel(false);
+              revealColumn("left");
+              setColumnPlacement("scm", false);
               useScmRightPanelStore.getState().closePanel();
             }}
             aria-label="Move Source Control to the left sidebar"

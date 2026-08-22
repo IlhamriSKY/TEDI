@@ -805,9 +805,11 @@ export function SourceControlPanel({
             only when there's a close button: without it the section loses its
             reorder handle and collapse chevron and reads as broken. */}
         {dragHandle || onClose ? (
-          <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+          <div className="tedi-panel-header">
             {dragHandle}
-            <span className="flex-1" />
+            <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">
+              Source Control
+            </span>
             {onClose ? (
               <IconTooltip label="Close panel" side="bottom">
                 <Button
