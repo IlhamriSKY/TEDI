@@ -172,7 +172,10 @@ mod tests {
             &["stack", "submit", "--auto", "--open"][..],
             &["extension", "install", "github/gh-stack"][..],
         ] {
-            assert!(check_gh_args(&v(args)).is_ok(), "{args:?} should be allowed");
+            assert!(
+                check_gh_args(&v(args)).is_ok(),
+                "{args:?} should be allowed"
+            );
         }
     }
 
@@ -186,7 +189,10 @@ mod tests {
             &["stack", "feedback"][..],
             &["secret", "list"][..],
         ] {
-            assert!(check_gh_args(&v(args)).is_err(), "{args:?} should be refused");
+            assert!(
+                check_gh_args(&v(args)).is_err(),
+                "{args:?} should be refused"
+            );
         }
     }
 
@@ -195,8 +201,12 @@ mod tests {
         assert!(check_gh_args(&v(&["extension", "install", "evil/pwn"])).is_err());
         // Trailing arguments are still arguments to `install`, so the exact
         // vector is what is compared, not "contains the right name somewhere".
-        assert!(check_gh_args(&v(&["extension", "install", "github/gh-stack", "evil/pwn"])).is_err());
-        assert!(check_gh_args(&v(&["extension", "install", "evil/pwn", "github/gh-stack"])).is_err());
+        assert!(
+            check_gh_args(&v(&["extension", "install", "github/gh-stack", "evil/pwn"])).is_err()
+        );
+        assert!(
+            check_gh_args(&v(&["extension", "install", "evil/pwn", "github/gh-stack"])).is_err()
+        );
     }
 
     #[test]
