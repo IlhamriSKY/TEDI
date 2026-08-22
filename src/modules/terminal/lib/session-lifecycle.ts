@@ -463,16 +463,33 @@ export function writeToLeaf(leafId: number, data: string): boolean {
   return true;
 }
 
-/** Hit-test at a CSS-pixel point and return the enclosing terminal leaf id, or null. */
-export function findLeafIdFromPoint(x: number, y: number): number | null {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return null;
-  const host = (el as Element).closest<HTMLElement>("[data-terminal-leaf-id]");
-  if (!host) return null;
-  const raw = host.dataset.terminalLeafId;
+/** Terminal leaf id owning `el`, or null when `el` sits outside every pane. */
+function leafIdFromElement(el: Element | null | undefined): number | null {
+  const raw = el?.closest<HTMLElement>("[data-terminal-leaf-id]")?.dataset.terminalLeafId;
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Hit-test at a CSS-pixel point and return the enclosing terminal leaf id, or null. */
+export function findLeafIdFromPoint(x: number, y: number): number | null {
+  return leafIdFromElement(document.elementFromPoint(x, y));
+}
+
+/**
+ * Leaf id of the terminal pane holding KEYBOARD focus, or null when focus is
+ * anywhere else - the AI composer, an editor, a dialog field, the sidebar.
+ *
+ * Terminal copy/paste keys off this rather than the tab's `activeLeafId`. The
+ * two disagree whenever something moves the active leaf while the caret stays
+ * put, and both shortcuts carry a BARE chord (Ctrl+C, Ctrl+V) that
+ * `useGlobalShortcuts` preventDefaults the instant it matches. Keying the gate
+ * off the active leaf would therefore either swallow a paste meant for a text
+ * field, or consume a Ctrl+C the shell needed as SIGINT and leave a runaway
+ * command running.
+ */
+export function focusedTerminalLeafId(): number | null {
+  return leafIdFromElement(document.activeElement);
 }
 
 export function attachSession(

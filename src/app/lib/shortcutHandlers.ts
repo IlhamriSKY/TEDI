@@ -12,7 +12,7 @@ import {
 } from "@/modules/settings/store";
 import { previewEmbedDispatch, focusBrowserAddressBar } from "@/modules/browser";
 import { type ShortcutHandlers } from "@/modules/shortcuts";
-import { leaves, type TerminalPaneHandle } from "@/modules/terminal";
+import { focusedTerminalLeafId, leaves, type TerminalPaneHandle } from "@/modules/terminal";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { type SearchInlineHandle } from "@/modules/header";
 import { type Tab } from "@/modules/tabs";
@@ -80,6 +80,17 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     activeLeafKindCurrent,
     commandPaletteOpen,
   } = deps;
+
+  // Terminal copy/paste act on the pane holding KEYBOARD focus (see
+  // `focusedTerminalLeafId` for why the active leaf is the wrong anchor for a
+  // bare Ctrl+C / Ctrl+V), falling back to the active leaf for the Command
+  // Palette - it takes focus itself, and it bypasses the keyboard gate anyway.
+  const copyPasteTarget = (): TerminalPaneHandle | undefined => {
+    const leafId =
+      focusedTerminalLeafId() ?? (activeLeafKindCurrent === "terminal" ? activeLeafIdInTab : null);
+    return leafId === null ? undefined : terminalRefs.current.get(leafId);
+  };
+
   return {
     "commandPalette.open": commandPaletteOpen,
     "tab.new": openNewTab,
@@ -170,13 +181,13 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
       void editorRefs.current.get(activeLeafIdInTab)?.formatDocument();
     },
-    // Copy terminal selection. Defaults: Cmd+C on macOS, Ctrl+Shift+C
-    // elsewhere (see shortcuts.ts). No-op when nothing is selected.
-    // useGlobalShortcuts preventDefaults the event so xterm never sees
-    // it. Bare Ctrl+C falls through to xterm and sends SIGINT.
-    "terminal.copy": () => {
-      if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
-      const term = terminalRefs.current.get(activeLeafIdInTab);
+    // Copy terminal selection. Defaults: Cmd+C on macOS, Ctrl+Shift+C and bare
+    // Ctrl+C elsewhere (see shortcuts.ts). No-op when nothing is selected.
+    // useGlobalShortcuts preventDefaults the event so xterm never sees it, and
+    // App's isDisabled only routes BARE Ctrl+C here when the focused terminal
+    // has a selection - with none it falls through to xterm as SIGINT.
+    "terminal.copy": (e) => {
+      const term = copyPasteTarget();
       const sel = term?.getSelection();
       if (!sel) return;
       // Clipboard WRITES work through the webview API on every OS (they ride
@@ -186,14 +197,18 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       void navigator.clipboard.writeText(sel).catch((e) => {
         console.warn("terminal.copy: clipboard write failed:", e);
       });
+      // Bare Ctrl+C only: drop the highlight so the next press is SIGINT again
+      // (Windows Terminal / Termius). Ctrl+Shift+C, Cmd+C and the Command
+      // Palette keep the selection, since none of them can strand the user.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) term?.clearSelection();
     },
     // Paste clipboard via term.paste so the shell gets a bracketed
     // paste (multi-line snippets don't auto-execute line by line under
-    // bash/zsh). Defaults: Cmd+V on macOS, Ctrl+Shift+V or Shift+Insert
-    // elsewhere (see shortcuts.ts).
+    // bash/zsh). Defaults: Cmd+V on macOS, Ctrl+Shift+V, bare Ctrl+V or
+    // Shift+Insert elsewhere (see shortcuts.ts). Identical for local and SSH
+    // panes - the SSH channel is written through the same `session.pty.write`.
     "terminal.paste": () => {
-      if (activeLeafIdInTab === null || activeLeafKindCurrent !== "terminal") return;
-      const term = terminalRefs.current.get(activeLeafIdInTab);
+      const term = copyPasteTarget();
       if (!term) return;
       void readClipboardText().then((text) => {
         if (text) term.paste(text);

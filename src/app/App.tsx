@@ -44,6 +44,7 @@ import {
   useExtensionShortcuts,
   useGlobalShortcuts,
   type ShortcutHandlers,
+  type ShortcutId,
 } from "@/modules/shortcuts";
 import { StatusBar } from "@/modules/statusbar";
 import {
@@ -58,6 +59,7 @@ import {
 import {
   acknowledgeAiCli,
   ensureFsDragListener,
+  focusedTerminalLeafId,
   leaves,
   useTerminalFileDrop,
   type TerminalPaneHandle,
@@ -832,8 +834,29 @@ export default function App() {
   // focused. The options object is read fresh each keydown (see useGlobalShortcuts),
   // so closing over activeLeafKindCurrent without a dep array is fine.
   useGlobalShortcuts(shortcutHandlers, {
-    isDisabled: (id, e) =>
-      (id.startsWith("browser.") && activeLeafKindCurrent !== "browser") ||
+    isDisabled: (id: ShortcutId, e) => {
+      if (id.startsWith("browser.")) return activeLeafKindCurrent !== "browser";
+
+      // Copy/paste is decided here in full, off REAL keyboard focus rather than
+      // the active leaf - see `focusedTerminalLeafId`. Both carry a bare chord
+      // (Ctrl+C / Ctrl+V, the pair Termius and Windows Terminal bind, and what
+      // makes the PC clipboard usable inside an SSH session), and
+      // `useGlobalShortcuts` preventDefaults the moment one matches, so the
+      // wrong answer here either kills native paste in the AI composer or eats
+      // a keystroke a shell needed.
+      if (id === "terminal.copy" || id === "terminal.paste") {
+        const leafId = focusedTerminalLeafId();
+        if (leafId === null) return true;
+        // Bare Ctrl+C is the shell's SIGINT unless there is something to copy;
+        // the handler then clears the selection so the NEXT press interrupts.
+        // Ctrl+Shift+C / Cmd+C carry a second modifier, are no control code,
+        // and always copy.
+        if (id === "terminal.copy" && isTerminalControlChord(e)) {
+          return !terminalRefs.current.get(leafId)?.getSelection()?.trim();
+        }
+        return false;
+      }
+
       // A focused terminal owns every bare-Ctrl control code (Ctrl+E, Ctrl+W,
       // Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab, the tmux/screen prefix, …) and
       // every bare-Alt meta sequence (readline M-b / M-f / M-d / M-1..9). On
@@ -846,7 +869,8 @@ export default function App() {
       // Shift. Terminal-safe app chords keep Shift/Meta or add a second modifier
       // (Ctrl+Shift+C copy, Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay
       // active; Ctrl+Tab / Ctrl+digit / zoom are not control codes either.
-      (id !== "pane.splitRight" &&
+      return (
+        id !== "pane.splitRight" &&
         !(
           id === "ai.askSelection" &&
           activeLeafIdInTab !== null &&
@@ -854,7 +878,9 @@ export default function App() {
           !!terminalRefs.current.get(activeLeafIdInTab)?.getSelection()?.trim()
         ) &&
         activeLeafKindCurrent === "terminal" &&
-        (isTerminalControlChord(e) || isTerminalMetaChord(e))),
+        (isTerminalControlChord(e) || isTerminalMetaChord(e))
+      );
+    },
   });
 
   // Generic dispatcher for extension-contributed keybindings. Walks
