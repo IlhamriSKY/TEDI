@@ -97,8 +97,8 @@ function StatusBarInner({
           things you CLICK (actions first, panel toggles after). Zoom sits ahead
           of the AI usage meters rather than with the other actions: it is only
           on screen while zoomed, and that is where it is wanted. Compact mode
-          keeps only what you glance at - the update prompt, the AI meters and
-          the AI panel - and folds the rest away. */}
+          keeps only what you glance at - the update prompt, the zoom pill, the
+          AI meters and the AI panel - and folds the rest away. */}
       <div className="flex shrink-0 items-center gap-1.5">
         {/* 1. Update. Leftmost and alone: it is the one thing here that asks
             something of you, and it is absent the rest of the time. */}
@@ -108,12 +108,14 @@ function StatusBarInner({
 
         {/* 2. Zoom, immediately left of the AI usage meters. Its own group so
             the hairline keeps it off them; it renders null at 100%, and
-            `.sb-group:empty` drops the divider with it. */}
-        {compact ? null : (
-          <Group>
-            <ZoomControl />
-          </Group>
-        )}
+            `.sb-group:empty` drops the divider with it.
+            NOT folded away by compact mode, unlike everything else here. It
+            already hides itself at 100% zoom, so it costs a compact bar nothing
+            in the normal case - and folding it while the user IS zoomed took
+            away the only way back to 100% that is not a keyboard shortcut. */}
+        <Group>
+          <ZoomControl />
+        </Group>
 
         {/* 3. Status: read-only readouts. The agent pill leads (a pending
             approval or an error has to read first), then the AI usage meters,
