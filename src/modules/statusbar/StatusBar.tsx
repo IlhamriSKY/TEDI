@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { ZoomControl } from "./ZoomControl";
-import { GitBranch, Server } from "lucide-react";
+import { GitBranch, Globe, Server } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -45,6 +45,12 @@ type Props = {
    *  the local-OS badge vacates on an SSH pane, which is the honest thing to
    *  put there: what this shell is actually reached through. */
   sshRoute?: SshRouteHop[];
+  /** A detected dev-server url. Set ONLY while that port is actually answering
+   *  (see `useLiveUrl`), so its absence is itself the "nothing is running"
+   *  signal and the pill needs no live/stale dot. */
+  previewUrl?: string | null;
+  /** Opens `previewUrl` as a preview tab. */
+  onOpenPreview?: () => void;
 };
 
 /** One status-bar group. The hairline that separates it from the group before
@@ -68,6 +74,8 @@ function StatusBarInner({
   activeIsSsh,
   sshSessionId,
   sshRoute,
+  previewUrl,
+  onOpenPreview,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -124,6 +132,11 @@ function StatusBarInner({
           <AgentStatusPill onClick={onOpenMini} />
           <ExtensionStatusItems kind="status" metersOnly={compact} />
           {compact ? null : <SchedulerStatusPill />}
+          {/* Not compact-gated, unlike its neighbours: a running dev server is
+              exactly the thing that has to stay reachable from every tab. */}
+          {previewUrl && onOpenPreview && (
+            <PreviewUrlPill url={previewUrl} onOpen={onOpenPreview} />
+          )}
         </Group>
 
         {/* 4a. Actions: a click does the thing, nothing slides out. */}
@@ -199,6 +212,40 @@ function CompactToggle({ compact }: { compact: boolean }) {
 // snapping and animate nothing.
 const BAR =
   "absolute top-[6.95px] left-[2.25px] h-[1.1px] w-[10.5px] rounded-full bg-current transition-[translate,rotate,scale,opacity] duration-200 ease-out motion-reduce:transition-none";
+
+/**
+ * "Open the dev server that is running." Lives here rather than in the pane
+ * header, which cannot be always-visible: `WorkspaceArea` blanks the entire pane
+ * stack on any SCM / diff / extension tab, and the header's action cluster sheds
+ * itself on a narrow pane. The status bar is a sibling of `<main>` and is gated
+ * on nothing.
+ *
+ * Shows the host, not the whole url: `127.0.0.1:5173` is what identifies the
+ * server, and the tooltip and aria-label carry the full address.
+ */
+function PreviewUrlPill({ url, onOpen }: { url: string; onOpen: () => void }) {
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    /* unparseable: show it raw rather than nothing */
+  }
+  return (
+    <IconTooltip label={`Open ${url} as a preview tab`} side="top">
+      <button
+        type="button"
+        aria-label={`Open ${url} as a preview tab`}
+        onClick={onOpen}
+        // A raw button, never the shadcn `Button`: its `size-4` rule overrides
+        // the icon's `size={11}` attribute, and only `strokeWidth` survives.
+        className="border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 text-[11px] transition-colors"
+      >
+        <Globe size={11} strokeWidth={1.75} />
+        <span className="max-w-40 truncate">{host}</span>
+      </button>
+    </IconTooltip>
+  );
+}
 
 function OsBadge() {
   const label = IS_WINDOWS ? "Windows" : IS_MAC ? "macOS" : IS_LINUX ? "Linux" : null;

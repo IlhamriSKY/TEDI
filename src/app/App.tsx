@@ -1028,8 +1028,6 @@ export default function App() {
                 onReconnectSsh={handleReconnectSshForEditor}
                 mdPreviewLeafIds={mdPreviewLeafIds}
                 onToggleMdPreview={toggleMdPreviewForLeaf}
-                detectedBrowserUrl={detectedBrowserUrl}
-                onOpenPreview={handleOpenDetectedPreview}
                 hasAiDiffTab={hasAiDiffTab}
                 hasGitDiffTab={hasGitDiffTab}
                 hasScmTab={hasScmTab}
@@ -1098,6 +1096,8 @@ export default function App() {
             sshRoute={
               activeLeafIdInTab != null ? sshStatuses.get(activeLeafIdInTab)?.route : undefined
             }
+            previewUrl={detectedBrowserUrl}
+            onOpenPreview={handleOpenDetectedPreview}
           />
 
           {hasComposer ? (

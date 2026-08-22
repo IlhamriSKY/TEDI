@@ -367,9 +367,9 @@ const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmart
 pub fn apply_webview2_browser_args_env() {
     // Opt-in automation port. `TEDI_DEBUG_PORT=9222` additionally opens the
     // WebView2 DevTools Protocol on loopback so external tooling (see
-    // `scripts/director/`) can evaluate JS, dispatch real input, and pull
-    // screencast frames for screen recordings. Absent the env var nothing
-    // changes, so shipped builds keep no listening socket.
+    // `scripts/director/`, and the MCP server Claude Code drives it through)
+    // can evaluate JS, dispatch real input, and capture stills. Absent the env
+    // var nothing changes, so shipped builds keep no listening socket.
     //
     // It has to be appended HERE, to the shared environment, for the very reason
     // the flags above are process-wide: per-webview args that differ from the

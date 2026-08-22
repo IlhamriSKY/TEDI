@@ -73,7 +73,6 @@ import {
   BookOpen,
   Cloud,
   FileCode,
-  Globe,
   GripVertical,
   Settings,
   SquareArrowOutUpRight,
@@ -188,8 +187,6 @@ type Props = {
   /** Detected local URL for the "open preview" globe, already resolved against
    *  the *active* leaf. Shown on the focused pane's header (it used to sit in
    *  the app toolbar); `null` hides it. */
-  detectedBrowserUrl?: string | null;
-  onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
@@ -222,8 +219,6 @@ type PaneDndValue = {
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   onToggleMdPreview?: (leafId: number) => void;
-  detectedBrowserUrl?: string | null;
-  onOpenPreview?: () => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
@@ -569,8 +564,6 @@ function PaneLeafFrame({
     onSplitWithExtTab,
     onSetTerminalTheme,
     onToggleMdPreview,
-    detectedBrowserUrl,
-    onOpenPreview,
   } = use(PaneDndContext);
   const {
     sshHosts,
@@ -600,10 +593,9 @@ function PaneLeafFrame({
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
-  // Header buttons that act on whatever leaf is *active* (the Beautify
-  // extension's wand, the detected-URL globe) must render exactly once. Every
-  // pane tab keeps a focused leaf even while hidden, so `focused` alone would
-  // mount one copy per background tab.
+  // The Beautify extension's wand acts on whatever editor is *active*, so it
+  // must render exactly once. Every pane tab keeps a focused leaf even while
+  // hidden, so `focused` alone would mount one copy per background tab.
   const onlyHere = tabVisible && focused;
 
   const isSource = drag.sourceLeafId === node.id;
@@ -836,26 +828,6 @@ function PaneLeafFrame({
                 the pane they format. */}
               {onlyHere && node.leafKind === "editor" && (
                 <ExtensionHeaderItems placement="left" compact />
-              )}
-              {/* "Open preview" for a detected local URL (a printed dev-server
-                address, or a running port found from the project's config).
-                Detection, not focus, decides whether it shows: any leaf kind
-                can host it, and it rides the focused pane only so that it is
-                drawn exactly once. */}
-              {onlyHere && detectedBrowserUrl && onOpenPreview && (
-                <IconTooltip label={`Open ${detectedBrowserUrl} as a preview tab`} side="bottom">
-                  <button
-                    type="button"
-                    aria-label={`Open ${detectedBrowserUrl} as a preview tab`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenPreview();
-                    }}
-                    className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
-                  >
-                    <Globe size={12} strokeWidth={2} />
-                  </button>
-                </IconTooltip>
               )}
             </div>
             {floatParams && (
@@ -1114,8 +1086,6 @@ export function PaneTreeView({
   onSplitWithExtTab,
   onSetTerminalTheme,
   onToggleMdPreview,
-  detectedBrowserUrl,
-  onOpenPreview,
   onSplitSizes,
   sshHosts,
   sshStatuses,
@@ -1201,8 +1171,6 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
-      detectedBrowserUrl,
-      onOpenPreview,
     }),
     [
       drag,
@@ -1212,8 +1180,6 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
-      detectedBrowserUrl,
-      onOpenPreview,
     ],
   );
   const metaValue = useMemo<PaneMetaValue>(

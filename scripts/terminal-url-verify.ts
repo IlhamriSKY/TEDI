@@ -47,10 +47,14 @@ check(
   findLocalUrl("Serving on http://localhost:8080\n"),
   "http://localhost:8080",
 );
+// 0.0.0.0 is a BIND address, not a connect one: `port_is_open` refuses it as
+// non-loopback and the browser pane cannot navigate to it either, so a
+// wildcard-bound server (artisan --host=0.0.0.0, uvicorn, docker-compose) would
+// probe dead forever. `findLocalUrl` rewrites it to loopback.
 check(
-  "a bound-to-everything server",
+  "a bound-to-everything server becomes loopback",
   findLocalUrl("Listening on \x1b[1mhttp://0.0.0.0:9000\x1b[0m\n"),
-  "http://0.0.0.0:9000",
+  "http://127.0.0.1:9000",
 );
 check("https", findLocalUrl("\x1b[36mhttps://localhost:8443/\x1b[0m"), "https://localhost:8443/");
 check(

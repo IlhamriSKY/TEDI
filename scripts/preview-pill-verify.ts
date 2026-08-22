@@ -1,0 +1,177 @@
+/**
+ * Self-check for the dev-server preview pill: it must be visible from anywhere,
+ * and only while the port actually answers.
+ * Run: `npx tsx scripts/preview-pill-verify.ts`.
+ *
+ * The pill is assembled from four files that nothing else ties together, and
+ * every joint fails SILENTLY - the pill simply stops appearing, or keeps
+ * offering a server that died:
+ *
+ *  1. LIVENESS IS ONE AUTHORITY. `useProjectUrl` must report its url whether or
+ *     not it answers. It probes only on an `explorerRoot` change, so gating
+ *     there means a server started after the user stops navigating can never be
+ *     discovered - the original bug, in the config-url source.
+ *  2. THE POLL MUST NOT STOP ON DEAD. `useLiveUrl` never writes back to its
+ *     caller, so a restarted server can only return via the next tick. Its
+ *     effect must also key on the JOINED candidate string: the caller's memo
+ *     recomputes on every `tabs` change and would otherwise rebuild the timer.
+ *  3. PLACEMENT. The pane header can NOT satisfy "always visible" - WorkspaceArea
+ *     blanks the whole pane stack on any non-pane tab - so the pill lives in the
+ *     status bar, uncompacted, and the pane-header globe is gone.
+ *  4. SSH EMITS A DIFFERENT URL THAN IT DEDUPES ON. Over SSH the shell prints a
+ *     REMOTE address and the app is handed the TUNNELLED local one. Re-attach
+ *     must replay what was EMITTED; replaying the printed one offers a local
+ *     port the tunnel never bound, which a liveness probe cannot catch (an
+ *     unrelated local service on that port answers just fine).
+ */
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { findLocalUrl } from "../src/modules/terminal/lib/detectUrl";
+import { remotePortOf, toLocalUrl } from "../src/modules/terminal/lib/forwardUrl";
+
+const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+
+let failed = 0;
+function assert(cond: boolean, msg: string): void {
+  if (!cond) {
+    console.error(`  FAIL: ${msg}`);
+    failed++;
+  } else {
+    console.log(`  ok: ${msg}`);
+  }
+}
+
+const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
+
+console.log("1. a wildcard-bound server survives the whole pipeline");
+{
+  // Behavioural, not a source grep: this is the one path that crosses three
+  // modules, and `0.0.0.0` used to die silently at the probe (`port_is_open`
+  // refuses every non-loopback address, and Rust counts only 127/8 as loopback).
+  const printed = findLocalUrl("INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C)");
+  assert(printed === "http://127.0.0.1:8000", `local: rewritten to loopback (got ${printed})`);
+
+  // Over SSH the SAME string is tunnelled. The rewrite must not disturb the port
+  // the tunnel binds, nor the authority swap that follows.
+  assert(remotePortOf(printed!) === 8000, "ssh: the remote port still reads as 8000");
+  assert(
+    toLocalUrl(printed!, 49001) === "http://127.0.0.1:49001/",
+    "ssh: the authority swap still produces the tunnel's local end",
+  );
+
+  // A path must survive both steps, since that is what makes a url worth opening.
+  const withPath = findLocalUrl("Listening on http://0.0.0.0:3000/admin");
+  assert(withPath === "http://127.0.0.1:3000/admin", "the path survives the rewrite");
+  assert(
+    toLocalUrl(withPath!, 5000) === "http://127.0.0.1:5000/admin",
+    "and survives the tunnel swap",
+  );
+}
+
+console.log("2. liveness has exactly one authority, and it never stops polling");
+{
+  const projectUrl = read("src/app/hooks/useProjectUrl.ts");
+  assert(
+    /export function useLiveUrl\(urls: string\[\]\): string \| null/.test(projectUrl),
+    "useLiveUrl takes an ordered candidate list",
+  );
+  // The fall-through is the point: a stopped `npm run dev` must not mask a live
+  // vhost sitting behind it in the priority order.
+  assert(
+    /for \(const url of urlsRef\.current\)[\s\S]{0,200}?await isUp\(url\)[\s\S]{0,160}?setLive\(url\)/.test(
+      projectUrl,
+    ),
+    "it walks the candidates and takes the first that answers",
+  );
+  assert(
+    /strikes\+\+;\s*\n\s*if \(strikes >= DEAD_STRIKES\) setLive\(null\)/.test(projectUrl),
+    "and only drops the url after DEAD_STRIKES consecutive dead rounds",
+  );
+  // If the effect keyed on the array it would rebuild the interval on every
+  // `tabs` change, which is every leaf add / close / focus.
+  assert(
+    /const key = urls\.join\("\|"\)/.test(projectUrl) && /\}, \[key\]\);/.test(projectUrl),
+    "the effect keys on the joined string, not the array identity",
+  );
+  assert(
+    /document\.visibilityState === "visible"/.test(projectUrl) &&
+      /window\.addEventListener\("blur", onBlur\)/.test(projectUrl),
+    "the poll is gated on window visibility like the git and file-tree polls",
+  );
+  // The regression that would quietly undo the whole feature.
+  assert(
+    !/const up = await isUp\(url\);\s*\n\s*if \(alive\) cb\.current\(up \? url : null\)/.test(
+      projectUrl,
+    ),
+    "useProjectUrl no longer gates its own report on a one-shot probe",
+  );
+  assert(
+    /const detectedBrowserUrl = useLiveUrl\(previewCandidates\)/.test(
+      read("src/app/hooks/useActiveLeafSurface.ts"),
+    ),
+    "and the app's single detected url comes out of useLiveUrl",
+  );
+}
+
+console.log("3. the pill is in the status bar, uncompacted, and the pane globe is gone");
+{
+  const statusBar = read("src/modules/statusbar/StatusBar.tsx");
+  assert(/function PreviewUrlPill\(/.test(statusBar), "StatusBar declares the pill");
+  // Compact mode folds its neighbours away; this one must not fold.
+  assert(
+    /\{previewUrl && onOpenPreview && \(\s*\n?\s*<PreviewUrlPill/.test(statusBar) &&
+      !/compact \? null : \(?\s*<PreviewUrlPill/.test(statusBar),
+    "it renders without a compact gate",
+  );
+  assert(
+    /previewUrl=\{detectedBrowserUrl\}/.test(read("src/app/App.tsx")),
+    "App feeds it the live url",
+  );
+  // The pane header cannot be always-visible, so the old globe must not linger
+  // and draw a second, differently-gated copy.
+  const paneTree = read("src/modules/panes/PaneTreeView.tsx");
+  assert(!/detectedBrowserUrl/.test(paneTree), "PaneTreeView no longer knows about the url");
+  assert(!/\bGlobe\b/.test(paneTree), "and its Globe import is gone");
+  assert(
+    !/detectedBrowserUrl/.test(read("src/modules/panes/PaneStack.tsx")) &&
+      !/detectedBrowserUrl/.test(read("src/app/components/WorkspaceArea.tsx")),
+    "the prop chain that fed it is gone too",
+  );
+}
+
+console.log("4. an SSH leaf replays the url it EMITTED, not the one it printed");
+{
+  const state = read("src/modules/terminal/lib/sessionState.ts");
+  assert(/lastEmittedUrl: string \| null;/.test(state), "the session carries both urls");
+
+  const pty = read("src/modules/terminal/lib/pty-lifecycle.ts");
+  // Get this branch backwards and every re-attach offers the REMOTE address.
+  assert(
+    /s\.lastDetectedUrl = url;\s*\n\s*s\.lastEmittedUrl = local;/.test(pty),
+    "the SSH branch dedupes on the printed url and emits the tunnelled one",
+  );
+  assert(
+    /s\.lastDetectedUrl = url;\s*\n\s*s\.lastEmittedUrl = url;/.test(pty),
+    "the local branch stores the same url in both",
+  );
+  assert(
+    /s\.lastEmittedUrl = null;/.test(pty),
+    "a respawn clears it, so a dead shell stops offering its old port",
+  );
+
+  const lifecycle = read("src/modules/terminal/lib/session-lifecycle.ts");
+  assert(
+    /callbacks\.onDetectedLocalUrl\?\.\(s\.lastEmittedUrl\)/.test(lifecycle),
+    "re-attach replays lastEmittedUrl",
+  );
+  assert(
+    !/callbacks\.onDetectedLocalUrl\?\.\(s\.lastDetectedUrl\)/.test(lifecycle),
+    "and never lastDetectedUrl (over SSH that is a port this machine never bound)",
+  );
+}
+
+// `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.
+if (failed > 0) throw new Error(`preview-pill-verify: ${failed} check(s) failed`);
+console.log("\npreview-pill-verify: all checks passed");

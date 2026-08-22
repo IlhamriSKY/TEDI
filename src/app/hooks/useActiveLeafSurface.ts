@@ -2,6 +2,7 @@ import { type EditorPaneHandle } from "@/modules/editor";
 import { BROWSER_NAV_EVENT, type BrowserNavEvent } from "@/modules/browser";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
+import { useLiveUrl } from "./useProjectUrl";
 import { listen } from "@tauri-apps/api/event";
 import type { SearchAddon } from "@xterm/addon-search";
 import {
@@ -73,9 +74,10 @@ export function useActiveLeafSurface({
   detectedBrowserUrl: string | null;
 } {
   const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
-  // The open project's own url, resolved from its config by `useProjectUrl` and
-  // only set while that port answers. Not per-leaf: it belongs to the workspace,
-  // not to whichever terminal happens to be focused.
+  // The open project's own url, resolved from its config by `useProjectUrl`.
+  // Reported whether or not it answers - `useLiveUrl` below owns liveness for
+  // every source alike. Not per-leaf: it belongs to the workspace, not to
+  // whichever terminal happens to be focused.
   const [projectUrl, setProjectUrl] = useState<string | null>(null);
 
   // On active leaf or tab change, surface its search addon, editor handle,
@@ -114,7 +116,11 @@ export function useActiveLeafSurface({
     [activeLeafIdInTab],
   );
 
-  const detectedBrowserUrl = useMemo(() => {
+  // Every url worth offering, best first. A LIST rather than one winner,
+  // because the sources go stale independently: a stopped `npm run dev` still
+  // holds the top slot with :5173, and collapsing early would hide a Laragon
+  // vhost that is up and answering. `useLiveUrl` walks this until one replies.
+  const previewCandidates = useMemo(() => {
     // A url the focused terminal printed wins over one another leaf printed,
     // which in turn wins over the project's declared one: the focused pane is
     // what the user is looking at right now, and on an SSH leaf it is the
@@ -126,15 +132,23 @@ export function useActiveLeafSurface({
       )
         ? lastDetected.url
         : null;
-    const url = activeDetectedUrl ?? fromAnyLeaf ?? projectUrl;
-    if (!url) return null;
-    const alreadyOpen = tabs.some(
-      (t) =>
-        t.kind === "pane" &&
-        leaves(t.paneTree).some((l) => l.leafKind === "browser" && sameOrigin(l.url, url)),
-    );
-    return alreadyOpen ? null : url;
+    // Per-candidate, not a whole-result null: opening a preview for one url must
+    // not silence a second dev server that has no tab yet. When every candidate
+    // is already open the list empties, which is correct - there is nothing left
+    // to offer.
+    const isOpen = (url: string) =>
+      tabs.some(
+        (t) =>
+          t.kind === "pane" &&
+          leaves(t.paneTree).some((l) => l.leafKind === "browser" && sameOrigin(l.url, url)),
+      );
+    const ordered = [activeDetectedUrl, fromAnyLeaf, projectUrl].filter((u): u is string => !!u);
+    return [...new Set(ordered)].filter((u) => !isOpen(u));
   }, [activeDetectedUrl, lastDetected, projectUrl, tabs]);
+
+  // Only ever the url of a port that is actually answering, so the pill stops
+  // offering a dev server the user has since stopped.
+  const detectedBrowserUrl = useLiveUrl(previewCandidates);
 
   // Fires for either source: the project's declared url AND one a terminal
   // printed, so `php artisan serve` / `npm run dev` opens the browser the same

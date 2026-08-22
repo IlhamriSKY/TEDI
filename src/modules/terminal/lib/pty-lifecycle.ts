@@ -133,6 +133,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
       if (url && url !== s.lastDetectedUrl) {
         if (!s.sshConnectionId) {
           s.lastDetectedUrl = url;
+          s.lastEmittedUrl = url;
           s.callbacks.onDetectedLocalUrl?.(url);
         } else {
           void forwardDetectedUrl(s, url, sshUrlForwards).then(
@@ -145,6 +146,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
               // tunnel is retried the next time the server prints it rather
               // than being swallowed by the dedupe.
               s.lastDetectedUrl = url;
+              s.lastEmittedUrl = local;
               s.callbacks.onDetectedLocalUrl?.(local);
             },
             (e) =>
@@ -601,6 +603,7 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   s.lastSentCols = 0;
   s.lastSentRows = 0;
   s.lastDetectedUrl = null;
+  s.lastEmittedUrl = null;
   s.pendingExit = null;
   // Hold the flag so attachSession can't open a second PTY mid-await.
   s.ptyOpening = true;

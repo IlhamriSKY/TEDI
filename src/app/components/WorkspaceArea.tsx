@@ -35,8 +35,6 @@ type Props = {
   /** Flip a markdown editor leaf between source and preview, from its pane header. */
   onToggleMdPreview: (leafId: number) => void;
   /** Detected local URL for the focused pane header's "open preview" globe. */
-  detectedBrowserUrl: string | null;
-  onOpenPreview: () => void;
   hasAiDiffTab: boolean;
   hasGitDiffTab: boolean;
   hasScmTab: boolean;
@@ -80,8 +78,6 @@ export function WorkspaceArea({
   onReconnectSsh,
   mdPreviewLeafIds,
   onToggleMdPreview,
-  detectedBrowserUrl,
-  onOpenPreview,
   hasAiDiffTab,
   hasGitDiffTab,
   hasScmTab,
@@ -131,8 +127,6 @@ export function WorkspaceArea({
               onBrowserUrlChange={setBrowserLeafUrl}
               mdPreviewLeafIds={mdPreviewLeafIds}
               onToggleMdPreview={onToggleMdPreview}
-              detectedBrowserUrl={detectedBrowserUrl}
-              onOpenPreview={onOpenPreview}
               onFocusLeaf={paneHandles.handleFocusLeaf}
               onMovePaneLeaf={movePaneLeafToEdge}
               onCloseLeafRequest={paneHandles.handlePaneHeaderClose}
