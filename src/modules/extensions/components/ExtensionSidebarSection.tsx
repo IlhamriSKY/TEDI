@@ -19,6 +19,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { revealColumn } from "@/lib/sectionDrag";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
@@ -67,7 +68,7 @@ function filterSidebarItems(list: SidebarSectionItem[], q: string): SidebarSecti
 /** One icon, resolving a `lucide:`/`hugeicon:` named icon first, then asset/data
  *  URLs. Sized to the caller's `size`; tints with `currentColor` (Lucide) or a
  *  mask (SVG asset). */
-function SectionIcon({
+export function SectionIcon({
   extensionId,
   icon,
   size,
@@ -223,10 +224,12 @@ export function ExtensionSidebarSection({
   const items = section.items ?? [];
   const placementKey = sidebarSectionKey(extensionId, section.id);
   const moveRight = () => {
+    revealColumn("right");
     useSidebarPlacementStore.getState().moveRight(placementKey);
     useRightPanelStore.getState().open(extensionId, sectionPanelId(section.id));
   };
   const moveLeft = () => {
+    revealColumn("left");
     useSidebarPlacementStore.getState().moveLeft(placementKey);
     useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id));
   };
@@ -413,7 +416,7 @@ export function ExtensionSidebarSection({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+      <div className="tedi-panel-header">
         {dragHandle}
         <SectionIcon
           extensionId={extensionId}
@@ -426,7 +429,7 @@ export function ExtensionSidebarSection({
         </span>
         {showControlCluster && (
           <>
-            <span className="bg-border mx-1 h-5 w-px shrink-0" aria-hidden />
+            <span className="tedi-header-divider" aria-hidden />
             {headerActions.map((a) => (
               <IconTooltip key={a.id} label={a.tooltip} side="bottom">
                 <Button

@@ -8,6 +8,8 @@ import {
   onPreferencesChange,
   setCustomTheme,
   setCustomThemeEnabled,
+  setSourceControlInRightPanel,
+  setSshInRightPanel,
   type Preferences,
 } from "./store";
 import { THEME_PRESETS } from "./themePresets";
@@ -63,3 +65,29 @@ export const usePreferencesStore = create<State>((set) => ({
     });
   },
 }));
+
+/**
+ * Move Source Control / Remote between the two columns.
+ *
+ * The preference is what decides which column renders the section, and it is
+ * PERSISTED over IPC: `writePref` awaits a Tauri store write and then emits, so
+ * this store only learns the new value when that echo comes back, several ticks
+ * later. The right column's open flag, meanwhile, is a plain synchronous zustand
+ * set. For those few ticks the app therefore saw "open on the right" together
+ * with "not docked right" - which is precisely the state `useRightPanelExclusion`
+ * exists to clean up. It closed the panel that had just been opened, and once the
+ * echo finally landed the sidebar dropped the section as well, so Source Control
+ * ended up in NEITHER column until the user found its status-bar icon.
+ *
+ * Writing this store FIRST closes that window. The persisted write still happens;
+ * its echo then sets the same value and is a no-op.
+ */
+export function setColumnPlacement(section: "scm" | "ssh", inRightPanel: boolean): void {
+  if (section === "scm") {
+    usePreferencesStore.setState({ sourceControlInRightPanel: inRightPanel });
+    void setSourceControlInRightPanel(inRightPanel);
+    return;
+  }
+  usePreferencesStore.setState({ sshInRightPanel: inRightPanel });
+  void setSshInRightPanel(inRightPanel);
+}

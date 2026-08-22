@@ -36,6 +36,26 @@ export const TOOLBAR_EXPANDED =
 export const TOOLBAR_ACTIVE = "bg-accent text-accent-foreground";
 
 /**
+ * A PANEL-HEADER toggle that is currently on: the file tree's Search and
+ * Search-in-files buttons, which open a surface below the header.
+ *
+ * A coloured glyph rather than the accent FILL `TOOLBAR_ACTIVE` uses. These sit
+ * in a dense 32px header row beside half a dozen other icon buttons, where a
+ * filled pill reads as a different KIND of control; a primary glyph reads as
+ * "this one is open" without changing the row's shape.
+ *
+ * The `dark:` hover twins are spelled out for the reason at the top of this
+ * file, and the SVG carries the colour itself so the ghost variant's
+ * `hover:text-accent-foreground` cannot grey the glyph out under the pointer -
+ * the same trap `DESTRUCTIVE_ACTION` documents below.
+ */
+export const HEADER_TOGGLE_ACTIVE =
+  "text-primary [&_svg]:text-primary hover:text-primary dark:hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/10";
+
+/** The resting half of the pair. Import both; never re-type either string. */
+export const HEADER_TOGGLE_IDLE = "text-muted-foreground hover:text-foreground";
+
+/**
  * Delete / remove icon buttons (trash glyphs, and the close X on a workspace or
  * one of its tabs). Red AT REST, not only on hover: a destructive action has to
  * be findable - and avoidable - before the pointer is on it.

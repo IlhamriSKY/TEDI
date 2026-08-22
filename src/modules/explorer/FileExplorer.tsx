@@ -47,6 +47,10 @@ type Props = {
    *  sharing the storage key can't strand this tree on a mode the user
    *  can't see or change. */
   hideSort?: boolean;
+  /** Makes the folder icon left of the name open a folder picker. Passed by the
+   *  secondary folder tree, which used to spend a whole extra header button on
+   *  it. Absent on the workspace tree, whose root is not the user to choose. */
+  onPickFolder?: () => void;
   /** Extra buttons appended after Refresh + Collapse. */
   headerExtras?: React.ReactNode;
   /** Absolute path of the file the user is currently viewing (editor, ai-diff,
@@ -100,6 +104,7 @@ export function FileExplorer({
   hideCreateActions = false,
   hideGrep = false,
   hideSort = false,
+  onPickFolder,
   headerExtras,
   activeFilePath,
   dragHandle,
@@ -367,6 +372,9 @@ export function FileExplorer({
         sortMode={sortMode}
         setSortMode={setSortMode}
         expandedSize={tree.expanded.size}
+        searchActive={isSearchOpen}
+        grepActive={isGrepOpen}
+        onPickFolder={onPickFolder}
         onToggleSearch={() => {
           setIsGrepOpen(false);
           setIsSearchOpen((v) => !v);

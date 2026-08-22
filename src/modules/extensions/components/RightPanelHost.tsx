@@ -22,7 +22,7 @@ import {
 import { useRegistry } from "../useRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
 import { parseSectionPanelId } from "../sidebarPlacementStore";
-import { ExtensionSidebarSection } from "./ExtensionSidebarSection";
+import { ExtensionSidebarSection, SectionIcon } from "./ExtensionSidebarSection";
 import { X } from "lucide-react";
 
 /**
@@ -181,31 +181,50 @@ export function RightPanelHost({
         // right column's stack: without somewhere to put the grip it would be
         // the one panel that cannot be reordered or minimized. A panel that
         // renders a `[data-tedi-panel-controls]` slot takes them onto its own
-        // header row (the folder tree does); the slim rail is the fallback for
-        // one that does not, so no panel is ever left undraggable.
+        // header row (the folder tree does); this rail is the fallback for one
+        // that does not, so no panel is ever left undraggable. It carries the
+        // title too - a bare grip on an empty strip reads as a glitch.
         dragHandle && !controlsSlot ? (
-          <div className="border-border/60 flex h-5 shrink-0 items-center border-b px-1.5">
+          <div className="tedi-panel-header">
             {dragHandle}
+            <SectionIcon
+              extensionId={extensionId}
+              icon={meta?.item.icon}
+              size={13}
+              className="text-muted-foreground"
+            />
+            <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">
+              {title || "Panel"}
+            </span>
           </div>
         ) : null
       ) : (
-        <div className="border-border/60 relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-3">
-          <span className="flex min-w-0 items-center gap-1">
-            {dragHandle}
-            <span className="text-foreground/90 min-w-0 truncate text-[12px] font-medium">
-              {title || "Panel"}
-            </span>
+        // Same shape as every other panel header: grip, icon, title, divider,
+        // actions. It used to be `justify-between` with a differently sized,
+        // differently coloured title and no icon or divider, which is what made
+        // an extension's panel read as a foreign surface next to Files or SCM.
+        <div className="tedi-panel-header relative">
+          {dragHandle}
+          <SectionIcon
+            extensionId={extensionId}
+            icon={meta?.item.icon}
+            size={13}
+            className="text-muted-foreground"
+          />
+          <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">
+            {title || "Panel"}
           </span>
-          <IconTooltip label="Close panel" side="top">
+          <span className="tedi-header-divider" aria-hidden />
+          <IconTooltip label="Close panel" side="bottom">
             <Button
               type="button"
               size="icon"
               variant="ghost"
               onClick={() => close(extensionId, panelId)}
-              className={cn(DESTRUCTIVE_ACTION, "size-6 rounded")}
+              className={cn(DESTRUCTIVE_ACTION, "size-6")}
               aria-label="Close panel"
             >
-              <X size={13} strokeWidth={1.75} />
+              <X size={13} strokeWidth={2} />
             </Button>
           </IconTooltip>
         </div>
@@ -215,7 +234,7 @@ export function RightPanelHost({
       <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-auto" />
       {controlsSlot && dragHandle ? createPortal(dragHandle, controlsSlot) : null}
       {!renderer ? (
-        <div className="text-muted-foreground pointer-events-none absolute inset-0 top-11 flex items-center justify-center text-[11px]">
+        <div className="text-muted-foreground pointer-events-none absolute inset-0 top-8 flex items-center justify-center text-[11px]">
           Loading panel…
         </div>
       ) : null}

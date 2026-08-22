@@ -15,6 +15,8 @@ import { memo, useEffect, useMemo, type ReactNode } from "react";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePlanStore } from "../store/planStore";
+import { useSidebarPlacementStore } from "@/modules/extensions";
+import { revealColumn } from "@/lib/sectionDrag";
 import { AiChatView } from "./AiChat";
 import { AiInputBar } from "./AiInputBar";
 import { DebugRequestViewer } from "./DebugRequestViewer";
@@ -22,7 +24,18 @@ import { ToolsPicker } from "./ToolsPicker";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { GoalStrip } from "./GoalStrip";
 import { TodoStrip } from "./TodoStrip";
-import { ChevronDown, CircleAlert, ListFilter, Plus, Terminal, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  CircleAlert,
+  ListFilter,
+  PanelLeft,
+  PanelRight,
+  Sparkles,
+  Plus,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
 
 const SUGGESTIONS = [
   {
@@ -174,37 +187,73 @@ function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?:
 
 function Header({ onClose, dragHandle }: { onClose: () => void; dragHandle?: ReactNode }) {
   return (
-    // A container, so the header can drop what does not fit at the width the
-    // user actually dragged the column to (the panel is resizable, so a media
-    // query would be measuring the wrong box).
-    <div className="border-border/60 @container/ai-header relative flex h-11 shrink-0 items-center justify-between gap-1 border-b px-0">
-      <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
-        {dragHandle}
-        <SessionPicker />
-      </div>
-      {/* min-w-0 so the busy readout gives way before the buttons do, and pr-2
-          because the header itself is px-0: the SessionPicker is a full-bleed
-          button on the left, but without this the close X sat hard against the
-          panel's right border. */}
-      <div className="flex min-w-0 shrink items-center gap-0.5 pr-2">
-        <span className="flex shrink-0 items-center gap-0.5">
-          <ToolsPicker />
-          <DebugRequestViewer />
-          <IconTooltip label="Close (Esc)" side="bottom">
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={onClose}
-              className={cn(DESTRUCTIVE_ACTION, "size-6 rounded")}
-              aria-label="Close (Esc)"
-            >
-              <X size={13} strokeWidth={1.75} />
-            </Button>
-          </IconTooltip>
-        </span>
-      </div>
+    // Flat, like every other panel header: grip, icon, title, divider, actions.
+    // It used to be a `justify-between` pair of nested divs with `px-0` and its
+    // own pl-1/pr-2 patches, which made it the one header in either column that
+    // did not line up with its neighbours - and buried the actions two levels
+    // deep, where the shared "minimized = label row" rule could not reach them.
+    // The named ai-header container it also carried had no consumers; the shared
+    // header class is a container in its own right now. (Spelled out rather than
+    // written as the class: Tailwind scans comments too, and the literal was
+    // enough to keep emitting the dead utility after the class itself was gone.)
+    <div className="tedi-panel-header relative">
+      {dragHandle}
+      <Sparkles size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
+      <SessionPicker />
+      <span className="tedi-header-divider" aria-hidden />
+      <ToolsPicker />
+      <span className="tedi-header-optional flex items-center">
+        <DebugRequestViewer />
+      </span>
+      <AiDockButton />
+      <IconTooltip label="Close (Esc)" side="bottom">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onClose}
+          className={cn(DESTRUCTIVE_ACTION, "size-6")}
+          aria-label="Close (Esc)"
+        >
+          <X size={13} strokeWidth={2} />
+        </Button>
+      </IconTooltip>
     </div>
+  );
+}
+
+/**
+ * Sends the AI panel to the other column. The placement store IS the answer to
+ * "which side am I on" (the panel is only ever mounted in one), so this needs no
+ * prop drilled down from the column that rendered it. Same pair of calls the
+ * section stack's cross-column drag makes, via `app/lib/sectionDock`.
+ */
+function AiDockButton() {
+  const column = useSidebarPlacementStore((s) => s.placement.ai) ?? "right";
+  const toRight = column === "left";
+  return (
+    <IconTooltip label={toRight ? "Move to right panel" : "Move to left sidebar"} side="bottom">
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        onClick={() => {
+          // Ask the destination to show itself first: it may be minimized shut,
+          // and the panel would otherwise move somewhere invisible.
+          revealColumn(toRight ? "right" : "left");
+          if (toRight) useSidebarPlacementStore.getState().moveRight("ai");
+          else useSidebarPlacementStore.getState().moveLeft("ai");
+        }}
+        className="text-muted-foreground hover:text-foreground size-6 rounded"
+        aria-label={toRight ? "Move AI to the right panel" : "Move AI to the left sidebar"}
+      >
+        {toRight ? (
+          <PanelRight size={13} strokeWidth={1.75} />
+        ) : (
+          <PanelLeft size={13} strokeWidth={1.75} />
+        )}
+      </Button>
+    </IconTooltip>
   );
 }
 
@@ -216,7 +265,12 @@ function SessionPicker() {
   const deleteSession = useChatStore((s) => s.deleteSession);
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
-  if (!active) return null;
+  // Sessions are still loading. Returning null used to leave the header with no
+  // title AND no flex-1 slot, so the whole action cluster slid left for a beat.
+  if (!active)
+    return (
+      <span className="text-foreground/80 min-w-0 flex-1 truncate text-xs font-medium">AI</span>
+    );
 
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -227,9 +281,14 @@ function SessionPicker() {
           <DropdownMenuTrigger asChild>
             <button
               type="button"
+              // The AI panel's session name IS its title, so it wears the same
+              // type as every other header's (`text-xs`, `text-foreground/80`)
+              // rather than the smaller muted style it had, and takes the same
+              // `flex-1` slot. It stays a button: switching session is what you
+              // click the title for.
               className={cn(
-                "flex max-w-48 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1",
-                "text-muted-foreground text-[11px] transition-colors",
+                "flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-1 py-1",
+                "text-foreground/80 text-xs font-medium transition-colors",
                 "hover:bg-accent hover:text-accent-foreground",
               )}
               aria-label="Switch session"

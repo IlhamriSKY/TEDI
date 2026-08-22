@@ -24,8 +24,9 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { humanizeFsError } from "@/lib/fsError";
 import { segmentsFromCwd } from "@/modules/statusbar/lib/pathUtils";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setSshInRightPanel } from "@/modules/settings/store";
+import { setColumnPlacement, usePreferencesStore } from "@/modules/settings/preferences";
+import { revealColumn } from "@/lib/sectionDrag";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sftpHome } from "./sftp";
 import { useSshFileTree } from "./useSshFileTree";
@@ -199,11 +200,14 @@ export function SshFileExplorer({
     </span>
   );
 
-  const headerActionsVisible = !collapsed && sessionId !== null && rootPath !== null;
+  // Only the SESSION gates these now. Hiding them while the section is minimized
+  // is the shared `.tedi-header-divider` rule's job, the same one the other six
+  // headers answer to.
+  const headerActionsVisible = sessionId !== null && rootPath !== null;
 
   return (
     <div ref={containerRef} className="flex h-full flex-col outline-none">
-      <div className="border-border/60 flex h-8 shrink-0 items-center gap-1 border-b px-2">
+      <div className="tedi-panel-header">
         {dragHandle}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -227,13 +231,14 @@ export function SshFileExplorer({
           </TooltipContent>
         </Tooltip>
 
+        <span className="tedi-header-divider" aria-hidden />
         {headerActionsVisible && rootPath ? (
           <>
             <IconTooltip label="New file" side="bottom">
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-6"
+                className="tedi-header-optional text-muted-foreground hover:text-foreground size-6"
                 onClick={() => tree.beginCreate(rootPath, "file")}
                 aria-label="New file"
               >
@@ -244,7 +249,7 @@ export function SshFileExplorer({
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-6"
+                className="tedi-header-optional text-muted-foreground hover:text-foreground size-6"
                 onClick={() => tree.beginCreate(rootPath, "dir")}
                 aria-label="New folder"
               >
@@ -267,7 +272,7 @@ export function SshFileExplorer({
                 variant="ghost"
                 size="icon"
                 disabled={tree.expanded.size === 0}
-                className="text-muted-foreground hover:text-foreground size-6 disabled:opacity-40"
+                className="tedi-header-optional text-muted-foreground hover:text-foreground size-6 disabled:opacity-40"
                 onClick={() => tree.collapseAll()}
                 aria-label="Collapse folders"
               >
@@ -278,16 +283,19 @@ export function SshFileExplorer({
         ) : null}
 
         {/* Left-sidebar instance: move the Remote explorer to the right panel.
-            Shown whenever it's the sidebar instance (has a reorder grip) and
-            expanded, independent of session state - like SCM's move button. */}
-        {dragHandle && !collapsed ? (
+            Shown on the sidebar instance independent of session state, like
+            SCM's move button. `!onClose` is what says "left": the right column
+            passes one and the sidebar does not. Gating on `dragHandle` alone put
+            BOTH move buttons on the right-column copy, which now has a grip. */}
+        {dragHandle && !onClose ? (
           <IconTooltip label="Move to right panel" side="bottom">
             <Button
               variant="ghost"
               size="icon"
               className="text-muted-foreground hover:text-foreground size-6"
               onClick={() => {
-                void setSshInRightPanel(true);
+                revealColumn("right");
+                setColumnPlacement("ssh", true);
                 useSshRightPanelStore.getState().openPanel();
               }}
               aria-label="Move Remote to the right panel"
@@ -304,7 +312,8 @@ export function SshFileExplorer({
               size="icon"
               className="text-muted-foreground hover:text-foreground size-6"
               onClick={() => {
-                void setSshInRightPanel(false);
+                revealColumn("left");
+                setColumnPlacement("ssh", false);
                 useSshRightPanelStore.getState().closePanel();
               }}
               aria-label="Move Remote to the left sidebar"
