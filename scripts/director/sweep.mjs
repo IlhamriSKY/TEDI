@@ -2,7 +2,7 @@
  * Control sweep: walk TEDI's surface and prove each area is drivable, by
  * asserting a measurable change rather than by "the command did not throw".
  *
- *   pnpm director run scripts/director/sweep.mjs
+ *   pnpm director sweep
  *
  * Two rules the first version got wrong and that matter more than the checks
  * themselves:
@@ -165,6 +165,66 @@ export default async function sweep(d) {
     return `${hits} hits, atPrompt=${term.atPrompt}, running=${term.running}`;
   });
 
+  // Panes across tabs, and the wait that replaces a polling loop. Both are the
+  // "know what the other panes are doing" half: a driver that can only see the
+  // focused pane cannot wait on a build running in a background tab.
+  await check("panes() sees a background tab, and wait() returns at the prompt", async () => {
+    const before = (await d.panes()).length;
+    await d.cmd("tab.new");
+    await wait(2500);
+    const after = await d.panes();
+    if (after.length <= before) throw new Error(`${before} -> ${after.length} panes after tab.new`);
+    const terms = after.filter((p) => p.kind === "terminal");
+    if (!terms.length) throw new Error("no terminal panes in the model view");
+    // Every terminal must carry the identity a driver picks a target by.
+    const naked = terms.find((p) => typeof p.atPrompt !== "boolean");
+    if (naked) throw new Error(`terminal pane has no prompt state: ${JSON.stringify(naked)}`);
+    const w = await d.waitTerminal({ timeout: 15000 });
+    if (!w.done) throw new Error(`wait did not settle: ${w.reason}`);
+    return `${after.length} panes across tabs, wait -> ${w.reason}`;
+  }, async () => {
+    while ((await tabs()) > base.tabs) {
+      await d.cmd("tab.close");
+      await wait(1200);
+    }
+  });
+
+  // Extensions were the blind spot: their commands live in a registry of their
+  // own, so `commands()` never listed them and `cmd()` could never reach them.
+  // A zero-extension profile is legitimate, so this asserts the SHAPE, not a
+  // count - the failure it guards is the accessor being gone, not the list
+  // being empty.
+  await check("extensions() reports what each one contributes", async () => {
+    const list = await d.extensions();
+    if (!Array.isArray(list)) throw new Error(`not an array: ${JSON.stringify(list)}`);
+    for (const e of list) {
+      if (!e.id || typeof e.enabled !== "boolean" || !Array.isArray(e.commands)) {
+        throw new Error(`malformed entry: ${JSON.stringify(e)}`);
+      }
+    }
+    // An id nothing answers to must come back false rather than throwing, which
+    // is the same answer a disabled extension gives.
+    if (await d.extCommand("no.such.extension", "nope")) {
+      throw new Error("extCommand claimed to run a command that does not exist");
+    }
+    return `${list.length} installed, ${list.filter((e) => e.enabled).length} enabled`;
+  });
+
+  // `sh()` is the path an agent runs commands through, and it is NOT the path
+  // `command()` above exercises: it writes to the PTY instead of synthesising
+  // keystrokes, and it decides "done" from the buffer changing rather than from
+  // the prompt alone. That difference is the whole check - a prompt-only wait
+  // passes instantly against the PREVIOUS prompt and reads the output before it
+  // exists, which looks exactly like a command that printed nothing.
+  await check("sh() runs a command and returns its output", async () => {
+    const stamp = `sh${(await d.eval("performance.now().toFixed(0)")).slice(-5)}`;
+    const out = await d.sh(`echo ${stamp}`, { timeout: 15000 });
+    if (out.timedOut) throw new Error("timed out waiting for the prompt");
+    const hits = out.text.split("\n").filter((l) => l.includes(stamp)).length;
+    if (hits < 2) throw new Error(`${hits} occurrence(s) of "${stamp}" in the returned text`);
+    return `leaf ${out.leafId}, ${hits} hits`;
+  });
+
   // Chord virtual keys and the syntax of every injected expression are checked
   // in `scripts/director-verify.ts` instead. Both are pure, and a check that
   // needs no running app has no business waiting for one.
@@ -176,12 +236,25 @@ export default async function sweep(d) {
   await check("state() reports the live layout", async () => {
     const s = await d.state();
     if (s.leaves.length !== base.leaves) throw new Error(`leaves ${s.leaves.length} != ${base.leaves}`);
-    if (s.tabs !== base.tabs) throw new Error(`tabs ${s.tabs} != ${base.tabs}`);
+    if (s.tabs.length !== base.tabs) throw new Error(`tabs ${s.tabs.length} != ${base.tabs}`);
+    // A tab with no label is a real regression and an easy one to miss: the
+    // snapshot still LOOKS right, and every later "switch to the X tab" has
+    // nothing to match on.
+    if (s.tabs.some((t) => !t.label)) throw new Error(`unlabelled tab: ${JSON.stringify(s.tabs)}`);
     if (s.paneHandle !== -1) throw new Error(`paneHandle ${s.paneHandle} with one pane, expected -1`);
     if (s.dialog) throw new Error(`a dialog is open: ${s.dialog}`);
     if (!s.buttons.length) throw new Error("no aria-labelled buttons found");
-    if (!s.terminals.length) throw new Error(`terminals unavailable: ${s.terminalsError ?? "none registered"}`);
-    return `${s.leaves.length} leaf, ${s.buttons.length} labelled buttons, focusLeaf ${s.focusLeaf}`;
+    // `panes` is the model view - every pane in EVERY tab, where `leaves` is
+    // only what the DOM has rendered. A pane list shorter than the rendered one
+    // means the surface is missing, or the tab tree lost a leaf.
+    if (!s.panes.length) throw new Error(`panes unavailable: ${s.tediError ?? "none"}`);
+    if (s.panes.length < s.leaves.length) {
+      throw new Error(`${s.panes.length} panes but ${s.leaves.length} rendered leaves`);
+    }
+    if (!s.panes.every((p) => typeof p.leafId === "number" && p.kind && typeof p.tabId === "number")) {
+      throw new Error(`a pane row is missing its identity: ${JSON.stringify(s.panes[0])}`);
+    }
+    return `${s.leaves.length} leaf, "${s.tabs[0].label}", ${s.buttons.length} buttons, focusLeaf ${s.focusLeaf}`;
   });
 
   // …and once split, it must find one. Same call, opposite expectation: this is
@@ -581,6 +654,42 @@ export default async function sweep(d) {
     const shown = await d.text(".cm-content", { nth });
     if (!shown.includes("# sweep")) throw new Error(`editor shows ${JSON.stringify(shown)}`);
     return JSON.stringify(shown);
+  });
+
+  // `openFile()` reaches a path the tree has not expanded, and `editors()` reads
+  // the LIVE buffer. Both exist because the DOM route is wrong rather than
+  // merely awkward: CodeMirror virtualises, so `text('.cm-content')` returns
+  // only the scrolled-in window of a long file and looks like the whole thing.
+  await check("openFile + editors() round-trip a path and its buffer", async () => {
+    const target = `${PROJECT}\\package.json`;
+    await d.openFile(target);
+    await d.waitFor(".cm-content");
+    await wait(1600);
+    const open = await d.editors();
+    const mine = open.find((e) => e.path.toLowerCase().endsWith("package.json"));
+    if (!mine) throw new Error(`package.json not among ${JSON.stringify(open.map((e) => e.path))}`);
+    if (!mine.text.includes('"name": "tedi"')) {
+      throw new Error(`buffer does not look like package.json: ${JSON.stringify(mine.text.slice(0, 80))}`);
+    }
+    // The point of reading through the editor rather than the DOM: the whole
+    // file, not the handful of lines currently painted.
+    const domLines = (await d.text(".cm-content", { nth: (await editors()) - 1 })).split("\n").length;
+    const realLines = mine.text.split("\n").length;
+    if (realLines <= domLines) throw new Error(`editors() saw ${realLines} lines, DOM saw ${domLines}`);
+    return `leaf ${mine.leafId}, ${realLines} lines vs ${domLines} in the DOM`;
+  });
+
+  // Focus without a click. A click also focuses, but lands a mouse press inside
+  // the pane, which in an editor moves the caret to wherever the centre was.
+  await check("focusPane() moves keyboard focus without clicking", async () => {
+    const before = await d.focusedLeaf();
+    const other = (await d.state()).leaves.find((l) => l.id !== before);
+    if (!other) throw new Error("only one leaf open");
+    await d.focusPane(other.id);
+    await wait(600);
+    const now = await d.focusedLeaf();
+    if (now !== other.id) throw new Error(`focus is ${now}, wanted ${other.id}`);
+    return `${before} -> ${now}`;
   });
 
   await check(

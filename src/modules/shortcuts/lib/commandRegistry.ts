@@ -68,12 +68,15 @@ export function runCommand(id: ShortcutId): boolean {
  *
  * That it is gated at all is about surface, not privilege: a DevTools client
  * could reach all of this anyway, and extension code shares this realm already
- * (see `extensions/permissions.ts` on the v1 trust model). But `usePaneHandles`
- * hangs terminal-buffer reads off the same object, and nothing here has any
- * reason to exist in a session that never asked to be driven.
+ * (see `extensions/permissions.ts` on the v1 trust model). But pane reads and
+ * writes hang off the same object, and nothing here has any reason to exist in a
+ * session that never asked to be driven.
  *
- * Merged, not assigned: `usePaneHandles` adds to the same object and neither
- * file may clobber the other, whichever evaluates first.
+ * Merged, not assigned: FOUR files contribute to `window.__tedi` - this one
+ * (commands), `usePaneHandles` (every pane, and reading/writing terminals and
+ * editors), `useFileActions` (open a file by path) and `extensions/store`
+ * (installed extensions and their own command registry) - and none may clobber
+ * the others, in whichever order they happen to evaluate.
  */
 if ((window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) {
   const w = window as unknown as { __tedi?: Record<string, unknown> };

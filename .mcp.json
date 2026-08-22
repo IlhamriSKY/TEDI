@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tedi": {
+      "command": "node",
+      "args": ["scripts/director/mcp.mjs"],
+      "env": {
+        "TEDI_DEBUG_PORT": "9222"
+      }
+    }
+  }
+}

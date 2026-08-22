@@ -17,6 +17,7 @@ import { toast } from "@/components/ui/toast";
 import { evictExtensionIcon } from "./icon";
 import * as loader from "./loader";
 import type { InstalledExtension, UpdateCheckResult } from "./loader";
+import { commandsRegistry } from "./registries";
 
 const EXT_CHANGED_EVENT = "tedi://ext-changed";
 
@@ -314,3 +315,59 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
 }));
 
 export type { InstalledExtension };
+
+/**
+ * Automation surface for a driving agent (`scripts/director/`, and the MCP
+ * server Claude Code talks to). Gated on `TEDI_DEBUG_PORT` like the rest of
+ * `window.__tedi`, and merged into it - four files contribute to that object and
+ * none may clobber the others (see `shortcuts/lib/commandRegistry.ts`).
+ *
+ * Extensions were the blind spot. Their panel buttons are clickable like any
+ * other, but an extension command lives in a SEPARATE registry from the
+ * shortcut one, so `listCommands()` never saw it and `runCommand()` could never
+ * reach it - the whole extension command surface was undrivable. And with no
+ * list of what is installed, a missing button was indistinguishable from a
+ * disabled extension.
+ *
+ * Read-only plus "run a command an extension already declared". Installing,
+ * enabling and uninstalling stay out: they mutate the user's profile, and a
+ * driver that can enable an extension can install one.
+ */
+if (typeof window !== "undefined") {
+  const w = window as unknown as { __TEDI_AUTOMATION__?: boolean; __tedi?: Record<string, unknown> };
+  if (w.__TEDI_AUTOMATION__) {
+    w.__tedi = {
+      ...w.__tedi,
+      extensions: () =>
+        useExtensionsStore.getState().list.map((e) => ({
+          id: e.id,
+          name: e.manifest.name,
+          version: e.version,
+          enabled: e.enabled,
+          // What it ADDS, which is the part a driver needs: a command it can
+          // run, a panel it can open, and the AI tools it lends the built-in
+          // agent.
+          commands: (e.manifest.contributes.commands ?? []).map((c) => ({
+            id: c.id,
+            title: c.title,
+          })),
+          panels: (e.manifest.contributes.panels ?? []).map((x) => ({
+            id: x.id,
+            title: x.title,
+            surface: x.surface,
+          })),
+          aiTools: (e.manifest.contributes.aiTools ?? []).map((t) => t.name),
+        })),
+      // False rather than a throw when nothing answers: a command declared in
+      // the manifest but never given a runtime handler, and a command belonging
+      // to a DISABLED extension (deactivation clears the runtime entry), are
+      // both ordinary states a driver should be told about plainly.
+      runExtensionCommand: (extensionId: string, commandId: string) => {
+        const handler = commandsRegistry.getRuntime(extensionId, commandId);
+        if (typeof handler !== "function") return false;
+        (handler as (...args: unknown[]) => unknown)();
+        return true;
+      },
+    };
+  }
+}

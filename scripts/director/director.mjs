@@ -1,15 +1,25 @@
 /**
- * Director: drives a running TEDI window over the WebView2 DevTools Protocol and
- * captures it, so screen recordings for demo / build-in-public videos are
- * scripted and repeatable instead of hand-performed.
+ * Director: drives a running TEDI window over the WebView2 DevTools Protocol, so
+ * an agent (Claude Code, via `mcp.mjs`) or a human (via `cli.mjs`) can operate
+ * every part of the app and read the result back.
  *
  * Requires TEDI to have been started with `TEDI_DEBUG_PORT=<port>` (see
  * `preview::apply_webview2_browser_args_env`). Zero dependencies: Node 22+ ships
  * both `fetch` and a WebSocket client, and CDP is just JSON over one socket.
  *
+ * Two halves, and the second one is the half that took the longest to get right:
+ *
+ *   HANDS - `keys` / `type` / `click` / `drag` / `cmd` dispatch REAL input, so
+ *   the app cannot tell a driver from a user and nothing needs a test-only code
+ *   path.
+ *
+ *   EYES - `state` / `terminals` / `editors` / `text` / `shot`. A terminal draws
+ *   to a WebGL canvas and an editor virtualises its lines, so neither can be
+ *   read from the DOM; both are read through `window.__tedi`, which hangs off
+ *   the handles the app already keeps (`usePaneHandles`).
+ *
  * Windows only for now, because the port is a WebView2 flag. WebKitGTK has an
- * equivalent (`WEBKIT_INSPECTOR_SERVER`) and WKWebView has none, so macOS would
- * need OS-level capture instead.
+ * equivalent (`WEBKIT_INSPECTOR_SERVER`) and WKWebView has none.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -91,6 +101,32 @@ function charEvent(ch) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Rows to pull whenever the TEXT of a terminal buffer matters.
+ *
+ * `TerminalPaneHandle.getBuffer(n)` returns the last n ROWS of xterm's buffer
+ * and then strips the trailing blank ones. `buffer.active.length` is
+ * `ybase + rows`, so on a pane that has not scrolled yet those last rows are the
+ * EMPTY ones below the cursor: ask for fewer rows than the viewport is tall and
+ * every row you get back is blank, they are all stripped, and the answer is "".
+ *
+ * Not an error - an empty string, which a change-detector reads as "nothing has
+ * happened yet". That is how a 12-row read turned `sh("echo hi")` on a fresh
+ * pane into a full 20-second timeout reporting "still running" for a command
+ * that had already finished. Trimming to what the caller asked for is free in
+ * JS afterwards; guessing low at the source is not.
+ */
+const BUFFER_ROWS = 200;
+
+/** Last `n` lines of a buffer, trimmed of the trailing blank run. */
+function tailOf(text, n) {
+  return String(text ?? "")
+    .trimEnd()
+    .split("\n")
+    .slice(-n)
+    .join("\n");
+}
+
 /** `Ctrl+Shift+P` -> the CDP key event fields for one press. Exported for the
  *  sweep's chord check, which is the only guard on the virtual-key mapping: the
  *  `Ctrl+/` check passes either way, because CodeMirror reads `event.key`. */
@@ -123,12 +159,12 @@ export function parseChord(chord) {
   };
 }
 
-/** Minimal CDP client over one target's socket. */
-class Cdp {
+/** Minimal CDP client over one target's socket. Exported for the transport
+ *  check in `scripts/director-verify.ts`; nothing else constructs one. */
+export class Cdp {
   #ws;
   #nextId = 1;
   #pending = new Map();
-  #listeners = new Map();
 
   constructor(ws) {
     this.#ws = ws;
@@ -140,9 +176,9 @@ class Cdp {
         this.#pending.delete(msg.id);
         if (msg.error) slot.reject(new Error(`${msg.error.message} (${msg.error.code})`));
         else slot.resolve(msg.result);
-        return;
       }
-      for (const fn of this.#listeners.get(msg.method) ?? []) fn(msg.params);
+      // Unsolicited CDP events are ignored. The only subscriber this client ever
+      // had was the screencast, and that is gone.
     });
     ws.addEventListener("close", () => {
       for (const slot of this.#pending.values()) slot.reject(new Error("DevTools socket closed"));
@@ -173,17 +209,21 @@ class Cdp {
   }
 
   send(method, params = {}) {
+    // `WebSocket.send()` on a CLOSING or CLOSED socket is a SILENT NO-OP - only
+    // CONNECTING throws. Without this guard the promise below is registered and
+    // nothing ever settles it, so the first call after TEDI quits hangs forever
+    // with no error, and so does every call after that: the `close` handler only
+    // rejects what happened to be in flight at the moment it fired, and
+    // `mcp.mjs` caches this connection for the whole session. The message text
+    // matters - `dropIfDisconnected` matches on it to rebuild the connection.
+    if (this.#ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("DevTools socket closed"));
+    }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
       this.#ws.send(JSON.stringify({ id, method, params }));
     });
-  }
-
-  on(method, fn) {
-    const list = this.#listeners.get(method);
-    if (list) list.push(fn);
-    else this.#listeners.set(method, [fn]);
   }
 
   /**
@@ -253,13 +293,8 @@ export async function connect({ port = Number(process.env.TEDI_DEBUG_PORT) || 92
   return d;
 }
 
-/** Everything a take script gets. */
+/** Everything a driver gets: one connected window, hands and eyes. */
 export class Director {
-  #recording = null;
-  /** Clock for `caption`/`mark` when nothing is being screencast, so the cue
-   *  list is still usable against footage captured by an external recorder. */
-  #startedAt = Date.now();
-
   constructor(cdp, target) {
     this.cdp = cdp;
     this.target = target;
@@ -320,34 +355,13 @@ export class Director {
     return out;
   }
 
-  /**
-   * Wait until a terminal is back at its prompt, which is what a human does
-   * instead of guessing a sleep long enough for the slowest run.
-   *
-   * Returns false on timeout rather than throwing: a TUI (vim, lazygit, an AI
-   * CLI) legitimately never returns to a prompt, and a take that opens one on
-   * purpose must not die for it. `running` comes from OSC 133 / alt-screen and
-   * `atPrompt` from the PS1 heuristic; requiring both keeps a custom prompt
-   * (starship, oh-my-posh) from reading as "done" mid-command.
-   */
+  /** Boolean form of `waitTerminal`'s prompt case, for `command()`. `running`
+   *  comes from OSC 133 / alt-screen and `atPrompt` from the PS1 heuristic;
+   *  requiring both keeps a custom prompt (starship, oh-my-posh) from reading as
+   *  "done" mid-command. */
   async waitForPrompt({ leafId = null, timeout = 20000, settle = 250 } = {}) {
-    const target = leafId ?? (await this.focusedLeaf());
-    const deadline = Date.now() + timeout;
-    for (;;) {
-      const list = await this.terminals(1);
-      // No terminals at all means nothing will ever come back; stalling the full
-      // timeout would just hide the mistake (`command()` into an editor pane).
-      if (!list.length) return false;
-      const t = list.find((x) => x.leafId === target) ?? list[list.length - 1];
-      if (t?.atPrompt && !t.running) {
-        await sleep(settle);
-        return true;
-      }
-      if (Date.now() > deadline) return false;
-      await sleep(200);
-    }
+    return (await this.waitTerminal({ leafId, timeout, settle })).done;
   }
-
   /**
    * Leaf id holding keyboard focus, or null. xterm keeps focus in a hidden
    * textarea inside the leaf, so this identifies the pane a script just typed
@@ -359,6 +373,225 @@ export class Director {
       `(() => { const el = document.activeElement?.closest('[data-pane-leaf]');
         return el ? Number(el.getAttribute('data-pane-leaf')) : null; })()`,
     );
+  }
+
+  /**
+   * Call one `window.__tedi` function, with the same missing-surface error every
+   * caller used to spell out for itself.
+   *
+   * The surface only exists when TEDI was STARTED with `TEDI_DEBUG_PORT` (Rust
+   * injects the flag the frontend keys off), so setting it afterwards is too
+   * late - a distinction worth naming, because the symptom is an undefined
+   * property and the cause is three minutes back in the launch command.
+   */
+  async #tedi(fn, ...args) {
+    const call = `window.__tedi?.${fn}?.(${args.map((a) => JSON.stringify(a)).join(", ")}) ?? null`;
+    const out = await this.eval(call);
+    if (out === null) {
+      throw new Error(
+        `window.__tedi.${fn} is missing. Start TEDI with TEDI_DEBUG_PORT set (a dev or a ` +
+          `release build alike); setting it after launch is too late. If the port IS open, ` +
+          `this build predates ${fn}.`,
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Every pane in EVERY tab: which tab it belongs to, what kind it is, and what
+   * distinguishes it - a terminal's cwd, ssh host, running agent and whether it
+   * is at a prompt; an editor's path and dirty flag; a browser's url; an
+   * extension panel's owner.
+   *
+   * Read from TEDI's tab tree, not the DOM. A background tab's panes are just as
+   * real as the focused one's, and the DOM knows none of that identity anyway.
+   * This is what lets a driver find the pane a build is running in, wait on it,
+   * or run something in a sibling, without switching tabs to look.
+   *
+   * PRIVATE PANES ARE ABSENT, and not merely unreadable: marking a pane private
+   * means the AI never learns it exists. Same rule TEDI's own agent follows.
+   */
+  panes() {
+    return this.#tedi("panes");
+  }
+
+  /**
+   * Installed extensions: id, version, enabled, and what each one contributes -
+   * commands, panels, AI tools.
+   *
+   * Needed because an extension command lives in a registry of its own, which
+   * `commands()` does not see and `cmd()` cannot reach. Without this list a
+   * missing button is indistinguishable from a disabled extension.
+   */
+  extensions() {
+    return this.#tedi("extensions");
+  }
+
+  /** Run a command an extension declared. False when nothing answers to it
+   *  (never given a runtime handler, or its extension is disabled). */
+  extCommand(extensionId, commandId) {
+    return this.#tedi("runExtensionCommand", String(extensionId), String(commandId));
+  }
+
+  /**
+   * Block until a terminal pane is done, then report why it returned.
+   *
+   * The point is that ONE call replaces a polling loop. A driver that watches a
+   * build by re-reading the buffer every second pays a round trip and a tool
+   * result for every one of those seconds; this waits inside the driver and
+   * answers once.
+   *
+   * Two conditions, because a prompt is not always the finish line. With no
+   * `text`, it waits for the prompt to come back - the right answer for a
+   * command. With `text`, it waits for that string to appear in the buffer,
+   * which is the only workable signal for something that never returns: a dev
+   * server printing its port, a TUI reaching a screen, an AI CLI asking a
+   * question.
+   *
+   * Never throws on a timeout. Returns `{ done: false, reason: "timeout" }` with
+   * the tail, because "it is still going" is an answer, not a failure.
+   */
+  async waitTerminal({
+    leafId = null,
+    text = null,
+    timeout = 60000,
+    settle = 250,
+    // How much tail to report when it returns. NOT how much to poll: waiting for
+    // a prompt reads two booleans, so the poll asks for one row and the tail is
+    // fetched once at the end; waiting for TEXT has to search the buffer, and
+    // that read must be a full `BUFFER_ROWS` or it can come back empty (see the
+    // constant).
+    lines = 8,
+  } = {}) {
+    const target = leafId ?? (await this.focusedLeaf());
+    const deadline = Date.now() + timeout;
+    /** The tail is only needed when this returns, so it costs one read, not one per poll. */
+    const finish = async (leaf, done, reason) => {
+      const t = (await this.terminals(BUFFER_ROWS)).find((x) => x.leafId === leaf);
+      return { leafId: leaf, done, reason, tail: tailOf(t?.text, lines) };
+    };
+    for (;;) {
+      const list = await this.terminals(text ? BUFFER_ROWS : 1);
+      // Nothing will ever come back, so stalling the full timeout would only
+      // hide the mistake (waiting on an editor pane, or on a private one).
+      if (!list.length) return { leafId: target, done: false, reason: "no terminal panes", tail: "" };
+      const t = list.find((x) => x.leafId === target) ?? list[list.length - 1];
+      if (text ? t.text.includes(text) : t.atPrompt && !t.running) {
+        await sleep(settle);
+        return await finish(t.leafId, true, text ? "text appeared" : "prompt returned");
+      }
+      if (Date.now() > deadline) return await finish(t.leafId, false, "timeout");
+      await sleep(300);
+    }
+  }
+
+  /**
+   * Give a pane keyboard focus without clicking it, which is what every later
+   * `keys` / `type` targets. Clicking works too, but lands a real mouse press
+   * inside the pane - in an editor that moves the caret to wherever the pane's
+   * centre happened to be.
+   */
+  async focusPane(leafId) {
+    if (!(await this.#tedi("focusLeaf", Number(leafId)))) return false;
+    // Verified, not assumed. The handle exists for panes in BACKGROUND tabs too,
+    // and `focus()` on a hidden element does nothing, so "the handle answered"
+    // is not the same as "the next keystroke lands there".
+    return (await this.focusedLeaf()) === Number(leafId);
+  }
+
+  /** Write straight to a terminal's PTY. See `sh`, which is the safe half. */
+  termWrite(leafId, data) {
+    return this.#tedi("termWrite", Number(leafId), String(data));
+  }
+
+  /**
+   * Run a shell command in a terminal pane and return what it printed.
+   *
+   * The text goes to the PTY in one write rather than as synthesised keystrokes.
+   * That is not only ~45ms/char faster: a terminal that has just taken focus
+   * swallows the FIRST synthetic keystroke it is sent (`echo x` arrives as
+   * `cho x`, with full key events and IME commits alike), and a PTY write cannot
+   * lose a character because it never goes near the keyboard path at all.
+   *
+   * The cost of that shortcut is that xterm's `onData` never sees it, so the
+   * AI-CLI detector does not fire. Launching an AI CLI is the one case that
+   * wants real keys - use `command()` for that.
+   *
+   * Completion is "the buffer changed AND the prompt is back", not just "the
+   * prompt is back". A PTY write returns before the shell has echoed anything,
+   * so a bare prompt check passes instantly against the PREVIOUS prompt and the
+   * output gets read before it exists. Waiting for the echo first closes that.
+   *
+   * Returns `{ leafId, text, timedOut }`. A TUI (vim, lazygit, an AI CLI) never
+   * comes back to a prompt, so a timeout is reported rather than thrown:
+   * opening one on purpose is legitimate, and the buffer is still the answer.
+   */
+  async sh(text, { leafId = null, timeout = 20000, lines = 60, settle = 150 } = {}) {
+    const list = await this.terminals(BUFFER_ROWS);
+    if (!list.length) throw new Error("No terminal pane is open. Run `cmd tab.new` first.");
+    // Which pane, decided explicitly. The focused leaf is often NOT a terminal -
+    // `data-pane-leaf` is on every leaf, so an editor or browser pane answers
+    // here too - and the earlier version then fell back to "the last terminal in
+    // mount order", which is a background pane in some other tab, possibly an
+    // SSH session on another host, silently. One terminal open is unambiguous;
+    // more than one is a question only the caller can answer.
+    const focused = leafId ?? (await this.focusedLeaf());
+    // The one-terminal shortcut applies ONLY when no leaf was named. An explicit
+    // leafId that is not a terminal must never be quietly redirected somewhere
+    // else - that is the caller being wrong about the world, not a convenience.
+    const before =
+      list.find((t) => t.leafId === focused) ??
+      (leafId === null && list.length === 1 ? list[0] : null);
+    if (!before) {
+      throw new Error(
+        leafId === null
+          ? `Focus is not in a terminal, and ${list.length} are open - name one. ` +
+            `Terminals: ${list.map((t) => t.leafId).join(", ")}`
+          : `Leaf ${leafId} is not a terminal. Terminals: ${list.map((t) => t.leafId).join(", ")}`,
+      );
+    }
+    const target = before.leafId;
+    if (!(await this.termWrite(target, `${text}\r`))) {
+      throw new Error(`Terminal ${target} went away before the write landed`);
+    }
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      await sleep(settle);
+      const now = (await this.terminals(BUFFER_ROWS)).find((t) => t.leafId === target);
+      if (!now) throw new Error(`Terminal ${target} disappeared mid-command`);
+      const done = now.text !== before.text && now.atPrompt && !now.running;
+      if (done || Date.now() > deadline) {
+        // Trimmed here, not at the source: `lines` is about how much the caller
+        // wants to read, and asking xterm for that few rows is what breaks.
+        return { leafId: target, text: tailOf(now.text, lines), timedOut: !done };
+      }
+    }
+  }
+
+  /**
+   * Every open editor: leaf, path, and the LIVE buffer - unsaved edits included.
+   *
+   * Not `text('.cm-content')`. CodeMirror virtualises, so the DOM holds only the
+   * lines currently scrolled into view and a long file reads back as a short
+   * one, silently and plausibly. This asks the editor itself.
+   */
+  editors(maxChars = 20000) {
+    return this.#tedi("editors", Number(maxChars));
+  }
+
+  /**
+   * Open a file in the editor by absolute path, the way the explorer does (a PDF
+   * still lands in a browser pane). The one editor entry point a driver could
+   * otherwise not reach: clicking the tree needs the path already expanded into
+   * view, which for anything deep it is not.
+   */
+  openFile(file) {
+    return this.#tedi("openFile", String(file));
+  }
+
+  /** Save one editor pane. `Ctrl+S` works too, but only on the focused one. */
+  editorSave(leafId) {
+    return this.#tedi("editorSave", Number(leafId));
   }
 
   /** Press one or more chords, e.g. `keys("Ctrl+Shift+P", "Escape")`. */
@@ -431,7 +664,7 @@ export class Director {
    * aimed at "New workspace" lands on the toast instead and reports success
    * while doing nothing. An extension whose sidecar is missing re-toasts every
    * 15 seconds, so call this right before clicking up there, and turn the
-   * offending extension off before recording anything.
+   * offending extension off before driving that corner of the UI.
    */
   async dismissToasts() {
     const find = `[...document.querySelectorAll('button')].findIndex((b) =>
@@ -561,31 +794,56 @@ export class Director {
       return {
         window: { w: innerWidth, h: innerHeight },
         sidebar: Math.round(document.querySelector('[data-testid=sidebar]')?.getBoundingClientRect().width ?? 0),
-        tabs: [...new Set(q('[data-tab-id]').map((e) => e.getAttribute('data-tab-id')))].length,
+        tabs: (() => {
+          // A tab's innerText is '<leaf number>\\n<name>' per leaf, so a split tab
+          // repeats the same name once per pane and the FIRST line is a bare
+          // number. Drop the numeric lines, dedupe the rest, keep the first
+          // element per id (the group wrapper, which covers every leaf in it).
+          const seen = new Map();
+          for (const e of q('[data-tab-id]')) {
+            const id = e.getAttribute('data-tab-id');
+            if (seen.has(id)) continue;
+            const lines = (e.innerText || '').split('\\n').map((l) => l.trim())
+              .filter((l) => l && !/^\\d+$/.test(l));
+            seen.set(id, [...new Set(lines)].join(' | ').slice(0, 48));
+          }
+          return [...seen].map(([id, label]) => ({ id: Number(id), label }));
+        })(),
         leaves: q('[data-pane-leaf]').map((e) => ({ id: Number(e.getAttribute('data-pane-leaf')), kind: kind(e) })),
         focusLeaf: focusLeaf ? Number(focusLeaf.getAttribute('data-pane-leaf')) : null,
         focus: a ? a.tagName + (a.placeholder ? ' "' + a.placeholder + '"' : '') : null,
         dialog: modal ? modal.getAttribute('role') + ': ' + (modal.textContent || '').trim().slice(0, 60) : null,
         toasts: q('button').filter((b) => /^dismiss$/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())).length,
-        buttons: [...new Set(q('button[aria-label]').map((b) => b.getAttribute('aria-label')))].sort(),
+        buttons: [...new Set(q('button[aria-label]').map((b) =>
+          // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
+          // siblings are one control, and listing each one buries the rest of
+          // the UI. Only a trailing path-shaped token is folded.
+          b.getAttribute('aria-label').replace(/\\s\\S*[\\\\\\/]\\S*$/, ' <path>')))].sort(),
       };
     })()`);
     // -1 when only one pane is open, which is the honest answer: there is no
     // splitter between panes to drag yet.
     dom.paneHandle = await this.paneHandleIndex();
     // Tail only: a full 200-line buffer per pane buries the rest of the snapshot.
-    // Read the whole thing with `terminals()` when a check actually needs it.
+    // Read the whole thing with `terminals()` when a caller actually needs it.
     // Degrades instead of throwing: this is the verb reached for when something
-    // is already wrong, and the DOM half stays useful when the terminal half is
-    // the thing that is missing.
+    // is already wrong, and the DOM half (`leaves`, which is the RENDERED
+    // layout) stays useful when the `window.__tedi` half is what is missing.
     try {
-      dom.terminals = (await this.terminals(200)).map(({ text, ...t }) => ({
-        ...t,
-        tail: text.trimEnd().split("\n").slice(-tail).join("\n"),
-      }));
+      // Tails merged into the pane list rather than a list of their own: one
+      // row per pane, carrying both what the pane IS and what it last printed.
+      // Read wide, trim here. Asking xterm for `tail + 8` rows was the obvious
+      // saving and the wrong one: it returns "" for every pane that has not
+      // scrolled (see BUFFER_ROWS).
+      const tails = new Map(
+        (await this.terminals(BUFFER_ROWS)).map((t) => [t.leafId, tailOf(t.text, tail)]),
+      );
+      dom.panes = (await this.panes()).map((pane) =>
+        tails.has(pane.leafId) ? { ...pane, tail: tails.get(pane.leafId) } : pane,
+      );
     } catch (err) {
-      dom.terminals = [];
-      dom.terminalsError = err.message;
+      dom.panes = [];
+      dom.tediError = err.message;
     }
     return dom;
   }
@@ -712,7 +970,7 @@ export class Director {
     await sleep(60);
   }
 
-  /** Resize the whole recorded surface, independent of the real window size. */
+  /** Resize the page's viewport, independent of the real window size. */
   async setViewport(width, height, deviceScaleFactor = 1) {
     await this.cdp.send("Emulation.setDeviceMetricsOverride", {
       width,
@@ -739,94 +997,4 @@ export class Director {
     return file;
   }
 
-  /**
-   * Start a screencast into `dir`. Frames land as jpegs plus a `take.json`
-   * timeline: frame timestamps, caption cues, and chapter marks all share one
-   * clock, so whatever edits the footage later can place subtitles and cuts
-   * without hand-syncing. Nothing here encodes video.
-   */
-  async record(dir, { quality = 90 } = {}) {
-    if (this.#recording) throw new Error("Already recording");
-    const outDir = path.resolve(dir);
-    await mkdir(outDir, { recursive: true });
-    const { width, height, dpr } = await this.metrics();
-    const rec = {
-      dir: outDir,
-      startedAt: Date.now(),
-      width: Math.round(width * dpr),
-      height: Math.round(height * dpr),
-      frames: [],
-      captions: [],
-      marks: [],
-      writes: [],
-    };
-    this.#recording = rec;
-
-    this.cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
-      // Ack first: the next frame is not sent until this one is acknowledged,
-      // so any await before it throttles the capture rate.
-      this.cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
-      if (this.#recording !== rec) return;
-      const name = `frame-${String(rec.frames.length + 1).padStart(6, "0")}.jpg`;
-      rec.frames.push({ file: name, t: (Date.now() - rec.startedAt) / 1000 });
-      rec.writes.push(writeFile(path.join(outDir, name), Buffer.from(data, "base64")));
-    });
-
-    await this.cdp.send("Page.startScreencast", {
-      format: "jpeg",
-      quality,
-      maxWidth: rec.width,
-      maxHeight: rec.height,
-      everyNthFrame: 1,
-    });
-    return rec;
-  }
-
-  /**
-   * Cue timestamp, printed as `[mm:ss.d]` and pushed into `take.json` when this
-   * driver is also the one recording.
-   *
-   * It prints either way on purpose. When the screen is being captured by an
-   * external recorder (Camtasia, OBS), the printed list IS the deliverable: start
-   * the recorder, start the take, and the console gives a marker list offset only
-   * by the gap between the two, which is one number to subtract instead of
-   * scrubbing for every cut by eye.
-   */
-  #cue(kind, label, extra) {
-    const rec = this.#recording;
-    const t = (Date.now() - (rec ? rec.startedAt : this.#startedAt)) / 1000;
-    const mm = String(Math.floor(t / 60)).padStart(2, "0");
-    const ss = (t % 60).toFixed(1).padStart(4, "0");
-    console.log(`[${mm}:${ss}] ${kind} ${label}`);
-    if (rec) (kind === "mark" ? rec.marks : rec.captions).push({ t, ...extra });
-  }
-
-  /** Subtitle cue at the current moment. */
-  caption(text, { seconds = 3 } = {}) {
-    this.#cue("caption", text, { text: String(text), seconds });
-  }
-
-  /** Chapter marker, for cutting the take up later. */
-  mark(label) {
-    this.#cue("mark", label, { label: String(label) });
-  }
-
-  async stop() {
-    const rec = this.#recording;
-    if (!rec) return null;
-    this.#recording = null;
-    await this.cdp.send("Page.stopScreencast").catch(() => {});
-    await Promise.all(rec.writes);
-    const take = {
-      name: path.basename(rec.dir),
-      width: rec.width,
-      height: rec.height,
-      durationSec: rec.frames.length ? rec.frames[rec.frames.length - 1].t : 0,
-      frames: rec.frames,
-      captions: rec.captions,
-      marks: rec.marks,
-    };
-    await writeFile(path.join(rec.dir, "take.json"), `${JSON.stringify(take, null, 2)}\n`);
-    return take;
-  }
 }
