@@ -1,12 +1,9 @@
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
-import { AiInputBarConnect } from "@/modules/ai/components/AiInputBarConnect";
 import {
   BUILTIN_SECTION_EXT,
   panelsRegistry,
   parseSectionPanelId,
   RightPanelHost,
-  sectionPanelId,
-  undockTarget,
   sidebarSectionsRegistry,
   useRegistry,
   useRightPanelStore,
@@ -18,12 +15,19 @@ import { FileExplorer } from "@/modules/explorer";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
-import { Suspense, type ReactNode, type RefObject } from "react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
+import { Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
-import { AiSidebarPanel, SourceControlPanel, SshFileExplorer } from "./lazyPanels";
-import { SectionStack, TALL_HEADER_COLLAPSED_SIZE, type StackSection } from "./SectionStack";
+import { canDockLeft, dockLeft as dockSectionLeft } from "../lib/sectionDock";
+import { aiStackSection } from "./aiSection";
+import { SectionDropRail, useExpandOnSectionArrival } from "./SectionDropRail";
+import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
+import { SectionStack, type StackSection } from "./SectionStack";
 
 type Props = {
+  /** Handle on the whole column, so the header/shortcut can minimize it shut
+   *  the way the sidebar toggle does the left one. */
+  rightSlotRef: RefObject<PanelImperativeHandle | null>;
   rightPanels: ActivePanel[];
   scmRightOpen: boolean;
   sshRightOpen: boolean;
@@ -71,18 +75,9 @@ type Props = {
 
 // Persisted in localStorage, alongside the left sidebar's own order key.
 const ORDER_LS_KEY = "tedi:right:sectionOrder";
-// The AI panel is the tall one (a conversation plus its composer); everything
-// else starts compact. Normalized by the group for whatever is actually open.
-const AI_DEFAULT_SIZE = "45%";
+// Everything but the AI panel starts compact (the AI panel's own share lives in
+// `aiSection`). Normalized by the group for whatever is actually open.
 const PANEL_DEFAULT_SIZE = "25%";
-
-/** Move a docked section back to the left sidebar (undocks) vs just closing it
- *  (keeps the dock; the status-bar toggle reopens it) - mirrors SCM/SSH. Module
- *  scope because it reads both stores imperatively and closes over nothing. */
-function dockLeft(key: BuiltinSectionId): void {
-  useSidebarPlacementStore.getState().moveLeft(key);
-  useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, sectionPanelId(key));
-}
 
 /**
  * The right column: the AI panel, Source Control, Remote, right-docked sidebar
@@ -91,10 +86,14 @@ function dockLeft(key: BuiltinSectionId): void {
  * It renders through the same `SectionStack` as the left sidebar, so every
  * surface here is resizable against its neighbours, minimizable to its header,
  * and drag-reorderable by the grip in that header. Each surface already draws
- * its own bento card, hence `chrome={false}`. Renders nothing when the column
- * is empty.
+ * its own bento card, hence `chrome={false}`.
+ *
+ * The column itself minimizes too, via `rightSlotRef` (the header's toggle and
+ * Mod+Alt+B), the twin of the sidebar's. When nothing is docked here it renders
+ * only a drop rail, and only while the sidebar is dragging a section across.
  */
 export function AppRightSlot({
+  rightSlotRef,
   rightPanels,
   scmRightOpen,
   sshRightOpen,
@@ -119,31 +118,14 @@ export function AppRightSlot({
   const extPanels = useRegistry(panelsRegistry);
   const extSections = useRegistry(sidebarSectionsRegistry);
 
+  // The AI panel docks either side now, so this column only shows it while it
+  // is placed here. Its open/closed state is the chat store's, shared by both.
+  const placement = useSidebarPlacementStore((s) => s.placement);
+
   const sections: StackSection[] = [];
 
-  if (keysLoaded && panelOpen) {
-    sections.push({
-      key: "ai",
-      title: "AI",
-      defaultSize: AI_DEFAULT_SIZE,
-      collapsedSize: TALL_HEADER_COLLAPSED_SIZE,
-      render: (controls) =>
-        hasComposer ? (
-          <Suspense fallback={null}>
-            <AiSidebarPanel dragHandle={controls} />
-          </Suspense>
-        ) : (
-          // No API key yet: the connect card stands in for the panel. It draws
-          // no header of its own, so the grip needs a rail or this is the one
-          // section in the column that cannot be reordered.
-          <div className="border-border/60 bg-background tedi-glass-panel flex h-full flex-col overflow-hidden rounded-md border">
-            <div className="border-border/60 flex h-5 shrink-0 items-center border-b px-1.5">
-              {controls}
-            </div>
-            <AiInputBarConnect onAdd={onAddProviderKey} />
-          </div>
-        ),
-    });
+  if (keysLoaded && panelOpen && placement.ai !== "left") {
+    sections.push(aiStackSection(hasComposer, onAddProviderKey));
   }
 
   if (scmRightOpen) {
@@ -219,7 +201,7 @@ export function AppRightSlot({
               activeFilePath={filesSection.activeFilePath}
               dragHandle={controls}
               collapsed={collapsed}
-              onMoveToLeft={() => dockLeft("files")}
+              onMoveToLeft={() => dockSectionLeft("files")}
               onClose={() =>
                 useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, panel.panelId)
               }
@@ -251,7 +233,7 @@ export function AppRightSlot({
               activeLeafId={workspacesSection.activeLeafId}
               sshStatuses={workspacesSection.sshStatuses}
               dragHandle={controls}
-              onMoveToLeft={() => dockLeft("workspaces")}
+              onMoveToLeft={() => dockSectionLeft("workspaces")}
               onClosePanel={() =>
                 useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, panel.panelId)
               }
@@ -264,9 +246,9 @@ export function AppRightSlot({
     // A right-docked extension SECTION carries the `__section__:` sentinel and
     // is named by the sidebar-section registry; a manifest panel by the panel
     // registry. Both fall back to the raw id so the grip is never unlabelled.
-    // The collapsed height follows whichever header the host will draw: the
-    // section's own h-8, the host's h-11, or the slim grip rail a
-    // `hideHostHeader` panel gets.
+    // No collapsed-height override any more: every one of these draws
+    // `.tedi-panel-header`, which is one fixed height, so the stack's single
+    // collapsed size fits them all.
     const sectionId = parseSectionPanelId(panel.panelId);
     const meta = sectionId
       ? null
@@ -279,13 +261,6 @@ export function AppRightSlot({
       key: `xp:${panel.extensionId}:${panel.panelId}`,
       title,
       defaultSize: PANEL_DEFAULT_SIZE,
-      // A `hideHostHeader` panel is collapsed to the stack's default (an h-8
-      // header + the card borders), because that is now what stays visible: it
-      // wears the grip + chevron on its OWN header row via the controls slot.
-      // The old 22px was sized for the slim rail that row replaced, and would
-      // clip the panel's header in half.
-      collapsedSize:
-        sectionId || meta?.item.hideHostHeader ? undefined : TALL_HEADER_COLLAPSED_SIZE,
       render: (controls: ReactNode) => (
         <RightPanelHost
           extensionId={panel.extensionId}
@@ -296,12 +271,47 @@ export function AppRightSlot({
     });
   }
 
-  if (sections.length === 0) return null;
+  // A minimized column must not swallow a surface the user just opened: with the
+  // column collapsed, clicking the AI button or docking a section would else do
+  // nothing visible at all. Re-expand whenever the section count RISES, which
+  // keeps the toggle a minimize rather than a mute. Declared before the early
+  // return below so the hook order never changes.
+  useOpenExpandsColumn(sections.length, rightSlotRef);
+  // And when a section is DRAGGED in, which is not a count rise this column can
+  // tell apart from a panel opening on its own.
+  useExpandOnSectionArrival("right", rightSlotRef);
+
+  // Nothing docked here: the column renders no panel at all, so there is nothing
+  // for a drag to aim at. `SectionDropRail` stands in while the sidebar has a
+  // section in hand (it covers the minimized-shut case too, which is why it is
+  // rendered below as well as here).
+  if (sections.length === 0) return <SectionDropRail column="right" />;
 
   return (
     <>
+      <SectionDropRail column="right" />
       <ResizableHandle withHandle />
-      <ResizablePanel id="right-slot" defaultSize="22%" minSize="18%" maxSize="50%">
+      <ResizablePanel
+        id="right-slot"
+        panelRef={rightSlotRef}
+        defaultSize="22%"
+        // Percentage, NOT px, for the same reason the sidebar's is one: a px
+        // minimum is re-derived against the LIVE container, so a minimize /
+        // restore ramp can make `size < minSize` true and force this collapsible
+        // panel shut for good. See the note in AppSidebar.
+        //
+        // And the SAME percentage as the sidebar's, because the library snaps a
+        // collapsible panel shut at the MIDPOINT between collapsedSize and
+        // minSize (`const l = (i + r) / 2` in its clamp). A larger minimum here
+        // than on the left therefore means the right handle has to be dragged
+        // relatively further before it closes, and springs back out anywhere
+        // short of that - which reads as "the right column refuses to close the
+        // way the left one does". Same floor, same snap.
+        minSize="8%"
+        maxSize="50%"
+        collapsible
+        collapsedSize={0}
+      >
         <div data-section-column="right" className="flex h-full flex-col">
           <SectionStack
             sections={sections}
@@ -309,16 +319,23 @@ export function AppRightSlot({
             idPrefix="right"
             chrome={false}
             column="right"
-            canMoveColumn={(key) => undockTarget(key) !== null}
-            onMoveColumn={(key) => {
-              const t = undockTarget(key);
-              if (!t) return;
-              useSidebarPlacementStore.getState().moveLeft(t.placement);
-              useRightPanelStore.getState().close(t.extensionId, t.panelId);
-            }}
+            canMoveColumn={canDockLeft}
+            onMoveColumn={dockSectionLeft}
           />
         </div>
       </ResizablePanel>
     </>
   );
+}
+
+/** Expands a minimized column when `count` rises. See the call site. */
+function useOpenExpandsColumn(count: number, ref: RefObject<PanelImperativeHandle | null>): void {
+  const prev = useRef(count);
+  useEffect(() => {
+    const panel = ref.current;
+    // Null while the column holds nothing: it renders no panel then, and the
+    // remount that a first section triggers starts it at `defaultSize` anyway.
+    if (panel && count > prev.current && panel.getSize().asPercentage <= 0) panel.expand();
+    prev.current = count;
+  }, [count, ref]);
 }

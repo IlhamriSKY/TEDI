@@ -50,6 +50,7 @@ const HANDLED = new Set<string>([
   "shortcuts.open",
   "settings.open",
   "sidebar.toggle",
+  "rightPanel.toggle",
   "view.zoomIn",
   "view.zoomOut",
   "view.zoomReset",

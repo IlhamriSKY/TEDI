@@ -32,7 +32,7 @@ import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentRunBridge, hasAnyKey, useChatStore } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
-import { useRightPanelStore } from "@/modules/extensions";
+import { useRightPanelStore, useSidebarPlacementStore } from "@/modules/extensions";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { Header, type SearchInlineHandle } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -75,10 +75,7 @@ import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
 import { useDockedSectionAutoOpen } from "./hooks/useDockedSectionAutoOpen";
-import {
-  useExtensionSidebarBridges,
-  type RightAuxSnapshot,
-} from "./hooks/useExtensionSidebarBridges";
+import { useExtensionSidebarBridges } from "./hooks/useExtensionSidebarBridges";
 import { useWorkspaceSwitching } from "./hooks/useWorkspaceSwitching";
 import { useSshLeafState } from "./hooks/useSshLeafState";
 import { useAppContextBridge } from "./hooks/useAppContextBridge";
@@ -254,22 +251,41 @@ export default function App() {
   // owning extension no longer has an open ext tab. Ref (not state) so the
   // bridge callback can mutate it without re-binding via setSidebarSetter.
   const sidebarHiderRef = useRef<{ extensionId: string; prior: boolean } | null>(null);
-  // Twin of `sidebarHiderRef` for the right-side aux column (AI chat / ext
-  // right panel / SCM right panel). Tracks which (if any) of the three was
-  // open when an extension asked the right slot to close, so we can restore
-  // it once the user leaves that extension's tab. Snapshot is a tag, not a
-  // re-open call: we never reopen a panel the user has since dismissed
-  // explicitly.
-  const rightSidebarHiderRef = useRef<{
-    extensionId: string;
-    prior: RightAuxSnapshot;
-  } | null>(null);
+  // Exact twin of `sidebarHiderRef`, for the right column. It used to hold a
+  // snapshot of WHICH surfaces were open, because hiding that column meant
+  // closing them; the column collapses in its own right now, so all this has to
+  // remember is the visibility to come back to.
+  const rightSidebarHiderRef = useRef<{ extensionId: string; prior: boolean } | null>(null);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
     sidebarHiderRef.current = null;
     if (p.getSize().asPercentage <= 0) p.expand();
     else p.collapse();
+  }, []);
+  // Twin of `sidebarRef` for the right column, so it minimizes shut and back the
+  // same way. Only the panel's own width moves: what is docked there, and each
+  // section's own minimized state, are untouched, so a re-expand is exactly what
+  // was hidden. Null while the column is empty - it renders no panel then, and
+  // there is nothing to minimize.
+  const rightSlotRef = useRef<PanelImperativeHandle | null>(null);
+  const toggleRightSlot = useCallback(() => {
+    const p = rightSlotRef.current;
+    if (p) {
+      if (p.getSize().asPercentage <= 0) p.expand();
+      else p.collapse();
+      return;
+    }
+    // Null means NOTHING is docked right, so the column renders no panel and
+    // there is nothing to collapse. The sidebar always has content, so its
+    // toggle never hits this; leaving the key dead here would be the asymmetry.
+    // Read it as "show me the right column" and open the surface whose home it
+    // is - unless the user has docked the AI panel to the left, in which case
+    // opening it would put it on the wrong side and there is genuinely nothing
+    // for this key to show.
+    if (useSidebarPlacementStore.getState().placement.ai !== "left") {
+      useChatStore.getState().openPanel();
+    }
   }, []);
 
   // When the active workspace is closed, activeId is reassigned to a
@@ -419,6 +435,7 @@ export default function App() {
     setExtensionTabState,
     sidebarRef,
     sidebarHiderRef,
+    rightSlotRef,
     rightSidebarHiderRef,
     activeTab,
     tabs,
@@ -773,6 +790,7 @@ export default function App() {
         askFromSelection,
         openScmTab,
         toggleSidebar,
+        toggleRightSlot,
         requestCloseLeaf,
         setNewEditorOpen,
         setAgentDialogOpen,
@@ -801,6 +819,7 @@ export default function App() {
       togglePanelAndFocus,
       askFromSelection,
       toggleSidebar,
+      toggleRightSlot,
       openScmTab,
       commandPaletteHandler,
     ],
@@ -933,6 +952,7 @@ export default function App() {
             onReorderTabs={reorderTabs}
             onReorderLeafInGroup={reorderLeafInGroup}
             onToggleSidebar={toggleSidebar}
+            onToggleRightPanel={toggleRightSlot}
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
             canSplit={headerCanSplit}
@@ -981,6 +1001,10 @@ export default function App() {
                 onCloseEntry={handleHeaderCloseEntry}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
                 sshStatuses={sshStatuses}
+                aiPanelOpen={panelOpen}
+                aiKeysLoaded={keysLoaded}
+                hasComposer={hasComposer}
+                onAddProviderKey={handleAddProviderKey}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
                 openBoardTab={openBoardTab}
@@ -1020,6 +1044,7 @@ export default function App() {
                 onSplitSizes={setSplitSizes}
               />
               <AppRightSlot
+                rightSlotRef={rightSlotRef}
                 rightPanels={rightPanels}
                 scmRightOpen={scmRightOpen}
                 sshRightOpen={sshRightOpen}

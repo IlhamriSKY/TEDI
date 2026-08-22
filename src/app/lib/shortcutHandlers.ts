@@ -39,6 +39,7 @@ export interface ShortcutHandlerDeps {
   askFromSelection: () => void;
   openScmTab: () => number;
   toggleSidebar: () => void;
+  toggleRightSlot: () => void;
   requestCloseLeaf: (leafId: number) => void;
   setNewEditorOpen: (open: boolean) => void;
   setAgentDialogOpen: (open: boolean) => void;
@@ -66,6 +67,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     askFromSelection,
     openScmTab,
     toggleSidebar,
+    toggleRightSlot,
     requestCloseLeaf,
     setNewEditorOpen,
     setAgentDialogOpen,
@@ -136,6 +138,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "shortcuts.open": () => void openSettingsWindow("shortcuts"),
     "settings.open": () => void openSettingsWindow(),
     "sidebar.toggle": toggleSidebar,
+    "rightPanel.toggle": toggleRightSlot,
     "view.zoomIn": () => {
       const current = usePreferencesStore.getState().contentZoom;
       const next = Math.min(
