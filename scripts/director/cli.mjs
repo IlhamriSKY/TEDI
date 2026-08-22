@@ -1,53 +1,67 @@
 #!/usr/bin/env node
 /**
- * CLI over `director.mjs`. Drives and records a running TEDI window.
+ * Human-facing CLI over `director.mjs`, for driving a running TEDI window by
+ * hand and for debugging the driver itself.
  *
- * TEDI must be started with the debug port open:
+ * Claude Code does NOT go through here - it talks to `mcp.mjs`, which holds ONE
+ * connection open for a whole session instead of paying an attach/detach per
+ * call. Everything below is the same `Director`, so a verb proven here works
+ * there.
+ *
+ * TEDI must have been started with the debug port open:
  *   $env:TEDI_DEBUG_PORT = "9222"; pnpm tauri:dev
  *
  * Then, from the repo root:
- *   pnpm director targets
- *   pnpm director commands
+ *   pnpm director state
  *   pnpm director cmd pane.splitRight
- *   pnpm director keys Ctrl+Shift+P Escape
- *   pnpm director shot out.png
- *   pnpm director rec intro --seconds 20
- *   pnpm director run scripts/director/takes/demo.mjs --rec demo
+ *   pnpm director sh "git status"
+ *   pnpm director sweep
  */
 
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { connect, listTargets, sleep } from "./director.mjs";
+import { connect, listTargets } from "./director.mjs";
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const DEFAULT_OUT = path.join(REPO_ROOT, "recordings");
+const USAGE = `tedi director - drive a running TEDI window
 
-const USAGE = `tedi director - drive and record a running TEDI window
-
-  targets                        list DevTools targets (liveness check)
-  state                          one snapshot: tabs, panes, focus, dialogs, terminals
-  commands                       list runnable TEDI command ids
+seeing
+  targets                        list DevTools targets (also the liveness check)
+  state                          one snapshot: every pane in every tab, focus, dialogs, buttons
+  panes                          every pane in every tab: kind, cwd/path/url, agent, busy
+  extensions                     installed extensions + the commands and panels they add
+  term [leafId]                  a terminal's buffer (the only way to read one)
+  editors                        every open editor: path + live buffer, unsaved edits included
+  text <selector>                read the DOM back (tree, dialogs; NOT terminals or long files)
+  shot <file.png>                capture a still
   eval <js>                      evaluate JS in the window, print the result
+
+driving
+  commands                       list runnable TEDI command ids
   cmd <commandId>                run a TEDI command by id
+  ext <extensionId> <commandId>  run a command an extension declared
+  wait [--leaf n] [--text s]     block until a pane is back at its prompt (or prints s)
   keys <chord> [chord...]        press chords, e.g. Ctrl+Shift+P
-  type <text>                    type text with a human cadence
-  sh <command>                   run a shell command in the focused terminal, wait for the prompt
-  term [leafId]                  print a terminal's buffer (the only way to read one)
-  text <selector>                read a pane back (editor, tree, dialogs; not terminals)
+  type <text>                    type text as real keystrokes, character at a time
+  sh <command>                   run a shell command in a terminal, wait, print the output
+  open <file>                    open a file in the editor by path
+  save [leafId]                  save an editor pane
+  focus <leafId>                 give a pane keyboard focus without clicking it
   click <selector>               real mouse click at a selector's centre
   drag <selector> <dx> <dy>      drag a selector (pane splitters resize this way)
-  shot <file.png>                capture a still
-  rec <name> [--seconds N]       record a screencast (Ctrl+C to stop if no --seconds)
-  run <take.mjs> [--rec <name>]  run a take script, optionally recording it
+
+checking
+  sweep                          walk the whole surface and assert a change per area
 
 options
   --port <n>       DevTools port (default $TEDI_DEBUG_PORT or 9222)
   --target <text>  match a window by url/title substring (default: the main window)
-  --out <dir>      recording root (default recordings/)
-  --size <WxH>     override the recorded viewport, e.g. 1920x1080
+  --leaf <n>       which pane \`sh\` runs in (default: the focused terminal)
+  --size <WxH>     override the viewport, e.g. 1920x1080
   --delay <ms>     per-character delay for \`type\` (default 45)
   --nth <n>        which match to click/drag when a selector hits several
-  --lines <n>      terminal lines to read back (default 200; 40 for \`sh\`)
+  --lines <n>      terminal lines to read back (default 200; 60 for \`sh\`)
+  --timeout <ms>   how long \`sh\` waits for the prompt (default 20000; \`wait\` 60000)
+  --text <s>       for \`wait\`: stop when this appears instead of at the prompt
+  --trace          print the stack as well as the message when something fails
 `;
 
 function parseArgs(argv) {
@@ -85,132 +99,124 @@ if (opts.size) {
   await d.setViewport(w, h);
 }
 
-/**
- * Record into `<out>/<name>`, stopping on --seconds or Ctrl+C, then report.
- * `after` runs once the recording has STOPPED, so a take can put the app back
- * without its cleanup ending up in the footage.
- */
-async function recordUntilDone(name, body, after) {
-  const dir = path.join(path.resolve(opts.out ?? DEFAULT_OUT), name);
-  await d.record(dir);
-  console.log(`recording -> ${dir}`);
-  let stopped = false;
-  const finish = async (code = 0) => {
-    if (stopped) return;
-    stopped = true;
-    const take = await d.stop();
-    console.log(
-      `${take.frames.length} frames, ${take.durationSec.toFixed(1)}s, ${take.width}x${take.height}`,
-    );
-    if (after) {
-      try {
-        await after();
-      } catch (err) {
-        console.error(`teardown failed: ${err.message}`);
-      }
-    }
-    // Close the socket BEFORE exiting: a half-open session leaves the page
-    // target occupied and the next run hangs on connect.
-    await d.close();
-    process.exit(code);
-  };
-  process.on("SIGINT", () => void finish());
-  // `finally`: a take is MEANT to throw (click refuses when a modal is up,
-  // waitFor times out, cmd rejects an unregistered id), and without this the
-  // one that throws at second 40 of 44 loses `take.json` entirely - frames on
-  // disk, timeline gone, and with it every caption and mark. Report the failure,
-  // but only after the take has been closed out.
-  let failure = null;
-  try {
-    if (body) await body();
-    if (opts.seconds) await sleep(Number(opts.seconds) * 1000);
-    else if (!body) await new Promise(() => {}); // wait for Ctrl+C
-  } catch (err) {
-    failure = err;
-  } finally {
-    if (failure) console.error(`take failed: ${failure.message}`);
-    await finish(failure ? 1 : 0);
-  }
-}
+const leafOpt = opts.leaf === undefined ? null : Number(opts.leaf);
 
 // `finally`, not a trailing call: a verb that throws must still hand the page
-// target back, or the next run hangs on connect.
+// target back. A page target accepts ONE DevTools client, so a half-open socket
+// leaves it occupied and the NEXT run hangs on connect with no error at all.
 try {
   switch (verb) {
-  case "commands":
-    console.log((await d.commands()).join("\n"));
-    break;
-  case "eval":
-    console.log(JSON.stringify(await d.eval(args.join(" ")), null, 2));
-    break;
-  case "cmd":
-    await d.cmd(args[0]);
-    break;
-  case "keys":
-    await d.keys(...args);
-    break;
-  case "type":
-    await d.type(args.join(" "), { delay: Number(opts.delay ?? 45) });
-    break;
-  case "state":
-    console.log(JSON.stringify(await d.state(), null, 2));
-    break;
-  case "sh": {
-    // Read back the pane that was typed into, not "the last one": the focused
-    // leaf is the one that took the keystrokes, and after a split the newest
-    // pane and the focused pane stop being the same thing.
-    const leafId = await d.focusedLeaf();
-    await d.command(args.join(" "), { delay: Number(opts.delay ?? 45), leafId });
-    // Print what it produced. A driver that runs a command and cannot read the
-    // output is doing half of what a human does.
-    const after = await d.terminals(Number(opts.lines ?? 40));
-    console.log((after.find((t) => t.leafId === leafId) ?? after.at(-1))?.text ?? "");
-    break;
-  }
-  case "term": {
-    const list = await d.terminals(Number(opts.lines ?? 200));
-    const want = args[0] ? Number(args[0]) : await d.focusedLeaf();
-    const one = list.find((t) => t.leafId === want) ?? list.at(-1);
-    if (!one) throw new Error(`no terminals. Targets seen: ${list.map((t) => t.leafId).join(", ") || "none"}`);
-    console.log(one.text);
-    break;
-  }
-  case "text":
-    console.log(await d.text(args[0], { nth: Number(opts.nth ?? 0) }));
-    break;
-  case "click":
-    await d.click(args[0], { nth: Number(opts.nth ?? 0) });
-    break;
-  case "drag":
-    await d.drag(args[0], Number(args[1]), Number(args[2]), { nth: Number(opts.nth ?? 0) });
-    break;
-  case "shot":
-    console.log(await d.shot(path.resolve(args[0] ?? "shot.png")));
-    break;
-  case "rec":
-    await recordUntilDone(args[0] ?? "take", null);
-    break;
-  case "run": {
-    const takePath = path.resolve(args[0]);
-    const mod = await import(pathToFileURL(takePath).href);
-    const take = mod.default ?? mod.run;
-    if (typeof take !== "function") throw new Error(`${takePath} must default-export a function`);
-    // Optional `setup` runs BEFORE recording starts: staging the scene (opening
-    // the right folder, clearing a pane) should not be in the shot. `teardown`
-    // runs after it stops, for the same reason in reverse.
-    if (typeof mod.setup === "function") await mod.setup(d);
-    const teardown = typeof mod.teardown === "function" ? () => mod.teardown(d) : null;
-    if (opts.rec) await recordUntilDone(opts.rec, () => take(d), teardown);
-    else {
-      await take(d);
-      if (teardown) await teardown();
+    case "commands":
+      console.log((await d.commands()).join("\n"));
+      break;
+    case "eval":
+      console.log(JSON.stringify(await d.eval(args.join(" ")), null, 2));
+      break;
+    case "cmd":
+      await d.cmd(args[0]);
+      break;
+    case "keys":
+      await d.keys(...args);
+      break;
+    case "type":
+      await d.type(args.join(" "), { delay: Number(opts.delay ?? 45) });
+      break;
+    case "state":
+      console.log(JSON.stringify(await d.state(), null, 2));
+      break;
+    case "panes":
+      console.log(JSON.stringify(await d.panes(), null, 2));
+      break;
+    case "extensions":
+      console.log(JSON.stringify(await d.extensions(), null, 2));
+      break;
+    case "ext":
+      if (!(await d.extCommand(args[0], args[1]))) {
+        throw new Error(`Nothing answers to "${args[1]}" in ${args[0]} (disabled, or no handler)`);
+      }
+      break;
+    case "wait": {
+      const r = await d.waitTerminal({
+        leafId: leafOpt,
+        text: opts.text ?? null,
+        timeout: Number(opts.timeout ?? 60000),
+      });
+      console.log(`leaf ${r.leafId}: ${r.done ? "done" : "NOT done"} (${r.reason})`);
+      console.log(r.tail);
+      if (!r.done) process.exitCode = 1;
+      break;
     }
-    break;
+    case "sh": {
+      const out = await d.sh(args.join(" "), {
+        leafId: leafOpt,
+        lines: Number(opts.lines ?? 60),
+        timeout: Number(opts.timeout ?? 20000),
+      });
+      console.log(out.text);
+      // A TUI legitimately never returns to a prompt, so this is a note, not a
+      // failure - but a caller that reads stdout alone must still be told the
+      // output may be a half-finished command.
+      if (out.timedOut) console.error(`(still running after the timeout, leaf ${out.leafId})`);
+      break;
+    }
+    case "term": {
+      const list = await d.terminals(Number(opts.lines ?? 200));
+      const want = args[0] ? Number(args[0]) : await d.focusedLeaf();
+      const one = list.find((t) => t.leafId === want) ?? list.at(-1);
+      if (!one) throw new Error("No terminal panes are open.");
+      console.log(one.text);
+      break;
+    }
+    case "editors": {
+      const list = await d.editors();
+      for (const e of list) {
+        console.log(`--- leaf ${e.leafId}: ${e.path}${e.truncated ? " (truncated)" : ""}`);
+        console.log(e.text);
+      }
+      if (!list.length) console.log("(no editor panes open)");
+      break;
+    }
+    case "open":
+      await d.openFile(path.resolve(args[0]));
+      break;
+    case "save":
+      await d.editorSave(args[0] ? Number(args[0]) : await d.focusedLeaf());
+      break;
+    case "focus":
+      await d.focusPane(Number(args[0]));
+      break;
+    case "text":
+      console.log(await d.text(args[0], { nth: Number(opts.nth ?? 0) }));
+      break;
+    case "click":
+      await d.click(args[0], { nth: Number(opts.nth ?? 0) });
+      break;
+    case "drag":
+      await d.drag(args[0], Number(args[1]), Number(args[2]), { nth: Number(opts.nth ?? 0) });
+      break;
+    case "shot":
+      console.log(await d.shot(path.resolve(args[0] ?? "shot.png")));
+      break;
+    case "sweep": {
+      // Imported here, not at the top: it is 700 lines of checks that no other
+      // verb needs loaded.
+      const { default: sweep } = await import("./sweep.mjs");
+      const { pass, total } = await sweep(d);
+      if (pass < total) process.exitCode = 1;
+      break;
+    }
+    default:
+      process.stderr.write(`Unknown verb "${verb}"\n\n${USAGE}`);
+      process.exitCode = 1;
   }
-  default:
-    process.stderr.write(`Unknown verb "${verb}"\n\n${USAGE}`);
-    process.exitCode = 1;
-  }
+} catch (err) {
+  // The message, not a stack. Every error thrown down here is meant for a
+  // person - "this build predates termWrite", "a modal is open and swallows the
+  // click", "leaf 4 is not a terminal" - and a Node stack trace buries all three
+  // under the same wall of frames. `--trace` when the frames are what you want.
+  process.stderr.write(`${err.message}\n`);
+  if (opts.trace !== undefined) process.stderr.write(`${err.stack}\n`);
+  process.exitCode = 1;
 } finally {
   await d.close();
 }

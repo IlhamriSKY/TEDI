@@ -5,6 +5,7 @@ import {
   leafIds,
   leaves,
   respawnSession,
+  type PaneLeaf,
   type TerminalPaneHandle,
   type TediOpenInput,
   type TediSpawnTabInput,
@@ -80,25 +81,138 @@ export function usePaneHandles({
     else terminalRefs.current.delete(leafId);
   }, []);
 
-  // The driver's only way to SEE a terminal: xterm renders to a WebGL canvas, so
-  // nothing in the DOM carries the text and `d.text()` returns nothing for a
-  // terminal pane. Every handle in this map already knows how to read its own
-  // buffer and whether a command is still running, which is what a human waits
-  // for instead of guessing a sleep. Gated on `TEDI_DEBUG_PORT` like the rest of
-  // `window.__tedi` (see `shortcuts/lib/commandRegistry.ts`); read-only on
-  // purpose, since typing is already reachable through real key events.
+  // The automation surface for a driving agent (`scripts/director/`, and the MCP
+  // server Claude Code talks to). Gated on `TEDI_DEBUG_PORT` like the rest of
+  // `window.__tedi` (see `shortcuts/lib/commandRegistry.ts`).
+  //
+  // These handles are the driver's only way to SEE a pane. xterm renders to a
+  // WebGL canvas, so nothing in the DOM carries terminal text; CodeMirror
+  // virtualises, so scraping `.cm-content` returns only the rendered window of a
+  // long file and quietly looks like the whole thing. Both already know how to
+  // read themselves, so this exposes what exists rather than reimplementing it.
+  //
+  // PRIVATE LEAVES ARE INVISIBLE HERE. Marking a pane private means "the AI never
+  // learns of its existence, cwd or scrollback" (`terminal/lib/panes.ts`), which
+  // `app/lib/terminalSnapshot.ts` already enforces for TEDI's built-in agent. An
+  // agent driving from outside is no different, so every read AND write below
+  // goes through `publicLeaves()` first.
+  //
+  // `termWrite` goes straight to the PTY: whole, instant, and immune to the
+  // first-keystroke loss a freshly focused terminal inflicts on synthetic key
+  // events. It deliberately bypasses xterm's `onData`, so the AI-CLI detector
+  // never fires - drive that path with real keys instead (`d.command()`).
   useEffect(() => {
     if (!(window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) return;
     const w = window as unknown as { __tedi?: Record<string, unknown> };
+
+    /**
+     * Every non-private leaf in EVERY tab, read from the live tab tree.
+     *
+     * Not from the DOM: a background tab's panes are just as real as the focused
+     * one's, and only the model knows a pane's cwd, url, ssh host, owning
+     * extension or running agent. This is what lets a driver find the pane a
+     * build is running in without switching tabs to look.
+     */
+    const publicLeaves = (): {
+      tabId: number;
+      tabTitle: string;
+      leaf: PaneLeaf;
+      active: boolean;
+    }[] =>
+      tabsRef.current.flatMap((t) =>
+        t.kind === "pane"
+          ? leaves(t.paneTree)
+              .filter((l) => !l.private)
+              .map((l) => ({
+                tabId: t.id,
+                tabTitle: t.title,
+                leaf: l,
+                active: t.activeLeafId === l.id,
+              }))
+          : [],
+      );
+    const isPublic = (leafId: number): boolean => publicLeaves().some((p) => p.leaf.id === leafId);
+
+    /** What distinguishes this pane from another of the same kind. */
+    const identity = (leaf: PaneLeaf): Record<string, unknown> => {
+      switch (leaf.leafKind) {
+        case "terminal":
+          return {
+            ordinal: leaf.terminalOrdinal,
+            cwd: leaf.cwd,
+            ssh: leaf.sshConnectionId,
+            // Which AI CLI is running in this pane, if any. Survives a reattach,
+            // so it answers "is one of my siblings already working here?".
+            agent: leaf.activeTool,
+            atPrompt: terminalRefs.current.get(leaf.id)?.isAtPrompt(),
+            running: terminalRefs.current.get(leaf.id)?.isProcessRunning(),
+          };
+        case "editor":
+          return { path: leaf.path, dirty: leaf.dirty, ssh: leaf.sshHostLabel };
+        case "browser":
+          return { url: leaf.url, pageTitle: leaf.title };
+        case "extension-panel":
+          return { extensionId: leaf.extensionId, panelId: leaf.panelId, state: leaf.state };
+        default:
+          return {};
+      }
+    };
+
     w.__tedi = {
       ...w.__tedi,
-      terminals: (maxLines = 200) =>
-        [...terminalRefs.current.entries()].map(([leafId, h]) => ({
-          leafId,
-          atPrompt: h.isAtPrompt(),
-          running: h.isProcessRunning(),
-          text: h.getBuffer(maxLines) ?? "",
+      panes: () =>
+        publicLeaves().map(({ tabId, tabTitle, leaf, active }) => ({
+          tabId,
+          tabTitle,
+          leafId: leaf.id,
+          kind: leaf.leafKind,
+          active,
+          name: leaf.customTitle,
+          ...identity(leaf),
         })),
+      terminals: (maxLines = 200) =>
+        [...terminalRefs.current.entries()]
+          .filter(([leafId]) => isPublic(leafId))
+          .map(([leafId, h]) => ({
+            leafId,
+            atPrompt: h.isAtPrompt(),
+            running: h.isProcessRunning(),
+            text: h.getBuffer(maxLines) ?? "",
+          })),
+      termWrite: (leafId: number, data: string) => {
+        const h = isPublic(leafId) ? terminalRefs.current.get(leafId) : undefined;
+        if (!h) return false;
+        h.write(data);
+        return true;
+      },
+      focusLeaf: (leafId: number) => {
+        if (!isPublic(leafId)) return false;
+        const h = terminalRefs.current.get(leafId) ?? editorRefs.current.get(leafId);
+        if (!h) return false;
+        h.focus();
+        return true;
+      },
+      // `maxChars` because a driver reading a 20k-line file into a tool result
+      // helps nobody; it has the file on disk. This is for seeing the LIVE,
+      // possibly unsaved buffer, which is the part disk cannot answer.
+      editors: (maxChars = 20000) =>
+        [...editorRefs.current.entries()]
+          .filter(([leafId]) => isPublic(leafId))
+          .map(([leafId, h]) => {
+            const content = h.getContent() ?? "";
+            return {
+              leafId,
+              path: h.getPath(),
+              truncated: content.length > maxChars,
+              text: content.slice(0, maxChars),
+            };
+          }),
+      editorSave: (leafId: number) => {
+        const h = isPublic(leafId) ? editorRefs.current.get(leafId) : undefined;
+        if (!h) return false;
+        void h.save();
+        return true;
+      },
     };
   }, []);
 
