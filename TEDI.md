@@ -14,21 +14,21 @@ cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
 [Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.24.
 
-|                  |                                                                    |
-| ---------------- | ------------------------------------------------------------------ |
-| Stack            | Tauri 2 + Rust (`portable-pty`) <-> React 19 + TS + xterm.js (WebGL) |
-| Editor / UI      | CodeMirror 6, shadcn/ui (`radix-luma` / `mist`, lucide icons), Tailwind v4 |
-| AI               | `@ai-sdk/*` v6, multi-provider, BYOK                               |
-| Bundle id        | `id.ilhamrisky.tedi` (dev profile: `id.ilhamrisky.tedi.dev`)      |
-| Keychain service | `tedi`                                                             |
-| Package manager  | pnpm                                                               |
-| Platforms        | macOS, Linux, Windows                                             |
-| Frontend check   | `pnpm exec tsc --noEmit`                                          |
-| Rust check       | `cd src-tauri && cargo check && cargo clippy`                     |
-| Build            | `pnpm tauri build`                                               |
+|                  |                                                                             |
+| ---------------- | --------------------------------------------------------------------------- |
+| Stack            | Tauri 2 + Rust (`portable-pty`) <-> React 19 + TS + xterm.js (WebGL)        |
+| Editor / UI      | CodeMirror 6, shadcn/ui (`radix-luma` / `mist`, lucide icons), Tailwind v4  |
+| AI               | `@ai-sdk/*` v6, multi-provider, BYOK                                        |
+| Bundle id        | `id.ilhamrisky.tedi` (dev profile: `id.ilhamrisky.tedi.dev`)                |
+| Keychain service | `tedi`                                                                      |
+| Package manager  | pnpm                                                                        |
+| Platforms        | macOS, Linux, Windows                                                       |
+| Frontend check   | `pnpm exec tsc --noEmit`                                                    |
+| Rust check       | `cd src-tauri && cargo check && cargo clippy`                               |
+| Build            | `pnpm tauri build`                                                          |
 | Dev              | `pnpm tauri:dev` (isolated data dir) or `pnpm tauri dev` (shares prod data) |
-| Extension dev    | `pnpm tauri:dev:ext` (symlinks local `extensions/*` into the dev profile) |
-| Auto-updater     | Enabled: signed updates via GitHub Releases, 6 h poll             |
+| Extension dev    | `pnpm tauri:dev:ext` (symlinks local `extensions/*` into the dev profile)   |
+| Auto-updater     | Enabled: signed updates via GitHub Releases, 6 h poll                       |
 
 ## Mental model
 
@@ -45,7 +45,7 @@ Six invariants (rationale in [ARCHITECTURE.md](ARCHITECTURE.md#2-design-principl
 3. **Modules are self-contained.** Import only through the `@/*` alias, never a
    relative path across modules (enforced by `scripts/check-imports.mjs`).
 4. **Tabs never unmount.** Inactive tabs are hidden with `invisible
-   pointer-events-none` so PTYs and dev servers keep streaming.
+pointer-events-none` so PTYs and dev servers keep streaming.
 5. **Secrets live only in the OS keychain** (`secrets_*` commands, service
    `tedi`). Never disk, settings store, or `localStorage`.
 6. **App.tsx coordinates, it does not implement.** It owns cross-module wiring;
@@ -90,21 +90,21 @@ src/                            Frontend (React webview), alias @/* -> src/*
 
 ## Backend (`src-tauri/src/modules/`)
 
-| Module        | Key commands / role                                                                   |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `pty/`        | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process. |
-| `pty_daemon/` | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).     |
-| `fs/`         | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`. |
-| `shell/`      | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs. |
-| `git/`        | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                   |
-| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`). |
-| `extensions/` | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`. |
+| Module        | Key commands / role                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pty/`        | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                                                                                                                                            |
+| `pty_daemon/` | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                                                                                                                                                |
+| `fs/`         | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                                                                                                                                                    |
+| `shell/`      | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                                                                                                                                            |
+| `git/`        | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                                                                                                                                              |
+| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                                                                                                                                               |
+| `extensions/` | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                                                                                                                                                |
 | `preview/`    | `preview_embed_*` native-webview compositing (update/navigate/dispatch/read/act/console/screenshot/set_bg/close); `tedi-frame://` proxy for remote marketplace icons. Every pane gets a document-start script that records console errors, uncaught exceptions, and unhandled rejections into a capped ring, drained by `preview_embed_console`. |
-| `format.rs`   | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).          |
-| `secrets.rs`  | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions. |
-| `net.rs`      | `http_ping` dev-server probe.                                                          |
-| `mcp.rs`      | Model Context Protocol support for the AI subsystem.                                   |
-| `cli*.rs`     | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).         |
+| `format.rs`   | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                                                                                                                                                    |
+| `secrets.rs`  | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                                                                                                                                                   |
+| `net.rs`      | `http_ping` dev-server probe.                                                                                                                                                                                                                                                                                                                    |
+| `mcp.rs`      | Model Context Protocol support for the AI subsystem.                                                                                                                                                                                                                                                                                             |
+| `cli*.rs`     | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                                                                                                                                                   |
 
 Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
 `autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
@@ -153,27 +153,27 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
 ## Frontend (`src/modules/`, 19 modules)
 
-| Module        | Role                                                                                  |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `terminal/`   | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes. |
-| `editor/`     | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. |
-| `explorer/`   | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`. |
-| `browser/`    | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL. |
-| `panes/`      | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`). |
-| `tabs/`       | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization. |
-| `workspaces/` | Workspace persistence + switching (`store.ts`, `serialize.ts`).                       |
-| `header/`     | Top bar, inline search (`SearchInline` adapts terminal vs editor), custom `WindowControls` (Linux/Windows). |
-| `statusbar/`  | Bottom bar, cwd breadcrumb, AI tools indicator.                                        |
-| `shortcuts/`  | Keymap registry + `useGlobalShortcuts`; handlers wired in App.tsx by id. Use `metaKey \|\| ctrlKey`. |
-| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too. |
-| `settings/`   | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.     |
-| `theme/`      | `next-themes` provider.                                                                |
-| `ai/`         | AI agent subsystem (below).                                                            |
-| `scm/`        | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance. |
-| `ssh/`        | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution. |
-| `scheduler/`  | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs). |
-| `updater/`    | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.       |
-| `extensions/` | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions). |
+| Module            | Role                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                   |
+| `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes.                                                                                                                                                |
+| `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                            |
+| `browser/`        | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL.                          |
+| `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`).                                                                                                                                                                           |
+| `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                           |
+| `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                |
+| `header/`         | Top bar, inline search (`SearchInline` adapts terminal vs editor), custom `WindowControls` (Linux/Windows).                                                                                                                                                    |
+| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                |
+| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers wired in App.tsx by id. Use `metaKey \|\| ctrlKey`.                                                                                                                                                           |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                       |
+| `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                              |
+| `theme/`          | `next-themes` provider.                                                                                                                                                                                                                                        |
+| `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                    |
+| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance.                                                                                                                                                                    |
+| `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution. |
+| `scheduler/`      | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs).                                                                                                                                                              |
+| `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                |
+| `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                              |
 
 **Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
 ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
@@ -222,19 +222,19 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 **Tools** (`tools/`, the real capability surface; keep in sync with the
 `needsApproval` flags):
 
-| File          | Tools                                                                             | Approval |
-| ------------- | -------------------------------------------------------------------------------- | -------- |
-| `fs.ts`       | `read_file` (text or image), `list_directory` (auto); `write_file`, `create_directory`, `move_file`, `copy_file`, `delete_file`, `replace_in_files` (approval) | mixed |
-| `edit.ts`     | `edit`, `multi_edit` (need a prior `read_file`; serialized per path)              | approval |
-| `search.ts`   | `grep`, `glob`                                                                    | auto     |
-| `fetch.ts`    | `fetch` (GET auto, POST approval; no JS execution)                                | mixed    |
-| `shell.ts`    | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto) | mixed |
-| `terminal.ts` | terminal: `suggest_command`, `read_terminal` (auto); `open_terminal`, `run_in_terminal`, `consolidate_terminals`, `group_tabs`, `rotate_pane`, `close_terminal` (mixed). browser: `open_browser`, `control_browser`, `navigate_and_read`, `read_browser`, `read_browser_console`, `browser_scroll`, `browser_hover`, `browser_screenshot` (auto); `browser_type`, `browser_click`, `browser_click_at`, `browser_press_key` (approval) | mixed |
-| `schedule.ts` | terminal/schedule listing + send (auto); `run_in_terminal_by_id`, `schedule_command` (approval) | mixed |
-| `subagent.ts` | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip) | auto |
-| `skill.ts`    | `skill` (loads an installed `SKILL.md`; hidden when none installed)               | auto     |
-| `todo.ts`     | `todo_write`                                                                      | auto     |
-| `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run` | approval |
+| File                       | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                 | Approval |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `fs.ts`                    | `read_file` (text or image), `list_directory` (auto); `write_file`, `create_directory`, `move_file`, `copy_file`, `delete_file`, `replace_in_files` (approval)                                                                                                                                                                                                                                                                        | mixed    |
+| `edit.ts`                  | `edit`, `multi_edit` (need a prior `read_file`; serialized per path)                                                                                                                                                                                                                                                                                                                                                                  | approval |
+| `search.ts`                | `grep`, `glob`                                                                                                                                                                                                                                                                                                                                                                                                                        | auto     |
+| `fetch.ts`                 | `fetch` (GET auto, POST approval; no JS execution)                                                                                                                                                                                                                                                                                                                                                                                    | mixed    |
+| `shell.ts`                 | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto)                                                                                                                                                                                                                                                                                                                                                | mixed    |
+| `terminal.ts`              | terminal: `suggest_command`, `read_terminal` (auto); `open_terminal`, `run_in_terminal`, `consolidate_terminals`, `group_tabs`, `rotate_pane`, `close_terminal` (mixed). browser: `open_browser`, `control_browser`, `navigate_and_read`, `read_browser`, `read_browser_console`, `browser_scroll`, `browser_hover`, `browser_screenshot` (auto); `browser_type`, `browser_click`, `browser_click_at`, `browser_press_key` (approval) | mixed    |
+| `schedule.ts`              | terminal/schedule listing + send (auto); `run_in_terminal_by_id`, `schedule_command` (approval)                                                                                                                                                                                                                                                                                                                                       | mixed    |
+| `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                                                                                                                                                                                                                                                                                            | auto     |
+| `skill.ts`                 | `skill` (loads an installed `SKILL.md`; hidden when none installed)                                                                                                                                                                                                                                                                                                                                                                   | auto     |
+| `todo.ts`                  | `todo_write`                                                                                                                                                                                                                                                                                                                                                                                                                          | auto     |
+| `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                                                                                                                                                                                                                                                                                                  | approval |
 
 Approval-gated tools pause and render an in-UI card; AI-proposed edits open in a
 side-by-side `ai-diff` tab accepted/rejected per hunk before any write.
@@ -299,16 +299,16 @@ but render nothing.
 `extensions/` folder here is gitignored (only `extensions/README.md` is
 committed) and holds working copies for local iteration:
 
-| Extension            | Demonstrates                                                    |
-| -------------------- | -------------------------------------------------------------- |
-| `tedi.beautify`      | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting. |
-| `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`. |
-| `tedi.sql-explorer`  | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list. |
-| `tedi.api-client`    | Postman-style API workbench. `invoke:http_stream`/`http_abort` as the whole backend (no sidecar), two `ctx.sidebar` sections, `ctx.storage` for bulk data + `ctx.secrets` for secret variables. |
-| `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`. |
-| `tedi.screenshot`    | Status-bar toggle + capture-phase click interception, native sidecar. |
-| `tedi.rtk-bridge`    | `shell:transform` rewriting every AI shell command.            |
-| `tedi.remote-access` | Browser mirrors of live TEDI terminals via a self-hosted relay. |
+| Extension                    | Demonstrates                                                                                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tedi.beautify`              | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting.                                                                                                   |
+| `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`.                                                                                                              |
+| `tedi.sql-explorer`          | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list.                                                                                |
+| `tedi.api-client`            | Postman-style API workbench. `invoke:http_stream`/`http_abort` as the whole backend (no sidecar), two `ctx.sidebar` sections, `ctx.storage` for bulk data + `ctx.secrets` for secret variables. |
+| `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                           |
+| `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                           |
+| `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                             |
+| `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                 |
 
 **Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
 the dev profile's app-data dir (`link:ext` / `relink:ext` / `unlink:ext` manage
@@ -333,7 +333,7 @@ ${file}`).
 ## Conventions and patterns
 
 - **Icons**: `lucide-react` imported by name (`import { Search } from
-  "lucide-react"`). Brand marks: `components/BrandIcon.tsx`. Dynamic/extension
+"lucide-react"`). Brand marks: `components/BrandIcon.tsx`. Dynamic/extension
   icons: `lib/iconRegistry.ts` `resolveExtIcon` (accepts `lucide:<Name>` and
   legacy `hugeicon:<Name>`).
 - **Styling**: Tailwind v4 (`src/App.css` `@theme`, no `tailwind.config.*`);
@@ -360,7 +360,7 @@ ${file}`).
 - **Dev**: `pnpm tauri:dev` uses `tauri.dev.conf.json` (bundle id
   `id.ilhamrisky.tedi.dev`), so workspaces/extensions/PTY socket/logs all read
   from the `.dev` data dir and cannot stomp the installed release. `pnpm tauri
-  dev` shares prod data. The daemon outlives the dev GUI; set
+dev` shares prod data. The daemon outlives the dev GUI; set
   `TEDI_PTYD_IDLE_SECS=60` when iterating on daemon code.
 - **`tedi` CLI** (`cli.rs`): `tedi .` / `tedi <path>` opens a folder or file in
   the running window (single-instance forward, `tedi:open-cli-target` event).
@@ -375,14 +375,26 @@ ${file}`).
   is the console-subsystem launcher in `tedi-cli/`. A PATH shim
   (`~/.local/bin/tedi` on macOS/Linux) is installed from Settings and self-heals
   on launch.
-- **Director** (`scripts/director/`, Windows): start with `TEDI_DEBUG_PORT=9222`
-  to open the WebView2 DevTools Protocol, then `pnpm director <verb>` drives the
-  window with real keys and mouse, any command id, and reads it back (`state`,
-  `term`: terminals have no DOM text, so this is the only way to see one). Screen
-  capture is expected to come from an external recorder; the built-in screencast
-  (`rec`) stays for silent b-roll. One switch governs it: the env var opens the
-  port AND injects the flag that `window.__tedi` keys off, in dev and release
-  builds alike, so an ordinary launch has neither.
+- **Director** (`scripts/director/`, Windows): drives a RUNNING TEDI over the
+  WebView2 DevTools Protocol. Start the app with `TEDI_DEBUG_PORT=9222`, then
+  either front end works - `scripts/director/mcp.mjs` (MCP over stdio, registered
+  in `.mcp.json`, which is how **Claude Code** talks to TEDI: 18 tools, one held
+  connection) or `pnpm director <verb>` by hand. Real keys and mouse, any command
+  id, and it reads back what it did. `state` returns EVERY pane in EVERY tab from
+  the tab tree (not the DOM), each with its cwd / ssh host / running AI CLI /
+  open file / owning extension, so a driver can target or wait on a pane in a
+  tab it is not looking at; `sh` runs a command in one and returns the output;
+  `wait` blocks until a pane is back at its prompt (or prints a string) instead
+  of polling. Neither a terminal (WebGL canvas) nor a long file (CodeMirror
+  virtualises) can be read from the DOM, so both go through `window.__tedi`,
+  which four files now contribute to. **Private panes are absent from all of it**,
+  the same rule `app/lib/terminalSnapshot.ts` enforces for the built-in agent.
+  Extensions are covered too: `extensions` lists what is installed and what each
+  contributes, and `run_command` takes an `extensionId` to reach an extension's
+  own command registry, which the shortcut registry never saw. One switch governs
+  the whole thing: the env var opens the port AND injects the flag `window.__tedi`
+  keys off, in dev and release builds alike, so an ordinary launch has neither.
+  It does not record video.
 - **Release**: tag push triggers `.github/workflows/release.yml`, which builds
   signed updates (`TAURI_SIGNING_PRIVATE_KEY*` secrets) and a draft GitHub Release.
 
